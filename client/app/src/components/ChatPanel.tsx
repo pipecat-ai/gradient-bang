@@ -1,12 +1,9 @@
 import { Fragment, useMemo } from "react"
 
-import { button, useControls } from "leva"
-import { faker } from "@faker-js/faker"
 import { PlugsIcon } from "@phosphor-icons/react"
 
 import { useChat } from "@/hooks/useChat"
 import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
-import useGameStore from "@/stores/game"
 
 import { Card, CardContent } from "./primitives/Card"
 import { ScrollArea } from "./primitives/ScrollArea"
@@ -56,29 +53,6 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
 export const ChatPanel = () => {
   const { isConnected } = usePipecatConnectionState()
   const { messages } = useChat({ textMode: "llm" })
-
-  // #if DEV
-  const addChatMessage = useGameStore.use.addChatMessage()
-
-  useControls(
-    "Chat",
-    {
-      ["Add Chat Message"]: button(() => {
-        addChatMessage({
-          role: "system",
-          parts: [
-            {
-              text: faker.lorem.words({ min: 2, max: 25 }),
-              final: true,
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        })
-      }),
-    },
-    { collapsed: true }
-  )
-  // #endif
 
   const clxConnected =
     "flex-1 h-full bg-card/60 border border-border dotted-mask-42 dotted-mask-black relative"

@@ -65,12 +65,7 @@ export interface DiamondFXConfig {
  */
 export interface DiamondFXController {
   /** Start animation targeting element by ID */
-  start: (
-    targetId: string,
-    wait?: boolean,
-    refresh?: boolean,
-    config?: DiamondFXConfig
-  ) => void
+  start: (targetId: string, wait?: boolean, refresh?: boolean, config?: DiamondFXConfig) => void
   /** Continue from blink phase (when started with wait=true) */
   resume: () => void
   /** Stop animation if playing, or fade out docked dashes. If animateOut=true, animates dashes back to corners */
@@ -295,13 +290,7 @@ function createDiamondFX(
   const SAFE_SHADOW_COLOR = "rgba(255,255,255,0.35)"
 
   const isIdleState = () =>
-    !!(
-      currentTargetId &&
-      !playing &&
-      !isFadingOut &&
-      !isAnimatingOut &&
-      !isRefreshing
-    )
+    !!(currentTargetId && !playing && !isFadingOut && !isAnimatingOut && !isRefreshing)
 
   const emitPhaseComplete = (phase: string) => {
     emitter.emit("phaseComplete", phase)
@@ -325,9 +314,7 @@ function createDiamondFX(
   }
 
   function updateParsedColors() {
-    parsedStartColor = cfg.lineStartColor
-      ? parseColor(cfg.lineStartColor)
-      : null
+    parsedStartColor = cfg.lineStartColor ? parseColor(cfg.lineStartColor) : null
     parsedLineColor = parseColor(cfg.lineColor)
   }
 
@@ -341,8 +328,7 @@ function createDiamondFX(
     y: lerp(A.y, B.y, t),
   })
 
-  const easeInOutCubic = (t: number) =>
-    t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+  const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
 
   const easeOutBack = (t: number) => {
     const c1 = 1.70158,
@@ -351,16 +337,12 @@ function createDiamondFX(
   }
 
   const easeInOutExpo = (t: number) =>
-    t === 0 || t === 1
-      ? t
-      : t < 0.5
-        ? Math.pow(2, 20 * t - 10) / 2
-        : (2 - Math.pow(2, -20 * t + 10)) / 2
+    t === 0 || t === 1 ? t
+    : t < 0.5 ? Math.pow(2, 20 * t - 10) / 2
+    : (2 - Math.pow(2, -20 * t + 10)) / 2
 
   function parseColor(colorStr: string): RGBAColor | null {
-    const match = colorStr.match(
-      /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/
-    )
+    const match = colorStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
     if (match) {
       return {
         r: parseInt(match[1]),
@@ -372,11 +354,7 @@ function createDiamondFX(
     return null
   }
 
-  function lerpColor(
-    color1: RGBAColor,
-    color2: RGBAColor,
-    t: number
-  ): RGBAColor {
+  function lerpColor(color1: RGBAColor, color2: RGBAColor, t: number): RGBAColor {
     return {
       r: Math.round(lerp(color1.r, color2.r, t)),
       g: Math.round(lerp(color1.g, color2.g, t)),
@@ -389,12 +367,7 @@ function createDiamondFX(
     return `rgba(${color.r},${color.g},${color.b},${color.a})`
   }
 
-  function squareCorners(
-    cx: number,
-    cy: number,
-    side: number,
-    ang: number
-  ): Point[] {
+  function squareCorners(cx: number, cy: number, side: number, ang: number): Point[] {
     const h = side / 2
     const c = Math.cos(ang)
     const s = Math.sin(ang)
@@ -627,9 +600,7 @@ function createDiamondFX(
         a: parsedLineColor.a * opacity,
       })
     }
-    const match = cfg.lineColor.match(
-      /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/
-    )
+    const match = cfg.lineColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
     if (match) {
       const [, r, g, b, a] = match
       const baseAlpha = a ? parseFloat(a) : 1
@@ -803,10 +774,7 @@ function createDiamondFX(
     }
   }
 
-  function renderSpinPhase(
-    progress: number,
-    context: ReturnType<typeof getAnimationContext>
-  ) {
+  function renderSpinPhase(progress: number, context: ReturnType<typeof getAnimationContext>) {
     const { cx, cy, baseSide, baseAngle, dashHalf } = context
     const rotE = easeInOutExpo(progress)
     const shrinkStart = clamp01(cfg.shrinkStart)
@@ -829,36 +797,19 @@ function createDiamondFX(
     }
   }
 
-  function renderMorphPhase(
-    progress: number,
-    context: ReturnType<typeof getAnimationContext>
-  ) {
+  function renderMorphPhase(progress: number, context: ReturnType<typeof getAnimationContext>) {
     const { cx, cy, baseSide, baseAngle } = context
     const m = clamp01(easeInOutCubic(progress))
     const targetCorners = squareCorners(cx, cy, baseSide, baseAngle)
 
     // Use a unified path: in half mode, grow from center using progress; otherwise draw full size
     const factor = cfg.half ? m : 1
-    const grownCorners = targetCorners.map((pt) =>
-      mixPt({ x: cx, y: cy }, pt, factor)
-    )
+    const grownCorners = targetCorners.map((pt) => mixPt({ x: cx, y: cy }, pt, factor))
     polygon(grownCorners)
   }
 
-  function renderInPhase(
-    progress: number,
-    context: ReturnType<typeof getAnimationContext>
-  ) {
-    const {
-      cx,
-      cy,
-      baseSide,
-      baseAngle,
-      screenCorners,
-      dist,
-      toCenter,
-      stroke,
-    } = context
+  function renderInPhase(progress: number, context: ReturnType<typeof getAnimationContext>) {
+    const { cx, cy, baseSide, baseAngle, screenCorners, dist, toCenter, stroke } = context
     const t = clamp01(progress)
     const fLen = Math.min(1, easeOutBack(t))
 
@@ -867,10 +818,7 @@ function createDiamondFX(
     const retractAmount = easeInOutCubic(retractProgress)
 
     const m = clamp01(
-      easeInOutCubic(
-        (t - clamp01(cfg.morphDuringInStart)) /
-          (1 - clamp01(cfg.morphDuringInStart))
-      )
+      easeInOutCubic((t - clamp01(cfg.morphDuringInStart)) / (1 - clamp01(cfg.morphDuringInStart)))
     )
 
     const d = squareCorners(cx, cy, baseSide, baseAngle)
@@ -995,11 +943,7 @@ function createDiamondFX(
     if (elapsed <= refreshMs) {
       const p = clamp01(elapsed / refreshMs)
       const rev = 1 - p
-      renderSplitPhaseCenteredSquare(
-        rev,
-        context,
-        refreshFromDockCenters ?? undefined
-      )
+      renderSplitPhaseCenteredSquare(rev, context, refreshFromDockCenters ?? undefined)
       rafId = requestAnimationFrame(refreshLoop)
       return
     }
@@ -1043,9 +987,7 @@ function createDiamondFX(
     const morphMs = Math.max(0, cfg.timings.morph | 0)
     const pauseMs = Math.max(0, cfg.pauseBeforeBlink | 0)
     const blinkMs =
-      cfg.blinkDuration !== null
-        ? cfg.blinkDuration * cfg.blinkCount
-        : cfg.timings.blink
+      cfg.blinkDuration !== null ? cfg.blinkDuration * cfg.blinkCount : cfg.timings.blink
 
     const tIn = inMs
     const tMorph = tIn + morphMs
@@ -1081,12 +1023,7 @@ function createDiamondFX(
         { name: "morph", end: tMorph, dur: morphMs },
         { name: "pause", end: tPause, dur: pauseMs },
       ])
-      const d = squareCorners(
-        context.cx,
-        context.cy,
-        context.baseSide,
-        context.baseAngle
-      )
+      const d = squareCorners(context.cx, context.cy, context.baseSide, context.baseAngle)
       polygon(d)
       rafId = requestAnimationFrame(draw)
       return
@@ -1107,12 +1044,7 @@ function createDiamondFX(
       const loopAge = (now - blinkLoopStart) % blinkMs
       const blinkT = loopAge / blinkMs
       const visible = (Math.floor(blinkT * blinkPairs) + initialFlip) % 2 === 0
-      const d = squareCorners(
-        context.cx,
-        context.cy,
-        context.baseSide,
-        context.baseAngle
-      )
+      const d = squareCorners(context.cx, context.cy, context.baseSide, context.baseAngle)
       if (visible) {
         polygon(d)
       }
@@ -1129,12 +1061,7 @@ function createDiamondFX(
       ])
       const blinkT = (elapsed - tPause) / blinkMs
       const visible = (Math.floor(blinkT * blinkPairs) + initialFlip) % 2 === 0
-      const d = squareCorners(
-        context.cx,
-        context.cy,
-        context.baseSide,
-        context.baseAngle
-      )
+      const d = squareCorners(context.cx, context.cy, context.baseSide, context.baseAngle)
       if (visible) {
         polygon(d)
       }
@@ -1187,12 +1114,21 @@ function createDiamondFX(
     targetId: string,
     wait = false,
     refresh = true,
-    config?: DiamondFXConfig
+    config?: DiamondFXConfig,
+    _retries = 0
   ) {
     if (!targetId) return
 
     const targetEl = document.getElementById(targetId)
-    if (!targetEl) return
+    if (!targetEl) {
+      // Element not in DOM yet, retry on next frame (max 10 attempts)
+      if (_retries < 10) {
+        requestAnimationFrame(() => start(targetId, wait, refresh, config, _retries + 1))
+      } else {
+        console.warn("Target element not found after retries:", targetId)
+      }
+      return
+    }
 
     // Apply config update if provided
     if (config) {
@@ -1206,9 +1142,7 @@ function createDiamondFX(
       const morphMs = Math.max(0, cfg.timings.morph | 0)
       const pauseMs = Math.max(0, cfg.pauseBeforeBlink | 0)
       const blinkMs =
-        cfg.blinkDuration !== null
-          ? cfg.blinkDuration * cfg.blinkCount
-          : cfg.timings.blink
+        cfg.blinkDuration !== null ? cfg.blinkDuration * cfg.blinkCount : cfg.timings.blink
       const tSpin = inMs + morphMs + pauseMs + blinkMs + cfg.timings.spin
 
       if (elapsed >= tSpin) {
@@ -1288,9 +1222,7 @@ function createDiamondFX(
     const morphMs = Math.max(0, cfg.timings.morph | 0)
     const pauseMs = Math.max(0, cfg.pauseBeforeBlink | 0)
     const blinkMs =
-      cfg.blinkDuration !== null
-        ? cfg.blinkDuration * cfg.blinkCount
-        : cfg.timings.blink
+      cfg.blinkDuration !== null ? cfg.blinkDuration * cfg.blinkCount : cfg.timings.blink
     const tBlink = inMs + morphMs + pauseMs + blinkMs
 
     t0 = performance.now() - tBlink
@@ -1314,9 +1246,7 @@ function createDiamondFX(
       isRefreshing = false
       holdBlink = false
       blinkLoopStart = 0
-      Object.keys(fired).forEach(
-        (k) => (fired[k as keyof typeof fired] = false)
-      )
+      Object.keys(fired).forEach((k) => (fired[k as keyof typeof fired] = false))
       completeFired = false
       ctx!.clearRect(0, 0, W, H)
       // Clean up target tracking and observers to prevent redraw
@@ -1382,13 +1312,7 @@ function createDiamondFX(
     on: emitter.on,
     off: emitter.off,
     get isDocked() {
-      return !!(
-        currentTargetId &&
-        !playing &&
-        !isFadingOut &&
-        !isAnimatingOut &&
-        !isRefreshing
-      )
+      return !!(currentTargetId && !playing && !isFadingOut && !isAnimatingOut && !isRefreshing)
     },
     get isAnimating() {
       return !!(playing || isRefreshing || isFadingOut || isAnimatingOut)

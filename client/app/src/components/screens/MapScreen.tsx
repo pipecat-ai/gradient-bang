@@ -9,7 +9,7 @@ import useGameStore from "@/stores/game"
 
 import { MapZoomControls } from "../MapZoomControls"
 import { Button } from "../primitives/Button"
-import { CardContent, CardTitle } from "../primitives/Card"
+import { CardContent } from "../primitives/Card"
 import { Progress } from "../primitives/Progress"
 import SectorMap, { type MapConfig } from "../SectorMap"
 
@@ -73,7 +73,6 @@ export const MapScreen = () => {
 
   return (
     <div className="flex flex-row gap-3 w-full h-full relative">
-      <CardTitle className="heading-1 absolute top-0 left-0">Universe Map</CardTitle>
       <div className="flex-1 relative">
         <MapZoomControls />
         {mapData ?

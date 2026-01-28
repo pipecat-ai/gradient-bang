@@ -12,7 +12,7 @@ const DEDUPE_TOAST_TYPES = ["trade.executed"]
 
 export interface UISlice {
   uiState: UIState
-  activeScreen?: UIScreen
+  activeScreen?: { screen: UIScreen; data?: unknown }
   activeModal?: UIModal
   activePanel?: UIPanel
   activeSubPanel?: string
@@ -30,7 +30,7 @@ export interface UISlice {
   lockToast: (id: string) => void
 
   setUIState: (newState: UIState) => void
-  setActiveScreen: (screen?: UIScreen) => void
+  setActiveScreen: (screen?: UIScreen, data?: unknown) => void
   setActiveModal: (modal: UIModal) => void
   setActivePanel: (panel?: UIPanel) => void
   setActiveSubPanel: (subPanel?: string) => void
@@ -137,10 +137,10 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
       })
     )
   },
-  setActiveScreen: (screen?: UIScreen) => {
+  setActiveScreen: (screen?: UIScreen, data?: unknown) => {
     set(
       produce((state) => {
-        state.activeScreen = screen
+        state.activeScreen = { screen, data: data ?? undefined }
       })
     )
   },
@@ -155,6 +155,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.activePanel = panel
+        state.activeSubPanel = undefined
       })
     )
   },

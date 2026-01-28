@@ -7,6 +7,7 @@ import useGameStore from "@/stores/game"
 import { formatDuration } from "@/utils/date"
 import { cn } from "@/utils/tailwind"
 
+import { DottedTitle } from "../DottedTitle"
 import { PanelContentLoader } from "../PanelContentLoader"
 import { Button } from "../primitives/Button"
 import { Card, CardContent, CardHeader, CardTitle } from "../primitives/Card"
@@ -169,13 +170,7 @@ export const TaskPanel = () => {
             <ChevronSM className="size-3 text-accent" />
             <ChevronSM className="size-3 text-accent" />
           </div>
-          <div className="flex flex-row gap-ui-sm items-center justify-center leading-none">
-            <div className="flex-1 dotted-bg-xs text-accent h-3"></div>
-            <span className="text-xs font-semibold uppercase text-subtle leading-none pb-px">
-              In Progress
-            </span>
-            <div className="flex-1 dotted-bg-xs text-accent h-3"></div>
-          </div>
+          <DottedTitle title="In Progress" />
           {Object.values(activeTasks ?? {}).length > 0 ?
             <div className="flex flex-col gap-3 w-full min-w-0">
               {Object.values(activeTasks ?? {}).map((task) => (
@@ -193,13 +188,7 @@ export const TaskPanel = () => {
               No active tasks
             </div>
           }
-          <div className="flex flex-row gap-ui-sm items-center justify-center leading-none">
-            <div className="flex-1 dotted-bg-xs text-accent h-3"></div>
-            <span className="text-xs font-semibold uppercase text-subtle leading-none pb-px">
-              Ended
-            </span>
-            <div className="flex-1 dotted-bg-xs text-accent h-3"></div>
-          </div>
+          <DottedTitle title="Ended" />
           {taskHistory ?
             <div className="flex flex-col gap-3 w-full min-w-0">
               {taskHistory?.map((task) => (

@@ -1,11 +1,13 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
-import { useClickAway } from "@uidotdev/usehooks"
+import { Dialog } from "radix-ui"
 
-import { PortPanel } from "@/components/PortPanel"
 import { MapScreen } from "@/components/screens/MapScreen"
 import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
+
+import { ShipDetails } from "./ShipDetails"
 
 const variants = {
   enter: {
@@ -15,90 +17,105 @@ const variants = {
   exit: { opacity: 0, transition: { duration: 0.2, easing: "ease-in-out" } },
 }
 
-const ScreenBase = ({ children }: { children: React.ReactNode }) => {
+export const ScreenBase = ({ children, full }: { children: React.ReactNode; full?: boolean }) => {
   return (
-    <div className="screen focus:outline-none pointer-events-auto w-full h-full">
-      <div className="relative z-1 p-4 w-full h-full">{children}</div>
+    <div
+      id="screen-container"
+      className={cn("screen pointer-events-auto", full ? "w-full h-full" : "")}
+    >
+      {children}
     </div>
   )
 }
 
 export const ScreenContainer = () => {
-  const containerRef = useRef<HTMLDivElement>(null)
-  //const screenRef = useRef<HTMLDivElement>(null);
-
   const activeScreen = useGameStore.use.activeScreen?.()
-  const prevActiveScreenRef = useRef<UIScreen | undefined>(activeScreen)
+  const prevActiveScreenRef = useRef<{ screen: UIScreen; data?: unknown } | undefined>(activeScreen)
   const diamondFXInstance = useGameStore.use.diamondFXInstance?.()
   const setActiveScreen = useGameStore.use.setActiveScreen?.()
 
-  const screenRef = useClickAway<HTMLDivElement>((e) => {
-    const target = e.target as HTMLElement
-    const isMenuClick =
-      target.closest('[role="tab"]') || target.closest('button[aria-controls="#screen-container"]')
+  const [closingScreen, setClosingScreen] = useState<
+    { screen: UIScreen; data?: unknown } | undefined
+  >(undefined)
 
-    if (!isMenuClick && activeScreen) {
-      setActiveScreen(undefined)
-    }
-  })
+  const isClosing = closingScreen !== undefined
+  const displayedScreen = closingScreen ?? activeScreen
 
   useEffect(() => {
-    if (prevActiveScreenRef.current && !activeScreen) {
+    // Screen closed
+    if (prevActiveScreenRef.current?.screen && !activeScreen?.screen) {
       diamondFXInstance?.clear(true)
+    }
+    // Screen opened (or changed)
+    if (activeScreen?.screen && prevActiveScreenRef.current?.screen !== activeScreen.screen) {
+      // Fire your handler here
+      diamondFXInstance?.start("screen-container", false, true, {
+        half: true,
+      })
     }
     prevActiveScreenRef.current = activeScreen
   }, [activeScreen, diamondFXInstance])
 
-  useEffect(() => {
-    if (activeScreen && containerRef.current) {
-      containerRef.current.focus()
-    }
-  }, [activeScreen])
+  const handleClose = () => {
+    setClosingScreen(activeScreen)
+    setActiveScreen(undefined)
+  }
+
+  const handleExitComplete = () => {
+    setClosingScreen(undefined)
+  }
+
+  const isOpen = activeScreen?.screen !== undefined || isClosing
 
   return (
-    <div className="absolute inset-ui-lg z-(--z-screens) flex items-center justify-center pointer-events-none">
-      <div
-        id="screen-container"
-        className="relative w-full h-full focus:outline-none"
-        tabIndex={0}
-        ref={containerRef}
-      >
-        <AnimatePresence
-          mode="wait"
-          onExitComplete={() => {
-            if (activeScreen && !diamondFXInstance?.isAnimating) {
-              diamondFXInstance?.start("screen-container", false, true, {
-                half: true,
-              })
+    <Dialog.Root
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          handleClose()
+        }
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="DialogOverlay bg-muted/40 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle dialog-dots"></Dialog.Overlay>
+        <Dialog.Content
+          aria-describedby={undefined}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              handleClose()
             }
           }}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          className="DialogContent DialogContent-NoPadding w-[calc(100vw-var(--spacing-ui-lg)*2)] h-[calc(100dvh-var(--spacing-ui-lg)*2)] pointer-events-none"
         >
-          <motion.div
-            key={activeScreen}
-            variants={variants}
-            initial="exit"
-            animate="enter"
-            exit="exit"
-            ref={screenRef}
-            className="w-full h-full"
-          >
-            {activeScreen === "self" && <ScreenBase>Self</ScreenBase>}
-            {activeScreen === "messaging" && <ScreenBase>Messaging</ScreenBase>}
-            {activeScreen === "trading" && (
-              <ScreenBase>
-                <PortPanel />
-              </ScreenBase>
+          <div className="hidden">
+            <Dialog.Title>{activeScreen?.screen}</Dialog.Title>
+          </div>
+          <AnimatePresence mode="wait" onExitComplete={handleExitComplete}>
+            {!isClosing && displayedScreen?.screen && (
+              <motion.div
+                key={displayedScreen.screen}
+                variants={variants}
+                initial="exit"
+                animate="enter"
+                exit="exit"
+                className={displayedScreen.screen === "map" ? "w-full h-full" : ""}
+              >
+                {displayedScreen.screen === "map" && (
+                  <ScreenBase full>
+                    <MapScreen />
+                  </ScreenBase>
+                )}
+                {displayedScreen.screen === "ship-details" && (
+                  <ScreenBase>
+                    <ShipDetails ship={displayedScreen.data as ShipDefinition} />
+                  </ScreenBase>
+                )}
+              </motion.div>
             )}
-            {activeScreen === "map" && (
-              <ScreenBase>
-                <MapScreen />
-              </ScreenBase>
-            )}
-            {activeScreen === "tasks" && <ScreenBase>Tasks</ScreenBase>}
-            {activeScreen === "combat" && <ScreenBase>Combat</ScreenBase>}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-    </div>
+          </AnimatePresence>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }

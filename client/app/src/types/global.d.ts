@@ -65,6 +65,19 @@ declare global {
     credits: number
   }
 
+  interface ShipDefinition {
+    ship_type: string
+    display_name: string
+    cargo_holds: number
+    warp_power_capacity: number
+    turns_per_warp: number
+    shields: number
+    fighters: number
+    base_value: number
+    stats: Map<string, unknown>
+    purchase_price: number
+  }
+
   // --- GARRISON
 
   interface Garrison {
@@ -194,7 +207,7 @@ declare global {
   // --- UI
 
   type UIState = "idle" | "moving" | "combat" | "paused"
-  type UIScreen = "map"
+  type UIScreen = "map" | "ship-details"
   type UIPanel = "sector" | "player" | "trade" | "tasks" | "corp" | "logs"
   type UIModal = "settings" | "leaderboard" | "signup" | "character_select" | undefined
 
