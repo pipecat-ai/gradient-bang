@@ -44,9 +44,12 @@
   --terminal: #dcfd38;
   --terminal-foreground: #f5ffc6;
   --terminal-background: #4c5424;
+  --terminal-subtle: #86914e;
+
   --fuel: oklch(86.5% 0.127 207.078);
   --fuel-background: oklch(30.2% 0.056 229.695);
   --fuel-foreground: oklch(95.6% 0.045 203.388);
+  --fuel-subtle: oklch(52% 0.105 223.128);
 
   /** UI **/
   --seperator: 3px;
@@ -118,12 +121,14 @@
   --color-terminal: var(--terminal);
   --color-terminal-foreground: var(--terminal-foreground);
   --color-terminal-background: var(--terminal-background);
+  --color-terminal-subtle: var(--terminal-subtle);
 
   --color-screen-background: rgba(0, 0, 0, 0.7);
   --color-screen-foreground: rgba(255, 255, 255, 1);
   --color-fuel: var(--fuel);
   --color-fuel-foreground: var(--fuel-foreground);
   --color-fuel-background: var(--fuel-background);
+  --color-fuel-subtle: var(--fuel-subtle);
 
   /** UI **/
   --z-starfield: var(--z-starfield);

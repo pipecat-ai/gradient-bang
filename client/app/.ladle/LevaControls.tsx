@@ -3,9 +3,10 @@ import { PipecatClient } from "@pipecat-ai/client-js"
 
 import useGameStore from "@/stores/game"
 
+import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
 
-import { SECTOR_MOCK } from "@/mocks/sector.mock"
+import { MEGA_PORT_MOCK, PORT_MOCK, SECTOR_MOCK } from "@/mocks/sector.mock"
 import { SHIP_MOCK } from "@/mocks/ship.mock"
 
 export const LevaControls = ({
@@ -29,8 +30,16 @@ export const LevaControls = ({
         ["Disconnect"]: () => client.disconnect(),
       },
     }),
-    ["Set Sector"]: button(() =>
-      setSector({ ...SECTOR_MOCK, id: Math.floor(Math.random() * 100) })
+    ["Set Sector 0"]: button(() =>
+      setSector({ ...SECTOR_MOCK, id: 0, position: [0, 0], port: MEGA_PORT_MOCK } as Sector)
+    ),
+
+    ["Set Random Sector"]: button(() =>
+      setSector({
+        ...SECTOR_MOCK,
+        id: Math.floor(Math.random() * 100),
+        port: Math.random() > 0.5 ? PORT_MOCK : undefined,
+      })
     ),
     Messages: folder(
       {
@@ -107,6 +116,7 @@ export const LevaControls = ({
   }))
 
   useTaskControls()
+  useMapControls()
 
   return <Leva hidden={hidden} />
 }
