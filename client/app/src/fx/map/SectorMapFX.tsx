@@ -20,6 +20,7 @@ export interface SectorMapConfigBase {
   show_grid: boolean
   show_warps: boolean
   show_sector_ids: boolean
+  show_sector_ids_hover: boolean
   show_ports: boolean
   show_port_labels: boolean
   show_hyperlanes: boolean
@@ -377,6 +378,7 @@ export const DEFAULT_SECTORMAP_CONFIG: Omit<SectorMapConfigBase, "center_sector_
   show_grid: true,
   show_warps: true,
   show_sector_ids: true,
+  show_sector_ids_hover: true,
   show_ports: true,
   show_port_labels: true,
   show_hyperlanes: false,
@@ -1403,7 +1405,8 @@ function renderSectorLabels(
   coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-  if (!config.show_sector_ids) return
+  // Return early if neither show_sector_ids nor show_sector_ids_hover is enabled
+  if (!config.show_sector_ids && !config.show_sector_ids_hover) return
 
   const labelStyle = config.labelStyles.sectorId
 
@@ -1421,6 +1424,14 @@ function renderSectorLabels(
     if (config.current_sector_id !== undefined && node.id === config.current_sector_id) return
 
     const isHovered = node.id === hoveredSectorId
+    const isCentered = node.id === config.center_sector_id
+
+    // If show_sector_ids is false but show_sector_ids_hover is true,
+    // only show labels for hovered or centered sectors
+    if (!config.show_sector_ids && config.show_sector_ids_hover) {
+      if (!isCentered && !isHovered) return
+    }
+
     const hoverScale = isHovered ? labelStyle.hoveredFontSize / labelStyle.fontSize : 1
 
     const worldPos = hexToWorld(node.position[0], node.position[1], scale)

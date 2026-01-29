@@ -15,6 +15,7 @@ import SectorMap, { type MapConfig } from "../SectorMap"
 
 const MINIMAP_CONFIG: MapConfig = {
   hoverable: false,
+  show_sector_ids: false,
 }
 
 export const MiniMapPanel = ({ className }: { className?: string }) => {

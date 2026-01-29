@@ -18,7 +18,7 @@ import type { GetMapRegionAction } from "@/types/actions"
 const MAP_CONFIG: MapConfig = {
   debug: true,
   clickable: true,
-  show_sector_ids: true,
+  show_sector_ids: false,
   show_partial_lanes: true,
   show_ports: true,
   show_hyperlanes: false,
