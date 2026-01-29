@@ -192,57 +192,6 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                     }))
                   }
                 />
-
-                {/* Music */}
-                <SettingSwitch
-                  label="Music Enabled"
-                  id="enable-music"
-                  checked={!formSettings.disableMusic}
-                  onChange={(enabled) =>
-                    setFormSettings((prev) => ({
-                      ...prev,
-                      disableMusic: !enabled,
-                    }))
-                  }
-                />
-                <SettingSlider
-                  id="music"
-                  label="Music Volume"
-                  disabled={formSettings.disableMusic}
-                  value={formSettings.musicVolume}
-                  onChange={(value) =>
-                    setFormSettings((prev) => ({
-                      ...prev,
-                      musicVolume: value,
-                    }))
-                  }
-                />
-
-                {/* Ambience */}
-                <SettingSwitch
-                  label="Ambience Enabled"
-                  id="enable-ambience"
-                  checked={!formSettings.disabledAmbience}
-                  onChange={(enabled) =>
-                    setFormSettings((prev) => ({
-                      ...prev,
-                      disabledAmbience: !enabled,
-                    }))
-                  }
-                />
-                <SettingSlider
-                  id="ambience"
-                  label="Ambience Volume"
-                  disabled={formSettings.disabledAmbience}
-                  value={formSettings.ambienceVolume}
-                  onChange={(value) =>
-                    setFormSettings((prev) => ({
-                      ...prev,
-                      ambienceVolume: value,
-                    }))
-                  }
-                />
-
                 {/* Sound FX */}
                 <SettingSwitch
                   label="Sound FX Enabled"

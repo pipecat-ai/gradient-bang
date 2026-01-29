@@ -361,7 +361,7 @@ export const DEFAULT_UI_STYLES: UIStyles = {
     color: "#000000",
   },
   edgeFeather: {
-    size: 100,
+    size: 140,
   },
 }
 

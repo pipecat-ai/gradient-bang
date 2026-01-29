@@ -4,9 +4,9 @@ export const defaultProfile: StarfieldConfig = {
   palette: "cosmicTeal",
   imageAssets: ["/test-skybox-1.png", "/test-skybox-2.png"],
   cameraBaseFov: 85,
-  hyperspaceEnterTime: 2000,
-  hyperspaceExitTime: 2000,
-  hyperspaceDuration: 1000,
+  hyperspaceEnterTime: 1000,
+  hyperspaceExitTime: 1000,
+  hyperspaceDuration: 100,
   hyperspaceCooldown: 10000,
   hyerpspaceUniforms: {
     vignetteAmount: 0.5,
@@ -33,7 +33,7 @@ export const defaultProfile: StarfieldConfig = {
     sharpeningEnabled: true,
   },
   vignette: {
-    vignetteEnabled: true,
+    vignetteEnabled: false,
     vignetteOffset: 0.7,
     vignetteDarkness: 0.3,
   },

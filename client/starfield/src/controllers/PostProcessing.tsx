@@ -32,8 +32,6 @@ export const PostProcessing = () => {
   // Composer instance
   const composerRef = useRef<EffectComposer | null>(null)
 
-  const isSceneChanging = useGameStore((state) => state.isSceneChanging)
-
   // Effect instances - updated in useFrame for animation, rebuilt on config changes
   const bloomEffectRef = useRef<BloomEffect | null>(null)
   const vignetteEffectRef = useRef<VignetteEffect | null>(null)
@@ -88,7 +86,7 @@ export const PostProcessing = () => {
         Bloom: folder(
           {
             bloomEnabled: {
-              value: true,
+              value: false,
               label: "Enable Bloom (Pre-Dithering)",
             },
             bloomThreshold: {
@@ -122,7 +120,7 @@ export const PostProcessing = () => {
               label: "Enable Sharpening",
             },
             sharpeningIntensity: {
-              value: storedSharpening.sharpeningIntensity ?? 1.0,
+              value: storedSharpening.sharpeningIntensity ?? 2.0,
               label: "Intensity",
               min: 0,
               max: 20,
@@ -140,7 +138,7 @@ export const PostProcessing = () => {
               label: "Threshold",
               min: 0,
               max: 1,
-              step: 0.1,
+              step: 0.01,
             },
           },
           { collapsed: true }
@@ -564,11 +562,10 @@ export const PostProcessing = () => {
 
     const ditheringEffect = ditheringEffectRef.current
     if (ditheringEffect) {
-      const delayedProgress = THREE.MathUtils.clamp(
-        (progress - 0.4) / (1 - 0.4),
-        0,
-        1
-      )
+      // Only delay the effect on enter, not exit
+      const delayedProgress = warp.isWarping
+        ? THREE.MathUtils.clamp((progress - 0.4) / (1 - 0.4), 0, 1)
+        : progress
       const easedProgress = warp.isWarping
         ? easings.easeInCubic(delayedProgress)
         : easings.easeOutExpo(delayedProgress)
@@ -583,13 +580,13 @@ export const PostProcessing = () => {
         ditheringEffect.uniforms.get("pixelSizeRatio")!.value =
           THREE.MathUtils.lerp(
             ppUniforms.ditheringPixelSizeRatio,
-            ppUniforms.ditheringPixelSizeRatio * 6,
+            ppUniforms.ditheringPixelSizeRatio * 12,
             easedProgress
           )
       } else {
-        // Ensure values are set to base values when not warping
+        // Reset to base values when not warping
         ditheringEffect.uniforms.get("gridSize")!.value =
-          !warp.isWarping && isSceneChanging ? 6 : ppUniforms.ditheringGridSize
+          ppUniforms.ditheringGridSize
         ditheringEffect.uniforms.get("pixelSizeRatio")!.value =
           ppUniforms.ditheringPixelSizeRatio
       }

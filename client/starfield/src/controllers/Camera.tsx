@@ -14,13 +14,14 @@ import { CameraShakeController } from "./CameraShakeController"
 
 //const DEFAULT_POSITION = new THREE.Vector3(0, 0, 0)
 
-export function CameraController({ debug }: { debug: boolean }) {
+export function CameraController({ enabled }: { enabled: boolean }) {
   const cameraControlsRef = useRef<CameraControlsImpl>(null)
   //const gameObjects = useGameStore((state) => state.positionedObjects)
   //const [, setCurrentTarget] = useState<THREE.Vector3 | null>(null)
   const { cameraBaseFov, hyerpspaceUniforms } = useGameStore(
     (state) => state.starfieldConfig
   )
+  const isSceneChanging = useGameStore((state) => state.isSceneChanging)
 
   const { invalidate } = useThree()
   const warp = useWarpAnimation()
@@ -165,7 +166,7 @@ export function CameraController({ debug }: { debug: boolean }) {
       <CameraControlsImpl
         makeDefault
         ref={cameraControlsRef}
-        enabled={config.enabled && debug}
+        enabled={enabled && !isSceneChanging}
         smoothTime={config.smoothTime}
         restThreshold={config.restThreshold}
         dollySpeed={0.5}

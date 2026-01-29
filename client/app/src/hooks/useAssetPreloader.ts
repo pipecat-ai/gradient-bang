@@ -1,77 +1,77 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState } from "react"
 
-import { chunks, images, sounds, videos } from "@/assets";
+import { chunks, images, skyboxImages, sounds, videos } from "@/assets"
 
-export type AssetType = "chunk" | "image" | "video" | "sound";
+export type AssetType = "chunk" | "image" | "video" | "sound"
 
 export type PreloadProgress = {
-  phase: "idle" | "loading" | "complete" | "error";
-  message: string;
-  loaded: number;
-  total: number;
-  currentAsset?: string;
-  currentType?: AssetType;
-  percentage: number;
-};
+  phase: "idle" | "loading" | "complete" | "error"
+  message: string
+  loaded: number
+  total: number
+  currentAsset?: string
+  currentType?: AssetType
+  percentage: number
+}
 
 // Preload an image
 const preloadImage = (url: string): Promise<void> => {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve();
-    img.onerror = reject;
-    img.src = url;
-  });
-};
+    const img = new Image()
+    img.onload = () => resolve()
+    img.onerror = reject
+    img.src = url
+  })
+}
 
 // Preload audio
 const preloadAudio = (url: string): Promise<void> => {
   return new Promise((resolve) => {
-    const audio = new Audio();
+    const audio = new Audio()
 
     const onReady = () => {
-      resolve();
-    };
+      resolve()
+    }
 
     const onError = (e: unknown) => {
-      console.warn(`[PRELOAD] Audio load failed: ${url}`, e);
-      resolve(); // Don't block on audio failure
-    };
+      console.warn(`[PRELOAD] Audio load failed: ${url}`, e)
+      resolve() // Don't block on audio failure
+    }
 
-    audio.addEventListener("canplaythrough", onReady, { once: true });
-    audio.addEventListener("error", onError, { once: true });
-    audio.src = url;
-    audio.load();
-  });
-};
+    audio.addEventListener("canplaythrough", onReady, { once: true })
+    audio.addEventListener("error", onError, { once: true })
+    audio.src = url
+    audio.load()
+  })
+}
 
 // Preload a video (just fetch to populate cache)
 const preloadVideo = (url: string): Promise<void> => {
   return fetch(url)
     .then(() => undefined)
     .catch((err) => {
-      console.warn(`[PRELOAD] Video load failed: ${url}`, err);
+      console.warn(`[PRELOAD] Video load failed: ${url}`, err)
       // Don't reject - allow other assets to load
-    });
-};
+    })
+}
 
 // Preload JS chunks
 const preloadChunks = async (): Promise<void> => {
-  console.debug("[PRELOAD] Loading JS chunks...");
+  console.debug("[PRELOAD] Loading JS chunks...")
 
   // Load all chunks defined in assets/index.ts
-  await Promise.all(Object.values(chunks).map((chunkLoader) => chunkLoader()));
+  await Promise.all(Object.values(chunks).map((chunkLoader) => chunkLoader()))
 
-  console.debug("[PRELOAD] JS chunks loaded");
-};
+  console.debug("[PRELOAD] JS chunks loaded")
+}
 
 // Global flags to prevent re-loading and handle race conditions
 const _g = globalThis as typeof globalThis & {
-  __gb_assetsPreloaded?: boolean;
-  __gb_assetsLoading?: boolean;
-};
-_g.__gb_assetsPreloaded = _g.__gb_assetsPreloaded || false;
-_g.__gb_assetsLoading = _g.__gb_assetsLoading || false;
+  __gb_assetsPreloaded?: boolean
+  __gb_assetsLoading?: boolean
+}
+_g.__gb_assetsPreloaded = _g.__gb_assetsPreloaded || false
+_g.__gb_assetsLoading = _g.__gb_assetsLoading || false
 
 export const useAssetPreloader = () => {
   const [progress, setProgress] = useState<PreloadProgress>({
@@ -80,21 +80,23 @@ export const useAssetPreloader = () => {
     loaded: 0,
     total: 0,
     percentage: 0,
-  });
+  })
 
   const preloadAll = useCallback(async (): Promise<void> => {
     // Skip if already preloaded or currently loading
     if (_g.__gb_assetsPreloaded) {
-      console.debug("[PRELOAD] Already complete, skipping");
-      const chunkList = Object.entries(chunks);
-      const imageList = Object.entries(images);
-      const videoList = Object.entries(videos);
-      const soundList = Object.entries(sounds);
+      console.debug("[PRELOAD] Already complete, skipping")
+      const chunkList = Object.entries(chunks)
+      const imageList = Object.entries(images)
+      const skyboxList = Object.entries(skyboxImages)
+      const videoList = Object.entries(videos)
+      const soundList = Object.entries(sounds)
       const total =
         chunkList.length +
         imageList.length +
+        skyboxList.length +
         videoList.length +
-        soundList.length;
+        soundList.length
 
       setProgress({
         phase: "complete",
@@ -102,40 +104,38 @@ export const useAssetPreloader = () => {
         loaded: total,
         total,
         percentage: 100,
-      });
-      return;
+      })
+      return
     }
 
     // Check if another instance is already loading
     if (_g.__gb_assetsLoading) {
-      console.debug(
-        "[PRELOAD] Already loading in another instance, waiting..."
-      );
+      console.debug("[PRELOAD] Already loading in another instance, waiting...")
 
       // Poll until loading is complete
-      const pollInterval = 100; // Check every 100ms
-      const maxWait = 30000; // Max 30 seconds
-      let waited = 0;
+      const pollInterval = 100 // Check every 100ms
+      const maxWait = 30000 // Max 30 seconds
+      let waited = 0
 
       while (_g.__gb_assetsLoading && waited < maxWait) {
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
-        waited += pollInterval;
+        await new Promise((resolve) => setTimeout(resolve, pollInterval))
+        waited += pollInterval
       }
 
       // After waiting, show complete state
       if (_g.__gb_assetsPreloaded) {
-        console.debug(
-          "[PRELOAD] Other instance finished, showing complete state"
-        );
-        const chunkList = Object.entries(chunks);
-        const imageList = Object.entries(images);
-        const videoList = Object.entries(videos);
-        const soundList = Object.entries(sounds);
+        console.debug("[PRELOAD] Other instance finished, showing complete state")
+        const chunkList = Object.entries(chunks)
+        const imageList = Object.entries(images)
+        const skyboxList = Object.entries(skyboxImages)
+        const videoList = Object.entries(videos)
+        const soundList = Object.entries(sounds)
         const total =
           chunkList.length +
           imageList.length +
+          skyboxList.length +
           videoList.length +
-          soundList.length;
+          soundList.length
 
         setProgress({
           phase: "complete",
@@ -143,29 +143,30 @@ export const useAssetPreloader = () => {
           loaded: total,
           total,
           percentage: 100,
-        });
+        })
       }
-      return;
+      return
     }
 
     // Set loading flag immediately to prevent concurrent runs
-    _g.__gb_assetsLoading = true;
-    console.debug("[PRELOAD] Starting asset preload");
+    _g.__gb_assetsLoading = true
+    console.debug("[PRELOAD] Starting asset preload")
 
-    const chunkList = Object.entries(chunks);
-    const imageList = Object.entries(images);
-    const videoList = Object.entries(videos);
-    const soundList = Object.entries(sounds);
+    const chunkList = Object.entries(chunks)
+    const imageList = Object.entries(images)
+    const skyboxList = Object.entries(skyboxImages)
+    const videoList = Object.entries(videos)
+    const soundList = Object.entries(sounds)
 
-    // Total: chunks + images + videos + sounds
+    // Total: chunks + images + skybox + videos + sounds
     const total =
-      chunkList.length + imageList.length + videoList.length + soundList.length;
-    let loaded = 0;
+      chunkList.length + imageList.length + skyboxList.length + videoList.length + soundList.length
+    let loaded = 0
 
     const updateProgress = (type: AssetType, name: string, message: string) => {
-      loaded++;
-      const percentage = Math.round((loaded / total) * 100);
-      console.debug(`[PRELOAD] ${loaded}/${total} - ${name}`);
+      loaded++
+      const percentage = Math.round((loaded / total) * 100)
+      console.debug(`[PRELOAD] ${loaded}/${total} - ${name}`)
 
       setProgress({
         phase: "loading",
@@ -175,8 +176,8 @@ export const useAssetPreloader = () => {
         currentAsset: name,
         currentType: type,
         percentage,
-      });
-    };
+      })
+    }
 
     try {
       setProgress({
@@ -185,13 +186,13 @@ export const useAssetPreloader = () => {
         loaded: 0,
         total,
         percentage: 0,
-      });
+      })
 
       // 1. Preload JS chunks first (starts download ASAP)
-      await preloadChunks();
+      await preloadChunks()
       chunkList.forEach(([name]) => {
-        updateProgress("chunk", name, `Chunk: ${name}`);
-      });
+        updateProgress("chunk", name, `Chunk: ${name}`)
+      })
 
       // 2. Preload images, videos, and sounds in parallel
       await Promise.all([
@@ -200,8 +201,17 @@ export const useAssetPreloader = () => {
           preloadImage(url)
             .then(() => updateProgress("image", name, `Image: ${name}`))
             .catch((err) => {
-              console.error(`[PRELOAD] Image failed: ${name}`, err);
-              updateProgress("image", name, `Image: ${name} (failed)`);
+              console.error(`[PRELOAD] Image failed: ${name}`, err)
+              updateProgress("image", name, `Image: ${name} (failed)`)
+            })
+        ),
+        // Skybox Images
+        ...skyboxList.map(([name, url]) =>
+          preloadImage(url)
+            .then(() => updateProgress("image", name, `Skybox: ${name}`))
+            .catch((err) => {
+              console.error(`[PRELOAD] Skybox failed: ${name}`, err)
+              updateProgress("image", name, `Skybox: ${name} (failed)`)
             })
         ),
         // Videos
@@ -209,8 +219,8 @@ export const useAssetPreloader = () => {
           preloadVideo(url)
             .then(() => updateProgress("video", name, `Video: ${name}`))
             .catch((err) => {
-              console.error(`[PRELOAD] Video failed: ${name}`, err);
-              updateProgress("video", name, `Video: ${name} (failed)`);
+              console.error(`[PRELOAD] Video failed: ${name}`, err)
+              updateProgress("video", name, `Video: ${name} (failed)`)
             })
         ),
         // Sounds
@@ -218,11 +228,11 @@ export const useAssetPreloader = () => {
           preloadAudio(url)
             .then(() => updateProgress("sound", name, `Sound: ${name}`))
             .catch((err) => {
-              console.error(`[PRELOAD] Sound failed: ${name}`, err);
-              updateProgress("sound", name, `Sound: ${name} (failed)`);
+              console.error(`[PRELOAD] Sound failed: ${name}`, err)
+              updateProgress("sound", name, `Sound: ${name} (failed)`)
             })
         ),
-      ]);
+      ])
 
       // Complete!
       setProgress({
@@ -231,30 +241,28 @@ export const useAssetPreloader = () => {
         loaded: total,
         total,
         percentage: 100,
-      });
+      })
 
       // Mark as complete
-      _g.__gb_assetsPreloaded = true;
-      console.debug("[PRELOAD] All assets preloaded successfully");
+      _g.__gb_assetsPreloaded = true
+      console.debug("[PRELOAD] All assets preloaded successfully")
     } catch (error) {
-      console.error("[PRELOAD] Fatal error during preload:", error);
+      console.error("[PRELOAD] Fatal error during preload:", error)
 
       // Reset flags on error so user can retry
-      _g.__gb_assetsPreloaded = false;
+      _g.__gb_assetsPreloaded = false
 
       setProgress((prev) => ({
         ...prev,
         phase: "error",
-        message: `Error: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-      }));
+        message: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      }))
     } finally {
       // Always clear loading flag when done (success or error)
-      _g.__gb_assetsLoading = false;
-      console.debug("[PRELOAD] Loading flag cleared");
+      _g.__gb_assetsLoading = false
+      console.debug("[PRELOAD] Loading flag cleared")
     }
-  }, []);
+  }, [])
 
   return {
     preloadAll,
@@ -262,5 +270,5 @@ export const useAssetPreloader = () => {
     isLoading: progress.phase === "loading",
     isComplete: progress.phase === "complete",
     hasError: progress.phase === "error",
-  };
-};
+  }
+}
