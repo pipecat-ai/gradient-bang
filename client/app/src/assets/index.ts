@@ -62,7 +62,7 @@ export const sounds = {
   currency: currencySound,
 } as const
 
-// JS Chunks
+// JS Chunks - preload lazy-loaded components and their dependencies
 export const chunks = {
-  starfield: () => import("@gradient-bang/starfield"),
+  starfield: () => import("@/components/StarfieldLazy"),
 } as const

@@ -2,13 +2,13 @@ import { lazy, Suspense, useEffect, useMemo } from "react"
 
 import { motion } from "motion/react"
 import type { PerformanceProfile } from "@gradient-bang/starfield"
-import { generateRandomScene, useSceneChange } from "@gradient-bang/starfield"
 
 import { skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
 import useGameStore from "@/stores/game"
 
-const StarfieldComponent = lazy(() => import("@gradient-bang/starfield"))
+// Lazy load the starfield component - this keeps all starfield deps out of main bundle
+const StarfieldLazy = lazy(() => import("./StarfieldLazy"))
 
 const skyboxImageList = Object.values(skyboxImages)
 
@@ -27,7 +27,6 @@ export const Starfield = () => {
   const lookMode = useGameStore.use.lookMode()
   const starfieldReady = useGameStore.use.starfieldReady()
   const setStarfieldReady = useGameStore.use.setStarfieldReady()
-  const { changeScene } = useSceneChange()
 
   const starfieldConfig = useMemo(() => {
     return {
@@ -43,30 +42,6 @@ export const Starfield = () => {
     }
   }, [lookMode])
 
-  useEffect(() => {
-    if (!settings.renderStarfield) return
-
-    // Initial scene
-    // NOOP
-
-    // Subscribe to sector id changes
-    const unsub = useGameStore.subscribe(
-      (state) => state.sector?.id,
-      (sectorId, prevSectorId) => {
-        if (sectorId !== prevSectorId && sectorId) {
-          const newScene = generateRandomScene()
-          changeScene({
-            id: sectorId.toString(),
-            gameObjects: [],
-            config: newScene,
-          })
-        }
-      }
-    )
-
-    return unsub
-  }, [settings.renderStarfield, changeScene])
-
   if (!settings.renderStarfield || !skyboxImageList.length) {
     return <StarfieldFallback />
   }
@@ -79,7 +54,7 @@ export const Starfield = () => {
         animate={{ opacity: starfieldReady ? 1 : 0 }}
         transition={{ delay: 1, duration: 2, ease: "easeOut" }}
       >
-        <StarfieldComponent
+        <StarfieldLazy
           profile={settings.qualityPreset as PerformanceProfile}
           config={starfieldConfig}
           onCreated={() => {
