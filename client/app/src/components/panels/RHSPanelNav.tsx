@@ -10,7 +10,6 @@ import {
 } from "@phosphor-icons/react"
 
 import { Button } from "@/components/primitives/Button"
-import { ButtonGroup } from "@/components/primitives/ButtonGroup"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
@@ -63,12 +62,12 @@ export const RHSPanelNav = () => {
     { id: "trade", label: "Trade", icon: <SwapIcon size={20} /> },
     { id: "tasks", label: "Tasks", icon: <CheckSquareOffsetIcon size={20} /> },
     { id: "corp", label: "Corp", icon: <UsersFourIcon size={20} /> },
-    { id: "logs", label: "Logs", icon: <ChatCircleTextIcon size={20} /> },
+    { id: "logs", label: "Waves", icon: <ChatCircleTextIcon size={20} /> },
   ]
 
   return (
-    <div className="flex flex-col gap-1 items-center select-none relative flex-1 max-h-min pr-panel-gap">
-      <ButtonGroup className="relative flex flex-row gap-panel-gap w-full">
+    <div className="flex flex-col gap-1 items-center select-none relative flex-1 max-h-min pr-panel-gap bg-background">
+      <div className="relative flex flex-row gap-panel-gap w-full">
         {tabs.map((tab) => (
           <RHSPanelNavItem
             key={tab.id}
@@ -86,7 +85,7 @@ export const RHSPanelNav = () => {
             <span className="text-xxs truncate">{tab.label}</span>
           </RHSPanelNavItem>
         ))}
-      </ButtonGroup>
+      </div>
     </div>
   )
 }

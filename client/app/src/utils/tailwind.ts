@@ -47,6 +47,7 @@ const customTwMerge = extendTailwindMerge({
     },
     theme: {
       spacing: ["ui-xs", "ui-md", "ui-sm", "ui-lg", "ui-xl", "ui-2xl"],
+      text: ["xxs"],
     },
   },
 } as Parameters<typeof extendTailwindMerge>[0])

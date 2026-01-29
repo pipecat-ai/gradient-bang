@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react"
 
-import useGameStore from "@/stores/game"
+import useGameStore, { selectIncomingMessageCount } from "@/stores/game"
 
 import { usePlaySound } from "./usePlaySound"
 
@@ -12,7 +12,7 @@ export const useNotificationSound = () => {
   const lastPlayedRef = useRef(0)
   const prevAlertTransferRef = useRef<number | null>(null)
 
-  const messageCount = useGameStore.use.getIncomingMessageLength()()
+  const messageCount = useGameStore(selectIncomingMessageCount)
   const alertTransfer = useGameStore.use.alertTransfer()
 
   const tryPlayNotification = useCallback(() => {
@@ -31,8 +31,7 @@ export const useNotificationSound = () => {
       return
     }
 
-    const hasNewMessages =
-      messageCount > prevCountRef.current && messageCount > 0
+    const hasNewMessages = messageCount > prevCountRef.current && messageCount > 0
 
     if (hasNewMessages) {
       tryPlayNotification()

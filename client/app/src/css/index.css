@@ -703,6 +703,15 @@ button {
   }
 }
 
+@keyframes message-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.5;
+  }
+}
+
 .tracing-border-wrapper {
   position: relative;
   --border-angle: 0turn;
