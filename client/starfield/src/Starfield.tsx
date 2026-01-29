@@ -2,7 +2,7 @@ import { memo, Suspense, useLayoutEffect, useRef } from "react"
 import { PerformanceMonitor, Stats } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
-import { LevaPanel, useCreateStore } from "leva"
+import { Leva } from "leva"
 import * as THREE from "three"
 
 import { RenderingIndicator } from "@/components/RenderingIndicator"
@@ -54,7 +54,6 @@ export function StarfieldComponent({
   const isPaused = useGameStore((state) => state.isPaused)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const callbacks = useCallbackStore((state) => state)
-  const starfieldStore = useCreateStore()
 
   usePerformanceProfile({ initialProfile: profile })
 
@@ -76,11 +75,7 @@ export function StarfieldComponent({
 
   return (
     <>
-      <LevaPanel
-        hidden={!debug}
-        titleBar={{ title: "Starfield" }}
-        store={starfieldStore}
-      />
+      <Leva hidden={!debug} titleBar={{ title: "Starfield" }} />
 
       <Canvas
         frameloop={isPaused ? "never" : "demand"}
