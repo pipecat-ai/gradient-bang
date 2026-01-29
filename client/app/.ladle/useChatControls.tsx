@@ -20,6 +20,20 @@ export const useChatControls = () => {
             timestamp: new Date().toISOString(),
           } as ChatMessage)
         }),
+        ["Mock Outgoing DM"]: button(() => {
+          const state = useGameStore.getState()
+          state.setNotifications({ newChatMessage: true })
+          const player = useGameStore.getState().player
+
+          state.addMessage({
+            ...INCOMING_CHAT_MESSAGES_MOCK[0],
+            id: faker.number.int(),
+            from_name: player.name || "Unknown",
+            to_name: faker.person.fullName(),
+            content: faker.lorem.paragraph(),
+            timestamp: new Date().toISOString(),
+          } as ChatMessage)
+        }),
         ["Mock Incoming Broadcast"]: button(() => {
           const state = useGameStore.getState()
           state.setNotifications({ newChatMessage: true })
@@ -27,6 +41,20 @@ export const useChatControls = () => {
             ...INCOMING_CHAT_MESSAGES_MOCK[0],
             id: faker.number.int(),
             from_name: faker.person.fullName(),
+            content: faker.lorem.paragraph(),
+            timestamp: new Date().toISOString(),
+            type: "broadcast",
+          } as ChatMessage)
+        }),
+        ["Mock Outgoing Broadcast"]: button(() => {
+          const state = useGameStore.getState()
+          state.setNotifications({ newChatMessage: true })
+          const player = useGameStore.getState().player
+
+          state.addMessage({
+            ...INCOMING_CHAT_MESSAGES_MOCK[0],
+            id: faker.number.int(),
+            from_name: player.name || "Unknown",
             content: faker.lorem.paragraph(),
             timestamp: new Date().toISOString(),
             type: "broadcast",

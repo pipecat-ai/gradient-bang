@@ -9,7 +9,6 @@ import { cn } from "@/utils/tailwind"
 
 import { Button } from "../primitives/Button"
 import { ButtonGroup } from "../primitives/ButtonGroup"
-import { Field, FieldLabel } from "../primitives/Field"
 import { ScrollArea } from "../primitives/ScrollArea"
 
 const ACTIVITY_DURATION_MS = 5000
@@ -25,7 +24,8 @@ const FADE_TRANSITION = {
     "hover:[&_[data-slot=message]]:opacity-100 hover:[&_[data-slot=message]]:duration-300 hover:[&_[data-slot=message]]:delay-0 data-active:[&_[data-slot=message]]:opacity-100 data-active:[&_[data-slot=message]]:duration-300 data-active:[&_[data-slot=message]]:delay-0",
 } as const
 
-const MessageRow = ({ message }: { message: ChatMessage }) => {
+const MessageRow = ({ message, local = false }: { message: ChatMessage; local?: boolean }) => {
+  console.log(message, local)
   return (
     <article
       aria-label={`Message from ${message.from_name}`}
@@ -37,12 +37,24 @@ const MessageRow = ({ message }: { message: ChatMessage }) => {
         <span
           data-slot="message_from"
           className={cn(
-            "flex flex-row items-center gap-1 font-semibold  pb-0.5",
-            message.type === "direct" ? "text-fuel font-extrabold" : "text-foreground"
+            "flex flex-row items-center gap-1 font-semibold pb-0.5",
+            local ? "text-terminal font-extrabold"
+            : message.type === "direct" ? "text-fuel font-extrabold"
+            : "text-foreground"
           )}
         >
-          {message.from_name}
-          {message.type === "direct" && (
+          {message.type === "direct" && local && (
+            <>
+              <span className="font-semibold opacity-60 uppercase">you</span>
+              <CaretRightIcon weight="fill" className="size-[10px] opacity-30" />
+            </>
+          )}
+          {local ?
+            message.type === "direct" ?
+              message.to_name
+            : "You"
+          : message.from_name}
+          {message.type === "direct" && !local && (
             <>
               <CaretRightIcon weight="fill" className="size-[10px] opacity-30" />
               <span className="font-semibold opacity-60 uppercase">you</span>
@@ -53,15 +65,15 @@ const MessageRow = ({ message }: { message: ChatMessage }) => {
           data-slot="message_content"
           className={cn(
             "text-xxs leading-relaxed",
-            message.type === "direct" ?
-              "text-fuel-foreground font-semibold"
+            local ? "text-terminal-foreground font-semibold"
+            : message.type === "direct" ? "text-fuel-foreground font-semibold"
             : "text-muted-foreground"
           )}
         >
           {message.content}
         </p>
       </div>
-      <time dateTime={message.timestamp} className="w-13 text-right text-accent font-bold">
+      <time dateTime={message.timestamp} className={cn("w-13 text-right font-bold text-accent")}>
         [
         {new Date(message.timestamp).toLocaleTimeString([], {
           hour: "2-digit",
@@ -76,6 +88,7 @@ const MessageRow = ({ message }: { message: ChatMessage }) => {
 
 export const LogsPanel = () => {
   const messages = useGameStore.use.messages()
+  const player = useGameStore.use.player()
   const prevMessagesLengthRef = useRef(messages.length)
   const { AutoScrollAnchor, handleScroll, scrollToBottom } = useAutoScroll()
   const messageFilters = useGameStore.use.messageFilters()
@@ -181,7 +194,11 @@ export const LogsPanel = () => {
           <div className="table-cell align-bottom h-full p-ui-sm">
             <div className="flex flex-col gap-ui-md pb-10">
               {filteredMessages.map((message) => (
-                <MessageRow key={message.id} message={message} />
+                <MessageRow
+                  key={message.id}
+                  message={message}
+                  local={(player.name ?? "Unknown") === message.from_name}
+                />
               ))}
               <AutoScrollAnchor />
             </div>
