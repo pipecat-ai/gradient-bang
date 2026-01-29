@@ -179,6 +179,9 @@
   --shadow-long:
     0 28px 28px 18px rgba(0, 0, 0, 0.25), 0 25px 15px 0 rgba(0, 0, 0, 0.05),
     0 11px 11px 0 rgba(0, 0, 0, 0.09), 0 3px 6px 0 rgba(0, 0, 0, 0.1);
+  --shadow-medium:
+    0 16px 16px 6px rgba(0, 0, 0, 0.25), 0 15px 15px 0 rgba(0, 0, 0, 0.05),
+    0 8px 8px 0 rgba(0, 0, 0, 0.09), 0 3px 6px 0 rgba(0, 0, 0, 0.1);
   --shadow-short: 0px 10px 15px -3px rgb(0 0 0 / 0.05), 0px 4px 6px -2px rgb(0 0 0 / 0.02);
   --shadow-xshort:
     0px 7px 3px rgb(0 0 0 / 0.01), 0px 4px 2px rgb(0 0 0 / 0.03), 0px 2px 2px rgb(0 0 0 / 0.04),

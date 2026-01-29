@@ -101,7 +101,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
         maxDistance={4}
       />
       <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5">
-        <div className="h-[6px] dashed-bg-horizontal dashed-bg-white/30 shrink-0" />
+        <div className="h-[6px] dashed-bg-horizontal dashed-bg-foreground/30 shrink-0" />
         <div className="flex flex-row gap-1.5">
           <SectorBadge />
           <PortBadge />

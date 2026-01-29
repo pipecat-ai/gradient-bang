@@ -6,7 +6,7 @@ const customTwMerge = extendTailwindMerge({
     classGroups: {
       shadow: [
         {
-          shadow: ["glow-sm", "xshort", "short", "long", "xlong"],
+          shadow: ["glow-sm", "xshort", "short", "long", "xlong", "medium"],
         },
       ],
       "stripe-frame": [

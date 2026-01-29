@@ -23,9 +23,11 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline focus-visible:outline-0",
         tab: "relative bg-gradient-to-t from-transparent via-muted/40 via-50% to-muted/40 text-primary hover:text-muted-foreground hover:via-subtle/20 hover:to-subtle/20 hover:text-primary border border-b-0 [border-image:linear-gradient(to_top,transparent_0%,var(--color-border)_50%)_1] before:content-[''] before:absolute before:inset-x-px before:h-0 before:top-px before:bg-white/30 hover:before:h-1 @max-md/aside:hover:before:h-0.5 before:transition-colors before:duration-200 before:ease-in-out focus-outline",
         micEnabled:
-          "bg-primary/[.05] text-secondary-foreground hover:bg-primary/10 border-1 border-border outline-primary hover:outline-solid transition-[background,color] focus-hover",
+          "bg-success-background/60 text-secondary-foreground hover:bg-success-background border-1 border-success outline-primary hover:outline-solid transition-[background,color] focus-hover",
         micDisabled:
-          "bg-destructive-background/30 text-destructive-foreground border-1 border-destructive-background hover:bg-destructive-background/50 hover:border-destructive transition-[background,color] focus-hover hover:animate-outline-pulse",
+          "bg-destructive-background/60 text-destructive border-1 border-destructive hover:bg-destructive-background hover:border-destructive transition-[background,color] focus-hover hover:animate-outline-pulse",
+        micLoading:
+          "bg-muted/60 text-primary border-1 border-border transition-[background,color] disabled:opacity-100",
       },
       active: {
         true: "",
