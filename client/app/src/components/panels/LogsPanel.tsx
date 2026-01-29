@@ -38,8 +38,8 @@ const MessageRow = ({ message, local = false }: { message: ChatMessage; local?: 
           data-slot="message_from"
           className={cn(
             "flex flex-row items-center gap-1 font-semibold pb-0.5",
-            local ? "text-terminal font-extrabold"
-            : message.type === "direct" ? "text-fuel font-extrabold"
+            local ? "text-fuel font-extrabold"
+            : message.type === "direct" ? "text-terminal font-extrabold"
             : "text-foreground"
           )}
         >
@@ -65,8 +65,8 @@ const MessageRow = ({ message, local = false }: { message: ChatMessage; local?: 
           data-slot="message_content"
           className={cn(
             "text-xxs leading-relaxed",
-            local ? "text-terminal-foreground font-semibold"
-            : message.type === "direct" ? "text-fuel-foreground font-semibold"
+            local ? "text-fuel-foreground font-semibold"
+            : message.type === "direct" ? "text-terminal-foreground font-semibold"
             : "text-muted-foreground"
           )}
         >
