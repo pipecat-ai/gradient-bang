@@ -23,7 +23,7 @@ export const TopBar = () => {
   const corporation = useGameStore.use.corporation?.()
 
   return (
-    <header className="bg-subtle-background border-b p-1.5 flex flex-row items-center">
+    <header className="bg-subtle-background border-b p-1.5 flex flex-row items-center shadow-long">
       <div className="text-xs uppercase">
         <Badge variant="secondary" size="sm" border="bracket" className="h-8 bracket-size-8 px-2">
           <UserIcon weight="duotone" size={16} />

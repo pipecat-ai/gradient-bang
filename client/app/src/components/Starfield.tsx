@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo } from "react"
 
+import { motion } from "motion/react"
 import type { PerformanceProfile } from "@gradient-bang/starfield"
 import { generateRandomScene, useSceneChange } from "@gradient-bang/starfield"
 
@@ -24,6 +25,7 @@ const StarfieldFallback = () => (
 export const Starfield = () => {
   const settings = useGameStore.use.settings()
   const lookMode = useGameStore.use.lookMode()
+  const starfieldReady = useGameStore.use.starfieldReady()
   const setStarfieldReady = useGameStore.use.setStarfieldReady()
   const { changeScene } = useSceneChange()
 
@@ -32,6 +34,14 @@ export const Starfield = () => {
       imageAssets: skyboxImageList,
     }
   }, [])
+
+  // Blur any focused element when lookMode becomes active
+  // This prevents needing to click twice to interact with the starfield
+  useEffect(() => {
+    if (lookMode && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+  }, [lookMode])
 
   useEffect(() => {
     if (!settings.renderStarfield) return
@@ -61,11 +71,14 @@ export const Starfield = () => {
     return <StarfieldFallback />
   }
 
-  console.log("changeScene", changeScene)
-
   return (
     <Suspense fallback={null}>
-      <div className="absolute inset-0 z-(--z-starfield) overflow-hidden">
+      <motion.div
+        className="absolute inset-0 z-(--z-starfield) overflow-hidden"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: starfieldReady ? 1 : 0 }}
+        transition={{ duration: 1.5, ease: "easeOut" }}
+      >
         <StarfieldComponent
           profile={settings.qualityPreset as PerformanceProfile}
           config={starfieldConfig}
@@ -75,7 +88,7 @@ export const Starfield = () => {
           }}
           lookMode={lookMode}
         />
-      </div>
+      </motion.div>
     </Suspense>
   )
 }

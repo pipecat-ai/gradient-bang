@@ -37,15 +37,18 @@ export function generateRandomScene(
     randomPlanetShadowOpacity = Math.random() * 0.25 + 0.65
   }
 
-  // Sun
-  const randomSunIntensity = Math.random() * 0.4 + 0.2 // 0.1-0.5
-
   // Nebula - randomize iterations first, then adjust intensity based on iteration count
   const randomIterPrimary = Math.floor(Math.random() * 49) + 1 // 1-50
   const randomNebulaIntensity =
     randomIterPrimary > 20
       ? Math.random() * 0.4 // 0-0.4 for high primary iterations
       : Math.random() // 0-1 for low primary iterations
+
+  // Sun - reduce intensity when nebula is bright
+  const randomSunIntensity =
+    randomNebulaIntensity > 0.5
+      ? Math.random() * 0.2 + 0.1 // 0.1-0.3 for bright nebula
+      : Math.random() * 0.4 + 0.2 // 0.2-0.6 otherwise
   let randomIterSecondary: number
   if (randomIterPrimary < 5) {
     // Low primary: secondary should be 10-50

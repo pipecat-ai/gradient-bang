@@ -66,7 +66,7 @@ export const RHSPanelContainer = () => {
 
   return (
     <div
-      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/20 border-t border-l"
+      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/40 border-t border-l"
       id="panel-container"
     >
       <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert pointer-events-none" />
