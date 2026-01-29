@@ -27,9 +27,22 @@ export const Game = () => {
   useNotificationSound()
   const asidePanelRef = usePanelRef()
   const lookMode = useGameStore.use.lookMode()
+  const setLookMode = useGameStore.use.setLookMode?.()
 
   return (
     <>
+      {lookMode && (
+        <div className="fixed bottom-ui-lg z-90 inset-x-0 text-center">
+          <Button
+            variant="default"
+            size="lg"
+            onClick={() => setLookMode(false)}
+            className="mx-auto ring-4 ring-background/20 hover:bg-background"
+          >
+            Exit explore mode
+          </Button>
+        </div>
+      )}
       <Group
         orientation="horizontal"
         className={cn(
