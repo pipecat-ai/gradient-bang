@@ -13,7 +13,7 @@ const StarfieldComponent = lazy(() => import("@gradient-bang/starfield"))
 const skyboxImageList = Object.values(skyboxImages)
 
 const StarfieldFallback = () => (
-  <div className="absolute h-full inset-0 overflow-hidden bg-black z-(--z-starfield)">
+  <div className="absolute h-full inset-0 overflow-hidden bg-background z-(--z-starfield)">
     <img
       src={Splash}
       alt="Splash"

@@ -283,35 +283,6 @@ button {
   text-transform: uppercase;
 }
 
-/** UI **/
-.lhs-perspective {
-  transform: perspective(400px) rotateY(6.5deg) scaleX(1.2);
-  transform-origin: left center;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-
-.rhs-perspective {
-  transform: perspective(400px) rotateY(-6.5deg) scaleX(1.2);
-  transform-origin: right center;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-
-.top-rhs-perspective {
-  transform: perspective(400px) rotateY(-6.5deg) scaleX(1.2);
-  transform-origin: right top;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-
-.top-lhs-perspective {
-  transform: perspective(400px) rotateY(6.5deg) scaleX(1.2);
-  transform-origin: left top;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-
 /** FX **/
 
 .glitch {
