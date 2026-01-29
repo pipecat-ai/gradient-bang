@@ -61,6 +61,8 @@ export interface GameState {
   regional_map_data?: MapData
   course_plot?: CoursePlot
   messages: ChatMessage[]
+  messageFilters: "all" | "direct" | "broadcast" | "corporation"
+  setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
 
   /* Singleton Instances */
   starfieldReady: boolean
@@ -103,7 +105,7 @@ export interface GameSlice extends GameState {
   clearCoursePlot: () => void
   setStarfieldReady: (starfieldReady: boolean) => void
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) => void
-  getIncomingMessageLength: () => number
+  setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
 
   triggerAlert: (_ype: AlertTypes) => void
   setGameState: (gameState: GameInitState) => void
@@ -131,6 +133,7 @@ const createGameSlice: StateCreator<
   regional_map_data: undefined, // @TODO: move to map slice
   course_plot: undefined, // @TODO: move to map slice
   messages: [], // @TODO: move to chat slice
+  messageFilters: "all",
 
   starfieldReady: false,
   diamondFXInstance: undefined,
@@ -430,8 +433,17 @@ const createGameSlice: StateCreator<
       (message) => message.type === "direct" && message.from_name !== get().player.name
     ).length,
 
+  setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") =>
+    set({ messageFilters: filters }),
+
   setGameState: (gameState: GameInitState) => set({ gameState }),
 })
+
+// Selectors
+export const selectIncomingMessageCount = (state: GameSlice) =>
+  state.messages.filter(
+    (message) => message.type === "direct" && message.from_name !== state.player?.name
+  ).length
 
 const useGameStoreBase = create<
   GameSlice & ChatSlice & CombatSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice

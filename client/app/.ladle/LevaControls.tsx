@@ -4,6 +4,7 @@ import { PipecatClient } from "@pipecat-ai/client-js"
 
 import useGameStore from "@/stores/game"
 
+import { useChatControls } from "./useChatControls"
 import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
 
@@ -57,7 +58,7 @@ export const LevaControls = ({
 
     Chat: folder(
       {
-        ["Add Chat Message"]: button(() => {
+        ["Add System Message"]: button(() => {
           addChatMessage({
             role: "system",
             parts: [
@@ -151,6 +152,7 @@ export const LevaControls = ({
 
   useTaskControls()
   useMapControls()
+  useChatControls()
 
   return <Leva hidden={hidden} />
 }

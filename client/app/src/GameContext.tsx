@@ -763,6 +763,8 @@ export function GameProvider({ children }: GameProviderProps) {
                 data.from_name &&
                 data.from_name !== gameStore.player?.name
               ) {
+                // Show a nofication in the conversation panel
+                // @TODO: do not do this if chat window is open
                 gameStore.addActivityLogEntry({
                   type: "chat.direct",
                   message: `New direct message from [${data.from_name}]`,

@@ -77,7 +77,7 @@ export const Starfield = () => {
         className="absolute inset-0 z-(--z-starfield) overflow-hidden"
         initial={{ opacity: 0 }}
         animate={{ opacity: starfieldReady ? 1 : 0 }}
-        transition={{ duration: 1.5, ease: "easeOut" }}
+        transition={{ delay: 1, duration: 2, ease: "easeOut" }}
       >
         <StarfieldComponent
           profile={settings.qualityPreset as PerformanceProfile}
