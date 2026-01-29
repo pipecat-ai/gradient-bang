@@ -37,6 +37,9 @@ export interface UISlice {
 
   mapZoomLevel: number
   setMapZoomLevel: (zoomLevel: number) => void
+
+  lookMode: boolean
+  setLookMode: (lookMode: boolean) => void
 }
 
 export const createUISlice: StateCreator<UISlice> = (set, get) => ({
@@ -52,6 +55,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
 
   toasts: [],
   displayingToastId: null,
+  lookMode: false,
   setToasts: (toasts: Toast[]) => {
     set(
       produce((state) => {
@@ -170,6 +174,13 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.mapZoomLevel = zoomLevel
+      })
+    )
+  },
+  setLookMode: (lookMode: boolean) => {
+    set(
+      produce((state) => {
+        state.lookMode = lookMode
       })
     )
   },

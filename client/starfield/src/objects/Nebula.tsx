@@ -117,7 +117,7 @@ export const Nebula = () => {
           label: "Warp Offset Z",
         },
         warpDecay: {
-          value: 5.0,
+          value: nebulaConfig?.warpDecay ?? 5.0,
           min: 0.1,
           max: 20,
           step: 0.1,
@@ -142,6 +142,18 @@ export const Nebula = () => {
       })
     }
   }, [starfieldConfig.palette, palette, nebulaConfig, set])
+
+  // Sync nebula config changes to Leva controls (only set defined values, let Leva keep defaults)
+  useEffect(() => {
+    if (!nebulaConfig) return
+    const updates: Record<string, number> = {}
+    if (nebulaConfig.intensity !== undefined) updates.intensity = nebulaConfig.intensity
+    if (nebulaConfig.domainScale !== undefined) updates.domainScale = nebulaConfig.domainScale
+    if (nebulaConfig.iterPrimary !== undefined) updates.iterPrimary = nebulaConfig.iterPrimary
+    if (nebulaConfig.iterSecondary !== undefined) updates.iterSecondary = nebulaConfig.iterSecondary
+    if (nebulaConfig.warpDecay !== undefined) updates.warpDecay = nebulaConfig.warpDecay
+    set(updates)
+  }, [nebulaConfig, set])
 
   // Create shader material with uniforms from controls
   const material = useMemo(() => {

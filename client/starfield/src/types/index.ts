@@ -140,6 +140,7 @@ export interface NebulaConfig {
   seed2: number
   seed3: number
   rotation: [number, number, number]
+  warpDecay: number
 }
 
 /**
@@ -174,6 +175,7 @@ export interface MilkyWayConfig {
  */
 export interface TunnelConfig {
   enabled: boolean
+  showDuringAnimation: boolean
   speed: number
   rotationSpeed: number
   tunnelDepth: number

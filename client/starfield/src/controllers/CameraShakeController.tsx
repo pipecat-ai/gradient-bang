@@ -46,14 +46,14 @@ export function CameraShakeController({
             label: "Frequency (Hz)",
           },
           rampUpTime: {
-            value: 800,
+            value: 500,
             min: 50,
             max: 1000,
             step: 50,
             label: "Ramp Up Time (ms)",
           },
           settleTime: {
-            value: 1500,
+            value: 800,
             min: 100,
             max: 2000,
             step: 50,

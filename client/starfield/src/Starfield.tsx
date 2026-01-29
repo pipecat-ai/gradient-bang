@@ -2,7 +2,7 @@ import { memo, Suspense, useLayoutEffect, useRef } from "react"
 import { PerformanceMonitor, Stats } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
-import { Leva } from "leva"
+import { LevaPanel, useCreateStore } from "leva"
 import * as THREE from "three"
 
 import { RenderingIndicator } from "@/components/RenderingIndicator"
@@ -27,9 +27,11 @@ import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
 
 interface StarfieldBaseProps {
+  lookMode?: boolean
   config?: Partial<StarfieldConfig>
   profile?: PerformanceProfile
   debug?: boolean
+  className?: string
 }
 
 export interface StarfieldProps extends StarfieldBaseProps {
@@ -44,12 +46,15 @@ export interface StarfieldProps extends StarfieldBaseProps {
 export function StarfieldComponent({
   config,
   debug = false,
+  lookMode = true,
   profile,
+  className,
 }: StarfieldBaseProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const isPaused = useGameStore((state) => state.isPaused)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const callbacks = useCallbackStore((state) => state)
+  const starfieldStore = useCreateStore()
 
   usePerformanceProfile({ initialProfile: profile })
 
@@ -71,7 +76,11 @@ export function StarfieldComponent({
 
   return (
     <>
-      <Leva hidden={!debug} />
+      <LevaPanel
+        hidden={!debug}
+        titleBar={{ title: "Starfield" }}
+        store={starfieldStore}
+      />
 
       <Canvas
         frameloop={isPaused ? "never" : "demand"}
@@ -95,6 +104,7 @@ export function StarfieldComponent({
           }
           callbacks.onCreated?.()
         }}
+        className={className}
       >
         <PerformanceMonitor
           onIncline={() => {
@@ -125,7 +135,7 @@ export function StarfieldComponent({
             <Planet />
           </Suspense>
 
-          <CameraController debug={debug} />
+          <CameraController enabled={lookMode} />
           <EffectChainingController />
           <SceneController />
           <PostProcessingMemo />

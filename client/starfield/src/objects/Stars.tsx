@@ -102,14 +102,14 @@ export const Stars = () => {
         label: "Blending Mode",
       },
       opacityMin: {
-        value: 0.1,
+        value: 0.2,
         min: 0,
         max: 1,
         step: 0.01,
         label: "Opacity Min",
       },
       opacityMax: {
-        value: 0.4,
+        value: 0.6,
         min: 0,
         max: 1,
         step: 0.01,

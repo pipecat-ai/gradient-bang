@@ -23,7 +23,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
   const localMapData = useGameStore((state) => state.local_map_data)
   const ships = useGameStore.use.ships?.()
   const coursePlot = useGameStore.use.course_plot?.()
-
+  const setLookMode = useGameStore.use.setLookMode?.()
   const shipSectors = ships?.data
     ?.filter((s: ShipSelf) => s.owner_type !== "personal")
     .map((s: ShipSelf) => s.sector ?? 0)
@@ -45,7 +45,11 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
             <ArrowUpLeftIcon size={20} className="size-5" />
             <span className="flex-1 text-xs px-4">View map</span>
           </Button>
-          <Button variant="outline" className="shrink-0 bg-background hover:bg-accent-background">
+          <Button
+            variant="outline"
+            className="shrink-0 bg-background hover:bg-accent-background"
+            onClick={() => setLookMode(true)}
+          >
             <SphereIcon size={20} className="size-5" />
             <span className="flex-1 text-xs px-4">Look around</span>
           </Button>

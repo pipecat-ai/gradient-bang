@@ -91,6 +91,14 @@ export const Sun = () => {
     }
   }, [starfieldConfig.palette, palette, sunConfig, set])
 
+  // Sync sun config changes to Leva controls (only set defined values, let Leva keep defaults)
+  useEffect(() => {
+    if (!sunConfig) return
+    const updates: Record<string, number> = {}
+    if (sunConfig.intensity !== undefined) updates.intensity = sunConfig.intensity
+    set(updates)
+  }, [sunConfig, set])
+
   // Create shader material for the sun (only once)
   const sunMaterial = useMemo(() => {
     return new THREE.ShaderMaterial({

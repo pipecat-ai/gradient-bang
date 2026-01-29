@@ -94,9 +94,12 @@ const ShipDetailsItem = ({ label, icon, value, showBorder = true }: ShipDetailsI
 export const ShipDetails = ({ ship }: { ship: ShipDefinition }) => {
   const shipImage = SHIP_IMAGE_MAP[ship.ship_type as keyof typeof SHIP_IMAGE_MAP]
   const shipLogo = SHIP_LOGO_MAP[ship.ship_type as keyof typeof SHIP_LOGO_MAP]
+  const sector = useGameStore.use.sector?.()
   const setActiveScreen = useGameStore.use.setActiveScreen?.()
   const { sendUserTextInput } = useGameContext()
   const [imageLoading, setImageLoading] = useState(true)
+
+  const isMegaPort = sector?.port?.code === "SSS"
 
   return (
     <div className="relative flex flex-row gap-ui-md">
@@ -198,8 +201,16 @@ export const ShipDetails = ({ ship }: { ship: ShipDefinition }) => {
               )
               setActiveScreen(undefined)
             }}
+            disabled={!isMegaPort}
+            className={
+              !isMegaPort ?
+                "relative after:content-[''] after:absolute after:inset-0 after:bg-stripes-sm after:bg-stripes-border"
+              : ""
+            }
           >
-            Request to buy
+            <span className={isMegaPort ? "" : "relative z-10 text-foreground"}>
+              {isMegaPort ? "Request to buy" : "Available at Mega-Port"}
+            </span>
           </Button>
           <Button
             variant="secondary"

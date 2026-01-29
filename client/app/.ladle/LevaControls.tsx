@@ -1,4 +1,5 @@
 import { button, buttonGroup, folder, Leva, useControls } from "leva"
+import { faker } from "@faker-js/faker"
 import { PipecatClient } from "@pipecat-ai/client-js"
 
 import useGameStore from "@/stores/game"
@@ -48,6 +49,11 @@ export const LevaControls = ({
         setSector({ ...SECTOR_MOCK, id: value, position: [0, 0], port: MEGA_PORT_MOCK } as Sector)
       },
     },
+
+    ["Look Around"]: button(() => {
+      const lookMode = useGameStore.getState().lookMode
+      useGameStore.getState().setLookMode(!lookMode)
+    }),
 
     Chat: folder(
       {

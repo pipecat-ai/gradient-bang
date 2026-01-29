@@ -12,17 +12,23 @@ export type TunnelSpringValues = {
 
 export function useTunnelAnimationSpring(runtime: AnimationRuntime) {
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
+  const showDuringAnimation = useGameStore(
+    (state) => state.starfieldConfig.tunnel?.showDuringAnimation ?? false
+  )
 
   // Hard-coded timings for now
   const enterDuration = 1500 // 1.5 seconds to enter
   const exitDuration = 1000 // 1 second to exit
 
+  // Only animate if showDuringAnimation is enabled
+  const shouldAnimate = isSceneChanging && showDuringAnimation
+
   const tunnelSpring = useSpring<TunnelSpringValues>({
-    tunnelOpacity: isSceneChanging ? 1.0 : 0.0,
-    tunnelDepth: isSceneChanging ? 0.1 : 0.3,
-    tunnelRotationSpeed: isSceneChanging ? 0.15 : 0.0,
+    tunnelOpacity: shouldAnimate ? 1.0 : 0.0,
+    tunnelDepth: shouldAnimate ? 0.1 : 0.3,
+    tunnelRotationSpeed: shouldAnimate ? 0.15 : 0.0,
     config: () =>
-      isSceneChanging
+      shouldAnimate
         ? { duration: enterDuration, easing: easings.easeInOutCubic }
         : { duration: exitDuration, easing: easings.easeOutExpo },
     onStart: runtime.start,

@@ -15,16 +15,41 @@ import { Starfield } from "@/components/Starfield"
 import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { TopBar } from "@/components/TopBar"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
+import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
 
 import { Button } from "../primitives/Button"
+
+const disabledCx = "pointer-events-none opacity-0"
+const enabledCx = "pointer-events-auto opacity-100"
 
 export const Game = () => {
   useNotificationSound()
   const asidePanelRef = usePanelRef()
+  const lookMode = useGameStore.use.lookMode()
+  const setLookMode = useGameStore.use.setLookMode?.()
 
   return (
     <>
-      <Group orientation="horizontal" className="relative z-(--z-ui)">
+      {lookMode && (
+        <div className="fixed bottom-ui-lg z-90 inset-x-0 text-center">
+          <Button
+            variant="default"
+            size="lg"
+            onClick={() => setLookMode(false)}
+            className="mx-auto ring-4 ring-background/20 hover:bg-background"
+          >
+            Exit explore mode
+          </Button>
+        </div>
+      )}
+      <Group
+        orientation="horizontal"
+        className={cn(
+          "relative z-(--z-ui) transition-opacity duration-500",
+          lookMode ? disabledCx : enabledCx
+        )}
+      >
         <Panel className="flex flex-col">
           <TopBar />
           <main className="flex-1 flex flex-col gap-0 @container/main">
@@ -74,8 +99,8 @@ export const Game = () => {
       <ScreenContainer />
 
       {/* Other Renderables */}
-      <ToastContainer />
       <Starfield />
+      <ToastContainer />
       <Settings />
       <PipecatClientAudio />
     </>

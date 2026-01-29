@@ -18,7 +18,6 @@ export const Tunnel = () => {
   const { camera } = useThree()
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const { tunnel: tunnelConfig } = starfieldConfig
-  const isSceneChanging = useGameStore((state) => state.isSceneChanging)
 
   const runtime = useAnimationRuntime()
   const { tunnelOpacity, tunnelDepth, tunnelRotationSpeed } =
@@ -29,7 +28,11 @@ export const Tunnel = () => {
       {
         enabled: {
           value: tunnelConfig?.enabled ?? false,
-          label: "Enable Tunnel (Manual)",
+          label: "Always Show (Manual)",
+        },
+        showDuringAnimation: {
+          value: tunnelConfig?.showDuringAnimation ?? false,
+          label: "Show During Scene Change",
         },
         speed: {
           value: tunnelConfig?.speed ?? 0.5,
@@ -147,6 +150,11 @@ export const Tunnel = () => {
   useFrame((state, delta) => {
     if (!meshRef.current) return
 
+    // Skip updates if tunnel is not active
+    // - If enabled: always update (manual mode)
+    // - If not enabled: only update if animation opacity > 0
+    if (!controls.enabled && tunnelOpacity.get() <= 0) return
+
     const mat = meshRef.current.material as THREE.ShaderMaterial
     if (mat.uniforms) {
       mat.uniforms.uTime.value = state.clock.elapsedTime
@@ -178,8 +186,11 @@ export const Tunnel = () => {
     meshRef.current.position.copy(camera.position)
   })
 
+  // Render if:
+  // - enabled (manual mode, always visible)
+  // - animation opacity > 0 (showDuringAnimation is active during scene change)
   const currentOpacity = tunnelOpacity.get()
-  const shouldRender = controls.enabled || currentOpacity > 0 || isSceneChanging
+  const shouldRender = controls.enabled || currentOpacity > 0
 
   if (!shouldRender) return null
 

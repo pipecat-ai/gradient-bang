@@ -1,6 +1,9 @@
 // Images
 export const images = {
   splash1: new URL("./images/splash-1.png", import.meta.url).href,
+} as const
+
+export const skyboxImages = {
   skybox1: new URL("./images/skybox-1.png", import.meta.url).href,
   skybox2: new URL("./images/skybox-2.png", import.meta.url).href,
   skybox3: new URL("./images/skybox-3.png", import.meta.url).href,

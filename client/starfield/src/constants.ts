@@ -20,7 +20,7 @@ export const SCENE_TRANSITION_TIMING = {
   // Time to wait between scenes after a warp animation completes
   POST_WARP_PAUSE: 2000,
   // Time to wait between scenes for instant (bypassed) transitions
-  POST_INSTANT_PAUSE: 2000,
+  POST_INSTANT_PAUSE: 500,
   // Time to wait before applying instant (non-animated) scene changes
   PRE_INSTANT_DELAY: 800,
   // Cooldown period after warp where all scenes bypass animation (0 = disabled)
