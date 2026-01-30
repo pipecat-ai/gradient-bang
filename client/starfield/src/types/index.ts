@@ -18,6 +18,7 @@ export interface StarfieldConfig {
   shakeIntensity?: number
   shakeRelaxTime?: number
   layerDimDuration?: number
+  exposureDuration?: number
   shockwave: {
     shockwaveEnabled?: boolean
     shockwaveSpeed?: number
@@ -178,7 +179,7 @@ export interface MilkyWayConfig {
  */
 export interface TunnelConfig {
   enabled: boolean
-  showDuringAnimation: boolean
+  showDuringWarp: boolean
   speed: number
   rotationSpeed: number
   tunnelDepth: number
@@ -189,6 +190,8 @@ export interface TunnelConfig {
   noiseAnimationSpeed: number
   opacity: number
   contrast: number
+  centerHole: number
+  centerSoftness: number
 }
 
 /**

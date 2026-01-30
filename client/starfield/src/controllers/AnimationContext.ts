@@ -2,6 +2,7 @@ import { createContext } from "react"
 import type { SpringValue } from "@react-spring/three"
 
 import type { DimSpringValues } from "@/animations/dim"
+import type { ExposureSpringValues } from "@/animations/exposure"
 import type { WarpSpringValues } from "@/animations/warp"
 
 /**
@@ -38,7 +39,8 @@ export type AnimationContextValue = WarpSpringValues &
   WarpMetadata &
   DimSpringValues &
   DimMetadata &
-  ShockwaveMetadata
+  ShockwaveMetadata &
+  ExposureSpringValues
 
 export const AnimationContext = createContext<AnimationContextValue | null>(
   null

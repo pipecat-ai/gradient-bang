@@ -12,16 +12,16 @@ export type TunnelSpringValues = {
 
 export function useTunnelAnimationSpring(runtime: AnimationRuntime) {
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
-  const showDuringAnimation = useGameStore(
-    (state) => state.starfieldConfig.tunnel?.showDuringAnimation ?? false
+  const showDuringWarp = useGameStore(
+    (state) => state.starfieldConfig.tunnel?.showDuringWarp ?? false
   )
 
   // Hard-coded timings for now
   const enterDuration = 1500 // 1.5 seconds to enter
   const exitDuration = 1000 // 1 second to exit
 
-  // Only animate if showDuringAnimation is enabled
-  const shouldAnimate = isSceneChanging && showDuringAnimation
+  // Only animate if showDuringWarp is enabled
+  const shouldAnimate = isSceneChanging && showDuringWarp
 
   const tunnelSpring = useSpring<TunnelSpringValues>({
     tunnelOpacity: shouldAnimate ? 1.0 : 0.0,

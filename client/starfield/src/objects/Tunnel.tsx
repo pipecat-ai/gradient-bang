@@ -1,27 +1,30 @@
-import { useMemo, useRef } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
 
-import { useAnimationRuntime } from "@/animations/runtime"
-import { useTunnelAnimationSpring } from "@/animations/tunnel"
 import { LAYERS } from "@/constants"
 import {
   tunnelFragmentShader,
   tunnelVertexShader,
 } from "@/shaders/TunnelShader"
+import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
 
 export const Tunnel = () => {
   const meshRef = useRef<THREE.Mesh>(null)
   const rotationAngleRef = useRef(0)
-  const { camera } = useThree()
+  const progressRef = useRef(0) // 0-1 animation progress
+  const [isVisible, setIsVisible] = useState(false)
+  const { camera, invalidate } = useThree()
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
-  const { tunnel: tunnelConfig } = starfieldConfig
+  const {
+    tunnel: tunnelConfig,
+    hyperspaceEnterTime = 1000,
+    hyperspaceExitTime = 1000,
+  } = starfieldConfig
 
-  const runtime = useAnimationRuntime()
-  const { tunnelOpacity, tunnelDepth, tunnelRotationSpeed } =
-    useTunnelAnimationSpring(runtime)
+  const isWarping = useAnimationStore((state) => state.isWarping)
 
   const [controls] = useControls(() => ({
     Tunnel: folder(
@@ -30,19 +33,19 @@ export const Tunnel = () => {
           value: tunnelConfig?.enabled ?? false,
           label: "Always Show (Manual)",
         },
-        showDuringAnimation: {
-          value: tunnelConfig?.showDuringAnimation ?? false,
-          label: "Show During Scene Change",
+        showDuringWarp: {
+          value: tunnelConfig?.showDuringWarp ?? true,
+          label: "Show During Warp",
         },
         speed: {
-          value: tunnelConfig?.speed ?? 0.5,
+          value: tunnelConfig?.speed ?? 1,
           min: 0,
           max: 10,
           step: 0.1,
           label: "Speed",
         },
         rotationSpeed: {
-          value: tunnelConfig?.rotationSpeed ?? 0,
+          value: tunnelConfig?.rotationSpeed ?? 0.1,
           min: 0,
           max: 2,
           step: 0.05,
@@ -58,7 +61,7 @@ export const Tunnel = () => {
         color: {
           value: tunnelConfig?.color
             ? `#${new THREE.Color(tunnelConfig.color).getHexString()}`
-            : "#779be5",
+            : "#FFFFFF",
           label: "Tunnel Color",
         },
         blendMode: {
@@ -74,29 +77,36 @@ export const Tunnel = () => {
           label: "Noise Animation Speed",
         },
         opacity: {
-          value: tunnelConfig?.opacity ?? 0.15,
+          value: tunnelConfig?.opacity ?? 1,
           min: 0,
           max: 1,
           step: 0.05,
           label: "Opacity",
         },
         contrast: {
-          value: tunnelConfig?.contrast ?? 1.0,
+          value: tunnelConfig?.contrast ?? 0.4,
           min: 0.0,
           max: 3.0,
           step: 0.1,
           label: "Contrast/Harshness",
         },
+        centerHole: {
+          value: tunnelConfig?.centerHole ?? 12.0,
+          min: 0.0,
+          max: 20.0,
+          step: 0.1,
+          label: "Center Hole",
+        },
+        centerSoftness: {
+          value: tunnelConfig?.centerSoftness ?? 1,
+          min: 0.0,
+          max: 1.0,
+          step: 0.05,
+          label: "Center Softness",
+        },
         followCamera: {
           value: false,
           label: "Follow Camera",
-        },
-        segments: {
-          value: 32,
-          min: 16,
-          max: 128,
-          step: 8,
-          label: "Sphere Segments",
         },
       },
       { collapsed: true }
@@ -134,6 +144,8 @@ export const Tunnel = () => {
         noiseAnimationSpeed: { value: controls.noiseAnimationSpeed },
         opacity: { value: controls.opacity },
         contrast: { value: controls.contrast },
+        centerHole: { value: controls.centerHole },
+        centerSoftness: { value: controls.centerSoftness },
         followCamera: { value: controls.followCamera },
       },
       vertexShader: tunnelVertexShader,
@@ -150,32 +162,75 @@ export const Tunnel = () => {
   useFrame((state, delta) => {
     if (!meshRef.current) return
 
+    // Update progress: fade in when warping, fade out when not
+    const enterDuration = hyperspaceEnterTime / 1000
+    const exitDuration = (hyperspaceExitTime * 2) / 1000
+
+    if (isWarping) {
+      progressRef.current = Math.min(
+        1,
+        progressRef.current + delta / enterDuration
+      )
+    } else if (progressRef.current > 0) {
+      progressRef.current = Math.max(
+        0,
+        progressRef.current - delta / exitDuration
+      )
+    }
+
+    const progress = progressRef.current
+    const isActive = progress > 0
+
+    // Update visibility state (only when it changes to avoid re-renders)
+    if (isActive !== isVisible) {
+      setIsVisible(isActive)
+    }
+
     // Skip updates if tunnel is not active
-    // - If enabled: always update (manual mode)
-    // - If not enabled: only update if animation opacity > 0
-    if (!controls.enabled && tunnelOpacity.get() <= 0) return
+    if (!controls.enabled && (!controls.showDuringWarp || !isActive)) return
 
     const mat = meshRef.current.material as THREE.ShaderMaterial
     if (mat.uniforms) {
       mat.uniforms.uTime.value = state.clock.elapsedTime
+
       mat.uniforms.speed.value = controls.speed
 
-      let currentRotationSpeed: number
+      // tunnelDepth stays constant (animating it causes noise flicker)
+      mat.uniforms.tunnelDepth.value = controls.tunnelDepth
+
       if (controls.enabled) {
-        mat.uniforms.tunnelDepth.value = controls.tunnelDepth
+        // Manual mode - use control values directly
         mat.uniforms.opacity.value = controls.opacity
-        currentRotationSpeed = controls.rotationSpeed
+        mat.uniforms.contrast.value = controls.contrast
+        mat.uniforms.centerHole.value = controls.centerHole
+        mat.uniforms.centerSoftness.value = controls.centerSoftness
       } else {
-        mat.uniforms.tunnelDepth.value = tunnelDepth.get()
-        mat.uniforms.opacity.value = tunnelOpacity.get()
-        currentRotationSpeed = tunnelRotationSpeed.get()
+        // Animate values with progress
+        mat.uniforms.opacity.value = controls.opacity * progress
+        mat.uniforms.contrast.value = THREE.MathUtils.lerp(
+          0.1,
+          controls.contrast,
+          progress
+        )
+        mat.uniforms.centerHole.value = THREE.MathUtils.lerp(
+          controls.centerHole,
+          6,
+          progress
+        )
+        mat.uniforms.centerSoftness.value = THREE.MathUtils.lerp(
+          controls.centerSoftness,
+          0.5,
+          progress
+        )
       }
 
-      rotationAngleRef.current += currentRotationSpeed * delta
+      const rotationSpeed = controls.enabled
+        ? controls.rotationSpeed
+        : controls.rotationSpeed * progress
+      rotationAngleRef.current += rotationSpeed * delta
       mat.uniforms.rotationAngle.value = rotationAngleRef.current
 
       mat.uniforms.noiseAnimationSpeed.value = controls.noiseAnimationSpeed
-      mat.uniforms.contrast.value = controls.contrast
       mat.uniforms.followCamera.value = controls.followCamera
 
       const colorObj = new THREE.Color(controls.color)
@@ -184,13 +239,18 @@ export const Tunnel = () => {
 
     mat.blending = getBlendMode(controls.blendMode)
     meshRef.current.position.copy(camera.position)
+
+    // Keep rendering while active
+    if (isActive) {
+      invalidate()
+    }
   })
 
   // Render if:
   // - enabled (manual mode, always visible)
-  // - animation opacity > 0 (showDuringAnimation is active during scene change)
-  const currentOpacity = tunnelOpacity.get()
-  const shouldRender = controls.enabled || currentOpacity > 0
+  // - showDuringWarp and (warp active OR our animation is active)
+  const shouldRender =
+    controls.enabled || (controls.showDuringWarp && (isWarping || isVisible))
 
   if (!shouldRender) return null
 
@@ -202,7 +262,7 @@ export const Tunnel = () => {
       layers={LAYERS.FOREGROUND}
       renderOrder={999}
     >
-      <sphereGeometry args={[100, controls.segments, controls.segments]} />
+      <sphereGeometry args={[100, 16, 16]} />
     </mesh>
   )
 }

@@ -18,11 +18,17 @@ import * as THREE from "three"
 import { getPalette } from "@/colors"
 import { LAYERS } from "@/constants"
 import { DitheringEffect } from "@/fx/DitherEffect"
+import { ExposureEffect } from "@/fx/ExposureEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
 import { ScanlineEffect } from "@/fx/ScanlineEffect"
 import { SharpenEffect } from "@/fx/SharpenEffect"
 import { TintEffect } from "@/fx/TintEffect"
-import { useLayerDim, useShockwave, useWarpAnimation } from "@/hooks/animations"
+import {
+  useExposure,
+  useLayerDim,
+  useShockwave,
+  useWarpAnimation,
+} from "@/hooks/animations"
 import { useGameStore } from "@/useGameStore"
 
 /**
@@ -35,13 +41,16 @@ export const PostProcessing = () => {
 
   // Effect instances - updated in useFrame for animation, rebuilt on config changes
   const bloomEffectRef = useRef<BloomEffect | null>(null)
+  const bloomPassRef = useRef<EffectPass | null>(null)
   const vignetteEffectRef = useRef<VignetteEffect | null>(null)
+  const vignettePassRef = useRef<EffectPass | null>(null)
   const shockWaveEffectRef = useRef<ShockWaveEffect | null>(null)
   const layerDimEffectRef = useRef<LayerDimEffect | null>(null)
   const tintEffectRef = useRef<TintEffect | null>(null)
   const ditheringEffectRef = useRef<DitheringEffect | null>(null)
   const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
   const sharpenEffectRef = useRef<SharpenEffect | null>(null)
+  const exposureEffectRef = useRef<ExposureEffect | null>(null)
 
   // Shockwave animation state
   const shockwaveEpicenterRef = useRef(new THREE.Vector3())
@@ -355,6 +364,15 @@ export const PostProcessing = () => {
           },
           { collapsed: true }
         ),
+        Exposure: folder(
+          {
+            exposureEnabled: {
+              value: true,
+              label: "Enable Exposure",
+            },
+          },
+          { collapsed: true }
+        ),
       },
       { collapsed: true, order: -1 }
     ),
@@ -402,17 +420,27 @@ export const PostProcessing = () => {
 
     // 1. Effect passes that sit in the background
     if (ppUniforms.bloomEnabled) {
-      const bloom = new BloomEffect({
-        luminanceThreshold: ppUniforms.bloomThreshold,
-        intensity: ppUniforms.bloomIntensity,
-        radius: ppUniforms.bloomRadius,
-        mipmapBlur: true,
-      })
-      bloomEffectRef.current = bloom
-      orderedEffectPasses.push(new EffectPass(camera, bloom))
+      let bloom = bloomEffectRef.current
+      if (!bloom) {
+        bloom = new BloomEffect({
+          luminanceThreshold: ppUniforms.bloomThreshold,
+          intensity: ppUniforms.bloomIntensity,
+          radius: ppUniforms.bloomRadius,
+          mipmapBlur: true,
+        })
+        bloomEffectRef.current = bloom
+      } else {
+        bloom.intensity = ppUniforms.bloomIntensity
+        bloom.mipmapBlurPass.radius = ppUniforms.bloomRadius
+        bloom.luminanceMaterial.threshold = ppUniforms.bloomThreshold
+      }
+
+      if (!bloomPassRef.current) {
+        bloomPassRef.current = new EffectPass(camera, bloom)
+      }
+      orderedEffectPasses.push(bloomPassRef.current)
     } else {
-      bloomEffectRef.current?.dispose()
-      bloomEffectRef.current = null
+      bloomPassRef.current = null
     }
 
     if (ppUniforms.shockwaveEnabled) {
@@ -444,15 +472,24 @@ export const PostProcessing = () => {
 
     // 2. Vignette
     if (ppUniforms.vignetteEnabled) {
-      const vignette = new VignetteEffect({
-        offset: ppUniforms.vignetteOffset,
-        darkness: ppUniforms.vignetteDarkness,
-      })
-      vignetteEffectRef.current = vignette
-      orderedEffectPasses.push(new EffectPass(camera, vignette))
+      let vignette = vignetteEffectRef.current
+      if (!vignette) {
+        vignette = new VignetteEffect({
+          offset: ppUniforms.vignetteOffset,
+          darkness: ppUniforms.vignetteDarkness,
+        })
+        vignetteEffectRef.current = vignette
+      } else {
+        vignette.offset = ppUniforms.vignetteOffset
+        vignette.darkness = ppUniforms.vignetteDarkness
+      }
+
+      if (!vignettePassRef.current) {
+        vignettePassRef.current = new EffectPass(camera, vignette)
+      }
+      orderedEffectPasses.push(vignettePassRef.current)
     } else {
-      vignetteEffectRef.current?.dispose()
-      vignetteEffectRef.current = null
+      vignettePassRef.current = null
     }
 
     // 3. Grading
@@ -496,17 +533,15 @@ export const PostProcessing = () => {
       composer.addPass(hueSaturationPass)
     }
 
-    // 4. Dithering effect
-    if (ppUniforms.ditheringEnabled) {
-      const dither = new DitheringEffect({
-        gridSize: ppUniforms.ditheringGridSize ?? 3,
-        pixelSizeRatio: ppUniforms.ditheringPixelSizeRatio ?? 1,
-        grayscaleOnly: ppUniforms.ditheringGrayscaleOnly ?? false,
-        blendFunction: ppUniforms.ditheringBlendMode ?? BlendFunction.SET,
-      })
-      ditheringEffectRef.current = dither
-      orderedEffectPasses.push(new EffectPass(camera, dither))
-    }
+    // 4. Dithering effect (always on)
+    const dither = new DitheringEffect({
+      gridSize: ppUniforms.ditheringGridSize ?? 3,
+      pixelSizeRatio: ppUniforms.ditheringPixelSizeRatio ?? 1,
+      grayscaleOnly: ppUniforms.ditheringGrayscaleOnly ?? false,
+      blendFunction: ppUniforms.ditheringBlendMode ?? BlendFunction.SET,
+    })
+    ditheringEffectRef.current = dither
+    orderedEffectPasses.push(new EffectPass(camera, dither))
 
     // 5. Scanline effect
     if (ppUniforms.scanlinesEnabled) {
@@ -517,9 +552,12 @@ export const PostProcessing = () => {
       })
       scanlineEffectRef.current = scanline
       orderedEffectPasses.push(new EffectPass(camera, scanline))
+    } else {
+      scanlineEffectRef.current?.dispose()
+      scanlineEffectRef.current = null
     }
 
-    // 6. Sharpening - place last for max impact
+    // 6. Sharpening
     if (ppUniforms.sharpeningEnabled) {
       const sharpen = new SharpenEffect({
         intensity: ppUniforms.sharpeningIntensity,
@@ -531,6 +569,16 @@ export const PostProcessing = () => {
     } else {
       sharpenEffectRef.current?.dispose()
       sharpenEffectRef.current = null
+    }
+
+    // 7. Exposure - placed last for true fade to black
+    if (ppUniforms.exposureEnabled) {
+      const exposure = new ExposureEffect({ exposure: 1.0 })
+      exposureEffectRef.current = exposure
+      orderedEffectPasses.push(new EffectPass(camera, exposure))
+    } else {
+      exposureEffectRef.current?.dispose()
+      exposureEffectRef.current = null
     }
 
     orderedEffectPasses.forEach((pass) => composer.addPass(pass))
@@ -556,6 +604,7 @@ export const PostProcessing = () => {
   const warp = useWarpAnimation()
   const { shockwaveSequence } = useShockwave()
   const { dimOpacity } = useLayerDim()
+  const { exposureValue } = useExposure()
 
   // Animation uniform updates
   useFrame(({ gl, camera: currentCamera }) => {
@@ -606,7 +655,7 @@ export const PostProcessing = () => {
         ditheringEffect.uniforms.get("pixelSizeRatio")!.value =
           THREE.MathUtils.lerp(
             ppUniforms.ditheringPixelSizeRatio,
-            ppUniforms.ditheringPixelSizeRatio * 12,
+            ppUniforms.ditheringPixelSizeRatio * 6,
             easedProgress
           )
       } else {
@@ -618,28 +667,26 @@ export const PostProcessing = () => {
       }
     }
 
-    const bloomEffect = bloomEffectRef.current
-    if (bloomEffect) {
+    if (ppUniforms.bloomEnabled && bloomEffectRef.current) {
       const easedProgress = warp.isWarping
         ? easings.easeInCubic(progress)
         : easings.easeOutExpo(progress)
 
-      bloomEffect.intensity = THREE.MathUtils.lerp(
+      bloomEffectRef.current.intensity = THREE.MathUtils.lerp(
         ppUniforms.bloomIntensity,
         hyerpspaceUniforms.bloomIntensity,
         easedProgress
       )
-      bloomEffect.mipmapBlurPass.radius = THREE.MathUtils.lerp(
+      bloomEffectRef.current.mipmapBlurPass.radius = THREE.MathUtils.lerp(
         ppUniforms.bloomRadius,
         hyerpspaceUniforms.bloomRadius,
         easedProgress
       )
     }
 
-    const vignetteEffect = vignetteEffectRef.current
-    if (vignetteEffect) {
+    if (ppUniforms.vignetteEnabled && vignetteEffectRef.current) {
       const earlyProgress = THREE.MathUtils.clamp(progress / 0.4, 0, 1)
-      vignetteEffect.darkness = THREE.MathUtils.lerp(
+      vignetteEffectRef.current.darkness = THREE.MathUtils.lerp(
         ppUniforms.vignetteDarkness,
         hyerpspaceUniforms.vignetteAmount,
         earlyProgress
@@ -674,6 +721,32 @@ export const PostProcessing = () => {
         layerDimEffect.maskTexture !== gameObjectsMaskRef.current.texture
       ) {
         layerDimEffect.maskTexture = gameObjectsMaskRef.current.texture
+      }
+    }
+
+    // Update exposure effect - driven by warp progress during warps
+    const exposureEffect = exposureEffectRef.current
+    if (exposureEffect) {
+      if (progress > 0.001) {
+        // During warp animation, fade based on progress
+        // Fade out: progress 0.7 → 1.0 maps to exposure 1.0 → 0.0
+        // Fade in: progress 1.0 → 0.0 maps to exposure 0.0 → 1.0
+        if (warp.isWarping) {
+          // Entering warp - fade out as we approach peak
+          const fadeOutStart = 0.7
+          const fadeProgress = THREE.MathUtils.clamp(
+            (progress - fadeOutStart) / (1 - fadeOutStart),
+            0,
+            1
+          )
+          exposureEffect.exposure = 1 - fadeProgress
+        } else {
+          // Exiting warp - fade back in
+          exposureEffect.exposure = 1 - progress
+        }
+      } else {
+        // Not warping - use manual exposure value
+        exposureEffect.exposure = exposureValue.get()
       }
     }
 

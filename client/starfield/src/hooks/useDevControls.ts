@@ -27,6 +27,8 @@ export const useDevControls = ({
   const stopWarp = useAnimationStore((state) => state.stopWarp)
   const isDimmed = useAnimationStore((state) => state.isDimmed)
   const setIsDimmed = useAnimationStore((state) => state.setIsDimmed)
+  const exposure = useAnimationStore((state) => state.exposure)
+  const setExposure = useAnimationStore((state) => state.setExposure)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
@@ -199,11 +201,27 @@ export const useDevControls = ({
             },
             { collapsed: true }
           ),
+          Exposure: folder(
+            {
+              ["Fade Out"]: button(() => {
+                setExposure(0)
+              }),
+              ["Fade In"]: button(() => {
+                setExposure(1)
+              }),
+              exposureStatus: {
+                value: exposure === 1 ? "100%" : exposure === 0 ? "0%" : `${Math.round(exposure * 100)}%`,
+                editable: false,
+                label: "Exposure",
+              },
+            },
+            { collapsed: true }
+          ),
         },
         { collapsed: true, order: PANEL_ORDERING.TRIGGERS }
       ),
     }),
-    [isWarping, startWarp, stopWarp, triggerShockwave]
+    [isWarping, startWarp, stopWarp, triggerShockwave, exposure, setExposure]
   )
 
   // Build dynamic game object controls
@@ -292,8 +310,9 @@ export const useDevControls = ({
     setTriggers({
       warpStatus: isWarping ? "Warping" : "Not Warping",
       dimStatus: isDimmed ? "Dimmed" : "Not Dimmed",
+      exposureStatus: `${Math.round(exposure * 100)}%`,
     })
-  }, [isWarping, isDimmed, setTriggers])
+  }, [isWarping, isDimmed, exposure, setTriggers])
 
   // Sync: profile changes -> DPR control (only when profile changes, not on manual DPR edits)
   // Initialize with null so the first render always syncs if a profile is set

@@ -29,6 +29,8 @@ export const tunnelFragmentShader = `
   uniform float noiseAnimationSpeed;
   uniform float opacity;
   uniform float contrast;
+  uniform float centerHole;
+  uniform float centerSoftness;
   uniform bool followCamera;
   
   varying vec2 vUv;
@@ -66,8 +68,10 @@ export const tunnelFragmentShader = `
     float streak = sin(angle * 8.0 + tunnelZ * 2.0) * 0.5 + 0.5;
     val = mix(val, val * (0.7 + streak * 0.6), streakIntensity);
     
-    float centerBrightness = 1.0 + (1.0 - radialDist) * focal_depth * 3.0;
-    val *= min(centerBrightness, 2.0);
+    // Center hole: fade out towards center based on radial distance
+    float holeRadius = centerHole * 0.1;
+    float falloffStart = holeRadius * (1.0 - centerSoftness);
+    float holeMask = smoothstep(falloffStart, holeRadius, radialDist);
     
     val = 0.45 + 0.55 * val;
     val = clamp(val, 0.0, 1.0);
@@ -82,10 +86,7 @@ export const tunnelFragmentShader = `
     col.rgb += white;
     col.rgb = clamp(col.rgb, 0.0, 1.0);
     
-    float disk_col = exp(-(radialDist - 0.025) * 4.0);
-    col.rgb += clamp(vec3(disk_col), 0.0, 1.0);
-    
-    col.a = opacity;
+    col.a = opacity * holeMask;
     
     gl_FragColor = col;
   }

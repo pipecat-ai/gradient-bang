@@ -57,6 +57,18 @@ export function useLayerDim() {
   }
 }
 
+export function useExposure() {
+  const context = useContext(AnimationContext)
+  if (!context) {
+    throw new Error("useExposure must be used within AnimationController")
+  }
+  const setExposure = useAnimationStore((state) => state.setExposure)
+  return {
+    exposureValue: context.exposureValue,
+    setExposure,
+  }
+}
+
 export function useWarpExitEffect(callback: () => void, delay: number = 0) {
   const { isWarping } = useWarpAnimation()
   const previousWarpingRef = useRef(isWarping)

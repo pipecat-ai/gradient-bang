@@ -4,8 +4,6 @@ import * as THREE from "three"
 import { LAYERS } from "@/constants"
 import type { PositionedGameObject } from "@/types"
 
-import { GameObjectLabel } from "./GameObjectLabel"
-
 // Predefined color options
 const COLORS = {
   terminal: "#00ff41", // Classic terminal green
@@ -30,7 +28,6 @@ export const Port = ({
   color = "terminal",
   opacity = 1,
   enabled = true,
-  label,
 }: PortProps) => {
   const meshRef = useRef<THREE.Mesh>(null)
 
@@ -41,29 +38,20 @@ export const Port = ({
   if (!enabled) return null
 
   return (
-    <group position={position}>
-      <mesh
-        ref={meshRef}
-        name={id}
-        scale={scale}
-        layers={LAYERS.GAMEOBJECTS}
-      >
-        <octahedronGeometry args={[1, 0]} />
-        <meshBasicMaterial
-          color={resolvedColor}
-          wireframe
-          transparent
-          opacity={opacity}
-        />
-      </mesh>
-      {label && (
-        <GameObjectLabel
-          label={label}
-          position={position}
-          opacity={opacity}
-          color={resolvedColor}
-        />
-      )}
-    </group>
+    <mesh
+      ref={meshRef}
+      name={id}
+      position={position}
+      scale={scale}
+      layers={LAYERS.GAMEOBJECTS}
+    >
+      <octahedronGeometry args={[1, 0]} />
+      <meshBasicMaterial
+        color={resolvedColor}
+        wireframe
+        transparent={opacity < 1}
+        opacity={opacity}
+      />
+    </mesh>
   )
 }

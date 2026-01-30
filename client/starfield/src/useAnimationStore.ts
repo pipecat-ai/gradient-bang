@@ -8,6 +8,9 @@ interface AnimationStore {
   isDimmed: boolean
   setIsDimmed: (isDimmed: boolean) => void
 
+  exposure: number
+  setExposure: (exposure: number) => void
+
   triggerShockwave: () => void
   setTriggerShockwave: (fn: () => void) => void
 
@@ -24,6 +27,8 @@ export const useAnimationStore = create<AnimationStore>((set) => ({
   stopWarp: () => set({ isWarping: false }),
   isDimmed: false,
   setIsDimmed: (isDimmed: boolean) => set({ isDimmed }),
+  exposure: 1,
+  setExposure: (exposure: number) => set({ exposure }),
   triggerShockwave: () => {},
   setTriggerShockwave: (fn: () => void) => set({ triggerShockwave: fn }),
   isAnimating: false,

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, type PropsWithChildren } from "react"
 
 import { useDimAnimationSpring } from "@/animations/dim"
+import { useExposureAnimationSpring } from "@/animations/exposure"
 import { useAnimationRuntime } from "@/animations/runtime"
 import { useShockwaveAnimation } from "@/animations/shockwave"
 import { useWarpAnimationSpring } from "@/animations/warp"
@@ -24,6 +25,7 @@ export function AnimationController({ children }: PropsWithChildren) {
   const { dimOpacity, dimProgress, isDimmed } = useDimAnimationSpring(runtime)
   const { shockwaveSequence, shockwaveProgress } =
     useShockwaveAnimation(runtime)
+  const { exposureValue } = useExposureAnimationSpring(runtime)
 
   const contextValue = useMemo<AnimationContextValue>(
     () => ({
@@ -34,6 +36,7 @@ export function AnimationController({ children }: PropsWithChildren) {
       warpProgress,
       shockwaveSequence,
       shockwaveProgress,
+      exposureValue,
     }),
     [
       isWarping,
@@ -43,6 +46,7 @@ export function AnimationController({ children }: PropsWithChildren) {
       warpProgress,
       shockwaveSequence,
       shockwaveProgress,
+      exposureValue,
     ]
   )
 
