@@ -2111,6 +2111,8 @@ export interface SectorMapController {
   startCourseAnimation: () => void
   stopCourseAnimation: () => void
   setOnNodeClick: (callback: ((node: MapSectorNode | null) => void) | null) => void
+  setOnNodeEnter: (callback: ((node: MapSectorNode) => void) | null) => void
+  setOnNodeExit: (callback: ((node: MapSectorNode) => void) | null) => void
   cleanup: () => void
 }
 
@@ -2129,6 +2131,8 @@ export function createSectorMapController(
   // Click interaction state
   let hoveredSectorId: number | null = null
   let onNodeClickCallback: ((node: MapSectorNode | null) => void) | null = null
+  let onNodeEnterCallback: ((node: MapSectorNode) => void) | null = null
+  let onNodeExitCallback: ((node: MapSectorNode) => void) | null = null
 
   // Hover animation state
   // animatingSectorId tracks which sector is being animated (for smooth out-animation)
@@ -2281,6 +2285,20 @@ export function createSectorMapController(
       const previousHoveredId = hoveredSectorId
       hoveredSectorId = newHoveredId
 
+      // Fire exit callback for previous sector
+      if (previousHoveredId !== null && onNodeExitCallback) {
+        // Find the previous sector from filtered data
+        const exitedSector = currentCameraState?.filteredData.find(s => s.id === previousHoveredId)
+        if (exitedSector) {
+          onNodeExitCallback(exitedSector)
+        }
+      }
+
+      // Fire enter callback for new sector
+      if (sector !== null && onNodeEnterCallback) {
+        onNodeEnterCallback(sector)
+      }
+
       if (newHoveredId !== null) {
         // Hovering over a new sector
         setHoverTarget(1, newHoveredId)
@@ -2314,6 +2332,15 @@ export function createSectorMapController(
 
     if (hoveredSectorId !== null) {
       const previousHoveredId = hoveredSectorId
+
+      // Fire exit callback for the sector we're leaving
+      if (onNodeExitCallback) {
+        const exitedSector = currentCameraState?.filteredData.find(s => s.id === previousHoveredId)
+        if (exitedSector) {
+          onNodeExitCallback(exitedSector)
+        }
+      }
+
       hoveredSectorId = null
       setHoverTarget(0, previousHoveredId)
       canvas.style.cursor = "default"
@@ -2560,6 +2587,14 @@ export function createSectorMapController(
     onNodeClickCallback = callback
   }
 
+  const setOnNodeEnter = (callback: ((node: MapSectorNode) => void) | null) => {
+    onNodeEnterCallback = callback
+  }
+
+  const setOnNodeExit = (callback: ((node: MapSectorNode) => void) | null) => {
+    onNodeExitCallback = callback
+  }
+
   const cleanup = () => {
     detachEventListeners()
     stopHoverAnimation()
@@ -2592,6 +2627,8 @@ export function createSectorMapController(
     startCourseAnimation,
     stopCourseAnimation,
     setOnNodeClick,
+    setOnNodeEnter,
+    setOnNodeExit,
     cleanup,
   }
 }

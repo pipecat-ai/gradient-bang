@@ -16,6 +16,7 @@ import { Button } from "../primitives/Button"
 import { Divider } from "../primitives/Divider"
 import { DotDivider } from "../primitives/DotDivider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../primitives/Tabs"
+import { ShipEquipmentPanel } from "./ShipEquipmentPanel"
 import { ShipRenamePanel } from "./ShipRenamePanel"
 
 const ShipBlankSlate = ({
@@ -207,7 +208,9 @@ export const PlayerShipTabControls = () => {
           <TabsTrigger value="cargo" onClick={() => handleTabClick("cargo")}>
             Cargo
           </TabsTrigger>
-          <TabsTrigger value="modules">Equipment</TabsTrigger>
+          <TabsTrigger value="modules" onClick={() => handleTabClick("modules")}>
+            Equipment
+          </TabsTrigger>
           <TabsTrigger value="config" className="border-0" onClick={() => handleTabClick("config")}>
             Config
           </TabsTrigger>
@@ -218,7 +221,9 @@ export const PlayerShipTabControls = () => {
         <TabsContent value="cargo">
           <PlayerShipCargo />
         </TabsContent>
-        <TabsContent value="modules"></TabsContent>
+        <TabsContent value="modules">
+          <ShipEquipmentPanel />
+        </TabsContent>
         <TabsContent value="config">
           <ShipRenamePanel />
         </TabsContent>

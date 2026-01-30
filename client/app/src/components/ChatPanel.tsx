@@ -74,7 +74,7 @@ export const ChatPanel = () => {
         </CardContent>
       )}
       <div className="relative flex-1 mb-0 text-foreground">
-        <div className="absolute bottom-0 inset-x-0 h-[60px] z-10 pointer-events-none">
+        <div className="absolute bottom-0 inset-x-0 h-[60px] z-10 pointer-events-none pl-ui-xs">
           <ShipOSDVisualizer
             barLineCap="square"
             participantType="bot"
