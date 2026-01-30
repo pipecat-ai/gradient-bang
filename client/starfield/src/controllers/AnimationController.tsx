@@ -2,6 +2,7 @@ import { invalidate, useFrame } from "@react-three/fiber"
 import { button, folder, useControls } from "leva"
 
 import { useHyperspaceAnimation } from "@/animations/hyperspaceAnim"
+import { useShockwaveAnimation } from "@/animations/shockwaveAnim"
 import { useAnimationStore } from "@/useAnimationStore"
 
 /**
@@ -12,6 +13,7 @@ import { useAnimationStore } from "@/useAnimationStore"
  */
 export function AnimationController() {
   const { start: startHyperspace } = useHyperspaceAnimation()
+  const { start: startShockwave } = useShockwaveAnimation()
 
   // Keep render loop alive while any animation is running
   // Read directly from store to avoid stale closure
@@ -31,6 +33,14 @@ export function AnimationController() {
             }),
             ["Exit"]: button(() => {
               startHyperspace("exit")
+            }),
+          },
+          { collapsed: true }
+        ),
+        Shockwave: folder(
+          {
+            ["Trigger"]: button(() => {
+              startShockwave()
             }),
           },
           { collapsed: true }

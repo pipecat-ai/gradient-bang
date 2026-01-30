@@ -74,6 +74,10 @@ const PP_EXPOSURE = {
   } satisfies PropertyAnimationConfig,
 }
 
+// Shockwave trigger point during exit animation (0-1 progress, where 1 = in hyperspace, 0 = normal)
+// Triggers when progress drops below this value during exit
+const SHOCKWAVE_EXIT_TRIGGER = 0.7
+
 // Dithering
 const PP_DITHERING = {
   gridMultiplier: 6,
@@ -90,6 +94,7 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
   "enter" | "exit"
 > {
   const setHyperspace = useAnimationStore((state) => state.setHyperspace)
+  const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
 
   const { hyperspaceEnterTime, hyperspaceExitTime } = useGameStore(
     (state) => state.starfieldConfig
@@ -97,6 +102,8 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
 
   // Track animation direction for useFrame logic
   const directionRef = useRef<"enter" | "exit">("enter")
+  // Track if shockwave has been triggered this animation cycle
+  const shockwaveTriggeredRef = useRef(false)
 
   // Main progress spring (0 = normal, 1 = in hyperspace)
   const {
@@ -164,6 +171,7 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
   const start = useCallback(
     (direction: "enter" | "exit") => {
       directionRef.current = direction
+      shockwaveTriggeredRef.current = false // Reset shockwave trigger for new animation
       setHyperspace(direction)
 
       if (direction === "enter") {
@@ -334,6 +342,17 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
         updateUniform(ppDitheringGridSize, gridInitial)
         updateUniform(ppDitheringPixelSizeRatio, pixelInitial)
       }
+    }
+
+    // --- Shockwave trigger on exit ---
+    // Trigger shockwave when progress drops below threshold during exit
+    if (
+      !isEntering &&
+      !shockwaveTriggeredRef.current &&
+      p < SHOCKWAVE_EXIT_TRIGGER
+    ) {
+      shockwaveTriggeredRef.current = true
+      triggerShockwave()
     }
   })
 

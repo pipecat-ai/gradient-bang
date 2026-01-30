@@ -31,7 +31,6 @@ export const useDevControls = ({
   const setExposure = useAnimationStore((state) => state.setExposure)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
-  const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
   const sceneQueueLength = useGameStore((state) => state.sceneQueue.length)
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
   const setIsShaking = useAnimationStore((state) => state.setIsShaking)
@@ -193,14 +192,6 @@ export const useDevControls = ({
             },
             { collapsed: true }
           ),
-          Shockwave: folder(
-            {
-              ["Trigger Shockwave"]: button(() => {
-                triggerShockwave()
-              }),
-            },
-            { collapsed: true }
-          ),
           Exposure: folder(
             {
               ["Fade Out"]: button(() => {
@@ -221,7 +212,7 @@ export const useDevControls = ({
         { collapsed: true, order: PANEL_ORDERING.TRIGGERS }
       ),
     }),
-    [isWarping, startWarp, stopWarp, triggerShockwave, exposure, setExposure]
+    [isWarping, startWarp, stopWarp, exposure, setExposure]
   )
 
   // Build dynamic game object controls

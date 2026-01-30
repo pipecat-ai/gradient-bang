@@ -9,6 +9,7 @@ import {
   EffectPass,
   HueSaturationEffect,
   RenderPass,
+  ShockWaveEffect,
   VignetteEffect,
 } from "postprocessing"
 import * as THREE from "three"
@@ -21,6 +22,7 @@ import { LayerDimEffect } from "@/fx/LayerDimEffect"
 import { ScanlineEffect } from "@/fx/ScanlineEffect"
 import { SharpenEffect } from "@/fx/SharpenEffect"
 import { TintEffect } from "@/fx/TintEffect"
+import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
 import { useUniformStore } from "@/useUniformStore"
 
@@ -45,6 +47,11 @@ export const PostProcessingController = () => {
   const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
   const sharpenEffectRef = useRef<SharpenEffect | null>(null)
   const exposureEffectRef = useRef<ExposureEffect | null>(null)
+  const shockWaveEffectRef = useRef<ShockWaveEffect | null>(null)
+  const shockwaveEpicenterRef = useRef(new THREE.Vector3())
+  const shockwaveDirectionRef = useRef(new THREE.Vector3())
+  const lastShockwaveSequenceRef = useRef(0)
+  const shockwavePendingExplodeRef = useRef(false)
 
   // Render target for GAMEOBJECTS mask (used to exclude from dim effect)
   const gameObjectsMaskRef = useRef<THREE.WebGLRenderTarget | null>(null)
@@ -54,6 +61,7 @@ export const PostProcessingController = () => {
     dithering: storedDithering,
     sharpening: storedSharpening,
     vignette: storedVignette,
+    shockwave: shockwaveConfig,
     scanlines: storedScanlines,
     grading: storedGrading,
   } = starfieldConfig
@@ -586,6 +594,26 @@ export const PostProcessingController = () => {
       exposureEffectRef.current = null
     }
 
+    // 8. Shockwave effect - config-driven, triggered via sequence in useFrame
+    if (shockwaveConfig?.shockwaveEnabled) {
+      const maxRadius = shockwaveConfig.shockwaveMaxRadius ?? 0.45
+      const durationSeconds = Math.max(shockwaveConfig.shockwaveSpeed ?? 0.5, 0.001)
+      const effectSpeed = maxRadius / durationSeconds
+      const shockwave = new ShockWaveEffect(camera, shockwaveEpicenterRef.current, {
+        speed: effectSpeed,
+        maxRadius: maxRadius,
+        waveSize: shockwaveConfig.shockwaveWaveSize ?? 0.5,
+        amplitude: shockwaveConfig.shockwaveAmplitude ?? 0.1,
+      })
+      shockWaveEffectRef.current = shockwave
+      // Sync sequence ref so we don't trigger on effect recreation
+      lastShockwaveSequenceRef.current = useAnimationStore.getState().shockwaveSequence
+      orderedEffectPasses.push(new EffectPass(camera, shockwave))
+    } else {
+      shockWaveEffectRef.current?.dispose()
+      shockWaveEffectRef.current = null
+    }
+
     orderedEffectPasses.forEach((pass) => composer.addPass(pass))
 
     invalidate()
@@ -594,7 +622,7 @@ export const PostProcessingController = () => {
     return () => {
       registeredUniforms.forEach((key) => removeUniform(key))
     }
-  }, [scene, camera, composerReady, ppUniforms, registerUniform, removeUniform])
+  }, [scene, camera, composerReady, ppUniforms, shockwaveConfig, registerUniform, removeUniform])
 
   // Frame updates - only non-animated logic
   useFrame(({ gl, camera: currentCamera }) => {
@@ -629,6 +657,35 @@ export const PostProcessingController = () => {
         layerDimEffect.maskTexture !== gameObjectsMaskRef.current.texture
       ) {
         layerDimEffect.maskTexture = gameObjectsMaskRef.current.texture
+      }
+    }
+
+    // Update shockwave epicenter and check for trigger
+    const shockwaveEffect = shockWaveEffectRef.current
+    if (shockwaveEffect) {
+      // Update epicenter position every frame (follows camera)
+      const distance = shockwaveConfig?.shockwaveDistance ?? 5.0
+      currentCamera.getWorldDirection(shockwaveDirectionRef.current)
+      shockwaveEpicenterRef.current
+        .copy(currentCamera.position)
+        .add(shockwaveDirectionRef.current.multiplyScalar(distance))
+      shockwaveEffect.epicenter.copy(shockwaveEpicenterRef.current)
+
+      // Handle pending explode (delayed by one frame to avoid huge deltaTime)
+      if (shockwavePendingExplodeRef.current) {
+        shockwavePendingExplodeRef.current = false
+        shockwaveEffect.explode()
+        // Signal actual start time for accurate duration tracking
+        useAnimationStore.getState().setShockwaveStartTime(performance.now())
+      }
+
+      // Check for new trigger (sequence changed)
+      const currentSequence = useAnimationStore.getState().shockwaveSequence
+      if (currentSequence !== lastShockwaveSequenceRef.current) {
+        lastShockwaveSequenceRef.current = currentSequence
+        // Defer explode to next frame so deltaTime is small
+        shockwavePendingExplodeRef.current = true
+        invalidate()
       }
     }
 
