@@ -13,6 +13,8 @@ import { Button } from "@/components/primitives/Button"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
+import { NewMessageFloater } from "../NewMessageFloater"
+
 export const RHSPanelNavItem = ({
   children,
   active = false,
@@ -82,6 +84,7 @@ export const RHSPanelNav = () => {
             }}
           >
             {tab.icon}
+            {tab.id === "logs" && <NewMessageFloater />}
             <span className="text-xxs truncate">{tab.label}</span>
           </RHSPanelNavItem>
         ))}

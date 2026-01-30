@@ -22,7 +22,6 @@ export const useChatControls = () => {
         }),
         ["Mock Outgoing DM"]: button(() => {
           const state = useGameStore.getState()
-          state.setNotifications({ newChatMessage: true })
           const player = useGameStore.getState().player
 
           state.addMessage({
@@ -36,7 +35,6 @@ export const useChatControls = () => {
         }),
         ["Mock Incoming Broadcast"]: button(() => {
           const state = useGameStore.getState()
-          state.setNotifications({ newChatMessage: true })
           state.addMessage({
             ...INCOMING_CHAT_MESSAGES_MOCK[0],
             id: faker.number.int(),
@@ -48,7 +46,6 @@ export const useChatControls = () => {
         }),
         ["Mock Outgoing Broadcast"]: button(() => {
           const state = useGameStore.getState()
-          state.setNotifications({ newChatMessage: true })
           const player = useGameStore.getState().player
 
           state.addMessage({

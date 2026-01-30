@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { CaretRightIcon } from "@phosphor-icons/react"
 
@@ -25,7 +25,6 @@ const FADE_TRANSITION = {
 } as const
 
 const MessageRow = ({ message, local = false }: { message: ChatMessage; local?: boolean }) => {
-  console.log(message, local)
   return (
     <article
       aria-label={`Message from ${message.from_name}`}
@@ -73,7 +72,10 @@ const MessageRow = ({ message, local = false }: { message: ChatMessage; local?: 
           {message.content}
         </p>
       </div>
-      <time dateTime={message.timestamp} className={cn("w-13 text-right font-bold text-accent")}>
+      <time
+        dateTime={message.timestamp}
+        className={cn("w-13 text-right font-bold text-foreground/30 text-xxs")}
+      >
         [
         {new Date(message.timestamp).toLocaleTimeString([], {
           hour: "2-digit",
@@ -97,6 +99,38 @@ export const LogsPanel = () => {
   const [muteBroadcastActivity, setMuteBroadcastActivity] = useState(false)
   const activityTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevMessagesRef = useRef(messages)
+  const setNotifications = useGameStore.use.setNotifications?.()
+  const activePanel = useGameStore.use.activePanel?.()
+  const prevActivePanelRef = useRef<string | undefined>(undefined)
+
+  // Trigger activity state with auto-reset timeout
+  const triggerActivity = useCallback(() => {
+    if (activityTimeoutRef.current) {
+      clearTimeout(activityTimeoutRef.current)
+    }
+    // Use microtask to satisfy linter (avoid sync setState in effect)
+    queueMicrotask(() => setHasRecentActivity(true))
+    activityTimeoutRef.current = setTimeout(() => {
+      setHasRecentActivity(false)
+    }, ACTIVITY_DURATION_MS)
+  }, [])
+
+  useEffect(() => {
+    if (activePanel === "logs") {
+      setNotifications({ newChatMessage: false })
+    }
+  }, [activePanel, setNotifications, messages])
+
+  // Trigger activity state when panel becomes active
+  useEffect(() => {
+    const wasLogs = prevActivePanelRef.current === "logs"
+    const isLogs = activePanel === "logs"
+    prevActivePanelRef.current = activePanel
+
+    if (!wasLogs && isLogs) {
+      triggerActivity()
+    }
+  }, [activePanel, triggerActivity])
 
   const filteredMessages = useMemo(() => {
     return messages.filter((message) => {
@@ -125,20 +159,12 @@ export const LogsPanel = () => {
         )
 
         if (shouldTriggerActivity) {
-          // Clear existing timeout
-          if (activityTimeoutRef.current) {
-            clearTimeout(activityTimeoutRef.current)
-          }
-          // Activate immediately (via microtask to satisfy linter), deactivate after duration
-          queueMicrotask(() => setHasRecentActivity(true))
-          activityTimeoutRef.current = setTimeout(() => {
-            setHasRecentActivity(false)
-          }, ACTIVITY_DURATION_MS)
+          triggerActivity()
         }
       }
     }
     prevMessagesRef.current = messages
-  }, [filteredMessages.length, scrollToBottom, messages, muteBroadcastActivity])
+  }, [filteredMessages.length, scrollToBottom, messages, muteBroadcastActivity, triggerActivity])
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -161,18 +187,30 @@ export const LogsPanel = () => {
       )}
     >
       <div className="shrink-0 p-ui-xs border-b flex flex-row justify-between items-center">
-        <ButtonGroup>
-          <Button variant="outline" size="sm" onClick={() => setMessageFilters("all")}>
+        <ButtonGroup className="bg-background/60">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setMessageFilters("all")}
+            className={messageFilters === "all" ? "bg-background text-accent-foreground" : ""}
+          >
             All
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setMessageFilters("direct")}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setMessageFilters("direct")}
+            className={messageFilters === "direct" ? "bg-background text-accent-foreground" : ""}
+          >
             Direct
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setMessageFilters("broadcast")}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setMessageFilters("broadcast")}
+            className={messageFilters === "broadcast" ? "bg-background text-accent-foreground" : ""}
+          >
             Broadcast
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setMessageFilters("broadcast")}>
-            Corp
           </Button>
         </ButtonGroup>
 
@@ -180,8 +218,10 @@ export const LogsPanel = () => {
           <span className="text-xs text-muted-foreground">Mute broadcast</span>
           <ToggleControl
             id="mute-broadcast"
+            size="sm"
             checked={muteBroadcastActivity}
             onCheckedChange={setMuteBroadcastActivity}
+            className="bg-background/60"
           />
         </div>
       </div>
