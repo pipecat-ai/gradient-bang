@@ -22,7 +22,7 @@ import SectorMap, { type MapConfig } from "../SectorMap"
 import type { GetMapRegionAction } from "@/types/actions"
 
 const MAP_CONFIG: MapConfig = {
-  debug: true,
+  debug: false,
   clickable: true,
   show_sector_ids: false,
   show_partial_lanes: true,
@@ -165,7 +165,6 @@ export const MapScreen = () => {
         {mapData ?
           <SectorMap
             center_sector_id={centerSector}
-            debug={false}
             current_sector_id={sector ? sector.id : undefined}
             config={MAP_CONFIG as MapConfig}
             map_data={mapData ?? []}
