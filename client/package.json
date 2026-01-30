@@ -18,7 +18,10 @@
     "build:app": "turbo run build --filter=@gradient-bang/app",
     "build:starfield": "turbo run build --filter=@gradient-bang/starfield",
     "preview": "turbo run preview",
-    "lint": "turbo run lint"
+    "lint": "turbo run lint",
+    "bump:patch": "cd app && pnpm version patch --no-git-tag-version && cd ../starfield && pnpm version patch --no-git-tag-version && cd .. && pnpm build",
+    "bump:minor": "cd app && pnpm version minor --no-git-tag-version && cd ../starfield && pnpm version minor --no-git-tag-version && cd .. && pnpm build",
+    "bump:major": "cd app && pnpm version major --no-git-tag-version && cd ../starfield && pnpm version major --no-git-tag-version && cd .. && pnpm build"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

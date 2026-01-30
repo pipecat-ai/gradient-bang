@@ -11,13 +11,13 @@ const stateStyles = cva("w-full duration-1000 text-xs -bracket-offset-1 bracket 
       idle: "bg-muted/50 bracket-subtle text-subtle",
       active:
         "bracket-success/0 bg-success-background text-success border-success stripe-bar stripe-bar-success/20 stripe-bar-8 stripe-bar-animate-1",
-      completed: "bg-success-background/50 bracket-success border-success/50 text-success",
+      completed: "bg-success-background/50 bracket-success border-success/60 text-success",
       cancelling:
         "bracket-destructive bg-destructive-background text-destructive border-destructive stripe-bar stripe-bar-destructive/20 stripe-bar-8 stripe-bar-animate-1",
 
-      cancelled: "border-warning/50 text-warning bg-warning-background/50 bracket-warning/100",
+      cancelled: "border-warning/50 text-warning bg-warning-background/60 bracket-warning/100",
       failed:
-        "text-destructive bg-destructive-background/50 text-destructive border-destructive/50 bracket-destructive",
+        "text-destructive bg-destructive-background/50 text-destructive border-destructive/60 bracket-destructive",
     },
   },
   defaultVariants: {

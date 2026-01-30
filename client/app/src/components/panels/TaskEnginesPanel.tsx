@@ -34,7 +34,7 @@ const stateLabels: Record<TaskEngineState, string> = {
 }
 
 const cx = cva(
-  "relative elbow elbow-offset-1 elbow-size-10 elbow-2 transition-opacity duration-1000 select-none h-full",
+  "relative elbow elbow-offset-1 elbow-size-10 elbow-2 transition-opacity duration-1000 select-none h-full bg-card/80",
   {
     variants: {
       state: {
@@ -43,11 +43,22 @@ const cx = cva(
         cancelling: "elbow-foreground",
         cancelled: "",
         failed: "",
-        active: "elbow-foreground bg-card/70",
+        active: "elbow-foreground",
+      },
+      subtle: {
+        true: "border-transparent",
+        false: "border-border",
+      },
+      placeholder: {
+        true: "bg-card/50",
+        false: "",
       },
     },
+
     defaultVariants: {
       state: "idle",
+      subtle: false,
+      placeholder: false,
     },
   }
 )
@@ -78,7 +89,13 @@ const TaskEngineBlankSlate = () => {
   )
 }*/
 
-const LockedTaskEngineSlot = ({ label }: { label?: string }) => {
+const LockedTaskEngineSlot = ({
+  label,
+  starfieldEnabled,
+}: {
+  label?: string
+  starfieldEnabled?: boolean
+}) => {
   return (
     <motion.div
       initial={{ opacity: 0.4 }}
@@ -87,10 +104,7 @@ const LockedTaskEngineSlot = ({ label }: { label?: string }) => {
       transition={{ opacity: { duration: 0.3 } }}
       className="col-span-1 h-full group"
     >
-      <Card
-        className="relative elbow elbow-offset-1 elbow-size-10 elbow-2 elbow-subtle-foreground select-none h-full bg-background/50"
-        size="sm"
-      >
+      <Card className={cx({ subtle: starfieldEnabled, placeholder: true })} size="sm">
         <span
           className="absolute inset-3 cross-lines-terminal-foreground/20 z-1 pointer-events-none animate-in zoom-in-0 duration-300 ease-in-out"
           aria-hidden="true"
@@ -110,10 +124,19 @@ const LockedTaskEngineSlot = ({ label }: { label?: string }) => {
   )
 }
 
-export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLocal?: boolean }) => {
+export const TaskEngine = ({
+  taskId,
+  isLocal,
+  starfieldEnabled,
+}: {
+  taskId?: string | null
+  isLocal?: boolean
+  starfieldEnabled?: boolean
+}) => {
   const getTaskByTaskId = useGameStore.use.getTaskByTaskId?.()
   const getTaskSummaryByTaskId = useGameStore.use.getTaskSummaryByTaskId?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
+
   const [isCancelling, setIsCancelling] = useState(false)
 
   // Look up active task and summary by ID
@@ -153,9 +176,9 @@ export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLoca
           duration: 1,
         },
       }}
-      className="col-span-1 h-full"
+      className="group col-span-1 h-full"
     >
-      <Card className={cx({ state })} size="xs">
+      <Card className={cx({ state, subtle: starfieldEnabled })} size="xs">
         <CardContent className="flex flex-col gap-2">
           <TaskEngineHeader
             prefix={isLocal || !displayTask ? undefined : "engine:"}
@@ -218,6 +241,8 @@ export const TaskEnginesPanel = () => {
   const assignTaskToCorpSlot = useGameStore.use.assignTaskToCorpSlot?.()
   const localTaskId = useGameStore.use.localTaskId?.()
   const setLocalTaskId = useGameStore.use.setLocalTaskId?.()
+  const settings = useGameStore.use.settings?.()
+  const starfieldEnabled = settings?.renderStarfield ?? false
 
   // Count corporation ships to determine number of corp slots
   const corpShipCount = useMemo(() => {
@@ -260,14 +285,21 @@ export const TaskEnginesPanel = () => {
 
   return (
     <div className="grid grid-cols-2 auto-rows-[1fr] gap-ui-xs h-full @tall-md:*:max-h-72 @tall-lg:*:max-h-96 @tall-xl:*:max-h-120">
-      <TaskEngine taskId={localTaskId} isLocal />
+      <TaskEngine isLocal taskId={localTaskId} starfieldEnabled={starfieldEnabled} />
       {!ships.data ?
-        <LockedTaskEngineSlot label="Create corporation to unlock" />
+        <LockedTaskEngineSlot
+          label="Create corporation to unlock"
+          starfieldEnabled={starfieldEnabled}
+        />
       : <>
           {Array.from({ length: displayedCorpSlots }, (_, index) => (
-            <TaskEngine key={index} taskId={corpSlotAssignments?.[index]} />
+            <TaskEngine
+              key={index}
+              taskId={corpSlotAssignments?.[index]}
+              starfieldEnabled={starfieldEnabled}
+            />
           ))}
-          {showLockedPlaceholder && <LockedTaskEngineSlot />}
+          {showLockedPlaceholder && <LockedTaskEngineSlot starfieldEnabled={starfieldEnabled} />}
         </>
       }
     </div>

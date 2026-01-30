@@ -7,6 +7,7 @@ import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
 
 import { Card, CardContent } from "./primitives/Card"
 import { ScrollArea } from "./primitives/ScrollArea"
+import { ShipOSDVisualizer } from "./ShipOSDVisualizer"
 
 const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
   const timeString = useMemo(
@@ -20,7 +21,7 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
     [message.createdAt]
   )
   return (
-    <div className="flex flex-col gap-0 text-xxs">
+    <div className="flex flex-col gap-0 text-xxs text-foreground">
       <div
         className={`${
           message.role === "assistant" ? "text-terminal"
@@ -54,15 +55,14 @@ export const ChatPanel = () => {
   const { isConnected } = usePipecatConnectionState()
   const { messages } = useChat({ textMode: "llm" })
 
-  const clxConnected =
-    "flex-1 h-full bg-card/60 border border-border dotted-mask-42 dotted-mask-black relative"
-  const clxDisconnected = "flex-1 h-full opacity-40 stripe-frame-white/30 border border-border"
+  const clxConnected = "flex-1 h-full bg-card/60 relative border-0 border-b border-b-foreground/30"
+  const clxDisconnected = "flex-1 h-full opacity-50 stripe-frame-white/30"
 
   const panelActive = isConnected || (messages?.length ?? 0) > 0
 
   return (
     <Card
-      size="sm"
+      size="xs"
       variant={panelActive ? "default" : "stripes"}
       className={panelActive ? clxConnected : clxDisconnected}
     >
@@ -73,8 +73,23 @@ export const ChatPanel = () => {
           </div>
         </CardContent>
       )}
-      <div className="relative flex-1 mb-0">
-        <CardContent className="absolute inset-0 min-h-0">
+      <div className="relative flex-1 mb-0 text-foreground">
+        <div className="absolute bottom-0 inset-x-0 h-[60px] z-10 pointer-events-none pl-ui-xs">
+          <ShipOSDVisualizer
+            barLineCap="square"
+            participantType="bot"
+            barColor="white"
+            peakLineColor="--color-terminal"
+            peakLineThickness={2}
+            peakOffset={6}
+            barMaxHeight={60}
+            barCount={12}
+            barWidth={4}
+            barGap={8}
+            barOrigin="bottom"
+          />
+        </div>
+        <CardContent className="absolute inset-0 min-h-0  mask-[linear-gradient(to_bottom,black_70%,transparent_100%)]">
           <ScrollArea className="relative w-full h-full pointer-events-auto">
             <div className="flex flex-col gap-2">
               {messages?.toReversed().map((message) => (

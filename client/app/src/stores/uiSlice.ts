@@ -46,7 +46,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   uiState: "idle",
   activeScreen: undefined,
   activeModal: undefined,
-  activePanel: undefined,
+  activePanel: "logs",
   activeSubPanel: undefined,
   mapZoomLevel: 15,
   notifications: {

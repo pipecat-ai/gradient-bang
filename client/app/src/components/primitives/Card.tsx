@@ -1,6 +1,7 @@
 import * as React from "react"
 
 import { cva, type VariantProps } from "class-variance-authority"
+import { motion } from "motion/react"
 
 import { cn } from "@/utils/tailwind"
 
@@ -165,6 +166,8 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   return <div data-slot="card-footer" className={cn("flex items-center", className)} {...props} />
 }
 
+const MotionCard = motion.create(Card)
+
 export {
   Card,
   CardAction,
@@ -174,4 +177,5 @@ export {
   CardHeader,
   CardScrollable,
   CardTitle,
+  MotionCard,
 }

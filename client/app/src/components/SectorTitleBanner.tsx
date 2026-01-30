@@ -170,9 +170,9 @@ export const SectorTitleBanner = () => {
           exit={ANIMATE_OUT}
           className="w-full absolute left-0 top-1/2 -translate-y-1/2 z-20"
         >
-          <div className="flex flex-row gap-5 text-center justify-center items-center mx-auto w-max bg-background/80 p-2">
-            <div className="dotted-bg-sm dotted-bg-subtle self-stretch w-[160px]" />
-            <p className="text-white text-xl font-bold uppercase tracking-wider leading-tight">
+          <div className="flex flex-row gap-5 text-center justify-center items-center mx-auto w-max bg-background/70 p-2">
+            <div className="dotted-bg-sm dotted-bg-white/60 self-stretch w-[160px]" />
+            <p className="text-white text-lg font-bold uppercase tracking-wider leading-none">
               <ScrambleText ref={scrambleRef}>{sectorText}</ScrambleText>
             </p>
             <div className="dotted-bg-sm dotted-bg-subtle self-stretch w-[160px]" />

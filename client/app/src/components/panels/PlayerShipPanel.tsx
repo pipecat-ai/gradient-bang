@@ -16,6 +16,8 @@ import { Button } from "../primitives/Button"
 import { Divider } from "../primitives/Divider"
 import { DotDivider } from "../primitives/DotDivider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../primitives/Tabs"
+import { ShipEquipmentPanel } from "./ShipEquipmentPanel"
+import { ShipRenamePanel } from "./ShipRenamePanel"
 
 const ShipBlankSlate = ({
   fetching,
@@ -101,8 +103,6 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
 const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
   const shipsState = useGameStore.use.ships()
   const ships = shipsState.data
-
-  console.log("PEW", ships)
 
   return (
     <motion.div
@@ -208,8 +208,10 @@ export const PlayerShipTabControls = () => {
           <TabsTrigger value="cargo" onClick={() => handleTabClick("cargo")}>
             Cargo
           </TabsTrigger>
-          <TabsTrigger value="modules">Modules</TabsTrigger>
-          <TabsTrigger value="config" className="border-0">
+          <TabsTrigger value="modules" onClick={() => handleTabClick("modules")}>
+            Equipment
+          </TabsTrigger>
+          <TabsTrigger value="config" className="border-0" onClick={() => handleTabClick("config")}>
             Config
           </TabsTrigger>
         </TabsList>
@@ -218,6 +220,12 @@ export const PlayerShipTabControls = () => {
         </TabsContent>
         <TabsContent value="cargo">
           <PlayerShipCargo />
+        </TabsContent>
+        <TabsContent value="modules">
+          <ShipEquipmentPanel />
+        </TabsContent>
+        <TabsContent value="config">
+          <ShipRenamePanel />
         </TabsContent>
       </Tabs>
       {activeTab && (

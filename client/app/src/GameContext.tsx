@@ -754,7 +754,6 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as IncomingChatMessage
 
               gameStore.addMessage(data as ChatMessage)
-              gameStore.setNotifications({ newChatMessage: true })
 
               const timestampClient = Date.now()
 
@@ -763,6 +762,10 @@ export function GameProvider({ children }: GameProviderProps) {
                 data.from_name &&
                 data.from_name !== gameStore.player?.name
               ) {
+                // Show a nofication in the conversation panel
+                // @TODO: do not do this if chat window is open
+                gameStore.setNotifications({ newChatMessage: true })
+
                 gameStore.addActivityLogEntry({
                   type: "chat.direct",
                   message: `New direct message from [${data.from_name}]`,
