@@ -10,19 +10,26 @@ import { LAYERS } from "@/constants"
 import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
 import { EffectChainingController } from "@/controllers/EffectChainingController"
+import { GameObjectsController } from "@/controllers/GameObjectsController"
 import { PostProcessing } from "@/controllers/PostProcessing"
 import { SceneController } from "@/controllers/SceneController"
 import { useDevControls } from "@/hooks/useDevControls"
 import { usePerformanceProfile } from "@/hooks/usePerformanceProfile"
 import { Dust } from "@/objects/Dust"
 import { Fog } from "@/objects/Fog"
+import { GameObjects } from "@/objects/GameObjects"
 import { Nebula } from "@/objects/Nebula"
 import { Planet } from "@/objects/Planet"
 import { Stars } from "@/objects/Stars"
 import { Sun } from "@/objects/Sun"
 import { Tunnel } from "@/objects/Tunnel"
 import { VolumetricClouds } from "@/objects/VolumetricClouds"
-import type { PerformanceProfile, StarfieldConfig } from "@/types"
+import type {
+  GameObject,
+  PerformanceProfile,
+  PositionedGameObject,
+  StarfieldConfig,
+} from "@/types"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
 
@@ -32,6 +39,7 @@ interface StarfieldBaseProps {
   profile?: PerformanceProfile
   debug?: boolean
   className?: string
+  gameObjects?: GameObject[]
 }
 
 export interface StarfieldProps extends StarfieldBaseProps {
@@ -40,6 +48,8 @@ export interface StarfieldProps extends StarfieldBaseProps {
   onCreated?: () => void
   onUnsupported?: () => void
   onWarpAnimationStart?: () => void
+  onTargetRest?: (target: PositionedGameObject) => void
+  onTargetClear?: () => void
   generateInitialScene?: boolean
 }
 
@@ -49,10 +59,12 @@ export function StarfieldComponent({
   lookMode = true,
   profile,
   className,
+  gameObjects,
 }: StarfieldBaseProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const isPaused = useGameStore((state) => state.isPaused)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
+  const setGameObjects = useGameStore((state) => state.setGameObjects)
   const callbacks = useCallbackStore((state) => state)
 
   usePerformanceProfile({ initialProfile: profile })
@@ -72,6 +84,19 @@ export function StarfieldComponent({
       prevConfigRef.current = config
     }
   }, [config, setStarfieldConfig])
+
+  /* Handle gameObjects prop changes */
+  const prevGameObjectsRef = useRef<GameObject[] | undefined>(undefined)
+  useLayoutEffect(() => {
+    if (!gameObjects) return
+
+    // Only update if actually different
+    if (!deepEqual(prevGameObjectsRef.current, gameObjects)) {
+      console.debug("[STARFIELD] Updating Game Objects:", gameObjects)
+      setGameObjects(gameObjects)
+      prevGameObjectsRef.current = gameObjects
+    }
+  }, [gameObjects, setGameObjects])
 
   return (
     <>
@@ -130,9 +155,11 @@ export function StarfieldComponent({
             <Planet />
           </Suspense>
 
-          <CameraController enabled={lookMode} />
+          <CameraController enabled={lookMode} debug={debug} />
           <EffectChainingController />
           <SceneController />
+          <GameObjectsController />
+          <GameObjects />
           <PostProcessingMemo />
         </AnimationController>
       </Canvas>
@@ -148,6 +175,8 @@ export const Starfield = ({
   onCreated,
   onUnsupported,
   onWarpAnimationStart,
+  onTargetRest,
+  onTargetClear,
   ...props
 }: StarfieldProps) => {
   const callbacksRef = useRef({
@@ -156,6 +185,8 @@ export const Starfield = ({
     onCreated,
     onUnsupported,
     onWarpAnimationStart,
+    onTargetRest,
+    onTargetClear,
   })
 
   useLayoutEffect(() => {
@@ -165,6 +196,8 @@ export const Starfield = ({
       onCreated,
       onUnsupported,
       onWarpAnimationStart,
+      onTargetRest,
+      onTargetClear,
     }
   })
 
@@ -178,6 +211,8 @@ export const Starfield = ({
       onStop: () => getCallbacks().onStop?.(),
       onUnsupported: () => getCallbacks().onUnsupported?.(),
       onWarpAnimationStart: () => getCallbacks().onWarpAnimationStart?.(),
+      onTargetRest: (target) => getCallbacks().onTargetRest?.(target),
+      onTargetClear: () => getCallbacks().onTargetClear?.(),
     })
   }, [])
 

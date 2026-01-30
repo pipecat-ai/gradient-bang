@@ -82,14 +82,16 @@ export type StarfieldState =
 /**
  * Represents a game object in the scene
  */
+export type GameObjectType = "port" | "ship" | "planet" | "garrison" | "salvage"
 export interface GameObject {
   id: string
-  type?: string
+  type?: GameObjectType
+  scale?: number
+  opacity?: number
+  enabled?: boolean
+  meta?: Record<string, unknown>
 }
 
-/**
- * Represents a positioned game object in 3D space
- */
 export interface PositionedGameObject extends GameObject {
   position: [number, number, number]
 }

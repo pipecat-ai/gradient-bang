@@ -16,6 +16,7 @@ import {
 import * as THREE from "three"
 
 import { getPalette } from "@/colors"
+import { LAYERS } from "@/constants"
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
 import { ScanlineEffect } from "@/fx/ScanlineEffect"
@@ -47,6 +48,9 @@ export const PostProcessing = () => {
   const shockwaveDirectionRef = useRef(new THREE.Vector3())
   const lastShockwaveSequenceRef = useRef(0)
 
+  // Render target for GAMEOBJECTS mask (used to exclude from dim effect)
+  const gameObjectsMaskRef = useRef<THREE.WebGLRenderTarget | null>(null)
+
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const {
     hyerpspaceUniforms,
@@ -75,6 +79,12 @@ export const PostProcessing = () => {
       composerRef.current.setSize(size.width, size.height)
       console.debug(
         "[STARFIELD] PostProcessing - Size/DPR changed, resizing composer"
+      )
+    }
+    if (gameObjectsMaskRef.current) {
+      gameObjectsMaskRef.current.setSize(
+        Math.floor(size.width),
+        Math.floor(size.height)
       )
     }
   }, [size.width, size.height, viewport.dpr])
@@ -425,7 +435,10 @@ export const PostProcessing = () => {
       shockWaveEffectRef.current = null
     }
 
-    const layerDim = new LayerDimEffect({ opacity: 1.0 })
+    const layerDim = new LayerDimEffect({
+      opacity: 1.0,
+      maskTexture: gameObjectsMaskRef.current?.texture ?? null,
+    })
     layerDimEffectRef.current = layerDim
     orderedEffectPasses.push(new EffectPass(camera, layerDim))
 
@@ -556,6 +569,19 @@ export const PostProcessing = () => {
       setComposerReady(true)
     }
 
+    // Initialize GAMEOBJECTS mask render target if not yet created
+    if (!gameObjectsMaskRef.current) {
+      gameObjectsMaskRef.current = new THREE.WebGLRenderTarget(
+        Math.floor(size.width),
+        Math.floor(size.height),
+        {
+          minFilter: THREE.LinearFilter,
+          magFilter: THREE.LinearFilter,
+          format: THREE.RGBAFormat,
+        }
+      )
+    }
+
     // Animation uniform updates
     const progress = warp.progress.get()
     const dimValue = dimOpacity.get()
@@ -641,6 +667,34 @@ export const PostProcessing = () => {
     const layerDimEffect = layerDimEffectRef.current
     if (layerDimEffect) {
       layerDimEffect.opacity = dimValue
+
+      // Update mask texture reference if it was created after the effect
+      if (
+        gameObjectsMaskRef.current &&
+        layerDimEffect.maskTexture !== gameObjectsMaskRef.current.texture
+      ) {
+        layerDimEffect.maskTexture = gameObjectsMaskRef.current.texture
+      }
+    }
+
+    // Render GAMEOBJECTS to mask render target for dim exclusion
+    const maskTarget = gameObjectsMaskRef.current
+    if (maskTarget && scene) {
+      // Store current camera layers
+      const originalLayers = currentCamera.layers.mask
+
+      // Set camera to only see GAMEOBJECTS layer
+      currentCamera.layers.set(LAYERS.GAMEOBJECTS)
+
+      // Render to mask target with black background
+      gl.setRenderTarget(maskTarget)
+      gl.setClearColor(0x000000, 0)
+      gl.clear()
+      gl.render(scene, currentCamera)
+      gl.setRenderTarget(null)
+
+      // Restore camera layers
+      currentCamera.layers.mask = originalLayers
     }
 
     // Render the composer if available

@@ -5,6 +5,7 @@ import { create } from "zustand"
 import { defaultProfile } from "@/profiles"
 
 import {
+  type GameObject,
   type PerformanceProfile,
   type PositionedGameObject,
   type QueuedScene,
@@ -37,9 +38,18 @@ interface AppState {
   resetReadyFlags: () => void
   allComponentsReady: () => boolean
 
-  // Game Objects
-  positionedObjects: PositionedGameObject[]
-  setPositionedObjects: (objects: PositionedGameObject[]) => void
+  // Game Objects (input - may or may not have positions)
+  gameObjects: GameObject[]
+  setGameObjects: (objects: GameObject[]) => void
+  // Positioned Game Objects (output - always have positions, set by controller)
+  positionedGameObjects: PositionedGameObject[]
+  setPositionedGameObjects: (objects: PositionedGameObject[]) => void
+  // Camera look-at target (game object ID or null)
+  lookAtTarget: string | null
+  setLookAtTarget: (target: string | null) => void
+  // Camera transition state
+  isCameraTransitioning: boolean
+  setIsCameraTransitioning: (transitioning: boolean) => void
 
   // Scene Transition
   isSceneChanging: boolean
@@ -112,12 +122,36 @@ export const useGameStore = create<AppState>(
         })
       ),
 
-    // Game Objects
-    positionedObjects: [],
-    setPositionedObjects: (objects) =>
+    // Game Objects (input)
+    gameObjects: [],
+    setGameObjects: (gameObjects: GameObject[]) =>
       set(
         produce((draft) => {
-          draft.positionedObjects = objects
+          draft.gameObjects = gameObjects
+        })
+      ),
+    // Positioned Game Objects (output)
+    positionedGameObjects: [],
+    setPositionedGameObjects: (positionedGameObjects: PositionedGameObject[]) =>
+      set(
+        produce((draft) => {
+          draft.positionedGameObjects = positionedGameObjects
+        })
+      ),
+    // Camera look-at target
+    lookAtTarget: null,
+    setLookAtTarget: (target: string | null) =>
+      set(
+        produce((draft) => {
+          draft.lookAtTarget = target
+        })
+      ),
+    // Camera transition state
+    isCameraTransitioning: false,
+    setIsCameraTransitioning: (transitioning: boolean) =>
+      set(
+        produce((draft) => {
+          draft.isCameraTransitioning = transitioning
         })
       ),
 

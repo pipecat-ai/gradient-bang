@@ -4,10 +4,17 @@ import { button, folder, useControls } from "leva"
 import { getPaletteNames } from "@/colors"
 import { PANEL_ORDERING } from "@/constants"
 import { useSceneChange } from "@/hooks/useSceneChange"
-import type { PerformanceProfile } from "@/types"
+import type { GameObject, PerformanceProfile } from "@/types"
 import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
 import { generateRandomScene } from "@/utils/scene"
+
+const OBJECT_TYPES: GameObject["type"][] = [
+  "port",
+  "ship",
+  "garrison",
+  "salvage",
+]
 
 export const useDevControls = ({
   profile,
@@ -31,6 +38,9 @@ export const useDevControls = ({
     (state) => state.isWarpCooldownActive
   )
   const performanceProfile = useGameStore((state) => state.performanceProfile)
+  const gameObjects = useGameStore((state) => state.gameObjects)
+  const setGameObjects = useGameStore((state) => state.setGameObjects)
+  const setLookAtTarget = useGameStore((state) => state.setLookAtTarget)
 
   const { changeScene } = useSceneChange()
 
@@ -107,6 +117,9 @@ export const useDevControls = ({
         }),
         ["Pause / Resume Rendering"]: button(() => {
           togglePause()
+        }),
+        ["Clear Look At Target"]: button(() => {
+          setLookAtTarget(null)
         }),
       },
       { collapsed: true, order: PANEL_ORDERING.SCENE_SETTINGS }
@@ -191,6 +204,70 @@ export const useDevControls = ({
       ),
     }),
     [isWarping, startWarp, stopWarp, triggerShockwave]
+  )
+
+  // Build dynamic game object controls
+  const gameObjectControlsConfig = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const objectRows: Record<string, any> = {}
+
+    // Add button at the top
+    objectRows["Add Object"] = button(() => {
+      const newObject: GameObject = {
+        id: crypto.randomUUID(),
+        type: "port",
+      }
+      setGameObjects([...useGameStore.getState().gameObjects, newObject])
+    })
+
+    // Clear all button
+    objectRows["Clear All"] = button(() => {
+      setGameObjects([])
+    })
+
+    // Create controls for each game object (flat, no sub-folders)
+    gameObjects.forEach((obj, index) => {
+      const shortId = obj.id.slice(0, 8)
+      const prefix = `${index + 1}`
+
+      objectRows[`${prefix}_type_${shortId}`] = {
+        value: obj.type ?? "port",
+        options: OBJECT_TYPES,
+        label: `${prefix}. Type`,
+        onChange: (value: GameObject["type"], _path: string, context: { initial: boolean }) => {
+          // Skip initial render
+          if (context.initial) return
+          // Skip if value hasn't changed
+          if (value === obj.type) return
+          const current = useGameStore.getState().gameObjects
+          const updated = current.map((o) =>
+            o.id === obj.id ? { ...o, type: value } : o
+          )
+          setGameObjects(updated)
+        },
+      }
+
+      objectRows[`${prefix}_lookAt_${shortId}`] = button(() => {
+        setLookAtTarget(obj.id)
+      })
+
+      objectRows[`${prefix}_remove_${shortId}`] = button(() => {
+        const current = useGameStore.getState().gameObjects
+        setGameObjects(current.filter((o) => o.id !== obj.id))
+      })
+    })
+
+    return objectRows
+  }, [gameObjects, setGameObjects, setLookAtTarget])
+
+  useControls(
+    () => ({
+      "Game Objects": folder(gameObjectControlsConfig, {
+        collapsed: true,
+        order: PANEL_ORDERING.TRIGGERS + 1,
+      }),
+    }),
+    [gameObjectControlsConfig]
   )
 
   // Sync: store trigger statuses -> Leva controls

@@ -156,7 +156,7 @@ export function SceneController() {
         ...obj,
         position: [0, 0, 0] as [number, number, number],
       }))
-      state.setPositionedObjects(positionedObjects)
+      state.setPositionedGameObjects(positionedObjects)
     }
   }, [])
 
