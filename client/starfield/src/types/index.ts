@@ -192,6 +192,7 @@ export interface TunnelConfig {
   contrast: number
   centerHole: number
   centerSoftness: number
+  pixelation: number
 }
 
 /**

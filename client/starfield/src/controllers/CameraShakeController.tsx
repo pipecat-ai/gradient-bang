@@ -32,7 +32,7 @@ export function CameraShakeController({
             label: "Shake Mode",
           },
           strength: {
-            value: 0.02,
+            value: 0.01,
             min: 0.01,
             max: 5,
             step: 0.01,
@@ -105,9 +105,13 @@ export function CameraShakeController({
     }
   }, [isShaking, invalidate])
 
-  useFrame((_, delta) => {
+  useFrame((_, rawDelta) => {
     const cameraControls = cameraControlsRef.current
     if (!cameraControls || stateRef.current === "inactive") return
+
+    // Clamp delta to prevent large jumps during long frames (e.g., React re-renders)
+    // Max 50ms (20fps) to keep shake smooth even during frame drops
+    const delta = Math.min(rawDelta, 0.05)
 
     const elapsedTime = performance.now() - startTimeRef.current
     let intensity = 0

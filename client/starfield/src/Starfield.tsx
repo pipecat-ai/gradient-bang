@@ -119,9 +119,11 @@ export function StarfieldComponent({
           camera.layers.enable(LAYERS.SKYBOX)
           camera.layers.enable(LAYERS.FOREGROUND)
           camera.layers.enable(LAYERS.GAMEOBJECTS)
+          camera.layers.enable(LAYERS.OVERLAY)
           if (debug) {
             camera.layers.enable(LAYERS.DEBUG)
           }
+
           callbacks.onCreated?.()
         }}
         className={className}

@@ -104,8 +104,15 @@ export const Tunnel = () => {
           step: 0.05,
           label: "Center Softness",
         },
+        pixelation: {
+          value: tunnelConfig?.pixelation ?? 25,
+          min: 0,
+          max: 50,
+          step: 1,
+          label: "Pixelation",
+        },
         followCamera: {
-          value: false,
+          value: true,
           label: "Follow Camera",
         },
       },
@@ -146,6 +153,7 @@ export const Tunnel = () => {
         contrast: { value: controls.contrast },
         centerHole: { value: controls.centerHole },
         centerSoftness: { value: controls.centerSoftness },
+        pixelation: { value: controls.pixelation },
         followCamera: { value: controls.followCamera },
       },
       vertexShader: tunnelVertexShader,
@@ -186,10 +194,16 @@ export const Tunnel = () => {
       setIsVisible(isActive)
     }
 
-    // Skip updates if tunnel is not active
-    if (!controls.enabled && (!controls.showDuringWarp || !isActive)) return
-
     const mat = meshRef.current.material as THREE.ShaderMaterial
+
+    // Always update opacity to ensure shader compiles and stays warm
+    // When not active, opacity will be 0 so it's effectively invisible
+    if (!controls.enabled && (!controls.showDuringWarp || !isActive)) {
+      if (mat.uniforms) {
+        mat.uniforms.opacity.value = 0
+      }
+      return
+    }
     if (mat.uniforms) {
       mat.uniforms.uTime.value = state.clock.elapsedTime
 
@@ -232,6 +246,7 @@ export const Tunnel = () => {
 
       mat.uniforms.noiseAnimationSpeed.value = controls.noiseAnimationSpeed
       mat.uniforms.followCamera.value = controls.followCamera
+      mat.uniforms.pixelation.value = controls.pixelation
 
       const colorObj = new THREE.Color(controls.color)
       mat.uniforms.tunnelColor.value.set(colorObj.r, colorObj.g, colorObj.b)
@@ -246,20 +261,15 @@ export const Tunnel = () => {
     }
   })
 
-  // Render if:
-  // - enabled (manual mode, always visible)
-  // - showDuringWarp and (warp active OR our animation is active)
-  const shouldRender =
-    controls.enabled || (controls.showDuringWarp && (isWarping || isVisible))
-
-  if (!shouldRender) return null
-
+  // Always mount and render the mesh to pre-compile the shader
+  // Visibility is handled via opacity in useFrame (0 when not active)
+  // This prevents frame drops from shader compilation when warp starts
   return (
     <mesh
       ref={meshRef}
       material={material}
       frustumCulled={false}
-      layers={LAYERS.FOREGROUND}
+      layers={LAYERS.OVERLAY}
       renderOrder={999}
     >
       <sphereGeometry args={[100, 16, 16]} />

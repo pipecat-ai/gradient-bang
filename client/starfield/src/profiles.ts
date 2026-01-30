@@ -4,8 +4,8 @@ export const defaultProfile: StarfieldConfig = {
   palette: "cosmicTeal",
   imageAssets: ["/test-skybox-1.png", "/test-skybox-2.png"],
   cameraBaseFov: 85,
-  hyperspaceEnterTime: 1000,
-  hyperspaceExitTime: 1000,
+  hyperspaceEnterTime: 1500,
+  hyperspaceExitTime: 1500,
   hyperspaceDuration: 100,
   hyperspaceCooldown: 10000,
   hyerpspaceUniforms: {

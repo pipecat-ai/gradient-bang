@@ -2,8 +2,9 @@ export const LAYERS = {
   DEFAULT: 0, // Main scene objects
   SKYBOX: 1, // Nebula
   BACKGROUND: 2, // Skybox (Planet, Shadow)
-  FOREGROUND: 3, // Sun, Volumentrics, Tunnel
+  FOREGROUND: 3, // Sun, Volumetrics
   GAMEOBJECTS: 4, // GameObjects
+  OVERLAY: 5, // Tunnel (rendered after post-processing)
   DEBUG: 31, // Grid, debug helpers
 } as const
 

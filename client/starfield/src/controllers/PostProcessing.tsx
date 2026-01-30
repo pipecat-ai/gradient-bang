@@ -737,7 +737,7 @@ export const PostProcessing = () => {
           const fadeProgress = THREE.MathUtils.clamp(
             (progress - fadeOutStart) / (1 - fadeOutStart),
             0,
-            1
+            0.5
           )
           exposureEffect.exposure = 1 - fadeProgress
         } else {
@@ -770,8 +770,23 @@ export const PostProcessing = () => {
       currentCamera.layers.mask = originalLayers
     }
 
-    // Render the composer if available
-    composerRef.current?.render()
+    // Render the composer (excluding OVERLAY layer so tunnel isn't affected by exposure)
+    if (composerRef.current && scene) {
+      const originalLayers = currentCamera.layers.mask
+
+      // Disable OVERLAY layer during post-processing
+      currentCamera.layers.disable(LAYERS.OVERLAY)
+
+      // Render post-processed scene
+      composerRef.current.render()
+
+      // Render OVERLAY layer (tunnel) on top without post-processing
+      currentCamera.layers.set(LAYERS.OVERLAY)
+      gl.render(scene, currentCamera)
+
+      // Restore camera layers
+      currentCamera.layers.mask = originalLayers
+    }
   }, 1)
 
   return null

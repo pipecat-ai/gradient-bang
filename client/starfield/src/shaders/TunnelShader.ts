@@ -31,6 +31,7 @@ export const tunnelFragmentShader = `
   uniform float contrast;
   uniform float centerHole;
   uniform float centerSoftness;
+  uniform float pixelation;
   uniform bool followCamera;
   
   varying vec2 vUv;
@@ -53,6 +54,17 @@ export const tunnelFragmentShader = `
     
     float angle = atan(direction.y, direction.x);
     angle -= rotationAngle * TAU;
+    
+    // Apply pixelation by quantizing angle and depth
+    if (pixelation > 0.0) {
+      float pixelSize = pixelation * 0.01;
+      float angularPixels = TAU / pixelSize;
+      angle = floor(angle * angularPixels) / angularPixels;
+      
+      float depthPixels = 1.0 / pixelSize;
+      z = floor(z * depthPixels) / depthPixels;
+      radialDist = floor(radialDist * depthPixels * 2.0) / (depthPixels * 2.0);
+    }
     
     float depthScale = focal_depth * 10.0;
     float circleScale = 1.5 * depthScale;
