@@ -1,4 +1,4 @@
-import { memo, Suspense, useLayoutEffect, useRef } from "react"
+import { Suspense, useLayoutEffect, useRef } from "react"
 import { PerformanceMonitor, Stats } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
@@ -8,11 +8,9 @@ import * as THREE from "three"
 import { RenderingIndicator } from "@/components/RenderingIndicator"
 import { LAYERS } from "@/constants"
 import { AnimationController } from "@/controllers/AnimationController"
-import { CameraController } from "@/controllers/Camera"
-import { EffectChainingController } from "@/controllers/EffectChainingController"
+import { CameraController } from "@/controllers/CameraController"
 import { GameObjectsController } from "@/controllers/GameObjectsController"
-import { PostProcessing } from "@/controllers/PostProcessing"
-import { SceneController } from "@/controllers/SceneController"
+import { PostProcessingController } from "@/controllers/PostProcessingController"
 import { useDevControls } from "@/hooks/useDevControls"
 import { usePerformanceProfile } from "@/hooks/usePerformanceProfile"
 import { Dust } from "@/objects/Dust"
@@ -145,31 +143,26 @@ export function StarfieldComponent({
             <RenderingIndicator />
           </>
         )}
-        <AnimationController>
-          <Suspense fallback={null}>
-            <Fog />
-            <Nebula />
-            <Tunnel />
-            <Sun />
-            <Stars />
-            <Dust />
-            <VolumetricClouds />
-            <Planet />
-          </Suspense>
+        <AnimationController />
+        <Suspense fallback={null}>
+          <Fog />
+          <Nebula />
+          <Tunnel />
+          <Sun />
+          <Stars />
+          <Dust />
+          <VolumetricClouds />
+          <Planet />
+        </Suspense>
 
-          <CameraController enabled={lookMode} debug={debug} />
-          <EffectChainingController />
-          <SceneController />
-          <GameObjectsController />
-          <GameObjects />
-          <PostProcessingMemo />
-        </AnimationController>
+        <CameraController enabled={lookMode} debug={debug} />
+        <GameObjectsController />
+        <GameObjects />
+        <PostProcessingController />
       </Canvas>
     </>
   )
 }
-
-export const PostProcessingMemo = memo(PostProcessing)
 
 export const Starfield = ({
   onStart,

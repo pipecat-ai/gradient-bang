@@ -10,12 +10,15 @@ import {
   nebulaVertexShader,
 } from "@/shaders/NebulaShader"
 import { useGameStore } from "@/useGameStore"
+import { useUniformStore } from "@/useUniformStore"
 
 export const Nebula = () => {
   const meshRef = useRef<THREE.Mesh>(null)
   const { camera, size } = useThree()
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const { nebula: nebulaConfig } = starfieldConfig
+  const registerUniform = useUniformStore((state) => state.registerUniform)
+  const removeUniform = useUniformStore((state) => state.removeUniform)
 
   // Get active palette
   const palette = getPalette(starfieldConfig.palette)
@@ -206,6 +209,21 @@ export const Nebula = () => {
       fog: false,
     })
   }, [size, controls])
+
+  // Register animated uniforms with the uniform registry
+  useEffect(() => {
+    const mat = material
+    if (!mat.uniforms) return
+
+    registerUniform("nebulaDomainScale", mat.uniforms.domainScale, {
+      initial: controls.domainScale,
+      meta: { effect: "nebula", min: 0.1, max: 10, step: 0.1 },
+    })
+
+    return () => {
+      removeUniform("nebulaDomainScale")
+    }
+  }, [material, controls.domainScale, registerUniform, removeUniform])
 
   // Fix sphere to camera position so it doesn't move when zooming/dollying
   useFrame(() => {

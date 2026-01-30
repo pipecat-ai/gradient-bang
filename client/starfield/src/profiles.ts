@@ -17,7 +17,7 @@ export const defaultProfile: StarfieldConfig = {
   },
   shakeIntensity: 1,
   shakeRelaxTime: 1000,
-  layerDimDuration: 1500,
+  layerDimDuration: 5000,
   shockwave: {
     shockwaveEnabled: true,
     shockwaveSpeed: 0.5,

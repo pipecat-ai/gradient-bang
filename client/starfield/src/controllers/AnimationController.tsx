@@ -1,58 +1,44 @@
-import { useCallback, useMemo, type PropsWithChildren } from "react"
+import { invalidate, useFrame } from "@react-three/fiber"
+import { button, folder, useControls } from "leva"
 
-import { useDimAnimationSpring } from "@/animations/dim"
-import { useExposureAnimationSpring } from "@/animations/exposure"
-import { useAnimationRuntime } from "@/animations/runtime"
-import { useShockwaveAnimation } from "@/animations/shockwave"
-import { useWarpAnimationSpring } from "@/animations/warp"
+import { useHyperspaceAnimation } from "@/animations/hyperspaceAnim"
 import { useAnimationStore } from "@/useAnimationStore"
 
-import {
-  AnimationContext,
-  type AnimationContextValue,
-} from "./AnimationContext"
+/**
+ * AnimationController - Registers animations with the animation store
+ *
+ * This controller initializes and runs all animation hooks.
+ * Animations drive registered uniforms via the uniform store.
+ */
+export function AnimationController() {
+  const { start: startHyperspace } = useHyperspaceAnimation()
 
-export function AnimationController({ children }: PropsWithChildren) {
-  // Callback to update store when animation state changes
-  // Using getState() to avoid creating a subscription
-  const handleAnimationStateChange = useCallback((isAnimating: boolean) => {
-    useAnimationStore.getState().setIsAnimating(isAnimating)
-  }, [])
+  // Keep render loop alive while any animation is running
+  // Read directly from store to avoid stale closure
+  useFrame(() => {
+    if (useAnimationStore.getState().isAnimating) {
+      invalidate()
+    }
+  })
 
-  const runtime = useAnimationRuntime(handleAnimationStateChange)
+  useControls(() => ({
+    Animations: folder(
+      {
+        Hyperspace: folder(
+          {
+            ["Enter"]: button(() => {
+              startHyperspace("enter")
+            }),
+            ["Exit"]: button(() => {
+              startHyperspace("exit")
+            }),
+          },
+          { collapsed: true }
+        ),
+      },
+      { collapsed: true }
+    ),
+  }))
 
-  const { isWarping, warpProgress } = useWarpAnimationSpring(runtime)
-  const { dimOpacity, dimProgress, isDimmed } = useDimAnimationSpring(runtime)
-  const { shockwaveSequence, shockwaveProgress } =
-    useShockwaveAnimation(runtime)
-  const { exposureValue } = useExposureAnimationSpring(runtime)
-
-  const contextValue = useMemo<AnimationContextValue>(
-    () => ({
-      isWarping,
-      dimOpacity,
-      dimProgress,
-      isDimmed,
-      warpProgress,
-      shockwaveSequence,
-      shockwaveProgress,
-      exposureValue,
-    }),
-    [
-      isWarping,
-      dimOpacity,
-      dimProgress,
-      isDimmed,
-      warpProgress,
-      shockwaveSequence,
-      shockwaveProgress,
-      exposureValue,
-    ]
-  )
-
-  return (
-    <AnimationContext.Provider value={contextValue}>
-      {children}
-    </AnimationContext.Provider>
-  )
+  return null
 }

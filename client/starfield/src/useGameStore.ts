@@ -67,7 +67,7 @@ interface AppState {
 }
 
 export const useGameStore = create<AppState>(
-  (set): AppState => ({
+  (set, get): AppState => ({
     starfieldConfig: {
       ...defaultProfile,
     },
@@ -98,7 +98,7 @@ export const useGameStore = create<AppState>(
 
     performanceProfile: "high",
     setPerformanceProfile: (profile: PerformanceProfile) =>
-      profile !== useGameStore.getState().performanceProfile &&
+      profile !== get().performanceProfile &&
       set({ performanceProfile: profile }),
 
     // State
@@ -198,8 +198,7 @@ export const useGameStore = create<AppState>(
         })
       ),
     removeSceneFromQueue: () => {
-      const state = useGameStore.getState()
-      const nextQueuedScene = state.sceneQueue[0]
+      const nextQueuedScene = get().sceneQueue[0]
       if (nextQueuedScene) {
         set(
           produce((draft) => {

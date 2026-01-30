@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
@@ -8,23 +8,17 @@ import {
   tunnelFragmentShader,
   tunnelVertexShader,
 } from "@/shaders/TunnelShader"
-import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
+import { useUniformStore } from "@/useUniformStore"
 
 export const Tunnel = () => {
   const meshRef = useRef<THREE.Mesh>(null)
   const rotationAngleRef = useRef(0)
-  const progressRef = useRef(0) // 0-1 animation progress
-  const [isVisible, setIsVisible] = useState(false)
   const { camera, invalidate } = useThree()
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
-  const {
-    tunnel: tunnelConfig,
-    hyperspaceEnterTime = 1000,
-    hyperspaceExitTime = 1000,
-  } = starfieldConfig
-
-  const isWarping = useAnimationStore((state) => state.isWarping)
+  const { tunnel: tunnelConfig } = starfieldConfig
+  const registerUniform = useUniformStore((state) => state.registerUniform)
+  const removeUniform = useUniformStore((state) => state.removeUniform)
 
   const [controls] = useControls(() => ({
     Tunnel: folder(
@@ -45,14 +39,14 @@ export const Tunnel = () => {
           label: "Speed",
         },
         rotationSpeed: {
-          value: tunnelConfig?.rotationSpeed ?? 0.1,
+          value: tunnelConfig?.rotationSpeed ?? 0,
           min: 0,
           max: 2,
           step: 0.05,
           label: "Rotation Speed",
         },
         tunnelDepth: {
-          value: tunnelConfig?.tunnelDepth ?? 0.1,
+          value: tunnelConfig?.tunnelDepth ?? 0.4,
           min: 0.01,
           max: 0.5,
           step: 0.01,
@@ -77,35 +71,35 @@ export const Tunnel = () => {
           label: "Noise Animation Speed",
         },
         opacity: {
-          value: tunnelConfig?.opacity ?? 1,
+          value: tunnelConfig?.opacity ?? 0,
           min: 0,
           max: 1,
           step: 0.05,
           label: "Opacity",
         },
         contrast: {
-          value: tunnelConfig?.contrast ?? 0.4,
+          value: tunnelConfig?.contrast ?? 3,
           min: 0.0,
           max: 3.0,
           step: 0.1,
           label: "Contrast/Harshness",
         },
         centerHole: {
-          value: tunnelConfig?.centerHole ?? 12.0,
+          value: tunnelConfig?.centerHole ?? 10.0,
           min: 0.0,
           max: 20.0,
           step: 0.1,
           label: "Center Hole",
         },
         centerSoftness: {
-          value: tunnelConfig?.centerSoftness ?? 1,
+          value: tunnelConfig?.centerSoftness ?? 0.5,
           min: 0.0,
           max: 1.0,
           step: 0.05,
           label: "Center Softness",
         },
         pixelation: {
-          value: tunnelConfig?.pixelation ?? 25,
+          value: tunnelConfig?.pixelation ?? 4,
           min: 0,
           max: 50,
           step: 1,
@@ -167,96 +161,82 @@ export const Tunnel = () => {
     })
   }, [controls])
 
+  // Register animated uniforms with the uniform registry
+  useEffect(() => {
+    const mat = material
+    if (!mat.uniforms) return
+
+    // Register the uniforms that can be animated during warp
+    registerUniform("tunnelOpacity", mat.uniforms.opacity, {
+      initial: controls.opacity,
+      meta: { effect: "tunnel" },
+    })
+    registerUniform("tunnelContrast", mat.uniforms.contrast, {
+      initial: controls.contrast,
+      meta: { effect: "tunnel" },
+    })
+    registerUniform("tunnelCenterHole", mat.uniforms.centerHole, {
+      initial: controls.centerHole,
+      meta: { effect: "tunnel" },
+    })
+    registerUniform("tunnelCenterSoftness", mat.uniforms.centerSoftness, {
+      initial: controls.centerSoftness,
+      meta: { effect: "tunnel" },
+    })
+    registerUniform("tunnelRotationSpeed", mat.uniforms.rotationSpeed, {
+      initial: controls.rotationSpeed,
+      meta: { effect: "tunnel" },
+    })
+
+    return () => {
+      removeUniform("tunnelOpacity")
+      removeUniform("tunnelContrast")
+      removeUniform("tunnelCenterHole")
+      removeUniform("tunnelCenterSoftness")
+      removeUniform("tunnelRotationSpeed")
+    }
+  }, [
+    material,
+    controls.opacity,
+    controls.contrast,
+    controls.centerHole,
+    controls.centerSoftness,
+    controls.rotationSpeed,
+    registerUniform,
+    removeUniform,
+  ])
+
   useFrame((state, delta) => {
     if (!meshRef.current) return
 
-    // Update progress: fade in when warping, fade out when not
-    const enterDuration = hyperspaceEnterTime / 1000
-    const exitDuration = (hyperspaceExitTime * 2) / 1000
-
-    if (isWarping) {
-      progressRef.current = Math.min(
-        1,
-        progressRef.current + delta / enterDuration
-      )
-    } else if (progressRef.current > 0) {
-      progressRef.current = Math.max(
-        0,
-        progressRef.current - delta / exitDuration
-      )
-    }
-
-    const progress = progressRef.current
-    const isActive = progress > 0
-
-    // Update visibility state (only when it changes to avoid re-renders)
-    if (isActive !== isVisible) {
-      setIsVisible(isActive)
-    }
-
     const mat = meshRef.current.material as THREE.ShaderMaterial
+    if (!mat.uniforms) return
 
-    // Always update opacity to ensure shader compiles and stays warm
-    // When not active, opacity will be 0 so it's effectively invisible
-    if (!controls.enabled && (!controls.showDuringWarp || !isActive)) {
-      if (mat.uniforms) {
-        mat.uniforms.opacity.value = 0
-      }
-      return
-    }
-    if (mat.uniforms) {
-      mat.uniforms.uTime.value = state.clock.elapsedTime
+    // Update time
+    mat.uniforms.uTime.value = state.clock.elapsedTime
 
-      mat.uniforms.speed.value = controls.speed
+    // Update speed and depth from controls
+    mat.uniforms.speed.value = controls.speed
+    mat.uniforms.tunnelDepth.value = controls.tunnelDepth
 
-      // tunnelDepth stays constant (animating it causes noise flicker)
-      mat.uniforms.tunnelDepth.value = controls.tunnelDepth
+    // Update rotation angle based on current rotationSpeed uniform value
+    // (rotationSpeed may be animated externally via the uniform registry)
+    rotationAngleRef.current += mat.uniforms.rotationSpeed.value * delta
+    mat.uniforms.rotationAngle.value = rotationAngleRef.current
 
-      if (controls.enabled) {
-        // Manual mode - use control values directly
-        mat.uniforms.opacity.value = controls.opacity
-        mat.uniforms.contrast.value = controls.contrast
-        mat.uniforms.centerHole.value = controls.centerHole
-        mat.uniforms.centerSoftness.value = controls.centerSoftness
-      } else {
-        // Animate values with progress
-        mat.uniforms.opacity.value = controls.opacity * progress
-        mat.uniforms.contrast.value = THREE.MathUtils.lerp(
-          0.1,
-          controls.contrast,
-          progress
-        )
-        mat.uniforms.centerHole.value = THREE.MathUtils.lerp(
-          controls.centerHole,
-          6,
-          progress
-        )
-        mat.uniforms.centerSoftness.value = THREE.MathUtils.lerp(
-          controls.centerSoftness,
-          0.5,
-          progress
-        )
-      }
+    // Update other control values
+    mat.uniforms.noiseAnimationSpeed.value = controls.noiseAnimationSpeed
+    mat.uniforms.followCamera.value = controls.followCamera
+    mat.uniforms.pixelation.value = controls.pixelation
 
-      const rotationSpeed = controls.enabled
-        ? controls.rotationSpeed
-        : controls.rotationSpeed * progress
-      rotationAngleRef.current += rotationSpeed * delta
-      mat.uniforms.rotationAngle.value = rotationAngleRef.current
-
-      mat.uniforms.noiseAnimationSpeed.value = controls.noiseAnimationSpeed
-      mat.uniforms.followCamera.value = controls.followCamera
-      mat.uniforms.pixelation.value = controls.pixelation
-
-      const colorObj = new THREE.Color(controls.color)
-      mat.uniforms.tunnelColor.value.set(colorObj.r, colorObj.g, colorObj.b)
-    }
+    const colorObj = new THREE.Color(controls.color)
+    mat.uniforms.tunnelColor.value.set(colorObj.r, colorObj.g, colorObj.b)
 
     mat.blending = getBlendMode(controls.blendMode)
     meshRef.current.position.copy(camera.position)
 
-    // Keep rendering while active
-    if (isActive) {
+    // Keep rendering while tunnel is visible (opacity > 0)
+    if (mat.uniforms.opacity.value > 0) {
       invalidate()
     }
   })

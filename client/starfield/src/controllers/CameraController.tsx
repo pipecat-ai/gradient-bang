@@ -1,15 +1,12 @@
 import { useEffect, useRef } from "react"
-import { easings } from "@react-spring/three"
 import { CameraControls as CameraControlsImpl } from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
-import type { PerspectiveCamera } from "three"
 
-import { useWarpAnimation } from "@/hooks/animations"
-import { useAnimationStore } from "@/useAnimationStore"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
+import { useUniformStore } from "@/useUniformStore"
 
 import { CameraShakeController } from "./CameraShakeController"
 
@@ -21,13 +18,13 @@ export function CameraController({
   debug?: boolean
 }) {
   const cameraControlsRef = useRef<CameraControlsImpl>(null)
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const prevLookAtTargetRef = useRef<string | null>(null)
   const transitionDelayFramesRef = useRef(0)
   const pendingTargetRef = useRef<string | null>(null)
 
-  const { cameraBaseFov, hyerpspaceUniforms } = useGameStore(
-    (state) => state.starfieldConfig
-  )
+  const { cameraBaseFov } = useGameStore((state) => state.starfieldConfig)
+
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
   const lookAtTarget = useGameStore((state) => state.lookAtTarget)
   const isCameraTransitioning = useGameStore(
@@ -37,9 +34,56 @@ export function CameraController({
     (state) => state.setIsCameraTransitioning
   )
 
-  const { invalidate } = useThree()
-  const warp = useWarpAnimation()
-  const setIsDimmed = useAnimationStore((state) => state.setIsDimmed)
+  const { invalidate, camera } = useThree()
+
+  // Store camera ref
+  useEffect(() => {
+    const perspectiveCamera = camera as THREE.PerspectiveCamera
+    if (perspectiveCamera.isPerspectiveCamera) {
+      cameraRef.current = perspectiveCamera
+    }
+  }, [camera])
+
+  // Set initial FOV from config on mount
+  useEffect(() => {
+    const perspectiveCamera = cameraRef.current
+    if (perspectiveCamera && cameraBaseFov !== undefined) {
+      perspectiveCamera.fov = cameraBaseFov
+      perspectiveCamera.updateProjectionMatrix()
+    }
+  }, [cameraBaseFov])
+
+  // Register camera FOV as an animatable uniform
+  useEffect(() => {
+    const perspectiveCamera = cameraRef.current
+    if (!perspectiveCamera) return
+
+    // Create a pseudo-uniform initialized with the config's base FOV
+    const fovUniform = { value: cameraBaseFov ?? perspectiveCamera.fov }
+
+    useUniformStore.getState().registerUniform("cameraFov", fovUniform, {
+      initial: cameraBaseFov,
+      meta: { min: 20, max: 120, step: 1 },
+    })
+
+    return () => {
+      useUniformStore.getState().removeUniform("cameraFov")
+    }
+  }, [camera, cameraBaseFov])
+
+  // Sync the pseudo-uniform value to the actual camera FOV each frame
+  useFrame(() => {
+    const fovUniform = useUniformStore
+      .getState()
+      .getUniform<number>("cameraFov")
+    const perspectiveCamera = cameraRef.current
+    if (fovUniform && perspectiveCamera) {
+      if (perspectiveCamera.fov !== fovUniform.uniform.value) {
+        perspectiveCamera.fov = fovUniform.uniform.value
+        perspectiveCamera.updateProjectionMatrix()
+      }
+    }
+  })
 
   // Trigger initial invalidation when lookAtTarget changes to kick off the render loop
   useEffect(() => {
@@ -49,12 +93,12 @@ export function CameraController({
   }, [lookAtTarget, invalidate])
 
   // Dim scene when looking at a target, undim when cleared
-  useEffect(() => {
-    setIsDimmed(lookAtTarget !== null)
-  }, [lookAtTarget, setIsDimmed])
+  //useEffect(() => {
+  //  setIsDimmed(lookAtTarget !== null)
+  //}, [lookAtTarget, setIsDimmed])
 
-  const ANIMATION_DELAY = 0
-  const EPSILON = 0.05
+  //const ANIMATION_DELAY = 0
+  //const EPSILON = 0.05
   const POST_PROCESSING_ENABLED = true
   // Number of frames to wait before starting camera movement (allows render loop to stabilize)
   const TRANSITION_DELAY_FRAMES = 2
@@ -105,34 +149,34 @@ export function CameraController({
   }, [config.smoothTime, config.restThreshold])
 
   useFrame(({ camera, gl, scene }) => {
-    const perspectiveCamera = camera as PerspectiveCamera
+    //const perspectiveCamera = camera as PerspectiveCamera
     const cam = cameraControlsRef.current
 
     // Handle FOV animation during warp
-    const progress = warp.progress.get()
-    const delayedProgress = THREE.MathUtils.clamp(
-      (progress - ANIMATION_DELAY) / (1 - ANIMATION_DELAY),
-      0,
-      1
-    )
+    //const progress = warp.progress.get()
+    //const delayedProgress = THREE.MathUtils.clamp(
+    //  (progress - ANIMATION_DELAY) / (1 - ANIMATION_DELAY),
+    //  0,
+    //  1
+    //)
 
-    const easedProgress = warp.isWarping
-      ? easings.easeInCubic(delayedProgress)
-      : easings.easeOutExpo(delayedProgress)
+    //const easedProgress = warp.isWarping
+    //  ? easings.easeInCubic(delayedProgress)
+    //  : easings.easeOutExpo(delayedProgress)
 
-    const desiredFov = THREE.MathUtils.lerp(
-      cameraBaseFov,
-      hyerpspaceUniforms.cameraFov,
-      easedProgress
-    )
+    // const desiredFov = THREE.MathUtils.lerp(
+    //  cameraBaseFov,
+    //  hyerpspaceUniforms.cameraFov,
+    //  easedProgress
+    //)
 
-    const delta = Math.abs(perspectiveCamera.fov - desiredFov)
+    //const delta = Math.abs(perspectiveCamera.fov - desiredFov)
 
-    if (delta > EPSILON) {
-      perspectiveCamera.fov = desiredFov
-      perspectiveCamera.updateProjectionMatrix()
-      invalidate()
-    }
+    //if (delta > EPSILON) {
+    //  perspectiveCamera.fov = desiredFov
+    //  perspectiveCamera.updateProjectionMatrix()
+    //  invalidate()
+    //}
 
     // Handle lookAtTarget changes
     const lookAtTarget = useGameStore.getState().lookAtTarget

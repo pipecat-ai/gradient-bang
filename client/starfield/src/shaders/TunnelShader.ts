@@ -85,7 +85,6 @@ export const tunnelFragmentShader = `
     float falloffStart = holeRadius * (1.0 - centerSoftness);
     float holeMask = smoothstep(falloffStart, holeRadius, radialDist);
     
-    val = 0.45 + 0.55 * val;
     val = clamp(val, 0.0, 1.0);
     
     val = pow(val, 1.0 / contrast);

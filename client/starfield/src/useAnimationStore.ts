@@ -1,6 +1,11 @@
 import { create } from "zustand"
 
+type AnimationDirection = "enter" | "exit"
+
 interface AnimationStore {
+  isHyperspace: AnimationDirection | undefined
+  setHyperspace: (direction: AnimationDirection | undefined) => void
+
   isWarping: boolean
   startWarp: () => void
   stopWarp: () => void
@@ -22,6 +27,8 @@ interface AnimationStore {
 }
 
 export const useAnimationStore = create<AnimationStore>((set) => ({
+  isHyperspace: undefined,
+  setHyperspace: (direction) => set({ isHyperspace: direction }),
   isWarping: false,
   startWarp: () => set({ isWarping: true }),
   stopWarp: () => set({ isWarping: false }),
