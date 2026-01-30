@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional, List, Callable, Tuple
 from dataclasses import dataclass
 from openai import AsyncOpenAI
 from loguru import logger
-from gradientbang.utils.api_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient
 
 from gradientbang.utils.tools_schema import get_openai_tools_list
 

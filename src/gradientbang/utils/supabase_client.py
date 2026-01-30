@@ -15,7 +15,7 @@ import json
 
 import httpx
 
-from gradientbang.utils.api_client import AsyncGameClient as LegacyAsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient as BaseAsyncGameClient, RPCError
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 
@@ -35,7 +35,7 @@ else:
 POLL_BACKOFF_MAX = max(1.0, float(os.getenv("SUPABASE_POLL_BACKOFF_MAX", "5.0")))
 
 
-class AsyncGameClient(LegacyAsyncGameClient):
+class AsyncGameClient(BaseAsyncGameClient):
     """Drop-in replacement that talks to Supabase edge functions via HTTP polling."""
 
     def __init__(
@@ -43,7 +43,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
         base_url: Optional[str] = None,
         *,
         character_id: str,
-        transport: str = "websocket",
+        transport: str = "supabase",
         actor_character_id: Optional[str] = None,
         entity_type: str = "character",
         allow_corp_actorless_control: bool = False,
@@ -51,15 +51,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
     ) -> None:
         env_supabase_url = (os.getenv("SUPABASE_URL") or "").rstrip("/")
         input_url = (base_url or env_supabase_url).rstrip("/")
-
-        legacy_hosts = {
-            "http://localhost:8000",
-            "https://localhost:8000",
-            "http://localhost:8002",
-            "https://localhost:8002",
-        }
-        if input_url in legacy_hosts and env_supabase_url:
-            input_url = env_supabase_url
 
         if not input_url:
             raise ValueError("SUPABASE_URL must be provided for Supabase AsyncGameClient")
@@ -75,7 +66,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
         super().__init__(
             base_url=supabase_url,
             character_id=character_id,
-            transport="websocket",
+            transport="supabase",
             actor_character_id=actor_character_id,
             entity_type=entity_type,
             allow_corp_actorless_control=allow_corp_actorless_control,
@@ -132,6 +123,10 @@ class AsyncGameClient(LegacyAsyncGameClient):
 
     async def _ensure_ws(self):  # type: ignore[override]
         return  # Supabase transport does not use legacy websockets
+
+    async def identify(self, *, name: Optional[str] = None, character_id: Optional[str] = None):  # type: ignore[override]
+        """No-op for Supabase transport (identify is legacy websocket-only)."""
+        return None
 
     async def _request(
         self,
@@ -749,3 +744,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
         # Do NOT add __event_id to the formatted event - it's internal metadata
         event_message = super()._format_event(event_name, payload, request_id=request_id)
         return event_message
+
+
+__all__ = ["AsyncGameClient", "RPCError"]

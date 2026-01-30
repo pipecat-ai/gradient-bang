@@ -27,7 +27,7 @@ Most important code in this repo:
 - Use the player JOETRADER
 
 ## Important notes
-- Legacy code in `game_server/` is OUT OF SCOPE. Assume that code will be removed from the repo soon.
+- Legacy game_server code has been removed. Supabase edge functions are the only backend.
 - You can look directly at Supabase tables and Supabase logs for Supabase running locally. Config is `.env.supabase`.
 - Supabase command is `npx supabase --workdir deployment`.
 - To run Supabase edge functions: `npx supabase functions serve --workdir deployment --no-verify-jwt --env-file .env.supabase`.

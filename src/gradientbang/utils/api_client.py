@@ -1,4 +1,6 @@
-"""Game server API client for Gradient Bang."""
+"""Async API client interface for Gradient Bang (Supabase transport base)."""
+
+# Legacy websocket transport has been removed; keep this module as a shared base.
 
 from typing import List, Optional, Dict, Any, Callable, Awaitable, Tuple, Mapping
 from datetime import datetime, timezone
@@ -8,7 +10,6 @@ import json
 import uuid
 import inspect
 import os
-import websockets
 
 from gradientbang.utils.summary_formatters import (
     bank_transaction_summary,
@@ -93,9 +94,9 @@ class AsyncGameClient:
             raise ValueError("AsyncGameClient requires a non-empty character_id")
 
         self.base_url = base_url.rstrip("/")
-        if transport != "websocket":
-            raise ValueError("AsyncGameClient now supports only websocket transport")
-        self.transport = "websocket"
+        if transport not in {"supabase", "websocket"}:
+            raise ValueError("AsyncGameClient transport must be 'supabase'")
+        self.transport = "supabase" if transport == "websocket" else transport
         self._ws = None
         self._ws_reader_task: Optional[asyncio.Task] = None
         self._pending: Dict[str, asyncio.Future] = {}
@@ -525,12 +526,9 @@ class AsyncGameClient:
             pass
 
     async def _ensure_ws(self):
-        if self._ws is not None:
-            return
-        ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
-        ws_url = ws_url.rstrip("/") + "/ws"
-        self._ws = await websockets.connect(ws_url)
-        self._ws_reader_task = asyncio.create_task(self._ws_reader())
+        raise RuntimeError(
+            "Legacy WebSocket transport has been removed. Use Supabase AsyncGameClient."
+        )
 
     async def _ws_reader(self):
         try:
@@ -2132,14 +2130,3 @@ class AsyncGameClient:
 
 
 LegacyAsyncGameClient = AsyncGameClient
-
-
-def _use_supabase_transport() -> bool:
-    flag = os.getenv("SUPABASE_TRANSPORT", "")
-    return flag.lower() in {"1", "true", "on", "yes"}
-
-
-if _use_supabase_transport():
-    from utils.supabase_client import AsyncGameClient as _SupabaseAsyncGameClient  # type: ignore
-
-    AsyncGameClient = _SupabaseAsyncGameClient  # type: ignore[assignment]

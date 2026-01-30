@@ -43,10 +43,10 @@ const DEFAULT_SHIP_SUFFIX =
   Deno.env.get("SUPABASE_TEST_SHIP_SUFFIX") ?? "-ship";
 
 /**
- * Test defaults match Legacy's runtime behavior for payload parity:
- * - ship_credits=1000: From game-server/character_knowledge.py MapKnowledge.credits default (line 44)
- * - fighters=300: From game-server/ships.py ShipStats.KESTREL_COURIER.fighters (line 53)
- * - bank_credits=0: Legacy MapKnowledge.credits_in_bank default (line 45)
+ * Test defaults mirror legacy runtime payload parity:
+ * - ship_credits=1000: legacy MapKnowledge default
+ * - fighters=300: legacy kestrel courier default
+ * - bank_credits=0: legacy MapKnowledge default
  *
  * These differ from production ship purchase prices (25000) because Legacy creates
  * ships on-demand during join() using MapKnowledge defaults, not from fixture files.
@@ -344,7 +344,7 @@ async function seedUniverse(
     sector_count: sectorCount,
     generation_seed: meta["seed"] ?? null,
     generation_params: meta,
-    meta: { source: "tests/test-world-data" },
+    meta: { source: "supabase-test-reset" },
   });
   if (!configResp.ok) {
     throw new Error(
