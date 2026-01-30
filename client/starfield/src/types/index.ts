@@ -89,6 +89,7 @@ export interface GameObject {
   scale?: number
   opacity?: number
   enabled?: boolean
+  label?: string
   meta?: Record<string, unknown>
 }
 

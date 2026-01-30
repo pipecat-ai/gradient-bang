@@ -213,11 +213,14 @@ export const useDevControls = ({
 
     // Add button at the top
     objectRows["Add Object"] = button(() => {
+      const currentObjects = useGameStore.getState().gameObjects
+      const portCount = currentObjects.filter((o) => o.type === "port").length + 1
       const newObject: GameObject = {
         id: crypto.randomUUID(),
         type: "port",
+        label: `PORT-${String(portCount).padStart(3, "0")}`,
       }
-      setGameObjects([...useGameStore.getState().gameObjects, newObject])
+      setGameObjects([...currentObjects, newObject])
     })
 
     // Clear all button
@@ -242,6 +245,20 @@ export const useDevControls = ({
           const current = useGameStore.getState().gameObjects
           const updated = current.map((o) =>
             o.id === obj.id ? { ...o, type: value } : o
+          )
+          setGameObjects(updated)
+        },
+      }
+
+      objectRows[`${prefix}_label_${shortId}`] = {
+        value: obj.label ?? "",
+        label: `${prefix}. Label`,
+        onChange: (value: string, _path: string, context: { initial: boolean }) => {
+          if (context.initial) return
+          if (value === obj.label) return
+          const current = useGameStore.getState().gameObjects
+          const updated = current.map((o) =>
+            o.id === obj.id ? { ...o, label: value || undefined } : o
           )
           setGameObjects(updated)
         },
