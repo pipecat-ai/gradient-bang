@@ -9,8 +9,6 @@ from typing import Callable, Dict, Any, List, Optional, Tuple
 from collections import defaultdict
 import re
 
-from gradientbang.game_server.ships import ShipType, get_ship_stats
-
 _ID_PREFIX_LEN = 6
 _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-"
@@ -205,15 +203,6 @@ def _friendly_ship_type(raw_type: Optional[str]) -> str:
         return "unknown"
     if " " in raw_type and raw_type[0].isupper():
         return raw_type
-    if "ShipType" in globals() and ShipType is not None and get_ship_stats is not None:  # type: ignore[truthy-function]
-        try:
-            enum_value = ShipType(raw_type)  # type: ignore[call-arg]
-            stats = get_ship_stats(enum_value)  # type: ignore[misc]
-            friendly = getattr(stats, "name", None)
-            if isinstance(friendly, str) and friendly:
-                return friendly
-        except Exception:
-            pass
     return raw_type.replace("_", " ").title()
 
 
@@ -226,7 +215,12 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
     for player in players:
         name = _shorten_embedded_ids(player.get("name", "unknown"))
         ship = player.get("ship", {})
-        ship_name = _shorten_embedded_ids(ship.get("ship_name", "unknown"))
+        ship_name = _shorten_embedded_ids(
+            ship.get("ship_name")
+            or ship.get("ship_display_name")
+            or ship.get("display_name")
+            or "unknown"
+        )
         ship_type_raw = ship.get("ship_type")
         ship_type = _friendly_ship_type(ship_type_raw)
         corp = player.get("corporation")

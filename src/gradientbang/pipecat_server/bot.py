@@ -52,11 +52,7 @@ if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 
-# Use Supabase client if SUPABASE_URL is set, otherwise use legacy WebSocket client
-if os.getenv("SUPABASE_URL"):
-    from gradientbang.utils.supabase_client import AsyncGameClient
-else:
-    from gradientbang.utils.api_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.pipecat_server.context_compression import (
     ContextCompressionConsumer,
     ContextCompressionProducer,
@@ -87,7 +83,7 @@ async def _lookup_character_display_name(character_id: str, server_url: str) -> 
     """
     try:
         async with AsyncGameClient(
-            base_url=server_url, character_id=character_id, transport="websocket"
+            base_url=server_url, character_id=character_id, transport="supabase"
         ) as client:
             result = await client.character_info(character_id=character_id)
             return result.get("name")
@@ -163,10 +159,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     # Create RTVI processor with config
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
-    # Get server URL from environment or use default
-    # Check SUPABASE_URL first (for cloud mode), then GAME_SERVER_URL, then default
-    server_url = os.getenv("SUPABASE_URL") or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
-    logger.info(f"Using server URL: {server_url}")
+    server_url = os.getenv("SUPABASE_URL")
+    if not server_url:
+        raise RuntimeError("SUPABASE_URL is required to run the bot.")
+    logger.info(f"Using Supabase URL: {server_url}")
 
     character_id, character_display_name = await _resolve_character_identity(
         (getattr(runner_args, "body", None) or {}).get("character_id", None)

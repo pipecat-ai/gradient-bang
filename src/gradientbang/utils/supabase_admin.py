@@ -8,13 +8,29 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 import httpx
-
-from gradientbang.game_server.core.name_validation import ensure_safe_character_name
+import re
 from gradientbang.utils.legacy_ids import canonicalize_character_id, deterministic_ship_id
 
 
 class SupabaseAdminError(RuntimeError):
     """Raised when Supabase admin operations fail."""
+
+
+_NAME_RE = re.compile(r"^[a-zA-Z0-9_ ]{3,20}$")
+
+
+def ensure_safe_character_name(name: str) -> str:
+    """Validate and normalize a character name using Supabase rules."""
+    if not isinstance(name, str):
+        raise SupabaseAdminError("Character name must be a string")
+    cleaned = name.strip()
+    if not cleaned:
+        raise SupabaseAdminError("Character name cannot be empty")
+    if not _NAME_RE.fullmatch(cleaned):
+        raise SupabaseAdminError(
+            "Character name must be 3-20 chars, alphanumeric, underscores, and spaces only"
+        )
+    return cleaned
 
 
 CARGO_KEY_MAP = {

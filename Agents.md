@@ -22,7 +22,7 @@ Most important code in this repo:
   - `set -a && source .env.supabase && set +a && uv run bot --host 0.0.0.0`
 
 ## IMPORTANT NOTES
-- Legacy code in `game_server/` is OUT OF SCOPE. Assume that code will be removed from the repo soon.
+- Legacy game_server code has been removed. Supabase edge functions are the only backend.
 - Always use `uv run ...` for Python commands and scripts.
 - You can look directly at Supabase tables and Supabase logs for Supabase running locally. Config is `.env.supabase`.
 - Supabase command is `npx run supabase --workdir deployment`.

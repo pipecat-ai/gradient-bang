@@ -27,7 +27,7 @@ pnpm run preview
 ```
 
 > [!NOTE]
-> **Prerequisites:** The game client requires both `game-server` and `pipecat-server` to be running. See the root README for setup instructions.
+> **Prerequisites:** The game client requires the local Supabase stack (edge functions) and the Pipecat bot to be running. See the root README for setup instructions.
 
 ### Dev vs Preview
 
@@ -84,7 +84,7 @@ See [transport guide](https://docs.pipecat.ai/guides/learn/transports) for more 
 
 Browser game client (Vite, React, TypeScript)
 
-- Fetches data from the game server over HTTP (leaderboard, etc)
+- Fetches data from Supabase edge functions / REST (leaderboard, etc)
 - Connects via WebRTC to the Pipecat Bot for voice-driven gameplay
 - Implements the Pipecat [Voice UI Kit](https://github.com/pipecat-ai/voice-ui-kit)
 - Handles and syncs client state via websocket data messages

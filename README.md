@@ -61,12 +61,6 @@ scripts/supabase-reset-with-cron.sh
 
 See `docs/combat_tick_cron_setup.md` for local/production seeding details and verification queries.
 
-### Optional: run Supabase tests
-
-```bash
-set -a && source .env.supabase && set +a && USE_SUPABASE_TESTS=1 uv run pytest tests/integration -v
-```
-
 ### Generate world data / sector map
 
 Run the universe bang script with number of sectors to chart and random seed
@@ -334,12 +328,6 @@ npx supabase secrets set --env-file .env.cloud
 ```
 
 Note: we will need to add `BOT_START_START_URL` and `BOT_START_API_KEY` later
-
-### Optional: run tests against your Supabase cloud project
-
-```bash
-set -a && source .env.cloud && set +a && USE_SUPABASE_TESTS=1 uv run pytest tests/integration -v
-```
 
 #### Add world data
 

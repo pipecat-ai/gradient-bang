@@ -9,9 +9,7 @@ import json
 import os
 import sys
 
-from gradientbang.game_server.core.character_registry import CharacterRegistry
-from gradientbang.utils.api_client import AsyncGameClient
-from gradientbang.utils.config import get_world_data_path
+from gradientbang.utils.supabase_client import AsyncGameClient
 
 
 def lookup_in_supabase(name: str) -> str | None:
@@ -33,20 +31,6 @@ def lookup_in_supabase(name: str) -> str | None:
     return None
 
 
-def lookup_in_local_registry(name: str) -> str | None:
-    """Query local file registry for character by name. Returns character_id or None."""
-    registry_path = get_world_data_path() / "characters.json"
-    if not registry_path.exists():
-        return None
-
-    registry = CharacterRegistry(registry_path)
-    registry.load()
-    profile = registry.find_by_name(name)
-    if profile:
-        return profile.character_id
-    return None
-
-
 async def main_async() -> int:
     parser = argparse.ArgumentParser(description="Lookup a character UUID by display name.")
     parser.add_argument("name", help="Display name to search for")
@@ -57,15 +41,23 @@ async def main_async() -> int:
     )
     parser.add_argument(
         "--server",
-        default="http://localhost:8000",
-        help="Server base URL (default: %(default)s)",
+        default=os.getenv("SUPABASE_URL"),
+        help="Supabase base URL (default: SUPABASE_URL)",
     )
     args = parser.parse_args()
 
-    # Try Supabase first if configured, then fall back to local registry
+    if not args.server:
+        print("SUPABASE_URL is required (or pass --server).", file=sys.stderr)
+        return 1
+    if not os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
+        print(
+            "SUPABASE_SERVICE_ROLE_KEY is required to look up characters.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Supabase-only lookup
     character_id = lookup_in_supabase(args.name)
-    if not character_id:
-        character_id = lookup_in_local_registry(args.name)
 
     if not character_id:
         print(f"No character found with name '{args.name}'", file=sys.stderr)
@@ -81,9 +73,6 @@ async def main_async() -> int:
                 base_url=args.server,
                 character_id=character_id,
             ) as client:
-                # Use identify to set up the connection
-                await client.identify(character_id=character_id)
-
                 # Wait for status.snapshot event
                 status_payload = None
                 def capture_status(payload):

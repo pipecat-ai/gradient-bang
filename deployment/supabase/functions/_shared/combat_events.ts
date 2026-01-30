@@ -195,7 +195,7 @@ export function buildRoundResolvedPayload(
   payload['participants'] = participants;
   payload['garrison'] = garrisonPayload;
 
-  // Include actions for legacy compatibility (matches game-server serialize_round)
+  // Include actions for legacy compatibility (matches previous serialize_round)
   if (actions) {
     const actionsMap: Record<string, unknown> = {};
     for (const [pid, action] of Object.entries(actions)) {
