@@ -2,6 +2,7 @@ import { useState } from "react"
 
 import { CircleNotchIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 
+import { useGameContext } from "@/hooks/useGameContext"
 import useGameStore from "@/stores/game"
 import { validateName } from "@/utils/formatting"
 
@@ -12,7 +13,7 @@ import { Input } from "../primitives/Input"
 
 export const ShipRenamePanel = () => {
   const ship = useGameStore((state) => state.ship)
-  const dispatchAction = useGameStore.use.dispatchAction()
+  const { sendUserTextInput } = useGameContext()
   const [isLoading, setIsLoading] = useState(false)
 
   const [shipName, setShipName] = useState("")
@@ -21,16 +22,20 @@ export const ShipRenamePanel = () => {
   const handleSubmit = () => {
     setError(null)
 
-    setIsLoading(true)
     if (!validateName(shipName)) {
       setError("Name must be 3-20 characters (letters, numbers, spaces, underscores)")
       return
     }
 
-    dispatchAction({
+    setIsLoading(true)
+
+    /*dispatchAction({
       type: "rename-ship",
       payload: { ship_id: ship?.ship_id, ship_name: shipName },
-    })
+    })*/
+
+    sendUserTextInput(`Please rename my ship to '${shipName}'`)
+
     setIsLoading(false)
   }
 

@@ -103,8 +103,6 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
   const shipsState = useGameStore.use.ships()
   const ships = shipsState.data
 
-  console.log("PEW", ships)
-
   return (
     <motion.div
       layout
