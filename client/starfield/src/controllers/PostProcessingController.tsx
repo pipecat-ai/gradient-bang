@@ -1,16 +1,15 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { invalidate, useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
+import type { Schema } from "leva/dist/declarations/src/types"
 import {
   BlendFunction,
-  // BloomEffect,
   BrightnessContrastEffect,
   EffectComposer,
   EffectPass,
   HueSaturationEffect,
   RenderPass,
   ShockWaveEffect,
-  VignetteEffect,
 } from "postprocessing"
 import * as THREE from "three"
 
@@ -19,13 +18,53 @@ import { LAYERS } from "@/constants"
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { ExposureEffect } from "@/fx/ExposureEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
-// import { ScanlineEffect } from "@/fx/ScanlineEffect"
 import { SharpenEffect } from "@/fx/SharpenEffect"
 import { TintEffect } from "@/fx/TintEffect"
+import { useShowControls } from "@/hooks/useStarfieldControls"
 import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
 import { useUniformStore } from "@/useUniformStore"
 
+// Default config values
+const DEFAULT_SHARPENING_CONFIG = {
+  enabled: true,
+  intensity: 2.0,
+  radius: 6.0,
+  threshold: 0.0,
+}
+
+const DEFAULT_DITHERING_CONFIG = {
+  enabled: true,
+  gridSize: 2,
+  pixelSizeRatio: 1,
+  blendMode: BlendFunction.SET,
+  grayscaleOnly: false,
+}
+
+const DEFAULT_GRADING_CONFIG = {
+  enabled: true,
+  brightness: 0.1,
+  contrast: 0.25,
+  saturation: 0.0,
+  tintEnabled: false,
+  tintIntensity: 0.5,
+  tintContrast: 1.0,
+}
+
+const DEFAULT_EXPOSURE_CONFIG = {
+  enabled: true,
+  amount: 0, // Default value used after animations
+  startAmount: -1, // Initial value on first load (faded to black)
+}
+
+const DEFAULT_SHOCKWAVE_CONFIG = {
+  enabled: true,
+  speed: 1,
+  maxRadius: 0.6,
+  waveSize: 0.15,
+  amplitude: 0.1,
+  distance: 4,
+}
 /**
  * PostProcessingController - manages post-processing effects with uniform registry
  *
@@ -33,18 +72,15 @@ import { useUniformStore } from "@/useUniformStore"
  * allowing external animation files to drive the values without tight coupling.
  */
 export const PostProcessingController = () => {
+  const showControls = useShowControls()
+
   // Composer instance
   const composerRef = useRef<EffectComposer | null>(null)
 
   // Effect instances - updated in useFrame for animation, rebuilt on config changes
-  // const bloomEffectRef = useRef<BloomEffect | null>(null)
-  // const bloomPassRef = useRef<EffectPass | null>(null)
-  const vignetteEffectRef = useRef<VignetteEffect | null>(null)
-  const vignettePassRef = useRef<EffectPass | null>(null)
   const layerDimEffectRef = useRef<LayerDimEffect | null>(null)
   const tintEffectRef = useRef<TintEffect | null>(null)
   const ditheringEffectRef = useRef<DitheringEffect | null>(null)
-  // const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
   const sharpenEffectRef = useRef<SharpenEffect | null>(null)
   const exposureEffectRef = useRef<ExposureEffect | null>(null)
   const shockWaveEffectRef = useRef<ShockWaveEffect | null>(null)
@@ -60,16 +96,28 @@ export const PostProcessingController = () => {
   const {
     dithering: storedDithering,
     sharpening: storedSharpening,
-    vignette: storedVignette,
     shockwave: shockwaveConfig,
-    // scanlines: storedScanlines,
     grading: storedGrading,
+    exposure: storedExposure,
   } = starfieldConfig
   const registerUniform = useUniformStore((state) => state.registerUniform)
   const removeUniform = useUniformStore((state) => state.removeUniform)
 
-  // Get active palette
-  const palette = getPalette(starfieldConfig.palette)
+  // Get active palette (memoized to stabilize reference)
+  const palette = useMemo(
+    () => getPalette(starfieldConfig.palette),
+    [starfieldConfig.palette]
+  )
+
+  // Default colors from palette (memoized to stabilize references)
+  const defaultTintPrimary = useMemo(
+    () => storedGrading?.tintColorPrimary ?? `#${palette.c1.getHexString()}`,
+    [storedGrading?.tintColorPrimary, palette]
+  )
+  const defaultTintSecondary = useMemo(
+    () => storedGrading?.tintColorSecondary ?? `#${palette.c2.getHexString()}`,
+    [storedGrading?.tintColorSecondary, palette]
+  )
 
   const size = useThree((state) => state.size)
   const viewport = useThree((state) => state.viewport)
@@ -94,273 +142,311 @@ export const PostProcessingController = () => {
     }
   }, [size.width, size.height, viewport.dpr])
 
-  // Effect controls
-  const [ppUniforms, set] = useControls(() => ({
-    "Post Processing": folder(
-      {
-        // Bloom: folder(
-        //   {
-        //     bloomEnabled: {
-        //       value: false,
-        //       label: "Enable Bloom (Pre-Dithering)",
-        //     },
-        //     bloomThreshold: {
-        //       value: 0.0,
-        //       min: 0,
-        //       max: 2,
-        //       step: 0.01,
-        //       label: "Threshold",
-        //     },
-        //     bloomIntensity: {
-        //       value: 0.0,
-        //       min: 0,
-        //       max: 50,
-        //       step: 0.1,
-        //       label: "Intensity",
-        //     },
-        //     bloomRadius: {
-        //       value: 0.0,
-        //       min: 0,
-        //       max: 1,
-        //       step: 0.1,
-        //       label: "Radius",
-        //     },
-        //   },
-        //   { collapsed: true }
-        // ),
-        Sharpening: folder(
-          {
-            sharpeningEnabled: {
-              value: storedSharpening.sharpeningEnabled ?? true,
-              label: "Enable Sharpening",
-            },
-            sharpeningIntensity: {
-              value: storedSharpening.sharpeningIntensity ?? 2.0,
-              label: "Intensity",
-              min: 0,
-              max: 20,
-              step: 0.1,
-            },
-            sharpeningRadius: {
-              value: storedSharpening.sharpeningRadius ?? 6.0,
-              label: "Radius",
-              min: 0,
-              max: 10,
-              step: 0.1,
-            },
-            sharpeningThreshold: {
-              value: storedSharpening.sharpeningThreshold ?? 0.0,
-              label: "Threshold",
-              min: 0,
-              max: 1,
-              step: 0.01,
-            },
-          },
-          { collapsed: true }
-        ),
-        Vignette: folder(
-          {
-            vignetteEnabled: {
-              value: storedVignette.vignetteEnabled ?? true,
-              label: "Enable Vignette",
-            },
-            vignetteOffset: {
-              value: storedVignette.vignetteOffset ?? 0,
-              min: 0,
-              max: 1,
-              step: 0.01,
-              label: "Offset",
-            },
-            vignetteDarkness: {
-              value: storedVignette.vignetteDarkness ?? 0.5,
-              min: 0,
-              max: 1.5,
-              step: 0.01,
-              label: "Darkness",
-            },
-          },
-          { collapsed: true }
-        ),
-        Dithering: folder(
-          {
-            ditheringEnabled: {
-              value: storedDithering.ditheringEnabled ?? true,
-              label: "Enable Dithering",
-            },
-            ditheringGridSize: {
-              value:
-                storedDithering.ditheringGridSize ??
-                (viewport.dpr >= 2 ? 2 : 1),
-              min: 1,
-              max: 20,
-              step: 1,
-              label: "Effect Resolution",
-            },
-            ditheringPixelSizeRatio: {
-              value: storedDithering.ditheringPixelSizeRatio ?? 1,
-              min: 0,
-              max: 10,
-              step: 1,
-              label: "Pixelation Strength",
-            },
-            ditheringBlendMode: {
-              value: BlendFunction.SET,
-              options: {
-                SET: BlendFunction.SET,
-                Normal: BlendFunction.NORMAL,
-                Add: BlendFunction.ADD,
-                Screen: BlendFunction.SCREEN,
-                Overlay: BlendFunction.OVERLAY,
-                Multiply: BlendFunction.MULTIPLY,
+  // Effect controls - conditional based on debug mode
+  const [levaValues, set] = useControls(
+    () =>
+      (showControls
+        ? {
+            "Post Processing": folder(
+              {
+                Sharpening: folder(
+                  {
+                    sharpeningEnabled: {
+                      value:
+                        storedSharpening?.enabled ??
+                        DEFAULT_SHARPENING_CONFIG.enabled,
+                      label: "Enable Sharpening",
+                    },
+                    sharpeningIntensity: {
+                      value:
+                        storedSharpening?.intensity ??
+                        DEFAULT_SHARPENING_CONFIG.intensity,
+                      label: "Intensity",
+                      min: 0,
+                      max: 20,
+                      step: 0.1,
+                    },
+                    sharpeningRadius: {
+                      value:
+                        storedSharpening?.radius ??
+                        DEFAULT_SHARPENING_CONFIG.radius,
+                      label: "Radius",
+                      min: 0,
+                      max: 10,
+                      step: 0.1,
+                    },
+                    sharpeningThreshold: {
+                      value:
+                        storedSharpening?.threshold ??
+                        DEFAULT_SHARPENING_CONFIG.threshold,
+                      label: "Threshold",
+                      min: 0,
+                      max: 1,
+                      step: 0.01,
+                    },
+                  },
+                  { collapsed: true }
+                ),
+                Dithering: folder(
+                  {
+                    ditheringEnabled: {
+                      value:
+                        storedDithering?.enabled ??
+                        DEFAULT_DITHERING_CONFIG.enabled,
+                      label: "Enable Dithering",
+                    },
+                    ditheringGridSize: {
+                      value:
+                        storedDithering?.gridSize ??
+                        DEFAULT_DITHERING_CONFIG.gridSize,
+                      min: 1,
+                      max: 20,
+                      step: 1,
+                      label: "Effect Resolution",
+                    },
+                    ditheringPixelSizeRatio: {
+                      value:
+                        storedDithering?.pixelSizeRatio ??
+                        DEFAULT_DITHERING_CONFIG.pixelSizeRatio,
+                      min: 0,
+                      max: 10,
+                      step: 1,
+                      label: "Pixelation Strength",
+                    },
+                    ditheringBlendMode: {
+                      value: DEFAULT_DITHERING_CONFIG.blendMode,
+                      options: {
+                        SET: BlendFunction.SET,
+                        Normal: BlendFunction.NORMAL,
+                        Add: BlendFunction.ADD,
+                        Screen: BlendFunction.SCREEN,
+                        Overlay: BlendFunction.OVERLAY,
+                        Multiply: BlendFunction.MULTIPLY,
+                      },
+                      label: "Blend Function",
+                    },
+                    ditheringGrayscaleOnly: {
+                      value:
+                        storedDithering?.grayscaleOnly ??
+                        DEFAULT_DITHERING_CONFIG.grayscaleOnly,
+                      label: "Grayscale Only",
+                    },
+                  },
+                  { collapsed: true }
+                ),
+                Grading: folder(
+                  {
+                    gradingEnabled: {
+                      value:
+                        storedGrading?.enabled ?? DEFAULT_GRADING_CONFIG.enabled,
+                      label: "Enable Grading",
+                    },
+                    gradingBrightness: {
+                      value:
+                        storedGrading?.brightness ??
+                        DEFAULT_GRADING_CONFIG.brightness,
+                      min: 0,
+                      max: 2,
+                      step: 0.1,
+                      label: "Brightness",
+                    },
+                    gradingContrast: {
+                      value:
+                        storedGrading?.contrast ??
+                        palette.contrast ??
+                        DEFAULT_GRADING_CONFIG.contrast,
+                      min: 0,
+                      max: 2,
+                      step: 0.01,
+                      label: "Contrast",
+                    },
+                    gradingSaturation: {
+                      value:
+                        storedGrading?.saturation ??
+                        palette.saturation ??
+                        DEFAULT_GRADING_CONFIG.saturation,
+                      min: -2,
+                      max: 2,
+                      step: 0.1,
+                      label: "Saturation",
+                    },
+                    tintEnabled: {
+                      value:
+                        storedGrading?.tintEnabled ??
+                        DEFAULT_GRADING_CONFIG.tintEnabled,
+                      label: "Enable Tint",
+                    },
+                    tintIntensity: {
+                      value:
+                        storedGrading?.tintIntensity ??
+                        DEFAULT_GRADING_CONFIG.tintIntensity,
+                      min: 0,
+                      max: 1,
+                      step: 0.01,
+                      label: "Tint Intensity",
+                    },
+                    tintContrast: {
+                      value:
+                        storedGrading?.tintContrast ??
+                        DEFAULT_GRADING_CONFIG.tintContrast,
+                      min: 0,
+                      max: 3,
+                      step: 0.1,
+                      label: "Tint Contrast",
+                    },
+                    tintColorPrimary: {
+                      value: defaultTintPrimary,
+                      label: "Tint Primary Color",
+                    },
+                    tintColorSecondary: {
+                      value: defaultTintSecondary,
+                      label: "Tint Secondary Color",
+                    },
+                  },
+                  { collapsed: true }
+                ),
+                Exposure: folder(
+                  {
+                    exposureEnabled: {
+                      value: DEFAULT_EXPOSURE_CONFIG.enabled,
+                      label: "Enable Exposure",
+                    },
+                    exposureAmount: {
+                      value:
+                        storedExposure?.startAmount ??
+                        DEFAULT_EXPOSURE_CONFIG.amount,
+                      min: -2,
+                      max: 2,
+                      step: 0.01,
+                      label: "Exposure Amount",
+                    },
+                  },
+                  { collapsed: true }
+                ),
               },
-              label: "Blend Function",
-            },
-            ditheringGrayscaleOnly: {
-              value: storedDithering.ditheringGrayscaleOnly ?? false,
-              label: "Grayscale Only",
-            },
-          },
-          { collapsed: true }
-        ),
-        // Scanlines: folder(
-        //   {
-        //     scanlinesEnabled: {
-        //       value: storedScanlines.scanlinesEnabled ?? false,
-        //       label: "Enable Scanlines",
-        //     },
-        //     scanlinesIntensity: {
-        //       value: storedScanlines.scanlinesIntensity ?? 0.2,
-        //       min: 0,
-        //       max: 1,
-        //       step: 0.1,
-        //       label: "Intensity",
-        //     },
-        //     scanlinesFrequency: {
-        //       value: storedScanlines.scanlinesFrequency ?? 0.9,
-        //       min: 0,
-        //       max: 2,
-        //       step: 0.1,
-        //       label: "Frequency",
-        //     },
-        //     scanlinesBlendMode: {
-        //       value: BlendFunction.NORMAL,
-        //       options: {
-        //         Normal: BlendFunction.NORMAL,
-        //         Add: BlendFunction.ADD,
-        //         Screen: BlendFunction.SCREEN,
-        //         Overlay: BlendFunction.OVERLAY,
-        //         Multiply: BlendFunction.MULTIPLY,
-        //       },
-        //       label: "Blend Mode",
-        //     },
-        //   },
-        //   { collapsed: true }
-        // ),
-        Grading: folder(
-          {
-            gradingEnabled: {
-              value: storedGrading.enabled ?? true,
-              label: "Enable Grading",
-            },
-            gradingBrightness: {
-              value: storedGrading.brightness ?? 0.1,
-              min: 0,
-              max: 2,
-              step: 0.1,
-              label: "Brightness",
-            },
-            gradingContrast: {
-              value: storedGrading.contrast ?? palette.contrast ?? 0.25,
-              min: 0,
-              max: 2,
-              step: 0.01,
-              label: "Contrast",
-            },
-            gradingSaturation: {
-              value: storedGrading.saturation ?? palette.saturation,
-              min: -2,
-              max: 2,
-              step: 0.1,
-              label: "Saturation",
-            },
-            tintEnabled: {
-              value: storedGrading.tintEnabled ?? false,
-              label: "Enable Tint",
-            },
-            tintIntensity: {
-              value: storedGrading.tintIntensity ?? 0.5,
-              min: 0,
-              max: 1,
-              step: 0.01,
-              label: "Tint Intensity",
-            },
-            tintContrast: {
-              value: storedGrading.tintContrast ?? 1.0,
-              min: 0,
-              max: 3,
-              step: 0.1,
-              label: "Tint Contrast",
-            },
-            tintColorPrimary: {
-              value:
-                storedGrading.tintColorPrimary ??
-                `#${palette.c1.getHexString()}`,
-              label: "Tint Primary Color",
-            },
-            tintColorSecondary: {
-              value:
-                storedGrading.tintColorSecondary ??
-                `#${palette.c2.getHexString()}`,
-              label: "Tint Secondary Color",
-            },
-          },
-          { collapsed: true }
-        ),
-        Exposure: folder(
-          {
-            exposureEnabled: {
-              value: true,
-              label: "Enable Exposure",
-            },
-            exposureAmount: {
-              value: 0,
-              min: -2,
-              max: 2,
-              step: 0.01,
-              label: "Exposure Amount",
-            },
-          },
-          { collapsed: true }
-        ),
-      },
-      { collapsed: true, order: -1 }
-    ),
-  }))
+              { collapsed: true, order: -1 }
+            ),
+          }
+        : {}) as Schema
+  )
 
+  // Get values from Leva when showing controls, otherwise from config/defaults
+  const controls = useMemo(
+    () =>
+      showControls
+        ? (levaValues as {
+            sharpeningEnabled: boolean
+            sharpeningIntensity: number
+            sharpeningRadius: number
+            sharpeningThreshold: number
+            ditheringEnabled: boolean
+            ditheringGridSize: number
+            ditheringPixelSizeRatio: number
+            ditheringBlendMode: BlendFunction
+            ditheringGrayscaleOnly: boolean
+            gradingEnabled: boolean
+            gradingBrightness: number
+            gradingContrast: number
+            gradingSaturation: number
+            tintEnabled: boolean
+            tintIntensity: number
+            tintContrast: number
+            tintColorPrimary: string
+            tintColorSecondary: string
+            exposureEnabled: boolean
+            exposureAmount: number
+          })
+        : {
+            sharpeningEnabled:
+              storedSharpening?.enabled ?? DEFAULT_SHARPENING_CONFIG.enabled,
+            sharpeningIntensity:
+              storedSharpening?.intensity ?? DEFAULT_SHARPENING_CONFIG.intensity,
+            sharpeningRadius:
+              storedSharpening?.radius ?? DEFAULT_SHARPENING_CONFIG.radius,
+            sharpeningThreshold:
+              storedSharpening?.threshold ?? DEFAULT_SHARPENING_CONFIG.threshold,
+            ditheringEnabled:
+              storedDithering?.enabled ?? DEFAULT_DITHERING_CONFIG.enabled,
+            ditheringGridSize:
+              storedDithering?.gridSize ?? DEFAULT_DITHERING_CONFIG.gridSize,
+            ditheringPixelSizeRatio:
+              storedDithering?.pixelSizeRatio ??
+              DEFAULT_DITHERING_CONFIG.pixelSizeRatio,
+            ditheringBlendMode: DEFAULT_DITHERING_CONFIG.blendMode,
+            ditheringGrayscaleOnly:
+              storedDithering?.grayscaleOnly ??
+              DEFAULT_DITHERING_CONFIG.grayscaleOnly,
+            gradingEnabled:
+              storedGrading?.enabled ?? DEFAULT_GRADING_CONFIG.enabled,
+            gradingBrightness:
+              storedGrading?.brightness ?? DEFAULT_GRADING_CONFIG.brightness,
+            gradingContrast:
+              storedGrading?.contrast ??
+              palette.contrast ??
+              DEFAULT_GRADING_CONFIG.contrast,
+            gradingSaturation:
+              storedGrading?.saturation ??
+              palette.saturation ??
+              DEFAULT_GRADING_CONFIG.saturation,
+            tintEnabled:
+              storedGrading?.tintEnabled ?? DEFAULT_GRADING_CONFIG.tintEnabled,
+            tintIntensity:
+              storedGrading?.tintIntensity ??
+              DEFAULT_GRADING_CONFIG.tintIntensity,
+            tintContrast:
+              storedGrading?.tintContrast ?? DEFAULT_GRADING_CONFIG.tintContrast,
+            tintColorPrimary: defaultTintPrimary,
+            tintColorSecondary: defaultTintSecondary,
+            exposureEnabled: DEFAULT_EXPOSURE_CONFIG.enabled,
+            exposureAmount:
+              storedExposure?.startAmount ?? DEFAULT_EXPOSURE_CONFIG.amount,
+          },
+    [
+      showControls,
+      levaValues,
+      storedSharpening,
+      storedDithering,
+      storedGrading,
+      storedExposure,
+      palette,
+      defaultTintPrimary,
+      defaultTintSecondary,
+    ]
+  )
+
+  // Sync: DPR changes -> Leva dithering grid size
   useEffect(() => {
-    if (!storedDithering.ditheringGridSize) {
-      set({
-        ditheringGridSize: viewport.dpr >= 2 ? 2 : 1,
-      })
+    if (!showControls) return
+    if (storedDithering?.gridSize) return
+    try {
+      set({ ditheringGridSize: viewport.dpr >= 2 ? 2 : 1 })
+    } catch {
+      // Controls may not be mounted
     }
-  }, [viewport.dpr, storedDithering.ditheringGridSize, set])
+  }, [showControls, viewport.dpr, storedDithering?.gridSize, set])
 
-  // Sync palette changes to Leva controls
+  // Sync: palette changes -> Leva grading controls
   useEffect(() => {
+    if (!showControls) return
     if (
-      !storedGrading.tintColorPrimary &&
-      !storedGrading.tintColorSecondary &&
-      !storedGrading.contrast &&
-      !storedGrading.saturation
+      storedGrading?.tintColorPrimary ||
+      storedGrading?.tintColorSecondary ||
+      storedGrading?.contrast ||
+      storedGrading?.saturation
     ) {
+      return
+    }
+    try {
       set({
         gradingContrast: palette.contrast,
         gradingSaturation: palette.saturation,
         tintColorPrimary: `#${palette.c1.getHexString()}`,
         tintColorSecondary: `#${palette.c2.getHexString()}`,
       })
+    } catch {
+      // Controls may not be mounted
     }
-  }, [starfieldConfig.palette, palette, storedGrading, set])
+  }, [showControls, starfieldConfig.palette, palette, storedGrading, set])
 
   // Configure post-processing effects
   useEffect(() => {
@@ -435,48 +521,14 @@ export const PostProcessingController = () => {
 
     orderedEffectPasses.push(new EffectPass(camera, layerDim))
 
-    // 2. Vignette
-    if (ppUniforms.vignetteEnabled) {
-      let vignette = vignetteEffectRef.current
-      if (!vignette) {
-        vignette = new VignetteEffect({
-          offset: ppUniforms.vignetteOffset,
-          darkness: ppUniforms.vignetteDarkness,
-        })
-        vignetteEffectRef.current = vignette
-      } else {
-        vignette.offset = ppUniforms.vignetteOffset
-        vignette.darkness = ppUniforms.vignetteDarkness
-      }
-
-      // Register vignette uniform (darkness is the main animated property)
-      registerUniform(
-        "ppVignetteDarkness",
-        { value: vignette.darkness },
-        {
-          initial: ppUniforms.vignetteDarkness,
-          meta: { effect: "vignette", property: "darkness" },
-        }
-      )
-      registeredUniforms.push("ppVignetteDarkness")
-
-      if (!vignettePassRef.current) {
-        vignettePassRef.current = new EffectPass(camera, vignette)
-      }
-      orderedEffectPasses.push(vignettePassRef.current)
-    } else {
-      removeUniform("ppVignetteDarkness")
-      vignettePassRef.current = null
-    }
-
     // 3. Grading
-    if (ppUniforms.tintEnabled) {
-      const primaryColor = new THREE.Color(ppUniforms.tintColorPrimary)
-      const secondaryColor = new THREE.Color(ppUniforms.tintColorSecondary)
+    if (controls.tintEnabled) {
+      const primaryColor = new THREE.Color(controls.tintColorPrimary)
+      const secondaryColor = new THREE.Color(controls.tintColorSecondary)
 
       const tint = new TintEffect({
-        intensity: ppUniforms.tintIntensity,
-        contrast: ppUniforms.tintContrast,
+        intensity: controls.tintIntensity,
+        contrast: controls.tintContrast,
         tintColorPrimary: new THREE.Vector3(
           primaryColor.r,
           primaryColor.g,
@@ -495,13 +547,13 @@ export const PostProcessingController = () => {
       tintEffectRef.current = null
     }
 
-    if (ppUniforms.gradingEnabled) {
+    if (controls.gradingEnabled) {
       const brightnessContrast = new BrightnessContrastEffect({
-        brightness: ppUniforms.gradingBrightness,
-        contrast: ppUniforms.gradingContrast,
+        brightness: controls.gradingBrightness,
+        contrast: controls.gradingContrast,
       })
       const hueSaturation = new HueSaturationEffect({
-        saturation: ppUniforms.gradingSaturation,
+        saturation: controls.gradingSaturation,
       })
 
       const brightnessContrastPass = new EffectPass(camera, brightnessContrast)
@@ -512,10 +564,10 @@ export const PostProcessingController = () => {
 
     // 4. Dithering effect (always on)
     const dither = new DitheringEffect({
-      gridSize: ppUniforms.ditheringGridSize ?? 3,
-      pixelSizeRatio: ppUniforms.ditheringPixelSizeRatio ?? 1,
-      grayscaleOnly: ppUniforms.ditheringGrayscaleOnly ?? false,
-      blendFunction: ppUniforms.ditheringBlendMode ?? BlendFunction.SET,
+      gridSize: controls.ditheringGridSize,
+      pixelSizeRatio: controls.ditheringPixelSizeRatio,
+      grayscaleOnly: controls.ditheringGrayscaleOnly,
+      blendFunction: controls.ditheringBlendMode,
     })
     ditheringEffectRef.current = dither
 
@@ -525,7 +577,7 @@ export const PostProcessingController = () => {
 
     if (gridSizeUniform) {
       registerUniform("ppDitheringGridSize", gridSizeUniform, {
-        initial: ppUniforms.ditheringGridSize,
+        initial: controls.ditheringGridSize,
         meta: { effect: "dithering" },
       })
       registeredUniforms.push("ppDitheringGridSize")
@@ -533,7 +585,7 @@ export const PostProcessingController = () => {
 
     if (pixelSizeRatioUniform) {
       registerUniform("ppDitheringPixelSizeRatio", pixelSizeRatioUniform, {
-        initial: ppUniforms.ditheringPixelSizeRatio,
+        initial: controls.ditheringPixelSizeRatio,
         meta: { effect: "dithering" },
       })
       registeredUniforms.push("ppDitheringPixelSizeRatio")
@@ -541,26 +593,12 @@ export const PostProcessingController = () => {
 
     orderedEffectPasses.push(new EffectPass(camera, dither))
 
-    // 5. Scanline effect (commented out - not currently used)
-    // if (ppUniforms.scanlinesEnabled) {
-    //   const scanline = new ScanlineEffect({
-    //     intensity: ppUniforms.scanlinesIntensity,
-    //     frequency: ppUniforms.scanlinesFrequency,
-    //     blendMode: ppUniforms.scanlinesBlendMode,
-    //   })
-    //   scanlineEffectRef.current = scanline
-    //   orderedEffectPasses.push(new EffectPass(camera, scanline))
-    // } else {
-    //   scanlineEffectRef.current?.dispose()
-    //   scanlineEffectRef.current = null
-    // }
-
-    // 6. Sharpening
-    if (ppUniforms.sharpeningEnabled) {
+    // 5. Sharpening
+    if (controls.sharpeningEnabled) {
       const sharpen = new SharpenEffect({
-        intensity: ppUniforms.sharpeningIntensity,
-        radius: ppUniforms.sharpeningRadius,
-        threshold: ppUniforms.sharpeningThreshold,
+        intensity: controls.sharpeningIntensity,
+        radius: controls.sharpeningRadius,
+        threshold: controls.sharpeningThreshold,
       })
       sharpenEffectRef.current = sharpen
       orderedEffectPasses.push(new EffectPass(camera, sharpen))
@@ -569,19 +607,24 @@ export const PostProcessingController = () => {
       sharpenEffectRef.current = null
     }
 
-    // 7. Exposure - placed last for true fade to black
+    // 6. Exposure - placed last for true fade to black
     // exposureAmount is an offset: 0 = no change, positive = brighter, negative = darker
     // Internal exposure value = 1.0 + exposureAmount
-    if (ppUniforms.exposureEnabled) {
-      const initialExposure = 1.0 + (ppUniforms.exposureAmount ?? 0)
-      const exposure = new ExposureEffect({ exposure: initialExposure })
+    // startAmount: used on initial load (e.g., -1 for fade to black)
+    // amount (default 0): used as restore target after animations
+    if (controls.exposureEnabled) {
+      const startExposure = 1.0 + controls.exposureAmount
+      const defaultExposure = 1.0 + DEFAULT_EXPOSURE_CONFIG.amount
+      const exposure = new ExposureEffect({ exposure: startExposure })
       exposureEffectRef.current = exposure
 
       // Register exposure uniform
+      // Note: initial is set to defaultExposure (1.0) so animations restore to normal,
+      // even though we start at startExposure (which may be 0 for fade-from-black)
       const exposureUniform = exposure.uniforms.get("exposure")
       if (exposureUniform) {
         registerUniform("ppExposure", exposureUniform, {
-          initial: initialExposure,
+          initial: defaultExposure,
           meta: { effect: "exposure", min: 0, max: 3, step: 0.01 },
         })
         registeredUniforms.push("ppExposure")
@@ -594,11 +637,12 @@ export const PostProcessingController = () => {
       exposureEffectRef.current = null
     }
 
-    // 8. Shockwave effect - config-driven, triggered via sequence in useFrame
-    if (shockwaveConfig?.shockwaveEnabled) {
-      const maxRadius = shockwaveConfig.shockwaveMaxRadius ?? 0.45
+    // 7. Shockwave effect - config-driven, triggered via sequence in useFrame
+    if (shockwaveConfig?.enabled ?? DEFAULT_SHOCKWAVE_CONFIG.enabled) {
+      const maxRadius =
+        shockwaveConfig?.maxRadius ?? DEFAULT_SHOCKWAVE_CONFIG.maxRadius
       const durationSeconds = Math.max(
-        shockwaveConfig.shockwaveSpeed ?? 0.5,
+        shockwaveConfig?.speed ?? DEFAULT_SHOCKWAVE_CONFIG.speed,
         0.001
       )
       const effectSpeed = maxRadius / durationSeconds
@@ -608,8 +652,10 @@ export const PostProcessingController = () => {
         {
           speed: effectSpeed,
           maxRadius: maxRadius,
-          waveSize: shockwaveConfig.shockwaveWaveSize ?? 0.5,
-          amplitude: shockwaveConfig.shockwaveAmplitude ?? 0.1,
+          waveSize:
+            shockwaveConfig?.waveSize ?? DEFAULT_SHOCKWAVE_CONFIG.waveSize,
+          amplitude:
+            shockwaveConfig?.amplitude ?? DEFAULT_SHOCKWAVE_CONFIG.amplitude,
         }
       )
       shockWaveEffectRef.current = shockwave
@@ -634,7 +680,7 @@ export const PostProcessingController = () => {
     scene,
     camera,
     composerReady,
-    ppUniforms,
+    controls,
     shockwaveConfig,
     registerUniform,
     removeUniform,
@@ -680,7 +726,8 @@ export const PostProcessingController = () => {
     const shockwaveEffect = shockWaveEffectRef.current
     if (shockwaveEffect) {
       // Update epicenter position every frame (follows camera)
-      const distance = shockwaveConfig?.shockwaveDistance ?? 5.0
+      const distance =
+        shockwaveConfig?.distance ?? DEFAULT_SHOCKWAVE_CONFIG.distance
       currentCamera.getWorldDirection(shockwaveDirectionRef.current)
       shockwaveEpicenterRef.current
         .copy(currentCamera.position)

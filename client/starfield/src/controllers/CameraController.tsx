@@ -2,13 +2,26 @@ import { useEffect, useRef } from "react"
 import { CameraControls as CameraControlsImpl } from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
+import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 
+import { useShowControls } from "@/hooks/useStarfieldControls"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
 import { useUniformStore } from "@/useUniformStore"
 
 import { CameraShakeController } from "./CameraShakeController"
+
+const POST_PROCESSING_ENABLED = true
+const TRANSITION_DELAY_FRAMES = 2
+
+// Default camera control values
+const DEFAULT_CAMERA_CONFIG = {
+  enabled: true,
+  lookAtDistance: 8,
+  smoothTime: 1,
+  restThreshold: 2,
+}
 
 export function CameraController({
   enabled,
@@ -17,12 +30,12 @@ export function CameraController({
   enabled: boolean
   debug?: boolean
 }) {
+  const showControls = useShowControls()
   const cameraControlsRef = useRef<CameraControlsImpl>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const prevLookAtTargetRef = useRef<string | null>(null)
   const transitionDelayFramesRef = useRef(0)
   const pendingTargetRef = useRef<string | null>(null)
-
   const { cameraBaseFov } = useGameStore((state) => state.starfieldConfig)
 
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
@@ -44,15 +57,6 @@ export function CameraController({
     }
   }, [camera])
 
-  // Set initial FOV from config on mount
-  useEffect(() => {
-    const perspectiveCamera = cameraRef.current
-    if (perspectiveCamera && cameraBaseFov !== undefined) {
-      perspectiveCamera.fov = cameraBaseFov
-      perspectiveCamera.updateProjectionMatrix()
-    }
-  }, [cameraBaseFov])
-
   // Register camera FOV as an animatable uniform
   useEffect(() => {
     const perspectiveCamera = cameraRef.current
@@ -63,7 +67,6 @@ export function CameraController({
 
     useUniformStore.getState().registerUniform("cameraFov", fovUniform, {
       initial: cameraBaseFov,
-      meta: { min: 20, max: 120, step: 1 },
     })
 
     return () => {
@@ -92,48 +95,61 @@ export function CameraController({
     }
   }, [lookAtTarget, invalidate])
 
-  //const ANIMATION_DELAY = 0
-  //const EPSILON = 0.05
-  const POST_PROCESSING_ENABLED = true
-  // Number of frames to wait before starting camera movement (allows render loop to stabilize)
-  const TRANSITION_DELAY_FRAMES = 2
+  const [levaConfig] = useControls(
+    () =>
+      (showControls
+        ? {
+            "Scene Settings": folder({
+              Camera: folder(
+                {
+                  enabled: {
+                    value: DEFAULT_CAMERA_CONFIG.enabled,
+                    label: "Enable Camera Controls",
+                  },
+                  fov: {
+                    value: cameraBaseFov,
+                    min: 20,
+                    max: 150,
+                    step: 1,
+                    label: "FOV",
+                    onChange: (value: number) => {
+                      useUniformStore.getState().setUniform("cameraFov", value)
+                      invalidate()
+                    },
+                  },
+                  lookAtDistance: {
+                    value: DEFAULT_CAMERA_CONFIG.lookAtDistance,
+                    min: 2,
+                    max: 20,
+                    step: 0.5,
+                    label: "Look At Distance",
+                  },
+                  smoothTime: {
+                    value: DEFAULT_CAMERA_CONFIG.smoothTime,
+                    min: 0.1,
+                    max: 5,
+                    step: 0.1,
+                    label: "Smooth Time",
+                  },
+                  restThreshold: {
+                    value: DEFAULT_CAMERA_CONFIG.restThreshold,
+                    min: 0.001,
+                    max: 5,
+                    step: 0.01,
+                    label: "Rest Threshold",
+                  },
+                },
+                { collapsed: true }
+              ),
+            }),
+          }
+        : {}) as Schema
+  )
 
-  const [config] = useControls(() => ({
-    "Scene Settings": folder({
-      Camera: folder(
-        {
-          enabled: {
-            value: true,
-            label: "Enable Camera Controls",
-          },
-          lookAtDistance: {
-            value: 8,
-            min: 2,
-            max: 20,
-            step: 0.5,
-            label: "Look At Distance",
-          },
-          Timing: folder({
-            smoothTime: {
-              value: 1,
-              min: 0.1,
-              max: 5,
-              step: 0.1,
-              label: "Smooth Time",
-            },
-            restThreshold: {
-              value: 2,
-              min: 0.001,
-              max: 5,
-              step: 0.01,
-              label: "Rest Threshold",
-            },
-          }),
-        },
-        { collapsed: true }
-      ),
-    }),
-  }))
+  // Use Leva values when controls shown, prop/defaults otherwise
+  const config = showControls
+    ? (levaConfig as typeof DEFAULT_CAMERA_CONFIG)
+    : { ...DEFAULT_CAMERA_CONFIG, enabled }
 
   // Sync Leva config to CameraControls instance
   useEffect(() => {
@@ -144,34 +160,7 @@ export function CameraController({
   }, [config.smoothTime, config.restThreshold])
 
   useFrame(({ camera, gl, scene }) => {
-    //const perspectiveCamera = camera as PerspectiveCamera
     const cam = cameraControlsRef.current
-
-    // Handle FOV animation during warp
-    //const progress = warp.progress.get()
-    //const delayedProgress = THREE.MathUtils.clamp(
-    //  (progress - ANIMATION_DELAY) / (1 - ANIMATION_DELAY),
-    //  0,
-    //  1
-    //)
-
-    //const easedProgress = warp.isWarping
-    //  ? easings.easeInCubic(delayedProgress)
-    //  : easings.easeOutExpo(delayedProgress)
-
-    // const desiredFov = THREE.MathUtils.lerp(
-    //  cameraBaseFov,
-    //  hyerpspaceUniforms.cameraFov,
-    //  easedProgress
-    //)
-
-    //const delta = Math.abs(perspectiveCamera.fov - desiredFov)
-
-    //if (delta > EPSILON) {
-    //  perspectiveCamera.fov = desiredFov
-    //  perspectiveCamera.updateProjectionMatrix()
-    //  invalidate()
-    //}
 
     // Handle lookAtTarget changes
     const lookAtTarget = useGameStore.getState().lookAtTarget
@@ -214,8 +203,13 @@ export function CameraController({
         )
         if (gameObject) {
           const targetPosition = new THREE.Vector3(...gameObject.position)
+          
+          // Get the current camera position from CameraControls (accounts for user interaction)
+          const currentCameraPosition = new THREE.Vector3()
+          cam.getPosition(currentCameraPosition)
+          
           const direction = new THREE.Vector3()
-            .subVectors(cam.camera.position, targetPosition)
+            .subVectors(currentCameraPosition, targetPosition)
             .normalize()
 
           const newCameraPosition = targetPosition
@@ -252,7 +246,7 @@ export function CameraController({
       <CameraControlsImpl
         makeDefault
         ref={cameraControlsRef}
-        enabled={enabled && !isSceneChanging && !isCameraTransitioning}
+        enabled={config.enabled && !isSceneChanging && !isCameraTransitioning}
         smoothTime={config.smoothTime}
         restThreshold={config.restThreshold}
         dollySpeed={0.5}

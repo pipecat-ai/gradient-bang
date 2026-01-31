@@ -20,6 +20,8 @@ interface AppState {
     config: Partial<StarfieldConfig>,
     deepMerge?: boolean
   ) => void
+  debug: boolean
+  setDebug: (debug: boolean) => void
   performanceProfile: PerformanceProfile
   setPerformanceProfile: (profile: PerformanceProfile) => void
 
@@ -54,8 +56,8 @@ interface AppState {
   // Scene Transition
   isSceneChanging: boolean
   setIsSceneChanging: (changing: boolean) => void
-  isWarpCooldownActive: boolean
-  setIsWarpCooldownActive: (active: boolean) => void
+  isSceneCooldownActive: boolean
+  setIsSceneCooldownActive: (active: boolean) => void
 
   // Scene Queue
   sceneQueue: QueuedScene[]
@@ -71,6 +73,8 @@ export const useGameStore = create<AppState>(
     starfieldConfig: {
       ...defaultProfile,
     },
+    debug: false,
+    setDebug: (debug: boolean) => set({ debug }),
     setStarfieldConfig: (config: Partial<StarfieldConfig>, deepMerge = false) =>
       set(
         produce((draft) => {
@@ -174,11 +178,11 @@ export const useGameStore = create<AppState>(
           draft.isSceneChanging = changing
         })
       ),
-    isWarpCooldownActive: false,
-    setIsWarpCooldownActive: (active: boolean) =>
+    isSceneCooldownActive: false,
+    setIsSceneCooldownActive: (active: boolean) =>
       set(
         produce((draft) => {
-          draft.isWarpCooldownActive = active
+          draft.isSceneCooldownActive = active
         })
       ),
 

@@ -44,6 +44,74 @@ export interface PropertyAnimationConfig {
 }
 
 /**
+ * Configuration for an animated property with target, optional start/end values, and timing.
+ *
+ * @example
+ * // Simple: animate from initial to target, back to initial
+ * { target: 165, anim: { enter: { easing: easings.easeInCubic } } }
+ *
+ * // With start: snap to 50 at enter start, animate to 165
+ * { target: 165, start: 50, anim: {} }
+ *
+ * // With end: animate from initial to 165 on enter, back to 100 on exit (not initial)
+ * { target: 165, end: 100, anim: {} }
+ *
+ * // Full control: start at 50, animate to 165, exit back to 100
+ * { target: 165, start: 50, end: 100, anim: {} }
+ */
+export interface AnimatedPropertyConfig {
+  /** Target value to animate to during enter (when progress = 1) */
+  target: number
+  /** Optional: value to start from when enter begins (snaps to this at progress = 0) */
+  start?: number
+  /** Optional: value to animate back to during exit (defaults to uniform's initial) */
+  end?: number
+  /** Animation timing config per direction */
+  anim: PropertyAnimationConfig
+}
+
+/**
+ * Calculate the animated value for a property given progress and direction.
+ *
+ * Handles:
+ * - Custom start value (used as base for enter instead of initial)
+ * - Custom end value (used as base for exit instead of initial)
+ * - Timing/easing via animateProgress
+ *
+ * @param progress - Raw spring progress (0 to 1)
+ * @param isEntering - Whether animating in the "enter" direction
+ * @param initial - The uniform's initial/default value
+ * @param config - Property animation config
+ * @returns The interpolated value for this frame
+ *
+ * @example
+ * const cameraFov = getUniform<number>("cameraFov")
+ * if (cameraFov) {
+ *   updateUniform(cameraFov, lerpAnimatedProperty(p, isEntering, cameraFov.initial!, CAMERA_FOV))
+ * }
+ */
+export function lerpAnimatedProperty(
+  progress: number,
+  isEntering: boolean,
+  initial: number,
+  config: AnimatedPropertyConfig
+): number {
+  const animatedP = animateProgress(progress, isEntering, config.anim)
+
+  // Determine the "base" value (where progress = 0 leads)
+  // - Enter: use start if defined, otherwise initial
+  // - Exit: use end if defined, otherwise initial
+  const baseValue = isEntering
+    ? (config.start ?? initial)
+    : (config.end ?? initial)
+
+  // Lerp between base and target
+  // When animatedP = 0: returns baseValue
+  // When animatedP = 1: returns target
+  return baseValue + (config.target - baseValue) * animatedP
+}
+
+/**
  * Transform raw progress into animated progress with timing and easing.
  *
  * Handles:

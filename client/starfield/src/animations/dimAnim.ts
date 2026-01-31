@@ -1,17 +1,16 @@
 import { useCallback, useRef } from "react"
 import { easings } from "@react-spring/three"
 import { useFrame } from "@react-three/fiber"
-import * as THREE from "three"
 
 import { useUniformStore } from "@/useUniformStore"
 
 import type { DirectionalAnimationHook } from "./types"
 import {
-  animateProgress,
+  lerpAnimatedProperty,
   PROGRESS_THRESHOLD,
   useAnimationSpring,
   type AnimationConfig,
-  type PropertyAnimationConfig,
+  type AnimatedPropertyConfig,
 } from "./useAnimationSpring"
 
 // ============================================================================
@@ -24,12 +23,12 @@ const DEFAULT_EXIT_TIME = 800
 
 // Layer dim: 1.0 = no dimming, 0 = fully dimmed (black)
 // Dims background while keeping game objects visible
-const PP_LAYER_DIM_OPACITY = {
+const PP_LAYER_DIM_OPACITY: AnimatedPropertyConfig = {
   target: 0.5, // Dim background significantly
   anim: {
     enter: {},
     exit: {},
-  } satisfies PropertyAnimationConfig,
+  },
 }
 
 // ============================================================================
@@ -112,14 +111,11 @@ export function useDimAnimation(
     // --- Layer Dim ---
     const ppLayerDimOpacity = getUniform<number>("ppLayerDimOpacity")
     if (ppLayerDimOpacity) {
-      const layerDimP = animateProgress(
-        p,
-        isEntering,
-        PP_LAYER_DIM_OPACITY.anim
-      )
+      // Use config with dynamic target from options
+      const config: AnimatedPropertyConfig = { ...PP_LAYER_DIM_OPACITY, target }
       updateUniform(
         ppLayerDimOpacity,
-        THREE.MathUtils.lerp(ppLayerDimOpacity.initial!, target, layerDimP)
+        lerpAnimatedProperty(p, isEntering, ppLayerDimOpacity.initial!, config)
       )
     }
   })

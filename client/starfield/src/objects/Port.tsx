@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useFrame, useLoader, useThree } from "@react-three/fiber"
+import { useFrame, useThree } from "@react-three/fiber"
 import * as THREE from "three"
 
 import { useGameObjectAnimation } from "@/animations/useGameObjectAnimation"
@@ -11,9 +11,11 @@ import {
 } from "@/fx/PlanetShadowShader"
 import type { PositionedGameObject } from "@/types"
 import { useGameStore } from "@/useGameStore"
+import { useTextureCache } from "@/utils/textureCache"
 
-const TRANSPARENT_PIXEL =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/ax18ncAAAAASUVORK5CYII="
+const SHADOW_MIN_DISTANCE = 8
+const SHADOW_MAX_DISTANCE = 15
+const SHADOW_MAX_OPACITY = 0.85
 
 export interface PortProps extends PositionedGameObject {
   rotationSpeed?: number
@@ -40,7 +42,7 @@ export interface PortProps extends PositionedGameObject {
 export const Port = ({
   id,
   position,
-  scale = 4,
+  scale = 2,
   opacity = 0.8,
   enabled = true,
   // Image props
@@ -50,7 +52,7 @@ export const Port = ({
   // Shadow props
   shadowEnabled = true,
   shadowRadius = 1,
-  shadowOpacity = 0.5,
+  shadowOpacity = 0.4,
   shadowFalloff = 1,
   shadowColor,
   // Billboard mode
@@ -103,10 +105,14 @@ export const Port = ({
     return undefined
   }, [imageUrl, portAssets, assetIndex])
 
-  // Load texture if we have an image URL
-  const textureUrl = resolvedImageUrl || TRANSPARENT_PIXEL
-  const hasTexture = Boolean(resolvedImageUrl)
-  const texture = useLoader(THREE.TextureLoader, textureUrl)
+  // Subscribe to texture cache - will re-render when texture becomes available
+  const textureMap = useTextureCache((state) => state.textures)
+
+  // Get texture from cache (populated by AssetPreloader)
+  const texture = resolvedImageUrl
+    ? textureMap.get(resolvedImageUrl) ?? null
+    : null
+  const hasTexture = texture !== null
 
   // Boosted tint color - use palette tint as default
   const boostedTintColor = useMemo(() => {
@@ -152,15 +158,17 @@ export const Port = ({
 
   // Calculate dimensions based on texture aspect ratio
   const { width, height } = useMemo(() => {
-    if (!hasTexture || !texture.image) {
+    if (!texture?.image) {
       return { width: scale, height: scale }
     }
-    const aspectRatio = texture.image.width / texture.image.height
+    const aspectRatio =
+      (texture.image as HTMLImageElement).width /
+      (texture.image as HTMLImageElement).height
     return {
       width: scale * aspectRatio,
       height: scale,
     }
-  }, [texture, hasTexture, scale])
+  }, [texture, scale])
 
   // Image mode: always face camera, optionally follow camera position (billboard)
   // Also update shadow opacity based on distance to camera and fade progress
@@ -199,15 +207,17 @@ export const Port = ({
       const distance = groupRef.current.position.distanceTo(camera.position)
       // Scale opacity: closer = max opacity, further = base opacity
       // Distance range: 8-15 units maps to maxOpacity-shadowOpacity
-      const minDistance = 8
-      const maxDistance = 15
-      const maxOpacity = 0.85
       const distanceFactor = Math.min(
-        Math.max((distance - minDistance) / (maxDistance - minDistance), 0),
+        Math.max(
+          (distance - SHADOW_MIN_DISTANCE) /
+            (SHADOW_MAX_DISTANCE - SHADOW_MIN_DISTANCE),
+          0
+        ),
         1
       )
       const dynamicOpacity =
-        maxOpacity - (maxOpacity - shadowOpacity) * distanceFactor
+        SHADOW_MAX_OPACITY -
+        (SHADOW_MAX_OPACITY - shadowOpacity) * distanceFactor
       shadowMaterialRef.current.uniforms.uOpacity.value = dynamicOpacity * fade
     }
   })

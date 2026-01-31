@@ -5,6 +5,46 @@ export interface ImageAsset {
   url: string
 }
 
+/**
+ * Configuration for Shockwave effect
+ */
+export interface ShockwaveConfig {
+  enabled: boolean
+  speed: number
+  maxRadius: number
+  waveSize: number
+  amplitude: number
+  distance: number
+}
+
+/**
+ * Configuration for Dithering effect
+ */
+export interface DitheringConfig {
+  enabled: boolean
+  gridSize: number
+  pixelSizeRatio: number
+  grayscaleOnly: boolean
+}
+
+/**
+ * Configuration for Sharpening effect
+ */
+export interface SharpeningConfig {
+  enabled: boolean
+  intensity: number
+  radius: number
+  threshold: number
+}
+
+/**
+ * Configuration for Exposure effect
+ */
+export interface ExposureConfig {
+  enabled: boolean
+  startAmount: number
+}
+
 export interface StarfieldConfig {
   palette?: string
   imageAssets?: ImageAsset[]
@@ -13,47 +53,14 @@ export interface StarfieldConfig {
   hyperspaceExitTime?: number
   hyperspaceDuration?: number
   hyperspaceCooldown?: number
-  hyerpspaceUniforms: {
-    vignetteAmount: number
-    vignetteOffset: number
-    cameraFov: number
-    bloomIntensity: number
-    bloomRadius: number
-  }
+  hyperspaceFovShift?: number
   shakeIntensity?: number
   shakeRelaxTime?: number
   layerDimDuration?: number
   exposureDuration?: number
-  shockwave: {
-    shockwaveEnabled?: boolean
-    shockwaveSpeed?: number
-    shockwaveMaxRadius?: number
-    shockwaveWaveSize?: number
-    shockwaveAmplitude?: number
-    shockwaveDistance?: number
-  }
-  dithering: {
-    ditheringEnabled: true
-    ditheringGridSize?: number
-    ditheringPixelSizeRatio?: number
-    ditheringGrayscaleOnly?: boolean
-  }
-  sharpening: {
-    sharpeningEnabled?: boolean
-    sharpeningIntensity?: number
-    sharpeningRadius?: number
-    sharpeningThreshold?: number
-  }
-  vignette: {
-    vignetteEnabled?: boolean
-    vignetteOffset?: number
-    vignetteDarkness?: number
-  }
-  scanlines: {
-    scanlinesEnabled?: boolean
-    scanlinesIntensity?: number
-    scanlinesFrequency?: number
-  }
+  shockwave?: Partial<ShockwaveConfig>
+  dithering?: Partial<DitheringConfig>
+  sharpening?: Partial<SharpeningConfig>
   stars?: {
     enabled?: boolean
     radius?: number
@@ -65,18 +72,18 @@ export interface StarfieldConfig {
     fade?: boolean
     speed?: number
   }
+  exposure?: Partial<ExposureConfig>
   dust?: Partial<DustConfig>
   fog?: Partial<FogConfig>
   planet?: Partial<PlanetConfig>
   sun?: Partial<SunConfig>
-  grading: Partial<GradingConfig>
+  grading?: Partial<GradingConfig>
   nebula?: Partial<NebulaConfig>
-  milkyWay?: Partial<MilkyWayConfig>
   tunnel?: Partial<TunnelConfig>
   volumetricClouds?: Partial<VolumetricCloudsConfig>
 }
 
-export type PerformanceProfile = "low" | "mid" | "high"
+export type PerformanceProfile = "auto" | "low" | "mid" | "high"
 
 export type StarfieldState =
   | "idle"
@@ -150,33 +157,6 @@ export interface NebulaConfig {
   seed3: number
   rotation: [number, number, number]
   warpDecay: number
-}
-
-/**
- * Configuration for MilkyWay object
- */
-export interface MilkyWayConfig {
-  enabled: boolean
-  intensity: number
-  // Galaxy axis
-  axisX: number
-  axisY: number
-  axisZ: number
-  // Band
-  bandColor: THREE.Color
-  bandWidth: number
-  bandFalloff: number
-  bandCoverage: number
-  bandCoverageFalloff: number
-  bandRotation: number
-  // Core
-  coreColor: THREE.Color
-  coreWidth: number
-  coreIntensity: number
-  coreFalloff: number
-  // Distortion
-  distortionAmount: number
-  distortionScale: number
 }
 
 /**
@@ -318,7 +298,6 @@ export interface FogConfig {
 export interface SceneConfig {
   palette?: string
   nebula?: Partial<NebulaConfig>
-  milkyWay?: Partial<MilkyWayConfig>
   stars?: Partial<StarsConfig>
   skybox?: Partial<SkyboxConfig>
   planet?: Partial<PlanetConfig>

@@ -10,10 +10,11 @@ import { useUniformStore } from "@/useUniformStore"
 import type { DirectionalAnimationHook } from "./types"
 import {
   animateProgress,
+  lerpAnimatedProperty,
   PROGRESS_THRESHOLD,
   useAnimationSpring,
+  type AnimatedPropertyConfig,
   type AnimationConfig,
-  type PropertyAnimationConfig,
 } from "./useAnimationSpring"
 
 // ============================================================================
@@ -21,81 +22,86 @@ import {
 // ============================================================================
 
 // Camera FOV
-const CAMERA_FOV = {
+const CAMERA_FOV: AnimatedPropertyConfig = {
   target: 165,
+  // start: 90,  // Example: snap to this value when enter begins
+  // end: 75,    // Example: animate back to this value on exit
   anim: {
     enter: { easing: easings.easeInCubic },
     exit: { easing: easings.easeOutExpo, offset: 0.5 },
-  } satisfies PropertyAnimationConfig,
+  },
 }
 
 // Tunnel properties
-const TUNNEL_OPACITY = {
+const TUNNEL_OPACITY: AnimatedPropertyConfig = {
   target: 1,
   anim: {
     enter: { offset: 0.25 }, // Reaches full opacity at 25% of enter
-    exit: { delay: 0.5 }, // Full duration on exit
-  } satisfies PropertyAnimationConfig,
+    exit: { delay: 0.5, offset: 0.9 },
+  },
 }
 
-const TUNNEL_CONTRAST = {
-  target: 0.3,
-  exit: { delay: 0 },
-  anim: {} satisfies PropertyAnimationConfig, // Linear, full duration
+const TUNNEL_CONTRAST: AnimatedPropertyConfig = {
+  target: 0.7,
+  anim: {
+    exit: { delay: 0 },
+  },
 }
 
-const TUNNEL_CENTER_HOLE = {
-  target: 10,
-  exit: { delay: 0, offset: 0.5 }, // Full duration on exit
-  anim: {} satisfies PropertyAnimationConfig,
+const TUNNEL_CENTER_HOLE: AnimatedPropertyConfig = {
+  target: 7,
+  anim: {
+    exit: { delay: 0, offset: 0.5 },
+  },
 }
 
-const TUNNEL_CENTER_SOFTNESS = {
+const TUNNEL_CENTER_SOFTNESS: AnimatedPropertyConfig = {
   target: 1,
-  exit: { delay: 0, offset: 0.95 }, // Full duration on exit
-  anim: {} satisfies PropertyAnimationConfig,
+  anim: {
+    exit: { delay: 0, offset: 0.95 },
+  },
 }
 
-const TUNNEL_ROTATION_SPEED = {
+const TUNNEL_ROTATION_SPEED: AnimatedPropertyConfig = {
   target: 0.1,
   anim: {
     enter: { easing: easings.easeInExpo },
     exit: {},
-  } satisfies PropertyAnimationConfig,
+  },
 }
 
 // Post-processing
 // Exposure: 1.0 = normal, <1 = darker, >1 = brighter
-const PP_EXPOSURE = {
+const PP_EXPOSURE: AnimatedPropertyConfig = {
   target: 0.5, // 50% darker during hyperspace
   anim: {
     enter: {},
     exit: { offset: 0.4 },
-  } satisfies PropertyAnimationConfig,
+  },
 }
 
 // Layer dim: 1.0 = no dimming, 0 = fully dimmed (black)
 // Dims background while keeping game objects visible
-const PP_LAYER_DIM_OPACITY = {
+const PP_LAYER_DIM_OPACITY: AnimatedPropertyConfig = {
   target: 0.15, // Dim background significantly during hyperspace
   anim: {
     enter: { delay: 0.2, easing: easings.easeInQuad },
     exit: { offset: 0.6 },
-  } satisfies PropertyAnimationConfig,
+  },
 }
 
 // Shockwave trigger point during exit animation (0-1 progress, where 1 = in hyperspace, 0 = normal)
 // Triggers when progress drops below this value during exit
 const SHOCKWAVE_EXIT_TRIGGER = 0.6
 
-// Dithering
+// Dithering - uses multipliers on initial values, not AnimatedPropertyConfig
 const PP_DITHERING = {
   gridMultiplier: 6,
   pixelMultiplier: 6,
   anim: {
     enter: { delay: 0.4, easing: easings.easeInCubic },
     exit: { offset: 0.25 },
-  } satisfies PropertyAnimationConfig,
+  },
 }
 
 // ============================================================================
@@ -231,83 +237,74 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
     // --- Camera FOV ---
     const cameraFov = getUniform<number>("cameraFov")
     if (cameraFov) {
-      const fovP = animateProgress(p, isEntering, CAMERA_FOV.anim)
       updateUniform(
         cameraFov,
-        THREE.MathUtils.lerp(cameraFov.initial!, CAMERA_FOV.target, fovP)
+        lerpAnimatedProperty(p, isEntering, cameraFov.initial!, CAMERA_FOV)
       )
     }
 
     // --- Tunnel uniforms ---
     const tunnelOpacity = getUniform<number>("tunnelOpacity")
     if (tunnelOpacity) {
-      const opacityP = animateProgress(p, isEntering, TUNNEL_OPACITY.anim)
       updateUniform(
         tunnelOpacity,
-        THREE.MathUtils.lerp(
+        lerpAnimatedProperty(
+          p,
+          isEntering,
           tunnelOpacity.initial!,
-          TUNNEL_OPACITY.target,
-          opacityP
+          TUNNEL_OPACITY
         )
       )
     }
 
     const tunnelContrast = getUniform<number>("tunnelContrast")
     if (tunnelContrast) {
-      const contrastP = animateProgress(p, isEntering, TUNNEL_CONTRAST.anim)
       updateUniform(
         tunnelContrast,
-        THREE.MathUtils.lerp(
+        lerpAnimatedProperty(
+          p,
+          isEntering,
           tunnelContrast.initial!,
-          TUNNEL_CONTRAST.target,
-          contrastP
+          TUNNEL_CONTRAST
         )
       )
     }
 
     const tunnelCenterHole = getUniform<number>("tunnelCenterHole")
     if (tunnelCenterHole) {
-      const holeP = animateProgress(p, isEntering, TUNNEL_CENTER_HOLE.anim)
       updateUniform(
         tunnelCenterHole,
-        THREE.MathUtils.lerp(
+        lerpAnimatedProperty(
+          p,
+          isEntering,
           tunnelCenterHole.initial!,
-          TUNNEL_CENTER_HOLE.target,
-          holeP
+          TUNNEL_CENTER_HOLE
         )
       )
     }
 
     const tunnelCenterSoftness = getUniform<number>("tunnelCenterSoftness")
     if (tunnelCenterSoftness) {
-      const softnessP = animateProgress(
-        p,
-        isEntering,
-        TUNNEL_CENTER_SOFTNESS.anim
-      )
       updateUniform(
         tunnelCenterSoftness,
-        THREE.MathUtils.lerp(
+        lerpAnimatedProperty(
+          p,
+          isEntering,
           tunnelCenterSoftness.initial!,
-          TUNNEL_CENTER_SOFTNESS.target,
-          softnessP
+          TUNNEL_CENTER_SOFTNESS
         )
       )
     }
 
     const tunnelRotationSpeed = getUniform<number>("tunnelRotationSpeed")
     if (tunnelRotationSpeed) {
-      const rotationP = animateProgress(
-        p,
-        isEntering,
-        TUNNEL_ROTATION_SPEED.anim
-      )
       updateUniform(
         tunnelRotationSpeed,
-        THREE.MathUtils.lerp(
+        lerpAnimatedProperty(
+          p,
+          isEntering,
           tunnelRotationSpeed.initial!,
-          TUNNEL_ROTATION_SPEED.target,
-          rotationP
+          TUNNEL_ROTATION_SPEED
         )
       )
     }
@@ -317,10 +314,9 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
     // target is absolute exposure value during hyperspace
     const ppExposure = getUniform<number>("ppExposure")
     if (ppExposure) {
-      const exposureP = animateProgress(p, isEntering, PP_EXPOSURE.anim)
       updateUniform(
         ppExposure,
-        THREE.MathUtils.lerp(ppExposure.initial!, PP_EXPOSURE.target, exposureP)
+        lerpAnimatedProperty(p, isEntering, ppExposure.initial!, PP_EXPOSURE)
       )
     }
 
@@ -328,17 +324,15 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
     // Dims background while keeping game objects visible via mask
     const ppLayerDimOpacity = getUniform<number>("ppLayerDimOpacity")
     if (ppLayerDimOpacity) {
-      const layerDimP = animateProgress(
-        p,
-        isEntering,
-        PP_LAYER_DIM_OPACITY.anim
+      updateUniform(
+        ppLayerDimOpacity,
+        lerpAnimatedProperty(
+          p,
+          isEntering,
+          ppLayerDimOpacity.initial!,
+          PP_LAYER_DIM_OPACITY
+        )
       )
-      const newValue = THREE.MathUtils.lerp(
-        ppLayerDimOpacity.initial!,
-        PP_LAYER_DIM_OPACITY.target,
-        layerDimP
-      )
-      updateUniform(ppLayerDimOpacity, newValue)
     }
 
     // --- Dithering effect ---

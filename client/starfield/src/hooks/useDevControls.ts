@@ -1,278 +1,185 @@
-import { startTransition, useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { button, folder, useControls } from "leva"
+import type { Schema } from "leva/dist/declarations/src/types"
 
 import { getPaletteNames } from "@/colors"
-import { PANEL_ORDERING } from "@/constants"
+import { DEFAULT_DPR, PANEL_ORDERING } from "@/constants"
 import { useSceneChange } from "@/hooks/useSceneChange"
-import type { GameObject, PerformanceProfile } from "@/types"
+import { useShowControls } from "@/hooks/useStarfieldControls"
+import type { PerformanceProfile } from "@/types"
 import { useGameStore } from "@/useGameStore"
 import { generateRandomScene } from "@/utils/scene"
 
-const OBJECT_TYPES: GameObject["type"][] = [
-  "port",
-  "ship",
-  "garrison",
-  "salvage",
-]
+function getDprForProfile(profile?: PerformanceProfile): number {
+  // Auto profile will dynamically adjust based on GPU tier
+  if (profile === "auto") return DEFAULT_DPR.high
+  // Otherwise use the default DPR for the profile
+  return profile ? DEFAULT_DPR[profile] : DEFAULT_DPR.high
+}
 
 export const useDevControls = ({
   profile,
 }: {
   profile?: PerformanceProfile
 }) => {
+  const showControls = useShowControls()
+  const defaultDpr = useMemo(() => getDprForProfile(profile), [profile])
+
   const togglePause = useGameStore((state) => state.togglePause)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const sceneQueueLength = useGameStore((state) => state.sceneQueue.length)
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
   const currentSceneId = useGameStore((state) => state.currentScene?.id)
-  const isWarpCooldownActive = useGameStore(
-    (state) => state.isWarpCooldownActive
+  const isSceneCooldownActive = useGameStore(
+    (state) => state.isSceneCooldownActive
   )
   const performanceProfile = useGameStore((state) => state.performanceProfile)
-  const gameObjects = useGameStore((state) => state.gameObjects)
-  const setGameObjects = useGameStore((state) => state.setGameObjects)
   const setLookAtTarget = useGameStore((state) => state.setLookAtTarget)
 
   const { changeScene } = useSceneChange()
 
   const logSceneConfig = () => {
-    // We combine the leva state with our starfield state so any changes
-    // made are reflected in the output
-    //const levaState = levaStore.getData()
-    console.log("Config", useGameStore.getState().starfieldConfig) //, levaState)
+    console.log("[STARFIELD] Config", useGameStore.getState().starfieldConfig)
   }
 
-  const initialDPRValue = useMemo(() => {
-    return profile === "low" ? 1 : profile === "mid" ? 1.5 : 2
-  }, [profile])
-
-  const [, _setSceneControls] = useControls(() => ({
-    "Scene Settings": folder(
-      {
-        palette: {
-          value: starfieldConfig.palette,
-          options: getPaletteNames(),
-          label: "Color Palette",
-          onChange: (value: string, _path, context) => {
-            if (context.initial) {
-              return
-            }
-            setStarfieldConfig({ palette: value })
-          },
-          transient: false,
-        },
-        sceneQueueLength: {
-          value: sceneQueueLength.toString(),
-          editable: false,
-          label: "Scene Queue Length",
-        },
-        sceneChanging: {
-          value: isSceneChanging.toString(),
-          editable: false,
-          label: "Scene Changing",
-        },
-        sceneId: {
-          value: currentSceneId?.toString() ?? "",
-          editable: false,
-          label: "Current Scene ID",
-        },
-        warpCooldownActive: {
-          value: isWarpCooldownActive ? "Active" : "Inactive",
-          editable: false,
-          label: "Warp Cooldown",
-        },
-        ["Generate Random Scene"]: button(() => {
-          changeScene({
-            id: Math.random().toString(36).substring(2, 15),
-            gameObjects: [],
-            config: generateRandomScene(),
-          })
-        }),
-        ["Random Scene no Animation"]: button(() => {
-          changeScene(
-            {
-              id: Math.random().toString(36).substring(2, 15),
-              gameObjects: [],
-              config: generateRandomScene(),
-            },
-            { bypassAnimation: true }
-          )
-        }),
-        ["Log Scene Config"]: button(logSceneConfig),
-        ["Change to Scene 1"]: button(() => {
-          changeScene({
-            id: "1",
-            gameObjects: [],
-            config: {},
-          })
-        }),
-        ["Pause / Resume Rendering"]: button(() => {
-          togglePause()
-        }),
-        ["Clear Look At Target"]: button(() => {
-          setLookAtTarget(null)
-        }),
-      },
-      { collapsed: true, order: PANEL_ORDERING.SCENE_SETTINGS }
-    ),
-  }))
-
-  const [{ dpr }, setPerformance] = useControls(() => ({
-    "Scene Settings": folder(
-      {
-        Performance: folder(
-          {
-            dpr: {
-              value: initialDPRValue,
-              min: 1,
-              max: 2,
-              step: 0.5,
-              label: "DPR",
-            },
-          },
-          { collapsed: true, order: 99 }
-        ),
-      },
-      { collapsed: true, order: -1 }
-    ),
-  }))
-
-  // Build dynamic game object controls
-  const gameObjectControlsConfig = useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const objectRows: Record<string, any> = {}
-
-    // Add button at the top - use startTransition to prevent Suspense fallback
-    objectRows["Add Object"] = button(() => {
-      const currentObjects = useGameStore.getState().gameObjects
-      const portCount =
-        currentObjects.filter((o) => o.type === "port").length + 1
-      const newObject: GameObject = {
-        id: crypto.randomUUID(),
-        type: "port",
-        label: `PORT-${String(portCount).padStart(3, "0")}`,
-      }
-      startTransition(() => {
-        setGameObjects([...currentObjects, newObject])
-      })
-    })
-
-    // Clear all button
-    objectRows["Clear All"] = button(() => {
-      startTransition(() => {
-        setGameObjects([])
-      })
-    })
-
-    // Create controls for each game object (flat, no sub-folders)
-    gameObjects.forEach((obj, index) => {
-      const shortId = obj.id.slice(0, 8)
-      const prefix = `${index + 1}`
-
-      objectRows[`${prefix}_type_${shortId}`] = {
-        value: obj.type ?? "port",
-        options: OBJECT_TYPES,
-        label: `${prefix}. Type`,
-        onChange: (
-          value: GameObject["type"],
-          _path: string,
-          context: { initial: boolean }
-        ) => {
-          // Skip initial render
-          if (context.initial) return
-          // Skip if value hasn't changed
-          if (value === obj.type) return
-          const current = useGameStore.getState().gameObjects
-          const updated = current.map((o) =>
-            o.id === obj.id ? { ...o, type: value } : o
-          )
-          startTransition(() => {
-            setGameObjects(updated)
-          })
-        },
-      }
-
-      objectRows[`${prefix}_label_${shortId}`] = {
-        value: obj.label ?? "",
-        label: `${prefix}. Label`,
-        onChange: (
-          value: string,
-          _path: string,
-          context: { initial: boolean }
-        ) => {
-          if (context.initial) return
-          if (value === obj.label) return
-          const current = useGameStore.getState().gameObjects
-          const updated = current.map((o) =>
-            o.id === obj.id ? { ...o, label: value || undefined } : o
-          )
-          startTransition(() => {
-            setGameObjects(updated)
-          })
-        },
-      }
-
-      objectRows[`${prefix}_lookAt_${shortId}`] = button(() => {
-        setLookAtTarget(obj.id)
-      })
-
-      objectRows[`${prefix}_remove_${shortId}`] = button(() => {
-        const current = useGameStore.getState().gameObjects
-        startTransition(() => {
-          setGameObjects(current.filter((o) => o.id !== obj.id))
-        })
-      })
-    })
-
-    return objectRows
-  }, [gameObjects, setGameObjects, setLookAtTarget])
-
-  useControls(
-    () => ({
-      "Game Objects": folder(gameObjectControlsConfig, {
-        collapsed: true,
-        order: PANEL_ORDERING.TRIGGERS + 1,
-      }),
-    }),
-    [gameObjectControlsConfig]
+  const [levaValues, setControls] = useControls(
+    () =>
+      (showControls
+        ? {
+            "Scene Settings": folder(
+              {
+                palette: {
+                  value: starfieldConfig.palette,
+                  options: getPaletteNames(),
+                  label: "Color Palette",
+                  onChange: (value: string, _path, context) => {
+                    if (context.initial) return
+                    setStarfieldConfig({ palette: value })
+                  },
+                  transient: false,
+                },
+                sceneQueueLength: {
+                  value: sceneQueueLength.toString(),
+                  editable: false,
+                  label: "Scene Queue Length",
+                },
+                sceneChanging: {
+                  value: isSceneChanging.toString(),
+                  editable: false,
+                  label: "Scene Changing",
+                },
+                sceneId: {
+                  value: currentSceneId?.toString() ?? "",
+                  editable: false,
+                  label: "Current Scene ID",
+                },
+                sceneCooldownActive: {
+                  value: isSceneCooldownActive ? "Active" : "Inactive",
+                  editable: false,
+                  label: "Scene Cooldown",
+                },
+                ["Generate Random Scene"]: button(() => {
+                  changeScene({
+                    id: Math.random().toString(36).substring(2, 15),
+                    gameObjects: [],
+                    config: generateRandomScene(),
+                  })
+                }),
+                ["Random Scene no Animation"]: button(() => {
+                  changeScene(
+                    {
+                      id: Math.random().toString(36).substring(2, 15),
+                      gameObjects: [],
+                      config: generateRandomScene(),
+                    },
+                    { bypassAnimation: true }
+                  )
+                }),
+                ["Log Scene Config"]: button(logSceneConfig),
+                ["Change to Scene 1"]: button(() => {
+                  changeScene({
+                    id: "1",
+                    gameObjects: [],
+                    config: {},
+                  })
+                }),
+                ["Pause / Resume Rendering"]: button(() => {
+                  togglePause()
+                }),
+                ["Clear Look At Target"]: button(() => {
+                  setLookAtTarget(null)
+                }),
+                Performance: folder(
+                  {
+                    dpr: {
+                      value: defaultDpr,
+                      min: 1,
+                      max: 2,
+                      step: 0.5,
+                      label: "DPR",
+                    },
+                  },
+                  { collapsed: true, order: 99 }
+                ),
+              },
+              { collapsed: true, order: PANEL_ORDERING.SCENE_SETTINGS }
+            ),
+          }
+        : {}) as Schema
   )
+  const levaDpr = (levaValues as { dpr?: number }).dpr
 
-  // Sync: profile changes -> DPR control (only when profile changes, not on manual DPR edits)
-  // Initialize with null so the first render always syncs if a profile is set
+  // Sync: profile changes -> DPR control
   const prevProfileRef = useRef<PerformanceProfile | null>(null)
   useEffect(() => {
+    if (!showControls) return
     if (performanceProfile && prevProfileRef.current !== performanceProfile) {
-      const newDpr =
-        performanceProfile === "low"
-          ? 1
-          : performanceProfile === "mid"
-            ? 1.5
-            : 2
-      setPerformance({ dpr: newDpr })
+      const newDpr = getDprForProfile(performanceProfile)
+      try {
+        setControls({ dpr: newDpr })
+      } catch {
+        // Controls not mounted yet
+      }
       prevProfileRef.current = performanceProfile
     }
-  }, [performanceProfile, setPerformance])
+  }, [performanceProfile, setControls, showControls])
 
   // Sync: store palette -> Leva controls
   useEffect(() => {
-    _setSceneControls({ palette: starfieldConfig.palette })
-  }, [starfieldConfig.palette, _setSceneControls])
+    if (!showControls) return
+    if (starfieldConfig.palette) {
+      try {
+        setControls({ palette: starfieldConfig.palette })
+      } catch {
+        // Controls not mounted yet
+      }
+    }
+  }, [starfieldConfig.palette, setControls, showControls])
 
   useEffect(() => {
-    _setSceneControls({
-      sceneQueueLength: sceneQueueLength.toString(),
-      sceneChanging: isSceneChanging.toString(),
-      sceneId: currentSceneId?.toString() ?? "",
-      warpCooldownActive: isWarpCooldownActive ? "Active" : "Inactive",
-    })
+    if (!showControls) return
+    try {
+      setControls({
+        sceneQueueLength: sceneQueueLength.toString(),
+        sceneChanging: isSceneChanging.toString(),
+        sceneId: currentSceneId?.toString() ?? "",
+        warpCooldownActive: isSceneCooldownActive ? "Active" : "Inactive",
+      })
+    } catch {
+      // Controls not mounted yet
+    }
   }, [
     sceneQueueLength,
     isSceneChanging,
     currentSceneId,
-    isWarpCooldownActive,
-    _setSceneControls,
+    isSceneCooldownActive,
+    setControls,
+    showControls,
   ])
 
-  return { dpr, setPerformance }
+  // Return Leva value when controls shown, default otherwise
+  const dpr = showControls ? levaDpr : defaultDpr
+
+  return { dpr, setControls }
 }

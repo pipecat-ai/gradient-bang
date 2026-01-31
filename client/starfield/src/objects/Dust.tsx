@@ -1,94 +1,135 @@
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { Points } from "@react-three/drei"
 import { folder, useControls } from "leva"
+import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 
+import { PANEL_ORDERING } from "@/constants"
+import { useShowControls } from "@/hooks/useStarfieldControls"
 import { useGameStore } from "@/useGameStore"
 import { seededRandom } from "@/utils/math"
 
+// Default dust config values
+const DEFAULT_DUST_CONFIG = {
+  enabled: true,
+  count: 1000,
+  radius: 100,
+  size: 0.2,
+  opacity: 0.25,
+  minDistance: 2.0,
+  fadeRange: 5.0,
+}
+
 export const Dust = () => {
+  const showControls = useShowControls()
   const { dust: dustConfig } = useGameStore((state) => state.starfieldConfig)
-  const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const materialRef = useRef<THREE.PointsMaterial>(null)
 
-  const [{ count, radius, size, opacity, minDistance, fadeRange }] =
-    useControls(() => ({
-      Dust: folder(
-        {
-          enabled: {
-            value: dustConfig?.enabled ?? true,
-            onChange: (value: boolean) => {
-              setStarfieldConfig({ dust: { enabled: value } })
-            },
+  const [levaValues] = useControls(
+    () =>
+      (showControls
+        ? {
+            Objects: folder(
+              {
+                Dust: folder(
+                  {
+                    enabled: {
+                      value:
+                        dustConfig?.enabled ?? DEFAULT_DUST_CONFIG.enabled,
+                      label: "Enable Dust",
+                    },
+                    count: {
+                      value: dustConfig?.count ?? DEFAULT_DUST_CONFIG.count,
+                      min: 100,
+                      max: 5000,
+                      step: 100,
+                      label: "Count",
+                    },
+                    radius: {
+                      value: dustConfig?.radius ?? DEFAULT_DUST_CONFIG.radius,
+                      min: 10,
+                      max: 200,
+                      step: 5,
+                      label: "Radius",
+                    },
+                    size: {
+                      value: dustConfig?.size ?? DEFAULT_DUST_CONFIG.size,
+                      min: 0.01,
+                      max: 5,
+                      step: 0.01,
+                      label: "Size",
+                    },
+                    opacity: {
+                      value: dustConfig?.opacity ?? DEFAULT_DUST_CONFIG.opacity,
+                      min: 0,
+                      max: 1,
+                      step: 0.05,
+                      label: "Opacity",
+                    },
+                    minDistance: {
+                      value:
+                        dustConfig?.minDistance ??
+                        DEFAULT_DUST_CONFIG.minDistance,
+                      min: 0,
+                      max: 20,
+                      step: 0.5,
+                      label: "Min Distance",
+                    },
+                    fadeRange: {
+                      value:
+                        dustConfig?.fadeRange ?? DEFAULT_DUST_CONFIG.fadeRange,
+                      min: 0.1,
+                      max: 10,
+                      step: 0.1,
+                      label: "Fade Range",
+                    },
+                  },
+                  { collapsed: true }
+                ),
+              },
+              { collapsed: true, order: PANEL_ORDERING.RENDERING }
+            ),
+          }
+        : {}) as Schema
+  )
+
+  // Get values from Leva when showing controls, otherwise from config/defaults
+  const controls = useMemo(
+    () =>
+      showControls
+        ? (levaValues as typeof DEFAULT_DUST_CONFIG)
+        : {
+            enabled: dustConfig?.enabled ?? DEFAULT_DUST_CONFIG.enabled,
+            count: dustConfig?.count ?? DEFAULT_DUST_CONFIG.count,
+            radius: dustConfig?.radius ?? DEFAULT_DUST_CONFIG.radius,
+            size: dustConfig?.size ?? DEFAULT_DUST_CONFIG.size,
+            opacity: dustConfig?.opacity ?? DEFAULT_DUST_CONFIG.opacity,
+            minDistance:
+              dustConfig?.minDistance ?? DEFAULT_DUST_CONFIG.minDistance,
+            fadeRange: dustConfig?.fadeRange ?? DEFAULT_DUST_CONFIG.fadeRange,
           },
-          count: {
-            value: dustConfig?.count ?? 1000,
-            min: 100,
-            max: 5000,
-            step: 100,
-            label: "Count",
-          },
-          radius: {
-            value: dustConfig?.radius ?? 100,
-            min: 10,
-            max: 200,
-            step: 5,
-            label: "Radius",
-          },
-          size: {
-            value: dustConfig?.size ?? 0.2,
-            min: 0.01,
-            max: 5,
-            step: 0.01,
-            label: "Size",
-          },
-          opacity: {
-            value: dustConfig?.opacity ?? 0.25,
-            min: 0,
-            max: 1,
-            step: 0.05,
-            label: "Opacity",
-          },
-          minDistance: {
-            value: dustConfig?.minDistance ?? 2.0,
-            min: 0,
-            max: 20,
-            step: 0.5,
-            label: "Min Distance",
-          },
-          fadeRange: {
-            value: dustConfig?.fadeRange ?? 5.0,
-            min: 0.1,
-            max: 10,
-            step: 0.1,
-            label: "Fade Range",
-          },
-        },
-        {
-          collapsed: true,
-        }
-      ),
-    }))
+    [showControls, levaValues, dustConfig]
+  )
 
   useEffect(() => {
     if (materialRef.current && materialRef.current.userData.shader) {
       const shader = materialRef.current.userData.shader
-      shader.uniforms.minDistance.value = minDistance
-      shader.uniforms.fadeRange.value = fadeRange
+      shader.uniforms.minDistance.value = controls.minDistance
+      shader.uniforms.fadeRange.value = controls.fadeRange
     }
-  }, [minDistance, fadeRange])
+  }, [controls.minDistance, controls.fadeRange])
 
   // Generate random positions within a sphere
   const positions = useMemo(() => {
-    const positions = new Float32Array(count * 3)
+    const positions = new Float32Array(controls.count * 3)
     // Create seeded RNG - seed changes with count and radius to get different patterns
-    const random = seededRandom(count * radius)
+    const random = seededRandom(controls.count * controls.radius)
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < controls.count; i++) {
       // Generate random point in sphere using spherical coordinates
       const theta = random() * Math.PI * 2
       const phi = Math.acos(2 * random() - 1)
-      const r = Math.cbrt(random()) * radius
+      const r = Math.cbrt(random()) * controls.radius
 
       const x = r * Math.sin(phi) * Math.cos(theta)
       const y = r * Math.sin(phi) * Math.sin(theta)
@@ -100,7 +141,7 @@ export const Dust = () => {
     }
 
     return positions
-  }, [count, radius])
+  }, [controls.count, controls.radius])
 
   // Custom shader material
   const handleBeforeCompile = useCallback(
@@ -111,8 +152,8 @@ export const Dust = () => {
       }
 
       // Add only our custom uniforms (cameraPosition is built-in)
-      shader.uniforms.minDistance = { value: minDistance }
-      shader.uniforms.fadeRange = { value: fadeRange }
+      shader.uniforms.minDistance = { value: controls.minDistance }
+      shader.uniforms.fadeRange = { value: controls.fadeRange }
 
       // Add uniforms and varying declaration to vertex shader
       shader.vertexShader = `
@@ -155,19 +196,19 @@ export const Dust = () => {
         )
       }
     },
-    [minDistance, fadeRange]
+    [controls.minDistance, controls.fadeRange]
   )
 
-  if (!dustConfig?.enabled) return null
+  if (!controls.enabled) return null
 
   return (
     <Points positions={positions} stride={3} frustumCulled={false}>
       <pointsMaterial
         ref={materialRef}
-        size={size}
+        size={controls.size}
         color="#ffffff"
         transparent
-        opacity={opacity}
+        opacity={controls.opacity}
         sizeAttenuation
         depthWrite={false}
         blending={THREE.AdditiveBlending}

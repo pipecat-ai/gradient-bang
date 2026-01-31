@@ -1,17 +1,16 @@
 import { useCallback, useRef } from "react"
 import { easings } from "@react-spring/three"
 import { useFrame } from "@react-three/fiber"
-import * as THREE from "three"
 
 import { useUniformStore } from "@/useUniformStore"
 
 import type { DirectionalAnimationHook } from "./types"
 import {
-  animateProgress,
+  lerpAnimatedProperty,
   PROGRESS_THRESHOLD,
   useAnimationSpring,
+  type AnimatedPropertyConfig,
   type AnimationConfig,
-  type PropertyAnimationConfig,
 } from "./useAnimationSpring"
 
 // ============================================================================
@@ -24,12 +23,14 @@ const DEFAULT_EXIT_TIME = 500
 
 // Exposure: 1.0 = normal, <1 = darker, >1 = brighter
 // Animates to target exposure value (e.g., fade to black)
-const PP_EXPOSURE = {
+const PP_EXPOSURE: AnimatedPropertyConfig = {
   target: 0.0, // Fade to black
+  start: 1,
+  end: 1,
   anim: {
     enter: { easing: easings.easeInQuad },
     exit: { easing: easings.easeOutQuad },
-  } satisfies PropertyAnimationConfig,
+  },
 }
 
 // ============================================================================
@@ -83,8 +84,8 @@ export function useExposureAnimation(
       directionRef.current = direction
 
       if (direction === "enter") {
-        startSpring(1, { duration: enterTime } as AnimationConfig).then(
-          () => onComplete?.()
+        startSpring(1, { duration: enterTime } as AnimationConfig).then(() =>
+          onComplete?.()
         )
       } else {
         // If starting exit from idle state, snap to target first
@@ -93,8 +94,8 @@ export function useExposureAnimation(
           setUniformsToTarget()
           setSpring(1)
         }
-        startSpring(0, { duration: exitTime } as AnimationConfig).then(
-          () => onComplete?.()
+        startSpring(0, { duration: exitTime } as AnimationConfig).then(() =>
+          onComplete?.()
         )
       }
     },
@@ -112,10 +113,11 @@ export function useExposureAnimation(
     // --- Exposure ---
     const ppExposure = getUniform<number>("ppExposure")
     if (ppExposure) {
-      const exposureP = animateProgress(p, isEntering, PP_EXPOSURE.anim)
+      // Use config with dynamic target from options
+      const config: AnimatedPropertyConfig = { ...PP_EXPOSURE, target }
       updateUniform(
         ppExposure,
-        THREE.MathUtils.lerp(ppExposure.initial!, target, exposureP)
+        lerpAnimatedProperty(p, isEntering, ppExposure.initial!, config)
       )
     }
   })

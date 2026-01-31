@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { Points } from "@react-three/drei"
 import { folder, useControls } from "leva"
+import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 
 import { getPalette } from "@/colors"
+import { PANEL_ORDERING } from "@/constants"
+import { useShowControls } from "@/hooks/useStarfieldControls"
 import { useGameStore } from "@/useGameStore"
 import { seededRandom } from "@/utils/math"
 
@@ -34,116 +37,174 @@ function createRadialGradientTexture() {
   return texture
 }
 
+// Default volumetric clouds config values
+const DEFAULT_CLOUDS_CONFIG = {
+  enabled: true,
+  count: 500,
+  radius: 300,
+  size: 400,
+  opacity: 0.03,
+  blendMode: "normal" as const,
+  minDistance: 10.0,
+  fadeRange: 3.0,
+}
+
 export const VolumetricClouds = () => {
+  const showControls = useShowControls()
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const { volumetricClouds: cloudsConfig } = starfieldConfig
-  const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const materialRef = useRef<THREE.PointsMaterial>(null)
 
-  // Get active palette
-  const palette = getPalette(starfieldConfig.palette)
+  // Get active palette (memoized to prevent unnecessary recalculations)
+  const palette = useMemo(
+    () => getPalette(starfieldConfig.palette),
+    [starfieldConfig.palette]
+  )
 
-  const [
-    { count, radius, size, opacity, color, blendMode, minDistance, fadeRange },
-    set,
-  ] = useControls(() => ({
-    "Volumetric Clouds": folder(
-      {
-        enabled: {
-          value: cloudsConfig?.enabled ?? true,
-          onChange: (value: boolean) => {
-            setStarfieldConfig({ volumetricClouds: { enabled: value } })
+  // Default color from palette (memoized to stabilize references)
+  const defaultColor = useMemo(
+    () => cloudsConfig?.color ?? `#${palette.tint.getHexString()}`,
+    [cloudsConfig, palette]
+  )
+
+  const [levaValues, set] = useControls(
+    () =>
+      (showControls
+        ? {
+            Objects: folder(
+              {
+                "Volumetric Clouds": folder(
+                  {
+                    enabled: {
+                      value:
+                        cloudsConfig?.enabled ?? DEFAULT_CLOUDS_CONFIG.enabled,
+                      label: "Enable Clouds",
+                    },
+                    count: {
+                      value: cloudsConfig?.count ?? DEFAULT_CLOUDS_CONFIG.count,
+                      min: 50,
+                      max: 2000,
+                      step: 50,
+                      label: "Count",
+                    },
+                    radius: {
+                      value:
+                        cloudsConfig?.radius ?? DEFAULT_CLOUDS_CONFIG.radius,
+                      min: 20,
+                      max: 500,
+                      step: 5,
+                      label: "Radius",
+                    },
+                    size: {
+                      value: cloudsConfig?.size ?? DEFAULT_CLOUDS_CONFIG.size,
+                      min: 1,
+                      max: 200,
+                      step: 0.5,
+                      label: "Size",
+                    },
+                    opacity: {
+                      value:
+                        cloudsConfig?.opacity ?? DEFAULT_CLOUDS_CONFIG.opacity,
+                      min: 0,
+                      max: 1,
+                      step: 0.01,
+                      label: "Opacity",
+                    },
+                    color: {
+                      value: defaultColor,
+                      label: "Color",
+                    },
+                    blendMode: {
+                      value:
+                        cloudsConfig?.blendMode ??
+                        DEFAULT_CLOUDS_CONFIG.blendMode,
+                      options: {
+                        Additive: "additive",
+                        Normal: "normal",
+                      },
+                      label: "Blend Mode",
+                    },
+                    minDistance: {
+                      value:
+                        cloudsConfig?.minDistance ??
+                        DEFAULT_CLOUDS_CONFIG.minDistance,
+                      min: 0,
+                      max: 20,
+                      step: 0.5,
+                      label: "Min Distance",
+                    },
+                    fadeRange: {
+                      value:
+                        cloudsConfig?.fadeRange ??
+                        DEFAULT_CLOUDS_CONFIG.fadeRange,
+                      min: 0.1,
+                      max: 20,
+                      step: 0.1,
+                      label: "Fade Range",
+                    },
+                  },
+                  { collapsed: true }
+                ),
+              },
+              { collapsed: true, order: PANEL_ORDERING.RENDERING }
+            ),
+          }
+        : {}) as Schema
+  )
+
+  // Get values from Leva when showing controls, otherwise from config/defaults
+  const controls = useMemo(
+    () =>
+      showControls
+        ? (levaValues as typeof DEFAULT_CLOUDS_CONFIG & { color: string })
+        : {
+            enabled: cloudsConfig?.enabled ?? DEFAULT_CLOUDS_CONFIG.enabled,
+            count: cloudsConfig?.count ?? DEFAULT_CLOUDS_CONFIG.count,
+            radius: cloudsConfig?.radius ?? DEFAULT_CLOUDS_CONFIG.radius,
+            size: cloudsConfig?.size ?? DEFAULT_CLOUDS_CONFIG.size,
+            opacity: cloudsConfig?.opacity ?? DEFAULT_CLOUDS_CONFIG.opacity,
+            color: defaultColor,
+            blendMode:
+              cloudsConfig?.blendMode ?? DEFAULT_CLOUDS_CONFIG.blendMode,
+            minDistance:
+              cloudsConfig?.minDistance ?? DEFAULT_CLOUDS_CONFIG.minDistance,
+            fadeRange:
+              cloudsConfig?.fadeRange ?? DEFAULT_CLOUDS_CONFIG.fadeRange,
           },
-        },
-        count: {
-          value: cloudsConfig?.count ?? 500,
-          min: 50,
-          max: 2000,
-          step: 50,
-          label: "Count",
-        },
-        radius: {
-          value: cloudsConfig?.radius ?? 80,
-          min: 20,
-          max: 500,
-          step: 5,
-          label: "Radius",
-        },
-        size: {
-          value: cloudsConfig?.size ?? 15,
-          min: 1,
-          max: 200,
-          step: 0.5,
-          label: "Size",
-        },
-        opacity: {
-          value: cloudsConfig?.opacity ?? 0.2,
-          min: 0,
-          max: 1,
-          step: 0.01,
-          label: "Opacity",
-        },
-        color: {
-          value: cloudsConfig?.color ?? `#${palette.tint.getHexString()}`,
-          label: "Color",
-        },
-        blendMode: {
-          value: cloudsConfig?.blendMode ?? "additive",
-          options: {
-            Additive: "additive",
-            Normal: "normal",
-          },
-          label: "Blend Mode",
-        },
-        minDistance: {
-          value: cloudsConfig?.minDistance ?? 2.0,
-          min: 0,
-          max: 20,
-          step: 0.5,
-          label: "Min Distance",
-        },
-        fadeRange: {
-          value: cloudsConfig?.fadeRange ?? 5.0,
-          min: 0.1,
-          max: 20,
-          step: 0.1,
-          label: "Fade Range",
-        },
-      },
-      {
-        collapsed: true,
-      }
-    ),
-  }))
+    [showControls, levaValues, cloudsConfig, defaultColor]
+  )
 
   useEffect(() => {
     if (materialRef.current && materialRef.current.userData.shader) {
       const shader = materialRef.current.userData.shader
-      shader.uniforms.minDistance.value = minDistance
-      shader.uniforms.fadeRange.value = fadeRange
+      shader.uniforms.minDistance.value = controls.minDistance
+      shader.uniforms.fadeRange.value = controls.fadeRange
     }
-  }, [minDistance, fadeRange])
+  }, [controls.minDistance, controls.fadeRange])
 
   // Sync palette changes to Leva controls
   useEffect(() => {
+    if (!showControls) return
     if (!cloudsConfig?.color) {
-      set({
-        color: `#${palette.tint.getHexString()}`,
-      })
+      try {
+        set({ color: `#${palette.tint.getHexString()}` })
+      } catch {
+        // Controls may not be mounted
+      }
     }
-  }, [starfieldConfig.palette, palette, cloudsConfig, set])
+  }, [showControls, starfieldConfig.palette, palette, cloudsConfig, set])
 
   // Generate random positions within a sphere with cloud-like clustering
   const positions = useMemo(() => {
-    const positions = new Float32Array(count * 3)
-    const random = seededRandom(count * radius * 137)
+    const positions = new Float32Array(controls.count * 3)
+    const random = seededRandom(controls.count * controls.radius * 137)
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < controls.count; i++) {
       // Generate clusters by using non-uniform distribution
       const clusterBias = Math.pow(random(), 0.7) // Bias toward center
       const theta = random() * Math.PI * 2
       const phi = Math.acos(2 * random() - 1)
-      const r = clusterBias * radius
+      const r = clusterBias * controls.radius
 
       const x = r * Math.sin(phi) * Math.cos(theta)
       const y = r * Math.sin(phi) * Math.sin(theta)
@@ -155,7 +216,7 @@ export const VolumetricClouds = () => {
     }
 
     return positions
-  }, [count, radius])
+  }, [controls.count, controls.radius])
 
   // Create soft gradient texture for particles
   const particleTexture = useMemo(() => createRadialGradientTexture(), [])
@@ -169,8 +230,8 @@ export const VolumetricClouds = () => {
       }
 
       // Add custom uniforms
-      shader.uniforms.minDistance = { value: minDistance }
-      shader.uniforms.fadeRange = { value: fadeRange }
+      shader.uniforms.minDistance = { value: controls.minDistance }
+      shader.uniforms.fadeRange = { value: controls.fadeRange }
 
       // Add uniforms and varying declaration to vertex shader
       shader.vertexShader = `
@@ -213,25 +274,25 @@ export const VolumetricClouds = () => {
         )
       }
     },
-    [minDistance, fadeRange]
+    [controls.minDistance, controls.fadeRange]
   )
 
   const blending = useMemo(() => {
-    return blendMode === "additive"
+    return controls.blendMode === "additive"
       ? THREE.AdditiveBlending
       : THREE.NormalBlending
-  }, [blendMode])
+  }, [controls.blendMode])
 
-  if (!cloudsConfig?.enabled) return null
+  if (!controls.enabled) return null
 
   return (
     <Points positions={positions} stride={3} frustumCulled={false}>
       <pointsMaterial
         ref={materialRef}
-        size={size}
-        color={color}
+        size={controls.size}
+        color={controls.color}
         transparent
-        opacity={opacity}
+        opacity={controls.opacity}
         sizeAttenuation
         depthWrite={false}
         blending={blending}

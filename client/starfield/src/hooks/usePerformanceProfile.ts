@@ -1,8 +1,10 @@
 import { useEffect } from "react"
 import { useDetectGPU } from "@react-three/drei"
 import { folder, useControls } from "leva"
+import type { Schema } from "leva/dist/declarations/src/types"
 
-import { PANEL_ORDERING } from "@/constants"
+import { PANEL_ORDERING, PERFORMANCE_PROFILES } from "@/constants"
+import { useShowControls } from "@/hooks/useStarfieldControls"
 import type { PerformanceProfile } from "@/types"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
@@ -12,28 +14,37 @@ export const usePerformanceProfile = ({
 }: {
   initialProfile?: PerformanceProfile
 }) => {
+  const showControls = useShowControls()
   const setPerformanceProfile = useGameStore(
     (state) => state.setPerformanceProfile
   )
   const { tier, isMobile } = useDetectGPU()
 
-  const [{ forcedProfile }] = useControls(() => ({
-    "Scene Settings": folder(
-      {
-        Performance: folder(
-          {
-            forcedProfile: {
-              value: undefined,
-              label: "Force Performance Profile",
-              options: ["low", "mid", "high"] as PerformanceProfile[],
-            },
-          },
-          { collapsed: true, order: 999 }
-        ),
-      },
-      { collapsed: true, order: PANEL_ORDERING.SCENE_SETTINGS }
-    ),
-  }))
+  const [levaValues] = useControls(
+    () =>
+      (showControls
+        ? {
+            "Scene Settings": folder(
+              {
+                Performance: folder(
+                  {
+                    forcedProfile: {
+                      value: initialProfile,
+                      label: "Force Performance Profile",
+                      options: PERFORMANCE_PROFILES,
+                    },
+                  },
+                  { collapsed: true, order: 999 }
+                ),
+              },
+              { collapsed: true, order: PANEL_ORDERING.SCENE_SETTINGS }
+            ),
+          }
+        : {}) as Schema
+  )
+  const forcedProfile = showControls
+    ? (levaValues as { forcedProfile?: PerformanceProfile }).forcedProfile
+    : undefined
 
   useEffect(() => {
     let targetProfile: PerformanceProfile = "high"

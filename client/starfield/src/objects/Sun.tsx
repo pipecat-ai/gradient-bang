@@ -1,103 +1,177 @@
 import { useEffect, useMemo, useRef } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
+import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 
 import { getPalette } from "@/colors"
-import { LAYERS } from "@/constants"
+import { LAYERS, PANEL_ORDERING } from "@/constants"
+import { useShowControls } from "@/hooks/useStarfieldControls"
 import { sunFragmentShader, sunVertexShader } from "@/shaders/SunShader"
 import { useGameStore } from "@/useGameStore"
 import { createValueNoiseTexture } from "@/utils/noise"
 
 const sunNoiseTexture = createValueNoiseTexture(256)
 
+// Default sun config values
+const DEFAULT_SUN_CONFIG = {
+  enabled: true,
+  scale: 100,
+  intensity: 1.2,
+  positionX: -40,
+  positionY: 30,
+  positionZ: -80,
+}
+
 export const Sun = () => {
+  const showControls = useShowControls()
   const groupRef = useRef<THREE.Group>(null)
   const materialRef = useRef<THREE.ShaderMaterial | null>(null)
   const { camera } = useThree()
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const { sun: sunConfig } = starfieldConfig
 
-  // Get active palette
-  const palette = getPalette(starfieldConfig.palette)
+  // Get active palette (memoized to prevent unnecessary recalculations)
+  const palette = useMemo(
+    () => getPalette(starfieldConfig.palette),
+    [starfieldConfig.palette]
+  )
+
+  // Default colors from palette (memoized to stabilize references)
+  const defaultCoreColor = useMemo(
+    () =>
+      sunConfig?.color
+        ? `#${new THREE.Color(sunConfig.color).getHexString()}`
+        : `#${palette.c1.getHexString()}`,
+    [sunConfig, palette]
+  )
+  const defaultCoronaColor = useMemo(
+    () =>
+      sunConfig?.coronaColor
+        ? `#${new THREE.Color(sunConfig.coronaColor).getHexString()}`
+        : `#${palette.c2.getHexString()}`,
+    [sunConfig, palette]
+  )
 
   // Leva controls for all sun parameters with palette cascade
-  const [controls, set] = useControls(() => ({
-    Sun: folder(
-      {
-        enabled: {
-          value: sunConfig?.enabled ?? true,
-          label: "Enable Sun",
-        },
-        scale: {
-          value: sunConfig?.scale ?? 100,
-          min: 1,
-          max: 300,
-          step: 1,
-          label: "Size",
-        },
-        intensity: {
-          value: sunConfig?.intensity ?? 1.2,
-          min: 0,
-          max: 3,
-          step: 0.1,
-          label: "Intensity",
-        },
-        coreColor: {
-          value: sunConfig?.color
-            ? `#${new THREE.Color(sunConfig.color).getHexString()}`
-            : `#${palette.c1.getHexString()}`,
-          label: "Core Color",
-        },
-        coronaColor: {
-          value: sunConfig?.coronaColor
-            ? `#${new THREE.Color(sunConfig.coronaColor).getHexString()}`
-            : `#${palette.c2.getHexString()}`,
-          label: "Corona Color",
-        },
-        positionX: {
-          value: sunConfig?.position?.x ?? -40,
-          min: -300,
-          max: 300,
-          step: 1,
-          label: "Position X",
-        },
-        positionY: {
-          value: sunConfig?.position?.y ?? 30,
-          min: -300,
-          max: 300,
-          step: 1,
-          label: "Position Y",
-        },
-        positionZ: {
-          value: sunConfig?.position?.z ?? -80,
-          min: -300,
-          max: 300,
-          step: 1,
-          label: "Position Z",
-        },
-      },
-      { collapsed: true }
-    ),
-  }))
+  const [levaValues, set] = useControls(
+    () =>
+      (showControls
+        ? {
+            Objects: folder(
+              {
+                Sun: folder(
+                  {
+                    enabled: {
+                      value: sunConfig?.enabled ?? DEFAULT_SUN_CONFIG.enabled,
+                      label: "Enable Sun",
+                    },
+                    scale: {
+                      value: sunConfig?.scale ?? DEFAULT_SUN_CONFIG.scale,
+                      min: 1,
+                      max: 300,
+                      step: 1,
+                      label: "Size",
+                    },
+                    intensity: {
+                      value:
+                        sunConfig?.intensity ?? DEFAULT_SUN_CONFIG.intensity,
+                      min: 0,
+                      max: 3,
+                      step: 0.1,
+                      label: "Intensity",
+                    },
+                    coreColor: {
+                      value: defaultCoreColor,
+                      label: "Core Color",
+                    },
+                    coronaColor: {
+                      value: defaultCoronaColor,
+                      label: "Corona Color",
+                    },
+                    positionX: {
+                      value:
+                        sunConfig?.position?.x ?? DEFAULT_SUN_CONFIG.positionX,
+                      min: -300,
+                      max: 300,
+                      step: 1,
+                      label: "Position X",
+                    },
+                    positionY: {
+                      value:
+                        sunConfig?.position?.y ?? DEFAULT_SUN_CONFIG.positionY,
+                      min: -300,
+                      max: 300,
+                      step: 1,
+                      label: "Position Y",
+                    },
+                    positionZ: {
+                      value:
+                        sunConfig?.position?.z ?? DEFAULT_SUN_CONFIG.positionZ,
+                      min: -300,
+                      max: 300,
+                      step: 1,
+                      label: "Position Z",
+                    },
+                  },
+                  { collapsed: true }
+                ),
+              },
+              { collapsed: true, order: PANEL_ORDERING.RENDERING }
+            ),
+          }
+        : {}) as Schema
+  )
+
+  // Get values from Leva when showing controls, otherwise from config/defaults
+  const controls = useMemo(
+    () =>
+      showControls
+        ? (levaValues as typeof DEFAULT_SUN_CONFIG & {
+            coreColor: string
+            coronaColor: string
+          })
+        : {
+            enabled: sunConfig?.enabled ?? DEFAULT_SUN_CONFIG.enabled,
+            scale: sunConfig?.scale ?? DEFAULT_SUN_CONFIG.scale,
+            intensity: sunConfig?.intensity ?? DEFAULT_SUN_CONFIG.intensity,
+            coreColor: defaultCoreColor,
+            coronaColor: defaultCoronaColor,
+            positionX: sunConfig?.position?.x ?? DEFAULT_SUN_CONFIG.positionX,
+            positionY: sunConfig?.position?.y ?? DEFAULT_SUN_CONFIG.positionY,
+            positionZ: sunConfig?.position?.z ?? DEFAULT_SUN_CONFIG.positionZ,
+          },
+    [showControls, levaValues, sunConfig, defaultCoreColor, defaultCoronaColor]
+  )
 
   // Sync palette changes to Leva controls
   useEffect(() => {
+    if (!showControls) return
     if (!sunConfig?.color && !sunConfig?.coronaColor) {
-      set({
-        coreColor: `#${palette.c1.getHexString()}`,
-        coronaColor: `#${palette.c2.getHexString()}`,
-      })
+      try {
+        set({
+          coreColor: `#${palette.c1.getHexString()}`,
+          coronaColor: `#${palette.c2.getHexString()}`,
+        })
+      } catch {
+        // Controls may not be mounted
+      }
     }
-  }, [starfieldConfig.palette, palette, sunConfig, set])
+  }, [showControls, starfieldConfig.palette, palette, sunConfig, set])
 
   // Sync sun config changes to Leva controls (only set defined values, let Leva keep defaults)
   useEffect(() => {
+    if (!showControls) return
     if (!sunConfig) return
     const updates: Record<string, number> = {}
-    if (sunConfig.intensity !== undefined) updates.intensity = sunConfig.intensity
-    set(updates)
-  }, [sunConfig, set])
+    if (sunConfig.intensity !== undefined)
+      updates.intensity = sunConfig.intensity
+    try {
+      set(updates)
+    } catch {
+      // Controls may not be mounted
+    }
+  }, [showControls, sunConfig, set])
 
   // Create shader material for the sun (only once)
   const sunMaterial = useMemo(() => {

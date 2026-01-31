@@ -1,12 +1,12 @@
 import { Suspense, useLayoutEffect, useRef } from "react"
-import { PerformanceMonitor, Stats } from "@react-three/drei"
+import { PerformanceMonitor, Preload } from "@react-three/drei"
 import { Canvas, useFrame } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
 import { Leva } from "leva"
 import * as THREE from "three"
 
 import { AssetPreloader } from "@/components/AssetPreloader"
-import { RenderingIndicator } from "@/components/RenderingIndicator"
+import { DebugOverlay } from "@/components/DebugOverlay"
 import { LAYERS } from "@/constants"
 import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/CameraController"
@@ -69,6 +69,8 @@ interface StarfieldBaseProps {
   gameObjects?: GameObject[]
 }
 
+const IS_DEV = import.meta.env.DEV
+
 export interface StarfieldProps extends StarfieldBaseProps {
   onStart?: () => void
   onStop?: () => void
@@ -83,9 +85,9 @@ export interface StarfieldProps extends StarfieldBaseProps {
 
 export function StarfieldComponent({
   config,
-  debug = false,
   lookMode = true,
-  profile,
+  profile = "auto",
+  debug = false,
   className,
   gameObjects,
 }: StarfieldBaseProps) {
@@ -128,7 +130,9 @@ export function StarfieldComponent({
 
   return (
     <>
-      <Leva hidden={!debug} titleBar={{ title: "Starfield" }} />
+      {IS_DEV && debug && (
+        <Leva hidden={!debug} titleBar={{ title: "Starfield" }} />
+      )}
 
       <Canvas
         frameloop={isPaused ? "never" : "demand"}
@@ -167,12 +171,7 @@ export function StarfieldComponent({
           }}
         />
 
-        {debug && (
-          <>
-            <Stats showPanel={0} />
-            <RenderingIndicator />
-          </>
-        )}
+        {debug && <DebugOverlay />}
         <Suspense fallback={null}>
           <AssetPreloader />
           <Fog />
@@ -183,10 +182,11 @@ export function StarfieldComponent({
           <VolumetricClouds />
           <Planet />
           <Tunnel />
+          <Preload all />
           <SuspenseReady />
         </Suspense>
 
-        <CameraController enabled={lookMode} debug={debug} />
+        <CameraController enabled={lookMode} />
         <GameObjectsController />
         <GameObjects />
         <PostProcessingController />
@@ -198,6 +198,7 @@ export function StarfieldComponent({
 }
 
 export const Starfield = ({
+  debug = false,
   onStart,
   onStop,
   onCreated,
@@ -208,6 +209,12 @@ export const Starfield = ({
   onTargetClear,
   ...props
 }: StarfieldProps) => {
+  // Set debug in store synchronously BEFORE any child components render
+  // This ensures useShowControls has the correct value on first render
+  if (useGameStore.getState().debug !== debug) {
+    useGameStore.setState({ debug })
+  }
+
   const callbacksRef = useRef({
     onStart,
     onStop,
@@ -248,5 +255,5 @@ export const Starfield = ({
     })
   }, [])
 
-  return <StarfieldComponent {...props} />
+  return <StarfieldComponent debug={debug} {...props} />
 }

@@ -35,9 +35,6 @@ class StarfieldMaterial extends ShaderMaterial {
         time: { value: 0.0 },
         fade: { value: 1.0 },
         dpr: { value: 1.0 },
-        fogColor: { value: new Color(0x000000) },
-        fogNear: { value: 1 },
-        fogFar: { value: 1000 },
       },
       vertexShader: /* glsl */ `
       uniform float time;
@@ -47,26 +44,18 @@ class StarfieldMaterial extends ShaderMaterial {
       varying vec3 vColor;
       varying float vOpacity;
       
-      #ifdef USE_FOG
-        varying float vFogDepth;
-      #endif
-      
       void main() {
         vColor = color;
         vOpacity = opacity;
         vec4 mvPosition = modelViewMatrix * vec4(position, 0.5);
         gl_PointSize = size * (30.0 / -mvPosition.z) * (3.0 + sin(time + 100.0)) * dpr;
         gl_Position = projectionMatrix * mvPosition;
-        
-        #include <fog_vertex>
       }`,
       fragmentShader: /* glsl */ `
       uniform sampler2D pointTexture;
       uniform float fade;
       varying vec3 vColor;
       varying float vOpacity;
-      
-      #include <fog_pars_fragment>
       
       void main() {
         float opacity = vOpacity;
@@ -78,9 +67,7 @@ class StarfieldMaterial extends ShaderMaterial {
 
         #include <tonemapping_fragment>
 	      #include <colorspace_fragment>
-        #include <fog_fragment>
       }`,
-      fog: true,
     })
   }
 }
@@ -166,18 +153,9 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
       if (pointsRef.current) {
         pointsRef.current.position.copy(state.camera.position)
       }
-
-      // Sync fog uniforms with scene fog
-      if (state.scene.fog) {
-        material.current.uniforms.fogColor.value.set(state.scene.fog.color)
-        if ("near" in state.scene.fog) {
-          material.current.uniforms.fogNear.value = state.scene.fog.near
-          material.current.uniforms.fogFar.value = state.scene.fog.far
-        }
-      }
     })
 
-    const [starfieldMaterial] = React.useState(() => new StarfieldMaterial())
+    const starfieldMaterial = React.useMemo(() => new StarfieldMaterial(), [])
 
     // Handle layers and render order
     React.useLayoutEffect(() => {

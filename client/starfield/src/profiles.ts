@@ -1,6 +1,7 @@
 import type { StarfieldConfig } from "./types"
 
 export const defaultProfile: StarfieldConfig = {
+  cameraBaseFov: 50,
   palette: "cosmicTeal",
   imageAssets: [
     { type: "skybox", url: "/test-skybox-1.png" },
@@ -9,54 +10,32 @@ export const defaultProfile: StarfieldConfig = {
     { type: "port", url: "/test-port-2.png" },
     { type: "port", url: "/test-port-3.png" },
   ],
-  cameraBaseFov: 85,
   hyperspaceEnterTime: 1500,
   hyperspaceExitTime: 1500,
   hyperspaceDuration: 100,
   hyperspaceCooldown: 10000,
-  hyerpspaceUniforms: {
-    vignetteAmount: 0.5,
-    vignetteOffset: 1,
-    cameraFov: 165,
-    bloomIntensity: 20,
-    bloomRadius: 1,
-  },
+  hyperspaceFovShift: 120,
   shakeIntensity: 1,
   shakeRelaxTime: 1000,
   layerDimDuration: 5000,
   shockwave: {
-    shockwaveEnabled: true,
-    shockwaveSpeed: 1,
-    shockwaveMaxRadius: 0.6,
-    shockwaveWaveSize: 0.15,
-    shockwaveAmplitude: 0.1,
-    shockwaveDistance: 4,
+    enabled: true,
   },
   dithering: {
-    ditheringEnabled: true,
+    enabled: true,
   },
   sharpening: {
-    sharpeningEnabled: true,
+    enabled: true,
   },
-  vignette: {
-    vignetteEnabled: false,
-    vignetteOffset: 0.7,
-    vignetteDarkness: 0.3,
-  },
-  scanlines: {
-    scanlinesEnabled: false,
+  exposure: {
+    enabled: true,
+    startAmount: -1, // Start faded to black, animations restore to default (0)
   },
   stars: {
     enabled: true,
   },
   dust: {
     enabled: true,
-  },
-  fog: {
-    enabled: true,
-    color: "#000000",
-    near: 0,
-    far: 80,
   },
   planet: {
     enabled: true,
@@ -77,13 +56,6 @@ export const defaultProfile: StarfieldConfig = {
   },
   volumetricClouds: {
     enabled: true,
-    count: 500,
-    radius: 300,
-    size: 40,
-    opacity: 0.03,
-    blendMode: "normal",
-    minDistance: 10,
-    fadeRange: 3,
   },
 }
 

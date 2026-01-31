@@ -59,12 +59,10 @@ export function SceneController() {
 
     if (state.sceneQueue.length === 0) {
       isProcessingRef.current = false
-      state.setIsSceneChanging(false)
       return
     }
 
     isProcessingRef.current = true
-    state.setIsSceneChanging(true)
 
     const queuedScene = state.removeSceneFromQueue()
     if (queuedScene) {
@@ -83,7 +81,6 @@ export function SceneController() {
       })
     } else {
       isProcessingRef.current = false
-      state.setIsSceneChanging(false)
     }
   }, [applyScene])
 

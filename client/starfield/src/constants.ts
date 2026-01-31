@@ -1,3 +1,5 @@
+import type { GameObject, PerformanceProfile } from "./types"
+
 export const LAYERS = {
   DEFAULT: 0, // Main scene objects
   SKYBOX: 1, // Nebula
@@ -10,8 +12,8 @@ export const LAYERS = {
 
 export const PANEL_ORDERING = {
   SCENE_SETTINGS: -1,
+  GAME_OBJECTS: 0,
   RENDERING: 99,
-  TRIGGERS: -1,
   PERFORMANCE: 99,
 }
 
@@ -27,3 +29,24 @@ export const SCENE_TRANSITION_TIMING = {
   // Cooldown period after scene change where all scenes bypass animation (0 = disabled)
   SCENE_CHANGE_COOLDOWN: 15000,
 } as const
+
+export const PERFORMANCE_PROFILES: PerformanceProfile[] = [
+  "auto",
+  "low",
+  "mid",
+  "high",
+] as const
+
+export const DEFAULT_DPR: Record<PerformanceProfile, number> = {
+  auto: 2,
+  low: 1,
+  mid: 1.5,
+  high: 2,
+}
+
+export const GAME_OBJECT_TYPES: GameObject["type"][] = [
+  "port",
+  "ship",
+  "garrison",
+  "salvage",
+]

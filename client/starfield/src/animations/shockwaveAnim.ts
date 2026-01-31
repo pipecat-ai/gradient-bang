@@ -29,7 +29,7 @@ export function useShockwaveAnimation() {
     // Check if animation is complete
     // The visual effect runs longer than just the wave reaching maxRadius
     // Double the configured speed to match the full visual animation, plus 500ms buffer
-    const durationMs = Math.max(shockwaveConfig?.shockwaveSpeed ?? 0.5, 0.1) * 2 * 1000 + 500
+    const durationMs = Math.max(shockwaveConfig?.speed ?? 0.5, 0.1) * 2 * 1000 + 500
     const elapsed = performance.now() - shockwaveStartTime
 
     if (elapsed >= durationMs) {
