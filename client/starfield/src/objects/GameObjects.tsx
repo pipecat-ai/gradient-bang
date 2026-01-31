@@ -1,4 +1,4 @@
-import { useRef } from "react"
+import { Suspense, useRef } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import * as THREE from "three"
 
@@ -12,7 +12,10 @@ interface SelectionIndicatorProps {
   scale?: number
 }
 
-const SelectionIndicator = ({ position, scale = 1 }: SelectionIndicatorProps) => {
+const SelectionIndicator = ({
+  position,
+  scale = 1,
+}: SelectionIndicatorProps) => {
   const groupRef = useRef<THREE.Group>(null)
   const { camera } = useThree()
 
@@ -59,7 +62,11 @@ export const GameObjects = () => {
       {positionedGameObjects.map((obj) => {
         switch (obj.type) {
           case "port":
-            return <Port key={obj.id} {...obj} />
+            return (
+              <Suspense key={obj.id} fallback={null}>
+                <Port {...obj} />
+              </Suspense>
+            )
           // TODO: Add other object types as they're implemented
           // case "ship":
           //   return <Ship key={obj.id} {...obj} />

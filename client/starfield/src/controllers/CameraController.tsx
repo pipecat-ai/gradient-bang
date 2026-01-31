@@ -115,7 +115,7 @@ export function CameraController({
           },
           Timing: folder({
             smoothTime: {
-              value: 0.5,
+              value: 1,
               min: 0.1,
               max: 5,
               step: 0.1,

@@ -280,12 +280,12 @@ export function useAnimationSpring(
   )
 
   // Returns progress if animating, null if should skip
+  // Only return progress while actively animating to prevent drift after completion
   const getProgress = useCallback((): number | null => {
-    const p = spring.progress.get()
-    if (p < PROGRESS_THRESHOLD && !isAnimatingRef.current) {
+    if (!isAnimatingRef.current) {
       return null
     }
-    return p
+    return spring.progress.get()
   }, [spring.progress])
 
   return {

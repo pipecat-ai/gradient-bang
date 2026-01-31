@@ -191,25 +191,22 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
       if (direction === "enter") {
         console.debug("[STARFIELD] Hyperspace entering")
         // Linear spring - per-property easing via applyEasing
-        startSpring(1, { duration: hyperspaceEnterTime } as AnimationConfig).then(
-          () => onComplete?.()
-        )
+        startSpring(1, {
+          duration: hyperspaceEnterTime,
+        } as AnimationConfig).then(() => onComplete?.())
       } else {
         // If starting exit from idle state, snap to hyperspace first
         const current = progress.get()
         if (current < PROGRESS_THRESHOLD) {
-          console.debug(
-            "[STARFIELD] Hyperspace exiting (from idle - snapping to hyperspace first)"
-          )
           setUniformsToHyperspace()
           setSpring(1)
         } else {
           console.debug("[STARFIELD] Hyperspace exiting")
         }
         // Linear spring - per-property easing via applyEasing
-        startSpring(0, { duration: hyperspaceExitTime } as AnimationConfig).then(
-          () => onComplete?.()
-        )
+        startSpring(0, {
+          duration: hyperspaceExitTime,
+        } as AnimationConfig).then(() => onComplete?.())
       }
     },
     [
@@ -336,14 +333,12 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
         isEntering,
         PP_LAYER_DIM_OPACITY.anim
       )
-      updateUniform(
-        ppLayerDimOpacity,
-        THREE.MathUtils.lerp(
-          ppLayerDimOpacity.initial!,
-          PP_LAYER_DIM_OPACITY.target,
-          layerDimP
-        )
+      const newValue = THREE.MathUtils.lerp(
+        ppLayerDimOpacity.initial!,
+        PP_LAYER_DIM_OPACITY.target,
+        layerDimP
       )
+      updateUniform(ppLayerDimOpacity, newValue)
     }
 
     // --- Dithering effect ---

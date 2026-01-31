@@ -7,6 +7,7 @@ export const defaultProfile: StarfieldConfig = {
     { type: "skybox", url: "/test-skybox-2.png" },
     { type: "port", url: "/test-port-1.png" },
     { type: "port", url: "/test-port-2.png" },
+    { type: "port", url: "/test-port-3.png" },
   ],
   cameraBaseFov: 85,
   hyperspaceEnterTime: 1500,

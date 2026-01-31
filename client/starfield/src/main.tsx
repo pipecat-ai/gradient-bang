@@ -15,6 +15,13 @@ createRoot(document.getElementById("root")!).render(
       onTargetRest={(target) => console.log("Target rested:", target)}
       onTargetClear={() => console.log("Target cleared")}
       onReady={() => console.log("Starfield ready")}
+      gameObjects={[
+        {
+          id: "port-1",
+          type: "port",
+          label: "bbs",
+        },
+      ]}
     />
   </StrictMode>
 )

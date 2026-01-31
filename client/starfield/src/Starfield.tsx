@@ -186,9 +186,7 @@ export function StarfieldComponent({
 
         <CameraController enabled={lookMode} debug={debug} />
         <GameObjectsController />
-        <Suspense fallback={null}>
-          <GameObjects />
-        </Suspense>
+        <GameObjects />
         <PostProcessingController />
         <AnimationController />
       </Canvas>

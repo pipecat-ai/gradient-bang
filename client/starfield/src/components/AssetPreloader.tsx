@@ -11,9 +11,7 @@ import { useGameStore } from "@/useGameStore"
  * when game objects are added later.
  */
 export function AssetPreloader() {
-  const imageAssets = useGameStore(
-    (state) => state.starfieldConfig.imageAssets
-  )
+  const imageAssets = useGameStore((state) => state.starfieldConfig.imageAssets)
 
   // Get all unique URLs from image assets
   const urls = imageAssets?.map((asset) => asset.url) ?? []
