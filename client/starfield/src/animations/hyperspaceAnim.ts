@@ -67,16 +67,26 @@ const TUNNEL_ROTATION_SPEED = {
 // Post-processing
 // Exposure: 1.0 = normal, <1 = darker, >1 = brighter
 const PP_EXPOSURE = {
-  target: 0.1, // 50% darker during hyperspace
+  target: 0.5, // 50% darker during hyperspace
   anim: {
     enter: {},
-    exit: { offset: 0.5 },
+    exit: { offset: 0.4 },
+  } satisfies PropertyAnimationConfig,
+}
+
+// Layer dim: 1.0 = no dimming, 0 = fully dimmed (black)
+// Dims background while keeping game objects visible
+const PP_LAYER_DIM_OPACITY = {
+  target: 0.15, // Dim background significantly during hyperspace
+  anim: {
+    enter: { delay: 0.2, easing: easings.easeInQuad },
+    exit: { offset: 0.6 },
   } satisfies PropertyAnimationConfig,
 }
 
 // Shockwave trigger point during exit animation (0-1 progress, where 1 = in hyperspace, 0 = normal)
 // Triggers when progress drops below this value during exit
-const SHOCKWAVE_EXIT_TRIGGER = 0.7
+const SHOCKWAVE_EXIT_TRIGGER = 0.6
 
 // Dithering
 const PP_DITHERING = {
@@ -150,6 +160,10 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
     const ppExposure = getUniform<number>("ppExposure")
     if (ppExposure) updateUniform(ppExposure, PP_EXPOSURE.target)
 
+    const ppLayerDimOpacity = getUniform<number>("ppLayerDimOpacity")
+    if (ppLayerDimOpacity)
+      updateUniform(ppLayerDimOpacity, PP_LAYER_DIM_OPACITY.target)
+
     const ppDitheringGridSize = getUniform<number>("ppDitheringGridSize")
     if (ppDitheringGridSize)
       updateUniform(
@@ -169,7 +183,7 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
 
   // Start function that triggers both store state and spring
   const start = useCallback(
-    (direction: "enter" | "exit") => {
+    (direction: "enter" | "exit", onComplete?: () => void) => {
       directionRef.current = direction
       shockwaveTriggeredRef.current = false // Reset shockwave trigger for new animation
       setHyperspace(direction)
@@ -177,7 +191,9 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
       if (direction === "enter") {
         console.debug("[STARFIELD] Hyperspace entering")
         // Linear spring - per-property easing via applyEasing
-        startSpring(1, { duration: hyperspaceEnterTime } as AnimationConfig)
+        startSpring(1, { duration: hyperspaceEnterTime } as AnimationConfig).then(
+          () => onComplete?.()
+        )
       } else {
         // If starting exit from idle state, snap to hyperspace first
         const current = progress.get()
@@ -191,7 +207,9 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
           console.debug("[STARFIELD] Hyperspace exiting")
         }
         // Linear spring - per-property easing via applyEasing
-        startSpring(0, { duration: hyperspaceExitTime } as AnimationConfig)
+        startSpring(0, { duration: hyperspaceExitTime } as AnimationConfig).then(
+          () => onComplete?.()
+        )
       }
     },
     [
@@ -306,6 +324,25 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
       updateUniform(
         ppExposure,
         THREE.MathUtils.lerp(ppExposure.initial!, PP_EXPOSURE.target, exposureP)
+      )
+    }
+
+    // --- Post-processing: Layer Dim ---
+    // Dims background while keeping game objects visible via mask
+    const ppLayerDimOpacity = getUniform<number>("ppLayerDimOpacity")
+    if (ppLayerDimOpacity) {
+      const layerDimP = animateProgress(
+        p,
+        isEntering,
+        PP_LAYER_DIM_OPACITY.anim
+      )
+      updateUniform(
+        ppLayerDimOpacity,
+        THREE.MathUtils.lerp(
+          ppLayerDimOpacity.initial!,
+          PP_LAYER_DIM_OPACITY.target,
+          layerDimP
+        )
       )
     }
 

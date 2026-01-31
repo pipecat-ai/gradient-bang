@@ -3,6 +3,10 @@ import { create } from "zustand"
 type AnimationDirection = "enter" | "exit"
 
 interface AnimationStore {
+  // Scene initialization
+  suspenseReady: boolean
+  setSuspenseReady: (ready: boolean) => void
+
   isHyperspace: AnimationDirection | undefined
   setHyperspace: (direction: AnimationDirection | undefined) => void
 
@@ -12,10 +16,6 @@ interface AnimationStore {
   triggerShockwave: () => void
   shockwaveStartTime: number | null
   setShockwaveStartTime: (time: number | null) => void
-
-  isWarping: boolean
-  startWarp: () => void
-  stopWarp: () => void
 
   isDimmed: boolean
   setIsDimmed: (isDimmed: boolean) => void
@@ -31,6 +31,10 @@ interface AnimationStore {
 }
 
 export const useAnimationStore = create<AnimationStore>((set) => ({
+  // Scene initialization
+  suspenseReady: false,
+  setSuspenseReady: (ready: boolean) => set({ suspenseReady: ready }),
+
   isHyperspace: undefined,
   setHyperspace: (direction) => set({ isHyperspace: direction }),
   isShockwave: false,
@@ -42,10 +46,8 @@ export const useAnimationStore = create<AnimationStore>((set) => ({
       shockwaveSequence: state.shockwaveSequence + 1,
     })),
   shockwaveStartTime: null,
-  setShockwaveStartTime: (time: number | null) => set({ shockwaveStartTime: time }),
-  isWarping: false,
-  startWarp: () => set({ isWarping: true }),
-  stopWarp: () => set({ isWarping: false }),
+  setShockwaveStartTime: (time: number | null) =>
+    set({ shockwaveStartTime: time }),
   isDimmed: false,
   setIsDimmed: (isDimmed: boolean) => set({ isDimmed }),
   exposure: 1,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react"
+import { startTransition, useEffect, useMemo, useRef } from "react"
 import { button, folder, useControls } from "leva"
 
 import { getPaletteNames } from "@/colors"
@@ -22,11 +22,6 @@ export const useDevControls = ({
   profile?: PerformanceProfile
 }) => {
   const togglePause = useGameStore((state) => state.togglePause)
-  const isWarping = useAnimationStore((state) => state.isWarping)
-  const startWarp = useAnimationStore((state) => state.startWarp)
-  const stopWarp = useAnimationStore((state) => state.stopWarp)
-  const isDimmed = useAnimationStore((state) => state.isDimmed)
-  const setIsDimmed = useAnimationStore((state) => state.setIsDimmed)
   const exposure = useAnimationStore((state) => state.exposure)
   const setExposure = useAnimationStore((state) => state.setExposure)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
@@ -147,7 +142,7 @@ export const useDevControls = ({
     ),
   }))
 
-  const [, setTriggers] = useControls(
+  useControls(
     () => ({
       Triggers: folder(
         {
@@ -162,36 +157,6 @@ export const useDevControls = ({
             },
             { collapsed: true }
           ),
-          Warp: folder(
-            {
-              ["Start Warp"]: button(() => {
-                startWarp()
-              }),
-              ["Stop Warp"]: button(() => {
-                stopWarp()
-              }),
-              warpStatus: {
-                value: isWarping ? "Warping" : "Not Warping",
-                editable: false,
-              },
-            },
-            { collapsed: true }
-          ),
-          Dim: folder(
-            {
-              ["Dim"]: button(() => {
-                setIsDimmed(true)
-              }),
-              ["Undim"]: button(() => {
-                setIsDimmed(false)
-              }),
-              dimStatus: {
-                value: isDimmed ? "Dimmed" : "Not Dimmed",
-                editable: false,
-              },
-            },
-            { collapsed: true }
-          ),
           Exposure: folder(
             {
               ["Fade Out"]: button(() => {
@@ -201,7 +166,12 @@ export const useDevControls = ({
                 setExposure(1)
               }),
               exposureStatus: {
-                value: exposure === 1 ? "100%" : exposure === 0 ? "0%" : `${Math.round(exposure * 100)}%`,
+                value:
+                  exposure === 1
+                    ? "100%"
+                    : exposure === 0
+                      ? "0%"
+                      : `${Math.round(exposure * 100)}%`,
                 editable: false,
                 label: "Exposure",
               },
@@ -212,7 +182,7 @@ export const useDevControls = ({
         { collapsed: true, order: PANEL_ORDERING.TRIGGERS }
       ),
     }),
-    [isWarping, startWarp, stopWarp, exposure, setExposure]
+    []
   )
 
   // Build dynamic game object controls
@@ -220,21 +190,26 @@ export const useDevControls = ({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const objectRows: Record<string, any> = {}
 
-    // Add button at the top
+    // Add button at the top - use startTransition to prevent Suspense fallback
     objectRows["Add Object"] = button(() => {
       const currentObjects = useGameStore.getState().gameObjects
-      const portCount = currentObjects.filter((o) => o.type === "port").length + 1
+      const portCount =
+        currentObjects.filter((o) => o.type === "port").length + 1
       const newObject: GameObject = {
         id: crypto.randomUUID(),
         type: "port",
         label: `PORT-${String(portCount).padStart(3, "0")}`,
       }
-      setGameObjects([...currentObjects, newObject])
+      startTransition(() => {
+        setGameObjects([...currentObjects, newObject])
+      })
     })
 
     // Clear all button
     objectRows["Clear All"] = button(() => {
-      setGameObjects([])
+      startTransition(() => {
+        setGameObjects([])
+      })
     })
 
     // Create controls for each game object (flat, no sub-folders)
@@ -246,7 +221,11 @@ export const useDevControls = ({
         value: obj.type ?? "port",
         options: OBJECT_TYPES,
         label: `${prefix}. Type`,
-        onChange: (value: GameObject["type"], _path: string, context: { initial: boolean }) => {
+        onChange: (
+          value: GameObject["type"],
+          _path: string,
+          context: { initial: boolean }
+        ) => {
           // Skip initial render
           if (context.initial) return
           // Skip if value hasn't changed
@@ -255,21 +234,29 @@ export const useDevControls = ({
           const updated = current.map((o) =>
             o.id === obj.id ? { ...o, type: value } : o
           )
-          setGameObjects(updated)
+          startTransition(() => {
+            setGameObjects(updated)
+          })
         },
       }
 
       objectRows[`${prefix}_label_${shortId}`] = {
         value: obj.label ?? "",
         label: `${prefix}. Label`,
-        onChange: (value: string, _path: string, context: { initial: boolean }) => {
+        onChange: (
+          value: string,
+          _path: string,
+          context: { initial: boolean }
+        ) => {
           if (context.initial) return
           if (value === obj.label) return
           const current = useGameStore.getState().gameObjects
           const updated = current.map((o) =>
             o.id === obj.id ? { ...o, label: value || undefined } : o
           )
-          setGameObjects(updated)
+          startTransition(() => {
+            setGameObjects(updated)
+          })
         },
       }
 
@@ -279,7 +266,9 @@ export const useDevControls = ({
 
       objectRows[`${prefix}_remove_${shortId}`] = button(() => {
         const current = useGameStore.getState().gameObjects
-        setGameObjects(current.filter((o) => o.id !== obj.id))
+        startTransition(() => {
+          setGameObjects(current.filter((o) => o.id !== obj.id))
+        })
       })
     })
 
@@ -295,15 +284,6 @@ export const useDevControls = ({
     }),
     [gameObjectControlsConfig]
   )
-
-  // Sync: store trigger statuses -> Leva controls
-  useEffect(() => {
-    setTriggers({
-      warpStatus: isWarping ? "Warping" : "Not Warping",
-      dimStatus: isDimmed ? "Dimmed" : "Not Dimmed",
-      exposureStatus: `${Math.round(exposure * 100)}%`,
-    })
-  }, [isWarping, isDimmed, exposure, setTriggers])
 
   // Sync: profile changes -> DPR control (only when profile changes, not on manual DPR edits)
   // Initialize with null so the first render always syncs if a profile is set

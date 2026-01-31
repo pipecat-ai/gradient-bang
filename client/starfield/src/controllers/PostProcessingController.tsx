@@ -3,7 +3,7 @@ import { invalidate, useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import {
   BlendFunction,
-  BloomEffect,
+  // BloomEffect,
   BrightnessContrastEffect,
   EffectComposer,
   EffectPass,
@@ -19,7 +19,7 @@ import { LAYERS } from "@/constants"
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { ExposureEffect } from "@/fx/ExposureEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
-import { ScanlineEffect } from "@/fx/ScanlineEffect"
+// import { ScanlineEffect } from "@/fx/ScanlineEffect"
 import { SharpenEffect } from "@/fx/SharpenEffect"
 import { TintEffect } from "@/fx/TintEffect"
 import { useAnimationStore } from "@/useAnimationStore"
@@ -37,14 +37,14 @@ export const PostProcessingController = () => {
   const composerRef = useRef<EffectComposer | null>(null)
 
   // Effect instances - updated in useFrame for animation, rebuilt on config changes
-  const bloomEffectRef = useRef<BloomEffect | null>(null)
-  const bloomPassRef = useRef<EffectPass | null>(null)
+  // const bloomEffectRef = useRef<BloomEffect | null>(null)
+  // const bloomPassRef = useRef<EffectPass | null>(null)
   const vignetteEffectRef = useRef<VignetteEffect | null>(null)
   const vignettePassRef = useRef<EffectPass | null>(null)
   const layerDimEffectRef = useRef<LayerDimEffect | null>(null)
   const tintEffectRef = useRef<TintEffect | null>(null)
   const ditheringEffectRef = useRef<DitheringEffect | null>(null)
-  const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
+  // const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
   const sharpenEffectRef = useRef<SharpenEffect | null>(null)
   const exposureEffectRef = useRef<ExposureEffect | null>(null)
   const shockWaveEffectRef = useRef<ShockWaveEffect | null>(null)
@@ -62,7 +62,7 @@ export const PostProcessingController = () => {
     sharpening: storedSharpening,
     vignette: storedVignette,
     shockwave: shockwaveConfig,
-    scanlines: storedScanlines,
+    // scanlines: storedScanlines,
     grading: storedGrading,
   } = starfieldConfig
   const registerUniform = useUniformStore((state) => state.registerUniform)
@@ -98,36 +98,36 @@ export const PostProcessingController = () => {
   const [ppUniforms, set] = useControls(() => ({
     "Post Processing": folder(
       {
-        Bloom: folder(
-          {
-            bloomEnabled: {
-              value: false,
-              label: "Enable Bloom (Pre-Dithering)",
-            },
-            bloomThreshold: {
-              value: 0.0,
-              min: 0,
-              max: 2,
-              step: 0.01,
-              label: "Threshold",
-            },
-            bloomIntensity: {
-              value: 0.0,
-              min: 0,
-              max: 50,
-              step: 0.1,
-              label: "Intensity",
-            },
-            bloomRadius: {
-              value: 0.0,
-              min: 0,
-              max: 1,
-              step: 0.1,
-              label: "Radius",
-            },
-          },
-          { collapsed: true }
-        ),
+        // Bloom: folder(
+        //   {
+        //     bloomEnabled: {
+        //       value: false,
+        //       label: "Enable Bloom (Pre-Dithering)",
+        //     },
+        //     bloomThreshold: {
+        //       value: 0.0,
+        //       min: 0,
+        //       max: 2,
+        //       step: 0.01,
+        //       label: "Threshold",
+        //     },
+        //     bloomIntensity: {
+        //       value: 0.0,
+        //       min: 0,
+        //       max: 50,
+        //       step: 0.1,
+        //       label: "Intensity",
+        //     },
+        //     bloomRadius: {
+        //       value: 0.0,
+        //       min: 0,
+        //       max: 1,
+        //       step: 0.1,
+        //       label: "Radius",
+        //     },
+        //   },
+        //   { collapsed: true }
+        // ),
         Sharpening: folder(
           {
             sharpeningEnabled: {
@@ -222,40 +222,40 @@ export const PostProcessingController = () => {
           },
           { collapsed: true }
         ),
-        Scanlines: folder(
-          {
-            scanlinesEnabled: {
-              value: storedScanlines.scanlinesEnabled ?? false,
-              label: "Enable Scanlines",
-            },
-            scanlinesIntensity: {
-              value: storedScanlines.scanlinesIntensity ?? 0.2,
-              min: 0,
-              max: 1,
-              step: 0.1,
-              label: "Intensity",
-            },
-            scanlinesFrequency: {
-              value: storedScanlines.scanlinesFrequency ?? 0.9,
-              min: 0,
-              max: 2,
-              step: 0.1,
-              label: "Frequency",
-            },
-            scanlinesBlendMode: {
-              value: BlendFunction.NORMAL,
-              options: {
-                Normal: BlendFunction.NORMAL,
-                Add: BlendFunction.ADD,
-                Screen: BlendFunction.SCREEN,
-                Overlay: BlendFunction.OVERLAY,
-                Multiply: BlendFunction.MULTIPLY,
-              },
-              label: "Blend Mode",
-            },
-          },
-          { collapsed: true }
-        ),
+        // Scanlines: folder(
+        //   {
+        //     scanlinesEnabled: {
+        //       value: storedScanlines.scanlinesEnabled ?? false,
+        //       label: "Enable Scanlines",
+        //     },
+        //     scanlinesIntensity: {
+        //       value: storedScanlines.scanlinesIntensity ?? 0.2,
+        //       min: 0,
+        //       max: 1,
+        //       step: 0.1,
+        //       label: "Intensity",
+        //     },
+        //     scanlinesFrequency: {
+        //       value: storedScanlines.scanlinesFrequency ?? 0.9,
+        //       min: 0,
+        //       max: 2,
+        //       step: 0.1,
+        //       label: "Frequency",
+        //     },
+        //     scanlinesBlendMode: {
+        //       value: BlendFunction.NORMAL,
+        //       options: {
+        //         Normal: BlendFunction.NORMAL,
+        //         Add: BlendFunction.ADD,
+        //         Screen: BlendFunction.SCREEN,
+        //         Overlay: BlendFunction.OVERLAY,
+        //         Multiply: BlendFunction.MULTIPLY,
+        //       },
+        //       label: "Blend Mode",
+        //     },
+        //   },
+        //   { collapsed: true }
+        // ),
         Grading: folder(
           {
             gradingEnabled: {
@@ -380,42 +380,42 @@ export const PostProcessingController = () => {
 
     const orderedEffectPasses: EffectPass[] = []
 
-    // 1. Effect passes that sit in the background
-    if (ppUniforms.bloomEnabled) {
-      let bloom = bloomEffectRef.current
-      if (!bloom) {
-        bloom = new BloomEffect({
-          luminanceThreshold: ppUniforms.bloomThreshold,
-          intensity: ppUniforms.bloomIntensity,
-          radius: ppUniforms.bloomRadius,
-          mipmapBlur: true,
-        })
-        bloomEffectRef.current = bloom
-      } else {
-        bloom.intensity = ppUniforms.bloomIntensity
-        bloom.mipmapBlurPass.radius = ppUniforms.bloomRadius
-        bloom.luminanceMaterial.threshold = ppUniforms.bloomThreshold
-      }
+    // 1. Bloom effect (commented out - not currently used)
+    // if (ppUniforms.bloomEnabled) {
+    //   let bloom = bloomEffectRef.current
+    //   if (!bloom) {
+    //     bloom = new BloomEffect({
+    //       luminanceThreshold: ppUniforms.bloomThreshold,
+    //       intensity: ppUniforms.bloomIntensity,
+    //       radius: ppUniforms.bloomRadius,
+    //       mipmapBlur: true,
+    //     })
+    //     bloomEffectRef.current = bloom
+    //   } else {
+    //     bloom.intensity = ppUniforms.bloomIntensity
+    //     bloom.mipmapBlurPass.radius = ppUniforms.bloomRadius
+    //     bloom.luminanceMaterial.threshold = ppUniforms.bloomThreshold
+    //   }
 
-      // Register bloom uniforms
-      registerUniform(
-        "ppBloomIntensity",
-        { value: bloom.intensity },
-        {
-          initial: ppUniforms.bloomIntensity,
-          meta: { effect: "bloom", property: "intensity" },
-        }
-      )
-      registeredUniforms.push("ppBloomIntensity")
+    //   // Register bloom uniforms
+    //   registerUniform(
+    //     "ppBloomIntensity",
+    //     { value: bloom.intensity },
+    //     {
+    //       initial: ppUniforms.bloomIntensity,
+    //       meta: { effect: "bloom", property: "intensity" },
+    //     }
+    //   )
+    //   registeredUniforms.push("ppBloomIntensity")
 
-      if (!bloomPassRef.current) {
-        bloomPassRef.current = new EffectPass(camera, bloom)
-      }
-      orderedEffectPasses.push(bloomPassRef.current)
-    } else {
-      removeUniform("ppBloomIntensity")
-      bloomPassRef.current = null
-    }
+    //   if (!bloomPassRef.current) {
+    //     bloomPassRef.current = new EffectPass(camera, bloom)
+    //   }
+    //   orderedEffectPasses.push(bloomPassRef.current)
+    // } else {
+    //   removeUniform("ppBloomIntensity")
+    //   bloomPassRef.current = null
+    // }
 
     const layerDim = new LayerDimEffect({
       opacity: 1.0,
@@ -424,7 +424,7 @@ export const PostProcessingController = () => {
     layerDimEffectRef.current = layerDim
 
     // Register layer dim uniform
-    const layerDimOpacityUniform = layerDim.uniforms.get("opacity")
+    const layerDimOpacityUniform = layerDim.uniforms.get("dimOpacity")
     if (layerDimOpacityUniform) {
       registerUniform("ppLayerDimOpacity", layerDimOpacityUniform, {
         initial: 1.0,
@@ -541,19 +541,19 @@ export const PostProcessingController = () => {
 
     orderedEffectPasses.push(new EffectPass(camera, dither))
 
-    // 5. Scanline effect
-    if (ppUniforms.scanlinesEnabled) {
-      const scanline = new ScanlineEffect({
-        intensity: ppUniforms.scanlinesIntensity,
-        frequency: ppUniforms.scanlinesFrequency,
-        blendMode: ppUniforms.scanlinesBlendMode,
-      })
-      scanlineEffectRef.current = scanline
-      orderedEffectPasses.push(new EffectPass(camera, scanline))
-    } else {
-      scanlineEffectRef.current?.dispose()
-      scanlineEffectRef.current = null
-    }
+    // 5. Scanline effect (commented out - not currently used)
+    // if (ppUniforms.scanlinesEnabled) {
+    //   const scanline = new ScanlineEffect({
+    //     intensity: ppUniforms.scanlinesIntensity,
+    //     frequency: ppUniforms.scanlinesFrequency,
+    //     blendMode: ppUniforms.scanlinesBlendMode,
+    //   })
+    //   scanlineEffectRef.current = scanline
+    //   orderedEffectPasses.push(new EffectPass(camera, scanline))
+    // } else {
+    //   scanlineEffectRef.current?.dispose()
+    //   scanlineEffectRef.current = null
+    // }
 
     // 6. Sharpening
     if (ppUniforms.sharpeningEnabled) {
@@ -597,17 +597,25 @@ export const PostProcessingController = () => {
     // 8. Shockwave effect - config-driven, triggered via sequence in useFrame
     if (shockwaveConfig?.shockwaveEnabled) {
       const maxRadius = shockwaveConfig.shockwaveMaxRadius ?? 0.45
-      const durationSeconds = Math.max(shockwaveConfig.shockwaveSpeed ?? 0.5, 0.001)
+      const durationSeconds = Math.max(
+        shockwaveConfig.shockwaveSpeed ?? 0.5,
+        0.001
+      )
       const effectSpeed = maxRadius / durationSeconds
-      const shockwave = new ShockWaveEffect(camera, shockwaveEpicenterRef.current, {
-        speed: effectSpeed,
-        maxRadius: maxRadius,
-        waveSize: shockwaveConfig.shockwaveWaveSize ?? 0.5,
-        amplitude: shockwaveConfig.shockwaveAmplitude ?? 0.1,
-      })
+      const shockwave = new ShockWaveEffect(
+        camera,
+        shockwaveEpicenterRef.current,
+        {
+          speed: effectSpeed,
+          maxRadius: maxRadius,
+          waveSize: shockwaveConfig.shockwaveWaveSize ?? 0.5,
+          amplitude: shockwaveConfig.shockwaveAmplitude ?? 0.1,
+        }
+      )
       shockWaveEffectRef.current = shockwave
       // Sync sequence ref so we don't trigger on effect recreation
-      lastShockwaveSequenceRef.current = useAnimationStore.getState().shockwaveSequence
+      lastShockwaveSequenceRef.current =
+        useAnimationStore.getState().shockwaveSequence
       orderedEffectPasses.push(new EffectPass(camera, shockwave))
     } else {
       shockWaveEffectRef.current?.dispose()
@@ -622,7 +630,15 @@ export const PostProcessingController = () => {
     return () => {
       registeredUniforms.forEach((key) => removeUniform(key))
     }
-  }, [scene, camera, composerReady, ppUniforms, shockwaveConfig, registerUniform, removeUniform])
+  }, [
+    scene,
+    camera,
+    composerReady,
+    ppUniforms,
+    shockwaveConfig,
+    registerUniform,
+    removeUniform,
+  ])
 
   // Frame updates - only non-animated logic
   useFrame(({ gl, camera: currentCamera }) => {

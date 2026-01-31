@@ -28,26 +28,31 @@ export const Planet = () => {
     }))
   )
 
+  // Filter to only skybox images for planet backgrounds
+  const skyboxAssets = useMemo(
+    () => imageAssets?.filter((asset) => asset.type === "skybox") ?? [],
+    [imageAssets]
+  )
+
   // Get active palette
   const palette = useMemo(() => getPalette(paletteKey), [paletteKey])
 
   const selectedImagePath = useMemo(() => {
-    if (!imageAssets?.length) return undefined
+    if (!skyboxAssets.length) return undefined
     const index = planetConfig?.imageIndex ?? 0
-    return imageAssets[index] ?? imageAssets[0]
-  }, [imageAssets, planetConfig?.imageIndex])
+    return skyboxAssets[index]?.url ?? skyboxAssets[0]?.url
+  }, [skyboxAssets, planetConfig?.imageIndex])
 
   // Create simple options object for leva select
   const imageOptions = useMemo(() => {
-    const images = imageAssets || []
-    return images.reduce(
-      (acc, imagePath) => {
-        acc[imagePath] = imagePath
+    return skyboxAssets.reduce(
+      (acc, asset) => {
+        acc[asset.url] = asset.url
         return acc
       },
       {} as Record<string, string>
     )
-  }, [imageAssets])
+  }, [skyboxAssets])
 
   const [planetUniforms, set] = useControls(() => ({
     Planet: folder(
@@ -146,30 +151,30 @@ export const Planet = () => {
   }, [planetConfig, selectedImagePath, set])
 
   useEffect(() => {
-    if (imageAssets && imageAssets.length > 0) {
-      const assetsToPreload = imageAssets.filter(
-        (imagePath) => !preloadedAssetsRef.current.has(imagePath)
+    if (skyboxAssets.length > 0) {
+      const assetsToPreload = skyboxAssets.filter(
+        (asset) => !preloadedAssetsRef.current.has(asset.url)
       )
 
       if (assetsToPreload.length > 0) {
         console.debug(
           "[STARFIELD PLANET] Preloading image assets",
-          assetsToPreload
+          assetsToPreload.map((a) => a.url)
         )
-        assetsToPreload.forEach((imagePath) => {
-          useLoader.preload(THREE.TextureLoader, imagePath)
-          preloadedAssetsRef.current.add(imagePath)
+        assetsToPreload.forEach((asset) => {
+          useLoader.preload(THREE.TextureLoader, asset.url)
+          preloadedAssetsRef.current.add(asset.url)
         })
       }
     }
-  }, [imageAssets])
+  }, [skyboxAssets])
 
   const resolvedTextureUrl = useMemo(() => {
     if (planetUniforms.selectedImage) return planetUniforms.selectedImage
     if (selectedImagePath) return selectedImagePath
-    if (imageAssets?.length) return imageAssets[0]
+    if (skyboxAssets.length) return skyboxAssets[0].url
     return null
-  }, [imageAssets, planetUniforms.selectedImage, selectedImagePath])
+  }, [skyboxAssets, planetUniforms.selectedImage, selectedImagePath])
   const hasTexture = Boolean(resolvedTextureUrl)
   const textureUrl = resolvedTextureUrl ? resolvedTextureUrl : TRANSPARENT_PIXEL
   const planetTexture = useLoader(THREE.TextureLoader, textureUrl)
@@ -226,13 +231,8 @@ export const Planet = () => {
     }
   })
 
-  // Return null if no image assets available, no texture, or planet is disabled
-  if (
-    !imageAssets ||
-    imageAssets.length === 0 ||
-    !hasTexture ||
-    !planetUniforms.enabled
-  ) {
+  // Return null if no skybox assets available, no texture, or planet is disabled
+  if (skyboxAssets.length === 0 || !hasTexture || !planetUniforms.enabled) {
     return null
   }
 

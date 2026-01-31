@@ -1,10 +1,11 @@
 import { Suspense, useLayoutEffect, useRef } from "react"
 import { PerformanceMonitor, Stats } from "@react-three/drei"
-import { Canvas } from "@react-three/fiber"
+import { Canvas, useFrame } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
 import { Leva } from "leva"
 import * as THREE from "three"
 
+import { AssetPreloader } from "@/components/AssetPreloader"
 import { RenderingIndicator } from "@/components/RenderingIndicator"
 import { LAYERS } from "@/constants"
 import { AnimationController } from "@/controllers/AnimationController"
@@ -13,23 +14,49 @@ import { GameObjectsController } from "@/controllers/GameObjectsController"
 import { PostProcessingController } from "@/controllers/PostProcessingController"
 import { useDevControls } from "@/hooks/useDevControls"
 import { usePerformanceProfile } from "@/hooks/usePerformanceProfile"
-import { Dust } from "@/objects/Dust"
-import { Fog } from "@/objects/Fog"
-import { GameObjects } from "@/objects/GameObjects"
-import { Nebula } from "@/objects/Nebula"
-import { Planet } from "@/objects/Planet"
-import { Stars } from "@/objects/Stars"
-import { Sun } from "@/objects/Sun"
-import { Tunnel } from "@/objects/Tunnel"
-import { VolumetricClouds } from "@/objects/VolumetricClouds"
+import {
+  Dust,
+  Fog,
+  GameObjects,
+  Nebula,
+  Planet,
+  Stars,
+  Sun,
+  Tunnel,
+  VolumetricClouds,
+} from "@/objects"
 import type {
   GameObject,
   PerformanceProfile,
   PositionedGameObject,
   StarfieldConfig,
 } from "@/types"
+import { useAnimationStore } from "@/useAnimationStore"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
+
+/**
+ * SuspenseReady - Signals when Suspense content has mounted (once only)
+ *
+ * Placed at the end of Suspense to ensure all scene objects are mounted.
+ * Waits 2 frames for shaders to compile, then signals suspenseReady.
+ * Only fires once - subsequent Suspense re-renders (from new asset loads) are ignored.
+ */
+function SuspenseReady() {
+  const frameCount = useRef(0)
+
+  useFrame(() => {
+    // Check store state directly - persists across Suspense re-renders
+    if (useAnimationStore.getState().suspenseReady) return
+
+    frameCount.current++
+    if (frameCount.current >= 2) {
+      useAnimationStore.getState().setSuspenseReady(true)
+    }
+  })
+
+  return null
+}
 
 interface StarfieldBaseProps {
   lookMode?: boolean
@@ -44,6 +71,7 @@ export interface StarfieldProps extends StarfieldBaseProps {
   onStart?: () => void
   onStop?: () => void
   onCreated?: () => void
+  onReady?: () => void
   onUnsupported?: () => void
   onWarpAnimationStart?: () => void
   onTargetRest?: (target: PositionedGameObject) => void
@@ -143,22 +171,26 @@ export function StarfieldComponent({
             <RenderingIndicator />
           </>
         )}
-        <AnimationController />
         <Suspense fallback={null}>
+          <AssetPreloader />
           <Fog />
           <Nebula />
-          <Tunnel />
           <Sun />
           <Stars />
           <Dust />
           <VolumetricClouds />
           <Planet />
+          <Tunnel />
+          <SuspenseReady />
         </Suspense>
 
         <CameraController enabled={lookMode} debug={debug} />
         <GameObjectsController />
-        <GameObjects />
+        <Suspense fallback={null}>
+          <GameObjects />
+        </Suspense>
         <PostProcessingController />
+        <AnimationController />
       </Canvas>
     </>
   )
@@ -168,6 +200,7 @@ export const Starfield = ({
   onStart,
   onStop,
   onCreated,
+  onReady,
   onUnsupported,
   onWarpAnimationStart,
   onTargetRest,
@@ -178,6 +211,7 @@ export const Starfield = ({
     onStart,
     onStop,
     onCreated,
+    onReady,
     onUnsupported,
     onWarpAnimationStart,
     onTargetRest,
@@ -189,6 +223,7 @@ export const Starfield = ({
       onStart,
       onStop,
       onCreated,
+      onReady,
       onUnsupported,
       onWarpAnimationStart,
       onTargetRest,
@@ -202,6 +237,7 @@ export const Starfield = ({
 
     useCallbackStore.setState({
       onCreated: () => getCallbacks().onCreated?.(),
+      onReady: () => getCallbacks().onReady?.(),
       onStart: () => getCallbacks().onStart?.(),
       onStop: () => getCallbacks().onStop?.(),
       onUnsupported: () => getCallbacks().onUnsupported?.(),

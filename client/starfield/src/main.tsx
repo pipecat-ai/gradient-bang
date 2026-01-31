@@ -14,6 +14,7 @@ createRoot(document.getElementById("root")!).render(
       onWarpAnimationStart={() => console.log("Warp animation started")}
       onTargetRest={(target) => console.log("Target rested:", target)}
       onTargetClear={() => console.log("Target cleared")}
+      onReady={() => console.log("Starfield ready")}
     />
   </StrictMode>
 )

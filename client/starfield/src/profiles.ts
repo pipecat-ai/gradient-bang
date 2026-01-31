@@ -2,7 +2,12 @@ import type { StarfieldConfig } from "./types"
 
 export const defaultProfile: StarfieldConfig = {
   palette: "cosmicTeal",
-  imageAssets: ["/test-skybox-1.png", "/test-skybox-2.png"],
+  imageAssets: [
+    { type: "skybox", url: "/test-skybox-1.png" },
+    { type: "skybox", url: "/test-skybox-2.png" },
+    { type: "port", url: "/test-port-1.png" },
+    { type: "port", url: "/test-port-2.png" },
+  ],
   cameraBaseFov: 85,
   hyperspaceEnterTime: 1500,
   hyperspaceExitTime: 1500,
@@ -20,11 +25,11 @@ export const defaultProfile: StarfieldConfig = {
   layerDimDuration: 5000,
   shockwave: {
     shockwaveEnabled: true,
-    shockwaveSpeed: 0.5,
-    shockwaveMaxRadius: 0.45,
-    shockwaveWaveSize: 0.5,
+    shockwaveSpeed: 1,
+    shockwaveMaxRadius: 0.6,
+    shockwaveWaveSize: 0.15,
     shockwaveAmplitude: 0.1,
-    shockwaveDistance: 5.0,
+    shockwaveDistance: 4,
   },
   dithering: {
     ditheringEnabled: true,

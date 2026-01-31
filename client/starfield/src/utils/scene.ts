@@ -7,8 +7,10 @@ export function generateRandomScene(
   config: Partial<SceneConfig> = {}
 ): SceneConfig {
   const { imageAssets } = useGameStore.getState().starfieldConfig
+  // Filter to only skybox images for planet backgrounds
+  const skyboxAssets = imageAssets?.filter((asset) => asset.type === "skybox")
   const randomImageIndex = Math.floor(
-    Math.random() * (imageAssets?.length || 1)
+    Math.random() * (skyboxAssets?.length || 1)
   )
 
   // Planet

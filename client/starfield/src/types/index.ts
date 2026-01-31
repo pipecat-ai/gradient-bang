@@ -1,8 +1,13 @@
 import * as THREE from "three"
 
+export interface ImageAsset {
+  type: "skybox" | "port" | "ship" | "planet" | string
+  url: string
+}
+
 export interface StarfieldConfig {
   palette?: string
-  imageAssets?: string[]
+  imageAssets?: ImageAsset[]
   cameraBaseFov: number
   hyperspaceEnterTime?: number
   hyperspaceExitTime?: number

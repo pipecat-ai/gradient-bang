@@ -92,11 +92,6 @@ export function CameraController({
     }
   }, [lookAtTarget, invalidate])
 
-  // Dim scene when looking at a target, undim when cleared
-  //useEffect(() => {
-  //  setIsDimmed(lookAtTarget !== null)
-  //}, [lookAtTarget, setIsDimmed])
-
   //const ANIMATION_DELAY = 0
   //const EPSILON = 0.05
   const POST_PROCESSING_ENABLED = true
