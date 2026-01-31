@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useFrame, useLoader, useThree } from "@react-three/fiber"
 import * as THREE from "three"
 
+import { useGameObjectAnimation } from "@/animations/useGameObjectAnimation"
 import { getPalette } from "@/colors"
 import { LAYERS } from "@/constants"
 import {
@@ -16,7 +17,7 @@ const TRANSPARENT_PIXEL =
 
 export interface PortProps extends PositionedGameObject {
   rotationSpeed?: number
-  // Image rendering props (from Structure)
+  // Image rendering props
   imageUrl?: string
   tintColor?: string
   tintIntensity?: number
@@ -30,31 +31,47 @@ export interface PortProps extends PositionedGameObject {
   billboard?: boolean
   // Camera offset position (only used in billboard mode)
   cameraOffset?: { x: number; y: number }
+  // Fade-in animation
+  fadeIn?: boolean
+  fadeInDuration?: number
+  fadeInDelay?: number
 }
 
 export const Port = ({
   id,
   position,
   scale = 4,
-  opacity = 0.7,
+  opacity = 0.8,
   enabled = true,
-  // Image props - if not provided, picks random from imageAssets
+  // Image props
   imageUrl,
   tintColor,
   tintIntensity = 0.7,
   // Shadow props
   shadowEnabled = true,
   shadowRadius = 1,
-  shadowOpacity = 0.3,
+  shadowOpacity = 0.5,
   shadowFalloff = 1,
   shadowColor,
   // Billboard mode
   billboard = false,
   cameraOffset,
+  // Fade-in animation
+  fadeIn = true,
+  fadeInDuration = 2000,
+  fadeInDelay = 300,
 }: PortProps) => {
   const meshRef = useRef<THREE.Mesh>(null)
   const groupRef = useRef<THREE.Group>(null)
+  const imageMaterialRef = useRef<THREE.MeshBasicMaterial>(null)
   const { camera } = useThree()
+
+  // Fade-in animation
+  const updateFade = useGameObjectAnimation({
+    duration: fadeInDuration,
+    delay: fadeInDelay,
+    enabled: fadeIn,
+  })
 
   // Get palette and image assets from store (separate selectors to avoid infinite loop)
   const paletteKey = useGameStore((state) => state.starfieldConfig.palette)
@@ -67,20 +84,24 @@ export const Port = ({
     [imageAssets]
   )
 
-  // Pick a random port asset once per instance (stable via useRef)
-  const randomIndexRef = useRef<number | null>(null)
-  if (randomIndexRef.current === null && portAssets.length > 0) {
-    randomIndexRef.current = Math.floor(Math.random() * portAssets.length)
-  }
+  // Random values set once per instance (lazy init survives StrictMode)
+  const [randomValues] = useState(() => ({
+    index: Math.floor(Math.random() * 100), // Will be modulo'd by actual length
+    rotation: (Math.random() - 0.5) * (Math.PI / 2),
+  }))
+
+  // Get actual index based on available assets
+  const assetIndex =
+    portAssets.length > 0 ? randomValues.index % portAssets.length : null
 
   // Resolve final image URL: explicit prop > random from assets > fallback
   const resolvedImageUrl = useMemo(() => {
     if (imageUrl) return imageUrl
-    if (portAssets.length > 0 && randomIndexRef.current !== null) {
-      return portAssets[randomIndexRef.current]?.url
+    if (portAssets.length > 0 && assetIndex !== null) {
+      return portAssets[assetIndex]?.url
     }
     return undefined
-  }, [imageUrl, portAssets])
+  }, [imageUrl, portAssets, assetIndex])
 
   // Load texture if we have an image URL
   const textureUrl = resolvedImageUrl || TRANSPARENT_PIXEL
@@ -142,8 +163,11 @@ export const Port = ({
   }, [texture, hasTexture, scale])
 
   // Image mode: always face camera, optionally follow camera position (billboard)
-  // Also update shadow opacity based on distance to camera
+  // Also update shadow opacity based on distance to camera and fade progress
   useFrame(() => {
+    // Update and get fade progress (0 to 1)
+    const fade = updateFade()
+
     if (!groupRef.current || !hasTexture) return
 
     if (billboard) {
@@ -160,11 +184,21 @@ export const Port = ({
     // Always face the camera when in image mode
     groupRef.current.lookAt(camera.position)
 
-    // Update shadow opacity based on distance to camera
+    // Apply random Z rotation to mesh after lookAt
+    if (meshRef.current) {
+      meshRef.current.rotation.z = randomValues.rotation
+    }
+
+    // Update image material opacity with fade
+    if (imageMaterialRef.current) {
+      imageMaterialRef.current.opacity = opacity * fade
+    }
+
+    // Update shadow opacity based on distance to camera and fade
     if (shadowEnabled && shadowMaterialRef.current) {
       const distance = groupRef.current.position.distanceTo(camera.position)
-      // Scale opacity: closer = base opacity, further = max opacity
-      // Distance range: 8-15 units maps to shadowOpacity-maxOpacity
+      // Scale opacity: closer = max opacity, further = base opacity
+      // Distance range: 8-15 units maps to maxOpacity-shadowOpacity
       const minDistance = 8
       const maxDistance = 15
       const maxOpacity = 0.85
@@ -173,8 +207,8 @@ export const Port = ({
         1
       )
       const dynamicOpacity =
-        shadowOpacity + (maxOpacity - shadowOpacity) * distanceFactor
-      shadowMaterialRef.current.uniforms.uOpacity.value = dynamicOpacity
+        maxOpacity - (maxOpacity - shadowOpacity) * distanceFactor
+      shadowMaterialRef.current.uniforms.uOpacity.value = dynamicOpacity * fade
     }
   })
 
@@ -188,10 +222,10 @@ export const Port = ({
         position={billboard ? undefined : position}
         frustumCulled={false}
       >
-        {/* Shadow mesh - rendered behind */}
+        {/* Shadow mesh - rendered on top of planet background */}
         {shadowEnabled && (
           <mesh
-            renderOrder={0}
+            renderOrder={10}
             layers={[LAYERS.BACKGROUND]}
             position={[0, 0, -0.1]}
           >
@@ -208,14 +242,14 @@ export const Port = ({
         <mesh
           ref={meshRef}
           name={id}
-          renderOrder={1}
+          renderOrder={11}
           layers={LAYERS.GAMEOBJECTS}
         >
           <planeGeometry args={[width, height]} />
           <meshBasicMaterial
+            ref={imageMaterialRef}
             map={texture}
             color={boostedTintColor}
-            opacity={opacity}
             side={THREE.DoubleSide}
             fog={true}
             depthTest={true}
