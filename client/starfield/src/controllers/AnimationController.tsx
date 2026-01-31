@@ -5,6 +5,7 @@ import { button, folder, useControls } from "leva"
 import { useDimAnimation } from "@/animations/dimAnim"
 import { useExposureAnimation } from "@/animations/exposureAnim"
 import { useHyperspaceAnimation } from "@/animations/hyperspaceAnim"
+import { useShakeAnimation } from "@/animations/shakeAnim"
 import { useShockwaveAnimation } from "@/animations/shockwaveAnim"
 import { useAnimationStore } from "@/useAnimationStore"
 import { useCallbackStore } from "@/useCallbackStore"
@@ -23,8 +24,8 @@ export function AnimationController() {
   const { start: startDim } = useDimAnimation()
   const { start: startExposure } = useExposureAnimation()
   const { start: startHyperspace } = useHyperspaceAnimation()
+  const { start: startShake, stop: stopShake } = useShakeAnimation()
   const { start: startShockwave } = useShockwaveAnimation()
-  const setIsShaking = useAnimationStore((state) => state.setIsShaking)
 
   // Subscribe to suspenseReady - when true, scene objects are loaded
   const suspenseReady = useAnimationStore((state) => state.suspenseReady)
@@ -38,15 +39,15 @@ export function AnimationController() {
 
       // Signal ready and fire callback
       useGameStore.getState().setIsReady(true)
-      setIsShaking(true)
+      startShake()
       useCallbackStore.getState().onReady()
 
       // Start fade-in animation (exit = from black to normal)
       startHyperspace("exit", () => {
-        setIsShaking(false)
+        stopShake()
       })
     }
-  }, [suspenseReady, startHyperspace, setIsShaking])
+  }, [suspenseReady, startHyperspace, startShake, stopShake])
 
   // Subscribe to camera look-at target
   const lookAtTarget = useGameStore((state) => state.lookAtTarget)
@@ -110,6 +111,29 @@ export function AnimationController() {
             }),
             ["Hyperspace Exit"]: button(() => {
               startHyperspace("exit")
+            }),
+          },
+          { collapsed: true }
+        ),
+        Shake: folder(
+          {
+            ["Shake Start"]: button(() => {
+              startShake()
+            }),
+            ["Shake Stop"]: button(() => {
+              stopShake()
+            }),
+            ["Shake (Strong)"]: button(() => {
+              startShake({ strength: 0.03, frequency: 15 })
+            }),
+            ["Shake (Perlin)"]: button(() => {
+              startShake({ mode: "perlin", strength: 0.02 })
+            }),
+            ["Impact (Light)"]: button(() => {
+              startShake({ duration: 300, strength: 0.015, rampUpTime: 50, settleTime: 200 })
+            }),
+            ["Impact (Heavy)"]: button(() => {
+              startShake({ duration: 800, strength: 0.04, rampUpTime: 100, settleTime: 500 })
             }),
           },
           { collapsed: true }

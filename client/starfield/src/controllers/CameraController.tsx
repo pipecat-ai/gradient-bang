@@ -286,7 +286,6 @@ export function CameraController({
           }
         }}
       />
-      {/* Camera shake effect - controlled via isShaking in animation store */}
       <CameraShakeController cameraControlsRef={cameraControlsRef} />
     </>
   )

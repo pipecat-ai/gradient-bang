@@ -16,14 +16,14 @@ export const PANEL_ORDERING = {
 }
 
 export const SCENE_TRANSITION_TIMING = {
-  // Time to wait at warp peak for components to settle before starting exit
-  WARP_PEAK_SETTLE_TIME: 500,
-  // Time to wait between scenes after a warp animation completes
-  POST_WARP_PAUSE: 2000,
+  // Time to wait at scene change peak for components to settle before starting exit
+  SCENE_CHANGE_PEAK_SETTLE_TIME: 500,
+  // Time to wait between scenes after a scene change animation completes
+  POST_SCENE_CHANGE_PAUSE: 2000,
   // Time to wait between scenes for instant (bypassed) transitions
-  POST_INSTANT_PAUSE: 500,
+  POST_SCENE_CHANGE_INSTANT_PAUSE: 500,
   // Time to wait before applying instant (non-animated) scene changes
-  PRE_INSTANT_DELAY: 800,
-  // Cooldown period after warp where all scenes bypass animation (0 = disabled)
-  WARP_COOLDOWN: 15000,
+  PRE_SCENE_CHANGE_INSTANT_DELAY: 800,
+  // Cooldown period after scene change where all scenes bypass animation (0 = disabled)
+  SCENE_CHANGE_COOLDOWN: 15000,
 } as const

@@ -35,6 +35,8 @@ import { useAnimationStore } from "@/useAnimationStore"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
 
+import { SceneController } from "./controllers/SceneController"
+
 /**
  * SuspenseReady - Signals when Suspense content has mounted (once only)
  *
@@ -73,7 +75,7 @@ export interface StarfieldProps extends StarfieldBaseProps {
   onCreated?: () => void
   onReady?: () => void
   onUnsupported?: () => void
-  onWarpAnimationStart?: () => void
+  onSceneChangeStart?: () => void
   onTargetRest?: (target: PositionedGameObject) => void
   onTargetClear?: () => void
   generateInitialScene?: boolean
@@ -189,6 +191,7 @@ export function StarfieldComponent({
         <GameObjects />
         <PostProcessingController />
         <AnimationController />
+        <SceneController />
       </Canvas>
     </>
   )
@@ -200,7 +203,7 @@ export const Starfield = ({
   onCreated,
   onReady,
   onUnsupported,
-  onWarpAnimationStart,
+  onSceneChangeStart,
   onTargetRest,
   onTargetClear,
   ...props
@@ -211,7 +214,7 @@ export const Starfield = ({
     onCreated,
     onReady,
     onUnsupported,
-    onWarpAnimationStart,
+    onSceneChangeStart,
     onTargetRest,
     onTargetClear,
   })
@@ -223,7 +226,7 @@ export const Starfield = ({
       onCreated,
       onReady,
       onUnsupported,
-      onWarpAnimationStart,
+      onSceneChangeStart,
       onTargetRest,
       onTargetClear,
     }
@@ -239,7 +242,7 @@ export const Starfield = ({
       onStart: () => getCallbacks().onStart?.(),
       onStop: () => getCallbacks().onStop?.(),
       onUnsupported: () => getCallbacks().onUnsupported?.(),
-      onWarpAnimationStart: () => getCallbacks().onWarpAnimationStart?.(),
+      onSceneChangeStart: () => getCallbacks().onSceneChangeStart?.(),
       onTargetRest: (target) => getCallbacks().onTargetRest?.(target),
       onTargetClear: () => getCallbacks().onTargetClear?.(),
     })

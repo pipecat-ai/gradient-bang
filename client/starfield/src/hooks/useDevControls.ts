@@ -5,7 +5,6 @@ import { getPaletteNames } from "@/colors"
 import { PANEL_ORDERING } from "@/constants"
 import { useSceneChange } from "@/hooks/useSceneChange"
 import type { GameObject, PerformanceProfile } from "@/types"
-import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
 import { generateRandomScene } from "@/utils/scene"
 
@@ -22,13 +21,10 @@ export const useDevControls = ({
   profile?: PerformanceProfile
 }) => {
   const togglePause = useGameStore((state) => state.togglePause)
-  const exposure = useAnimationStore((state) => state.exposure)
-  const setExposure = useAnimationStore((state) => state.setExposure)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const sceneQueueLength = useGameStore((state) => state.sceneQueue.length)
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
-  const setIsShaking = useAnimationStore((state) => state.setIsShaking)
   const currentSceneId = useGameStore((state) => state.currentScene?.id)
   const isWarpCooldownActive = useGameStore(
     (state) => state.isWarpCooldownActive
@@ -141,49 +137,6 @@ export const useDevControls = ({
       { collapsed: true, order: -1 }
     ),
   }))
-
-  useControls(
-    () => ({
-      Triggers: folder(
-        {
-          ["Camera Shake"]: folder(
-            {
-              ["Enable Camera Shake"]: button(() => {
-                setIsShaking(true)
-              }),
-              ["Disable Camera Shake"]: button(() => {
-                setIsShaking(false)
-              }),
-            },
-            { collapsed: true }
-          ),
-          Exposure: folder(
-            {
-              ["Fade Out"]: button(() => {
-                setExposure(0)
-              }),
-              ["Fade In"]: button(() => {
-                setExposure(1)
-              }),
-              exposureStatus: {
-                value:
-                  exposure === 1
-                    ? "100%"
-                    : exposure === 0
-                      ? "0%"
-                      : `${Math.round(exposure * 100)}%`,
-                editable: false,
-                label: "Exposure",
-              },
-            },
-            { collapsed: true }
-          ),
-        },
-        { collapsed: true, order: PANEL_ORDERING.TRIGGERS }
-      ),
-    }),
-    []
-  )
 
   // Build dynamic game object controls
   const gameObjectControlsConfig = useMemo(() => {

@@ -9,7 +9,7 @@ interface CallbackStore {
   onStop: () => void
   onUnsupported: () => void
   enqueueScene: (scene: Scene, options?: SceneChangeOptions) => void
-  onWarpAnimationStart: () => void
+  onSceneChangeStart: () => void
   onTargetRest: (target: PositionedGameObject) => void
   onTargetClear: () => void
 }
@@ -25,9 +25,8 @@ export const useCallbackStore = create<CallbackStore>((set) => ({
   setOnReady: (fn: () => void) => set({ onReady: fn }),
   setOnStart: (fn: () => void) => set({ onStart: fn }),
   setOnStop: (fn: () => void) => set({ onStop: fn }),
-  setOnWarpAnimationStart: (fn: () => void) =>
-    set({ onWarpAnimationStart: fn }),
-  onWarpAnimationStart: () => {},
+  setOnSceneChangeStart: (fn: () => void) => set({ onSceneChangeStart: fn }),
+  onSceneChangeStart: () => {},
   onTargetRest: () => {},
   onTargetClear: () => {},
 }))
