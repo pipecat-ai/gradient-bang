@@ -131,6 +131,7 @@ EVENT_BATCH_INFERENCE_DELAY = 1.0
 ASYNC_COMPLETION_TIMEOUT = 5.0  # Timeout for waiting for async tool completion events
 MAX_NO_TOOL_NUDGES = 3  # Max times to nudge LLM when it responds without tool calls
 NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
+TASK_LOG_TTL_SECONDS = 15 * 60
 
 # Tools that have async completion events - inference is deferred until the event arrives.
 # See module docstring for full explanation of this pattern.
@@ -288,6 +289,8 @@ class TaskAgent:
         self._pipeline_idle_timeout_secs = idle_timeout_secs
 
         self.messages: List[Dict[str, Any]] = []
+        self._task_log: List[str] = []
+        self._archived_task_logs: Dict[str, tuple[List[str], float]] = {}
         self.tools: Dict[str, Callable[..., Awaitable[Any]]] = {}
         self._tools_schema: Optional[ToolsSchema] = None
 
@@ -296,6 +299,7 @@ class TaskAgent:
         self.finished_message: Optional[str] = None
         self._active_pipeline_task: Optional[PipelineTask] = None
         self._step_counter: int = 0
+        self._max_iterations: Optional[int] = None
         self._tool_call_in_progress: bool = False
         self._inference_reasons: List[str] = []
         self._inference_delay = EVENT_BATCH_INFERENCE_DELAY
@@ -443,9 +447,88 @@ class TaskAgent:
     def clear_messages(self) -> None:
         self.messages = []
 
+    def _prune_task_logs(self, now: Optional[float] = None) -> None:
+        if now is None:
+            now = time.monotonic()
+        expired = [
+            task_id
+            for task_id, (_, expires_at) in self._archived_task_logs.items()
+            if expires_at <= now
+        ]
+        for task_id in expired:
+            self._archived_task_logs.pop(task_id, None)
+
+    def _archive_task_log(self) -> None:
+        if not self._task_id or not self._task_log:
+            self._task_log = []
+            return
+        expires_at = time.monotonic() + TASK_LOG_TTL_SECONDS
+        self._archived_task_logs[self._task_id] = (list(self._task_log), expires_at)
+        self._task_log = []
+        self._prune_task_logs()
+
+    def get_task_log(self, task_id: Optional[str] = None) -> List[str]:
+        self._prune_task_logs()
+        if task_id and task_id != self._task_id:
+            entry = self._archived_task_logs.get(task_id)
+            return list(entry[0]) if entry else []
+        return list(self._task_log)
+
     def cancel(self) -> None:
         self.cancelled = True
         self._output(self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED)
+
+    async def inject_user_message(
+        self,
+        text: str,
+        *,
+        role: str = "user",
+        tag: str = "steering",
+    ) -> None:
+        cleaned = text.strip()
+        if not cleaned:
+            raise ValueError("inject_user_message requires non-empty text")
+
+        message = {"role": role, "content": cleaned}
+        if self._context is not None:
+            self._context.add_message(message)
+        else:
+            self.add_message(message)
+
+        self._output(cleaned, TaskOutputType.INPUT)
+        await self._request_inference(tag)
+
+    async def query_task_progress(
+        self, prompt: str, *, system_prompt: Optional[str] = None
+    ) -> str:
+        cleaned = prompt.strip()
+        if not cleaned:
+            raise ValueError("query_task_progress requires a non-empty prompt")
+
+        if system_prompt is None:
+            log_lines = self.get_task_log()
+            if not log_lines:
+                return "No task log available."
+            base_prompt = create_task_system_message().strip()
+            log_text = "\n".join(log_lines)
+            system_prompt = (
+                f"{base_prompt}\n\n"
+                "# Task Log\n"
+                f"{log_text}\n\n"
+                "Answer questions about task progress strictly from the task log. "
+                "If the log does not contain the answer, say you don't know."
+            )
+
+        context = LLMContext(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": cleaned},
+            ],
+            tools=ToolsSchema([]),
+        )
+        llm_service = self._llm_service_factory()
+        response = await llm_service.run_inference(context)
+        return (response or "").strip()
 
     def reset_cancellation(self) -> None:
         self.cancelled = False
@@ -463,6 +546,7 @@ class TaskAgent:
 
     def reset_task_state(self) -> None:
         """Clear task-scoped state for reuse without unregistering handlers."""
+        self._archive_task_log()
         self.cancelled = False
         self.finished = False
         self.finished_message = None
@@ -471,6 +555,7 @@ class TaskAgent:
         self._finish_emitted = False
         self._task_start_monotonic = None
         self._step_counter = 0
+        self._max_iterations = None
         self._no_tool_nudge_count = 0
         self._tool_call_in_progress = False
         self._llm_inflight = False
@@ -711,7 +796,12 @@ class TaskAgent:
         self._task_id = task_id or str(uuid.uuid4())
         self._task_description = task
         self._finish_emitted = False
-        _ = max_iterations  # retained for API compatibility; pipeline controls turns
+        try:
+            self._max_iterations = int(max_iterations)
+        except (TypeError, ValueError):
+            self._max_iterations = None
+        if self._max_iterations is not None and self._max_iterations < 1:
+            self._max_iterations = None
 
         # Set task_id on game_client so all API calls are tagged with this task
         self.game_client.current_task_id = self._task_id
@@ -940,6 +1030,30 @@ class TaskAgent:
         tool_call_id = params.tool_call_id
         arguments = params.arguments or {}
 
+        if self._max_iterations is not None and self._step_counter >= self._max_iterations:
+            limit_message = (
+                f"Task stopped after {self._max_iterations} steps (max_iterations limit)."
+            )
+            self.finished = True
+            self.finished_message = limit_message
+            self._output(self._timestamped_text(limit_message), TaskOutputType.FINISHED)
+
+            if self._task_id and not self._finish_emitted:
+                try:
+                    await self.game_client.task_lifecycle(
+                        task_id=self._task_id,
+                        event_type="finish",
+                        task_summary=limit_message,
+                        task_status="failed",
+                        task_metadata=self._task_metadata,
+                    )
+                    self._finish_emitted = True
+                except Exception as exc:
+                    logger.warning(f"Failed to emit task.finish event: {exc}")
+
+            await params.llm.push_frame(EndFrame())
+            return
+
         if tool_name == "finished":
             self.finished = True
             self.finished_message = arguments.get("message", "Done")
@@ -1111,6 +1225,8 @@ class TaskAgent:
             logger.info("[{}] {}", type_value, text)
         else:
             logger.info("{}", text)
+
+        self._task_log.append(text)
 
         if self.output_callback:
             logger.info("output_callback payload type={} text={}", type_value, text)

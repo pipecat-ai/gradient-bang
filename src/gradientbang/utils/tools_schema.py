@@ -472,6 +472,51 @@ class StopTask(GameClientTool):
         )
 
 
+class QueryTaskProgress(Tool):
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="query_task_progress",
+            description=(
+                "Check on what a running or recently finished task is doing by querying its task log."
+            ),
+            properties={
+                "task_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional task ID to query (short ID or full UUID). "
+                        "If omitted, defaults to your primary ship's active task."
+                    ),
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Question or instruction about task progress.",
+                },
+            },
+            required=["prompt"],
+        )
+
+
+class SteerTask(Tool):
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="steer_task",
+            description="Send a steering instruction to a running task.",
+            properties={
+                "task_id": {
+                    "type": "string",
+                    "description": "Task ID to steer (short ID or full UUID).",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Steering instruction to send to the task.",
+                },
+            },
+            required=["task_id", "message"],
+        )
+
+
 class Trade(GameClientTool):
     def __call__(self, commodity, quantity, trade_type):
         return self.game_client.trade(

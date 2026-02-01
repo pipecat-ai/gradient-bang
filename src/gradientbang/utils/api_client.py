@@ -314,6 +314,10 @@ class AsyncGameClient:
             elif corp_id is None:
                 self._corporation_id = None  # Player left corp
 
+    @property
+    def corporation_id(self) -> Optional[str]:
+        return self._corporation_id
+
     def _get_summary(self, name: str, data: Dict[str, Any]) -> Optional[str]:
         """Run a registered summary formatter and return the summary string."""
 
