@@ -24,7 +24,7 @@ interface AppState {
   setDebug: (debug: boolean) => void
   performanceProfile: PerformanceProfile
   setPerformanceProfile: (profile: PerformanceProfile) => void
-  
+
   // Runtime object positions (updated per-frame by scene objects)
   galaxyDirection: { x: number; y: number; z: number } | null
   setGalaxyDirection: (dir: { x: number; y: number; z: number } | null) => void
@@ -51,8 +51,8 @@ interface AppState {
   positionedGameObjects: PositionedGameObject[]
   setPositionedGameObjects: (objects: PositionedGameObject[]) => void
   // Camera look-at target (game object ID or null)
-  lookAtTarget: string | null
-  setLookAtTarget: (target: string | null) => void
+  lookAtTarget: string | undefined
+  setLookAtTarget: (target: string | undefined) => void
   // Camera transition state
   isCameraTransitioning: boolean
   setIsCameraTransitioning: (transitioning: boolean) => void
@@ -151,8 +151,8 @@ export const useGameStore = create<AppState>(
         })
       ),
     // Camera look-at target
-    lookAtTarget: null,
-    setLookAtTarget: (target: string | null) =>
+    lookAtTarget: undefined,
+    setLookAtTarget: (target: string | undefined) =>
       set(
         produce((draft) => {
           draft.lookAtTarget = target

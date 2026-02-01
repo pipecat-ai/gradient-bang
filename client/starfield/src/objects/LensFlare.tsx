@@ -295,8 +295,8 @@ export const LensFlare = () => {
 
   return (
     <mesh
-      renderOrder={1000}
-      layers={LAYERS.OVERLAY}
+      renderOrder={100}
+      layers={LAYERS.FOREGROUND}
       material={lensFlareMaterial}
       frustumCulled={false}
     >

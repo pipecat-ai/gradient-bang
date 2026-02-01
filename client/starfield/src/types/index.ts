@@ -48,7 +48,7 @@ export interface ExposureConfig {
 export interface StarfieldConfig {
   palette?: string
   imageAssets?: ImageAsset[]
-  cameraBaseFov: number
+  cameraBaseFov?: number
   hyperspaceEnterTime?: number
   hyperspaceExitTime?: number
   hyperspaceDuration?: number

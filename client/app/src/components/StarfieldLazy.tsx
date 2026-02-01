@@ -2,29 +2,17 @@ import { useEffect } from "react"
 
 import Starfield, {
   generateRandomScene,
-  type PerformanceProfile,
+  type StarfieldProps,
   useSceneChange,
 } from "@gradient-bang/starfield"
 
 import useGameStore from "@/stores/game"
 
-interface StarfieldLazyProps {
-  profile: PerformanceProfile
-  config: { imageAssets: string[] }
-  onCreated: () => void
-  lookMode: boolean
-}
-
 /**
  * Lazy-loaded starfield component with utilities.
  * Keeps all Three.js deps out of the main bundle.
  */
-export default function StarfieldLazy({
-  profile,
-  config,
-  onCreated,
-  lookMode,
-}: StarfieldLazyProps) {
+export default function StarfieldLazy(props: StarfieldProps) {
   const settings = useGameStore.use.settings()
   const { changeScene } = useSceneChange()
 
@@ -49,12 +37,5 @@ export default function StarfieldLazy({
     return unsub
   }, [settings.renderStarfield, changeScene])
 
-  return (
-    <Starfield
-      profile={profile}
-      config={config}
-      onCreated={onCreated}
-      lookMode={lookMode}
-    />
-  )
+  return <Starfield {...props} />
 }

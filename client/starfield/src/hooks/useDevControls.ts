@@ -108,7 +108,7 @@ export const useDevControls = ({
                   togglePause()
                 }),
                 ["Clear Look At Target"]: button(() => {
-                  setLookAtTarget(null)
+                  setLookAtTarget(undefined)
                 }),
                 Performance: folder(
                   {

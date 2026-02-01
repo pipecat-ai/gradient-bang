@@ -1,4 +1,5 @@
 import { useRef } from "react"
+import { useEffect } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 import { ArrowLeftIcon } from "@phosphor-icons/react"
@@ -10,6 +11,8 @@ import { Button } from "@/components/primitives/Button"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
+
+import { TradePanel } from "./TradePanel"
 
 export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
@@ -63,7 +66,15 @@ export const RHSPanelContainer = () => {
   const activePanel = useGameStore.use.activePanel?.()
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
+  const setLookAtTarget = useGameStore.use.setLookAtTarget?.()
 
+  useEffect(() => {
+    if (activePanel === "trade") {
+      setLookAtTarget("port-1")
+    } else {
+      setLookAtTarget(undefined)
+    }
+  }, [activePanel, setLookAtTarget])
   return (
     <div
       className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/40 border-t border-l"
@@ -81,7 +92,7 @@ export const RHSPanelContainer = () => {
         {activePanel === "logs" && <LogsPanel />}
         {activePanel === "sector" && <div className=""></div>}
         {activePanel === "player" && <PlayerPanel />}
-        {activePanel === "trade" && <div className=""></div>}
+        {activePanel === "trade" && <TradePanel />}
         {activePanel === "tasks" && <TaskPanel />}
         {activePanel === "corp" && <div className=""></div>}
       </ScrollArea>

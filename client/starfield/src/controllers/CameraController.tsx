@@ -19,8 +19,8 @@ const TRANSITION_DELAY_FRAMES = 2
 const DEFAULT_CAMERA_CONFIG = {
   enabled: true,
   lookAtDistance: 8,
-  smoothTime: 1,
-  restThreshold: 2,
+  smoothTime: 0.5,
+  restThreshold: 1,
 }
 
 export function CameraController({
@@ -107,7 +107,7 @@ export function CameraController({
                     label: "Enable Camera Controls",
                   },
                   fov: {
-                    value: cameraBaseFov,
+                    value: cameraBaseFov!,
                     min: 20,
                     max: 150,
                     step: 1,
@@ -169,7 +169,7 @@ export function CameraController({
 
     if (cam) {
       // Reset camera when target is cleared (was something, now null)
-      if (lookAtTarget === null && prevTarget !== null) {
+      if (lookAtTarget === undefined && prevTarget !== null) {
         cam.setLookAt(0, 0, config.lookAtDistance, 0, 0, 0, true)
         prevLookAtTargetRef.current = null
         pendingTargetRef.current = null

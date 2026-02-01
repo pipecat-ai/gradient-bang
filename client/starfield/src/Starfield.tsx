@@ -1,4 +1,4 @@
-import { Suspense, useLayoutEffect, useRef } from "react"
+import { Suspense, useEffect, useLayoutEffect, useRef } from "react"
 import { PerformanceMonitor, Preload } from "@react-three/drei"
 import { Canvas, useFrame } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
@@ -49,7 +49,6 @@ function SuspenseReady() {
   const frameCount = useRef(0)
 
   useFrame(() => {
-    // Check store state directly - persists across Suspense re-renders
     if (useAnimationStore.getState().suspenseReady) return
 
     frameCount.current++
@@ -68,6 +67,7 @@ interface StarfieldBaseProps {
   debug?: boolean
   className?: string
   gameObjects?: GameObject[]
+  lookAtTarget?: string
 }
 
 const IS_DEV = import.meta.env.DEV
@@ -91,11 +91,13 @@ export function StarfieldComponent({
   debug = false,
   className,
   gameObjects,
+  lookAtTarget,
 }: StarfieldBaseProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const isPaused = useGameStore((state) => state.isPaused)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const setGameObjects = useGameStore((state) => state.setGameObjects)
+  const setLookAtTarget = useGameStore((state) => state.setLookAtTarget)
   const callbacks = useCallbackStore((state) => state)
 
   usePerformanceProfile({ initialProfile: profile })
@@ -128,6 +130,10 @@ export function StarfieldComponent({
       prevGameObjectsRef.current = gameObjects
     }
   }, [gameObjects, setGameObjects])
+
+  useEffect(() => {
+    setLookAtTarget(lookAtTarget ?? undefined)
+  }, [lookAtTarget, setLookAtTarget])
 
   return (
     <>

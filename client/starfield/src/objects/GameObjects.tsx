@@ -1,12 +1,14 @@
-import { Suspense, useRef } from "react"
-import { useFrame, useThree } from "@react-three/fiber"
-import * as THREE from "three"
+import { Suspense } from "react"
 
-import { LAYERS } from "@/constants"
 import { useGameStore } from "@/useGameStore"
 
 import { Port } from "./Port"
 
+/*
+import { useFrame, useThree } from "@react-three/fiber"
+import * as THREE from "three"
+
+import { LAYERS } from "@/constants"
 interface SelectionIndicatorProps {
   position: [number, number, number]
   scale?: number
@@ -45,18 +47,25 @@ const SelectionIndicator = ({
     </group>
   )
 }
-
+*/
 export const GameObjects = () => {
   const positionedGameObjects = useGameStore(
     (state) => state.positionedGameObjects
   )
+  /*
   const lookAtTarget = useGameStore((state) => state.lookAtTarget)
 
   // Find the targeted object
   const targetedObject = lookAtTarget
     ? positionedGameObjects.find((obj) => obj.id === lookAtTarget)
     : null
-
+    {targetedObject && (
+      <SelectionIndicator
+        position={targetedObject.position}
+        scale={targetedObject.scale}
+      />
+    )}
+  */
   return (
     <group name="game-objects">
       {positionedGameObjects.map((obj) => {
@@ -78,14 +87,6 @@ export const GameObjects = () => {
             return null
         }
       })}
-
-      {/* Selection indicator for targeted object */}
-      {targetedObject && (
-        <SelectionIndicator
-          position={targetedObject.position}
-          scale={targetedObject.scale}
-        />
-      )}
     </group>
   )
 }

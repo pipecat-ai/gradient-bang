@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useMemo } from "react"
 import { motion } from "motion/react"
 import type { PerformanceProfile } from "@gradient-bang/starfield"
 
-import { skyboxImages } from "@/assets"
+import { portImages, skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
 import useGameStore from "@/stores/game"
 
@@ -11,6 +11,7 @@ import useGameStore from "@/stores/game"
 const StarfieldLazy = lazy(() => import("./StarfieldLazy"))
 
 const skyboxImageList = Object.values(skyboxImages)
+const portImageList = Object.values(portImages)
 
 const StarfieldFallback = () => (
   <div className="absolute h-full inset-0 overflow-hidden bg-background z-(--z-starfield)">
@@ -27,10 +28,14 @@ export const Starfield = () => {
   const lookMode = useGameStore.use.lookMode()
   const starfieldReady = useGameStore.use.starfieldReady()
   const setStarfieldReady = useGameStore.use.setStarfieldReady()
+  const lookAtTarget = useGameStore.use.lookAtTarget()
 
   const starfieldConfig = useMemo(() => {
     return {
-      imageAssets: skyboxImageList,
+      imageAssets: [
+        ...skyboxImageList.map((url) => ({ type: "skybox" as const, url })),
+        ...portImageList.map((url) => ({ type: "port" as const, url })),
+      ],
     }
   }, [])
 
@@ -46,6 +51,8 @@ export const Starfield = () => {
     return <StarfieldFallback />
   }
 
+  console.log("lookAtTarget", lookAtTarget)
+
   return (
     <Suspense fallback={null}>
       <motion.div
@@ -55,13 +62,22 @@ export const Starfield = () => {
         transition={{ delay: 1, duration: 2, ease: "easeOut" }}
       >
         <StarfieldLazy
+          debug={false}
+          lookMode={lookMode}
+          lookAtTarget={lookAtTarget}
           profile={settings.qualityPreset as PerformanceProfile}
           config={starfieldConfig}
           onCreated={() => {
-            console.debug("[STARFIELD] Starfield ready")
+            console.debug("[STARFIELD] Starfield created")
             setStarfieldReady(true)
           }}
-          lookMode={lookMode}
+          gameObjects={[
+            {
+              id: "port-1",
+              type: "port",
+              label: "bbs",
+            },
+          ]}
         />
       </motion.div>
     </Suspense>

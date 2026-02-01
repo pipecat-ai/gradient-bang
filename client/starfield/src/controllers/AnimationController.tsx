@@ -56,12 +56,12 @@ export function AnimationController() {
 
   // Subscribe to camera look-at target
   const lookAtTarget = useGameStore((state) => state.lookAtTarget)
-  const prevLookAtTargetRef = useRef<string | null>(null)
+  const prevLookAtTargetRef = useRef<string | undefined>(undefined)
 
   // React to camera target changes - dim when targeting, undim when released
   useEffect(() => {
-    const hadTarget = prevLookAtTargetRef.current !== null
-    const hasTarget = lookAtTarget !== null
+    const hadTarget = prevLookAtTargetRef.current !== undefined
+    const hasTarget = lookAtTarget !== undefined
 
     if (!hadTarget && hasTarget) {
       // Gained a target - dim the background

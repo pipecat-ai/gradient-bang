@@ -1,4 +1,7 @@
 // Images
+import port1 from "./images/ports/port-1.png"
+import port2 from "./images/ports/port-2.png"
+import port3 from "./images/ports/port-3.png"
 import skybox1 from "./images/skybox-1.png"
 import skybox2 from "./images/skybox-2.png"
 import skybox3 from "./images/skybox-3.png"
@@ -29,6 +32,12 @@ import titleVideo from "./videos/title.mp4"
 export const images = {
   splash1,
 } as const
+
+export const portImages = {
+  port1,
+  port2,
+  port3,
+}
 
 export const skyboxImages = {
   skybox1,
