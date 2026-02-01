@@ -10,9 +10,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     BotSpeakingFrame,
-    Frame,
     InterruptionFrame,
-    LLMContextFrame,
     LLMRunFrame,
     StartFrame,
     StopFrame,
@@ -28,7 +26,6 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
-from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
     RTVIObserver,
@@ -39,11 +36,11 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.services.google.llm import GoogleLLMService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.utils.time import time_now_iso8601
 
+from gradientbang.utils.llm_factory import create_llm_service, get_voice_llm_config
 from gradientbang.utils.prompts import CHAT_INSTRUCTIONS, GAME_DESCRIPTION, VOICE_INSTRUCTIONS
 
 load_dotenv(dotenv_path=".env.bot")
@@ -123,28 +120,6 @@ async def _resolve_character_identity(character_id: str | None, server_url: str)
     return character_id, display_name
 
 
-class TaskProgressInserter(FrameProcessor):
-    def __init__(self, voice_task_manager: VoiceTaskManager):
-        super().__init__()
-        self._voice_task_manager = voice_task_manager
-
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        await super().process_frame(frame, direction)
-
-        if isinstance(frame, LLMContextFrame):
-            task_buffer = self._voice_task_manager.get_task_progress()
-            if task_buffer.strip():
-                frame.context._messages.insert(
-                    len(frame.context._messages) - 1,
-                    {
-                        "role": "user",
-                        "content": f"<task_progress>{task_buffer}</task_progress>",
-                    },
-                )
-
-        await self.push_frame(frame, direction)
-
-
 def create_chat_system_prompt() -> str:
     """Create the system prompt for the chat agent."""
     return f"""{GAME_DESCRIPTION}
@@ -195,13 +170,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # Initialize LLM service
     logger.info("Init LLM…")
-    llm = GoogleLLMService(
-        api_key=os.getenv("GOOGLE_API_KEY"),
-        model="gemini-2.5-flash-preview-09-2025",
-    )
+    voice_config = get_voice_llm_config()
+    llm = create_llm_service(voice_config)
     llm.register_function(None, task_manager.execute_tool_call)
 
-    task_progress = TaskProgressInserter(task_manager)
     token_usage_metrics = TokenUsageMetricsProcessor(source="bot")
 
     # System prompt
@@ -244,7 +216,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             ParallelPipeline(
                 # Main branch
                 [
-                    task_progress,
                     llm,
                     post_llm_gate,
                     token_usage_metrics,

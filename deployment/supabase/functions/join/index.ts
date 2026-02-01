@@ -242,12 +242,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
       `[join] map.local emitted: ${(performance.now() - t10).toFixed(1)}ms`,
     );
 
+    const observerCorpId =
+      ship.owner_type === "corporation"
+        ? ship.owner_corporation_id
+        : character.corporation_id;
     const observerMetadata: ObserverMetadata = {
       characterId: character.character_id,
       characterName: character.name,
       shipId: ship.ship_id,
       shipName: ship.ship_name ?? shipDefinition.display_name,
       shipType: ship.ship_type,
+      corpId: observerCorpId,
     };
 
     // Movement observers using PG

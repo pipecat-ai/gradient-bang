@@ -191,7 +191,7 @@ Install Python dependencies:
 uv sync --all-groups
 ```
 
-Create `.env.bot` file.
+Create `.env.bot` file in project root.
 
 _Note: Keep `BOT_USE_KRISP` to `0` in local dev ([see here](https://docs.pipecat.ai/deployment/pipecat-cloud/guides/krisp-viva#local-development))_
 
@@ -199,10 +199,20 @@ _Note: Keep `BOT_USE_KRISP` to `0` in local dev ([see here](https://docs.pipecat
 DEEPGRAM_API_KEY=<PUT YOUR KEY HERE>
 CARTESIA_API_KEY=<PUT YOUR KEY HERE>
 GOOGLE_API_KEY=<PUT YOUR KEY HERE>
+OPENAI_API_KEY=<PUT YOUR KEY HERE>
+ANTHROPIC_API_KEY=<PUT YOUR KEY HERE>
 
 SUPABASE_URL=http://127.0.0.1:54321
-SUPABASE_SERVICE_ROLE_KEY=
-EDGE_API_TOKEN=
+SUPABASE_SERVICE_ROLE_KEY=<from .env.supabase>
+EDGE_API_TOKEN=<from .env.supabase>
+
+# Optional: LLM provider configuration (defaults shown)
+# Supported providers: google, anthropic, openai
+VOICE_LLM_PROVIDER=google
+VOICE_LLM_MODEL=gemini-2.5-flash
+TASK_LLM_PROVIDER=google
+TASK_LLM_MODEL=gemini-2.5-flash-preview-09-2025
+TASK_LLM_THINKING_BUDGET=2048
 ```
 
 Run agent process:
@@ -345,18 +355,28 @@ uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 
 ### Deploy bot to Pipecat Cloud
 
-Create `.env.bot`
+Create `.env.bot` for Pipecat Cloud:
 
 ```bash
 DEEPGRAM_API_KEY=...
 CARTESIA_API_KEY=...
 GOOGLE_API_KEY=...
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
 
 SUPABASE_URL=https://{SUPABASE_PROJECT_ID}.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 EDGE_API_TOKEN=...
 
 BOT_USE_KRISP=1
+
+# Optional: LLM provider configuration (defaults shown)
+# Supported providers: google, anthropic, openai
+VOICE_LLM_PROVIDER=google
+VOICE_LLM_MODEL=gemini-2.5-flash
+TASK_LLM_PROVIDER=google
+TASK_LLM_MODEL=gemini-2.5-flash-preview-09-2025
+TASK_LLM_THINKING_BUDGET=2048
 
 # Optional:
 TOKEN_USAGE_LOG=logs/token_usage.csv

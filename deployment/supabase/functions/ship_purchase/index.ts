@@ -275,6 +275,7 @@ async function handlePersonalPurchase(
     requestId,
     corpId: character.corporation_id,
     taskId,
+    shipId: insertedShip.ship_id,
   });
 
   if (currentShip.ship_id) {
@@ -298,6 +299,7 @@ async function handlePersonalPurchase(
       requestId,
       corpId: character.corporation_id,
       taskId,
+      shipId: insertedShip.ship_id,
     });
   }
 
@@ -434,6 +436,7 @@ async function handleCorporationPurchase(
     requestId,
     corpId,
     taskId,
+    shipId: currentShip.ship_id,
   });
 
   const corpEventPayload = {

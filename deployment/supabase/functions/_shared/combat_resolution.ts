@@ -146,6 +146,14 @@ export async function resolveEncounterRound(options: {
         recipient,
       );
       personalizedPayload.source = buildEventSource("combat.ended", requestId);
+      const shipId =
+        typeof personalizedPayload === "object" && personalizedPayload !== null
+          ? (personalizedPayload as Record<string, unknown>)["ship"]
+          : null;
+      const shipIdValue =
+        typeof shipId === "object" && shipId !== null
+          ? (shipId as Record<string, unknown>)["ship_id"]
+          : null;
 
       await emitCharacterEvent({
         supabase,
@@ -154,6 +162,7 @@ export async function resolveEncounterRound(options: {
         payload: personalizedPayload,
         sectorId: encounter.sector_id,
         requestId,
+        shipId: typeof shipIdValue === "string" ? shipIdValue : undefined,
       });
     }
 

@@ -15,11 +15,10 @@ from pipecat.frames.frames import FunctionCallResultProperties, LLMMessagesAppen
 import os
 
 from gradientbang.utils.supabase_client import AsyncGameClient
-from gradientbang.utils.prompts import TaskOutputType
-from gradientbang.utils.task_agent import TaskAgent, DEFAULT_GOOGLE_MODEL
+from gradientbang.utils.prompts import TaskOutputType, create_task_system_message
+from gradientbang.utils.task_agent import TaskAgent
 from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.utils.supabase_client import RPCError
-from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.weave_tracing import (
     init_weave,
     traced,
@@ -39,6 +38,8 @@ from gradientbang.utils.tools_schema import (
     CombatAction,
     CorporationInfo,
     RenameShip,
+    QueryTaskProgress,
+    SteerTask,
     UI_SHOW_PANEL_SCHEMA,
     _summarize_corporation_info,
     _shorten_embedded_ids,
@@ -52,6 +53,19 @@ REQUEST_ID_CACHE_TTL_SECONDS = 15 * 60
 REQUEST_ID_CACHE_MAX_SIZE = 5000
 FINISHED_TASK_ID_CACHE_TTL_SECONDS = 15 * 60
 FINISHED_TASK_ID_CACHE_MAX_SIZE = 5000
+TASK_LOG_TTL_SECONDS = 15 * 60
+CORP_TASK_EVENT_VALIDATE_TIMEOUT_SECONDS = 10.0
+TASK_SCOPED_DIRECT_EVENT_ALLOWLIST = {
+    "bank.transaction",
+    "movement.complete",
+    "port.update",
+    "task.start",
+    "task.finish",
+    "trade.executed",
+    "warp.purchase",
+    "status.update",
+    "map.local",
+}
 
 
 def _extract_display_name(payload: Mapping[str, Any]) -> Optional[str]:
@@ -109,6 +123,7 @@ class VoiceTaskManager:
             base_url=resolved_base_url,
             transport="supabase",
         )
+        self._last_corporation_id: Optional[str] = self.game_client.corporation_id
         self._event_names = [
             "status.snapshot",
             "status.update",
@@ -164,7 +179,7 @@ class VoiceTaskManager:
 
         # Create task agent driven by the Pipecat pipeline
         self.task_agent = TaskAgent(
-            config=LLMConfig(model=DEFAULT_GOOGLE_MODEL),
+            config=None,
             game_client=self.game_client,
             character_id=self.character_id,
             output_callback=self._handle_agent_output,
@@ -175,15 +190,17 @@ class VoiceTaskManager:
         # used as keys for human-readable tracking and event correlation
         self.rtvi_processor = rtvi_processor
         self._active_tasks: Dict[str, Dict[str, Any]] = {}  # short_task_id -> task info
-        self.task_buffer: deque = deque(maxlen=1000)
         self.task_running = False  # Deprecated, kept for backwards compatibility
         self.cancelled_via_tool = False
         # Track request IDs from voice agent tool calls for inference triggering
         self._voice_agent_request_ids: Dict[str, float] = {}
         self._voice_agent_request_queue: deque[tuple[str, float]] = deque()
+        self._tool_call_inflight = 0
+        self._deferred_llm_events: deque[tuple[str, bool]] = deque()
         # Track task IDs that have finished but whose task.finish event hasn't arrived yet
         self._finished_task_ids: Dict[str, float] = {}
         self._finished_task_queue: deque[tuple[str, float]] = deque()
+        self._task_log_cursors: Dict[str, int] = {}
 
         # Build generic tool dispatch map for common game tools
         # Start/stop/ui_show_panel are handled inline in execute_tool_call
@@ -436,6 +453,57 @@ class VoiceTaskManager:
                 return None
         return None
 
+    @staticmethod
+    def _strip_internal_event_metadata(payload: Any) -> Any:
+        if not isinstance(payload, Mapping):
+            return payload
+        cleaned = dict(payload)
+        cleaned.pop("__event_context", None)
+        cleaned.pop("event_context", None)
+        cleaned.pop("recipient_ids", None)
+        cleaned.pop("recipient_reasons", None)
+        return cleaned
+
+    @staticmethod
+    def _extract_event_context(payload: Any) -> Optional[Mapping[str, Any]]:
+        if not isinstance(payload, Mapping):
+            return None
+        ctx = payload.get("__event_context") or payload.get("event_context")
+        if isinstance(ctx, Mapping):
+            return ctx
+        return None
+
+    @staticmethod
+    def _resolve_recipient_reason(
+        ctx: Optional[Mapping[str, Any]],
+        character_id: Optional[str],
+    ) -> Optional[str]:
+        if not ctx or not character_id:
+            return None
+        recipient_ids = ctx.get("recipient_ids")
+        recipient_reasons = ctx.get("recipient_reasons")
+        if (
+            isinstance(recipient_ids, list)
+            and isinstance(recipient_reasons, list)
+            and len(recipient_ids) == len(recipient_reasons)
+        ):
+            for recipient_id, reason in zip(recipient_ids, recipient_reasons):
+                if (
+                    isinstance(recipient_id, str)
+                    and recipient_id == character_id
+                    and isinstance(reason, str)
+                ):
+                    return reason
+        ctx_character_id = ctx.get("character_id")
+        ctx_reason = ctx.get("reason")
+        if (
+            isinstance(ctx_character_id, str)
+            and ctx_character_id == character_id
+            and isinstance(ctx_reason, str)
+        ):
+            return ctx_reason
+        return None
+
     def _prune_request_ids(self, now: Optional[float] = None) -> None:
         if now is None:
             now = time.monotonic()
@@ -509,11 +577,78 @@ class VoiceTaskManager:
             return
         self._finished_task_ids.pop(task_id, None)
 
+    def _prune_expired_tasks(self, now: Optional[float] = None) -> None:
+        if now is None:
+            now = time.monotonic()
+        expired_ids = [
+            task_id
+            for task_id, task_info in self._active_tasks.items()
+            if task_info.get("expires_at") and task_info["expires_at"] <= now
+        ]
+        for task_id in expired_ids:
+            self._active_tasks.pop(task_id, None)
+            self._task_log_cursors.pop(task_id, None)
+        if expired_ids:
+            self._update_polling_scope()
+
+    def _update_polling_scope(self) -> None:
+        ship_ids = [
+            task_info.get("target_character_id")
+            for task_info in self._active_tasks.values()
+            if task_info.get("is_corp_ship") and task_info.get("target_character_id")
+        ]
+        unique_ship_ids = sorted({sid for sid in ship_ids if isinstance(sid, str)})
+        corp_id = self.game_client.corporation_id
+        self.game_client.set_event_polling_scope(
+            character_ids=[self.character_id],
+            corp_id=corp_id,
+            ship_ids=unique_ship_ids,
+        )
+
+    def _sync_corp_polling_scope(self) -> None:
+        corp_id = self.game_client.corporation_id
+        if corp_id == self._last_corporation_id:
+            return
+        self._last_corporation_id = corp_id
+        self._update_polling_scope()
+
 
     async def _relay_event(self, event: Dict[str, Any]) -> None:
+        self._prune_expired_tasks()
         event_name = event.get("event_name")
         payload = event.get("payload")
         event_request_id = event.get("request_id")
+        clean_payload = self._strip_internal_event_metadata(payload)
+
+        # Find the task_id for this event (if it belongs to a task)
+        task_id: Optional[str] = None
+        payload_task_id: Optional[str] = None
+        if isinstance(payload, Mapping):
+            candidate = payload.get("__task_id") or payload.get("task_id")
+            if isinstance(candidate, str) and candidate.strip():
+                payload_task_id = candidate.strip()
+
+        is_our_task = False
+        if payload_task_id:
+            task_id = self._get_task_id_for_full(payload_task_id)
+            is_our_task = task_id is not None
+            # Also check finished tasks (task cleaned up before event arrived)
+            if not is_our_task and self._is_recent_finished_task_id(payload_task_id):
+                is_our_task = True
+                # Clean up once we've seen the event
+                if event_name == "task.finish":
+                    self._forget_finished_task_id(payload_task_id)
+
+            # Fan out task-scoped events to corp task agents (polling disabled)
+            if task_id:
+                task_info = self._active_tasks.get(task_id)
+                task_agent = task_info.get("task_agent") if task_info else None
+                task_game_client = task_info.get("task_game_client") if task_info else None
+                delivery_event = task_info.get("event_delivery_check") if task_info else None
+                if isinstance(delivery_event, asyncio.Event) and not delivery_event.is_set():
+                    delivery_event.set()
+                if task_agent and task_game_client and task_game_client != self.game_client:
+                    await task_agent._handle_event(event)
 
         player_id: Optional[str] = None
         if isinstance(payload, Mapping):
@@ -549,17 +684,18 @@ class VoiceTaskManager:
         # Keep display name in sync from our own status events
         if (
             not is_other_player_event
-            and isinstance(payload, Mapping)
+            and isinstance(clean_payload, Mapping)
             and event_name in {"status.snapshot", "status.update"}
         ):
-            self._update_display_name(payload)
+            self._update_display_name(clean_payload)
+            self._sync_corp_polling_scope()
 
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
                     "frame_type": "event",
                     "event": event_name,
-                    "payload": payload,
+                    "payload": clean_payload,
                 }
             )
         )
@@ -567,37 +703,20 @@ class VoiceTaskManager:
         # Track current sector for local visibility decisions
         if (
             not is_other_player_event
-            and isinstance(payload, Mapping)
+            and isinstance(clean_payload, Mapping)
             and event_name in {"status.snapshot", "status.update", "movement.complete"}
         ):
-            sector_id = self._extract_sector_id(payload)
+            sector_id = self._extract_sector_id(clean_payload)
             if sector_id is not None:
                 self._current_sector_id = sector_id
 
         # Use voice-specific condensed summary for verbose events
         if event_name:
-            summary = self._get_voice_summary(str(event_name), event) or payload
+            event_for_summary = dict(event)
+            event_for_summary["payload"] = clean_payload
+            summary = self._get_voice_summary(str(event_name), event_for_summary) or clean_payload
         else:
-            summary = payload
-
-        # Find the task_id for this event (if it belongs to a task)
-        task_id: Optional[str] = None
-        payload_task_id: Optional[str] = None
-        if isinstance(payload, Mapping):
-            candidate = payload.get("__task_id") or payload.get("task_id")
-            if isinstance(candidate, str) and candidate.strip():
-                payload_task_id = candidate.strip()
-
-        is_our_task = False
-        if payload_task_id:
-            task_id = self._get_task_id_for_full(payload_task_id)
-            is_our_task = task_id is not None
-            # Also check finished tasks (task cleaned up before event arrived)
-            if not is_our_task and self._is_recent_finished_task_id(payload_task_id):
-                is_our_task = True
-                # Clean up once we've seen the event
-                if event_name == "task.finish":
-                    self._forget_finished_task_id(payload_task_id)
+            summary = clean_payload
 
         if not task_id:
             task_id = self._get_task_id_for_character(self.character_id)
@@ -607,6 +726,55 @@ class VoiceTaskManager:
                 f"status.snapshot received request_id={event_request_id} payload_task_id={payload_task_id} "
                 f"resolved_task_id={task_id} is_our_task={is_our_task}"
             )
+
+        event_context = self._extract_event_context(payload)
+        is_task_lifecycle_event = event_name in {"task.start", "task.finish"}
+        is_task_scoped_event = payload_task_id is not None
+
+        event_sector_id: Optional[int] = None
+        if event_name in {"character.moved", "garrison.character_moved"}:
+            if isinstance(clean_payload, Mapping):
+                event_sector_id = self._extract_sector_id(clean_payload)
+        is_local_sector_movement = (
+            event_sector_id is not None
+            and self._current_sector_id is not None
+            and event_sector_id == self._current_sector_id
+        )
+
+        should_append = False
+        if event_name == "map.update":
+            should_append = False
+        elif is_task_lifecycle_event and is_our_task:
+            should_append = True
+        elif event_context is None:
+            logger.info(
+                "voice.event_context.missing event_name={} request_id={} payload_task_id={}",
+                event_name,
+                event_request_id,
+                payload_task_id,
+            )
+            return
+        else:
+            scope = event_context.get("scope")
+            recipient_reason = self._resolve_recipient_reason(
+                event_context,
+                self.character_id,
+            )
+            is_direct_to_player = (
+                isinstance(scope, str)
+                and scope in {"direct", "self"}
+                and recipient_reason in {"direct", "task_owner"}
+            )
+            if is_direct_to_player:
+                if is_task_scoped_event:
+                    should_append = event_name in TASK_SCOPED_DIRECT_EVENT_ALLOWLIST
+                else:
+                    should_append = True
+            elif is_local_sector_movement:
+                should_append = True
+
+        if not should_append:
+            return
 
         # Build event XML with optional task_id
         if task_id:
@@ -657,6 +825,15 @@ class VoiceTaskManager:
         )
         logger.debug(f"  should_run_llm: {should_run_llm}")
 
+        # Defer task-scoped events while a tool call is inflight so the tool call
+        # appears in context before its resulting events.
+        if payload_task_id and self._tool_call_inflight > 0:
+            self._deferred_llm_events.append((event_xml, should_run_llm))
+            return
+
+        await self._deliver_llm_event(event_xml, should_run_llm)
+
+    async def _deliver_llm_event(self, event_xml: str, should_run_llm: bool) -> None:
         await self.rtvi_processor.push_frame(
             LLMMessagesAppendFrame(
                 messages=[
@@ -668,6 +845,11 @@ class VoiceTaskManager:
                 run_llm=should_run_llm,
             )
         )
+
+    async def _flush_deferred_llm_events(self) -> None:
+        while self._deferred_llm_events:
+            event_xml, should_run_llm = self._deferred_llm_events.popleft()
+            await self._deliver_llm_event(event_xml, should_run_llm)
 
     #
     # Task management
@@ -683,7 +865,12 @@ class VoiceTaskManager:
             The task_id if found, None otherwise
         """
         for task_id, task_info in self._active_tasks.items():
-            if task_info.get("target_character_id") == character_id:
+            asyncio_task = task_info.get("asyncio_task")
+            if (
+                task_info.get("target_character_id") == character_id
+                and asyncio_task
+                and not asyncio_task.done()
+            ):
                 return task_id
         return None
 
@@ -704,14 +891,24 @@ class VoiceTaskManager:
         Returns:
             Formatted task progress string
         """
-        if not self.task_buffer:
+        task_id = self._get_task_id_for_character(self.character_id)
+        if not task_id:
             return ""
-
-        # Get all buffered lines and clear buffer
-        lines = list(self.task_buffer)
-        self.task_buffer.clear()
-
-        return "\n".join(lines)
+        task_info = self._active_tasks.get(task_id)
+        if not task_info:
+            return ""
+        task_agent = task_info.get("task_agent")
+        if not task_agent:
+            return ""
+        lines = task_agent.get_task_log()
+        if not lines:
+            return ""
+        cursor = self._task_log_cursors.get(task_id, 0)
+        if cursor < 0 or cursor > len(lines):
+            cursor = 0
+        new_lines = lines[cursor:]
+        self._task_log_cursors[task_id] = len(lines)
+        return "\n".join(new_lines)
 
     @staticmethod
     def _summarize_tool_result(raw_text: str) -> Optional[str]:
@@ -855,16 +1052,7 @@ class VoiceTaskManager:
             TaskActivityFrame(task_id=task_id or "", activity_type="output")
         )
 
-        # Append to LLM context buffer:
-        # - For non-EVENT types: always add (steps, errors, finished, etc.)
-        # - EVENT types are NOT added to task_buffer. EVENT lines still flow to client
-        #   via task_output RTVI for task panel display. Structured events reach LLM
-        #   via _relay_event from main game client polling.
-        # With corp visibility, corp ship events now reach the human player via _relay_event,
-        # so we no longer need to add EVENT lines for corp_ship tasks (prevents duplicates).
-        if message_type != TaskOutputType.EVENT.value:
-            self.task_buffer.append(text)
-        # EVENT lines are UI-only now - LLM gets events via _relay_event
+        # TaskAgent now owns the task log; no buffering here.
 
     @traced
     async def _run_task_with_tracking(
@@ -953,9 +1141,13 @@ class VoiceTaskManager:
             if full_task_id:
                 self._track_finished_task_id(full_task_id)
 
-            # Clean up task tracking
-            if task_id in self._active_tasks:
-                del self._active_tasks[task_id]
+            task_info = self._active_tasks.get(task_id)
+            if task_info:
+                finished_at = time.monotonic()
+                task_info["finished_at"] = finished_at
+                task_info["expires_at"] = finished_at + TASK_LOG_TTL_SECONDS
+            self._task_log_cursors.pop(task_id, None)
+            self._update_polling_scope()
 
             if is_corp_ship:
                 await task_agent.close()
@@ -1050,6 +1242,7 @@ class VoiceTaskManager:
             "leaderboard_resources",
         }
 
+        self._tool_call_inflight += 1
         try:
             # Gather arguments for the call
             arguments = params.arguments
@@ -1063,6 +1256,12 @@ class VoiceTaskManager:
                 payload = {"result": result}
             elif tool_name == "ui_show_panel":
                 result = await self._handle_ui_show_panel(params)
+                payload = {"result": result}
+            elif tool_name == "query_task_progress":
+                result = await self._handle_query_task_progress(params)
+                payload = {"result": result}
+            elif tool_name == "steer_task":
+                result = await self._handle_steer_task(params)
                 payload = {"result": result}
             else:
                 # Call the tool function via our dispatch table
@@ -1088,6 +1287,20 @@ class VoiceTaskManager:
                 ack_payload = {"status": "Executed."}
                 properties = FunctionCallResultProperties(run_llm=False)
                 await params.result_callback(ack_payload, properties=properties)
+            elif tool_name in {"query_task_progress", "steer_task"}:
+                if isinstance(result, dict) and result.get("success") is False:
+                    error_payload = {"error": result.get("error", "Request failed.")}
+                    properties = FunctionCallResultProperties(run_llm=True)
+                    await params.result_callback(error_payload, properties=properties)
+                else:
+                    summary = result.get("summary") if isinstance(result, dict) else None
+                    if not summary:
+                        summary = f"{tool_name} completed."
+                    response_payload = {"summary": summary}
+                    if isinstance(result, dict) and result.get("task_id"):
+                        response_payload["task_id"] = result.get("task_id")
+                    properties = FunctionCallResultProperties(run_llm=True)
+                    await params.result_callback(response_payload, properties=properties)
             elif tool_name in direct_response_tools:
                 # These tools return data directly without events - trigger inference.
                 # Prefer summaries when available to avoid leaking large payloads.
@@ -1111,6 +1324,10 @@ class VoiceTaskManager:
                     await self._emit_tool_result(tool_name, error_payload)
                 except Exception as emit_err:  # noqa: BLE001
                     logger.error(f"tool '{tool_name}' failed to emit result: {emit_err}")
+        finally:
+            self._tool_call_inflight = max(0, self._tool_call_inflight - 1)
+            if self._tool_call_inflight == 0:
+                await self._flush_deferred_llm_events()
 
     def _is_valid_uuid(self, value: str) -> bool:
         """Check if a string is a valid UUID format."""
@@ -1223,6 +1440,26 @@ class VoiceTaskManager:
                     continue
                 raise
 
+    async def _validate_corp_task_event_delivery(self, task_id: str) -> None:
+        task_info = self._active_tasks.get(task_id)
+        if not task_info or not task_info.get("is_corp_ship"):
+            return
+        delivery_event = task_info.get("event_delivery_check")
+        if not isinstance(delivery_event, asyncio.Event):
+            return
+        try:
+            await asyncio.wait_for(
+                delivery_event.wait(),
+                timeout=CORP_TASK_EVENT_VALIDATE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Corp task {} did not receive events within {:.1f}s. "
+                "Verify events_since scope includes ship_id/corp_id.",
+                task_id,
+                CORP_TASK_EVENT_VALIDATE_TIMEOUT_SECONDS,
+            )
+
     @traced
     async def _handle_start_task(self, params: FunctionCallParams):
         task_game_client = None
@@ -1231,6 +1468,7 @@ class VoiceTaskManager:
             logger.info(f"!!! start_task: {params.arguments}")
             task_desc = params.arguments.get("task_description", "")
             ship_id = params.arguments.get("ship_id")
+            self._prune_expired_tasks()
 
             if isinstance(ship_id, str):
                 ship_id = ship_id.strip().strip("[]")
@@ -1294,7 +1532,8 @@ class VoiceTaskManager:
                     character_id=target_character_id,
                     actor_character_id=actor_character_id,
                     entity_type="corporation_ship",
-                transport="supabase",
+                    transport="supabase",
+                    enable_event_polling=False,
                 )
                 await task_game_client.pause_event_delivery()
                 logger.debug(
@@ -1309,7 +1548,7 @@ class VoiceTaskManager:
             # Create task-specific agent with custom output callback
             if ship_id:
                 task_agent = TaskAgent(
-                    config=LLMConfig(model=DEFAULT_GOOGLE_MODEL),
+                    config=None,
                     game_client=task_game_client,
                     character_id=target_character_id,
                     output_callback=self._create_agent_output_callback(short_task_id, task_type),
@@ -1322,6 +1561,7 @@ class VoiceTaskManager:
                 task_agent.reset_task_state()
 
             # call my_status so the first thing the task gets is a status.snapshot event
+            # Note: my_status will automatically recover ships stuck in hyperspace
             try:
                 if ship_id:
                     logger.debug(
@@ -1368,7 +1608,13 @@ class VoiceTaskManager:
                 "asyncio_task": asyncio_task,
                 "description": task_desc,
                 "is_corp_ship": (ship_id is not None),
+                "finished_at": None,
+                "expires_at": None,
+                "event_delivery_check": asyncio.Event() if ship_id else None,
             }
+            self._update_polling_scope()
+            if ship_id:
+                asyncio.create_task(self._validate_corp_task_event_delivery(short_task_id))
 
             # Update legacy flags for backwards compatibility
             if not ship_id:
@@ -1495,6 +1741,105 @@ class VoiceTaskManager:
             logger.error(f"stop_task failed: {e}")
             return {"success": False, "error": str(e)}
 
+    def _build_task_progress_prompt(self, log_lines: list[str]) -> str:
+        base_prompt = create_task_system_message().strip()
+        log_text = "\n".join(log_lines)
+        return (
+            f"{base_prompt}\n\n"
+            "# Task Log\n"
+            f"{log_text}\n\n"
+            "Answer questions about task progress strictly from the task log. "
+            "If the log does not contain the answer, say you don't know."
+        )
+
+    @traced
+    async def _handle_query_task_progress(self, params: FunctionCallParams):
+        self._prune_expired_tasks()
+        prompt = params.arguments.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            return {"success": False, "error": "prompt is required"}
+
+        task_id = params.arguments.get("task_id")
+        if task_id:
+            if isinstance(task_id, str):
+                task_id = task_id.strip()
+            try:
+                resolved_task_id = self._resolve_task_id_prefix(str(task_id))
+            except ValueError as exc:
+                return {"success": False, "error": str(exc)}
+            if not resolved_task_id:
+                return {"success": False, "error": f"Task {task_id} not found"}
+            task_id = resolved_task_id
+        else:
+            task_id = self._get_task_id_for_character(self.character_id)
+
+        if not task_id:
+            return {
+                "success": False,
+                "error": "No active task found. Provide a task_id to query.",
+            }
+
+        task_info = self._active_tasks.get(task_id)
+        if not task_info:
+            return {"success": False, "error": f"Task {task_id} not found"}
+
+        task_agent = task_info.get("task_agent")
+        if not task_agent:
+            return {"success": False, "error": f"Task {task_id} not available"}
+
+        full_task_id = task_info.get("full_task_id")
+        log_lines = task_agent.get_task_log(full_task_id)
+        if not log_lines:
+            return {"success": False, "error": f"No task log available for {task_id}"}
+
+        system_prompt = self._build_task_progress_prompt(log_lines)
+        response = await task_agent.query_task_progress(
+            prompt.strip(),
+            system_prompt=system_prompt,
+        )
+        return {"success": True, "summary": response, "task_id": task_id}
+
+    @traced
+    async def _handle_steer_task(self, params: FunctionCallParams):
+        task_id = params.arguments.get("task_id")
+        message = params.arguments.get("message")
+
+        if not isinstance(task_id, str) or not task_id.strip():
+            return {"success": False, "error": "task_id is required"}
+        if not isinstance(message, str) or not message.strip():
+            return {"success": False, "error": "message is required"}
+
+        try:
+            resolved_task_id = self._resolve_task_id_prefix(task_id.strip())
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+        if not resolved_task_id:
+            return {"success": False, "error": f"Task {task_id} not found"}
+
+        task_info = self._active_tasks.get(resolved_task_id)
+        if not task_info:
+            return {"success": False, "error": f"Task {resolved_task_id} not found"}
+
+        asyncio_task = task_info.get("asyncio_task")
+        if not asyncio_task or asyncio_task.done():
+            return {"success": False, "error": f"Task {resolved_task_id} is not running"}
+
+        task_agent = task_info.get("task_agent")
+        if not task_agent:
+            return {"success": False, "error": f"Task {resolved_task_id} not available"}
+
+        steering_text = message.strip()
+        if not steering_text.lower().startswith("steering instruction:"):
+            steering_text = f"Steering instruction: {steering_text}"
+
+        await task_agent.inject_user_message(steering_text)
+
+        return {
+            "success": True,
+            "summary": f"Steering instruction sent to task {resolved_task_id}.",
+            "task_id": resolved_task_id,
+        }
+
     async def _handle_ui_show_panel(self, params: FunctionCallParams):
         try:
             logger.info(f"show_panel: {params.arguments}")
@@ -1521,6 +1866,8 @@ class VoiceTaskManager:
                 CombatAction.schema(),
                 CorporationInfo.schema(),
                 RenameShip.schema(),
+                QueryTaskProgress.schema(),
+                SteerTask.schema(),
                 StartTask.schema(),
                 StopTask.schema(),
                 UI_SHOW_PANEL_SCHEMA,

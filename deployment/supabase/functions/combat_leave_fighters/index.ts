@@ -368,6 +368,7 @@ async function handleCombatLeaveFighters(params: {
     sectorId: sector,
     requestId,
     taskId,
+    shipId: ship.ship_id,
     actorCharacterId: characterId,
     corpId: character.corporation_id,
   });

@@ -10,6 +10,7 @@ import {
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { emitCharacterEvent, buildEventSource } from "../_shared/events.ts";
+import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
   parseJsonRequest,
   optionalString,
@@ -116,6 +117,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const source = buildEventSource("event_query", requestId);
       const taskId = optionalString(payload, "task_id");
       try {
+        // Load character and ship to get the correct ship_id for event routing
+        const character = await loadCharacter(supabase, targetCharacterId);
+        const ship = await loadShip(supabase, character.current_ship_id);
         await emitCharacterEvent({
           supabase,
           characterId: targetCharacterId,
@@ -123,6 +127,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           payload: { source, ...result },
           requestId,
           taskId,
+          shipId: ship.ship_id,
         });
         console.log("[Info] event_query.emit_success", {
           targetCharacterId,

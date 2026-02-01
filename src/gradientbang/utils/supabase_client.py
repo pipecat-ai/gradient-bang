@@ -47,6 +47,7 @@ class AsyncGameClient(BaseAsyncGameClient):
         actor_character_id: Optional[str] = None,
         entity_type: str = "character",
         allow_corp_actorless_control: bool = False,
+        enable_event_polling: bool = True,
         websocket_frame_callback=None,
     ) -> None:
         env_supabase_url = (os.getenv("SUPABASE_URL") or "").rstrip("/")
@@ -105,6 +106,9 @@ class AsyncGameClient(BaseAsyncGameClient):
             if actor_character_id is not None
             else None
         )
+        self._poll_character_ids = [self._canonical_character_id]
+        self._poll_corp_id: Optional[str] = None
+        self._poll_ship_ids: list[str] = []
         self._event_log_path = os.getenv("SUPABASE_EVENT_LOG_PATH")
         self._poll_interval = POLL_INTERVAL_SECONDS
         self._poll_limit = POLL_LIMIT_DEFAULT
@@ -113,6 +117,39 @@ class AsyncGameClient(BaseAsyncGameClient):
         self._polling_last_event_id: Optional[int] = None
         self._polling_lock = asyncio.Lock()
         self._polling_backoff = 0.0
+        self._enable_event_polling = enable_event_polling
+
+    def set_event_polling_scope(
+        self,
+        *,
+        character_ids: Optional[list[str]] = None,
+        corp_id: Optional[str] = None,
+        ship_ids: Optional[list[str]] = None,
+    ) -> None:
+        if character_ids is not None:
+            normalized: list[str] = []
+            for cid in character_ids:
+                if not isinstance(cid, str):
+                    continue
+                cleaned = cid.strip()
+                if cleaned:
+                    normalized.append(canonicalize_character_id(cleaned))
+            if normalized:
+                self._poll_character_ids = sorted(set(normalized))
+        if ship_ids is not None:
+            normalized_ship_ids: list[str] = []
+            for sid in ship_ids:
+                if not isinstance(sid, str):
+                    continue
+                cleaned = sid.strip()
+                if cleaned:
+                    normalized_ship_ids.append(cleaned)
+            self._poll_ship_ids = sorted(set(normalized_ship_ids))
+        if corp_id is None:
+            self._poll_corp_id = None
+        else:
+            cleaned = corp_id.strip() if isinstance(corp_id, str) else ""
+            self._poll_corp_id = cleaned or None
 
     async def close(self):
         await super().close()
@@ -474,6 +511,8 @@ class AsyncGameClient(BaseAsyncGameClient):
         return  # No legacy websocket frames
 
     async def _ensure_event_delivery(self) -> None:
+        if not self._enable_event_polling:
+            return
         await self._ensure_event_poller()
 
     async def _ensure_event_poller(self) -> None:
@@ -490,11 +529,29 @@ class AsyncGameClient(BaseAsyncGameClient):
                 await self._initialize_polling_cursor()
             self._polling_task = asyncio.create_task(self._poll_events_loop())
 
-    async def _initialize_polling_cursor(self) -> None:
-        payload = {
-            "character_id": self._canonical_character_id,
-            "initial_only": True,
+    def _build_events_since_payload(
+        self,
+        *,
+        since_event_id: Optional[int] = None,
+        initial_only: bool = False,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "character_ids": self._poll_character_ids,
         }
+        if self._poll_corp_id:
+            payload["corp_id"] = self._poll_corp_id
+        if self._poll_ship_ids:
+            payload["ship_ids"] = self._poll_ship_ids
+        if initial_only:
+            payload["initial_only"] = True
+            return payload
+        if since_event_id is not None:
+            payload["since_event_id"] = since_event_id
+        payload["limit"] = self._poll_limit
+        return payload
+
+    async def _initialize_polling_cursor(self) -> None:
+        payload = self._build_events_since_payload(initial_only=True)
         response = await self._request("events_since", payload, skip_event_delivery=True)
         last_id = response.get("last_event_id")
         if isinstance(last_id, int):
@@ -535,11 +592,10 @@ class AsyncGameClient(BaseAsyncGameClient):
             await self._initialize_polling_cursor()
             return False
 
-        payload = {
-            "character_id": self._canonical_character_id,
-            "since_event_id": self._polling_last_event_id,
-            "limit": self._poll_limit,
-        }
+        payload = self._build_events_since_payload(
+            since_event_id=self._polling_last_event_id,
+            initial_only=False,
+        )
         # Basic retry on transient 5xx to avoid stalling long-running tests
         attempts = 3
         backoff = 0.5
@@ -604,9 +660,12 @@ class AsyncGameClient(BaseAsyncGameClient):
         if isinstance(meta, Mapping) and "meta" not in payload:
             payload["meta"] = dict(meta)
 
-        # Note: request_id and __event_context should NOT be added to payloads delivered to API consumers
-        # These are metadata fields available via separate row fields if needed by internal code
-        # Event payloads should only contain application data (request_id belongs in source.request_id if needed)
+        event_context = row.get("event_context")
+        if isinstance(event_context, Mapping) and "__event_context" not in payload:
+            payload["__event_context"] = dict(event_context)
+
+        # Note: request_id and __event_context are internal metadata fields.
+        # They should not be surfaced directly to end-user clients.
         return payload
 
     async def _stop_event_poller(self) -> None:

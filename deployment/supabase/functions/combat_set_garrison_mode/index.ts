@@ -254,6 +254,7 @@ async function handleCombatSetGarrisonMode(params: {
     },
     sectorId: sector,
     requestId,
+    shipId: ship.ship_id,
     actorCharacterId: characterId,
     corpId: character.corporation_id,
   });

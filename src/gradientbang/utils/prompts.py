@@ -312,6 +312,10 @@ You should approach each task methodically:
   - If it appears the plan is not working as intended, call the finished tool to complete the task and explain the reason.
 6. **Return Information To the User**: Call the finished tool to return information to the user.
 
+## Steering Updates
+
+If you receive a user message that begins with "Steering instruction:", treat it as an update to the current task plan. Integrate it and continue.
+
 ## Event-driven State Management
 
 All tool calls return immediately with a simple response: "Executed."
@@ -742,6 +746,7 @@ class TaskOutputType(Enum):
 
     STEP = "STEP"
     ACTION = "ACTION"
+    INPUT = "INPUT"
     EVENT = "EVENT"
     MESSAGE = "MESSAGE"
     ERROR = "ERROR"
