@@ -191,6 +191,7 @@ async function handleCreate(params: {
     requestId,
     corpId: inserted.corp_id,
     taskId,
+    shipId: ship.ship_id,
   });
 
   return {

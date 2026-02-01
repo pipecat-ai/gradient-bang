@@ -483,6 +483,7 @@ async function handleSalvageCollect(params: {
     sectorId,
     requestId,
     taskId,
+    shipId: ship.ship_id,
     actorCharacterId: characterId,
     corpId: character.corporation_id,
   });
@@ -498,6 +499,7 @@ async function handleSalvageCollect(params: {
     sectorId,
     requestId,
     taskId,
+    shipId: ship.ship_id,
     actorCharacterId: characterId,
     corpId: character.corporation_id,
   });

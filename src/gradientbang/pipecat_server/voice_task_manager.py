@@ -1562,6 +1562,7 @@ class VoiceTaskManager:
                 task_agent.reset_task_state()
 
             # call my_status so the first thing the task gets is a status.snapshot event
+            # Note: my_status will automatically recover ships stuck in hyperspace
             try:
                 if ship_id:
                     logger.debug(

@@ -230,6 +230,7 @@ async function handlePathWithRegion(
     payload: payloadBody,
     requestId,
     taskId,
+    shipId: ship.ship_id,
     scope: "direct",
   });
 

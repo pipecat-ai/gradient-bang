@@ -75,7 +75,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.services.google.llm import GoogleLLMService as PipecatGoogleLLMService
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
 from gradientbang.utils.supabase_client import AsyncGameClient
@@ -121,7 +120,7 @@ from gradientbang.utils.tools_schema import (
 )
 
 
-load_dotenv()
+load_dotenv(dotenv_path=".env.bot")
 
 DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
 # DEFAULT_GOOGLE_MODEL = "gemini-3-flash-preview"
@@ -268,14 +267,10 @@ class TaskAgent:
         idle_timeout_secs: Optional[float] = None,
         task_metadata: Optional[Dict[str, Any]] = None,
     ):
-        api_key = config.api_key or os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "Google API key must be provided in config or GOOGLE_API_KEY environment variable"
-            )
-
+        # Store config - API key validation is deferred to the LLM factory
+        # which handles provider-specific key lookup from environment
         self.config = LLMConfig(
-            api_key=api_key,
+            api_key=config.api_key,
             model=config.model or DEFAULT_GOOGLE_MODEL,
         )
         self.game_client = game_client
@@ -284,7 +279,7 @@ class TaskAgent:
         self.output_callback = output_callback
         self._tool_call_event_callback = tool_call_event_callback
         self._llm_service_factory = llm_service_factory or self._default_llm_service_factory
-        self._thinking_budget = thinking_budget or DEFAULT_THINKING_BUDGET
+        self._thinking_budget = thinking_budget
         self._include_thoughts = DEFAULT_INCLUDE_THOUGHTS
         self._pipeline_idle_timeout_secs = idle_timeout_secs
 
@@ -404,18 +399,22 @@ class TaskAgent:
         init_weave()
 
     def _default_llm_service_factory(self) -> LLMService:
-        """Create the standard Pipecat GoogleLLMService with thinking enabled."""
-        service = PipecatGoogleLLMService(
-            api_key=self.config.api_key or "",
-            model=self.config.model or DEFAULT_GOOGLE_MODEL,
-            params=PipecatGoogleLLMService.InputParams(
-                thinking=PipecatGoogleLLMService.ThinkingConfig(
-                    thinking_budget=self._thinking_budget,
-                    include_thoughts=self._include_thoughts,
-                )
-            ),
-        )
-        return service
+        """Create LLM service using the factory with environment configuration."""
+        from gradientbang.utils.llm_factory import create_llm_service, get_task_agent_llm_config
+
+        config = get_task_agent_llm_config()
+
+        # Apply explicit TaskAgent overrides (model or API key)
+        if self.config.model:
+            config.model = self.config.model
+        if self.config.api_key:
+            config.api_key = self.config.api_key
+
+        # Override thinking budget if provided at instance level
+        if self._thinking_budget is not None and config.thinking:
+            config.thinking.budget_tokens = self._thinking_budget
+
+        return create_llm_service(config)
 
     def set_tools(self, tools_list: List[Any]) -> None:
         tool_entries: List[Tuple[Any, Dict[str, Any]]] = []

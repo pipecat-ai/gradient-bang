@@ -36,11 +36,11 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.services.google.llm import GoogleLLMService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.utils.time import time_now_iso8601
 
+from gradientbang.utils.llm_factory import create_llm_service, get_voice_llm_config
 from gradientbang.utils.prompts import CHAT_INSTRUCTIONS, GAME_DESCRIPTION, VOICE_INSTRUCTIONS
 
 load_dotenv(dotenv_path=".env.bot")
@@ -170,10 +170,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # Initialize LLM service
     logger.info("Init LLM…")
-    llm = GoogleLLMService(
-        api_key=os.getenv("GOOGLE_API_KEY"),
-        model="gemini-2.5-flash-preview-09-2025",
-    )
+    voice_config = get_voice_llm_config()
+    llm = create_llm_service(voice_config)
     llm.register_function(None, task_manager.execute_tool_call)
 
     token_usage_metrics = TokenUsageMetricsProcessor(source="bot")

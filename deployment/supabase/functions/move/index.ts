@@ -624,6 +624,10 @@ async function completeMovement({
   trace: Record<string, number>;
   mark: (label: string) => void;
 }): Promise<void> {
+  const corpId =
+    ship.owner_type === "corporation"
+      ? ship.owner_corporation_id
+      : character.corporation_id;
   // Release the connection BEFORE the delay to free it for other requests.
   // This is critical for connection pool efficiency under concurrent load.
   await pgClient.end();

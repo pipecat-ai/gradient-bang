@@ -279,6 +279,7 @@ async function handleCombatAction(params: {
     sectorId: encounter.sector_id,
     requestId,
     taskId,
+    shipId: ship.ship_id,
   });
 
   return successResponse({ success: true, combat_id: encounter.combat_id });

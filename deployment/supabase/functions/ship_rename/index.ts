@@ -281,6 +281,7 @@ async function handleRename(params: {
       payload: eventPayload,
       requestId,
       taskId,
+      shipId: ship.ship_id,
       actorCharacterId: effectiveActorId,
     });
 
@@ -294,6 +295,7 @@ async function handleRename(params: {
         sectorId: ship.current_sector ?? null,
         requestId,
         taskId,
+        shipId: ship.ship_id,
       });
     }
   }

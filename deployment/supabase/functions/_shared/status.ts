@@ -32,6 +32,8 @@ export interface ShipRow {
   ship_type: string;
   ship_name: string | null;
   current_sector: number;
+  hyperspace_destination: number | null;
+  hyperspace_eta: string | null;
   in_hyperspace: boolean;
   credits: number;
   cargo_qf: number;
@@ -161,7 +163,7 @@ export async function loadShip(
     .from("ship_instances")
     .select(
       `ship_id, owner_id, owner_type, owner_character_id, owner_corporation_id, acquired, became_unowned, former_owner_name,
-       ship_type, ship_name, current_sector, in_hyperspace, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters`,
+       ship_type, ship_name, current_sector, hyperspace_destination, hyperspace_eta, in_hyperspace, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters`,
     )
     .eq("ship_id", shipId)
     .maybeSingle();

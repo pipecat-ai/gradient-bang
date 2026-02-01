@@ -498,6 +498,7 @@ async function handleListKnownPorts(
     sectorId: fromSector,
     requestId,
     taskId,
+    shipId: ship.ship_id,
     scope: "direct",
   });
 
