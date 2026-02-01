@@ -254,10 +254,10 @@ class TaskAgent:
 
     def __init__(
         self,
-        config: LLMConfig,
         game_client: AsyncGameClient,
         character_id: str,
         *,
+        config: Optional[LLMConfig] = None,
         output_callback: Optional[Callable[[str, Optional[str]], None]] = None,
         tool_call_event_callback: Optional[ToolEventCallback] = None,
         tools_list: Optional[List[Any]] = None,
@@ -269,9 +269,11 @@ class TaskAgent:
     ):
         # Store config - API key validation is deferred to the LLM factory
         # which handles provider-specific key lookup from environment
+        if config is None:
+            config = LLMConfig(api_key=None, model="")
         self.config = LLMConfig(
             api_key=config.api_key,
-            model=config.model or DEFAULT_GOOGLE_MODEL,
+            model=config.model or "",
         )
         self.game_client = game_client
         self.character_id = character_id

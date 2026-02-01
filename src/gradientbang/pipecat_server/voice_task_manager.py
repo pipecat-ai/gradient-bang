@@ -16,10 +16,9 @@ import os
 
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.prompts import TaskOutputType, create_task_system_message
-from gradientbang.utils.task_agent import TaskAgent, DEFAULT_GOOGLE_MODEL
+from gradientbang.utils.task_agent import TaskAgent
 from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.utils.supabase_client import RPCError
-from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.weave_tracing import (
     init_weave,
     traced,
@@ -180,7 +179,7 @@ class VoiceTaskManager:
 
         # Create task agent driven by the Pipecat pipeline
         self.task_agent = TaskAgent(
-            config=LLMConfig(model=DEFAULT_GOOGLE_MODEL),
+            config=None,
             game_client=self.game_client,
             character_id=self.character_id,
             output_callback=self._handle_agent_output,
@@ -1549,7 +1548,7 @@ class VoiceTaskManager:
             # Create task-specific agent with custom output callback
             if ship_id:
                 task_agent = TaskAgent(
-                    config=LLMConfig(model=DEFAULT_GOOGLE_MODEL),
+                    config=None,
                     game_client=task_game_client,
                     character_id=target_character_id,
                     output_callback=self._create_agent_output_callback(short_task_id, task_type),
