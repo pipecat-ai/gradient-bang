@@ -81,10 +81,11 @@ from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.weave_tracing import init_weave, traced
 
-from gradientbang.utils.prompts import (
+from gradientbang.utils.prompt_loader import (
     TaskOutputType,
+    build_task_agent_prompt,
+    build_task_progress_prompt,
     create_task_instruction_user_message,
-    create_task_system_message,
 )
 from gradientbang.utils.tools_schema import (
     MyStatus,
@@ -117,6 +118,7 @@ from gradientbang.utils.tools_schema import (
     CombatInitiate,
     CombatAction,
     CorporationInfo,
+    LoadGameInfo,
 )
 
 
@@ -347,6 +349,7 @@ class TaskAgent:
             DumpCargo,
             CombatInitiate,
             CombatAction,
+            LoadGameInfo,
             (WaitInIdleState, {"agent": self}),
             TaskFinished,
         ]
@@ -510,15 +513,7 @@ class TaskAgent:
             log_lines = self.get_task_log()
             if not log_lines:
                 return "No task log available."
-            base_prompt = create_task_system_message().strip()
-            log_text = "\n".join(log_lines)
-            system_prompt = (
-                f"{base_prompt}\n\n"
-                "# Task Log\n"
-                f"{log_text}\n\n"
-                "Answer questions about task progress strictly from the task log. "
-                "If the log does not contain the answer, say you don't know."
-            )
+            system_prompt = build_task_progress_prompt(log_lines)
 
         context = LLMContext(
             messages=[
@@ -818,7 +813,7 @@ class TaskAgent:
         except Exception as exc:
             logger.warning(f"Failed to emit task.start event: {exc}")
 
-        self.add_message({"role": "system", "content": create_task_system_message()})
+        self.add_message({"role": "system", "content": build_task_agent_prompt()})
         self.add_message({"role": "user", "content": create_task_instruction_user_message(task)})
         # Note: initial_state parameter kept for API compatibility but not used
 

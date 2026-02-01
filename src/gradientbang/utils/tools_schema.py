@@ -1596,6 +1596,52 @@ class CollectFighters(GameClientTool):
 
 ##
 
+
+class LoadGameInfo(Tool):
+    """Tool to load detailed game information on demand."""
+
+    def __call__(self, topic: str) -> dict:
+        from gradientbang.utils.prompt_loader import load_fragment, AVAILABLE_TOPICS
+
+        if topic not in AVAILABLE_TOPICS:
+            return {
+                "error": f"Unknown topic: {topic}. Available topics: {', '.join(AVAILABLE_TOPICS)}"
+            }
+        try:
+            content = load_fragment(topic)
+            return {"topic": topic, "content": content}
+        except FileNotFoundError as exc:
+            return {"error": str(exc)}
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="load_game_info",
+            description=(
+                "Load detailed game information about a specific topic. "
+                "Use when you need in-depth rules or mechanics."
+            ),
+            properties={
+                "topic": {
+                    "type": "string",
+                    "enum": [
+                        "exploration",
+                        "trading",
+                        "combat",
+                        "corporations",
+                        "transfers",
+                        "ships",
+                        "event_logs",
+                    ],
+                    "description": "The topic to load detailed information about",
+                },
+            },
+            required=["topic"],
+        )
+
+
+##
+
 UI_SHOW_PANEL_SCHEMA = FunctionSchema(
     name="ui_show_panel",
     description="Switch to and highlight a panel in the client UI",

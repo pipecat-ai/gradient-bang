@@ -41,7 +41,7 @@ from pipecat.transports.daily.transport import DailyParams
 from pipecat.utils.time import time_now_iso8601
 
 from gradientbang.utils.llm_factory import create_llm_service, get_voice_llm_config
-from gradientbang.utils.prompts import CHAT_INSTRUCTIONS, GAME_DESCRIPTION, VOICE_INSTRUCTIONS
+from gradientbang.utils.prompt_loader import build_voice_agent_prompt
 
 load_dotenv(dotenv_path=".env.bot")
 
@@ -122,10 +122,7 @@ async def _resolve_character_identity(character_id: str | None, server_url: str)
 
 def create_chat_system_prompt() -> str:
     """Create the system prompt for the chat agent."""
-    return f"""{GAME_DESCRIPTION}
-{CHAT_INSTRUCTIONS}
-{VOICE_INSTRUCTIONS}
-"""
+    return build_voice_agent_prompt()
 
 
 async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
@@ -192,7 +189,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
     context_aggregator = LLMContextAggregatorPair(context)
 
-    inference_gate_state = InferenceGateState(cooldown_seconds=2.0)
+    inference_gate_state = InferenceGateState(
+        cooldown_seconds=2.0,
+        post_llm_grace_seconds=1.5,
+    )
     pre_llm_gate = PreLLMInferenceGate(inference_gate_state)
     post_llm_gate = PostLLMInferenceGate(inference_gate_state)
 

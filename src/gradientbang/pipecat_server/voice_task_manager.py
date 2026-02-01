@@ -15,7 +15,7 @@ from pipecat.frames.frames import FunctionCallResultProperties, LLMMessagesAppen
 import os
 
 from gradientbang.utils.supabase_client import AsyncGameClient
-from gradientbang.utils.prompts import TaskOutputType, create_task_system_message
+from gradientbang.utils.prompt_loader import TaskOutputType, build_task_progress_prompt
 from gradientbang.utils.task_agent import TaskAgent
 from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.utils.supabase_client import RPCError
@@ -40,6 +40,7 @@ from gradientbang.utils.tools_schema import (
     RenameShip,
     QueryTaskProgress,
     SteerTask,
+    LoadGameInfo,
     UI_SHOW_PANEL_SCHEMA,
     _summarize_corporation_info,
     _shorten_embedded_ids,
@@ -828,6 +829,12 @@ class VoiceTaskManager:
         # Defer task-scoped events while a tool call is inflight so the tool call
         # appears in context before its resulting events.
         if payload_task_id and self._tool_call_inflight > 0:
+            if event_name == "task.finish":
+                # Coalesce with the in-flight tool result to avoid duplicate replies.
+                should_run_llm = False
+                logger.debug(
+                    "Deferring task.finish without run_llm because tool calls are inflight"
+                )
             self._deferred_llm_events.append((event_xml, should_run_llm))
             return
 
@@ -1263,6 +1270,9 @@ class VoiceTaskManager:
             elif tool_name == "steer_task":
                 result = await self._handle_steer_task(params)
                 payload = {"result": result}
+            elif tool_name == "load_game_info":
+                result = await self._handle_load_game_info(params)
+                payload = {"result": result}
             else:
                 # Call the tool function via our dispatch table
                 if tool_name not in self._tool_dispatch:
@@ -1299,6 +1309,19 @@ class VoiceTaskManager:
                     response_payload = {"summary": summary}
                     if isinstance(result, dict) and result.get("task_id"):
                         response_payload["task_id"] = result.get("task_id")
+                    properties = FunctionCallResultProperties(run_llm=True)
+                    await params.result_callback(response_payload, properties=properties)
+            elif tool_name == "load_game_info":
+                # Return the full fragment content to the LLM
+                if isinstance(result, dict) and result.get("success") is False:
+                    error_payload = {"error": result.get("error", "Failed to load info")}
+                    properties = FunctionCallResultProperties(run_llm=True)
+                    await params.result_callback(error_payload, properties=properties)
+                else:
+                    # Return the full content - this is the whole point of the tool
+                    content = result.get("content", "") if isinstance(result, dict) else ""
+                    topic = result.get("topic", "unknown") if isinstance(result, dict) else "unknown"
+                    response_payload = {"topic": topic, "content": content}
                     properties = FunctionCallResultProperties(run_llm=True)
                     await params.result_callback(response_payload, properties=properties)
             elif tool_name in direct_response_tools:
@@ -1742,15 +1765,7 @@ class VoiceTaskManager:
             return {"success": False, "error": str(e)}
 
     def _build_task_progress_prompt(self, log_lines: list[str]) -> str:
-        base_prompt = create_task_system_message().strip()
-        log_text = "\n".join(log_lines)
-        return (
-            f"{base_prompt}\n\n"
-            "# Task Log\n"
-            f"{log_text}\n\n"
-            "Answer questions about task progress strictly from the task log. "
-            "If the log does not contain the answer, say you don't know."
-        )
+        return build_task_progress_prompt(log_lines)
 
     @traced
     async def _handle_query_task_progress(self, params: FunctionCallParams):
@@ -1851,6 +1866,18 @@ class VoiceTaskManager:
             logger.error(f"ui_show_panel failed: {e}")
             return {"success": False, "error": str(e)}
 
+    async def _handle_load_game_info(self, params: FunctionCallParams):
+        """Load detailed game information for a specific topic."""
+        topic = params.arguments.get("topic")
+        if not isinstance(topic, str) or not topic.strip():
+            return {"success": False, "error": "topic is required"}
+
+        tool = LoadGameInfo()
+        result = tool(topic=topic.strip())
+        if "error" in result:
+            return {"success": False, "error": result["error"]}
+        return {"success": True, "topic": topic.strip(), "content": result.get("content", "")}
+
     def get_tools_schema(self) -> ToolsSchema:
         # Use the central tool schemas for consistency with TUI/NPC
         # Note: Most tools (Move, Trade, Banking, etc.) are only available through tasks.
@@ -1870,6 +1897,7 @@ class VoiceTaskManager:
                 SteerTask.schema(),
                 StartTask.schema(),
                 StopTask.schema(),
+                LoadGameInfo.schema(),
                 UI_SHOW_PANEL_SCHEMA,
             ]
         )
