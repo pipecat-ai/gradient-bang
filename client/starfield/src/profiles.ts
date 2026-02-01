@@ -94,9 +94,6 @@ export const lowProfile: Partial<StarfieldConfig> = {
   nebula: {
     enabled: false,
   },
-  dust: {
-    enabled: false,
-  },
   volumetricClouds: {
     enabled: false,
   },
@@ -114,6 +111,7 @@ export const lowProfile: Partial<StarfieldConfig> = {
   },
   tunnel: {
     enabled: false,
+    showDuringWarp: false,
   },
 }
 

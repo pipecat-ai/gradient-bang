@@ -20,50 +20,79 @@ import { ExposureEffect } from "@/fx/ExposureEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
 import { SharpenEffect } from "@/fx/SharpenEffect"
 import { TintEffect } from "@/fx/TintEffect"
-import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
 import { useUniformStore } from "@/useUniformStore"
 
-// Default config values
-const DEFAULT_SHARPENING_CONFIG = {
-  enabled: true,
-  intensity: 2.0,
-  radius: 6.0,
-  threshold: 0.0,
+// Flattened default config for all post-processing controls
+const DEFAULT_PP_CONFIG = {
+  // Sharpening
+  sharpening_enabled: true,
+  sharpening_intensity: 2.0,
+  sharpening_radius: 6.0,
+  sharpening_threshold: 0.0,
+  // Dithering
+  dithering_enabled: true,
+  dithering_gridSize: 2,
+  dithering_pixelSizeRatio: 1,
+  dithering_blendMode: BlendFunction.SET as BlendFunction,
+  dithering_grayscaleOnly: false,
+  // Grading
+  grading_enabled: true,
+  grading_brightness: 0.1,
+  grading_contrast: 0.25,
+  grading_saturation: 0.0,
+  grading_tintEnabled: false,
+  grading_tintIntensity: 0.5,
+  grading_tintContrast: 1.0,
+  grading_tintColorPrimary: "#ffffff",
+  grading_tintColorSecondary: "#ffffff",
+  // Exposure
+  exposure_enabled: true,
+  // Shockwave
+  shockwave_enabled: true,
+  shockwave_speed: 1,
+  shockwave_maxRadius: 0.6,
+  shockwave_waveSize: 0.15,
+  shockwave_amplitude: 0.1,
+  shockwave_distance: 4,
 }
 
-const DEFAULT_DITHERING_CONFIG = {
-  enabled: true,
-  gridSize: 2,
-  pixelSizeRatio: 1,
-  blendMode: BlendFunction.SET,
-  grayscaleOnly: false,
-}
+// Keys to sync to Leva when store changes
+const TRANSIENT_PROPERTIES = [
+  "sharpening_enabled",
+  "sharpening_intensity",
+  "sharpening_radius",
+  "sharpening_threshold",
+  "dithering_enabled",
+  "dithering_gridSize",
+  "dithering_pixelSizeRatio",
+  "dithering_blendMode",
+  "dithering_grayscaleOnly",
+  "grading_enabled",
+  "grading_brightness",
+  "grading_contrast",
+  "grading_saturation",
+  "grading_tintEnabled",
+  "grading_tintIntensity",
+  "grading_tintContrast",
+  "grading_tintColorPrimary",
+  "grading_tintColorSecondary",
+  "exposure_enabled",
+  "shockwave_enabled",
+  "shockwave_speed",
+  "shockwave_maxRadius",
+  "shockwave_waveSize",
+  "shockwave_amplitude",
+  "shockwave_distance",
+] as const
 
-const DEFAULT_GRADING_CONFIG = {
-  enabled: true,
-  brightness: 0.1,
-  contrast: 0.25,
-  saturation: 0.0,
-  tintEnabled: false,
-  tintIntensity: 0.5,
-  tintContrast: 1.0,
-}
-
+// Keep exposure config for initial values
 const DEFAULT_EXPOSURE_CONFIG = {
   enabled: true,
   amount: 1,
   startAmount: 0,
-}
-
-const DEFAULT_SHOCKWAVE_CONFIG = {
-  enabled: true,
-  speed: 1,
-  maxRadius: 0.6,
-  waveSize: 0.15,
-  amplitude: 0.1,
-  distance: 4,
 }
 /**
  * PostProcessingController - manages post-processing effects with uniform registry
@@ -97,7 +126,7 @@ export const PostProcessingController = () => {
   const {
     dithering: storedDithering,
     sharpening: storedSharpening,
-    shockwave: shockwaveConfig,
+    shockwave: storedShockwave,
     grading: storedGrading,
   } = starfieldConfig
   const registerUniform = useUniformStore((state) => state.registerUniform)
@@ -121,6 +150,54 @@ export const PostProcessingController = () => {
 
   const size = useThree((state) => state.size)
   const viewport = useThree((state) => state.viewport)
+
+  // Map store configs to flattened structure for useControlSync
+  // Note: DPR-based gridSize default is computed here to avoid separate sync effect
+  const mappedSource = useMemo(() => {
+    // Default gridSize based on DPR (if not set in store)
+    const dprBasedGridSize = viewport.dpr >= 2 ? 2 : 1
+
+    return {
+      // Sharpening
+      sharpening_enabled: storedSharpening?.enabled,
+      sharpening_intensity: storedSharpening?.intensity,
+      sharpening_radius: storedSharpening?.radius,
+      sharpening_threshold: storedSharpening?.threshold,
+      // Dithering (blendMode not stored, uses default)
+      dithering_enabled: storedDithering?.enabled,
+      dithering_gridSize: storedDithering?.gridSize ?? dprBasedGridSize,
+      dithering_pixelSizeRatio: storedDithering?.pixelSizeRatio,
+      dithering_grayscaleOnly: storedDithering?.grayscaleOnly,
+      // Grading (with palette fallbacks for contrast/saturation)
+      grading_enabled: storedGrading?.enabled,
+      grading_brightness: storedGrading?.brightness,
+      grading_contrast: storedGrading?.contrast ?? palette.contrast,
+      grading_saturation: storedGrading?.saturation ?? palette.saturation,
+      grading_tintEnabled: storedGrading?.tintEnabled,
+      grading_tintIntensity: storedGrading?.tintIntensity,
+      grading_tintContrast: storedGrading?.tintContrast,
+      grading_tintColorPrimary: defaultTintPrimary,
+      grading_tintColorSecondary: defaultTintSecondary,
+      // Exposure (no store config currently)
+      exposure_enabled: undefined,
+      // Shockwave
+      shockwave_enabled: storedShockwave?.enabled,
+      shockwave_speed: storedShockwave?.speed,
+      shockwave_maxRadius: storedShockwave?.maxRadius,
+      shockwave_waveSize: storedShockwave?.waveSize,
+      shockwave_amplitude: storedShockwave?.amplitude,
+      shockwave_distance: storedShockwave?.distance,
+    } as Partial<typeof DEFAULT_PP_CONFIG>
+  }, [
+    storedSharpening,
+    storedDithering,
+    storedGrading,
+    storedShockwave,
+    palette,
+    defaultTintPrimary,
+    defaultTintSecondary,
+    viewport.dpr,
+  ])
   const scene = useThree((state) => state.scene)
   const camera = useThree((state) => state.camera)
   const [composerReady, setComposerReady] = useState(false)
@@ -151,34 +228,34 @@ export const PostProcessingController = () => {
               {
                 Sharpening: folder(
                   {
-                    sharpeningEnabled: {
+                    sharpening_enabled: {
                       value:
                         storedSharpening?.enabled ??
-                        DEFAULT_SHARPENING_CONFIG.enabled,
+                        DEFAULT_PP_CONFIG.sharpening_enabled,
                       label: "Enable Sharpening",
                     },
-                    sharpeningIntensity: {
+                    sharpening_intensity: {
                       value:
                         storedSharpening?.intensity ??
-                        DEFAULT_SHARPENING_CONFIG.intensity,
+                        DEFAULT_PP_CONFIG.sharpening_intensity,
                       label: "Intensity",
                       min: 0,
                       max: 20,
                       step: 0.1,
                     },
-                    sharpeningRadius: {
+                    sharpening_radius: {
                       value:
                         storedSharpening?.radius ??
-                        DEFAULT_SHARPENING_CONFIG.radius,
+                        DEFAULT_PP_CONFIG.sharpening_radius,
                       label: "Radius",
                       min: 0,
                       max: 10,
                       step: 0.1,
                     },
-                    sharpeningThreshold: {
+                    sharpening_threshold: {
                       value:
                         storedSharpening?.threshold ??
-                        DEFAULT_SHARPENING_CONFIG.threshold,
+                        DEFAULT_PP_CONFIG.sharpening_threshold,
                       label: "Threshold",
                       min: 0,
                       max: 1,
@@ -189,32 +266,32 @@ export const PostProcessingController = () => {
                 ),
                 Dithering: folder(
                   {
-                    ditheringEnabled: {
+                    dithering_enabled: {
                       value:
                         storedDithering?.enabled ??
-                        DEFAULT_DITHERING_CONFIG.enabled,
+                        DEFAULT_PP_CONFIG.dithering_enabled,
                       label: "Enable Dithering",
                     },
-                    ditheringGridSize: {
+                    dithering_gridSize: {
                       value:
                         storedDithering?.gridSize ??
-                        DEFAULT_DITHERING_CONFIG.gridSize,
+                        DEFAULT_PP_CONFIG.dithering_gridSize,
                       min: 1,
                       max: 20,
                       step: 1,
                       label: "Effect Resolution",
                     },
-                    ditheringPixelSizeRatio: {
+                    dithering_pixelSizeRatio: {
                       value:
                         storedDithering?.pixelSizeRatio ??
-                        DEFAULT_DITHERING_CONFIG.pixelSizeRatio,
+                        DEFAULT_PP_CONFIG.dithering_pixelSizeRatio,
                       min: 0,
                       max: 10,
                       step: 1,
                       label: "Pixelation Strength",
                     },
-                    ditheringBlendMode: {
-                      value: DEFAULT_DITHERING_CONFIG.blendMode,
+                    dithering_blendMode: {
+                      value: DEFAULT_PP_CONFIG.dithering_blendMode,
                       options: {
                         SET: BlendFunction.SET,
                         Normal: BlendFunction.NORMAL,
@@ -225,10 +302,10 @@ export const PostProcessingController = () => {
                       },
                       label: "Blend Function",
                     },
-                    ditheringGrayscaleOnly: {
+                    dithering_grayscaleOnly: {
                       value:
                         storedDithering?.grayscaleOnly ??
-                        DEFAULT_DITHERING_CONFIG.grayscaleOnly,
+                        DEFAULT_PP_CONFIG.dithering_grayscaleOnly,
                       label: "Grayscale Only",
                     },
                   },
@@ -236,70 +313,70 @@ export const PostProcessingController = () => {
                 ),
                 Grading: folder(
                   {
-                    gradingEnabled: {
+                    grading_enabled: {
                       value:
                         storedGrading?.enabled ??
-                        DEFAULT_GRADING_CONFIG.enabled,
+                        DEFAULT_PP_CONFIG.grading_enabled,
                       label: "Enable Grading",
                     },
-                    gradingBrightness: {
+                    grading_brightness: {
                       value:
                         storedGrading?.brightness ??
-                        DEFAULT_GRADING_CONFIG.brightness,
+                        DEFAULT_PP_CONFIG.grading_brightness,
                       min: 0,
                       max: 2,
                       step: 0.1,
                       label: "Brightness",
                     },
-                    gradingContrast: {
+                    grading_contrast: {
                       value:
                         storedGrading?.contrast ??
                         palette.contrast ??
-                        DEFAULT_GRADING_CONFIG.contrast,
+                        DEFAULT_PP_CONFIG.grading_contrast,
                       min: 0,
                       max: 2,
                       step: 0.01,
                       label: "Contrast",
                     },
-                    gradingSaturation: {
+                    grading_saturation: {
                       value:
                         storedGrading?.saturation ??
                         palette.saturation ??
-                        DEFAULT_GRADING_CONFIG.saturation,
+                        DEFAULT_PP_CONFIG.grading_saturation,
                       min: -2,
                       max: 2,
                       step: 0.1,
                       label: "Saturation",
                     },
-                    tintEnabled: {
+                    grading_tintEnabled: {
                       value:
                         storedGrading?.tintEnabled ??
-                        DEFAULT_GRADING_CONFIG.tintEnabled,
+                        DEFAULT_PP_CONFIG.grading_tintEnabled,
                       label: "Enable Tint",
                     },
-                    tintIntensity: {
+                    grading_tintIntensity: {
                       value:
                         storedGrading?.tintIntensity ??
-                        DEFAULT_GRADING_CONFIG.tintIntensity,
+                        DEFAULT_PP_CONFIG.grading_tintIntensity,
                       min: 0,
                       max: 1,
                       step: 0.01,
                       label: "Tint Intensity",
                     },
-                    tintContrast: {
+                    grading_tintContrast: {
                       value:
                         storedGrading?.tintContrast ??
-                        DEFAULT_GRADING_CONFIG.tintContrast,
+                        DEFAULT_PP_CONFIG.grading_tintContrast,
                       min: 0,
                       max: 3,
                       step: 0.1,
                       label: "Tint Contrast",
                     },
-                    tintColorPrimary: {
+                    grading_tintColorPrimary: {
                       value: defaultTintPrimary,
                       label: "Tint Primary Color",
                     },
-                    tintColorSecondary: {
+                    grading_tintColorSecondary: {
                       value: defaultTintSecondary,
                       label: "Tint Secondary Color",
                     },
@@ -308,11 +385,11 @@ export const PostProcessingController = () => {
                 ),
                 Exposure: folder(
                   {
-                    exposureEnabled: {
+                    exposure_enabled: {
                       value: DEFAULT_EXPOSURE_CONFIG.enabled,
                       label: "Enable Exposure",
                     },
-                    /*exposureAmount: {
+                    /*exposure_amount: {
                       // Always show default amount (0) - startAmount only used for initial effect
                       value: DEFAULT_EXPOSURE_CONFIG.amount,
                       min: -2,
@@ -323,6 +400,62 @@ export const PostProcessingController = () => {
                   },
                   { collapsed: true }
                 ),
+                Shockwave: folder(
+                  {
+                    shockwave_enabled: {
+                      value:
+                        storedShockwave?.enabled ??
+                        DEFAULT_PP_CONFIG.shockwave_enabled,
+                      label: "Enable Shockwave",
+                    },
+                    shockwave_speed: {
+                      value:
+                        storedShockwave?.speed ??
+                        DEFAULT_PP_CONFIG.shockwave_speed,
+                      min: 0.1,
+                      max: 5,
+                      step: 0.1,
+                      label: "Speed",
+                    },
+                    shockwave_maxRadius: {
+                      value:
+                        storedShockwave?.maxRadius ??
+                        DEFAULT_PP_CONFIG.shockwave_maxRadius,
+                      min: 0.1,
+                      max: 2,
+                      step: 0.05,
+                      label: "Max Radius",
+                    },
+                    shockwave_waveSize: {
+                      value:
+                        storedShockwave?.waveSize ??
+                        DEFAULT_PP_CONFIG.shockwave_waveSize,
+                      min: 0.01,
+                      max: 0.5,
+                      step: 0.01,
+                      label: "Wave Size",
+                    },
+                    shockwave_amplitude: {
+                      value:
+                        storedShockwave?.amplitude ??
+                        DEFAULT_PP_CONFIG.shockwave_amplitude,
+                      min: 0,
+                      max: 0.5,
+                      step: 0.01,
+                      label: "Amplitude",
+                    },
+                    shockwave_distance: {
+                      value:
+                        storedShockwave?.distance ??
+                        DEFAULT_PP_CONFIG.shockwave_distance,
+                      min: 1,
+                      max: 20,
+                      step: 0.5,
+                      label: "Distance",
+                    },
+                  },
+                  { collapsed: true }
+                ),
               },
               { collapsed: true, order: -1 }
             ),
@@ -330,123 +463,16 @@ export const PostProcessingController = () => {
         : {}) as Schema
   )
 
-  // Get values from Leva when showing controls, otherwise from config/defaults
-  const controls = useMemo(
-    () =>
-      showControls
-        ? (levaValues as {
-            sharpeningEnabled: boolean
-            sharpeningIntensity: number
-            sharpeningRadius: number
-            sharpeningThreshold: number
-            ditheringEnabled: boolean
-            ditheringGridSize: number
-            ditheringPixelSizeRatio: number
-            ditheringBlendMode: BlendFunction
-            ditheringGrayscaleOnly: boolean
-            gradingEnabled: boolean
-            gradingBrightness: number
-            gradingContrast: number
-            gradingSaturation: number
-            tintEnabled: boolean
-            tintIntensity: number
-            tintContrast: number
-            tintColorPrimary: string
-            tintColorSecondary: string
-            exposureEnabled: boolean
-            exposureAmount: number
-          })
-        : {
-            sharpeningEnabled:
-              storedSharpening?.enabled ?? DEFAULT_SHARPENING_CONFIG.enabled,
-            sharpeningIntensity:
-              storedSharpening?.intensity ??
-              DEFAULT_SHARPENING_CONFIG.intensity,
-            sharpeningRadius:
-              storedSharpening?.radius ?? DEFAULT_SHARPENING_CONFIG.radius,
-            sharpeningThreshold:
-              storedSharpening?.threshold ??
-              DEFAULT_SHARPENING_CONFIG.threshold,
-            ditheringEnabled:
-              storedDithering?.enabled ?? DEFAULT_DITHERING_CONFIG.enabled,
-            ditheringGridSize:
-              storedDithering?.gridSize ?? DEFAULT_DITHERING_CONFIG.gridSize,
-            ditheringPixelSizeRatio:
-              storedDithering?.pixelSizeRatio ??
-              DEFAULT_DITHERING_CONFIG.pixelSizeRatio,
-            ditheringBlendMode: DEFAULT_DITHERING_CONFIG.blendMode,
-            ditheringGrayscaleOnly:
-              storedDithering?.grayscaleOnly ??
-              DEFAULT_DITHERING_CONFIG.grayscaleOnly,
-            gradingEnabled:
-              storedGrading?.enabled ?? DEFAULT_GRADING_CONFIG.enabled,
-            gradingBrightness:
-              storedGrading?.brightness ?? DEFAULT_GRADING_CONFIG.brightness,
-            gradingContrast:
-              storedGrading?.contrast ??
-              palette.contrast ??
-              DEFAULT_GRADING_CONFIG.contrast,
-            gradingSaturation:
-              storedGrading?.saturation ??
-              palette.saturation ??
-              DEFAULT_GRADING_CONFIG.saturation,
-            tintEnabled:
-              storedGrading?.tintEnabled ?? DEFAULT_GRADING_CONFIG.tintEnabled,
-            tintIntensity:
-              storedGrading?.tintIntensity ??
-              DEFAULT_GRADING_CONFIG.tintIntensity,
-            tintContrast:
-              storedGrading?.tintContrast ??
-              DEFAULT_GRADING_CONFIG.tintContrast,
-            tintColorPrimary: defaultTintPrimary,
-            tintColorSecondary: defaultTintSecondary,
-            exposureEnabled: DEFAULT_EXPOSURE_CONFIG.enabled,
-          },
-    [
-      showControls,
-      levaValues,
-      storedSharpening,
-      storedDithering,
-      storedGrading,
-      palette,
-      defaultTintPrimary,
-      defaultTintSecondary,
-    ]
-  )
-
-  // Sync: DPR changes -> Leva dithering grid size
-  useEffect(() => {
-    if (!showControls) return
-    if (storedDithering?.gridSize) return
-    try {
-      set({ ditheringGridSize: viewport.dpr >= 2 ? 2 : 1 })
-    } catch {
-      // Controls may not be mounted
-    }
-  }, [showControls, viewport.dpr, storedDithering?.gridSize, set])
-
-  // Sync: palette changes -> Leva grading controls
-  useEffect(() => {
-    if (!showControls) return
-    if (
-      storedGrading?.tintColorPrimary ||
-      storedGrading?.tintColorSecondary ||
-      storedGrading?.contrast ||
-      storedGrading?.saturation
-    ) {
-      return
-    }
-    try {
-      set({
-        gradingContrast: palette.contrast,
-        gradingSaturation: palette.saturation,
-        tintColorPrimary: `#${palette.c1.getHexString()}`,
-        tintColorSecondary: `#${palette.c2.getHexString()}`,
-      })
-    } catch {
-      // Controls may not be mounted
-    }
-  }, [showControls, starfieldConfig.palette, palette, storedGrading, set])
+  // Get stable config - hook handles all stabilization
+  // Note: DPR-based gridSize default is computed in mappedSource
+  // Note: palette sync is handled by mappedSource (defaultTintPrimary/Secondary and palette.contrast/saturation)
+  const controls = useControlSync({
+    source: mappedSource,
+    defaults: DEFAULT_PP_CONFIG,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<typeof DEFAULT_PP_CONFIG>,
+    set: set as (values: Partial<typeof DEFAULT_PP_CONFIG>) => void,
+  })
 
   // Configure post-processing effects
   useEffect(() => {
@@ -488,13 +514,13 @@ export const PostProcessingController = () => {
     orderedEffectPasses.push(new EffectPass(camera, layerDim))
 
     // Tint
-    if (controls.tintEnabled) {
-      const primaryColor = new THREE.Color(controls.tintColorPrimary)
-      const secondaryColor = new THREE.Color(controls.tintColorSecondary)
+    if (controls.grading_tintEnabled) {
+      const primaryColor = new THREE.Color(controls.grading_tintColorPrimary)
+      const secondaryColor = new THREE.Color(controls.grading_tintColorSecondary)
 
       const tint = new TintEffect({
-        intensity: controls.tintIntensity,
-        contrast: controls.tintContrast,
+        intensity: controls.grading_tintIntensity,
+        contrast: controls.grading_tintContrast,
         tintColorPrimary: new THREE.Vector3(
           primaryColor.r,
           primaryColor.g,
@@ -514,13 +540,13 @@ export const PostProcessingController = () => {
     }
 
     // Grading
-    if (controls.gradingEnabled) {
+    if (controls.grading_enabled) {
       const brightnessContrast = new BrightnessContrastEffect({
-        brightness: controls.gradingBrightness,
-        contrast: controls.gradingContrast,
+        brightness: controls.grading_brightness,
+        contrast: controls.grading_contrast,
       })
       const hueSaturation = new HueSaturationEffect({
-        saturation: controls.gradingSaturation,
+        saturation: controls.grading_saturation,
       })
 
       const brightnessContrastPass = new EffectPass(camera, brightnessContrast)
@@ -529,43 +555,48 @@ export const PostProcessingController = () => {
       composer.addPass(hueSaturationPass)
     }
 
-    // Dithering effect (always on)
-    const dither = new DitheringEffect({
-      gridSize: controls.ditheringGridSize,
-      pixelSizeRatio: controls.ditheringPixelSizeRatio,
-      grayscaleOnly: controls.ditheringGrayscaleOnly,
-      blendFunction: controls.ditheringBlendMode,
-    })
-    ditheringEffectRef.current = dither
-
-    // Register dithering uniforms
-    const gridSizeUniform = dither.uniforms.get("gridSize")
-    const pixelSizeRatioUniform = dither.uniforms.get("pixelSizeRatio")
-
-    if (gridSizeUniform) {
-      registerUniform("ppDitheringGridSize", gridSizeUniform, {
-        initial: controls.ditheringGridSize,
-        meta: { effect: "dithering" },
+    // Dithering effect
+    if (controls.dithering_enabled) {
+      const dither = new DitheringEffect({
+        gridSize: controls.dithering_gridSize,
+        pixelSizeRatio: controls.dithering_pixelSizeRatio,
+        grayscaleOnly: controls.dithering_grayscaleOnly,
+        blendFunction: controls.dithering_blendMode,
       })
-      registeredUniforms.push("ppDitheringGridSize")
-    }
+      ditheringEffectRef.current = dither
 
-    if (pixelSizeRatioUniform) {
-      registerUniform("ppDitheringPixelSizeRatio", pixelSizeRatioUniform, {
-        initial: controls.ditheringPixelSizeRatio,
-        meta: { effect: "dithering" },
-      })
-      registeredUniforms.push("ppDitheringPixelSizeRatio")
-    }
+      // Register dithering uniforms
+      const gridSizeUniform = dither.uniforms.get("gridSize")
+      const pixelSizeRatioUniform = dither.uniforms.get("pixelSizeRatio")
 
-    orderedEffectPasses.push(new EffectPass(camera, dither))
+      if (gridSizeUniform) {
+        registerUniform("ppDitheringGridSize", gridSizeUniform, {
+          initial: controls.dithering_gridSize,
+          meta: { effect: "dithering" },
+        })
+        registeredUniforms.push("ppDitheringGridSize")
+      }
+
+      if (pixelSizeRatioUniform) {
+        registerUniform("ppDitheringPixelSizeRatio", pixelSizeRatioUniform, {
+          initial: controls.dithering_pixelSizeRatio,
+          meta: { effect: "dithering" },
+        })
+        registeredUniforms.push("ppDitheringPixelSizeRatio")
+      }
+
+      orderedEffectPasses.push(new EffectPass(camera, dither))
+    } else {
+      ditheringEffectRef.current?.dispose()
+      ditheringEffectRef.current = null
+    }
 
     // Sharpening
-    if (controls.sharpeningEnabled) {
+    if (controls.sharpening_enabled) {
       const sharpen = new SharpenEffect({
-        intensity: controls.sharpeningIntensity,
-        radius: controls.sharpeningRadius,
-        threshold: controls.sharpeningThreshold,
+        intensity: controls.sharpening_intensity,
+        radius: controls.sharpening_radius,
+        threshold: controls.sharpening_threshold,
       })
       sharpenEffectRef.current = sharpen
       orderedEffectPasses.push(new EffectPass(camera, sharpen))
@@ -575,7 +606,7 @@ export const PostProcessingController = () => {
     }
 
     // 6. Exposure - placed last for true fade to black
-    if (controls.exposureEnabled) {
+    if (controls.exposure_enabled) {
       // Register exposure uniform
       const exposure = new ExposureEffect({
         exposure: exposureInitializedRef.current
@@ -601,13 +632,9 @@ export const PostProcessingController = () => {
     }
 
     // 7. Shockwave effect - config-driven, triggered via sequence in useFrame
-    if (shockwaveConfig?.enabled ?? DEFAULT_SHOCKWAVE_CONFIG.enabled) {
-      const maxRadius =
-        shockwaveConfig?.maxRadius ?? DEFAULT_SHOCKWAVE_CONFIG.maxRadius
-      const durationSeconds = Math.max(
-        shockwaveConfig?.speed ?? DEFAULT_SHOCKWAVE_CONFIG.speed,
-        0.001
-      )
+    if (controls.shockwave_enabled) {
+      const maxRadius = controls.shockwave_maxRadius
+      const durationSeconds = Math.max(controls.shockwave_speed, 0.001)
       const effectSpeed = maxRadius / durationSeconds
       const shockwave = new ShockWaveEffect(
         camera,
@@ -615,10 +642,8 @@ export const PostProcessingController = () => {
         {
           speed: effectSpeed,
           maxRadius: maxRadius,
-          waveSize:
-            shockwaveConfig?.waveSize ?? DEFAULT_SHOCKWAVE_CONFIG.waveSize,
-          amplitude:
-            shockwaveConfig?.amplitude ?? DEFAULT_SHOCKWAVE_CONFIG.amplitude,
+          waveSize: controls.shockwave_waveSize,
+          amplitude: controls.shockwave_amplitude,
         }
       )
       shockWaveEffectRef.current = shockwave
@@ -644,7 +669,6 @@ export const PostProcessingController = () => {
     camera,
     composerReady,
     controls,
-    shockwaveConfig,
     registerUniform,
     removeUniform,
   ])
@@ -689,8 +713,7 @@ export const PostProcessingController = () => {
     const shockwaveEffect = shockWaveEffectRef.current
     if (shockwaveEffect) {
       // Update epicenter position every frame (follows camera)
-      const distance =
-        shockwaveConfig?.distance ?? DEFAULT_SHOCKWAVE_CONFIG.distance
+      const distance = controls.shockwave_distance
       currentCamera.getWorldDirection(shockwaveDirectionRef.current)
       shockwaveEpicenterRef.current
         .copy(currentCamera.position)

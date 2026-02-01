@@ -1,9 +1,9 @@
+import { useEffect, useMemo, useRef } from "react"
 import { useControls } from "leva"
-import { useEffect, useMemo, useRef, useState } from "react"
 import { shallow } from "zustand/shallow"
 
-import type { StarfieldConfig } from "@/types"
 import type { StarfieldPalette } from "@/colors"
+import type { StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 const IS_DEV = import.meta.env.DEV
@@ -57,7 +57,7 @@ interface UseControlSyncOptions<T extends object> {
 
 /**
  * Syncs config values between store and Leva, returns stable config.
- * 
+ *
  * - Builds fallback from: defaults + palette colors + source overrides
  * - When Leva visible: uses levaValues, syncs source/palette changes to Leva
  * - When Leva hidden: uses fallback
@@ -76,13 +76,17 @@ export function useControlSync<T extends object>(
     // Apply palette-derived colors if palette provided and those keys exist in defaults
     if (palette) {
       if ("color" in merged)
-        (merged as Record<string, unknown>).color = `#${palette.tint.getHexString()}`
+        (merged as Record<string, unknown>).color =
+          `#${palette.tint.getHexString()}`
       if ("primaryColor" in merged)
-        (merged as Record<string, unknown>).primaryColor = `#${palette.c1.getHexString()}`
+        (merged as Record<string, unknown>).primaryColor =
+          `#${palette.c1.getHexString()}`
       if ("secondaryColor" in merged)
-        (merged as Record<string, unknown>).secondaryColor = `#${palette.c2.getHexString()}`
+        (merged as Record<string, unknown>).secondaryColor =
+          `#${palette.c2.getHexString()}`
       if ("base" in merged)
-        (merged as Record<string, unknown>).base = `#${palette.base.getHexString()}`
+        (merged as Record<string, unknown>).base =
+          `#${palette.base.getHexString()}`
     }
 
     // Override with source values
@@ -100,15 +104,23 @@ export function useControlSync<T extends object>(
 
   // Track if we've mounted (skip syncing on initial render)
   const hasMounted = useRef(false)
+  // Track previous source to detect actual source changes (not Leva changes)
+  const prevSourceRef = useRef(source)
+  const prevPaletteRef = useRef(palette)
 
-  // Sync transient keys to Leva when source changes (skip initial)
+  // Sync transient keys to Leva when SOURCE changes (not when Leva changes)
   useEffect(() => {
     if (!hasMounted.current || !showControls || !source) return
+
+    // Only sync if source actually changed (shallow compare)
+    if (shallow(prevSourceRef.current, source)) return
+    prevSourceRef.current = source
+
     const updates: Partial<T> = {}
     sync.forEach((key) => {
-      const value = source[key]
-      if (value !== undefined) {
-        updates[key] = value
+      const sourceValue = source[key]
+      if (sourceValue !== undefined) {
+        updates[key] = sourceValue
       }
     })
     if (Object.keys(updates).length > 0) {
@@ -116,23 +128,39 @@ export function useControlSync<T extends object>(
     }
   }, [showControls, source, sync, set])
 
-  // Sync palette colors to Leva when palette changes (skip initial, only if palette provided)
+  // Sync palette colors to Leva when PALETTE changes (not when Leva changes)
   useEffect(() => {
     if (!hasMounted.current || !showControls || !palette) return
-    const hasColorOverride = source && "color" in source && source.color !== undefined
-    const hasPrimaryOverride = source && "primaryColor" in source && source.primaryColor !== undefined
-    const hasSecondaryOverride = source && "secondaryColor" in source && source.secondaryColor !== undefined
-    const hasBaseOverride = source && "base" in source && source.base !== undefined
+
+    // Only sync if palette actually changed
+    if (prevPaletteRef.current === palette) return
+    prevPaletteRef.current = palette
+
+    const hasColorOverride =
+      source && "color" in source && source.color !== undefined
+    const hasPrimaryOverride =
+      source && "primaryColor" in source && source.primaryColor !== undefined
+    const hasSecondaryOverride =
+      source &&
+      "secondaryColor" in source &&
+      source.secondaryColor !== undefined
+    const hasBaseOverride =
+      source && "base" in source && source.base !== undefined
 
     const updates: Record<string, string> = {}
-    if (!hasColorOverride && "color" in defaults)
+
+    if (!hasColorOverride && "color" in defaults) {
       updates.color = `#${palette.tint.getHexString()}`
-    if (!hasPrimaryOverride && "primaryColor" in defaults)
+    }
+    if (!hasPrimaryOverride && "primaryColor" in defaults) {
       updates.primaryColor = `#${palette.c1.getHexString()}`
-    if (!hasSecondaryOverride && "secondaryColor" in defaults)
+    }
+    if (!hasSecondaryOverride && "secondaryColor" in defaults) {
       updates.secondaryColor = `#${palette.c2.getHexString()}`
-    if (!hasBaseOverride && "base" in defaults)
+    }
+    if (!hasBaseOverride && "base" in defaults) {
       updates.base = `#${palette.base.getHexString()}`
+    }
 
     if (Object.keys(updates).length > 0) {
       try {
@@ -148,16 +176,21 @@ export function useControlSync<T extends object>(
     hasMounted.current = true
   }, [])
 
-  // Pick raw config: levaValues when visible, fallback when not
+  // Pick raw config: levaValues when visible (Leva is source of truth), fallback when not
+  // The sync effects handle pushing source changes to Leva
   const rawConfig = showControls ? (levaValues as T) : fallback
 
-  // Stabilize config - only update state when values actually change
-  const [stableConfig, setStableConfig] = useState(rawConfig)
-  useEffect(() => {
-    if (!shallow(stableConfig, rawConfig)) {
-      setStableConfig(rawConfig) // eslint-disable-line
+  // Stabilize config - only return new reference when values actually change
+  // This pattern intentionally accesses ref during render for memoization
+  const prevConfigRef = useRef(rawConfig)
+  /* eslint-disable */
+  const stableConfig = useMemo(() => {
+    if (!shallow(prevConfigRef.current, rawConfig)) {
+      prevConfigRef.current = rawConfig
     }
-  }, [rawConfig, stableConfig])
+    return prevConfigRef.current
+  }, [rawConfig])
+  /* eslint-enable */
 
   return stableConfig
 }
