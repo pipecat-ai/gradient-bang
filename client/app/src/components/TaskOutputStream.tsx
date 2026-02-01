@@ -109,12 +109,14 @@ export const TaskOutputStreamComponent = ({
           classNames={{ scrollbar: "*:first:bg-white/30" }}
           onScroll={handleScroll}
         >
-          <div className="h-full flex flex-col justify-end hover:opacity-100 select-none pt-10">
-            {visibleTasks.map((task, index) => {
-              return <TaskRow key={`${task.task_id}-${index}`} task={task} />
-            })}
+          <div className="table-cell align-bottom h-full">
+            <div className="h-full flex flex-col justify-end hover:opacity-100 select-none pt-10">
+              {visibleTasks.map((task, index) => {
+                return <TaskRow key={`${task.task_id}-${index}`} task={task} />
+              })}
+            </div>
+            <AutoScrollAnchor />
           </div>
-          <AutoScrollAnchor />
         </ScrollArea>
       </CardContent>
     </Card>

@@ -58,6 +58,8 @@ interface MapProps {
   coursePlot?: CoursePlot | null
   ships?: number[]
   onNodeClick?: (node: MapSectorNode | null) => void
+  onNodeEnter?: (node: MapSectorNode) => void
+  onNodeExit?: (node: MapSectorNode) => void
 }
 
 const RESIZE_DELAY = 300
@@ -99,6 +101,8 @@ const MapComponent = ({
   coursePlot,
   ships,
   onNodeClick,
+  onNodeEnter,
+  onNodeExit,
 }: MapProps) => {
   // Normalize map_data to always be an array (memoized to avoid dependency changes)
   const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
@@ -144,6 +148,7 @@ const MapComponent = ({
   } | null>(null)
 
   const isAutoSizing = width === undefined && height === undefined
+  const isWaitingForMeasurement = isAutoSizing && measuredSize === null
 
   // Memoize effective dimensions to prevent unnecessary effect triggers
   const effectiveWidth = useMemo(
@@ -339,6 +344,15 @@ const MapComponent = ({
     }
   }, [onNodeClick])
 
+  // Update hover callbacks when they change
+  useEffect(() => {
+    const controller = controllerRef.current
+    if (controller) {
+      controller.setOnNodeEnter(onNodeEnter ?? null)
+      controller.setOnNodeExit(onNodeExit ?? null)
+    }
+  }, [onNodeEnter, onNodeExit])
+
   // Cleanup effect
   useEffect(() => {
     return () => {
@@ -369,6 +383,8 @@ const MapComponent = ({
           maxHeight: "100%",
           display: "block",
           objectFit: "contain",
+          // Hide until size is measured to prevent visual jump
+          ...(isWaitingForMeasurement && { visibility: "hidden" }),
         }}
       />
       {showLegend && baseConfig.nodeStyles && (
@@ -524,7 +540,10 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
   }
 
   // Callback - reference equality (updates handled by separate useEffect)
+  /*
   if (prevProps.onNodeClick !== nextProps.onNodeClick) return false
+  if (prevProps.onNodeEnter !== nextProps.onNodeEnter) return false
+  if (prevProps.onNodeExit !== nextProps.onNodeExit) return false*/
 
   return true
 }

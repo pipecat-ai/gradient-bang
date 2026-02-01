@@ -56,16 +56,12 @@
 
   --grid-opacity: 0.25;
   --screen-bg-feather: 20px;
-  --hud-center: 330px;
 
   --elbow-size: 1rem;
   --elbow-offset: 6px;
   --elbow-width: 2px;
   --elbow-opacity: 1;
   --elbow-color: white;
-
-  --dot-color: white;
-  --dot-opacity: 50%;
 
   --scrollbar-offset: 3px;
 
@@ -123,12 +119,13 @@
   --color-terminal-background: var(--terminal-background);
   --color-terminal-subtle: var(--terminal-subtle);
 
-  --color-screen-background: rgba(0, 0, 0, 0.7);
-  --color-screen-foreground: rgba(255, 255, 255, 1);
   --color-fuel: var(--fuel);
   --color-fuel-foreground: var(--fuel-foreground);
   --color-fuel-background: var(--fuel-background);
   --color-fuel-subtle: var(--fuel-subtle);
+
+  --color-screen-background: rgba(0, 0, 0, 0.7);
+  --color-screen-foreground: rgba(255, 255, 255, 1);
 
   /** UI **/
   --z-starfield: var(--z-starfield);
@@ -154,16 +151,6 @@
   --width-toast: 620px;
 
   --shadow-glow-sm: 0 0 10px 1px var(--color-primary);
-  --text-shadow-hud: 0 0 12px rgba(0, 0, 0, 0.6);
-
-  --dot-gap-lg: 24px;
-  --dot-size-lg: 1.5px;
-  --dot-gap-md: 12px;
-  --dot-size-md: 1.5px;
-  --dot-gap-sm: 6px;
-  --dot-size-sm: 1.2px;
-  --dot-gap-xs: 4px;
-  --dot-size-xs: 1px;
 
   /** Typography **/
   --text-heading-1: var(--text-xl);
@@ -179,6 +166,9 @@
   --shadow-long:
     0 28px 28px 18px rgba(0, 0, 0, 0.25), 0 25px 15px 0 rgba(0, 0, 0, 0.05),
     0 11px 11px 0 rgba(0, 0, 0, 0.09), 0 3px 6px 0 rgba(0, 0, 0, 0.1);
+  --shadow-medium:
+    0 16px 16px 6px rgba(0, 0, 0, 0.25), 0 15px 15px 0 rgba(0, 0, 0, 0.05),
+    0 8px 8px 0 rgba(0, 0, 0, 0.09), 0 3px 6px 0 rgba(0, 0, 0, 0.1);
   --shadow-short: 0px 10px 15px -3px rgb(0 0 0 / 0.05), 0px 4px 6px -2px rgb(0 0 0 / 0.02);
   --shadow-xshort:
     0px 7px 3px rgb(0 0 0 / 0.01), 0px 4px 2px rgb(0 0 0 / 0.03), 0px 2px 2px rgb(0 0 0 / 0.04),
@@ -187,6 +177,7 @@
   /* Outline Pulse Animation */
   --animate-outline-pulse: outline-pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --animate-blink: blink 0.2s step-end infinite;
+  --animate-new-msg: new-msg 1.2s ease-out forwards;
 
   @keyframes outline-pulse {
     0%,
@@ -215,6 +206,35 @@
     }
     100% {
       background-position: calc(var(--stripe-bar-width) * 2.828427125) 0;
+    }
+  }
+
+  @keyframes new-msg {
+    0% {
+      transform: scale(1.5);
+      opacity: 0.3;
+    }
+    40% {
+      transform: scale(1);
+      opacity: 0.8;
+    }
+    50% {
+      opacity: 1;
+    }
+    60% {
+      opacity: 0.3;
+    }
+    70% {
+      opacity: 1;
+    }
+    80% {
+      opacity: 0.3;
+    }
+    90% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 1;
     }
   }
 }
@@ -283,239 +303,7 @@ button {
   text-transform: uppercase;
 }
 
-/** UI **/
-.lhs-perspective {
-  transform: perspective(400px) rotateY(6.5deg) scaleX(1.2);
-  transform-origin: left center;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-
-.rhs-perspective {
-  transform: perspective(400px) rotateY(-6.5deg) scaleX(1.2);
-  transform-origin: right center;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-
-.top-rhs-perspective {
-  transform: perspective(400px) rotateY(-6.5deg) scaleX(1.2);
-  transform-origin: right top;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-
-.top-lhs-perspective {
-  transform: perspective(400px) rotateY(6.5deg) scaleX(1.2);
-  transform-origin: left top;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-
 /** FX **/
-
-.glitch {
-  position: relative;
-  display: inline-block;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-.glitch::before,
-.glitch::after {
-  content: attr(data-text);
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.glitch::before {
-  animation: glitch-1 0.3s infinite linear alternate-reverse;
-  color: #00ffff;
-  z-index: -1;
-}
-
-.glitch::after {
-  animation: glitch-2 0.3s infinite linear alternate-reverse;
-  color: #ff00ff;
-  z-index: -2;
-}
-
-@keyframes glitch-1 {
-  0% {
-    clip-path: inset(40% 0 61% 0);
-    transform: translate(-2px, -2px);
-  }
-  20% {
-    clip-path: inset(92% 0 1% 0);
-    transform: translate(2px, 2px);
-  }
-  40% {
-    clip-path: inset(43% 0 1% 0);
-    transform: translate(-2px, 2px);
-  }
-  60% {
-    clip-path: inset(25% 0 58% 0);
-    transform: translate(2px, -2px);
-  }
-  80% {
-    clip-path: inset(54% 0 7% 0);
-    transform: translate(-2px, 2px);
-  }
-  100% {
-    clip-path: inset(58% 0 43% 0);
-    transform: translate(2px, -2px);
-  }
-}
-
-@keyframes glitch-2 {
-  0% {
-    clip-path: inset(65% 0 8% 0);
-    transform: translate(2px, -2px);
-  }
-  20% {
-    clip-path: inset(31% 0 2% 0);
-    transform: translate(-2px, 2px);
-  }
-  40% {
-    clip-path: inset(87% 0 1% 0);
-    transform: translate(2px, 2px);
-  }
-  60% {
-    clip-path: inset(64% 0 32% 0);
-    transform: translate(-2px, -2px);
-  }
-  80% {
-    clip-path: inset(28% 0 71% 0);
-    transform: translate(2px, 2px);
-  }
-  100% {
-    clip-path: inset(5% 0 13% 0);
-    transform: translate(-2px, -2px);
-  }
-}
-
-.glitch {
-  animation: glitch-shake 0.5s infinite;
-}
-
-@keyframes glitch-shake {
-  0%,
-  100% {
-    transform: translate(0, 0) skew(0deg);
-  }
-  20% {
-    transform: translate(-1px, 0) skew(0deg);
-  }
-  40% {
-    transform: translate(-1px, 0) skew(1deg);
-  }
-  60% {
-    transform: translate(0, 0) skew(0deg);
-  }
-  80% {
-    transform: translate(1px, 0) skew(-1deg);
-  }
-}
-
-/* Alternative version with more aggressive glitch */
-.glitch-extreme {
-  position: relative;
-  display: inline-block;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  animation: glitch-skew 1s infinite linear alternate-reverse;
-}
-
-.glitch-extreme::before,
-.glitch-extreme::after {
-  content: attr(data-text);
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0.8;
-}
-
-.glitch-extreme::before {
-  animation: glitch-extreme-1 0.2s infinite linear alternate-reverse;
-  color: #ff0000;
-  z-index: -1;
-}
-
-.glitch-extreme::after {
-  animation: glitch-extreme-2 0.33s infinite linear alternate-reverse;
-  color: #00ff00;
-  z-index: -2;
-}
-
-@keyframes glitch-skew {
-  0% {
-    transform: skew(0deg);
-  }
-  20% {
-    transform: skew(1deg);
-  }
-  40% {
-    transform: skew(-1deg);
-  }
-  60% {
-    transform: skew(3deg);
-  }
-  80% {
-    transform: skew(-2deg);
-  }
-  100% {
-    transform: skew(0deg);
-  }
-}
-
-@keyframes glitch-extreme-1 {
-  0% {
-    clip-path: polygon(0 20%, 100% 20%, 100% 30%, 0 30%);
-    transform: translate(-4px, -4px);
-  }
-  25% {
-    clip-path: polygon(0 70%, 100% 70%, 100% 80%, 0 80%);
-    transform: translate(4px, 4px);
-  }
-  50% {
-    clip-path: polygon(0 50%, 100% 50%, 100% 55%, 0 55%);
-    transform: translate(-4px, 4px);
-  }
-  75% {
-    clip-path: polygon(0 10%, 100% 10%, 100% 40%, 0 40%);
-    transform: translate(4px, -4px);
-  }
-  100% {
-    clip-path: polygon(0 60%, 100% 60%, 100% 85%, 0 85%);
-    transform: translate(-4px, -4px);
-  }
-}
-
-@keyframes glitch-extreme-2 {
-  0% {
-    clip-path: polygon(0 40%, 100% 40%, 100% 60%, 0 60%);
-    transform: translate(3px, 3px);
-  }
-  33% {
-    clip-path: polygon(0 10%, 100% 10%, 100% 20%, 0 20%);
-    transform: translate(-3px, -3px);
-  }
-  66% {
-    clip-path: polygon(0 80%, 100% 80%, 100% 95%, 0 95%);
-    transform: translate(3px, -3px);
-  }
-  100% {
-    clip-path: polygon(0 0%, 100% 0%, 100% 30%, 0 30%);
-    transform: translate(-3px, 3px);
-  }
-}
 
 .dotted-border {
   background-image: radial-gradient(circle, var(--color-input) 1px, red 1px);
@@ -558,40 +346,6 @@ button {
       black calc(100% - 20px)
     );
   -webkit-mask-composite: source-in;
-}
-
-.dotted-frame {
-  background-image: radial-gradient(circle, var(--color-input) 1px, transparent 1px);
-  background-size: 6px 6px;
-  background-position: 0 0;
-  background-repeat: repeat;
-  mask-image:
-    linear-gradient(to bottom, black 0%, black 70px, transparent 70px),
-    /* Bottom border */ linear-gradient(to top, black 0%, black 0, transparent 0),
-    /* Left border */ linear-gradient(to right, black 0%, black 70px, transparent 70px),
-    /* Right border */ linear-gradient(to left, black 0%, black 70px, transparent 70px);
-  mask-composite: add;
-}
-
-.dotted-overlay-bottom::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 40px;
-  background-image: radial-gradient(circle, var(--color-background) 2px, transparent 1px);
-  background-size: 4px 4px;
-  background-position: 0 0;
-  background-repeat: repeat;
-  mask-image: linear-gradient(to top, black 0%, black 70%, transparent 100%);
-  z-index: 10;
-  pointer-events: none;
-}
-
-.retro-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-input) transparent;
 }
 
 .conversation-message {
@@ -700,6 +454,15 @@ button {
 @keyframes border-spin {
   to {
     --border-angle: 1turn;
+  }
+}
+
+@keyframes message-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.5;
   }
 }
 

@@ -16,7 +16,7 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
   const gameState = useGameStore.use.gameState()
   const { initialize } = useGameContext()
   const [viewState, setViewState] = useState<"title" | "preload" | "game">(
-    settings.bypassTitle ? "preload" : "title"
+    settings.bypassTitle ? "game" : "preload"
   )
 
   const handleViewStateChange = useCallback(
@@ -58,12 +58,8 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
         transition={{ duration: 0.4, ease: "easeInOut" }}
         className="relative h-screen w-screen overflow-hidden"
       >
-        {viewState === "title" && (
-          <Title onViewNext={() => handleViewStateChange("preload")} />
-        )}
-        {viewState === "preload" && (
-          <Preload onComplete={() => handleViewStateChange("game")} />
-        )}
+        {viewState === "title" && <Title onViewNext={() => handleViewStateChange("game")} />}
+        {viewState === "preload" && <Preload onComplete={() => handleViewStateChange("title")} />}
         {viewState === "game" && (
           <>
             <AnimatePresence>

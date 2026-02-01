@@ -2,18 +2,18 @@ import { lazy, Suspense, useEffect, useMemo } from "react"
 
 import { motion } from "motion/react"
 import type { PerformanceProfile } from "@gradient-bang/starfield"
-import { generateRandomScene, useSceneChange } from "@gradient-bang/starfield"
 
 import { skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
 import useGameStore from "@/stores/game"
 
-const StarfieldComponent = lazy(() => import("@gradient-bang/starfield"))
+// Lazy load the starfield component - this keeps all starfield deps out of main bundle
+const StarfieldLazy = lazy(() => import("./StarfieldLazy"))
 
 const skyboxImageList = Object.values(skyboxImages)
 
 const StarfieldFallback = () => (
-  <div className="absolute h-full inset-0 overflow-hidden bg-black z-(--z-starfield)">
+  <div className="absolute h-full inset-0 overflow-hidden bg-background z-(--z-starfield)">
     <img
       src={Splash}
       alt="Splash"
@@ -27,7 +27,6 @@ export const Starfield = () => {
   const lookMode = useGameStore.use.lookMode()
   const starfieldReady = useGameStore.use.starfieldReady()
   const setStarfieldReady = useGameStore.use.setStarfieldReady()
-  const { changeScene } = useSceneChange()
 
   const starfieldConfig = useMemo(() => {
     return {
@@ -43,30 +42,6 @@ export const Starfield = () => {
     }
   }, [lookMode])
 
-  useEffect(() => {
-    if (!settings.renderStarfield) return
-
-    // Initial scene
-    // NOOP
-
-    // Subscribe to sector id changes
-    const unsub = useGameStore.subscribe(
-      (state) => state.sector?.id,
-      (sectorId, prevSectorId) => {
-        if (sectorId !== prevSectorId && sectorId) {
-          const newScene = generateRandomScene()
-          changeScene({
-            id: sectorId.toString(),
-            gameObjects: [],
-            config: newScene,
-          })
-        }
-      }
-    )
-
-    return unsub
-  }, [settings.renderStarfield, changeScene])
-
   if (!settings.renderStarfield || !skyboxImageList.length) {
     return <StarfieldFallback />
   }
@@ -77,9 +52,9 @@ export const Starfield = () => {
         className="absolute inset-0 z-(--z-starfield) overflow-hidden"
         initial={{ opacity: 0 }}
         animate={{ opacity: starfieldReady ? 1 : 0 }}
-        transition={{ duration: 1.5, ease: "easeOut" }}
+        transition={{ delay: 1, duration: 2, ease: "easeOut" }}
       >
-        <StarfieldComponent
+        <StarfieldLazy
           profile={settings.qualityPreset as PerformanceProfile}
           config={starfieldConfig}
           onCreated={() => {
