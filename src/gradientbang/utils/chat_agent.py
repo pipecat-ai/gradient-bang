@@ -9,7 +9,7 @@ import time
 from typing import Dict, Any, Optional, Callable, List
 
 from gradientbang.utils.base_llm_agent import BaseLLMAgent, LLMConfig
-from gradientbang.utils.api_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS
 from gradientbang.utils.tools_schema import (
     MyStatus,

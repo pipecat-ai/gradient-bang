@@ -14,14 +14,11 @@ from pipecat.frames.frames import FunctionCallResultProperties, LLMMessagesAppen
 
 import os
 
-if os.getenv("SUPABASE_URL"):
-    from gradientbang.utils.supabase_client import AsyncGameClient
-else:
-    from gradientbang.utils.api_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.prompts import TaskOutputType
 from gradientbang.utils.task_agent import TaskAgent, DEFAULT_GOOGLE_MODEL
 from gradientbang.pipecat_server.frames import TaskActivityFrame
-from gradientbang.utils.api_client import RPCError
+from gradientbang.utils.supabase_client import RPCError
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.weave_tracing import (
     init_weave,
@@ -104,12 +101,13 @@ class VoiceTaskManager:
         self.character_id = character_id
         self.display_name: str = character_id
         self._current_sector_id: Optional[int] = None
-        # Create a game client; use SUPABASE_URL if available, otherwise use provided base_url or default
-        resolved_base_url = os.getenv("SUPABASE_URL") or base_url or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
+        resolved_base_url = base_url or os.getenv("SUPABASE_URL")
+        if not resolved_base_url:
+            raise RuntimeError("SUPABASE_URL is required to initialize VoiceTaskManager.")
         self.game_client = AsyncGameClient(
             character_id=character_id,
             base_url=resolved_base_url,
-            transport="websocket",  # Supabase client auto-converts this to "supabase" transport
+            transport="supabase",
         )
         self._event_names = [
             "status.snapshot",
@@ -1296,7 +1294,7 @@ class VoiceTaskManager:
                     character_id=target_character_id,
                     actor_character_id=actor_character_id,
                     entity_type="corporation_ship",
-                    transport="websocket",
+                transport="supabase",
                 )
                 await task_game_client.pause_event_delivery()
                 logger.debug(

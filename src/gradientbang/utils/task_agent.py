@@ -78,7 +78,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.google.llm import GoogleLLMService as PipecatGoogleLLMService
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
-from gradientbang.utils.api_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.weave_tracing import init_weave, traced
 
