@@ -1,12 +1,12 @@
 export const sunVertexShader = `
   varying vec3 vNormal;
-  varying vec3 vPosition;
-  varying vec2 vUv;
+  varying vec3 vWorldPosition;
+  varying vec3 vLocalPosition;
   
   void main() {
     vNormal = normalize(normalMatrix * normal);
-    vPosition = position;
-    vUv = uv;
+    vLocalPosition = position;  // Object space (unit sphere: -1 to 1)
+    vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;  // World space
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `
@@ -22,55 +22,36 @@ export const sunFragmentShader = `
   uniform sampler2D uNoiseTexture;
   
   varying vec3 vNormal;
-  varying vec3 vPosition;
-  varying vec2 vUv;
+  varying vec3 vWorldPosition;
+  varying vec3 vLocalPosition;
   
   void main() {
-    // Calculate view direction
-    vec3 viewDirection = normalize(uCameraPosition - vPosition);
+    // Calculate view direction using world-space positions
+    vec3 viewDirection = normalize(uCameraPosition - vWorldPosition);
     vec3 normal = normalize(vNormal);
     
-    // Fresnel-like effect - edges glow more than center when viewed from angle
+    // Base fresnel - how edge-on is this surface
     float fresnel = 1.0 - abs(dot(viewDirection, normal));
-    fresnel = pow(fresnel, 2.0);
     
-    // Distance from center of sphere in UV space
-    vec2 center = vec2(0.5, 0.5);
-    float dist = distance(vUv, center) * 2.0;
+    // Create multiple sharp bands at different fresnel thresholds
+    float band1 = smoothstep(0.85, 0.95, fresnel);  // Very edge - brightest
+    float band2 = smoothstep(0.7, 0.85, fresnel) * (1.0 - band1);  // Second ring
+    float band3 = smoothstep(0.5, 0.7, fresnel) * (1.0 - band1 - band2);  // Third ring
     
-    // Sample noise from pre-generated texture - static (no animation)
-    float noiseScale = 2.0;
-    vec2 noiseCoord = vUv * noiseScale;
-    float noise = texture2D(uNoiseTexture, noiseCoord).r;
+    // Combine bands with different intensities
+    float fresnelGlow = band1 * 1.0 + band2 * 0.6 + band3 * 0.3;
     
-    // Add secondary noise layer for more detail
-    float noise2 = texture2D(uNoiseTexture, vUv * noiseScale * 2.0).r;
-    float combinedNoise = mix(noise, noise2, 0.5);
+    // Sharpen the overall effect
+    fresnelGlow = pow(fresnelGlow, 0.7);
     
-    // Create volumetric layers
-    // Core - bright center
-    float coreGlow = 1.0 - smoothstep(0.0, 0.4, dist);
-    coreGlow = pow(coreGlow, 4.0);
-    
-    // Fresnel glow - edges
-    float fresnelGlow = fresnel * (1.0 - smoothstep(0.3, 1.0, dist));
-    fresnelGlow = pow(fresnelGlow, 2.0);
-    
-    // Corona - outer glow with noise
-    float coronaGlow = 1.0 - smoothstep(0.0, 1.0, dist);
-    coronaGlow = pow(coronaGlow, 1.5) * (0.8 + combinedNoise * 0.4);
-    
-    // Combine glows
-    float totalGlow = max(coreGlow, max(fresnelGlow * 0.8, coronaGlow * 0.6));
-    
-    // Color mixing based on intensity
-    vec3 finalColor = mix(uCoronaColor, uCoreColor, coreGlow * 0.7);
-    finalColor += uCoreColor * fresnelGlow * 0.5;
-    finalColor += uCoronaColor * coronaGlow * 0.3;
+    // Color: core color for brightest bands, corona for outer
+    vec3 finalColor = uCoreColor * band1 + 
+                      mix(uCoreColor, uCoronaColor, 0.3) * band2 +
+                      uCoronaColor * band3;
     finalColor *= uIntensity;
     
-    // Alpha with soft edges
-    float alpha = totalGlow * uIntensity;
+    // Alpha: sharp falloff, only visible at edges
+    float alpha = fresnelGlow * uIntensity;
     alpha = clamp(alpha, 0.0, 1.0);
     
     gl_FragColor = vec4(finalColor, alpha);

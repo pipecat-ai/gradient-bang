@@ -31,7 +31,7 @@ const DEFAULT_PP_CONFIG = {
   sharpening_enabled: true,
   sharpening_intensity: 2.0,
   sharpening_radius: 6.0,
-  sharpening_threshold: 0.0,
+  sharpening_threshold: 0,
   // Dithering
   dithering_enabled: true,
   dithering_gridSize: 2,
@@ -40,7 +40,7 @@ const DEFAULT_PP_CONFIG = {
   dithering_grayscaleOnly: false,
   // Grading
   grading_enabled: true,
-  grading_brightness: 0.1,
+  grading_brightness: 0.05,
   grading_contrast: 0.25,
   grading_saturation: 0.0,
   grading_tintEnabled: false,
@@ -516,7 +516,9 @@ export const PostProcessingController = () => {
     // Tint
     if (controls.grading_tintEnabled) {
       const primaryColor = new THREE.Color(controls.grading_tintColorPrimary)
-      const secondaryColor = new THREE.Color(controls.grading_tintColorSecondary)
+      const secondaryColor = new THREE.Color(
+        controls.grading_tintColorSecondary
+      )
 
       const tint = new TintEffect({
         intensity: controls.grading_tintIntensity,
@@ -664,14 +666,7 @@ export const PostProcessingController = () => {
     return () => {
       registeredUniforms.forEach((key) => removeUniform(key))
     }
-  }, [
-    scene,
-    camera,
-    composerReady,
-    controls,
-    registerUniform,
-    removeUniform,
-  ])
+  }, [scene, camera, composerReady, controls, registerUniform, removeUniform])
 
   // Frame updates - only non-animated logic
   useFrame(({ gl, camera: currentCamera }) => {

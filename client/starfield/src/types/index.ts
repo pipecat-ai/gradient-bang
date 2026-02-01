@@ -81,6 +81,8 @@ export interface StarfieldConfig {
   nebula?: Partial<NebulaConfig>
   tunnel?: Partial<TunnelConfig>
   volumetricClouds?: Partial<VolumetricCloudsConfig>
+  galaxy?: Partial<GalaxyConfig>
+  lensFlare?: Partial<LensFlareConfig>
 }
 
 export type PerformanceProfile = "auto" | "low" | "mid" | "high"
@@ -295,20 +297,49 @@ export interface FogConfig {
 }
 
 /**
+ * Configuration for Galaxy object
+ */
+export interface GalaxyConfig {
+  enabled: boolean
+  intensity?: number
+  spread?: number // Controls width of galaxy band (higher = wider)
+  rotation?: number
+  offsetX?: number // Horizontal position: -1 to +1 maps to -180° to +180°
+  offsetY?: number // Vertical position: -1 to +1 maps to -90° to +90°
+  octaves?: number // FBM octaves (1-5), controls detail vs performance
+}
+
+/**
+ * Configuration for LensFlare object
+ */
+export interface LensFlareConfig {
+  enabled: boolean
+  intensity?: number
+  ghostIntensity?: number // Intensity of ghost reflections
+  haloIntensity?: number // Intensity of halo rings
+  streakIntensity?: number // Intensity of streak artifacts
+  quality?: number // 0 = low (halos only), 1 = medium (+ghosts/streaks), 2 = high (all)
+  lightX?: number // Light source X position (-1 to 1)
+  lightY?: number // Light source Y position (-1 to 1)
+  trackGalaxy?: boolean // Whether to track the Galaxy object position
+}
+
+/**
  * Scene configuration with nested object configs
  */
 export interface SceneConfig {
   palette?: string
+  galaxy?: Partial<GalaxyConfig>
   nebula?: Partial<NebulaConfig>
   stars?: Partial<StarsConfig>
   skybox?: Partial<SkyboxConfig>
   planet?: Partial<PlanetConfig>
   tunnel?: Partial<TunnelConfig>
   volumetricClouds?: Partial<VolumetricCloudsConfig>
-  sun?: Partial<SunConfig>
   grading?: Partial<GradingConfig>
   dust?: Partial<DustConfig>
   fog?: Partial<FogConfig>
+  lensFlare?: Partial<LensFlareConfig>
 }
 
 /**

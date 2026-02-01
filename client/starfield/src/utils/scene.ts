@@ -15,7 +15,7 @@ export function generateRandomScene(
 
   // Planet
   // Use power curve to bias toward smaller planets (Math.random() ** 1.5 skews smaller)
-  const randomPlanetScale = Math.floor(Math.random() ** 1.5 * 200) + 20
+  const randomPlanetScale = Math.floor(Math.random() ** 1.5 * 100) + 20
   const randomPlanetOpacity =
     randomPlanetScale < 100
       ? Math.random() * 0.5 + 0.2
@@ -47,10 +47,6 @@ export function generateRandomScene(
       : Math.random() // 0-1 for low primary iterations
 
   // Sun - reduce intensity when nebula is bright
-  const randomSunIntensity =
-    randomNebulaIntensity > 0.5
-      ? Math.random() * 0.2 + 0.1 // 0.1-0.3 for bright nebula
-      : Math.random() * 0.4 + 0.2 // 0.2-0.6 otherwise
   let randomIterSecondary: number
   if (randomIterPrimary < 5) {
     // Low primary: secondary should be 10-50
@@ -63,6 +59,11 @@ export function generateRandomScene(
   }
   const randomDomainScale = Math.random() * 2 + 1 // 1-3
   const randomWarpDecay = Math.random() * 19.9 + 0.1 // 0.1-20
+
+  // Galaxy
+  const randomGalaxyIntensity = Math.random() * 0.4 + 0.1 // 0.1-0.5
+  const randomGalaxyOffsetX = Math.random() * 2 - 1 // -1-1
+  const randomGalaxyOffsetY = Math.random() * 1 - 1 // -1-1
 
   return {
     ...config,
@@ -79,10 +80,6 @@ export function generateRandomScene(
       },
       shadowOpacity: randomPlanetShadowOpacity,
     },
-    sun: {
-      ...config.sun,
-      intensity: randomSunIntensity,
-    },
     nebula: {
       ...config.nebula,
       intensity: randomNebulaIntensity,
@@ -90,6 +87,12 @@ export function generateRandomScene(
       iterPrimary: randomIterPrimary,
       iterSecondary: randomIterSecondary,
       warpDecay: randomWarpDecay,
+    },
+    galaxy: {
+      ...config.galaxy,
+      intensity: randomGalaxyIntensity,
+      offsetX: randomGalaxyOffsetX,
+      offsetY: randomGalaxyOffsetY,
     },
   }
 }

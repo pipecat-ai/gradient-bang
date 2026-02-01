@@ -20,8 +20,8 @@ const DEFAULT_SUN_CONFIG = {
   intensity: 0.5,
   primaryColor: "#000000", // core color -> palette.c1
   secondaryColor: "#000000", // corona color -> palette.c2
-  positionX: 30,
-  positionY: 30,
+  positionX: 0,
+  positionY: 0,
   positionZ: -80,
 }
 
@@ -165,7 +165,7 @@ export const Sun = () => {
       depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
     })
   }, [])
 
@@ -223,7 +223,7 @@ export const Sun = () => {
           controls.scale * 2.5,
         ]}
       >
-        <sphereGeometry args={[1, 32, 32]} />
+        <sphereGeometry args={[1, 64, 64]} />
       </mesh>
 
       {/* Mid glow layer */}
@@ -237,7 +237,7 @@ export const Sun = () => {
           controls.scale * 1.5,
         ]}
       >
-        <sphereGeometry args={[1, 32, 32]} />
+        <sphereGeometry args={[1, 64, 64]} />
       </mesh>
 
       {/* Core layer - brightest, smallest */}
@@ -247,7 +247,7 @@ export const Sun = () => {
         material={sunMaterial}
         scale={[controls.scale, controls.scale, controls.scale]}
       >
-        <sphereGeometry args={[1, 32, 32]} />
+        <sphereGeometry args={[1, 64, 64]} />
       </mesh>
     </group>
   )

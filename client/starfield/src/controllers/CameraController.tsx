@@ -203,11 +203,11 @@ export function CameraController({
         )
         if (gameObject) {
           const targetPosition = new THREE.Vector3(...gameObject.position)
-          
+
           // Get the current camera position from CameraControls (accounts for user interaction)
           const currentCameraPosition = new THREE.Vector3()
           cam.getPosition(currentCameraPosition)
-          
+
           const direction = new THREE.Vector3()
             .subVectors(currentCameraPosition, targetPosition)
             .normalize()

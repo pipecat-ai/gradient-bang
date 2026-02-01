@@ -26,7 +26,7 @@ const DEFAULT_PLANET_CONFIG = {
   tintIntensity: 1,
   shadowEnabled: true,
   shadowRadius: 0.5,
-  shadowOpacity: 0.7,
+  shadowOpacity: 0.8,
   shadowFalloff: 0.6,
   base: "#000000", // shadow color -> palette.base
 }

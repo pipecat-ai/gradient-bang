@@ -29,10 +29,13 @@ export const defaultProfile: StarfieldConfig = {
   hyperspaceExitTime: 1500,
   hyperspaceDuration: 100,
   hyperspaceCooldown: 10000,
-  hyperspaceFovShift: 120,
+  hyperspaceFovShift: 100,
   shakeIntensity: 1,
   shakeRelaxTime: 1000,
   layerDimDuration: 5000,
+  galaxy: {
+    enabled: true,
+  },
   shockwave: {
     enabled: true,
   },
@@ -70,6 +73,10 @@ export const defaultProfile: StarfieldConfig = {
   tunnel: {
     enabled: true,
   },
+  lensFlare: {
+    enabled: true,
+    quality: 2,
+  },
 }
 
 export const midProfile: Partial<StarfieldConfig> = {
@@ -87,6 +94,14 @@ export const midProfile: Partial<StarfieldConfig> = {
     enabled: false,
     showDuringWarp: false,
   },
+  lensFlare: {
+    enabled: true,
+    quality: 1,
+  },
+  galaxy: {
+    enabled: true,
+    octaves: 3,
+  },
 }
 
 export const lowProfile: Partial<StarfieldConfig> = {
@@ -100,9 +115,6 @@ export const lowProfile: Partial<StarfieldConfig> = {
   shockwave: {
     enabled: false,
   },
-  dithering: {
-    enabled: false,
-  },
   stars: {
     enabled: false,
   },
@@ -112,6 +124,12 @@ export const lowProfile: Partial<StarfieldConfig> = {
   tunnel: {
     enabled: false,
     showDuringWarp: false,
+  },
+  galaxy: {
+    enabled: false,
+  },
+  lensFlare: {
+    enabled: false,
   },
 }
 

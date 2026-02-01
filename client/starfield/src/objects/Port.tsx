@@ -15,7 +15,7 @@ import { useTextureCache } from "@/utils/textureCache"
 
 const SHADOW_MIN_DISTANCE = 8
 const SHADOW_MAX_DISTANCE = 15
-const SHADOW_MAX_OPACITY = 0.85
+const SHADOW_MAX_OPACITY = 0.9
 
 export interface PortProps extends PositionedGameObject {
   rotationSpeed?: number
@@ -261,7 +261,7 @@ export const Port = ({
             map={texture}
             color={boostedTintColor}
             side={THREE.DoubleSide}
-            fog={true}
+            fog={false}
             depthTest={true}
             depthWrite={false}
             transparent={true}

@@ -17,11 +17,12 @@ import { usePerformanceProfile } from "@/hooks/usePerformanceProfile"
 import {
   Dust,
   Fog,
+  Galaxy,
   GameObjects,
+  LensFlare,
   Nebula,
   Planet,
   Stars,
-  Sun,
   Tunnel,
   VolumetricClouds,
 } from "@/objects"
@@ -174,13 +175,14 @@ export function StarfieldComponent({
         {debug && <DebugOverlay />}
         <Suspense fallback={null}>
           <AssetPreloader />
+          <Galaxy />
           <Fog />
           <Nebula />
-          <Sun />
           <Stars />
           <Dust />
           <VolumetricClouds />
           <Planet />
+          <LensFlare />
           <Tunnel />
           <Preload all />
           <SuspenseReady />
