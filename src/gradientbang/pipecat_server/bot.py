@@ -171,6 +171,19 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     llm = create_llm_service(voice_config)
     llm.register_function(None, task_manager.execute_tool_call)
 
+    @llm.event_handler("on_function_calls_started")
+    async def on_function_calls_started(service, function_calls):
+        for call in function_calls:
+            await rtvi.push_frame(
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": "llm.function_call",
+                        "payload": {"name": call.function_name},
+                    }
+                )
+            )
+
     token_usage_metrics = TokenUsageMetricsProcessor(source="bot")
 
     # System prompt
