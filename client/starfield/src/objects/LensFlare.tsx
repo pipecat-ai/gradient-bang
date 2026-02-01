@@ -12,6 +12,7 @@ import {
   lensFlareVertexShader,
 } from "@/shaders/LensFlareShader"
 import { useGameStore } from "@/useGameStore"
+import { useUniformStore } from "@/useUniformStore"
 
 // Quality levels: 0 = low (halos only), 1 = medium (+ghosts, streaks), 2 = high (all effects)
 const QUALITY_OPTIONS = { Low: 0, Medium: 1, High: 2 }
@@ -48,6 +49,8 @@ export const LensFlare = () => {
   const showControls = useShowControls()
   const materialRef = useRef<THREE.ShaderMaterial | null>(null)
   const { camera, size } = useThree()
+  const registerUniform = useUniformStore((state) => state.registerUniform)
+  const removeUniform = useUniformStore((state) => state.removeUniform)
   const { lensFlare: lensFlareConfig, palette: paletteKey } = useGameStore(
     (state) => state.starfieldConfig
   )
@@ -190,12 +193,31 @@ export const LensFlare = () => {
     materialRef.current = lensFlareMaterial
   }, [lensFlareMaterial])
 
+  // Register animated uniforms with the uniform registry
+  useEffect(() => {
+    const mat = lensFlareMaterial
+    if (!mat.uniforms) return
+
+    // Register intensity uniform for external animation
+    registerUniform("lensFlareIntensity", mat.uniforms.uIntensity, {
+      initial: controls.intensity,
+      meta: { effect: "lensFlare" },
+    })
+
+    return () => {
+      removeUniform("lensFlareIntensity")
+    }
+  }, [lensFlareMaterial, controls.intensity, registerUniform, removeUniform])
+
   // Cleanup
   useEffect(() => {
     return () => {
       lensFlareMaterial.dispose()
     }
   }, [lensFlareMaterial])
+
+  // Track the last intensity we set from controls (to detect external changes)
+  const lastControlIntensityRef = useRef(controls.intensity)
 
   // Update uniforms each frame
   useFrame(() => {
@@ -243,7 +265,21 @@ export const LensFlare = () => {
       intensityMod = Math.min(1.0, behindFade)
     }
 
-    material.uniforms.uIntensity.value = controls.intensity * intensityMod
+    // Check if intensity was changed externally (by animation)
+    // Only update from controls if the uniform still matches what we last set
+    const currentUniformIntensity = material.uniforms.uIntensity.value
+    const expectedIntensity = lastControlIntensityRef.current
+    const wasAnimatedExternally =
+      Math.abs(currentUniformIntensity - expectedIntensity) > 0.001
+
+    if (!wasAnimatedExternally) {
+      // Update intensity from controls with camera fade modifier
+      const newIntensity = controls.intensity * intensityMod
+      material.uniforms.uIntensity.value = newIntensity
+      lastControlIntensityRef.current = newIntensity
+    }
+    // If animated externally, leave the uniform value as-is (animation controls it)
+
     material.uniforms.uLightPosition.value.set(lightX, lightY)
     material.uniforms.uGhostIntensity.value = controls.ghostIntensity
     material.uniforms.uHaloIntensity.value = controls.haloIntensity

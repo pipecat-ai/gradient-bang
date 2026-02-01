@@ -70,6 +70,15 @@ const TUNNEL_ROTATION_SPEED: AnimatedPropertyConfig = {
   },
 }
 
+// Lens flare intensity
+const LENS_FLARE_INTENSITY: AnimatedPropertyConfig = {
+  target: 0,
+  anim: {
+    enter: {},
+    exit: {},
+  },
+}
+
 // Post-processing
 // Exposure: 1.0 = normal, <1 = darker, >1 = brighter
 const PP_EXPOSURE: AnimatedPropertyConfig = {
@@ -103,8 +112,11 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
   const setHyperspace = useAnimationStore((state) => state.setHyperspace)
   const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
 
-  const { hyperspaceEnterTime, hyperspaceExitTime, tunnel: tunnelConfig } =
-    useGameStore((state) => state.starfieldConfig)
+  const {
+    hyperspaceEnterTime,
+    hyperspaceExitTime,
+    tunnel: tunnelConfig,
+  } = useGameStore((state) => state.starfieldConfig)
 
   // Check if tunnel should be shown during warp
   const shouldShowTunnel =
@@ -317,6 +329,20 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
           )
         )
       }
+    }
+
+    // --- Lens Flare Intensity ---
+    const lensFlareIntensity = getUniform<number>("lensFlareIntensity")
+    if (lensFlareIntensity) {
+      updateUniform(
+        lensFlareIntensity,
+        lerpAnimatedProperty(
+          p,
+          isEntering,
+          lensFlareIntensity.initial!,
+          LENS_FLARE_INTENSITY
+        )
+      )
     }
 
     // --- Post-processing: Exposure ---
