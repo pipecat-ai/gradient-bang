@@ -11,7 +11,7 @@ import type { GameObject, PositionedGameObject } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 // Positioning defaults
-const MIN_RADIUS = 5
+const MIN_RADIUS = 10
 const MAX_RADIUS = 50
 const MIN_SPACING = 5
 

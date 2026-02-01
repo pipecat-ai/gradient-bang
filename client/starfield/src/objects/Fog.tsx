@@ -1,26 +1,28 @@
-import { useEffect } from "react"
+import { useMemo } from "react"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 
 import { getPalette } from "@/colors"
-import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { useGameStore } from "@/useGameStore"
 
 // Default fog config values
 const DEFAULT_FOG_CONFIG = {
   enabled: true,
+  base: "#000000",
   near: 0,
   far: 80,
 }
 
+// Keys to sync to Leva when store changes
+const TRANSIENT_PROPERTIES = ["enabled", "near", "far"] as const
+
 export const Fog = () => {
   const showControls = useShowControls()
-  const starfieldConfig = useGameStore((state) => state.starfieldConfig)
-  const { fog: fogConfig } = starfieldConfig
-  const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
-
-  const palette = getPalette(starfieldConfig.palette)
-  const defaultColor = fogConfig?.color ?? `#${palette.base.getHexString()}`
+  const { fog: fogConfig, palette: paletteKey } = useGameStore(
+    (state) => state.starfieldConfig
+  )
+  const palette = useMemo(() => getPalette(paletteKey), [paletteKey])
 
   const [levaValues, set] = useControls(
     () =>
@@ -31,16 +33,15 @@ export const Fog = () => {
                 {
                   enabled: {
                     value: fogConfig?.enabled ?? DEFAULT_FOG_CONFIG.enabled,
-                    onChange: (value: boolean) => {
-                      setStarfieldConfig({ fog: { enabled: value } })
-                    },
+                    label: "Enable Fog",
                   },
-                  color: {
-                    value: defaultColor,
+                  base: {
+                    value: `#${palette.base.getHexString()}`,
+                    label: "Color",
                   },
                   near: {
                     value: fogConfig?.near ?? DEFAULT_FOG_CONFIG.near,
-                    min: 1,
+                    min: 0,
                     max: 100,
                     step: 1,
                     label: "Near",
@@ -60,27 +61,17 @@ export const Fog = () => {
         : {}) as Schema
   )
 
-  // Get values from Leva when showing controls, otherwise from config/defaults
-  const color = showControls
-    ? (levaValues as { color: string }).color
-    : defaultColor
-  const near = showControls
-    ? (levaValues as { near: number }).near
-    : (fogConfig?.near ?? DEFAULT_FOG_CONFIG.near)
-  const far = showControls
-    ? (levaValues as { far: number }).far
-    : (fogConfig?.far ?? DEFAULT_FOG_CONFIG.far)
+  // Get stable config - hook handles all stabilization and palette colors
+  const controls = useControlSync({
+    source: fogConfig as Partial<typeof DEFAULT_FOG_CONFIG> | undefined,
+    defaults: DEFAULT_FOG_CONFIG,
+    palette,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<typeof DEFAULT_FOG_CONFIG>,
+    set: set as (values: Partial<typeof DEFAULT_FOG_CONFIG>) => void,
+  })
 
-  // Sync palette changes to Leva controls
-  useEffect(() => {
-    if (!showControls) return
-    if (!fogConfig?.color) {
-      set({ color: `#${palette.base.getHexString()}` })
-    }
-  }, [showControls, starfieldConfig.palette, palette, fogConfig, set])
+  if (!controls.enabled) return null
 
-  const enabled = fogConfig?.enabled ?? DEFAULT_FOG_CONFIG.enabled
-  if (!enabled) return null
-
-  return <fog attach="fog" args={[color, near, far]} />
+  return <fog attach="fog" args={[controls.base, controls.near, controls.far]} />
 }

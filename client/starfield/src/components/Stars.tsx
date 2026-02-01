@@ -32,12 +32,10 @@ class StarfieldMaterial extends ShaderMaterial {
   constructor() {
     super({
       uniforms: {
-        time: { value: 0.0 },
         fade: { value: 1.0 },
         dpr: { value: 1.0 },
       },
       vertexShader: /* glsl */ `
-      uniform float time;
       uniform float dpr;
       attribute float size;
       attribute float opacity;
@@ -48,7 +46,7 @@ class StarfieldMaterial extends ShaderMaterial {
         vColor = color;
         vOpacity = opacity;
         vec4 mvPosition = modelViewMatrix * vec4(position, 0.5);
-        gl_PointSize = size * (30.0 / -mvPosition.z) * (3.0 + sin(time + 100.0)) * dpr;
+        gl_PointSize = size * (30.0 / -mvPosition.z) * 3.0 * dpr;
         gl_Position = projectionMatrix * mvPosition;
       }`,
       fragmentShader: /* glsl */ `
@@ -143,9 +141,6 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
     useFrame((state) => {
       if (!material.current) return
 
-      // Update time uniform
-      material.current.uniforms.time.value = state.clock.elapsedTime * speed
-
       // Update DPR for consistent sizing across resolutions
       material.current.uniforms.dpr.value = state.viewport.dpr
 
@@ -154,6 +149,9 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
         pointsRef.current.position.copy(state.camera.position)
       }
     })
+
+    // Ensure the speed prop stays typed even though animation is disabled
+    void speed
 
     const starfieldMaterial = React.useMemo(() => new StarfieldMaterial(), [])
 

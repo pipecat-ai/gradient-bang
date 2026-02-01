@@ -1,4 +1,19 @@
-import type { StarfieldConfig } from "./types"
+import type { PerformanceProfile, StarfieldConfig } from "./types"
+
+// Keys excluded from profile merging (preserve user/scene settings)
+export const EXCLUDED_PROFILE_KEYS = [
+  "cameraBaseFov",
+  "palette",
+  "imageAssets",
+  "shakeIntensity",
+  "shakeRelaxTime",
+  "layerDimDuration",
+  "hyperspaceEnterTime",
+  "hyperspaceExitTime",
+  "hyperspaceDuration",
+  "hyperspaceCooldown",
+  "hyperspaceFovShift",
+] as const
 
 export const defaultProfile: StarfieldConfig = {
   cameraBaseFov: 50,
@@ -29,10 +44,10 @@ export const defaultProfile: StarfieldConfig = {
   },
   exposure: {
     enabled: true,
-    startAmount: -1, // Start faded to black, animations restore to default (0)
   },
   stars: {
     enabled: true,
+    count: 6000,
   },
   dust: {
     enabled: true,
@@ -42,26 +57,41 @@ export const defaultProfile: StarfieldConfig = {
   },
   sun: {
     enabled: true,
-    position: { x: 30, y: 30, z: -80 },
-    scale: 100,
-    intensity: 0.5,
   },
   grading: {
     enabled: true,
   },
   nebula: {
     enabled: true,
-    intensity: 0.5,
-    domainScale: 2,
   },
   volumetricClouds: {
     enabled: true,
   },
+  tunnel: {
+    enabled: true,
+  },
+}
+
+export const midProfile: Partial<StarfieldConfig> = {
+  ...defaultProfile,
+  volumetricClouds: {
+    enabled: false,
+  },
+  shockwave: {
+    enabled: false,
+  },
+  stars: {
+    count: 3000,
+  },
+  tunnel: {
+    enabled: false,
+    showDuringWarp: false,
+  },
 }
 
 export const lowProfile: Partial<StarfieldConfig> = {
-  ...defaultProfile,
-  fog: {
+  ...midProfile,
+  nebula: {
     enabled: false,
   },
   dust: {
@@ -70,4 +100,29 @@ export const lowProfile: Partial<StarfieldConfig> = {
   volumetricClouds: {
     enabled: false,
   },
+  shockwave: {
+    enabled: false,
+  },
+  dithering: {
+    enabled: false,
+  },
+  stars: {
+    enabled: false,
+  },
+  sun: {
+    enabled: false,
+  },
+  tunnel: {
+    enabled: false,
+  },
+}
+
+export const PROFILE_MAP: Record<
+  PerformanceProfile,
+  Partial<StarfieldConfig>
+> = {
+  low: lowProfile,
+  mid: midProfile,
+  auto: defaultProfile,
+  high: defaultProfile,
 }

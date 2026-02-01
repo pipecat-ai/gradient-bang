@@ -1,4 +1,3 @@
-import { useMemo } from "react"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 import {
@@ -11,7 +10,7 @@ import {
 
 import { Stars as StarsComponent } from "@/components/Stars"
 import { LAYERS, PANEL_ORDERING } from "@/constants"
-import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { useGameStore } from "@/useGameStore"
 
 const BLENDING_MODES: Record<string, Blending> = {
@@ -26,19 +25,28 @@ const DEFAULT_STARS_CONFIG = {
   enabled: true,
   radius: 1,
   depth: 30,
-  count: 6000, // Random per scene change, 0, 2000, 4000, 6000
+  count: 6000,
   size: 0.8,
   fade: true,
   blendingMode: "Normal",
   opacityMin: 0.05,
-  opacityMax: 0.5, // Random per scene change, 0.1 -> 0.6
+  opacityMax: 0.5,
 }
+
+// Keys to sync to Leva when store changes
+const TRANSIENT_PROPERTIES = [
+  "enabled",
+  "radius",
+  "depth",
+  "count",
+  "size",
+] as const
 
 export const Stars = () => {
   const showControls = useShowControls()
   const { stars: starsConfig } = useGameStore((state) => state.starfieldConfig)
 
-  const [levaValues] = useControls(
+  const [levaValues, set] = useControls(
     () =>
       (showControls
         ? {
@@ -112,24 +120,14 @@ export const Stars = () => {
         : {}) as Schema
   )
 
-  // Get values from Leva when showing controls, otherwise from config/defaults
-  const controls = useMemo(
-    () =>
-      showControls
-        ? (levaValues as typeof DEFAULT_STARS_CONFIG)
-        : {
-            enabled: starsConfig?.enabled ?? DEFAULT_STARS_CONFIG.enabled,
-            radius: starsConfig?.radius ?? DEFAULT_STARS_CONFIG.radius,
-            depth: starsConfig?.depth ?? DEFAULT_STARS_CONFIG.depth,
-            count: starsConfig?.count ?? DEFAULT_STARS_CONFIG.count,
-            size: starsConfig?.size ?? DEFAULT_STARS_CONFIG.size,
-            fade: DEFAULT_STARS_CONFIG.fade,
-            blendingMode: DEFAULT_STARS_CONFIG.blendingMode,
-            opacityMin: DEFAULT_STARS_CONFIG.opacityMin,
-            opacityMax: DEFAULT_STARS_CONFIG.opacityMax,
-          },
-    [showControls, levaValues, starsConfig]
-  )
+  // Get stable config - hook handles all stabilization
+  const controls = useControlSync({
+    source: starsConfig as Partial<typeof DEFAULT_STARS_CONFIG> | undefined,
+    defaults: DEFAULT_STARS_CONFIG,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<typeof DEFAULT_STARS_CONFIG>,
+    set: set as (values: Partial<typeof DEFAULT_STARS_CONFIG>) => void,
+  })
 
   if (!controls.enabled) return null
 

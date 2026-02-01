@@ -39,13 +39,18 @@ export function AnimationController() {
 
       // Signal ready and fire callback
       useGameStore.getState().setIsReady(true)
+
       startShake()
+
       useCallbackStore.getState().onReady()
 
-      // Start fade-in animation (exit = from black to normal)
-      startHyperspace("exit", () => {
-        stopShake()
-      })
+      startHyperspace(
+        "exit",
+        () => {
+          stopShake()
+        },
+        { initialExposure: 0 } // Start from black on initial run
+      )
     }
   }, [suspenseReady, startHyperspace, startShake, stopShake])
 
@@ -130,10 +135,20 @@ export function AnimationController() {
               startShake({ mode: "perlin", strength: 0.02 })
             }),
             ["Impact (Light)"]: button(() => {
-              startShake({ duration: 300, strength: 0.015, rampUpTime: 50, settleTime: 200 })
+              startShake({
+                duration: 300,
+                strength: 0.015,
+                rampUpTime: 50,
+                settleTime: 200,
+              })
             }),
             ["Impact (Heavy)"]: button(() => {
-              startShake({ duration: 800, strength: 0.04, rampUpTime: 100, settleTime: 500 })
+              startShake({
+                duration: 800,
+                strength: 0.04,
+                rampUpTime: 100,
+                settleTime: 500,
+              })
             }),
           },
           { collapsed: true }

@@ -9,8 +9,8 @@ import {
   lerpAnimatedProperty,
   PROGRESS_THRESHOLD,
   useAnimationSpring,
-  type AnimationConfig,
   type AnimatedPropertyConfig,
+  type AnimationConfig,
 } from "./useAnimationSpring"
 
 // ============================================================================
@@ -82,8 +82,8 @@ export function useDimAnimation(
       directionRef.current = direction
 
       if (direction === "enter") {
-        startSpring(1, { duration: enterTime } as AnimationConfig).then(
-          () => onComplete?.()
+        startSpring(1, { duration: enterTime } as AnimationConfig).then(() =>
+          onComplete?.()
         )
       } else {
         // If starting exit from idle state, snap to dimmed first
@@ -92,8 +92,8 @@ export function useDimAnimation(
           setUniformsToDimmed()
           setSpring(1)
         }
-        startSpring(0, { duration: exitTime } as AnimationConfig).then(
-          () => onComplete?.()
+        startSpring(0, { duration: exitTime } as AnimationConfig).then(() =>
+          onComplete?.()
         )
       }
     },

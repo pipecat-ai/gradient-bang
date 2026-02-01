@@ -27,10 +27,17 @@ export interface AnimationHook {
  * start("enter") or start("exit")
  * start("exit", () => console.log("done!"))
  */
-export interface DirectionalAnimationHook<TDirection extends string> {
+export interface DirectionalAnimationHook<
+  TDirection extends string,
+  TOverrides = object,
+> {
   /** Spring value representing animation progress (typically 0-1) */
   progress: SpringValue<number>
 
   /** Method to trigger the animation in a specific direction */
-  start: (direction: TDirection, onComplete?: () => void) => void
+  start: (
+    direction: TDirection,
+    onComplete?: () => void,
+    overrides?: TOverrides
+  ) => void
 }

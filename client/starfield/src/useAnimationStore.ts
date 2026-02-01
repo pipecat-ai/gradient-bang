@@ -50,7 +50,7 @@ export const useAnimationStore = create<AnimationStore>((set) => ({
     set({ shockwaveStartTime: time }),
   isDimmed: false,
   setIsDimmed: (isDimmed: boolean) => set({ isDimmed }),
-  exposure: 1,
+  exposure: 0,
   setExposure: (exposure: number) => set({ exposure }),
   isAnimating: false,
   setIsAnimating: (isAnimating: boolean) => set({ isAnimating }),

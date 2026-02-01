@@ -53,8 +53,8 @@ const DEFAULT_GRADING_CONFIG = {
 
 const DEFAULT_EXPOSURE_CONFIG = {
   enabled: true,
-  amount: 0, // Default value used after animations
-  startAmount: -1, // Initial value on first load (faded to black)
+  amount: 1,
+  startAmount: 0,
 }
 
 const DEFAULT_SHOCKWAVE_CONFIG = {
@@ -88,6 +88,7 @@ export const PostProcessingController = () => {
   const shockwaveDirectionRef = useRef(new THREE.Vector3())
   const lastShockwaveSequenceRef = useRef(0)
   const shockwavePendingExplodeRef = useRef(false)
+  const exposureInitializedRef = useRef(DEFAULT_EXPOSURE_CONFIG.startAmount)
 
   // Render target for GAMEOBJECTS mask (used to exclude from dim effect)
   const gameObjectsMaskRef = useRef<THREE.WebGLRenderTarget | null>(null)
@@ -98,7 +99,6 @@ export const PostProcessingController = () => {
     sharpening: storedSharpening,
     shockwave: shockwaveConfig,
     grading: storedGrading,
-    exposure: storedExposure,
   } = starfieldConfig
   const registerUniform = useUniformStore((state) => state.registerUniform)
   const removeUniform = useUniformStore((state) => state.removeUniform)
@@ -238,7 +238,8 @@ export const PostProcessingController = () => {
                   {
                     gradingEnabled: {
                       value:
-                        storedGrading?.enabled ?? DEFAULT_GRADING_CONFIG.enabled,
+                        storedGrading?.enabled ??
+                        DEFAULT_GRADING_CONFIG.enabled,
                       label: "Enable Grading",
                     },
                     gradingBrightness: {
@@ -311,15 +312,14 @@ export const PostProcessingController = () => {
                       value: DEFAULT_EXPOSURE_CONFIG.enabled,
                       label: "Enable Exposure",
                     },
-                    exposureAmount: {
-                      value:
-                        storedExposure?.startAmount ??
-                        DEFAULT_EXPOSURE_CONFIG.amount,
+                    /*exposureAmount: {
+                      // Always show default amount (0) - startAmount only used for initial effect
+                      value: DEFAULT_EXPOSURE_CONFIG.amount,
                       min: -2,
                       max: 2,
                       step: 0.01,
                       label: "Exposure Amount",
-                    },
+                    },*/
                   },
                   { collapsed: true }
                 ),
@@ -360,11 +360,13 @@ export const PostProcessingController = () => {
             sharpeningEnabled:
               storedSharpening?.enabled ?? DEFAULT_SHARPENING_CONFIG.enabled,
             sharpeningIntensity:
-              storedSharpening?.intensity ?? DEFAULT_SHARPENING_CONFIG.intensity,
+              storedSharpening?.intensity ??
+              DEFAULT_SHARPENING_CONFIG.intensity,
             sharpeningRadius:
               storedSharpening?.radius ?? DEFAULT_SHARPENING_CONFIG.radius,
             sharpeningThreshold:
-              storedSharpening?.threshold ?? DEFAULT_SHARPENING_CONFIG.threshold,
+              storedSharpening?.threshold ??
+              DEFAULT_SHARPENING_CONFIG.threshold,
             ditheringEnabled:
               storedDithering?.enabled ?? DEFAULT_DITHERING_CONFIG.enabled,
             ditheringGridSize:
@@ -394,12 +396,11 @@ export const PostProcessingController = () => {
               storedGrading?.tintIntensity ??
               DEFAULT_GRADING_CONFIG.tintIntensity,
             tintContrast:
-              storedGrading?.tintContrast ?? DEFAULT_GRADING_CONFIG.tintContrast,
+              storedGrading?.tintContrast ??
+              DEFAULT_GRADING_CONFIG.tintContrast,
             tintColorPrimary: defaultTintPrimary,
             tintColorSecondary: defaultTintSecondary,
             exposureEnabled: DEFAULT_EXPOSURE_CONFIG.enabled,
-            exposureAmount:
-              storedExposure?.startAmount ?? DEFAULT_EXPOSURE_CONFIG.amount,
           },
     [
       showControls,
@@ -407,7 +408,6 @@ export const PostProcessingController = () => {
       storedSharpening,
       storedDithering,
       storedGrading,
-      storedExposure,
       palette,
       defaultTintPrimary,
       defaultTintSecondary,
@@ -452,7 +452,10 @@ export const PostProcessingController = () => {
   useEffect(() => {
     if (!scene || !camera || !composerReady) return
 
-    console.debug("[STARFIELD] PostProcessingController - Building Passes")
+    console.debug(
+      "[STARFIELD] PostProcessingController - Building Passes",
+      controls
+    )
 
     const composer = composerRef.current
     if (!composer) return
@@ -466,50 +469,13 @@ export const PostProcessingController = () => {
 
     const orderedEffectPasses: EffectPass[] = []
 
-    // 1. Bloom effect (commented out - not currently used)
-    // if (ppUniforms.bloomEnabled) {
-    //   let bloom = bloomEffectRef.current
-    //   if (!bloom) {
-    //     bloom = new BloomEffect({
-    //       luminanceThreshold: ppUniforms.bloomThreshold,
-    //       intensity: ppUniforms.bloomIntensity,
-    //       radius: ppUniforms.bloomRadius,
-    //       mipmapBlur: true,
-    //     })
-    //     bloomEffectRef.current = bloom
-    //   } else {
-    //     bloom.intensity = ppUniforms.bloomIntensity
-    //     bloom.mipmapBlurPass.radius = ppUniforms.bloomRadius
-    //     bloom.luminanceMaterial.threshold = ppUniforms.bloomThreshold
-    //   }
-
-    //   // Register bloom uniforms
-    //   registerUniform(
-    //     "ppBloomIntensity",
-    //     { value: bloom.intensity },
-    //     {
-    //       initial: ppUniforms.bloomIntensity,
-    //       meta: { effect: "bloom", property: "intensity" },
-    //     }
-    //   )
-    //   registeredUniforms.push("ppBloomIntensity")
-
-    //   if (!bloomPassRef.current) {
-    //     bloomPassRef.current = new EffectPass(camera, bloom)
-    //   }
-    //   orderedEffectPasses.push(bloomPassRef.current)
-    // } else {
-    //   removeUniform("ppBloomIntensity")
-    //   bloomPassRef.current = null
-    // }
-
     const layerDim = new LayerDimEffect({
       opacity: 1.0,
       maskTexture: gameObjectsMaskRef.current?.texture ?? null,
     })
     layerDimEffectRef.current = layerDim
 
-    // Register layer dim uniform
+    // Layer Dim
     const layerDimOpacityUniform = layerDim.uniforms.get("dimOpacity")
     if (layerDimOpacityUniform) {
       registerUniform("ppLayerDimOpacity", layerDimOpacityUniform, {
@@ -521,7 +487,7 @@ export const PostProcessingController = () => {
 
     orderedEffectPasses.push(new EffectPass(camera, layerDim))
 
-    // 3. Grading
+    // Tint
     if (controls.tintEnabled) {
       const primaryColor = new THREE.Color(controls.tintColorPrimary)
       const secondaryColor = new THREE.Color(controls.tintColorSecondary)
@@ -547,6 +513,7 @@ export const PostProcessingController = () => {
       tintEffectRef.current = null
     }
 
+    // Grading
     if (controls.gradingEnabled) {
       const brightnessContrast = new BrightnessContrastEffect({
         brightness: controls.gradingBrightness,
@@ -562,7 +529,7 @@ export const PostProcessingController = () => {
       composer.addPass(hueSaturationPass)
     }
 
-    // 4. Dithering effect (always on)
+    // Dithering effect (always on)
     const dither = new DitheringEffect({
       gridSize: controls.ditheringGridSize,
       pixelSizeRatio: controls.ditheringPixelSizeRatio,
@@ -593,7 +560,7 @@ export const PostProcessingController = () => {
 
     orderedEffectPasses.push(new EffectPass(camera, dither))
 
-    // 5. Sharpening
+    // Sharpening
     if (controls.sharpeningEnabled) {
       const sharpen = new SharpenEffect({
         intensity: controls.sharpeningIntensity,
@@ -608,27 +575,23 @@ export const PostProcessingController = () => {
     }
 
     // 6. Exposure - placed last for true fade to black
-    // exposureAmount is an offset: 0 = no change, positive = brighter, negative = darker
-    // Internal exposure value = 1.0 + exposureAmount
-    // startAmount: used on initial load (e.g., -1 for fade to black)
-    // amount (default 0): used as restore target after animations
     if (controls.exposureEnabled) {
-      const startExposure = 1.0 + controls.exposureAmount
-      const defaultExposure = 1.0 + DEFAULT_EXPOSURE_CONFIG.amount
-      const exposure = new ExposureEffect({ exposure: startExposure })
-      exposureEffectRef.current = exposure
-
       // Register exposure uniform
-      // Note: initial is set to defaultExposure (1.0) so animations restore to normal,
-      // even though we start at startExposure (which may be 0 for fade-from-black)
+      const exposure = new ExposureEffect({
+        exposure: exposureInitializedRef.current
+          ? DEFAULT_EXPOSURE_CONFIG.amount
+          : DEFAULT_EXPOSURE_CONFIG.startAmount,
+      })
       const exposureUniform = exposure.uniforms.get("exposure")
       if (exposureUniform) {
         registerUniform("ppExposure", exposureUniform, {
-          initial: defaultExposure,
+          initial: DEFAULT_EXPOSURE_CONFIG.amount,
           meta: { effect: "exposure", min: 0, max: 3, step: 0.01 },
         })
         registeredUniforms.push("ppExposure")
       }
+
+      exposureInitializedRef.current = DEFAULT_EXPOSURE_CONFIG.amount
 
       orderedEffectPasses.push(new EffectPass(camera, exposure))
     } else {

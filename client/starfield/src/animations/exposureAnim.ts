@@ -24,9 +24,7 @@ const DEFAULT_EXIT_TIME = 500
 // Exposure: 1.0 = normal, <1 = darker, >1 = brighter
 // Animates to target exposure value (e.g., fade to black)
 const PP_EXPOSURE: AnimatedPropertyConfig = {
-  target: 0.0, // Fade to black
-  start: 1,
-  end: 1,
+  target: 0.5, // Fade to black
   anim: {
     enter: { easing: easings.easeInQuad },
     exit: { easing: easings.easeOutQuad },

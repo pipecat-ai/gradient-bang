@@ -73,20 +73,10 @@ const TUNNEL_ROTATION_SPEED: AnimatedPropertyConfig = {
 // Post-processing
 // Exposure: 1.0 = normal, <1 = darker, >1 = brighter
 const PP_EXPOSURE: AnimatedPropertyConfig = {
-  target: 0.5, // 50% darker during hyperspace
+  target: 0.5,
   anim: {
     enter: {},
-    exit: { offset: 0.4 },
-  },
-}
-
-// Layer dim: 1.0 = no dimming, 0 = fully dimmed (black)
-// Dims background while keeping game objects visible
-const PP_LAYER_DIM_OPACITY: AnimatedPropertyConfig = {
-  target: 0.15, // Dim background significantly during hyperspace
-  anim: {
-    enter: { delay: 0.2, easing: easings.easeInQuad },
-    exit: { offset: 0.6 },
+    exit: { offset: 0.5 },
   },
 }
 
@@ -107,17 +97,22 @@ const PP_DITHERING = {
 // ============================================================================
 
 export function useHyperspaceAnimation(): DirectionalAnimationHook<
-  "enter" | "exit"
+  "enter" | "exit",
+  { initialExposure?: number }
 > {
   const setHyperspace = useAnimationStore((state) => state.setHyperspace)
   const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
 
-  const { hyperspaceEnterTime, hyperspaceExitTime } = useGameStore(
-    (state) => state.starfieldConfig
-  )
+  const { hyperspaceEnterTime, hyperspaceExitTime, tunnel: tunnelConfig } =
+    useGameStore((state) => state.starfieldConfig)
+
+  // Check if tunnel should be shown during warp
+  const shouldShowTunnel =
+    tunnelConfig?.enabled || tunnelConfig?.showDuringWarp !== false
 
   // Track animation direction for useFrame logic
   const directionRef = useRef<"enter" | "exit">("enter")
+  const exitExposureTargetRef = useRef(PP_EXPOSURE.target)
   // Track if shockwave has been triggered this animation cycle
   const shockwaveTriggeredRef = useRef(false)
 
@@ -139,60 +134,73 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
   })
 
   // Set all uniforms to their "in hyperspace" (progress=1) values
-  const setUniformsToHyperspace = useCallback(() => {
-    const { getUniform, updateUniform } = useUniformStore.getState()
+  const setUniformsToHyperspace = useCallback(
+    (initialExposure?: number) => {
+      const { getUniform, updateUniform } = useUniformStore.getState()
 
-    const cameraFov = getUniform<number>("cameraFov")
-    if (cameraFov) updateUniform(cameraFov, CAMERA_FOV.target)
+      const cameraFov = getUniform<number>("cameraFov")
+      if (cameraFov) updateUniform(cameraFov, CAMERA_FOV.target)
 
-    const tunnelOpacity = getUniform<number>("tunnelOpacity")
-    if (tunnelOpacity) updateUniform(tunnelOpacity, TUNNEL_OPACITY.target)
+      // Only animate tunnel if it should be shown
+      if (shouldShowTunnel) {
+        const tunnelOpacity = getUniform<number>("tunnelOpacity")
+        if (tunnelOpacity) updateUniform(tunnelOpacity, TUNNEL_OPACITY.target)
 
-    const tunnelContrast = getUniform<number>("tunnelContrast")
-    if (tunnelContrast) updateUniform(tunnelContrast, TUNNEL_CONTRAST.target)
+        const tunnelContrast = getUniform<number>("tunnelContrast")
+        if (tunnelContrast)
+          updateUniform(tunnelContrast, TUNNEL_CONTRAST.target)
 
-    const tunnelCenterHole = getUniform<number>("tunnelCenterHole")
-    if (tunnelCenterHole)
-      updateUniform(tunnelCenterHole, TUNNEL_CENTER_HOLE.target)
+        const tunnelCenterHole = getUniform<number>("tunnelCenterHole")
+        if (tunnelCenterHole)
+          updateUniform(tunnelCenterHole, TUNNEL_CENTER_HOLE.target)
 
-    const tunnelCenterSoftness = getUniform<number>("tunnelCenterSoftness")
-    if (tunnelCenterSoftness)
-      updateUniform(tunnelCenterSoftness, TUNNEL_CENTER_SOFTNESS.target)
+        const tunnelCenterSoftness = getUniform<number>("tunnelCenterSoftness")
+        if (tunnelCenterSoftness)
+          updateUniform(tunnelCenterSoftness, TUNNEL_CENTER_SOFTNESS.target)
 
-    const tunnelRotationSpeed = getUniform<number>("tunnelRotationSpeed")
-    if (tunnelRotationSpeed)
-      updateUniform(tunnelRotationSpeed, TUNNEL_ROTATION_SPEED.target)
+        const tunnelRotationSpeed = getUniform<number>("tunnelRotationSpeed")
+        if (tunnelRotationSpeed)
+          updateUniform(tunnelRotationSpeed, TUNNEL_ROTATION_SPEED.target)
+      }
 
-    const ppExposure = getUniform<number>("ppExposure")
-    if (ppExposure) updateUniform(ppExposure, PP_EXPOSURE.target)
+      const ppExposure = getUniform<number>("ppExposure")
+      if (ppExposure) {
+        updateUniform(ppExposure, initialExposure ?? PP_EXPOSURE.target)
+      }
 
-    const ppLayerDimOpacity = getUniform<number>("ppLayerDimOpacity")
-    if (ppLayerDimOpacity)
-      updateUniform(ppLayerDimOpacity, PP_LAYER_DIM_OPACITY.target)
+      const ppDitheringGridSize = getUniform<number>("ppDitheringGridSize")
+      if (ppDitheringGridSize)
+        updateUniform(
+          ppDitheringGridSize,
+          ppDitheringGridSize.initial! * PP_DITHERING.gridMultiplier
+        )
 
-    const ppDitheringGridSize = getUniform<number>("ppDitheringGridSize")
-    if (ppDitheringGridSize)
-      updateUniform(
-        ppDitheringGridSize,
-        ppDitheringGridSize.initial! * PP_DITHERING.gridMultiplier
+      const ppDitheringPixelSizeRatio = getUniform<number>(
+        "ppDitheringPixelSizeRatio"
       )
-
-    const ppDitheringPixelSizeRatio = getUniform<number>(
-      "ppDitheringPixelSizeRatio"
-    )
-    if (ppDitheringPixelSizeRatio)
-      updateUniform(
-        ppDitheringPixelSizeRatio,
-        ppDitheringPixelSizeRatio.initial! * PP_DITHERING.pixelMultiplier
-      )
-  }, [])
+      if (ppDitheringPixelSizeRatio)
+        updateUniform(
+          ppDitheringPixelSizeRatio,
+          ppDitheringPixelSizeRatio.initial! * PP_DITHERING.pixelMultiplier
+        )
+    },
+    [shouldShowTunnel]
+  )
 
   // Start function that triggers both store state and spring
   const start = useCallback(
-    (direction: "enter" | "exit", onComplete?: () => void) => {
+    (
+      direction: "enter" | "exit",
+      onComplete?: () => void,
+      overrides?: { initialExposure?: number }
+    ) => {
       directionRef.current = direction
       shockwaveTriggeredRef.current = false // Reset shockwave trigger for new animation
       setHyperspace(direction)
+      exitExposureTargetRef.current =
+        direction === "exit"
+          ? (overrides?.initialExposure ?? PP_EXPOSURE.target)
+          : PP_EXPOSURE.target
 
       if (direction === "enter") {
         console.debug("[STARFIELD] Hyperspace entering")
@@ -204,7 +212,7 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
         // If starting exit from idle state, snap to hyperspace first
         const current = progress.get()
         if (current < PROGRESS_THRESHOLD) {
-          setUniformsToHyperspace()
+          setUniformsToHyperspace(overrides?.initialExposure ?? undefined)
           setSpring(1)
         } else {
           console.debug("[STARFIELD] Hyperspace exiting")
@@ -243,70 +251,72 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
       )
     }
 
-    // --- Tunnel uniforms ---
-    const tunnelOpacity = getUniform<number>("tunnelOpacity")
-    if (tunnelOpacity) {
-      updateUniform(
-        tunnelOpacity,
-        lerpAnimatedProperty(
-          p,
-          isEntering,
-          tunnelOpacity.initial!,
-          TUNNEL_OPACITY
+    // --- Tunnel uniforms (only animate if tunnel should be shown) ---
+    if (shouldShowTunnel) {
+      const tunnelOpacity = getUniform<number>("tunnelOpacity")
+      if (tunnelOpacity) {
+        updateUniform(
+          tunnelOpacity,
+          lerpAnimatedProperty(
+            p,
+            isEntering,
+            tunnelOpacity.initial!,
+            TUNNEL_OPACITY
+          )
         )
-      )
-    }
+      }
 
-    const tunnelContrast = getUniform<number>("tunnelContrast")
-    if (tunnelContrast) {
-      updateUniform(
-        tunnelContrast,
-        lerpAnimatedProperty(
-          p,
-          isEntering,
-          tunnelContrast.initial!,
-          TUNNEL_CONTRAST
+      const tunnelContrast = getUniform<number>("tunnelContrast")
+      if (tunnelContrast) {
+        updateUniform(
+          tunnelContrast,
+          lerpAnimatedProperty(
+            p,
+            isEntering,
+            tunnelContrast.initial!,
+            TUNNEL_CONTRAST
+          )
         )
-      )
-    }
+      }
 
-    const tunnelCenterHole = getUniform<number>("tunnelCenterHole")
-    if (tunnelCenterHole) {
-      updateUniform(
-        tunnelCenterHole,
-        lerpAnimatedProperty(
-          p,
-          isEntering,
-          tunnelCenterHole.initial!,
-          TUNNEL_CENTER_HOLE
+      const tunnelCenterHole = getUniform<number>("tunnelCenterHole")
+      if (tunnelCenterHole) {
+        updateUniform(
+          tunnelCenterHole,
+          lerpAnimatedProperty(
+            p,
+            isEntering,
+            tunnelCenterHole.initial!,
+            TUNNEL_CENTER_HOLE
+          )
         )
-      )
-    }
+      }
 
-    const tunnelCenterSoftness = getUniform<number>("tunnelCenterSoftness")
-    if (tunnelCenterSoftness) {
-      updateUniform(
-        tunnelCenterSoftness,
-        lerpAnimatedProperty(
-          p,
-          isEntering,
-          tunnelCenterSoftness.initial!,
-          TUNNEL_CENTER_SOFTNESS
+      const tunnelCenterSoftness = getUniform<number>("tunnelCenterSoftness")
+      if (tunnelCenterSoftness) {
+        updateUniform(
+          tunnelCenterSoftness,
+          lerpAnimatedProperty(
+            p,
+            isEntering,
+            tunnelCenterSoftness.initial!,
+            TUNNEL_CENTER_SOFTNESS
+          )
         )
-      )
-    }
+      }
 
-    const tunnelRotationSpeed = getUniform<number>("tunnelRotationSpeed")
-    if (tunnelRotationSpeed) {
-      updateUniform(
-        tunnelRotationSpeed,
-        lerpAnimatedProperty(
-          p,
-          isEntering,
-          tunnelRotationSpeed.initial!,
-          TUNNEL_ROTATION_SPEED
+      const tunnelRotationSpeed = getUniform<number>("tunnelRotationSpeed")
+      if (tunnelRotationSpeed) {
+        updateUniform(
+          tunnelRotationSpeed,
+          lerpAnimatedProperty(
+            p,
+            isEntering,
+            tunnelRotationSpeed.initial!,
+            TUNNEL_ROTATION_SPEED
+          )
         )
-      )
+      }
     }
 
     // --- Post-processing: Exposure ---
@@ -314,25 +324,18 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
     // target is absolute exposure value during hyperspace
     const ppExposure = getUniform<number>("ppExposure")
     if (ppExposure) {
-      updateUniform(
-        ppExposure,
-        lerpAnimatedProperty(p, isEntering, ppExposure.initial!, PP_EXPOSURE)
+      const exposureConfig = {
+        ...PP_EXPOSURE,
+        target: exitExposureTargetRef.current,
+      }
+      const newValue = lerpAnimatedProperty(
+        p,
+        isEntering,
+        ppExposure.initial!,
+        exposureConfig
       )
-    }
 
-    // --- Post-processing: Layer Dim ---
-    // Dims background while keeping game objects visible via mask
-    const ppLayerDimOpacity = getUniform<number>("ppLayerDimOpacity")
-    if (ppLayerDimOpacity) {
-      updateUniform(
-        ppLayerDimOpacity,
-        lerpAnimatedProperty(
-          p,
-          isEntering,
-          ppLayerDimOpacity.initial!,
-          PP_LAYER_DIM_OPACITY
-        )
-      )
+      updateUniform(ppExposure, newValue)
     }
 
     // --- Dithering effect ---

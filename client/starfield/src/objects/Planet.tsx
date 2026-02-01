@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react"
+import { useMemo, useRef } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
@@ -6,27 +6,42 @@ import * as THREE from "three"
 import { useShallow } from "zustand/react/shallow"
 
 import { getPalette } from "@/colors"
-import { useTextureCache } from "@/utils/textureCache"
 import { LAYERS, PANEL_ORDERING } from "@/constants"
 import {
   shadowFragmentShader,
   shadowVertexShader,
 } from "@/fx/PlanetShadowShader"
-import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { useGameStore } from "@/useGameStore"
+import { useTextureCache } from "@/utils/textureCache"
 
 // Default planet config values
 const DEFAULT_PLANET_CONFIG = {
   enabled: true,
-  scale: 80,
+  scale: 60,
   opacity: 1,
-  position: { x: 0, y: 0 },
+  positionX: 0,
+  positionY: 0,
+  color: "#000000", // tint color -> palette.tint
   tintIntensity: 1,
   shadowEnabled: true,
   shadowRadius: 0.5,
   shadowOpacity: 0.7,
   shadowFalloff: 0.6,
+  base: "#000000", // shadow color -> palette.base
 }
+
+// Keys to sync to Leva when store changes
+const TRANSIENT_PROPERTIES = [
+  "enabled",
+  "scale",
+  "opacity",
+  "tintIntensity",
+  "shadowEnabled",
+  "shadowRadius",
+  "shadowOpacity",
+  "shadowFalloff",
+] as const
 
 export const Planet = () => {
   const showControls = useShowControls()
@@ -49,16 +64,6 @@ export const Planet = () => {
 
   // Get active palette (memoized to prevent unnecessary recalculations)
   const palette = useMemo(() => getPalette(paletteKey), [paletteKey])
-
-  // Default colors from palette (memoized to stabilize references)
-  const defaultTintColor = useMemo(
-    () => planetConfig?.tintColor ?? `#${palette.tint.getHexString()}`,
-    [planetConfig, palette]
-  )
-  const defaultShadowColor = useMemo(
-    () => planetConfig?.shadowColor ?? `#${palette.base.getHexString()}`,
-    [planetConfig, palette]
-  )
 
   const selectedImagePath = useMemo(() => {
     if (!skyboxAssets.length) return undefined
@@ -108,14 +113,26 @@ export const Planet = () => {
                       max: 1,
                       step: 0.01,
                     },
-                    position: {
+                    positionX: {
                       value:
-                        planetConfig?.position ??
-                        DEFAULT_PLANET_CONFIG.position,
+                        planetConfig?.position?.x ??
+                        DEFAULT_PLANET_CONFIG.positionX,
+                      min: -100,
+                      max: 100,
                       step: 1,
+                      label: "Position X",
                     },
-                    tintColor: {
-                      value: defaultTintColor,
+                    positionY: {
+                      value:
+                        planetConfig?.position?.y ??
+                        DEFAULT_PLANET_CONFIG.positionY,
+                      min: -100,
+                      max: 100,
+                      step: 1,
+                      label: "Position Y",
+                    },
+                    color: {
+                      value: `#${palette.tint.getHexString()}`,
                       label: "Tint Color",
                     },
                     tintIntensity: {
@@ -160,8 +177,8 @@ export const Planet = () => {
                       step: 0.1,
                       label: "Shadow Falloff",
                     },
-                    shadowColor: {
-                      value: defaultShadowColor,
+                    base: {
+                      value: `#${palette.base.getHexString()}`,
                       label: "Shadow Color",
                     },
                   },
@@ -174,103 +191,57 @@ export const Planet = () => {
         : {}) as Schema
   )
 
-  // Get values from Leva when showing controls, otherwise from config/defaults
-  const controls = useMemo(
-    () =>
-      showControls
-        ? (levaValues as typeof DEFAULT_PLANET_CONFIG & {
-            selectedImage: string
-            tintColor: string
-            shadowColor: string
-          })
-        : {
-            enabled: planetConfig?.enabled ?? DEFAULT_PLANET_CONFIG.enabled,
-            selectedImage: selectedImagePath ?? "",
-            scale: planetConfig?.scale ?? DEFAULT_PLANET_CONFIG.scale,
-            opacity: planetConfig?.opacity ?? DEFAULT_PLANET_CONFIG.opacity,
-            position: planetConfig?.position ?? DEFAULT_PLANET_CONFIG.position,
-            tintColor: defaultTintColor,
-            tintIntensity:
-              planetConfig?.tintIntensity ??
-              DEFAULT_PLANET_CONFIG.tintIntensity,
-            shadowEnabled:
-              planetConfig?.shadowEnabled ??
-              DEFAULT_PLANET_CONFIG.shadowEnabled,
-            shadowRadius:
-              planetConfig?.shadowRadius ?? DEFAULT_PLANET_CONFIG.shadowRadius,
-            shadowOpacity:
-              planetConfig?.shadowOpacity ??
-              DEFAULT_PLANET_CONFIG.shadowOpacity,
-            shadowFalloff:
-              planetConfig?.shadowFalloff ??
-              DEFAULT_PLANET_CONFIG.shadowFalloff,
-            shadowColor: defaultShadowColor,
-          },
-    [
-      showControls,
-      levaValues,
-      planetConfig,
-      selectedImagePath,
-      defaultTintColor,
-      defaultShadowColor,
-    ]
-  )
+  // Map planet config to match our defaults shape (flatten position)
+  const mappedSource = useMemo(() => {
+    if (!planetConfig) return undefined
+    return {
+      ...planetConfig,
+      positionX: planetConfig.position?.x,
+      positionY: planetConfig.position?.y,
+      color: planetConfig.tintColor,
+      base: planetConfig.shadowColor,
+    } as Partial<typeof DEFAULT_PLANET_CONFIG>
+  }, [planetConfig])
 
-  // Sync: palette changes -> Leva controls
-  useEffect(() => {
-    if (!showControls) return
-    try {
-      set({
-        tintColor: `#${palette.tint.getHexString()}`,
-        shadowColor: `#${palette.base.getHexString()}`,
-      })
-    } catch {
-      // Controls may not be mounted
-    }
-  }, [showControls, palette, set])
+  // Get stable config - hook handles all stabilization and palette colors
+  const controls = useControlSync({
+    source: mappedSource,
+    defaults: DEFAULT_PLANET_CONFIG,
+    palette,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<
+      typeof DEFAULT_PLANET_CONFIG & { selectedImage: string }
+    >,
+    set: set as (values: Partial<typeof DEFAULT_PLANET_CONFIG>) => void,
+  })
 
-  // Sync: store config -> Leva controls
-  useEffect(() => {
-    if (!showControls) return
-    if (!planetConfig) return
-    try {
-      // Omit imageIndex from leva config as we pass filename instead of index
-      const { imageIndex: _imageIndex, ...rest } = planetConfig
-      set({
-        ...rest,
-        selectedImage: selectedImagePath ?? "",
-        position: {
-          x: planetConfig.position?.x ?? 0,
-          y: planetConfig.position?.y ?? 0,
-        },
-      })
-    } catch {
-      // Controls may not be mounted
-    }
-  }, [showControls, planetConfig, selectedImagePath, set])
+  // Get selected image from Leva or fallback
+  const selectedImage = showControls
+    ? ((levaValues as { selectedImage?: string }).selectedImage ?? "")
+    : (selectedImagePath ?? "")
 
   // Get texture URL - prioritize Leva selection, then config, then first available
   const resolvedTextureUrl = useMemo(() => {
-    if (controls.selectedImage) return controls.selectedImage
+    if (selectedImage) return selectedImage
     if (selectedImagePath) return selectedImagePath
     if (skyboxAssets.length) return skyboxAssets[0].url
     return null
-  }, [skyboxAssets, controls.selectedImage, selectedImagePath])
+  }, [skyboxAssets, selectedImage, selectedImagePath])
 
   // Subscribe to texture cache - will re-render when texture becomes available
   const textureMap = useTextureCache((state) => state.textures)
-  
+
   // Get texture from cache (populated by AssetPreloader)
   // This avoids suspense when switching textures - just reads from cache
   const planetTexture = resolvedTextureUrl
-    ? textureMap.get(resolvedTextureUrl) ?? null
+    ? (textureMap.get(resolvedTextureUrl) ?? null)
     : null
 
   // Boosted tint color for vibrant effect with additive blending
   const boostedTintColor = useMemo(() => {
-    const color = new THREE.Color(controls.tintColor)
+    const color = new THREE.Color(controls.color)
     return color.multiplyScalar(controls.tintIntensity)
-  }, [controls.tintColor, controls.tintIntensity])
+  }, [controls.color, controls.tintIntensity])
 
   // Shadow material
   const shadowMaterial = useMemo(
@@ -282,7 +253,7 @@ export const Planet = () => {
           uRadius: { value: controls.shadowRadius },
           uOpacity: { value: controls.shadowOpacity },
           uFalloff: { value: controls.shadowFalloff },
-          uColor: { value: new THREE.Color(controls.shadowColor) },
+          uColor: { value: new THREE.Color(controls.base) },
         },
         transparent: true,
         depthTest: true,
@@ -290,7 +261,7 @@ export const Planet = () => {
         side: THREE.DoubleSide,
       }),
     [
-      controls.shadowColor,
+      controls.base,
       controls.shadowFalloff,
       controls.shadowOpacity,
       controls.shadowRadius,
@@ -313,8 +284,8 @@ export const Planet = () => {
   useFrame(() => {
     if (groupRef.current) {
       groupRef.current.position.set(
-        camera.position.x + controls.position.x,
-        camera.position.y + controls.position.y,
+        camera.position.x + controls.positionX,
+        camera.position.y + controls.positionY,
         camera.position.z - 100
       )
 

@@ -1,23 +1,25 @@
-import { useEffect, useMemo, useRef } from "react"
+import { useMemo, useRef } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
+import { useShallow } from "zustand/react/shallow"
 
 import { getPalette } from "@/colors"
 import { LAYERS, PANEL_ORDERING } from "@/constants"
-import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import {
   nebulaFragmentShader,
   nebulaVertexShader,
 } from "@/shaders/NebulaShader"
 import { useGameStore } from "@/useGameStore"
-import { useUniformStore } from "@/useUniformStore"
 
-// Default nebula config values
 const DEFAULT_NEBULA_CONFIG = {
   enabled: true,
   intensity: 0.8,
+  color: "#000000",
+  primaryColor: "#000000",
+  secondaryColor: "#000000",
   domainScale: 1,
   iterPrimary: 23,
   iterSecondary: 5,
@@ -30,43 +32,26 @@ const DEFAULT_NEBULA_CONFIG = {
   warpDecay: 5.0,
 }
 
+const TRANSIENT_PROPERTIES = [
+  "enabled",
+  "intensity",
+  "domainScale",
+  "iterPrimary",
+  "iterSecondary",
+  "warpDecay",
+] as const
+
 export const Nebula = () => {
-  const showControls = useShowControls()
   const meshRef = useRef<THREE.Mesh>(null)
   const { camera, size } = useThree()
-  const starfieldConfig = useGameStore((state) => state.starfieldConfig)
-  const { nebula: nebulaConfig } = starfieldConfig
-  const registerUniform = useUniformStore((state) => state.registerUniform)
-  const removeUniform = useUniformStore((state) => state.removeUniform)
-
-  // Get active palette (memoized to prevent unnecessary recalculations)
-  const palette = useMemo(
-    () => getPalette(starfieldConfig.palette),
-    [starfieldConfig.palette]
+  const { nebula: nebulaConfig } = useGameStore(
+    useShallow((state) => ({
+      nebula: state.starfieldConfig.nebula,
+    }))
   )
-
-  // Default colors from palette (memoized to stabilize references)
-  const defaultColor = useMemo(
-    () =>
-      nebulaConfig?.color
-        ? `#${new THREE.Color(nebulaConfig.color).getHexString()}`
-        : `#${palette.tint.getHexString()}`,
-    [nebulaConfig, palette]
-  )
-  const defaultPrimaryColor = useMemo(
-    () =>
-      nebulaConfig?.primaryColor
-        ? `#${new THREE.Color(nebulaConfig.primaryColor).getHexString()}`
-        : `#${palette.c1.getHexString()}`,
-    [nebulaConfig, palette]
-  )
-  const defaultSecondaryColor = useMemo(
-    () =>
-      nebulaConfig?.secondaryColor
-        ? `#${new THREE.Color(nebulaConfig.secondaryColor).getHexString()}`
-        : `#${palette.c2.getHexString()}`,
-    [nebulaConfig, palette]
-  )
+  const paletteKey = useGameStore((state) => state.starfieldConfig.palette)
+  const palette = useMemo(() => getPalette(paletteKey), [paletteKey])
+  const showControls = useShowControls()
 
   // Leva controls for all nebula uniforms with palette cascade
   const [levaValues, set] = useControls(
@@ -92,15 +77,15 @@ export const Nebula = () => {
                       label: "Intensity",
                     },
                     color: {
-                      value: defaultColor,
+                      value: `#${palette.tint.getHexString()}`,
                       label: "Global Tint",
                     },
                     primaryColor: {
-                      value: defaultPrimaryColor,
+                      value: `#${palette.c1.getHexString()}`,
                       label: "Primary Color",
                     },
                     secondaryColor: {
-                      value: defaultSecondaryColor,
+                      value: `#${palette.c2.getHexString()}`,
                       label: "Secondary Color",
                     },
                     domainScale: {
@@ -132,7 +117,7 @@ export const Nebula = () => {
                     },
                     rotationX: {
                       value:
-                        nebulaConfig?.rotation?.[0] ??
+                        nebulaConfig?.rotationX ??
                         DEFAULT_NEBULA_CONFIG.rotationX,
                       min: -Math.PI,
                       max: Math.PI,
@@ -141,7 +126,7 @@ export const Nebula = () => {
                     },
                     rotationY: {
                       value:
-                        nebulaConfig?.rotation?.[1] ??
+                        nebulaConfig?.rotationY ??
                         DEFAULT_NEBULA_CONFIG.rotationY,
                       min: -Math.PI,
                       max: Math.PI,
@@ -150,7 +135,7 @@ export const Nebula = () => {
                     },
                     rotationZ: {
                       value:
-                        nebulaConfig?.rotation?.[2] ??
+                        nebulaConfig?.rotationZ ??
                         DEFAULT_NEBULA_CONFIG.rotationZ,
                       min: -Math.PI,
                       max: Math.PI,
@@ -197,92 +182,14 @@ export const Nebula = () => {
         : {}) as Schema
   )
 
-  // Get values from Leva when showing controls, otherwise from config/defaults
-  const controls = useMemo(
-    () =>
-      showControls
-        ? (levaValues as typeof DEFAULT_NEBULA_CONFIG & {
-            color: string
-            primaryColor: string
-            secondaryColor: string
-          })
-        : {
-            enabled: nebulaConfig?.enabled ?? DEFAULT_NEBULA_CONFIG.enabled,
-            intensity:
-              nebulaConfig?.intensity ?? DEFAULT_NEBULA_CONFIG.intensity,
-            color: defaultColor,
-            primaryColor: defaultPrimaryColor,
-            secondaryColor: defaultSecondaryColor,
-            domainScale:
-              nebulaConfig?.domainScale ?? DEFAULT_NEBULA_CONFIG.domainScale,
-            iterPrimary:
-              nebulaConfig?.iterPrimary ?? DEFAULT_NEBULA_CONFIG.iterPrimary,
-            iterSecondary:
-              nebulaConfig?.iterSecondary ??
-              DEFAULT_NEBULA_CONFIG.iterSecondary,
-            rotationX:
-              nebulaConfig?.rotation?.[0] ?? DEFAULT_NEBULA_CONFIG.rotationX,
-            rotationY:
-              nebulaConfig?.rotation?.[1] ?? DEFAULT_NEBULA_CONFIG.rotationY,
-            rotationZ:
-              nebulaConfig?.rotation?.[2] ?? DEFAULT_NEBULA_CONFIG.rotationZ,
-            warpOffsetX: DEFAULT_NEBULA_CONFIG.warpOffsetX,
-            warpOffsetY: DEFAULT_NEBULA_CONFIG.warpOffsetY,
-            warpOffsetZ: DEFAULT_NEBULA_CONFIG.warpOffsetZ,
-            warpDecay:
-              nebulaConfig?.warpDecay ?? DEFAULT_NEBULA_CONFIG.warpDecay,
-          },
-    [
-      showControls,
-      levaValues,
-      nebulaConfig,
-      defaultColor,
-      defaultPrimaryColor,
-      defaultSecondaryColor,
-    ]
-  )
-
-  // Sync palette changes to Leva controls
-  useEffect(() => {
-    if (!showControls) return
-    if (
-      !nebulaConfig?.color &&
-      !nebulaConfig?.primaryColor &&
-      !nebulaConfig?.secondaryColor
-    ) {
-      try {
-        set({
-          color: `#${palette.tint.getHexString()}`,
-          primaryColor: `#${palette.c1.getHexString()}`,
-          secondaryColor: `#${palette.c2.getHexString()}`,
-        })
-      } catch {
-        // Controls may not be mounted
-      }
-    }
-  }, [showControls, starfieldConfig.palette, palette, nebulaConfig, set])
-
-  // Sync nebula config changes to Leva controls (only set defined values, let Leva keep defaults)
-  useEffect(() => {
-    if (!showControls) return
-    if (!nebulaConfig) return
-    const updates: Record<string, number> = {}
-    if (nebulaConfig.intensity !== undefined)
-      updates.intensity = nebulaConfig.intensity
-    if (nebulaConfig.domainScale !== undefined)
-      updates.domainScale = nebulaConfig.domainScale
-    if (nebulaConfig.iterPrimary !== undefined)
-      updates.iterPrimary = nebulaConfig.iterPrimary
-    if (nebulaConfig.iterSecondary !== undefined)
-      updates.iterSecondary = nebulaConfig.iterSecondary
-    if (nebulaConfig.warpDecay !== undefined)
-      updates.warpDecay = nebulaConfig.warpDecay
-    try {
-      set(updates)
-    } catch {
-      // Controls may not be mounted
-    }
-  }, [showControls, nebulaConfig, set])
+  const controls = useControlSync({
+    source: nebulaConfig as Partial<typeof DEFAULT_NEBULA_CONFIG> | undefined,
+    defaults: DEFAULT_NEBULA_CONFIG,
+    palette,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<typeof DEFAULT_NEBULA_CONFIG>,
+    set: set as (values: Partial<typeof DEFAULT_NEBULA_CONFIG>) => void,
+  })
 
   // Create shader material with uniforms from controls
   const material = useMemo(() => {
@@ -335,21 +242,6 @@ export const Nebula = () => {
       fog: false,
     })
   }, [size, controls])
-
-  // Register animated uniforms with the uniform registry
-  useEffect(() => {
-    const mat = material
-    if (!mat.uniforms) return
-
-    registerUniform("nebulaDomainScale", mat.uniforms.domainScale, {
-      initial: controls.domainScale,
-      meta: { effect: "nebula", min: 0.1, max: 10, step: 0.1 },
-    })
-
-    return () => {
-      removeUniform("nebulaDomainScale")
-    }
-  }, [material, controls.domainScale, registerUniform, removeUniform])
 
   // Fix sphere to camera position so it doesn't move when zooming/dollying
   useFrame(() => {

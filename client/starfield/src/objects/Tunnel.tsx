@@ -5,7 +5,7 @@ import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 
 import { LAYERS, PANEL_ORDERING } from "@/constants"
-import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import {
   tunnelFragmentShader,
   tunnelVertexShader,
@@ -21,7 +21,7 @@ const DEFAULT_TUNNEL_CONFIG = {
   rotationSpeed: 0,
   tunnelDepth: 0.4,
   color: "#FFFFFF",
-  blendMode: "additive" as const,
+  blendMode: "additive" as "additive" | "normal" | "multiply" | "screen",
   noiseAnimationSpeed: 0,
   opacity: 0,
   contrast: 3,
@@ -31,23 +31,43 @@ const DEFAULT_TUNNEL_CONFIG = {
   followCamera: true,
 }
 
+// Keys to sync to Leva when store changes
+const TRANSIENT_PROPERTIES = [
+  "enabled",
+  "showDuringWarp",
+  "speed",
+  "rotationSpeed",
+  "tunnelDepth",
+  "color",
+  "blendMode",
+  "noiseAnimationSpeed",
+  "opacity",
+  "contrast",
+  "centerHole",
+  "centerSoftness",
+  "pixelation",
+] as const
+
 export const Tunnel = () => {
   const showControls = useShowControls()
   const meshRef = useRef<THREE.Mesh>(null)
   const rotationAngleRef = useRef(0)
   const { camera, invalidate } = useThree()
   const tunnelConfig = useGameStore((state) => state.starfieldConfig.tunnel)
+  const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const registerUniform = useUniformStore((state) => state.registerUniform)
   const removeUniform = useUniformStore((state) => state.removeUniform)
 
-  // Default color from config (memoized to stabilize reference)
-  const defaultColor = useMemo(
-    () =>
-      tunnelConfig?.color
+  // Map source config to match defaults structure (convert color to hex string)
+  const mappedSource = useMemo(() => {
+    if (!tunnelConfig) return undefined
+    return {
+      ...tunnelConfig,
+      color: tunnelConfig.color
         ? `#${new THREE.Color(tunnelConfig.color).getHexString()}`
-        : DEFAULT_TUNNEL_CONFIG.color,
-    [tunnelConfig]
-  )
+        : undefined,
+    } as Partial<typeof DEFAULT_TUNNEL_CONFIG>
+  }, [tunnelConfig])
 
   const [levaValues, set] = useControls(
     () =>
@@ -94,7 +114,7 @@ export const Tunnel = () => {
                       label: "Tunnel Depth",
                     },
                     color: {
-                      value: defaultColor,
+                      value: mappedSource?.color ?? DEFAULT_TUNNEL_CONFIG.color,
                       label: "Tunnel Color",
                     },
                     blendMode: {
@@ -171,57 +191,46 @@ export const Tunnel = () => {
         : {}) as Schema
   )
 
-  // Get values from Leva when showing controls, otherwise from config/defaults
-  const controls = useMemo(
-    () =>
-      showControls
-        ? (levaValues as typeof DEFAULT_TUNNEL_CONFIG)
-        : {
-            enabled: tunnelConfig?.enabled ?? DEFAULT_TUNNEL_CONFIG.enabled,
-            showDuringWarp:
-              tunnelConfig?.showDuringWarp ??
-              DEFAULT_TUNNEL_CONFIG.showDuringWarp,
-            speed: tunnelConfig?.speed ?? DEFAULT_TUNNEL_CONFIG.speed,
-            rotationSpeed:
-              tunnelConfig?.rotationSpeed ??
-              DEFAULT_TUNNEL_CONFIG.rotationSpeed,
-            tunnelDepth:
-              tunnelConfig?.tunnelDepth ?? DEFAULT_TUNNEL_CONFIG.tunnelDepth,
-            color: defaultColor,
-            blendMode:
-              tunnelConfig?.blendMode ?? DEFAULT_TUNNEL_CONFIG.blendMode,
-            noiseAnimationSpeed:
-              tunnelConfig?.noiseAnimationSpeed ??
-              DEFAULT_TUNNEL_CONFIG.noiseAnimationSpeed,
-            opacity: tunnelConfig?.opacity ?? DEFAULT_TUNNEL_CONFIG.opacity,
-            contrast: tunnelConfig?.contrast ?? DEFAULT_TUNNEL_CONFIG.contrast,
-            centerHole:
-              tunnelConfig?.centerHole ?? DEFAULT_TUNNEL_CONFIG.centerHole,
-            centerSoftness:
-              tunnelConfig?.centerSoftness ??
-              DEFAULT_TUNNEL_CONFIG.centerSoftness,
-            pixelation:
-              tunnelConfig?.pixelation ?? DEFAULT_TUNNEL_CONFIG.pixelation,
-            followCamera: DEFAULT_TUNNEL_CONFIG.followCamera,
-          },
-    [showControls, levaValues, tunnelConfig, defaultColor]
-  )
+  // Get stable config - hook handles all stabilization (no palette for Tunnel)
+  const controls = useControlSync({
+    source: mappedSource,
+    defaults: DEFAULT_TUNNEL_CONFIG,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<typeof DEFAULT_TUNNEL_CONFIG>,
+    set: set as (values: Partial<typeof DEFAULT_TUNNEL_CONFIG>) => void,
+  })
 
-  // Sync: store config -> Leva controls
+  // Sync behavior flags from Leva back to store (so animations can read them)
+  const prevBehaviorRef = useRef({
+    enabled: controls.enabled,
+    showDuringWarp: controls.showDuringWarp,
+  })
   useEffect(() => {
     if (!showControls) return
-    if (!tunnelConfig) return
-    try {
-      // Don't spread tunnelConfig directly - only set properties that exist in Leva
-      const { ...rest } = tunnelConfig
-      set({
-        ...rest,
-        color: defaultColor,
+    const prev = prevBehaviorRef.current
+    const hasChanged =
+      prev.enabled !== controls.enabled ||
+      prev.showDuringWarp !== controls.showDuringWarp
+    if (hasChanged) {
+      prevBehaviorRef.current = {
+        enabled: controls.enabled,
+        showDuringWarp: controls.showDuringWarp,
+      }
+      setStarfieldConfig({
+        tunnel: {
+          ...tunnelConfig,
+          enabled: controls.enabled,
+          showDuringWarp: controls.showDuringWarp,
+        },
       })
-    } catch {
-      // Controls may not be mounted
     }
-  }, [showControls, tunnelConfig, defaultColor, set])
+  }, [
+    showControls,
+    controls.enabled,
+    controls.showDuringWarp,
+    tunnelConfig,
+    setStarfieldConfig,
+  ])
 
   const getBlendMode = (mode: string) => {
     switch (mode) {
@@ -349,6 +358,12 @@ export const Tunnel = () => {
       invalidate()
     }
   })
+
+  // If both flags are disabled, don't render at all
+  // Note: This bypasses shader pre-compilation, but respects explicit user choice
+  if (!controls.enabled && !controls.showDuringWarp) {
+    return null
+  }
 
   // Always mount and render the mesh to pre-compile the shader
   // Visibility is handled via opacity in useFrame (0 when not active)

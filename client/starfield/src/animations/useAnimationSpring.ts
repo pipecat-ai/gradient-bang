@@ -1,5 +1,5 @@
-import { useRef, useCallback } from "react"
-import { useSpring, SpringValue } from "@react-spring/three"
+import { useCallback, useRef } from "react"
+import { SpringValue, useSpring } from "@react-spring/three"
 import { invalidate } from "@react-three/fiber"
 
 import { useAnimationStore } from "@/useAnimationStore"

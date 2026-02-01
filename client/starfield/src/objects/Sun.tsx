@@ -6,7 +6,7 @@ import * as THREE from "three"
 
 import { getPalette } from "@/colors"
 import { LAYERS, PANEL_ORDERING } from "@/constants"
-import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { sunFragmentShader, sunVertexShader } from "@/shaders/SunShader"
 import { useGameStore } from "@/useGameStore"
 import { createValueNoiseTexture } from "@/utils/noise"
@@ -17,41 +17,35 @@ const sunNoiseTexture = createValueNoiseTexture(256)
 const DEFAULT_SUN_CONFIG = {
   enabled: true,
   scale: 100,
-  intensity: 1.2,
-  positionX: -40,
+  intensity: 0.5,
+  primaryColor: "#000000", // core color -> palette.c1
+  secondaryColor: "#000000", // corona color -> palette.c2
+  positionX: 30,
   positionY: 30,
   positionZ: -80,
 }
+
+// Keys to sync to Leva when store changes
+const TRANSIENT_PROPERTIES = [
+  "enabled",
+  "scale",
+  "intensity",
+  "positionX",
+  "positionY",
+  "positionZ",
+] as const
 
 export const Sun = () => {
   const showControls = useShowControls()
   const groupRef = useRef<THREE.Group>(null)
   const materialRef = useRef<THREE.ShaderMaterial | null>(null)
   const { camera } = useThree()
-  const starfieldConfig = useGameStore((state) => state.starfieldConfig)
-  const { sun: sunConfig } = starfieldConfig
+  const { sun: sunConfig, palette: paletteKey } = useGameStore(
+    (state) => state.starfieldConfig
+  )
 
   // Get active palette (memoized to prevent unnecessary recalculations)
-  const palette = useMemo(
-    () => getPalette(starfieldConfig.palette),
-    [starfieldConfig.palette]
-  )
-
-  // Default colors from palette (memoized to stabilize references)
-  const defaultCoreColor = useMemo(
-    () =>
-      sunConfig?.color
-        ? `#${new THREE.Color(sunConfig.color).getHexString()}`
-        : `#${palette.c1.getHexString()}`,
-    [sunConfig, palette]
-  )
-  const defaultCoronaColor = useMemo(
-    () =>
-      sunConfig?.coronaColor
-        ? `#${new THREE.Color(sunConfig.coronaColor).getHexString()}`
-        : `#${palette.c2.getHexString()}`,
-    [sunConfig, palette]
-  )
+  const palette = useMemo(() => getPalette(paletteKey), [paletteKey])
 
   // Leva controls for all sun parameters with palette cascade
   const [levaValues, set] = useControls(
@@ -81,12 +75,12 @@ export const Sun = () => {
                       step: 0.1,
                       label: "Intensity",
                     },
-                    coreColor: {
-                      value: defaultCoreColor,
+                    primaryColor: {
+                      value: `#${palette.c1.getHexString()}`,
                       label: "Core Color",
                     },
-                    coronaColor: {
-                      value: defaultCoronaColor,
+                    secondaryColor: {
+                      value: `#${palette.c2.getHexString()}`,
                       label: "Corona Color",
                     },
                     positionX: {
@@ -123,55 +117,32 @@ export const Sun = () => {
         : {}) as Schema
   )
 
-  // Get values from Leva when showing controls, otherwise from config/defaults
-  const controls = useMemo(
-    () =>
-      showControls
-        ? (levaValues as typeof DEFAULT_SUN_CONFIG & {
-            coreColor: string
-            coronaColor: string
-          })
-        : {
-            enabled: sunConfig?.enabled ?? DEFAULT_SUN_CONFIG.enabled,
-            scale: sunConfig?.scale ?? DEFAULT_SUN_CONFIG.scale,
-            intensity: sunConfig?.intensity ?? DEFAULT_SUN_CONFIG.intensity,
-            coreColor: defaultCoreColor,
-            coronaColor: defaultCoronaColor,
-            positionX: sunConfig?.position?.x ?? DEFAULT_SUN_CONFIG.positionX,
-            positionY: sunConfig?.position?.y ?? DEFAULT_SUN_CONFIG.positionY,
-            positionZ: sunConfig?.position?.z ?? DEFAULT_SUN_CONFIG.positionZ,
-          },
-    [showControls, levaValues, sunConfig, defaultCoreColor, defaultCoronaColor]
-  )
+  // Map sun config to match our defaults shape (flatten position, rename colors)
+  const mappedSource = useMemo(() => {
+    if (!sunConfig) return undefined
+    return {
+      ...sunConfig,
+      positionX: sunConfig.position?.x,
+      positionY: sunConfig.position?.y,
+      positionZ: sunConfig.position?.z,
+      primaryColor: sunConfig.color
+        ? `#${new THREE.Color(sunConfig.color).getHexString()}`
+        : undefined,
+      secondaryColor: sunConfig.coronaColor
+        ? `#${new THREE.Color(sunConfig.coronaColor).getHexString()}`
+        : undefined,
+    } as Partial<typeof DEFAULT_SUN_CONFIG>
+  }, [sunConfig])
 
-  // Sync palette changes to Leva controls
-  useEffect(() => {
-    if (!showControls) return
-    if (!sunConfig?.color && !sunConfig?.coronaColor) {
-      try {
-        set({
-          coreColor: `#${palette.c1.getHexString()}`,
-          coronaColor: `#${palette.c2.getHexString()}`,
-        })
-      } catch {
-        // Controls may not be mounted
-      }
-    }
-  }, [showControls, starfieldConfig.palette, palette, sunConfig, set])
-
-  // Sync sun config changes to Leva controls (only set defined values, let Leva keep defaults)
-  useEffect(() => {
-    if (!showControls) return
-    if (!sunConfig) return
-    const updates: Record<string, number> = {}
-    if (sunConfig.intensity !== undefined)
-      updates.intensity = sunConfig.intensity
-    try {
-      set(updates)
-    } catch {
-      // Controls may not be mounted
-    }
-  }, [showControls, sunConfig, set])
+  // Get stable config - hook handles all stabilization and palette colors
+  const controls = useControlSync({
+    source: mappedSource,
+    defaults: DEFAULT_SUN_CONFIG,
+    palette,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<typeof DEFAULT_SUN_CONFIG>,
+    set: set as (values: Partial<typeof DEFAULT_SUN_CONFIG>) => void,
+  })
 
   // Create shader material for the sun (only once)
   const sunMaterial = useMemo(() => {
@@ -223,8 +194,8 @@ export const Sun = () => {
     material.uniforms.uIntensity.value = controls.intensity
     material.uniforms.uScale.value = controls.scale
 
-    const coreColorObj = new THREE.Color(controls.coreColor)
-    const coronaColorObj = new THREE.Color(controls.coronaColor)
+    const coreColorObj = new THREE.Color(controls.primaryColor)
+    const coronaColorObj = new THREE.Color(controls.secondaryColor)
     material.uniforms.uCoreColor.value.set(
       coreColorObj.r,
       coreColorObj.g,

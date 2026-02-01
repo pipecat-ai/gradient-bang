@@ -52,7 +52,7 @@ export const Port = ({
   // Shadow props
   shadowEnabled = true,
   shadowRadius = 1,
-  shadowOpacity = 0.4,
+  shadowOpacity = 0.6,
   shadowFalloff = 1,
   shadowColor,
   // Billboard mode
@@ -110,7 +110,7 @@ export const Port = ({
 
   // Get texture from cache (populated by AssetPreloader)
   const texture = resolvedImageUrl
-    ? textureMap.get(resolvedImageUrl) ?? null
+    ? (textureMap.get(resolvedImageUrl) ?? null)
     : null
   const hasTexture = texture !== null
 

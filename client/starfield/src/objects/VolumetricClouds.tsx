@@ -6,7 +6,7 @@ import * as THREE from "three"
 
 import { getPalette } from "@/colors"
 import { PANEL_ORDERING } from "@/constants"
-import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { useGameStore } from "@/useGameStore"
 import { seededRandom } from "@/utils/math"
 
@@ -44,28 +44,33 @@ const DEFAULT_CLOUDS_CONFIG = {
   radius: 300,
   size: 400,
   opacity: 0.03,
-  blendMode: "normal" as const,
+  color: "#000000", // -> palette.tint
+  blendMode: "normal" as "normal" | "additive",
   minDistance: 10.0,
   fadeRange: 3.0,
 }
 
+// Keys to sync to Leva when store changes
+const TRANSIENT_PROPERTIES = [
+  "enabled",
+  "count",
+  "radius",
+  "size",
+  "opacity",
+  "blendMode",
+  "minDistance",
+  "fadeRange",
+] as const
+
 export const VolumetricClouds = () => {
   const showControls = useShowControls()
-  const starfieldConfig = useGameStore((state) => state.starfieldConfig)
-  const { volumetricClouds: cloudsConfig } = starfieldConfig
+  const { volumetricClouds: cloudsConfig, palette: paletteKey } = useGameStore(
+    (state) => state.starfieldConfig
+  )
   const materialRef = useRef<THREE.PointsMaterial>(null)
 
   // Get active palette (memoized to prevent unnecessary recalculations)
-  const palette = useMemo(
-    () => getPalette(starfieldConfig.palette),
-    [starfieldConfig.palette]
-  )
-
-  // Default color from palette (memoized to stabilize references)
-  const defaultColor = useMemo(
-    () => cloudsConfig?.color ?? `#${palette.tint.getHexString()}`,
-    [cloudsConfig, palette]
-  )
+  const palette = useMemo(() => getPalette(paletteKey), [paletteKey])
 
   const [levaValues, set] = useControls(
     () =>
@@ -111,7 +116,7 @@ export const VolumetricClouds = () => {
                       label: "Opacity",
                     },
                     color: {
-                      value: defaultColor,
+                      value: `#${palette.tint.getHexString()}`,
                       label: "Color",
                     },
                     blendMode: {
@@ -152,27 +157,15 @@ export const VolumetricClouds = () => {
         : {}) as Schema
   )
 
-  // Get values from Leva when showing controls, otherwise from config/defaults
-  const controls = useMemo(
-    () =>
-      showControls
-        ? (levaValues as typeof DEFAULT_CLOUDS_CONFIG & { color: string })
-        : {
-            enabled: cloudsConfig?.enabled ?? DEFAULT_CLOUDS_CONFIG.enabled,
-            count: cloudsConfig?.count ?? DEFAULT_CLOUDS_CONFIG.count,
-            radius: cloudsConfig?.radius ?? DEFAULT_CLOUDS_CONFIG.radius,
-            size: cloudsConfig?.size ?? DEFAULT_CLOUDS_CONFIG.size,
-            opacity: cloudsConfig?.opacity ?? DEFAULT_CLOUDS_CONFIG.opacity,
-            color: defaultColor,
-            blendMode:
-              cloudsConfig?.blendMode ?? DEFAULT_CLOUDS_CONFIG.blendMode,
-            minDistance:
-              cloudsConfig?.minDistance ?? DEFAULT_CLOUDS_CONFIG.minDistance,
-            fadeRange:
-              cloudsConfig?.fadeRange ?? DEFAULT_CLOUDS_CONFIG.fadeRange,
-          },
-    [showControls, levaValues, cloudsConfig, defaultColor]
-  )
+  // Get stable config - hook handles all stabilization and palette colors
+  const controls = useControlSync({
+    source: cloudsConfig as Partial<typeof DEFAULT_CLOUDS_CONFIG> | undefined,
+    defaults: DEFAULT_CLOUDS_CONFIG,
+    palette,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<typeof DEFAULT_CLOUDS_CONFIG>,
+    set: set as (values: Partial<typeof DEFAULT_CLOUDS_CONFIG>) => void,
+  })
 
   useEffect(() => {
     if (materialRef.current && materialRef.current.userData.shader) {
@@ -181,18 +174,6 @@ export const VolumetricClouds = () => {
       shader.uniforms.fadeRange.value = controls.fadeRange
     }
   }, [controls.minDistance, controls.fadeRange])
-
-  // Sync palette changes to Leva controls
-  useEffect(() => {
-    if (!showControls) return
-    if (!cloudsConfig?.color) {
-      try {
-        set({ color: `#${palette.tint.getHexString()}` })
-      } catch {
-        // Controls may not be mounted
-      }
-    }
-  }, [showControls, starfieldConfig.palette, palette, cloudsConfig, set])
 
   // Generate random positions within a sphere with cloud-like clustering
   const positions = useMemo(() => {

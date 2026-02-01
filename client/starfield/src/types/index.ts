@@ -152,11 +152,13 @@ export interface NebulaConfig {
   domainScale: number
   iterPrimary: number
   iterSecondary: number
-  seed1: number
-  seed2: number
-  seed3: number
-  rotation: [number, number, number]
+  rotationX: number
+  rotationY: number
+  rotationZ: number
   warpDecay: number
+  warpOffsetX: number
+  warpOffsetY: number
+  warpOffsetZ: number
 }
 
 /**

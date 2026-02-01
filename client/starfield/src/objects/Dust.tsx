@@ -5,7 +5,7 @@ import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 
 import { PANEL_ORDERING } from "@/constants"
-import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { useGameStore } from "@/useGameStore"
 import { seededRandom } from "@/utils/math"
 
@@ -20,12 +20,15 @@ const DEFAULT_DUST_CONFIG = {
   fadeRange: 5.0,
 }
 
+// Keys to sync to Leva when store changes
+const TRANSIENT_PROPERTIES = ["enabled"] as const
+
 export const Dust = () => {
   const showControls = useShowControls()
   const { dust: dustConfig } = useGameStore((state) => state.starfieldConfig)
   const materialRef = useRef<THREE.PointsMaterial>(null)
 
-  const [levaValues] = useControls(
+  const [levaValues, set] = useControls(
     () =>
       (showControls
         ? {
@@ -34,8 +37,7 @@ export const Dust = () => {
                 Dust: folder(
                   {
                     enabled: {
-                      value:
-                        dustConfig?.enabled ?? DEFAULT_DUST_CONFIG.enabled,
+                      value: dustConfig?.enabled ?? DEFAULT_DUST_CONFIG.enabled,
                       label: "Enable Dust",
                     },
                     count: {
@@ -93,23 +95,14 @@ export const Dust = () => {
         : {}) as Schema
   )
 
-  // Get values from Leva when showing controls, otherwise from config/defaults
-  const controls = useMemo(
-    () =>
-      showControls
-        ? (levaValues as typeof DEFAULT_DUST_CONFIG)
-        : {
-            enabled: dustConfig?.enabled ?? DEFAULT_DUST_CONFIG.enabled,
-            count: dustConfig?.count ?? DEFAULT_DUST_CONFIG.count,
-            radius: dustConfig?.radius ?? DEFAULT_DUST_CONFIG.radius,
-            size: dustConfig?.size ?? DEFAULT_DUST_CONFIG.size,
-            opacity: dustConfig?.opacity ?? DEFAULT_DUST_CONFIG.opacity,
-            minDistance:
-              dustConfig?.minDistance ?? DEFAULT_DUST_CONFIG.minDistance,
-            fadeRange: dustConfig?.fadeRange ?? DEFAULT_DUST_CONFIG.fadeRange,
-          },
-    [showControls, levaValues, dustConfig]
-  )
+  // Get stable config - hook handles all stabilization internally
+  const controls = useControlSync({
+    source: dustConfig as Partial<typeof DEFAULT_DUST_CONFIG> | undefined,
+    defaults: DEFAULT_DUST_CONFIG,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<typeof DEFAULT_DUST_CONFIG>,
+    set: set as (values: Partial<typeof DEFAULT_DUST_CONFIG>) => void,
+  })
 
   useEffect(() => {
     if (materialRef.current && materialRef.current.userData.shader) {
