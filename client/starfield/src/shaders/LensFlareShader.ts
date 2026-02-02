@@ -13,6 +13,7 @@ export const lensFlareFragmentShader = `
   uniform vec2 uResolution;
   uniform vec2 uLightPosition;
   uniform float uIntensity;
+  uniform float uOpacity; // FOV-based opacity fade (separate from intensity for animation)
   uniform vec3 uColor;
   uniform float uGhostIntensity;
   uniform float uHaloIntensity;
@@ -128,8 +129,8 @@ export const lensFlareFragmentShader = `
     // Color correction for more natural look
     color = cc(color, 0.5, 0.1);
     
-    // Apply intensity
-    color *= uIntensity;
+    // Apply intensity and opacity (opacity handles FOV fade, intensity handles animations/galaxy)
+    color *= uIntensity * uOpacity;
     
     // Output with additive-compatible alpha
     float alpha = clamp(dot(color, vec3(0.333)) * 0.5, 0.0, 1.0);

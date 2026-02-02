@@ -293,8 +293,9 @@ export const Planet = () => {
     }
   })
 
-  // Return null if no skybox assets available, no texture, or planet is disabled
-  if (skyboxAssets.length === 0 || !planetTexture || !controls.enabled) {
+  // Return null if no skybox assets available, no texture, or planet is explicitly disabled
+  // Use === false to avoid hiding during HMR when values might be undefined
+  if (skyboxAssets.length === 0 || !planetTexture || controls.enabled === false) {
     return null
   }
 

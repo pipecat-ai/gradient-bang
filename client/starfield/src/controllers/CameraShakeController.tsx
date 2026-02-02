@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react"
 import type { CameraControls as CameraControlsImpl } from "@react-three/drei"
-import { useFrame, useThree } from "@react-three/fiber"
+import { useFrame } from "@react-three/fiber"
 
 import { useUniformStore } from "@/useUniformStore"
 
@@ -8,10 +8,13 @@ interface CameraShakeControllerProps {
   cameraControlsRef: RefObject<CameraControlsImpl | null>
 }
 
+/**
+ * Applies camera shake by reading uniform values and rotating the camera.
+ * This is a pure consumer - shakeAnim owns the render loop invalidation.
+ */
 export function CameraShakeController({
   cameraControlsRef,
 }: CameraShakeControllerProps) {
-  const { invalidate } = useThree()
 
   // Track previous values for delta calculation
   const lastAzimuthRef = useRef(0)
@@ -66,11 +69,6 @@ export function CameraShakeController({
 
     lastAzimuthRef.current = azimuthAngle
     lastPolarRef.current = polarAngle
-
-    // Request render if there was any shake
-    if (azimuthAngle !== 0 || polarAngle !== 0) {
-      invalidate()
-    }
   })
 
   return null

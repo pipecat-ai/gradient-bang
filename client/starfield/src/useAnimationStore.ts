@@ -53,7 +53,9 @@ export const useAnimationStore = create<AnimationStore>((set) => ({
   exposure: 0,
   setExposure: (exposure: number) => set({ exposure }),
   isAnimating: false,
-  setIsAnimating: (isAnimating: boolean) => set({ isAnimating }),
+  setIsAnimating: (isAnimating: boolean) => {
+    set({ isAnimating })
+  },
   isShaking: false,
   setIsShaking: (isShaking: boolean) => set({ isShaking }),
 }))

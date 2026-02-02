@@ -41,8 +41,8 @@ const DEFAULT_PP_CONFIG = {
   // Grading
   grading_enabled: true,
   grading_brightness: 0.05,
-  grading_contrast: 0.25,
-  grading_saturation: 0.0,
+  grading_contrast: 0.1,
+  grading_saturation: 0.3,
   grading_tintEnabled: false,
   grading_tintIntensity: 0.5,
   grading_tintContrast: 1.0,
@@ -478,10 +478,7 @@ export const PostProcessingController = () => {
   useEffect(() => {
     if (!scene || !camera || !composerReady) return
 
-    console.debug(
-      "[STARFIELD] PostProcessingController - Building Passes",
-      controls
-    )
+    console.debug("[STARFIELD] PostProcessingController - Building Passes")
 
     const composer = composerRef.current
     if (!composer) return

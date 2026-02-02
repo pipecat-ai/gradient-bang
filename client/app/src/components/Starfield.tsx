@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo } from "react"
+import { lazy, Suspense, useCallback, useEffect, useMemo } from "react"
 
 import { motion } from "motion/react"
-import type { PerformanceProfile } from "@gradient-bang/starfield"
+import type { GameObject, PerformanceProfile } from "@gradient-bang/starfield"
 
 import { portImages, skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
@@ -12,6 +12,14 @@ const StarfieldLazy = lazy(() => import("./StarfieldLazy"))
 
 const skyboxImageList = Object.values(skyboxImages)
 const portImageList = Object.values(portImages)
+
+const TEST_GAME_OBJECTS = [
+  {
+    id: "port-1",
+    type: "port",
+    label: "bbs",
+  },
+] as GameObject[]
 
 const StarfieldFallback = () => (
   <div className="absolute h-full inset-0 overflow-hidden bg-background z-(--z-starfield)">
@@ -24,7 +32,9 @@ const StarfieldFallback = () => (
 )
 
 export const Starfield = () => {
-  const settings = useGameStore.use.settings()
+  // Use specific selectors to prevent re-renders from unrelated state changes
+  const renderStarfield = useGameStore((state) => state.settings.renderStarfield)
+  const qualityPreset = useGameStore((state) => state.settings.qualityPreset)
   const lookMode = useGameStore.use.lookMode()
   const starfieldReady = useGameStore.use.starfieldReady()
   const setStarfieldReady = useGameStore.use.setStarfieldReady()
@@ -39,6 +49,12 @@ export const Starfield = () => {
     }
   }, [])
 
+  // Stable callback reference - setStarfieldReady is from zustand so it's stable
+  const handleCreated = useCallback(() => {
+    console.debug("[STARFIELD] Starfield created")
+    setStarfieldReady(true)
+  }, [setStarfieldReady])
+
   // Blur any focused element when lookMode becomes active
   // This prevents needing to click twice to interact with the starfield
   useEffect(() => {
@@ -47,11 +63,9 @@ export const Starfield = () => {
     }
   }, [lookMode])
 
-  if (!settings.renderStarfield || !skyboxImageList.length) {
+  if (!renderStarfield || !skyboxImageList.length) {
     return <StarfieldFallback />
   }
-
-  console.log("lookAtTarget", lookAtTarget)
 
   return (
     <Suspense fallback={null}>
@@ -65,19 +79,10 @@ export const Starfield = () => {
           debug={false}
           lookMode={lookMode}
           lookAtTarget={lookAtTarget}
-          profile={settings.qualityPreset as PerformanceProfile}
+          profile={qualityPreset as PerformanceProfile}
           config={starfieldConfig}
-          onCreated={() => {
-            console.debug("[STARFIELD] Starfield created")
-            setStarfieldReady(true)
-          }}
-          gameObjects={[
-            {
-              id: "port-1",
-              type: "port",
-              label: "bbs",
-            },
-          ]}
+          onCreated={handleCreated}
+          gameObjects={TEST_GAME_OBJECTS}
         />
       </motion.div>
     </Suspense>

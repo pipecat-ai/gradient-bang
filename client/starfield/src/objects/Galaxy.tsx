@@ -282,9 +282,6 @@ export const Galaxy = () => {
     const cy = sinV
     const cz = cosH * cosV
 
-    // Store galaxy direction for other components (accounting for mesh rotation of PI around Y)
-    useGameStore.getState().setGalaxyDirection({ x: -cx, y: cy, z: -cz })
-
     // Update uniforms
     material.uniforms.uIntensity.value = controls.intensity
     material.uniforms.uSpread.value = controls.spread
@@ -306,14 +303,8 @@ export const Galaxy = () => {
     gl.setRenderTarget(currentTarget)
   })
 
-  // Clear galaxy direction when disabled
-  useEffect(() => {
-    if (!controls.enabled) {
-      useGameStore.getState().setGalaxyDirection(null)
-    }
-  }, [controls.enabled])
-
-  if (!controls.enabled) return null
+  // Only hide if explicitly disabled (not undefined during HMR settling)
+  if (controls.enabled === false) return null
 
   return (
     <mesh

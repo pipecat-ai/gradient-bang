@@ -208,7 +208,8 @@ export const Sun = () => {
     )
   })
 
-  if (!controls.enabled) return null
+  // Only hide if explicitly disabled (not undefined during HMR settling)
+  if (controls.enabled === false) return null
 
   return (
     <group ref={groupRef} frustumCulled={false}>

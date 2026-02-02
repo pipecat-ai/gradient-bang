@@ -13,11 +13,12 @@ import useGameStore from "@/stores/game"
  * Keeps all Three.js deps out of the main bundle.
  */
 export default function StarfieldLazy(props: StarfieldProps) {
-  const settings = useGameStore.use.settings()
+  // Use specific selector to prevent re-renders from unrelated settings changes
+  const renderStarfield = useGameStore((state) => state.settings.renderStarfield)
   const { changeScene } = useSceneChange()
 
   useEffect(() => {
-    if (!settings.renderStarfield) return
+    if (!renderStarfield) return
 
     // Subscribe to sector id changes
     const unsub = useGameStore.subscribe(
@@ -25,6 +26,8 @@ export default function StarfieldLazy(props: StarfieldProps) {
       (sectorId, prevSectorId) => {
         if (sectorId !== prevSectorId && sectorId) {
           const newScene = generateRandomScene()
+          console.log("SCENE CHANGE")
+
           changeScene({
             id: sectorId.toString(),
             gameObjects: [],
@@ -35,7 +38,7 @@ export default function StarfieldLazy(props: StarfieldProps) {
     )
 
     return unsub
-  }, [settings.renderStarfield, changeScene])
+  }, [renderStarfield, changeScene])
 
   return <Starfield {...props} />
 }

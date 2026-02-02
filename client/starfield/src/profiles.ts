@@ -11,8 +11,6 @@ export const EXCLUDED_PROFILE_KEYS = [
   "hyperspaceEnterTime",
   "hyperspaceExitTime",
   "hyperspaceDuration",
-  "hyperspaceCooldown",
-  "hyperspaceFovShift",
 ] as const
 
 export const defaultProfile: StarfieldConfig = {
@@ -28,8 +26,6 @@ export const defaultProfile: StarfieldConfig = {
   hyperspaceEnterTime: 1500,
   hyperspaceExitTime: 1500,
   hyperspaceDuration: 100,
-  hyperspaceCooldown: 10000,
-  hyperspaceFovShift: 100,
   shakeIntensity: 1,
   shakeRelaxTime: 1000,
   layerDimDuration: 5000,

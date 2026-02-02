@@ -192,7 +192,8 @@ export const Dust = () => {
     [controls.minDistance, controls.fadeRange]
   )
 
-  if (!controls.enabled) return null
+  // Only hide if explicitly disabled (not undefined during HMR settling)
+  if (controls.enabled === false) return null
 
   return (
     <Points positions={positions} stride={3} frustumCulled={false}>

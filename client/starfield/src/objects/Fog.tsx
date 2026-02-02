@@ -71,7 +71,8 @@ export const Fog = () => {
     set: set as (values: Partial<typeof DEFAULT_FOG_CONFIG>) => void,
   })
 
-  if (!controls.enabled) return null
+  // Only hide if explicitly disabled (not undefined during HMR settling)
+  if (controls.enabled === false) return null
 
   return <fog attach="fog" args={[controls.base, controls.near, controls.far]} />
 }

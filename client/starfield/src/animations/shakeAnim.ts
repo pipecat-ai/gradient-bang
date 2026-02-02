@@ -1,5 +1,4 @@
-import { useCallback, useRef } from "react"
-import { easings, useSpring } from "@react-spring/three"
+import { useCallback, useMemo, useRef } from "react"
 import { invalidate, useFrame } from "@react-three/fiber"
 
 import { useAnimationStore } from "@/useAnimationStore"
@@ -40,7 +39,21 @@ const DEFAULT_CONFIG: Omit<Required<ShakeConfig>, "duration"> = {
   settleTime: 800,
 }
 
-const PROGRESS_THRESHOLD = 0.001
+// ============================================================================
+// Phase State Machine
+// ============================================================================
+
+type ShakePhase = "idle" | "rampingUp" | "active" | "settling"
+
+// ============================================================================
+// Easing Functions
+// ============================================================================
+
+/** Ease-in function for ramp up (slow start, fast end) */
+const easeInSine = (t: number): number => 1 - Math.cos((t * Math.PI) / 2)
+
+/** Ease-out function for settle (fast start, slow end) */
+const easeOutSine = (t: number): number => Math.sin((t * Math.PI) / 2)
 
 // ============================================================================
 
@@ -58,12 +71,14 @@ export interface ShakeAnimationResult {
 /**
  * Camera shake animation hook
  *
- * Supports two modes:
- * 1. **Continuous**: Runs indefinitely until stop() is called
- * 2. **One-shot impact**: Runs for a specified duration (ramp up → hold → ramp down)
+ * Uses a simple phase-based state machine instead of springs:
+ * - idle: No shaking, useFrame early-returns
+ * - rampingUp: Intensity increases from 0 to 1 over rampUpTime
+ * - active: Full intensity (1.0), continuous shaking
+ * - settling: Intensity decreases from current to 0 over settleTime
  *
  * Registers `cameraShakeAzimuth` and `cameraShakePolar` uniforms that can be
- * consumed by any component (typically CameraShakeController) to apply the shake.
+ * consumed by CameraShakeController to apply the shake.
  *
  * @example
  * const { start, stop } = useShakeAnimation()
@@ -76,61 +91,53 @@ export interface ShakeAnimationResult {
  * // One-shot impact (auto-completes)
  * start({ duration: 500 }) // quick impact
  * start({ duration: 1000, strength: 0.03 }) // stronger, longer impact
- * start({ duration: 2000, rampUpTime: 100, settleTime: 500 }) // custom envelope
  */
 export function useShakeAnimation(): ShakeAnimationResult {
-  const setIsAnimating = useAnimationStore((state) => state.setIsAnimating)
+  const setIsShaking = useAnimationStore((state) => state.setIsShaking)
 
-  // Config can be updated on each start()
-  const configRef = useRef<Omit<Required<ShakeConfig>, "duration"> & { duration?: number }>(DEFAULT_CONFIG)
+  // ============================================================================
+  // Pre-computed noise (generated once on mount)
+  // ============================================================================
 
-  // For one-shot impacts: track elapsed time and when to stop
-  const elapsedTimeRef = useRef(0)
-  const stopAtTimeRef = useRef<number | null>(null) // null = continuous, number = stop at this elapsed time
+  // Pre-compute perlin noise arrays - enough for ~10 seconds at 120fps
+  const noise = useMemo(
+    () => ({
+      azimuth: makePNoise1D(20, 1200), // 20 cycles over 1200 samples
+      polar: makePNoise1D(20, 1200),
+      samplesPerSecond: 120,
+    }),
+    []
+  )
 
-  // Track active state separately from spring animation
-  // true = shake is running (even when intensity spring is at rest at 1)
-  const isActiveRef = useRef(false)
+  // ============================================================================
+  // State Refs
+  // ============================================================================
 
-  // Perlin noise arrays (regenerated when config changes)
-  const noiseRef = useRef<{
-    azimuth: number[]
-    polar: number[]
-    samplesPerSecond: number
-  } | null>(null)
+  // Phase state machine
+  const phaseRef = useRef<ShakePhase>("idle")
+  const phaseStartTimeRef = useRef(0)
 
-  // Shake time accumulator
+  // Config for current shake
+  const configRef = useRef<
+    Omit<Required<ShakeConfig>, "duration"> & { duration?: number }
+  >(DEFAULT_CONFIG)
+
+  // Time accumulator for shake pattern
   const shakeTimeRef = useRef(0)
 
-  // Intensity spring (0 = no shake, 1 = full intensity)
-  // Used for ramping up and settling down
-  const [spring, api] = useSpring(() => ({
-    intensity: 0,
-    config: { duration: DEFAULT_CONFIG.rampUpTime, easing: easings.easeInSine },
-    onChange: () => invalidate(),
-  }))
+  // For one-shot impacts: duration tracking
+  const holdEndTimeRef = useRef<number | null>(null)
 
-  // Register the shake uniforms on mount
+  // Track intensity at moment of phase transition (for smooth settling)
+  const intensityAtSettleStartRef = useRef(1)
+
+  // Track if uniforms are registered
   const uniformsRegistered = useRef(false)
 
-  // Ref to hold stop function (avoids circular dependency in start)
-  const stopRef = useRef<() => void>(() => {})
+  // ============================================================================
+  // Uniform Registration
+  // ============================================================================
 
-  // Generate perlin noise arrays for current config
-  const generateNoise = useCallback((frequency: number) => {
-    const samplesPerSecond = 120
-    const durationSeconds = 2
-    const length = durationSeconds * frequency
-    const step = durationSeconds * samplesPerSecond
-
-    noiseRef.current = {
-      azimuth: makePNoise1D(length, step),
-      polar: makePNoise1D(length, step),
-      samplesPerSecond,
-    }
-  }, [])
-
-  // Ensure uniforms are registered
   const ensureUniforms = useCallback(() => {
     if (uniformsRegistered.current) return
 
@@ -146,9 +153,27 @@ export function useShakeAnimation(): ShakeAnimationResult {
     uniformsRegistered.current = true
   }, [])
 
-  // Start shaking
-  // If duration is set, runs as one-shot impact (ramp up → hold → ramp down)
-  // Otherwise runs indefinitely until stop() is called
+  // ============================================================================
+  // Synchronous Cleanup
+  // ============================================================================
+
+  const cleanup = useCallback(() => {
+    phaseRef.current = "idle"
+    holdEndTimeRef.current = null
+    setIsShaking(false)
+
+    // Reset uniforms to 0
+    const { getUniform, updateUniform } = useUniformStore.getState()
+    const azimuth = getUniform<number>("cameraShakeAzimuth")
+    const polar = getUniform<number>("cameraShakePolar")
+    if (azimuth) updateUniform(azimuth, 0)
+    if (polar) updateUniform(polar, 0)
+  }, [setIsShaking])
+
+  // ============================================================================
+  // Start (idempotent - can be called at any time)
+  // ============================================================================
+
   const start = useCallback(
     (config?: ShakeConfig) => {
       ensureUniforms()
@@ -157,116 +182,165 @@ export function useShakeAnimation(): ShakeAnimationResult {
       const newConfig = { ...DEFAULT_CONFIG, ...config }
       configRef.current = newConfig
 
-      // Generate noise if using perlin mode
-      if (newConfig.mode === "perlin") {
-        generateNoise(newConfig.frequency)
-      }
-
-      // Reset timers
+      // Reset shake time for fresh pattern
       shakeTimeRef.current = 0
-      elapsedTimeRef.current = 0
 
-      // If duration specified, calculate when to trigger stop (in seconds)
+      // Calculate hold end time for one-shot impacts
       if (newConfig.duration !== undefined) {
-        // Hold time = duration - rampUp - settle
         const holdTime = Math.max(
           0,
           newConfig.duration - newConfig.rampUpTime - newConfig.settleTime
         )
-        // Stop at: rampUp + hold (settle happens after stop is called)
-        stopAtTimeRef.current = (newConfig.rampUpTime + holdTime) / 1000
+        // Hold ends at: rampUpTime + holdTime (in ms)
+        holdEndTimeRef.current = newConfig.rampUpTime + holdTime
       } else {
-        stopAtTimeRef.current = null // Continuous mode
+        holdEndTimeRef.current = null // Continuous mode
       }
 
+      // Start ramping up
+      phaseRef.current = "rampingUp"
+      phaseStartTimeRef.current = performance.now()
+      intensityAtSettleStartRef.current = 1
+
       // Mark as active
-      isActiveRef.current = true
-      setIsAnimating(true)
+      setIsShaking(true)
 
-      // Ramp up intensity
-      api.start({
-        intensity: 1,
-        config: { duration: newConfig.rampUpTime, easing: easings.easeInSine },
-      })
-
+      // Kick off the render loop
       invalidate()
     },
-    [ensureUniforms, generateNoise, api, setIsAnimating]
+    [ensureUniforms, setIsShaking]
   )
 
-  // Stop with settle animation
+  // ============================================================================
+  // Stop (idempotent - can be called at any time)
+  // ============================================================================
+
   const stop = useCallback(() => {
-    // Clear any scheduled stop time
-    stopAtTimeRef.current = null
+    const currentPhase = phaseRef.current
 
+    // Already idle or settling - nothing to do
+    if (currentPhase === "idle") {
+      return
+    }
+
+    // If already settling, let it continue
+    if (currentPhase === "settling") {
+      return
+    }
+
+    // Calculate current intensity to settle from
     const config = configRef.current
+    const elapsed = performance.now() - phaseStartTimeRef.current
+    let currentIntensity = 1
 
-    // Animate intensity down to 0
-    api.start({
-      intensity: 0,
-      config: { duration: config.settleTime, easing: easings.easeOutSine },
-      onRest: () => {
-        // Only deactivate when settle completes
-        isActiveRef.current = false
-        setIsAnimating(false)
-      },
-    })
-  }, [api, setIsAnimating])
+    if (currentPhase === "rampingUp") {
+      const progress = Math.min(elapsed / config.rampUpTime, 1)
+      currentIntensity = easeInSine(progress)
+    }
 
-  // Keep ref in sync with stop function
-  stopRef.current = stop
-
-  // Immediately kill without settle
-  const kill = useCallback(() => {
-    // Clear any scheduled stop time
-    stopAtTimeRef.current = null
-
-    api.stop()
-    api.set({ intensity: 0 })
-    isActiveRef.current = false
-    setIsAnimating(false)
-
-    // Reset uniforms
-    const { getUniform, updateUniform } = useUniformStore.getState()
-    const azimuth = getUniform<number>("cameraShakeAzimuth")
-    const polar = getUniform<number>("cameraShakePolar")
-    if (azimuth) updateUniform(azimuth, 0)
-    if (polar) updateUniform(polar, 0)
-  }, [api, setIsAnimating])
-
-  const isActive = useCallback(() => {
-    return isActiveRef.current
+    // Transition to settling
+    intensityAtSettleStartRef.current = currentIntensity
+    phaseRef.current = "settling"
+    phaseStartTimeRef.current = performance.now()
+    holdEndTimeRef.current = null
   }, [])
 
-  // Update uniforms each frame while active
+  // ============================================================================
+  // Kill (immediate stop without settle)
+  // ============================================================================
+
+  const kill = useCallback(() => {
+    cleanup()
+  }, [cleanup])
+
+  // ============================================================================
+  // isActive check
+  // ============================================================================
+
+  const isActive = useCallback(() => {
+    return phaseRef.current !== "idle"
+  }, [])
+
+  // ============================================================================
+  // Frame Update Loop
+  // ============================================================================
+
   useFrame((_, rawDelta) => {
-    // Check if active (not just if spring is animating)
-    if (!isActiveRef.current) return
+    const phase = phaseRef.current
+
+    // Early exit when idle - no work to do
+    if (phase === "idle") {
+      return
+    }
+
+    const config = configRef.current
+    const now = performance.now()
+    const phaseElapsed = now - phaseStartTimeRef.current
 
     // Clamp delta to prevent large jumps during long frames
     const delta = Math.min(rawDelta, 0.05)
     shakeTimeRef.current += delta
-    elapsedTimeRef.current += delta
 
-    // Check if we've reached the scheduled stop time (for one-shot impacts)
-    if (
-      stopAtTimeRef.current !== null &&
-      elapsedTimeRef.current >= stopAtTimeRef.current
-    ) {
-      stopRef.current()
-      // Don't return - continue processing this frame with the settle animation starting
+    // ========================================================================
+    // Calculate intensity based on phase
+    // ========================================================================
+
+    let intensity = 0
+
+    switch (phase) {
+      case "rampingUp": {
+        const progress = Math.min(phaseElapsed / config.rampUpTime, 1)
+        intensity = easeInSine(progress)
+
+        // Transition to active when ramp complete
+        if (phaseElapsed >= config.rampUpTime) {
+          phaseRef.current = "active"
+          phaseStartTimeRef.current = now
+        }
+        break
+      }
+
+      case "active": {
+        intensity = 1
+
+        // Check for duration-based auto-stop
+        if (holdEndTimeRef.current !== null) {
+          // Calculate total elapsed since start (rampUp + hold time)
+          const totalElapsed = config.rampUpTime + phaseElapsed
+          if (totalElapsed >= holdEndTimeRef.current) {
+            // Time to start settling
+            intensityAtSettleStartRef.current = 1
+            phaseRef.current = "settling"
+            phaseStartTimeRef.current = now
+            holdEndTimeRef.current = null
+          }
+        }
+        break
+      }
+
+      case "settling": {
+        const progress = Math.min(phaseElapsed / config.settleTime, 1)
+        const easedProgress = easeOutSine(progress)
+        intensity = intensityAtSettleStartRef.current * (1 - easedProgress)
+
+        // Cleanup when settle complete
+        if (phaseElapsed >= config.settleTime) {
+          cleanup()
+          return // Exit early - cleanup sets uniforms to 0
+        }
+        break
+      }
     }
 
-    const intensity = spring.intensity.get()
-    const config = configRef.current
-    const { getUniform, updateUniform } = useUniformStore.getState()
+    // ========================================================================
+    // Calculate shake angles
+    // ========================================================================
 
     let azimuthAngle = 0
     let polarAngle = 0
 
-    if (intensity > PROGRESS_THRESHOLD) {
-      if (config.mode === "perlin" && noiseRef.current) {
-        const noise = noiseRef.current
+    if (intensity > 0.001) {
+      if (config.mode === "perlin") {
         const sampleIndex =
           Math.floor(shakeTimeRef.current * noise.samplesPerSecond) %
           noise.azimuth.length
@@ -282,14 +356,18 @@ export function useShakeAnimation(): ShakeAnimationResult {
       }
     }
 
+    // ========================================================================
     // Update uniforms
+    // ========================================================================
+
+    const { getUniform, updateUniform } = useUniformStore.getState()
     const azimuthUniform = getUniform<number>("cameraShakeAzimuth")
     const polarUniform = getUniform<number>("cameraShakePolar")
 
     if (azimuthUniform) updateUniform(azimuthUniform, azimuthAngle)
     if (polarUniform) updateUniform(polarUniform, polarAngle)
 
-    // Keep render loop alive while shaking
+    // Keep render loop alive while not idle
     invalidate()
   })
 

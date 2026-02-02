@@ -20,6 +20,10 @@ interface Props {
   barWidth?: number;
   participantType: ParticipantType;
   className?: string;
+  isThinking?: boolean;
+  thinkingSpeed?: number;
+  thinkingWaveWidth?: number;
+  thinkingMaxHeight?: number;
 }
 
 export const ShipOSDVisualizer: React.FC<Props> = React.memo(
@@ -39,6 +43,10 @@ export const ShipOSDVisualizer: React.FC<Props> = React.memo(
     participantType,
     className,
     peakFadeSpeed = 0.02,
+    isThinking = false,
+    thinkingSpeed = 2,
+    thinkingWaveWidth = 1,
+    thinkingMaxHeight,
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const resolvedBarColorRef = useRef<string>("black");
@@ -91,22 +99,6 @@ export const ShipOSDVisualizer: React.FC<Props> = React.memo(
       const canvasCtx = canvas.getContext("2d")!;
       resizeCanvas();
 
-      if (!track) return;
-
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(
-        new MediaStream([track])
-      );
-      const analyser = audioContext.createAnalyser();
-
-      analyser.fftSize = 1024;
-
-      source.connect(analyser);
-
-      const frequencyData = new Uint8Array(analyser.frequencyBinCount);
-
-      canvasCtx.lineCap = barLineCap;
-
       // Create frequency bands based on barCount
       const bands = Array.from({ length: barCount }, (_, i) => {
         // Use improved logarithmic scale for better frequency distribution
@@ -128,20 +120,41 @@ export const ShipOSDVisualizer: React.FC<Props> = React.memo(
           startFreq,
           endFreq,
           smoothValue: 0,
-          peakValue: 0, // Added peakValue
+          peakValue: 0,
           peakOpacity: 0,
         };
       });
 
+      // Audio context setup (only needed when not thinking and track exists)
+      let audioContext: AudioContext | null = null;
+      let analyser: AnalyserNode | null = null;
+      let frequencyData: Uint8Array<ArrayBuffer> | null = null;
+
+      if (!isThinking && track) {
+        audioContext = new AudioContext();
+        const source = audioContext.createMediaStreamSource(
+          new MediaStream([track])
+        );
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 1024;
+        source.connect(analyser);
+        frequencyData = new Uint8Array(analyser.frequencyBinCount);
+      }
+
+      canvasCtx.lineCap = barLineCap;
+
       const getFrequencyBinIndex = (frequency: number) => {
+        if (!audioContext) return 0;
         const nyquist = audioContext.sampleRate / 2;
         return Math.round(
-          (frequency / nyquist) * (analyser.frequencyBinCount - 1)
+          (frequency / nyquist) * ((analyser?.frequencyBinCount ?? 1) - 1)
         );
       };
 
+      let animationFrameId: number;
+
       function drawSpectrum() {
-        analyser.getByteFrequencyData(frequencyData);
+        // Clear and fill background
         canvasCtx.clearRect(
           0,
           0,
@@ -156,173 +169,240 @@ export const ShipOSDVisualizer: React.FC<Props> = React.memo(
           canvas.height / scaleFactor
         );
 
-        let isActive = false;
-
         const totalBarsWidth =
           bands.length * barWidth + (bands.length - 1) * barGap;
         const startX = (canvas.width / scaleFactor - totalBarsWidth) / 2;
-
         const adjustedCircleRadius = barWidth / 2;
-
         const resolvedBarColor = resolvedBarColorRef.current;
+        const cvHeight = canvas.height / scaleFactor;
 
-        bands.forEach((band, i) => {
-          const startIndex = getFrequencyBinIndex(band.startFreq);
-          const endIndex = getFrequencyBinIndex(band.endFreq);
-          const bandData = frequencyData.slice(startIndex, endIndex);
-          const bandValue =
-            bandData.reduce((acc, val) => acc + val, 0) / bandData.length;
+        if (isThinking) {
+          // Thinking mode: Mexican wave animation
+          const time = performance.now() / 1000;
+          // Phase offset per bar to create wave effect
+          // Smaller thinkingWaveWidth = larger offset = tighter/more condensed wave
+          const phaseOffset = (Math.PI * 2) / barCount / thinkingWaveWidth;
 
-          const smoothingFactor = 0.2;
-          const fadeEpsilon = 0.5;
+          // Use thinkingMaxHeight if provided, otherwise fall back to barMaxHeight
+          const effectiveMaxHeight = thinkingMaxHeight ?? barMaxHeight;
 
-          if (bandValue < 1) {
-            band.smoothValue = Math.max(
-              band.smoothValue - smoothingFactor * 5,
-              0
-            );
-          } else {
-            band.smoothValue =
-              band.smoothValue +
-              (bandValue - band.smoothValue) * smoothingFactor;
-            isActive = true;
-          }
+          bands.forEach((_, i) => {
+            const x = startX + i * (barWidth + barGap);
+            // Create wave using sine, offset by bar index
+            const waveValue = Math.sin(time * thinkingSpeed - i * phaseOffset);
+            // Normalize to 0-1 range and apply to max height
+            const normalizedWave = (waveValue + 1) / 2;
+            const barHeight = normalizedWave * effectiveMaxHeight;
 
-          // Update peak value - moves up with the bar but returns more slowly
-          if (band.smoothValue > band.peakValue) {
-            band.peakValue = band.smoothValue;
-            band.peakOpacity = 1;
-          } else {
-            // Peak returns to the top of the bar more slowly
-            const peakSmoothingFactor = peakLineSpeed;
-            band.peakValue = Math.max(
-              band.peakValue - peakSmoothingFactor * 5,
-              band.smoothValue
-            );
-            // Begin fading once the bar is effectively zeroed
-            if (band.smoothValue <= fadeEpsilon) {
-              band.peakOpacity = Math.max(0, band.peakOpacity - peakFadeSpeed);
-            }
-          }
+            let yTop, yBottom;
 
-          const x = startX + i * (barWidth + barGap);
-          // Calculate bar height with a maximum cap
-          const minHeight = 0;
-          const barHeight = Math.max(
-            minHeight,
-            Math.min((band.smoothValue / 255) * barMaxHeight, barMaxHeight)
-          );
-
-          let yTop, yBottom;
-          const canvasHeight = canvas.height / scaleFactor;
-
-          switch (barOrigin) {
-            case "top":
-              yTop = adjustedCircleRadius;
-              yBottom = Math.min(
-                adjustedCircleRadius + barHeight,
-                canvasHeight - adjustedCircleRadius
-              );
-              break;
-            case "bottom":
-              yBottom = canvasHeight - adjustedCircleRadius;
-              yTop = Math.max(yBottom - barHeight, adjustedCircleRadius);
-              break;
-            case "center":
-            default:
-              yTop = Math.max(
-                canvasHeight / 2 - barHeight / 2,
-                adjustedCircleRadius
-              );
-              yBottom = Math.min(
-                canvasHeight / 2 + barHeight / 2,
-                canvasHeight - adjustedCircleRadius
-              );
-              break;
-          }
-
-          if (band.smoothValue > 0) {
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(x + barWidth / 2, yTop);
-            canvasCtx.lineTo(x + barWidth / 2, yBottom);
-            canvasCtx.lineWidth = barWidth;
-            canvasCtx.strokeStyle = resolvedBarColor;
-            canvasCtx.stroke();
-          } else {
-            drawInactiveCircle(adjustedCircleRadius, resolvedBarColor, x, yTop);
-          }
-
-          // Draw the peak line (2px line at the top) - always draw when it exists
-          if (band.peakValue > 0 || (peakOffset > 0 && band.peakOpacity > 0)) {
-            const peakHeight = Math.max(
-              minHeight,
-              Math.min((band.peakValue / 255) * barMaxHeight, barMaxHeight)
-            );
-
-            // Compute raw peak position by origin
-            let peakY;
             switch (barOrigin) {
               case "top":
-                peakY = adjustedCircleRadius + peakHeight;
+                yTop = adjustedCircleRadius;
+                yBottom = Math.min(
+                  adjustedCircleRadius + barHeight,
+                  cvHeight - adjustedCircleRadius
+                );
                 break;
               case "bottom":
-                peakY = canvasHeight - adjustedCircleRadius - peakHeight;
+                yBottom = cvHeight - adjustedCircleRadius;
+                yTop = Math.max(yBottom - barHeight, adjustedCircleRadius);
                 break;
               case "center":
               default:
-                peakY = canvasHeight / 2 - peakHeight / 2;
+                yTop = Math.max(
+                  cvHeight / 2 - barHeight / 2,
+                  adjustedCircleRadius
+                );
+                yBottom = Math.min(
+                  cvHeight / 2 + barHeight / 2,
+                  cvHeight - adjustedCircleRadius
+                );
                 break;
             }
 
-            // Visual tip offset due to lineCap (round/square extend by barWidth/2)
-            const capExtension =
-              barLineCap === "round" || barLineCap === "square"
-                ? barWidth / 2
-                : 0;
-
-            // Bar visual tip Y coordinate to clamp/offset against
-            const barTipY = ((): number => {
-              switch (barOrigin) {
-                case "top":
-                  return yBottom + capExtension; // bar grows downward
-                case "bottom":
-                  return yTop - capExtension; // bar grows upward
-                case "center":
-                default:
-                  return yTop - capExtension; // use upper tip as cap
-              }
-            })();
-
-            // Enforce a constant offset from the bar tip in the outward direction
-            if (barOrigin === "top") {
-              const desiredY = barTipY + peakOffset; // outward is increasing y
-              peakY = Math.max(peakY, desiredY);
+            // Draw bar (no peak lines in thinking mode)
+            if (barHeight > 0) {
+              canvasCtx.beginPath();
+              canvasCtx.moveTo(x + barWidth / 2, yTop);
+              canvasCtx.lineTo(x + barWidth / 2, yBottom);
+              canvasCtx.lineWidth = barWidth;
+              canvasCtx.strokeStyle = resolvedBarColor;
+              canvasCtx.stroke();
             } else {
-              const desiredY = barTipY - peakOffset; // outward is decreasing y
-              peakY = Math.min(peakY, desiredY);
+              drawInactiveCircle(adjustedCircleRadius, resolvedBarColor, x, yTop);
+            }
+          });
+        } else {
+          // Audio-reactive mode
+          if (analyser && frequencyData) {
+            analyser.getByteFrequencyData(frequencyData);
+          }
+
+          let isActive = false;
+
+          bands.forEach((band, i) => {
+            let bandValue = 0;
+            if (analyser && frequencyData) {
+              const startIndex = getFrequencyBinIndex(band.startFreq);
+              const endIndex = getFrequencyBinIndex(band.endFreq);
+              const bandData = frequencyData.slice(startIndex, endIndex);
+              bandValue =
+                bandData.length > 0
+                  ? bandData.reduce((acc, val) => acc + val, 0) / bandData.length
+                  : 0;
             }
 
-            // Draw the peak line, matching bar width exactly
-            const previousLineCap = canvasCtx.lineCap;
-            const previousAlpha = canvasCtx.globalAlpha;
-            canvasCtx.lineCap = "butt";
-            canvasCtx.globalAlpha = band.peakOpacity;
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(x, peakY);
-            canvasCtx.lineTo(x + barWidth, peakY);
-            canvasCtx.lineWidth = peakLineThickness;
-            canvasCtx.strokeStyle = resolvedPeakLineColorRef.current;
-            canvasCtx.stroke();
-            canvasCtx.lineCap = previousLineCap;
-            canvasCtx.globalAlpha = previousAlpha;
-          }
-        });
+            const smoothingFactor = 0.2;
+            const fadeEpsilon = 0.5;
 
-        if (!isActive) {
-          drawInactiveCircles(adjustedCircleRadius, resolvedBarColor);
+            if (bandValue < 1) {
+              band.smoothValue = Math.max(
+                band.smoothValue - smoothingFactor * 5,
+                0
+              );
+            } else {
+              band.smoothValue =
+                band.smoothValue +
+                (bandValue - band.smoothValue) * smoothingFactor;
+              isActive = true;
+            }
+
+            // Update peak value - moves up with the bar but returns more slowly
+            if (band.smoothValue > band.peakValue) {
+              band.peakValue = band.smoothValue;
+              band.peakOpacity = 1;
+            } else {
+              // Peak returns to the top of the bar more slowly
+              const peakSmoothingFactor = peakLineSpeed;
+              band.peakValue = Math.max(
+                band.peakValue - peakSmoothingFactor * 5,
+                band.smoothValue
+              );
+              // Begin fading once the bar is effectively zeroed
+              if (band.smoothValue <= fadeEpsilon) {
+                band.peakOpacity = Math.max(0, band.peakOpacity - peakFadeSpeed);
+              }
+            }
+
+            const x = startX + i * (barWidth + barGap);
+            // Calculate bar height with a maximum cap
+            const minHeight = 0;
+            const barHeight = Math.max(
+              minHeight,
+              Math.min((band.smoothValue / 255) * barMaxHeight, barMaxHeight)
+            );
+
+            let yTop, yBottom;
+
+            switch (barOrigin) {
+              case "top":
+                yTop = adjustedCircleRadius;
+                yBottom = Math.min(
+                  adjustedCircleRadius + barHeight,
+                  cvHeight - adjustedCircleRadius
+                );
+                break;
+              case "bottom":
+                yBottom = cvHeight - adjustedCircleRadius;
+                yTop = Math.max(yBottom - barHeight, adjustedCircleRadius);
+                break;
+              case "center":
+              default:
+                yTop = Math.max(
+                  cvHeight / 2 - barHeight / 2,
+                  adjustedCircleRadius
+                );
+                yBottom = Math.min(
+                  cvHeight / 2 + barHeight / 2,
+                  cvHeight - adjustedCircleRadius
+                );
+                break;
+            }
+
+            if (band.smoothValue > 0) {
+              canvasCtx.beginPath();
+              canvasCtx.moveTo(x + barWidth / 2, yTop);
+              canvasCtx.lineTo(x + barWidth / 2, yBottom);
+              canvasCtx.lineWidth = barWidth;
+              canvasCtx.strokeStyle = resolvedBarColor;
+              canvasCtx.stroke();
+            } else {
+              drawInactiveCircle(adjustedCircleRadius, resolvedBarColor, x, yTop);
+            }
+
+            // Draw the peak line (2px line at the top) - always draw when it exists
+            if (band.peakValue > 0 || (peakOffset > 0 && band.peakOpacity > 0)) {
+              const peakHeight = Math.max(
+                minHeight,
+                Math.min((band.peakValue / 255) * barMaxHeight, barMaxHeight)
+              );
+
+              // Compute raw peak position by origin
+              let peakY;
+              switch (barOrigin) {
+                case "top":
+                  peakY = adjustedCircleRadius + peakHeight;
+                  break;
+                case "bottom":
+                  peakY = cvHeight - adjustedCircleRadius - peakHeight;
+                  break;
+                case "center":
+                default:
+                  peakY = cvHeight / 2 - peakHeight / 2;
+                  break;
+              }
+
+              // Visual tip offset due to lineCap (round/square extend by barWidth/2)
+              const capExtension =
+                barLineCap === "round" || barLineCap === "square"
+                  ? barWidth / 2
+                  : 0;
+
+              // Bar visual tip Y coordinate to clamp/offset against
+              const barTipY = ((): number => {
+                switch (barOrigin) {
+                  case "top":
+                    return yBottom + capExtension; // bar grows downward
+                  case "bottom":
+                    return yTop - capExtension; // bar grows upward
+                  case "center":
+                  default:
+                    return yTop - capExtension; // use upper tip as cap
+                }
+              })();
+
+              // Enforce a constant offset from the bar tip in the outward direction
+              if (barOrigin === "top") {
+                const desiredY = barTipY + peakOffset; // outward is increasing y
+                peakY = Math.max(peakY, desiredY);
+              } else {
+                const desiredY = barTipY - peakOffset; // outward is decreasing y
+                peakY = Math.min(peakY, desiredY);
+              }
+
+              // Draw the peak line, matching bar width exactly
+              const previousLineCap = canvasCtx.lineCap;
+              const previousAlpha = canvasCtx.globalAlpha;
+              canvasCtx.lineCap = "butt";
+              canvasCtx.globalAlpha = band.peakOpacity;
+              canvasCtx.beginPath();
+              canvasCtx.moveTo(x, peakY);
+              canvasCtx.lineTo(x + barWidth, peakY);
+              canvasCtx.lineWidth = peakLineThickness;
+              canvasCtx.strokeStyle = resolvedPeakLineColorRef.current;
+              canvasCtx.stroke();
+              canvasCtx.lineCap = previousLineCap;
+              canvasCtx.globalAlpha = previousAlpha;
+            }
+          });
+
+          if (!isActive) {
+            drawInactiveCircles(adjustedCircleRadius, resolvedBarColor);
+          }
         }
 
-        requestAnimationFrame(drawSpectrum);
+        animationFrameId = requestAnimationFrame(drawSpectrum);
       }
 
       function drawInactiveCircle(
@@ -356,7 +436,7 @@ export const ShipOSDVisualizer: React.FC<Props> = React.memo(
         const totalBarsWidth =
           bands.length * barWidth + (bands.length - 1) * barGap;
         const startX = (canvas.width / scaleFactor - totalBarsWidth) / 2;
-        const canvasHeight = canvas.height / scaleFactor;
+        const cvHeight = canvas.height / scaleFactor;
 
         let y;
         switch (barOrigin) {
@@ -364,11 +444,11 @@ export const ShipOSDVisualizer: React.FC<Props> = React.memo(
             y = circleRadius;
             break;
           case "bottom":
-            y = canvasHeight - circleRadius;
+            y = cvHeight - circleRadius;
             break;
           case "center":
           default:
-            y = canvasHeight / 2;
+            y = cvHeight / 2;
             break;
         }
 
@@ -384,7 +464,10 @@ export const ShipOSDVisualizer: React.FC<Props> = React.memo(
       window.addEventListener("resize", resizeCanvas);
 
       return () => {
-        audioContext.close();
+        cancelAnimationFrame(animationFrameId);
+        if (audioContext) {
+          audioContext.close();
+        }
         window.removeEventListener("resize", resizeCanvas);
       };
     }, [
@@ -401,6 +484,10 @@ export const ShipOSDVisualizer: React.FC<Props> = React.memo(
       peakLineThickness,
       peakOffset,
       peakFadeSpeed,
+      isThinking,
+      thinkingSpeed,
+      thinkingWaveWidth,
+      thinkingMaxHeight,
     ]);
 
     return (

@@ -129,7 +129,8 @@ export const Stars = () => {
     set: set as (values: Partial<typeof DEFAULT_STARS_CONFIG>) => void,
   })
 
-  if (!controls.enabled) return null
+  // Only hide if explicitly disabled (not undefined during HMR settling)
+  if (controls.enabled === false) return null
 
   return (
     <StarsComponent

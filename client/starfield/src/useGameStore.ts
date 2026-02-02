@@ -25,9 +25,6 @@ interface AppState {
   performanceProfile: PerformanceProfile
   setPerformanceProfile: (profile: PerformanceProfile) => void
 
-  // Runtime object positions (updated per-frame by scene objects)
-  galaxyDirection: { x: number; y: number; z: number } | null
-  setGalaxyDirection: (dir: { x: number; y: number; z: number } | null) => void
 
   // State
   isReady: boolean
@@ -109,9 +106,6 @@ export const useGameStore = create<AppState>(
       profile !== get().performanceProfile &&
       set({ performanceProfile: profile }),
 
-    // Runtime object positions
-    galaxyDirection: null,
-    setGalaxyDirection: (dir) => set({ galaxyDirection: dir }),
 
     // State
     isReady: false,

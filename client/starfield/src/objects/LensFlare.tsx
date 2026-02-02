@@ -20,17 +20,51 @@ const QUALITY_OPTIONS = { Low: 0, Medium: 1, High: 2 }
 // Default lens flare config values
 const DEFAULT_LENSFLARE_CONFIG = {
   enabled: true,
-  intensity: 1.0,
-  ghostIntensity: 2.0,
-  haloIntensity: 3.0,
-  streakIntensity: 1.0,
+  intensity: 1,
+  ghostIntensity: 1.0,
+  haloIntensity: 1,
+  streakIntensity: 0.5,
   quality: 2, // 0 = low, 1 = medium, 2 = high
   secondaryColor: "#000000", // Color -> palette.c2
-  // Light source position (relative to camera, in normalized coords)
+  // Light source position (relative to camera, in normalized coords) - used when galaxy tracking disabled
   lightX: 0.3,
   lightY: 0.2,
-  trackGalaxy: true, // Whether to track the Galaxy object position
+  trackGalaxy: true, // Whether to track the Galaxy object position (from galaxy config)
 }
+
+// Default galaxy config values (for calculating direction when trackGalaxy is true)
+const DEFAULT_GALAXY_OFFSET = { offsetX: 0.2, offsetY: 0 }
+
+/**
+ * Calculate the galaxy direction vector from offset values.
+ * This matches the calculation in Galaxy.tsx.
+ */
+function calculateGalaxyDirection(
+  offsetX: number,
+  offsetY: number
+): THREE.Vector3 {
+  // offsetX: -1 to +1 maps to horizontal rotation (-180° to +180°)
+  // offsetY: -1 to +1 maps to vertical angle (-90° to +90°)
+  const hAngle = -offsetX * Math.PI
+  const vAngle = offsetY * Math.PI * 0.5
+
+  const cosH = Math.cos(hAngle)
+  const sinH = Math.sin(hAngle)
+  const cosV = Math.cos(vAngle)
+  const sinV = Math.sin(vAngle)
+
+  // Start with forward (0,0,1), rotate around Y (horizontal), then around X (vertical)
+  const cx = sinH * cosV
+  const cy = sinV
+  const cz = cosH * cosV
+
+  // Account for mesh rotation of PI around Y (same as Galaxy.tsx)
+  return new THREE.Vector3(-cx, cy, -cz).normalize()
+}
+
+// FOV fade configuration
+const FOV_FADE_THRESHOLD = 5 // Start fading when FOV is this much over base (lower = more gradual)
+const FOV_FADE_MAX = 150 // Fully faded at this FOV (animation goes to ~165, so fade over 55-150)
 
 // Keys to sync to Leva when store changes
 const TRANSIENT_PROPERTIES = [
@@ -51,9 +85,11 @@ export const LensFlare = () => {
   const { camera, size } = useThree()
   const registerUniform = useUniformStore((state) => state.registerUniform)
   const removeUniform = useUniformStore((state) => state.removeUniform)
-  const { lensFlare: lensFlareConfig, palette: paletteKey } = useGameStore(
-    (state) => state.starfieldConfig
-  )
+  const {
+    lensFlare: lensFlareConfig,
+    galaxy: galaxyConfig,
+    palette: paletteKey,
+  } = useGameStore((state) => state.starfieldConfig)
 
   // Get active palette
   const palette = useMemo(() => getPalette(paletteKey), [paletteKey])
@@ -173,6 +209,7 @@ export const LensFlare = () => {
         uResolution: { value: new THREE.Vector2(size.width, size.height) },
         uLightPosition: { value: new THREE.Vector2(0.3, 0.2) },
         uIntensity: { value: 2.0 },
+        uOpacity: { value: 1.0 }, // FOV-based opacity (separate from intensity for animation)
         uColor: { value: new THREE.Vector3(1.0, 1.0, 1.0) },
         uGhostIntensity: { value: 2.0 },
         uHaloIntensity: { value: 2.0 },
@@ -219,6 +256,19 @@ export const LensFlare = () => {
   // Track the last intensity we set from controls (to detect external changes)
   const lastControlIntensityRef = useRef(controls.intensity)
 
+  // Pre-calculate galaxy direction (stable - only changes when config changes)
+  const galaxyDir = useMemo(() => {
+    if (!controls.trackGalaxy || !galaxyConfig?.enabled) return null
+    const offsetX = galaxyConfig?.offsetX ?? DEFAULT_GALAXY_OFFSET.offsetX
+    const offsetY = galaxyConfig?.offsetY ?? DEFAULT_GALAXY_OFFSET.offsetY
+    return calculateGalaxyDirection(offsetX, offsetY)
+  }, [
+    controls.trackGalaxy,
+    galaxyConfig?.enabled,
+    galaxyConfig?.offsetX,
+    galaxyConfig?.offsetY,
+  ])
+
   // Update uniforms each frame
   useFrame(() => {
     const material = materialRef.current
@@ -230,19 +280,35 @@ export const LensFlare = () => {
     // Calculate light position
     let lightX = controls.lightX
     let lightY = controls.lightY
-    let intensityMod = 1.0
+    let opacity = 1.0 // Opacity for FOV fade and galaxy-behind fade (always applied)
 
-    // Get current galaxy direction from store (updated by Galaxy component)
-    const galaxyDirection = useGameStore.getState().galaxyDirection
+    // Calculate FOV-based opacity fade
+    // This fades the lens flare out when FOV increases significantly (e.g., during hyperspace)
+    const fovUniform = useUniformStore
+      .getState()
+      .getUniform<number>("cameraFov")
+    if (fovUniform?.uniform?.value !== undefined) {
+      const baseFov =
+        (fovUniform.initial as number | undefined) ??
+        (fovUniform.uniform.value as number)
+      const currentFov = fovUniform.uniform.value as number
+      const fadeStartFov = baseFov + FOV_FADE_THRESHOLD // Start fading 20 degrees over base
+      const fadeEndFov = FOV_FADE_MAX // Fully faded at 100 FOV
 
-    // If tracking galaxy, use the direction from the Galaxy component
-    if (controls.trackGalaxy && galaxyDirection) {
-      const galaxyDir = new THREE.Vector3(
-        galaxyDirection.x,
-        galaxyDirection.y,
-        galaxyDirection.z
-      ).normalize()
+      if (currentFov <= fadeStartFov) {
+        // Full opacity within threshold
+      } else if (currentFov >= fadeEndFov) {
+        opacity *= 0.0 // Fully faded at max
+      } else {
+        // Linear fade from threshold to max
+        const fadeRange = fadeEndFov - fadeStartFov
+        const t = (currentFov - fadeStartFov) / Math.max(fadeRange, 0.001)
+        opacity *= 1.0 - t
+      }
+    }
 
+    // If tracking galaxy, calculate position from the galaxy config direction
+    if (galaxyDir) {
       // Create a point far in the galaxy direction from camera
       const galaxyPoint = camera.position
         .clone()
@@ -260,9 +326,10 @@ export const LensFlare = () => {
       camera.getWorldDirection(cameraDir)
       const dot = cameraDir.dot(galaxyDir)
 
-      // Fade out when galaxy is behind camera (but keep visible when off to the side)
-      const behindFade = Math.max(0, dot * 2.0) // More gradual fade
-      intensityMod = Math.min(1.0, behindFade)
+      // Fade out when galaxy is behind camera (applied via opacity so it works during animations)
+      // Lower multiplier = more gradual transition (1.0 = 90° fade, 2.0 = 60° fade)
+      const behindFade = Math.max(0, dot * 1.2)
+      opacity *= Math.min(1.0, behindFade)
     }
 
     // Check if intensity was changed externally (by animation)
@@ -273,13 +340,15 @@ export const LensFlare = () => {
       Math.abs(currentUniformIntensity - expectedIntensity) > 0.001
 
     if (!wasAnimatedExternally) {
-      // Update intensity from controls with camera fade modifier
-      const newIntensity = controls.intensity * intensityMod
+      // Update intensity from controls (no modifiers - those are in opacity now)
+      const newIntensity = controls.intensity
       material.uniforms.uIntensity.value = newIntensity
       lastControlIntensityRef.current = newIntensity
     }
-    // If animated externally, leave the uniform value as-is (animation controls it)
+    // If animated externally, leave the intensity uniform as-is (animation controls it)
 
+    // Always update opacity (handles FOV fade + galaxy-behind fade, independent of animation)
+    material.uniforms.uOpacity.value = opacity
     material.uniforms.uLightPosition.value.set(lightX, lightY)
     material.uniforms.uGhostIntensity.value = controls.ghostIntensity
     material.uniforms.uHaloIntensity.value = controls.haloIntensity
@@ -291,7 +360,8 @@ export const LensFlare = () => {
     material.uniforms.uColor.value.set(colorObj.r, colorObj.g, colorObj.b)
   })
 
-  if (!controls.enabled) return null
+  // Only hide if explicitly disabled (not undefined during HMR settling)
+  if (controls.enabled === false) return null
 
   return (
     <mesh

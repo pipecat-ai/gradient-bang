@@ -52,8 +52,6 @@ export interface StarfieldConfig {
   hyperspaceEnterTime?: number
   hyperspaceExitTime?: number
   hyperspaceDuration?: number
-  hyperspaceCooldown?: number
-  hyperspaceFovShift?: number
   shakeIntensity?: number
   shakeRelaxTime?: number
   layerDimDuration?: number

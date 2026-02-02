@@ -159,12 +159,13 @@ export const useDevControls = ({
 
   useEffect(() => {
     if (!showControls) return
+
     try {
       setControls({
         sceneQueueLength: sceneQueueLength.toString(),
         sceneChanging: isSceneChanging.toString(),
         sceneId: currentSceneId?.toString() ?? "",
-        warpCooldownActive: isSceneCooldownActive ? "Active" : "Inactive",
+        sceneCooldownActive: isSceneCooldownActive ? "Active" : "Inactive",
       })
     } catch {
       // Controls not mounted yet

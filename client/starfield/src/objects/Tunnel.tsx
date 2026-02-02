@@ -359,9 +359,10 @@ export const Tunnel = () => {
     }
   })
 
-  // If both flags are disabled, don't render at all
+  // If both flags are explicitly disabled, don't render at all
   // Note: This bypasses shader pre-compilation, but respects explicit user choice
-  if (!controls.enabled && !controls.showDuringWarp) {
+  // Use === false to avoid hiding during HMR when values might be undefined
+  if (controls.enabled === false && controls.showDuringWarp === false) {
     return null
   }
 

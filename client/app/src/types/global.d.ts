@@ -348,6 +348,7 @@ declare global {
 
   // --- CONVERSATION
 
+  export type ConversationMessageRole = "user" | "assistant" | "system" | "tool"
   export interface ConversationMessagePart {
     text: string | ReactNode
     final: boolean
@@ -355,7 +356,7 @@ declare global {
   }
 
   export interface ConversationMessage {
-    role: "user" | "assistant" | "system"
+    role: ConversationMessageRole
     final?: boolean
     parts: ConversationMessagePart[]
     createdAt: string

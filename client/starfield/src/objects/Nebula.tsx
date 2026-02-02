@@ -16,12 +16,12 @@ import { useGameStore } from "@/useGameStore"
 
 const DEFAULT_NEBULA_CONFIG = {
   enabled: true,
-  intensity: 0.8,
+  intensity: 0.7,
   color: "#000000",
   primaryColor: "#000000",
   secondaryColor: "#000000",
-  domainScale: 1,
-  iterPrimary: 23,
+  domainScale: 1.2,
+  iterPrimary: 15.8,
   iterSecondary: 5,
   rotationX: 0,
   rotationY: 0,
@@ -254,7 +254,8 @@ export const Nebula = () => {
     )
   })
 
-  if (!controls.enabled) return null
+  // Only hide if explicitly disabled (not undefined during HMR settling)
+  if (controls.enabled === false) return null
 
   return (
     <mesh

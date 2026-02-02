@@ -314,3 +314,7 @@ export interface CorporationShipPurchaseMessage extends ServerMessagePayload {
   buyer_name: string
   purchase_price: number
 }
+
+export interface LLMTaskMessage extends ServerMessagePayload {
+  name: string
+}

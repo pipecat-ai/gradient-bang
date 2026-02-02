@@ -23,7 +23,7 @@ import {
 
 // Camera FOV
 const CAMERA_FOV: AnimatedPropertyConfig = {
-  target: 165,
+  target: 150,
   // start: 90,  // Example: snap to this value when enter begins
   // end: 75,    // Example: animate back to this value on exit
   anim: {
@@ -66,15 +66,6 @@ const TUNNEL_ROTATION_SPEED: AnimatedPropertyConfig = {
   target: 0.1,
   anim: {
     enter: { easing: easings.easeInExpo },
-    exit: {},
-  },
-}
-
-// Lens flare intensity
-const LENS_FLARE_INTENSITY: AnimatedPropertyConfig = {
-  target: 0,
-  anim: {
-    enter: {},
     exit: {},
   },
 }
@@ -329,20 +320,6 @@ export function useHyperspaceAnimation(): DirectionalAnimationHook<
           )
         )
       }
-    }
-
-    // --- Lens Flare Intensity ---
-    const lensFlareIntensity = getUniform<number>("lensFlareIntensity")
-    if (lensFlareIntensity) {
-      updateUniform(
-        lensFlareIntensity,
-        lerpAnimatedProperty(
-          p,
-          isEntering,
-          lensFlareIntensity.initial!,
-          LENS_FLARE_INTENSITY
-        )
-      )
     }
 
     // --- Post-processing: Exposure ---

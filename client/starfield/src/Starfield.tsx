@@ -32,7 +32,6 @@ import type {
   PositionedGameObject,
   StarfieldConfig,
 } from "@/types"
-import { useAnimationStore } from "@/useAnimationStore"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
 
@@ -49,11 +48,17 @@ function SuspenseReady() {
   const frameCount = useRef(0)
 
   useFrame(() => {
-    if (useAnimationStore.getState().suspenseReady) return
+    // Scene had loaded and suspense has fired, notify the animation store
+    const { isReady } = useGameStore.getState()
+    if (isReady) return
 
+    // Count a few frames to ensure all objects are mounted
     frameCount.current++
-    if (frameCount.current >= 2) {
-      useAnimationStore.getState().setSuspenseReady(true)
+    if (frameCount.current >= 4) {
+      console.debug("[STARFIELD] Away we go...")
+
+      useGameStore.getState().setIsReady(true)
+      useCallbackStore.getState().onReady?.()
     }
   })
 
@@ -73,12 +78,11 @@ interface StarfieldBaseProps {
 const IS_DEV = import.meta.env.DEV
 
 export interface StarfieldProps extends StarfieldBaseProps {
-  onStart?: () => void
-  onStop?: () => void
   onCreated?: () => void
   onReady?: () => void
   onUnsupported?: () => void
   onSceneChangeStart?: () => void
+  onSceneChangeEnd?: () => void
   onTargetRest?: (target: PositionedGameObject) => void
   onTargetClear?: () => void
   generateInitialScene?: boolean
@@ -103,6 +107,14 @@ export function StarfieldComponent({
   usePerformanceProfile({ initialProfile: profile })
 
   const { dpr } = useDevControls({ profile })
+
+  useEffect(() => {
+    useGameStore.getState().setIsReady(false)
+    return () => {
+      console.log("[STARFIELD] Unmounting Starfield")
+      useGameStore.getState().setIsReady(false)
+    }
+  }, [])
 
   /* Handle config changes */
   const prevConfigRef = useRef<Partial<StarfieldConfig> | undefined>(undefined)
@@ -207,12 +219,11 @@ export function StarfieldComponent({
 
 export const Starfield = ({
   debug = false,
-  onStart,
-  onStop,
   onCreated,
   onReady,
   onUnsupported,
   onSceneChangeStart,
+  onSceneChangeEnd,
   onTargetRest,
   onTargetClear,
   ...props
@@ -224,24 +235,22 @@ export const Starfield = ({
   }
 
   const callbacksRef = useRef({
-    onStart,
-    onStop,
     onCreated,
     onReady,
     onUnsupported,
     onSceneChangeStart,
+    onSceneChangeEnd,
     onTargetRest,
     onTargetClear,
   })
 
   useLayoutEffect(() => {
     callbacksRef.current = {
-      onStart,
-      onStop,
       onCreated,
       onReady,
       onUnsupported,
       onSceneChangeStart,
+      onSceneChangeEnd,
       onTargetRest,
       onTargetClear,
     }
@@ -254,10 +263,9 @@ export const Starfield = ({
     useCallbackStore.setState({
       onCreated: () => getCallbacks().onCreated?.(),
       onReady: () => getCallbacks().onReady?.(),
-      onStart: () => getCallbacks().onStart?.(),
-      onStop: () => getCallbacks().onStop?.(),
       onUnsupported: () => getCallbacks().onUnsupported?.(),
       onSceneChangeStart: () => getCallbacks().onSceneChangeStart?.(),
+      onSceneChangeEnd: () => getCallbacks().onSceneChangeEnd?.(),
       onTargetRest: (target) => getCallbacks().onTargetRest?.(target),
       onTargetClear: () => getCallbacks().onTargetClear?.(),
     })

@@ -59,7 +59,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   displayingToastId: null,
   lookMode: false,
   lookAtTarget: undefined,
-
+  llmIsWorking: false,
   setToasts: (toasts: Toast[]) => {
     set(
       produce((state) => {
@@ -192,6 +192,13 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.lookAtTarget = target
+      })
+    )
+  },
+  setLLMIsWorking: (isWorking: boolean) => {
+    set(
+      produce((state) => {
+        state.llmIsWorking = isWorking
       })
     )
   },
