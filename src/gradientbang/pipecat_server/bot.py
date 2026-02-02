@@ -29,7 +29,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
-    RTVIObserver,
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
@@ -229,7 +228,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         [
             transport.input(),
             stt,
-            rtvi,  # Add RTVI processor for transcription events
             pre_llm_gate,
             context_aggregator.user(),
             ParallelPipeline(
@@ -250,7 +248,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         ]
     )
 
-    # Create task with RTVI observer
+    # Create task with RTVI support
     # Configure idle_timeout_frames to include TaskActivityFrame so long-running tasks
     # don't cause the pipeline to timeout when there's no voice interaction
     logger.info("Create task…")
@@ -261,7 +259,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        observers=[RTVIObserver(rtvi)],
+        rtvi_processor=rtvi,
         idle_timeout_frames=(BotSpeakingFrame, UserStartedSpeakingFrame, TaskActivityFrame),
     )
 
@@ -274,7 +272,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await task_manager.game_client.resume_event_delivery()
 
         asyncio.create_task(_join())
-        await rtvi.set_bot_ready()
 
     @rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
