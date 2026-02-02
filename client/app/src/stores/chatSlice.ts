@@ -15,9 +15,6 @@ export interface ChatSlice {
   // Store separate text streams for LLM and TTS
   llmTextStreams: Map<string, string> // messageId -> accumulated LLM text
   ttsTextStreams: Map<string, string> // messageId -> accumulated TTS text
-  // Track last chunk added to detect duplicates (React Strict Mode double-handler issue)
-  lastLlmChunk: Map<string, string> // messageId -> last chunk text
-  lastTtsChunk: Map<string, string> // messageId -> last chunk text
   // Track if bot has started speaking this exchange (reset when user speaks)
   botHasSpoken: boolean
 
@@ -50,7 +47,6 @@ export interface ChatSlice {
   startAssistantLlmStream: () => void
   addToolCallMessage: (functionName: string) => void
   setBotHasSpoken: (value: boolean) => void
-  removeTentativeToolMessages: () => void
 }
 
 export const sortByCreatedAt = (
@@ -148,8 +144,6 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
   chatCallbacks: new Map(),
   llmTextStreams: new Map(),
   ttsTextStreams: new Map(),
-  lastLlmChunk: new Map(),
-  lastTtsChunk: new Map(),
   botHasSpoken: false,
 
   registerChatCallback: (id, callback) =>
@@ -171,8 +165,6 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
       chatMessages: [],
       llmTextStreams: new Map(),
       ttsTextStreams: new Map(),
-      lastLlmChunk: new Map(),
-      lastTtsChunk: new Map(),
       botHasSpoken: false,
     }),
 
@@ -317,13 +309,6 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
     set((state) => {
       let messages = [...state.chatMessages]
 
-      // If bot hasn't spoken yet, we might need to remove tentative tool messages
-      // and continue the user's turn
-      if (!state.botHasSpoken) {
-        // Remove any tentative tool messages (user is continuing their turn)
-        messages = messages.filter((m) => m.role !== "tool")
-      }
-
       // Find last user message
       const lastUserIndex = messages.findLastIndex((m) => m.role === "user")
       const lastUserMessage =
@@ -442,9 +427,6 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
       const messages = [...state.chatMessages]
       const llmTextStreams = new Map(state.llmTextStreams)
       const ttsTextStreams = new Map(state.ttsTextStreams)
-      const lastLlmChunk = new Map(state.lastLlmChunk)
-      const lastTtsChunk = new Map(state.lastTtsChunk)
-
       const lastAssistantIndex = messages.findLastIndex(
         (msg) => msg.role === "assistant"
       )
@@ -474,16 +456,6 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
         }
       }
 
-      // DEDUPLICATION: Check if this chunk is a duplicate
-      // React Strict Mode causes double event handler registration
-      const lastChunkMap = source === "llm" ? lastLlmChunk : lastTtsChunk
-      const lastChunk = lastChunkMap.get(messageId)
-      if (lastChunk === filteredText) {
-        // Duplicate chunk - skip update
-        return state
-      }
-      lastChunkMap.set(messageId, filteredText)
-
       // Update the appropriate text stream
       if (source === "llm") {
         const currentText = llmTextStreams.get(messageId) || ""
@@ -507,8 +479,6 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
         chatMessages: processedMessages,
         llmTextStreams,
         ttsTextStreams,
-        lastLlmChunk,
-        lastTtsChunk,
       }
     })
   },
@@ -526,9 +496,13 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
       const lastAssistant =
         lastAssistantIndex !== -1 ? messages[lastAssistantIndex] : undefined
 
-      // KEY FIX: Check finality, not position
-      // Create new assistant message if there's none OR if the last one is FINAL
-      if (!lastAssistant || lastAssistant.final) {
+      const lastMessageIndex = messages.length - 1
+      const isLastAssistant =
+        lastAssistantIndex !== -1 && lastAssistantIndex === lastMessageIndex
+
+      // Create a new assistant message if there's none, the last is final,
+      // or newer messages (e.g., tool calls) were appended after it.
+      if (!lastAssistant || lastAssistant.final || !isLastAssistant) {
         // Create a new assistant message
         const newMessage: ConversationMessage = {
           role: "assistant",
@@ -566,17 +540,6 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
 
   addToolCallMessage: (functionName) => {
     set((state) => {
-      // DEDUPLICATION: Check if last message is already a tool message with same name
-      // React Strict Mode causes double event handler registration
-      const lastMessage = state.chatMessages[state.chatMessages.length - 1]
-      if (
-        lastMessage?.role === "tool" &&
-        lastMessage.parts?.[0]?.text === functionName
-      ) {
-        // Duplicate tool call - skip
-        return state
-      }
-
       const now = new Date()
       const message: ConversationMessage = {
         role: "tool",
@@ -593,14 +556,4 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
   },
 
   setBotHasSpoken: (value) => set({ botHasSpoken: value }),
-
-  removeTentativeToolMessages: () => {
-    set((state) => {
-      const messages = state.chatMessages.filter((m) => m.role !== "tool")
-      const processedMessages = pruneMessages(
-        mergeMessages(filterEmptyMessages(messages.sort(sortByCreatedAt)))
-      )
-      return { chatMessages: processedMessages }
-    })
-  },
 })
