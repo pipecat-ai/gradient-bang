@@ -34,7 +34,17 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
         if (!state.taskOutputs[taskOutput.task_id]) {
           state.taskOutputs[taskOutput.task_id] = []
         }
-        state.taskOutputs[taskOutput.task_id].push(taskOutput)
+        // DEDUPLICATION: Skip if last output has same text and type (React Strict Mode double-handler issue)
+        const outputs = state.taskOutputs[taskOutput.task_id]
+        const lastOutput = outputs[outputs.length - 1]
+        if (
+          lastOutput &&
+          lastOutput.text === taskOutput.text &&
+          lastOutput.task_message_type === taskOutput.task_message_type
+        ) {
+          return
+        }
+        outputs.push(taskOutput)
       })
     ),
 
@@ -50,6 +60,10 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
   addActiveTask: (task: ActiveTask) =>
     set(
       produce((state) => {
+        // DEDUPLICATION: Skip if task already exists (React Strict Mode double-handler issue)
+        if (task.task_id in state.activeTasks) {
+          return
+        }
         state.activeTasks[task.task_id] = task
         state.taskInProgress = true
       })
@@ -70,6 +84,10 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
   addTaskSummary: (taskSummary: TaskSummary) =>
     set(
       produce((state) => {
+        // DEDUPLICATION: Skip if summary already exists (React Strict Mode double-handler issue)
+        if (taskSummary.task_id in state.taskSummaries) {
+          return
+        }
         state.taskSummaries[taskSummary.task_id] = taskSummary
       })
     ),

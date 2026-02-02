@@ -20,6 +20,17 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
       }),
     [message.createdAt]
   )
+
+  // Tool messages have a special format
+  if (message.role === "tool") {
+    const functionName = message.parts?.[0]?.text || "unknown"
+    return (
+      <div className="flex flex-col gap-0 text-xxs text-muted-foreground italic">
+        <span className="opacity-50">[{timeString}]</span> tool {functionName}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-0 text-xxs text-foreground">
       <div

@@ -25,6 +25,7 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
 )
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
@@ -200,7 +201,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # Create context aggregator
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
-    context_aggregator = LLMContextAggregatorPair(context)
+    context_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(
+            filter_incomplete_user_turns=True,
+        ),
+    )
 
     inference_gate_state = InferenceGateState(
         cooldown_seconds=2.0,
@@ -239,6 +245,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 ],
                 # Compression monitoring branch (sink)
                 [compression_producer],
+                #
             ),
         ]
     )

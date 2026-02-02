@@ -355,7 +355,7 @@ declare global {
   }
 
   export interface ConversationMessage {
-    role: "user" | "assistant" | "system"
+    role: "user" | "assistant" | "system" | "tool"
     final?: boolean
     parts: ConversationMessagePart[]
     createdAt: string

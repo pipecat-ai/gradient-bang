@@ -2,12 +2,24 @@ import type { StateCreator } from "zustand"
 
 const MAX_CHAT_MESSAGES = 500
 
+// Turn completion markers from pipecat - strip from display
+const TURN_MARKER_REGEX = /[✓○◐]/g
+
+const stripTurnMarkers = (text: string): string => {
+  return text.replace(TURN_MARKER_REGEX, "")
+}
+
 export interface ChatSlice {
   chatMessages: ConversationMessage[]
   chatCallbacks: Map<string, (message: ConversationMessage) => void>
   // Store separate text streams for LLM and TTS
   llmTextStreams: Map<string, string> // messageId -> accumulated LLM text
   ttsTextStreams: Map<string, string> // messageId -> accumulated TTS text
+  // Track last chunk added to detect duplicates (React Strict Mode double-handler issue)
+  lastLlmChunk: Map<string, string> // messageId -> last chunk text
+  lastTtsChunk: Map<string, string> // messageId -> last chunk text
+  // Track if bot has started speaking this exchange (reset when user speaks)
+  botHasSpoken: boolean
 
   // Actions
   registerChatCallback: (
@@ -36,6 +48,9 @@ export interface ChatSlice {
     source: "llm" | "tts"
   ) => void
   startAssistantLlmStream: () => void
+  addToolCallMessage: (functionName: string) => void
+  setBotHasSpoken: (value: boolean) => void
+  removeTentativeToolMessages: () => void
 }
 
 export const sortByCreatedAt = (
@@ -88,6 +103,7 @@ export const mergeMessages = (
       lastMerged &&
       lastMerged.role === currentMessage.role &&
       currentMessage.role !== "system" &&
+      currentMessage.role !== "tool" &&
       timeDiff < 30000
 
     if (shouldMerge) {
@@ -132,6 +148,9 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
   chatCallbacks: new Map(),
   llmTextStreams: new Map(),
   ttsTextStreams: new Map(),
+  lastLlmChunk: new Map(),
+  lastTtsChunk: new Map(),
+  botHasSpoken: false,
 
   registerChatCallback: (id, callback) =>
     set((state) => {
@@ -152,6 +171,9 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
       chatMessages: [],
       llmTextStreams: new Map(),
       ttsTextStreams: new Map(),
+      lastLlmChunk: new Map(),
+      lastTtsChunk: new Map(),
+      botHasSpoken: false,
     }),
 
   addChatMessage: (messageData) => {
@@ -293,14 +315,25 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
   upsertUserTranscript: (text, final) => {
     const now = new Date()
     set((state) => {
-      const messages = [...state.chatMessages]
+      let messages = [...state.chatMessages]
+
+      // If bot hasn't spoken yet, we might need to remove tentative tool messages
+      // and continue the user's turn
+      if (!state.botHasSpoken) {
+        // Remove any tentative tool messages (user is continuing their turn)
+        messages = messages.filter((m) => m.role !== "tool")
+      }
 
       // Find last user message
       const lastUserIndex = messages.findLastIndex((m) => m.role === "user")
+      const lastUserMessage =
+        lastUserIndex !== -1 ? messages[lastUserIndex] : undefined
 
-      if (lastUserIndex !== -1 && !messages[lastUserIndex].final) {
-        // Update existing user message
-        const target = { ...messages[lastUserIndex] }
+      // KEY FIX: Only update existing user message if it's NOT final
+      // If bot hasn't spoken AND there's a non-final user message, continue that turn
+      if (!state.botHasSpoken && lastUserMessage && !lastUserMessage.final) {
+        // Update existing non-final user message
+        const target = { ...lastUserMessage }
         const parts: ConversationMessagePart[] = Array.isArray(target.parts)
           ? [...target.parts]
           : []
@@ -311,6 +344,43 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
           parts.push({ text, final, createdAt: now.toISOString() })
         } else {
           // Update in-progress part
+          parts[parts.length - 1] = {
+            ...lastPart,
+            text,
+            final,
+          }
+        }
+
+        const updatedMessage: ConversationMessage = {
+          ...target,
+          // Don't finalize based on transcript final flag - wait for BotTtsStarted
+          final: false,
+          parts,
+          updatedAt: now.toISOString(),
+        }
+
+        messages[lastUserIndex] = updatedMessage
+
+        const processedMessages = pruneMessages(
+          mergeMessages(filterEmptyMessages(messages.sort(sortByCreatedAt)))
+        )
+
+        callAllMessageCallbacks(state.chatCallbacks, updatedMessage)
+        return { chatMessages: processedMessages }
+      }
+
+      // Bot has spoken OR user message is final - check if we can update existing non-final
+      if (lastUserIndex !== -1 && !messages[lastUserIndex].final) {
+        // Update existing non-final user message
+        const target = { ...messages[lastUserIndex] }
+        const parts: ConversationMessagePart[] = Array.isArray(target.parts)
+          ? [...target.parts]
+          : []
+
+        const lastPart = parts[parts.length - 1]
+        if (!lastPart || lastPart.final) {
+          parts.push({ text, final, createdAt: now.toISOString() })
+        } else {
           parts[parts.length - 1] = {
             ...lastPart,
             text,
@@ -363,10 +433,17 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
 
   updateAssistantText: (text, final, source) => {
     const now = new Date()
+    const filteredText = stripTurnMarkers(text)
+
+    // Skip if filtering removed all content
+    if (!filteredText) return
+
     set((state) => {
       const messages = [...state.chatMessages]
       const llmTextStreams = new Map(state.llmTextStreams)
       const ttsTextStreams = new Map(state.ttsTextStreams)
+      const lastLlmChunk = new Map(state.lastLlmChunk)
+      const lastTtsChunk = new Map(state.lastTtsChunk)
 
       const lastAssistantIndex = messages.findLastIndex(
         (msg) => msg.role === "assistant"
@@ -397,18 +474,28 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
         }
       }
 
+      // DEDUPLICATION: Check if this chunk is a duplicate
+      // React Strict Mode causes double event handler registration
+      const lastChunkMap = source === "llm" ? lastLlmChunk : lastTtsChunk
+      const lastChunk = lastChunkMap.get(messageId)
+      if (lastChunk === filteredText) {
+        // Duplicate chunk - skip update
+        return state
+      }
+      lastChunkMap.set(messageId, filteredText)
+
       // Update the appropriate text stream
       if (source === "llm") {
         const currentText = llmTextStreams.get(messageId) || ""
-        llmTextStreams.set(messageId, currentText + text)
+        llmTextStreams.set(messageId, currentText + filteredText)
       } else {
         const currentText = ttsTextStreams.get(messageId) || ""
         // Add space between TTS chunks for proper word separation
         const separator =
-          currentText && !currentText.endsWith(" ") && !text.startsWith(" ")
+          currentText && !currentText.endsWith(" ") && !filteredText.startsWith(" ")
             ? " "
             : ""
-        ttsTextStreams.set(messageId, currentText + separator + text)
+        ttsTextStreams.set(messageId, currentText + separator + filteredText)
       }
 
       // Don't filter out messages that have text in the text streams
@@ -420,6 +507,8 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
         chatMessages: processedMessages,
         llmTextStreams,
         ttsTextStreams,
+        lastLlmChunk,
+        lastTtsChunk,
       }
     })
   },
@@ -430,7 +519,6 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
       const llmTextStreams = new Map(state.llmTextStreams)
       const now = new Date()
 
-      const lastIndex = messages.length - 1
       // Get the last assistant message
       const lastAssistantIndex = messages.findLastIndex(
         (msg) => msg.role === "assistant"
@@ -438,8 +526,9 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
       const lastAssistant =
         lastAssistantIndex !== -1 ? messages[lastAssistantIndex] : undefined
 
-      // Check if the last assistant message is final
-      if (!lastAssistant || lastIndex !== lastAssistantIndex) {
+      // KEY FIX: Check finality, not position
+      // Create new assistant message if there's none OR if the last one is FINAL
+      if (!lastAssistant || lastAssistant.final) {
         // Create a new assistant message
         const newMessage: ConversationMessage = {
           role: "assistant",
@@ -449,16 +538,13 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
           updatedAt: now.toISOString(),
         }
         messages.push(newMessage)
-      } else if (lastIndex === lastAssistantIndex) {
-        // The last assistant message is not final, so we need to add a space
-        // to the LLM stream to separate it from the previous content
+      } else {
+        // Last assistant message is non-final - reset its stream for new LLM turn
         const messageId = lastAssistant.createdAt
-        const currentText = llmTextStreams.get(messageId) || ""
 
-        // Add a space if the current text doesn't end with one
-        if (currentText && !currentText.endsWith(" ")) {
-          llmTextStreams.set(messageId, currentText + " ")
-        }
+        // Reset the stream for new LLM turn instead of appending
+        // BotLlmStarted indicates a fresh LLM generation
+        llmTextStreams.set(messageId, "")
 
         messages[lastAssistantIndex] = {
           ...lastAssistant,
@@ -475,6 +561,46 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
         chatMessages: processedMessages,
         llmTextStreams,
       }
+    })
+  },
+
+  addToolCallMessage: (functionName) => {
+    set((state) => {
+      // DEDUPLICATION: Check if last message is already a tool message with same name
+      // React Strict Mode causes double event handler registration
+      const lastMessage = state.chatMessages[state.chatMessages.length - 1]
+      if (
+        lastMessage?.role === "tool" &&
+        lastMessage.parts?.[0]?.text === functionName
+      ) {
+        // Duplicate tool call - skip
+        return state
+      }
+
+      const now = new Date()
+      const message: ConversationMessage = {
+        role: "tool",
+        final: true,
+        parts: [{ text: functionName, final: true, createdAt: now.toISOString() }],
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
+      const updatedMessages = [...state.chatMessages, message]
+      const processedMessages = pruneMessages(updatedMessages.sort(sortByCreatedAt))
+      callAllMessageCallbacks(state.chatCallbacks, message)
+      return { chatMessages: processedMessages }
+    })
+  },
+
+  setBotHasSpoken: (value) => set({ botHasSpoken: value }),
+
+  removeTentativeToolMessages: () => {
+    set((state) => {
+      const messages = state.chatMessages.filter((m) => m.role !== "tool")
+      const processedMessages = pruneMessages(
+        mergeMessages(filterEmptyMessages(messages.sort(sortByCreatedAt)))
+      )
+      return { chatMessages: processedMessages }
     })
   },
 })

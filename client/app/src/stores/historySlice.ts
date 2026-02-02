@@ -47,16 +47,24 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
           //sector: state.sector,
         }
 
+        const signature =
+          entry.signature ??
+          createLogEntrySignature({
+            type: entry.type,
+            meta,
+          })
+
+        // DEDUPLICATION: Skip if last entry has same signature (React Strict Mode double-handler issue)
+        const lastEntry = state.activity_log[state.activity_log.length - 1]
+        if (lastEntry?.signature === signature) {
+          return
+        }
+
         state.activity_log.push({
           ...entry,
           timestamp,
           timestamp_client: timestampClient,
-          signature:
-            entry.signature ??
-            createLogEntrySignature({
-              type: entry.type,
-              meta,
-            }),
+          signature,
           meta,
         })
       })
