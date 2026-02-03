@@ -1,0 +1,21 @@
+[Unit]
+Description=Gradient Bang - Bot (voice + agents)
+PartOf=gradient-bang.target
+After=gradient-bang-supabase.service
+After=gradient-bang-edge-functions.service
+Requires=gradient-bang-supabase.service
+Requires=gradient-bang-edge-functions.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/chad/Code/gradient-bang
+EnvironmentFile=/home/chad/Code/gradient-bang/.env.supabase
+EnvironmentFile=/home/chad/Code/gradient-bang/.env.bot
+ExecStart=/home/chad/.local/bin/uv run bot --host 0.0.0.0
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=gradient-bang.target

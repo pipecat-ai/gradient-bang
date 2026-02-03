@@ -1,0 +1,10 @@
+[Unit]
+Description=Gradient Bang - All Services
+Wants=gradient-bang-supabase.service
+Wants=gradient-bang-edge-functions.service
+Wants=gradient-bang-client.service
+Wants=gradient-bang-bot.service
+Wants=gradient-bang-tailscale.service
+
+[Install]
+WantedBy=default.target
