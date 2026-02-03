@@ -25,7 +25,6 @@ interface AppState {
   performanceProfile: PerformanceProfile
   setPerformanceProfile: (profile: PerformanceProfile) => void
 
-
   // State
   isReady: boolean
   setIsReady: (isReady: boolean) => void
@@ -67,6 +66,8 @@ interface AppState {
   addSceneToQueue: (queuedScene: QueuedScene) => void
   removeSceneFromQueue: () => QueuedScene | undefined
   clearSceneQueue: () => void
+
+  reset: () => void
 }
 
 export const useGameStore = create<AppState>(
@@ -106,7 +107,6 @@ export const useGameStore = create<AppState>(
       profile !== get().performanceProfile &&
       set({ performanceProfile: profile }),
 
-
     // State
     isReady: false,
     setIsReady: (isReady: boolean) => set({ isReady }),
@@ -130,12 +130,24 @@ export const useGameStore = create<AppState>(
 
     // Game Objects (input)
     gameObjects: [],
-    setGameObjects: (gameObjects: GameObject[]) =>
+    setGameObjects: (gameObjects: GameObject[]) => {
+      // Remove lookAtTarget if it's no longer in the game objects
+      if (
+        get().lookAtTarget &&
+        !gameObjects.some((obj) => obj.id === get().lookAtTarget)
+      ) {
+        set(
+          produce((draft) => {
+            draft.lookAtTarget = undefined
+          })
+        )
+      }
       set(
         produce((draft) => {
           draft.gameObjects = gameObjects
         })
-      ),
+      )
+    },
     // Positioned Game Objects (output)
     positionedGameObjects: [],
     setPositionedGameObjects: (positionedGameObjects: PositionedGameObject[]) =>
@@ -146,12 +158,25 @@ export const useGameStore = create<AppState>(
       ),
     // Camera look-at target
     lookAtTarget: undefined,
-    setLookAtTarget: (target: string | undefined) =>
-      set(
-        produce((draft) => {
-          draft.lookAtTarget = target
-        })
-      ),
+    setLookAtTarget: (target: string | undefined) => {
+      // Lookup target game object
+      const targetGameObject = get().gameObjects.find(
+        (obj) => obj.id === target
+      )
+      if (targetGameObject) {
+        set(
+          produce((draft) => {
+            draft.lookAtTarget = targetGameObject.id
+          })
+        )
+      } else {
+        set(
+          produce((draft) => {
+            draft.lookAtTarget = undefined
+          })
+        )
+      }
+    },
     // Camera transition state
     isCameraTransitioning: false,
     setIsCameraTransitioning: (transitioning: boolean) =>
@@ -220,5 +245,23 @@ export const useGameStore = create<AppState>(
           draft.sceneQueue = []
         })
       ),
+    reset: () =>
+      set({
+        starfieldConfig: {
+          ...defaultProfile,
+        },
+        debug: false,
+        performanceProfile: "high",
+        isReady: false,
+        isPaused: false,
+        gameObjects: [],
+        positionedGameObjects: [],
+        lookAtTarget: undefined,
+        isCameraTransitioning: false,
+        isSceneChanging: false,
+        isSceneCooldownActive: false,
+        sceneQueue: [],
+        currentScene: null,
+      }),
   })
 )

@@ -116,7 +116,7 @@ export function StarfieldComponent({
     useGameStore.getState().setIsReady(false)
     return () => {
       console.log("[STARFIELD] Unmounting Starfield")
-      useGameStore.getState().setIsReady(false)
+      useGameStore.getState().reset()
     }
   }, [])
 

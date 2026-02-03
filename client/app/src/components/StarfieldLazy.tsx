@@ -1,12 +1,25 @@
-import { useEffect } from "react"
+import { useCallback, useEffect } from "react"
 
 import Starfield, {
+  type GameObject,
   generateRandomScene,
   type StarfieldProps,
   useSceneChange,
 } from "@gradient-bang/starfield"
 
 import useGameStore from "@/stores/game"
+
+const generateGameObjects = (sector: Sector) => {
+  return sector.port ?
+      [
+        {
+          id: "port-" + sector.id.toString(),
+          type: "port",
+          label: sector.port.code,
+        } as GameObject,
+      ]
+    : []
+}
 
 /**
  * Lazy-loaded starfield component with utilities.
@@ -17,6 +30,25 @@ export default function StarfieldLazy(props: StarfieldProps) {
   const renderStarfield = useGameStore((state) => state.settings.renderStarfield)
   const { changeScene } = useSceneChange()
 
+  const onReady = useCallback(() => {
+    console.debug("[STARFIELD] Starfield ready")
+    // Get current sector id
+    const sector = useGameStore.getState().sector
+    if (sector?.id) {
+      const newScene = generateRandomScene()
+      console.debug("[STARFIELD] Initial scene load", sector)
+
+      // Get game objects
+      const gameObjects = generateGameObjects(sector)
+
+      changeScene({
+        id: sector.id.toString(),
+        gameObjects,
+        config: newScene,
+      })
+    }
+  }, [changeScene])
+
   useEffect(() => {
     if (!renderStarfield) return
 
@@ -26,11 +58,14 @@ export default function StarfieldLazy(props: StarfieldProps) {
       (sectorId, prevSectorId) => {
         if (sectorId !== prevSectorId && sectorId) {
           const newScene = generateRandomScene()
-          console.log("SCENE CHANGE")
+          console.debug("[STARFIELD] Scene change")
+
+          const sector = useGameStore.getState().sector
+          if (sector === undefined) return
 
           changeScene({
             id: sectorId.toString(),
-            gameObjects: [],
+            gameObjects: generateGameObjects(sector),
             config: newScene,
           })
         }
@@ -40,5 +75,5 @@ export default function StarfieldLazy(props: StarfieldProps) {
     return unsub
   }, [renderStarfield, changeScene])
 
-  return <Starfield {...props} />
+  return <Starfield {...props} onReady={onReady} />
 }

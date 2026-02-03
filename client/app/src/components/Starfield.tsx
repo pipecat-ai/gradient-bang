@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo } from "react"
 
 import { motion } from "motion/react"
-import type { GameObject, PerformanceProfile } from "@gradient-bang/starfield"
+import type { PerformanceProfile } from "@gradient-bang/starfield"
 
 import { portImages, skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
@@ -12,14 +12,6 @@ const StarfieldLazy = lazy(() => import("./StarfieldLazy"))
 
 const skyboxImageList = Object.values(skyboxImages)
 const portImageList = Object.values(portImages)
-
-const TEST_GAME_OBJECTS = [
-  {
-    id: "port-1",
-    type: "port",
-    label: "bbs",
-  },
-] as GameObject[]
 
 const StarfieldFallback = () => (
   <div className="absolute h-full inset-0 overflow-hidden bg-background z-(--z-starfield)">
@@ -39,6 +31,20 @@ export const Starfield = () => {
   const starfieldReady = useGameStore.use.starfieldReady()
   const setStarfieldReady = useGameStore.use.setStarfieldReady()
   const lookAtTarget = useGameStore.use.lookAtTarget()
+  const activePanel = useGameStore.use.activePanel?.()
+
+  useEffect(() => {
+    if (!useGameStore.getState().starfieldReady) return
+
+    if (activePanel === "trade") {
+      const sector = useGameStore.getState().sector
+      if (sector?.port) {
+        useGameStore.getState().setLookAtTarget("port-" + sector?.id.toString())
+      }
+    } else {
+      useGameStore.getState().setLookAtTarget(undefined)
+    }
+  }, [activePanel])
 
   const starfieldConfig = useMemo(() => {
     return {
@@ -54,6 +60,18 @@ export const Starfield = () => {
     console.debug("[STARFIELD] Starfield created")
     setStarfieldReady(true)
   }, [setStarfieldReady])
+
+  const handleSceneChangeEnd = useCallback(() => {
+    const ap = useGameStore.getState().activePanel
+    if (ap === "trade") {
+      const sector = useGameStore.getState().sector
+      if (sector?.port) {
+        useGameStore.getState().setLookAtTarget("port-" + sector?.id.toString())
+      }
+    } else {
+      useGameStore.getState().setLookAtTarget(undefined)
+    }
+  }, [])
 
   // Blur any focused element when lookMode becomes active
   // This prevents needing to click twice to interact with the starfield
@@ -82,7 +100,7 @@ export const Starfield = () => {
           profile={qualityPreset as PerformanceProfile}
           config={starfieldConfig}
           onCreated={handleCreated}
-          gameObjects={TEST_GAME_OBJECTS}
+          onSceneChangeEnd={handleSceneChangeEnd}
         />
       </motion.div>
     </Suspense>

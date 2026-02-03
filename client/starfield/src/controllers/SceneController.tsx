@@ -59,6 +59,7 @@ export function SceneController() {
       )
       isProcessingRef.current = false
       setIsSceneChanging(false)
+      useCallbackStore.getState().onSceneChangeEnd()
       return
     }
 
@@ -123,10 +124,12 @@ export function SceneController() {
         )
         isFirstSceneRef.current = false
         setIsSceneChanging(true) // Trigger AnimationController
+
         applyScene(scene)
         // Defer isSceneChanging = false so AnimationController sees true first
         requestAnimationFrame(() => {
           setIsSceneChanging(false)
+          useCallbackStore.getState().onSceneChangeEnd()
         })
         return
       }
@@ -139,6 +142,7 @@ export function SceneController() {
       if (!isProcessingRef.current) {
         console.debug("[SCENE CONTROLLER] Starting queue processing")
         isProcessingRef.current = true
+        state.setLookAtTarget(undefined)
         setIsSceneChanging(true)
         useCallbackStore.getState().onSceneChangeStart()
         processNextScene()
