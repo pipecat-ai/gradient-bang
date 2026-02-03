@@ -1,0 +1,16 @@
+[Unit]
+Description=Gradient Bang - Supabase (local containers)
+PartOf=gradient-bang.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/chad/Code/gradient-bang
+ExecStart=/home/chad/.nvm/versions/node/v25.2.1/bin/npx supabase start --workdir deployment
+ExecStop=/home/chad/.nvm/versions/node/v25.2.1/bin/npx supabase stop --workdir deployment
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=120
+
+[Install]
+WantedBy=gradient-bang.target

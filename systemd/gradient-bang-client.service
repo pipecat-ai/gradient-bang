@@ -1,0 +1,16 @@
+[Unit]
+Description=Gradient Bang - Web Client (Vite dev server)
+PartOf=gradient-bang.target
+After=gradient-bang-supabase.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/chad/Code/gradient-bang/client
+ExecStart=/home/chad/.local/share/pnpm/pnpm run dev
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=gradient-bang.target

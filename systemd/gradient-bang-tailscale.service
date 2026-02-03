@@ -1,0 +1,18 @@
+[Unit]
+Description=Gradient Bang - Tailscale Serve (HTTPS proxy)
+PartOf=gradient-bang.target
+After=gradient-bang-client.service
+After=gradient-bang-edge-functions.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/tailscale serve --bg --https 443 http://localhost:5173
+ExecStart=/usr/bin/tailscale serve --bg --https 8443 --set-path=edge http://localhost:54321
+ExecStart=/usr/bin/tailscale serve --bg --https 8443 --set-path=bot http://localhost:7860
+ExecStop=/usr/bin/tailscale serve reset
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=gradient-bang.target

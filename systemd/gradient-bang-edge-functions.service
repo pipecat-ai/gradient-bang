@@ -1,0 +1,18 @@
+[Unit]
+Description=Gradient Bang - Supabase Edge Functions
+PartOf=gradient-bang.target
+After=gradient-bang-supabase.service
+Requires=gradient-bang-supabase.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/chad/Code/gradient-bang
+EnvironmentFile=/home/chad/Code/gradient-bang/.env.supabase
+ExecStart=/home/chad/.nvm/versions/node/v25.2.1/bin/npx supabase functions serve --workdir deployment --no-verify-jwt --env-file /home/chad/Code/gradient-bang/.env.supabase
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=gradient-bang.target
