@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react"
 
 // Lazy load debug components so they're not bundled in production
 const Stats = lazy(() =>
-  import("@react-three/drei").then((mod) => ({ default: mod.Stats }))
+  import("@react-three/drei/core/Stats").then((mod) => ({ default: mod.Stats }))
 )
 const RenderingIndicator = lazy(() =>
   import("./RenderingIndicator").then((mod) => ({
