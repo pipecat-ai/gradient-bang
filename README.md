@@ -191,6 +191,19 @@ VITE_PIPECAT_TRANSPORT=daily
 VITE_BOT_URL=https://apollo.seahorse-peacock.ts.net:8443/bot
 ```
 
+open `client/app/vite.config.js`, and add the `host` and `allowedHosts` lines so the `server` object at the bottom of the file looks like this:
+
+```js
+  server: {
+    host: '0.0.0.0',
+    allowedHosts: true,
+    watch: {
+      // Watch the starfield dist for changes
+      ignored: ["!**/node_modules/@gradient-bang/**"],
+    },
+  },
+```
+
 Then run a few `tailscale serve` commands, along with the other services.
 
 ```bash
