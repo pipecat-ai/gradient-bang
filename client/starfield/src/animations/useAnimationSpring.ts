@@ -289,9 +289,13 @@ export function useAnimationSpring(
 
   const start = useCallback(
     (to: number, config?: AnimationConfig) => {
+      console.debug("[ANIMATION SPRING] start called with to:", to)
       // Skip if already at target value (prevents stuck isAnimating state)
       const current = spring.progress.get()
+      console.debug("[ANIMATION SPRING] current value:", current) // Add this
+
       if (Math.abs(current - to) < PROGRESS_THRESHOLD) {
+        console.debug("[ANIMATION SPRING] Skipping - already at target")
         return Promise.resolve()
       }
 
@@ -310,13 +314,24 @@ export function useAnimationSpring(
         ...config,
       }
 
+      console.debug(
+        "[ANIMATION SPRING] calling api.start with config:",
+        finalConfig
+      )
+
       return new Promise<void>((resolve) => {
         api.start({
           progress: to,
           config: finalConfig,
+          onStart: () =>
+            console.debug("[ANIMATION SPRING] spring onStart fired"), // Add this
           onRest: () => {
             // Delay cleanup by one frame to ensure final uniform values are applied
             requestAnimationFrame(() => {
+              console.debug(
+                "[ANIMATION SPRING] spring onRest fired, progress:",
+                spring.progress.get()
+              ) // Add this
               invalidate()
               requestAnimationFrame(() => {
                 isAnimatingRef.current = false

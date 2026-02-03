@@ -1,13 +1,11 @@
-import { useCallback, useRef } from "react"
+import { useLayoutEffect, useRef } from "react"
 import { easings } from "@react-spring/three"
 import { useFrame } from "@react-three/fiber"
 
+import { useAnimationStore } from "@/useAnimationStore"
 import { useUniformStore } from "@/useUniformStore"
-
-import type { DirectionalAnimationHook } from "./types"
 import {
   lerpAnimatedProperty,
-  PROGRESS_THRESHOLD,
   useAnimationSpring,
   type AnimatedPropertyConfig,
   type AnimationConfig,
@@ -42,9 +40,7 @@ export interface DimAnimationOptions {
   exitTime?: number
 }
 
-export function useDimAnimation(
-  options: DimAnimationOptions = {}
-): DirectionalAnimationHook<"enter" | "exit"> {
+export function useDimAnimation(options: DimAnimationOptions = {}) {
   const {
     target = PP_LAYER_DIM_OPACITY.target,
     enterTime = DEFAULT_ENTER_TIME,
@@ -59,7 +55,6 @@ export function useDimAnimation(
     progress,
     getProgress,
     start: startSpring,
-    set: setSpring,
   } = useAnimationSpring({
     from: 0,
     config: {
@@ -68,17 +63,17 @@ export function useDimAnimation(
     } as AnimationConfig,
   })
 
-  // Set uniform to dimmed state (progress=1)
-  const setUniformsToDimmed = useCallback(() => {
-    const { getUniform, updateUniform } = useUniformStore.getState()
+  // Store the start implementation in a ref (always up-to-date)
+  const startRef = useRef<
+    (direction: "enter" | "exit", onComplete?: () => void) => void
+  >(() => {})
 
-    const ppLayerDimOpacity = getUniform<number>("ppLayerDimOpacity")
-    if (ppLayerDimOpacity) updateUniform(ppLayerDimOpacity, target)
-  }, [target])
-
-  // Start function that triggers the spring
-  const start = useCallback(
-    (direction: "enter" | "exit", onComplete?: () => void) => {
+  // Update the ref whenever dependencies change
+  useLayoutEffect(() => {
+    startRef.current = (
+      direction: "enter" | "exit",
+      onComplete?: () => void
+    ) => {
       directionRef.current = direction
 
       if (direction === "enter") {
@@ -86,19 +81,20 @@ export function useDimAnimation(
           onComplete?.()
         )
       } else {
-        // If starting exit from idle state, snap to dimmed first
-        const current = progress.get()
-        if (current < PROGRESS_THRESHOLD) {
-          setUniformsToDimmed()
-          setSpring(1)
-        }
+        // Let spring handle natural reversal from wherever it is
         startSpring(0, { duration: exitTime } as AnimationConfig).then(() =>
           onComplete?.()
         )
       }
-    },
-    [startSpring, setSpring, progress, enterTime, exitTime, setUniformsToDimmed]
-  )
+    }
+  }, [startSpring, enterTime, exitTime])
+
+  // Register in the animation store (once on mount)
+  useLayoutEffect(() => {
+    useAnimationStore.getState().registerAnimation("dim", {
+      start: (direction, onComplete) => startRef.current(direction, onComplete),
+    })
+  }, [])
 
   // Animate uniform each frame based on progress
   useFrame(() => {
@@ -120,8 +116,6 @@ export function useDimAnimation(
     }
   })
 
-  return {
-    progress,
-    start,
-  }
+  // Return progress for any components that need to read it
+  return { progress }
 }

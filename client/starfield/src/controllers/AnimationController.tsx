@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react"
+import { useCallback, useEffect, useRef } from "react"
+import { invalidate, useFrame } from "@react-three/fiber"
 import { button, folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 
 import { useDimAnimation } from "@/animations/dimAnim"
 import { useExposureAnimation } from "@/animations/exposureAnim"
 import { useHyperspaceAnimation } from "@/animations/hyperspaceAnim"
+import { useSceneChangeAnimation } from "@/animations/sceneChangeAnim"
 import { useShakeAnimation } from "@/animations/shakeAnim"
 import { useShockwaveAnimation } from "@/animations/shockwaveAnim"
 import { useShowControls } from "@/hooks/useStarfieldControls"
+import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
 
 /**
@@ -23,43 +26,28 @@ export function AnimationController() {
   const showControls = useShowControls()
   const initialAnimationPlayed = useRef(false)
   const isFirstSceneCycleRef = useRef(true) // Skip exit transition for first scene
+  const lastHandledStateRef = useRef<boolean | null>(null) // Prevent duplicate handling
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
 
-  const { start: startDim } = useDimAnimation()
-  const { start: startExposure } = useExposureAnimation()
-  const { start: startHyperspace } = useHyperspaceAnimation()
-  const { start: startShake, stop: stopShake } = useShakeAnimation()
-  const { start: startShockwave } = useShockwaveAnimation()
-
-  const animationStartRefs = useRef<{
-    startHyperspace: typeof startHyperspace
-    startShake: typeof startShake
-    stopShake: typeof stopShake
-    startShockwave: typeof startShockwave
-    startDim: typeof startDim
-  } | null>(null)
-
-  useLayoutEffect(() => {
-    animationStartRefs.current = {
-      startHyperspace,
-      startShake,
-      stopShake,
-      startShockwave,
-      startDim,
-    }
-  })
+  // Animation hooks - these set up the animations and register in store
+  // All animations are accessed via useAnimationStore.getState().animations
+  useDimAnimation()
+  useExposureAnimation()
+  useHyperspaceAnimation()
+  useSceneChangeAnimation()
+  useShakeAnimation()
+  useShockwaveAnimation()
 
   const playInitialAnimation = useCallback(() => {
-    if (!animationStartRefs.current) return
-
     // Double rAF here just to ensure all objects are mounted (precaution)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        animationStartRefs.current?.startShake()
-        animationStartRefs.current?.startHyperspace(
+        const { animations } = useAnimationStore.getState()
+        animations.shake?.start()
+        animations.hyperspace?.start(
           "exit",
           () => {
-            animationStartRefs.current?.stopShake()
+            animations.shake?.stop()
           },
           {
             initialExposure: 0,
@@ -71,22 +59,29 @@ export function AnimationController() {
 
   const playTransitionAnimation = useCallback((direction: "enter" | "exit") => {
     console.debug("[STARFIELD] Playing transition animation", direction)
-    if (!animationStartRefs.current) return
 
-    // Enter: start shake + dim, Exit: stop shake + undim
-    // Springs handle smooth transitions automatically
+    const { animations } = useAnimationStore.getState()
+
+    // Enter: start shake + scene change, Exit: stop shake + undim
     if (direction === "enter") {
-      animationStartRefs.current?.startShake()
-      animationStartRefs.current?.startDim("enter")
+      //animations.shake?.start()
+      animations.sceneChange?.start("enter")
     } else {
-      animationStartRefs.current?.stopShake()
-      animationStartRefs.current?.startDim("exit")
+      //animations.shake?.stop()
+      animations.sceneChange?.start("exit")
     }
   }, [])
 
   // Scene transition handler - springs handle smooth transitions
   useEffect(() => {
     if (!useGameStore.getState().isReady) return
+
+    // Skip if we already handled this exact state value
+    // (prevents duplicate calls when effect re-runs due to dependency changes)
+    if (lastHandledStateRef.current === isSceneChanging) {
+      return
+    }
+    lastHandledStateRef.current = isSceneChanging
 
     console.debug("[STARFIELD] Scene change requested:", isSceneChanging)
 
@@ -101,7 +96,9 @@ export function AnimationController() {
     // but don't play exit transition (initial animation already revealed the scene)
     if (isFirstSceneCycleRef.current) {
       if (!isSceneChanging) {
-        console.debug("[STARFIELD] First scene cycle complete, no exit transition needed")
+        console.debug(
+          "[STARFIELD] First scene cycle complete, no exit transition needed"
+        )
         isFirstSceneCycleRef.current = false
       }
       return
@@ -119,19 +116,30 @@ export function AnimationController() {
   useEffect(() => {
     const hadTarget = prevLookAtTargetRef.current !== undefined
     const hasTarget = lookAtTarget !== undefined
+    const { animations } = useAnimationStore.getState()
 
     if (!hadTarget && hasTarget) {
       // Gained a target - dim the background
       console.debug("[STARFIELD] Gained a target - dim the background")
-      startDim("enter")
+      animations.shake?.kill()
+      animations.dim?.start("enter")
     } else if (hadTarget && !hasTarget) {
       console.debug("[STARFIELD] Lost a target - restore background")
       // Lost the target - restore background
-      startDim("exit")
+      animations.shake?.kill()
+      animations.dim?.start("exit")
     }
 
     prevLookAtTargetRef.current = lookAtTarget
-  }, [lookAtTarget, startDim])
+  }, [lookAtTarget])
+
+  // Keep render loop alive while any animation is running
+  // Important: Read directly from store to avoid stale closure
+  useFrame(() => {
+    if (useAnimationStore.getState().isAnimating) {
+      invalidate()
+    }
+  })
 
   useControls(
     () =>
@@ -142,10 +150,12 @@ export function AnimationController() {
                 Dim: folder(
                   {
                     ["Dim Enter"]: button(() => {
-                      startDim("enter")
+                      useAnimationStore
+                        .getState()
+                        .animations.dim?.start("enter")
                     }),
                     ["Dim Exit"]: button(() => {
-                      startDim("exit")
+                      useAnimationStore.getState().animations.dim?.start("exit")
                     }),
                   },
                   { collapsed: true }
@@ -153,10 +163,14 @@ export function AnimationController() {
                 Exposure: folder(
                   {
                     ["Exposure Enter"]: button(() => {
-                      startExposure("enter")
+                      useAnimationStore
+                        .getState()
+                        .animations.exposure?.start("enter")
                     }),
                     ["Exposure Exit"]: button(() => {
-                      startExposure("exit")
+                      useAnimationStore
+                        .getState()
+                        .animations.exposure?.start("exit")
                     }),
                   },
                   { collapsed: true }
@@ -164,10 +178,29 @@ export function AnimationController() {
                 Hyperspace: folder(
                   {
                     ["Hyperspace Enter"]: button(() => {
-                      startHyperspace("enter")
+                      useAnimationStore
+                        .getState()
+                        .animations.hyperspace?.start("enter")
                     }),
                     ["Hyperspace Exit"]: button(() => {
-                      startHyperspace("exit")
+                      useAnimationStore
+                        .getState()
+                        .animations.hyperspace?.start("exit")
+                    }),
+                  },
+                  { collapsed: true }
+                ),
+                SceneChange: folder(
+                  {
+                    ["Scene Change Enter"]: button(() => {
+                      useAnimationStore
+                        .getState()
+                        .animations.sceneChange?.start("enter")
+                    }),
+                    ["Scene Change Exit"]: button(() => {
+                      useAnimationStore
+                        .getState()
+                        .animations.sceneChange?.start("exit")
                     }),
                   },
                   { collapsed: true }
@@ -175,19 +208,25 @@ export function AnimationController() {
                 Shake: folder(
                   {
                     ["Shake Start"]: button(() => {
-                      startShake()
+                      useAnimationStore.getState().animations.shake?.start()
                     }),
                     ["Shake Stop"]: button(() => {
-                      stopShake()
+                      useAnimationStore.getState().animations.shake?.stop()
                     }),
                     ["Shake (Strong)"]: button(() => {
-                      startShake({ strength: 0.03, frequency: 15 })
+                      useAnimationStore.getState().animations.shake?.start({
+                        strength: 0.03,
+                        frequency: 15,
+                      })
                     }),
                     ["Shake (Perlin)"]: button(() => {
-                      startShake({ mode: "perlin", strength: 0.02 })
+                      useAnimationStore.getState().animations.shake?.start({
+                        mode: "perlin",
+                        strength: 0.02,
+                      })
                     }),
                     ["Impact (Light)"]: button(() => {
-                      startShake({
+                      useAnimationStore.getState().animations.shake?.start({
                         duration: 300,
                         strength: 0.015,
                         rampUpTime: 50,
@@ -195,7 +234,7 @@ export function AnimationController() {
                       })
                     }),
                     ["Impact (Heavy)"]: button(() => {
-                      startShake({
+                      useAnimationStore.getState().animations.shake?.start({
                         duration: 800,
                         strength: 0.04,
                         rampUpTime: 100,
@@ -208,7 +247,7 @@ export function AnimationController() {
                 Shockwave: folder(
                   {
                     ["Shockwave Trigger"]: button(() => {
-                      startShockwave()
+                      useAnimationStore.getState().animations.shockwave?.start()
                     }),
                   },
                   { collapsed: true }

@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useLayoutEffect } from "react"
 import { invalidate, useFrame } from "@react-three/fiber"
 
 import { useAnimationStore } from "@/useAnimationStore"
@@ -39,15 +39,15 @@ export function useShockwaveAnimation() {
     }
   })
 
-  const start = useCallback(() => {
-    const { triggerShockwave, setIsAnimating } = useAnimationStore.getState()
-
-    // Trigger the effect (increments sequence, sets isShockwave: true)
-    // PostProcessingController will call explode() on next frame and set shockwaveStartTime
-    triggerShockwave()
-    setIsAnimating(true)
-    invalidate()
+  // Register in the animation store (once on mount)
+  useLayoutEffect(() => {
+    useAnimationStore.getState().registerAnimation("shockwave", {
+      start: () => {
+        const { triggerShockwave, setIsAnimating } = useAnimationStore.getState()
+        triggerShockwave()
+        setIsAnimating(true)
+        invalidate()
+      },
+    })
   }, [])
-
-  return { start }
 }

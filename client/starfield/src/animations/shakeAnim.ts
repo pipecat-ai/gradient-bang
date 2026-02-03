@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react"
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react"
 import { invalidate, useFrame } from "@react-three/fiber"
 
 import { useAnimationStore } from "@/useAnimationStore"
@@ -92,7 +92,7 @@ export interface ShakeAnimationResult {
  * start({ duration: 500 }) // quick impact
  * start({ duration: 1000, strength: 0.03 }) // stronger, longer impact
  */
-export function useShakeAnimation(): ShakeAnimationResult {
+export function useShakeAnimation() {
   const setIsShaking = useAnimationStore((state) => state.setIsShaking)
 
   // ============================================================================
@@ -371,10 +371,16 @@ export function useShakeAnimation(): ShakeAnimationResult {
     invalidate()
   })
 
-  return {
-    start,
-    stop,
-    kill,
-    isActive,
-  }
+  // Register in the animation store (once on mount)
+  // Shake functions are already stable due to ref-based state management
+  useLayoutEffect(() => {
+    useAnimationStore.getState().registerAnimation("shake", {
+      start,
+      stop,
+      kill,
+    })
+  }, [start, stop, kill])
+
+  // Return for any components that need direct access
+  return { isActive }
 }

@@ -1,10 +1,9 @@
-import { useCallback, useRef } from "react"
+import { useCallback, useLayoutEffect, useRef } from "react"
 import { easings } from "@react-spring/three"
 import { useFrame } from "@react-three/fiber"
 
+import { useAnimationStore } from "@/useAnimationStore"
 import { useUniformStore } from "@/useUniformStore"
-
-import type { DirectionalAnimationHook } from "./types"
 import {
   lerpAnimatedProperty,
   PROGRESS_THRESHOLD,
@@ -42,9 +41,7 @@ export interface ExposureAnimationOptions {
   exitTime?: number
 }
 
-export function useExposureAnimation(
-  options: ExposureAnimationOptions = {}
-): DirectionalAnimationHook<"enter" | "exit"> {
+export function useExposureAnimation(options: ExposureAnimationOptions = {}) {
   const {
     target = PP_EXPOSURE.target,
     enterTime = DEFAULT_ENTER_TIME,
@@ -76,9 +73,17 @@ export function useExposureAnimation(
     if (ppExposure) updateUniform(ppExposure, target)
   }, [target])
 
-  // Start function that triggers the spring
-  const start = useCallback(
-    (direction: "enter" | "exit", onComplete?: () => void) => {
+  // Store the start implementation in a ref (always up-to-date)
+  const startRef = useRef<
+    (direction: "enter" | "exit", onComplete?: () => void) => void
+  >(() => {})
+
+  // Update the ref whenever dependencies change
+  useLayoutEffect(() => {
+    startRef.current = (
+      direction: "enter" | "exit",
+      onComplete?: () => void
+    ) => {
       directionRef.current = direction
 
       if (direction === "enter") {
@@ -96,9 +101,15 @@ export function useExposureAnimation(
           onComplete?.()
         )
       }
-    },
-    [startSpring, setSpring, progress, enterTime, exitTime, setUniformsToTarget]
-  )
+    }
+  }, [startSpring, setSpring, progress, enterTime, exitTime, setUniformsToTarget])
+
+  // Register in the animation store (once on mount)
+  useLayoutEffect(() => {
+    useAnimationStore.getState().registerAnimation("exposure", {
+      start: (direction, onComplete) => startRef.current(direction, onComplete),
+    })
+  }, [])
 
   // Animate uniform each frame based on progress
   useFrame(() => {
@@ -120,8 +131,6 @@ export function useExposureAnimation(
     }
   })
 
-  return {
-    progress,
-    start,
-  }
+  // Return progress for any components that need to read it
+  return { progress }
 }

@@ -20,22 +20,20 @@ import {
 // Animation Configuration - tune each property's timing and easing
 // ============================================================================
 
-// Camera FOV
+// Camera FOV - subtle zoom during transition
 const CAMERA_FOV: AnimatedPropertyConfig = {
-  target: 150,
-  // start: 90,  // Example: snap to this value when enter begins
-  // end: 75,    // Example: animate back to this value on exit
+  target: 60, // Slight zoom in (less extreme than hyperspace's 150)
   anim: {
     enter: { easing: easings.easeInCubic },
     exit: { easing: easings.easeOutExpo, offset: 0.5 },
   },
 }
 
-// Tunnel properties
+// Tunnel properties (same as hyperspace)
 const TUNNEL_OPACITY: AnimatedPropertyConfig = {
   target: 1,
   anim: {
-    enter: { offset: 0.25 }, // Reaches full opacity at 25% of enter
+    enter: { offset: 0.25 },
     exit: { delay: 0.5, offset: 0.9 },
   },
 }
@@ -55,67 +53,56 @@ const TUNNEL_CENTER_HOLE: AnimatedPropertyConfig = {
 }
 
 const TUNNEL_CENTER_SOFTNESS: AnimatedPropertyConfig = {
-  target: 1,
+  target: 0.5,
   anim: {
     exit: { delay: 0, offset: 0.95 },
   },
 }
 
 const TUNNEL_ROTATION_SPEED: AnimatedPropertyConfig = {
-  target: 0.1,
+  target: 0.01,
   anim: {
     enter: { easing: easings.easeInExpo },
     exit: {},
   },
 }
 
-// Post-processing
-// Exposure: 1.0 = normal, <1 = darker, >1 = brighter
+// Exposure - dim the scene during transition
 const PP_EXPOSURE: AnimatedPropertyConfig = {
-  target: 0.5,
+  target: 0.6, // Dim to 60% (hyperspace uses 0.5)
   anim: {
-    enter: {},
-    exit: { offset: 0.5 },
+    enter: { easing: easings.easeInQuad },
+    exit: { easing: easings.easeOutQuad, offset: 0.3 },
   },
 }
 
-// Shockwave trigger point during exit animation (0-1 progress, where 1 = in hyperspace, 0 = normal)
-// Triggers when progress drops below this value during exit
-const SHOCKWAVE_EXIT_TRIGGER = 0.6
-
-// Dithering - uses multipliers on initial values, not AnimatedPropertyConfig
+// Dithering - subtle visual effect during transition
 const PP_DITHERING = {
-  gridMultiplier: 6,
-  pixelMultiplier: 6,
+  gridMultiplier: 2, // Less extreme than hyperspace's 6
+  pixelMultiplier: 3,
   anim: {
-    enter: { delay: 0.4, easing: easings.easeInCubic },
-    exit: { offset: 0.25 },
+    enter: { delay: 0.2, easing: easings.easeInQuad },
+    exit: { offset: 0.3 },
   },
 }
 
+const DEFAULT_ENTER_TIME = 500
+const DEFAULT_EXIT_TIME = 500
 // ============================================================================
 
-export function useHyperspaceAnimation() {
-  const setHyperspace = useAnimationStore((state) => state.setHyperspace)
-  const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
+export function useSceneChangeAnimation() {
+  const { tunnel: tunnelConfig } = useGameStore(
+    (state) => state.starfieldConfig
+  )
 
-  const {
-    hyperspaceEnterTime,
-    hyperspaceExitTime,
-    tunnel: tunnelConfig,
-  } = useGameStore((state) => state.starfieldConfig)
-
-  // Check if tunnel should be shown during warp
+  // Check if tunnel should be shown during transition
   const shouldShowTunnel =
     tunnelConfig?.enabled || tunnelConfig?.showDuringWarp !== false
 
   // Track animation direction for useFrame logic
   const directionRef = useRef<"enter" | "exit">("enter")
-  const exitExposureTargetRef = useRef(PP_EXPOSURE.target)
-  // Track if shockwave has been triggered this animation cycle
-  const shockwaveTriggeredRef = useRef(false)
 
-  // Main progress spring (0 = normal, 1 = in hyperspace)
+  // Main progress spring (0 = normal, 1 = in transition)
   const {
     progress,
     getProgress,
@@ -124,128 +111,97 @@ export function useHyperspaceAnimation() {
   } = useAnimationSpring({
     from: 0,
     config: {
-      duration: hyperspaceEnterTime,
+      duration: DEFAULT_ENTER_TIME,
       easing: easings.easeInQuad,
     } as AnimationConfig,
-    onComplete: () => {
-      setHyperspace(undefined)
-    },
   })
 
-  // Set all uniforms to their "in hyperspace" (progress=1) values
-  const setUniformsToHyperspace = useCallback(
-    (initialExposure?: number) => {
-      const { getUniform, updateUniform } = useUniformStore.getState()
+  // Set all uniforms to their "in transition" (progress=1) values
+  const setUniformsToTransition = useCallback(() => {
+    const { getUniform, updateUniform } = useUniformStore.getState()
 
-      const cameraFov = getUniform<number>("cameraFov")
-      if (cameraFov) updateUniform(cameraFov, CAMERA_FOV.target)
+    const cameraFov = getUniform<number>("cameraFov")
+    if (cameraFov) updateUniform(cameraFov, CAMERA_FOV.target)
 
-      // Only animate tunnel if it should be shown
-      if (shouldShowTunnel) {
-        const tunnelOpacity = getUniform<number>("tunnelOpacity")
-        if (tunnelOpacity) updateUniform(tunnelOpacity, TUNNEL_OPACITY.target)
+    // Tunnel uniforms
+    if (shouldShowTunnel) {
+      const tunnelOpacity = getUniform<number>("tunnelOpacity")
+      if (tunnelOpacity) updateUniform(tunnelOpacity, TUNNEL_OPACITY.target)
 
-        const tunnelContrast = getUniform<number>("tunnelContrast")
-        if (tunnelContrast)
-          updateUniform(tunnelContrast, TUNNEL_CONTRAST.target)
+      const tunnelContrast = getUniform<number>("tunnelContrast")
+      if (tunnelContrast) updateUniform(tunnelContrast, TUNNEL_CONTRAST.target)
 
-        const tunnelCenterHole = getUniform<number>("tunnelCenterHole")
-        if (tunnelCenterHole)
-          updateUniform(tunnelCenterHole, TUNNEL_CENTER_HOLE.target)
+      const tunnelCenterHole = getUniform<number>("tunnelCenterHole")
+      if (tunnelCenterHole)
+        updateUniform(tunnelCenterHole, TUNNEL_CENTER_HOLE.target)
 
-        const tunnelCenterSoftness = getUniform<number>("tunnelCenterSoftness")
-        if (tunnelCenterSoftness)
-          updateUniform(tunnelCenterSoftness, TUNNEL_CENTER_SOFTNESS.target)
+      const tunnelCenterSoftness = getUniform<number>("tunnelCenterSoftness")
+      if (tunnelCenterSoftness)
+        updateUniform(tunnelCenterSoftness, TUNNEL_CENTER_SOFTNESS.target)
 
-        const tunnelRotationSpeed = getUniform<number>("tunnelRotationSpeed")
-        if (tunnelRotationSpeed)
-          updateUniform(tunnelRotationSpeed, TUNNEL_ROTATION_SPEED.target)
-      }
+      const tunnelRotationSpeed = getUniform<number>("tunnelRotationSpeed")
+      if (tunnelRotationSpeed)
+        updateUniform(tunnelRotationSpeed, TUNNEL_ROTATION_SPEED.target)
+    }
 
-      const ppExposure = getUniform<number>("ppExposure")
-      if (ppExposure) {
-        updateUniform(ppExposure, initialExposure ?? PP_EXPOSURE.target)
-      }
+    const ppExposure = getUniform<number>("ppExposure")
+    if (ppExposure) updateUniform(ppExposure, PP_EXPOSURE.target)
 
-      const ppDitheringGridSize = getUniform<number>("ppDitheringGridSize")
-      if (ppDitheringGridSize)
-        updateUniform(
-          ppDitheringGridSize,
-          ppDitheringGridSize.initial! * PP_DITHERING.gridMultiplier
-        )
-
-      const ppDitheringPixelSizeRatio = getUniform<number>(
-        "ppDitheringPixelSizeRatio"
+    const ppDitheringGridSize = getUniform<number>("ppDitheringGridSize")
+    if (ppDitheringGridSize)
+      updateUniform(
+        ppDitheringGridSize,
+        ppDitheringGridSize.initial! * PP_DITHERING.gridMultiplier
       )
-      if (ppDitheringPixelSizeRatio)
-        updateUniform(
-          ppDitheringPixelSizeRatio,
-          ppDitheringPixelSizeRatio.initial! * PP_DITHERING.pixelMultiplier
-        )
-    },
-    [shouldShowTunnel]
-  )
+
+    const ppDitheringPixelSizeRatio = getUniform<number>(
+      "ppDitheringPixelSizeRatio"
+    )
+    if (ppDitheringPixelSizeRatio)
+      updateUniform(
+        ppDitheringPixelSizeRatio,
+        ppDitheringPixelSizeRatio.initial! * PP_DITHERING.pixelMultiplier
+      )
+  }, [shouldShowTunnel])
 
   // Store the start implementation in a ref (always up-to-date)
   const startRef = useRef<
-    (
-      direction: "enter" | "exit",
-      onComplete?: () => void,
-      overrides?: { initialExposure?: number }
-    ) => void
+    (direction: "enter" | "exit", onComplete?: () => void) => void
   >(() => {})
 
   // Update the ref whenever dependencies change
   useLayoutEffect(() => {
     startRef.current = (
       direction: "enter" | "exit",
-      onComplete?: () => void,
-      overrides?: { initialExposure?: number }
+      onComplete?: () => void
     ) => {
       directionRef.current = direction
-      shockwaveTriggeredRef.current = false // Reset shockwave trigger for new animation
-      setHyperspace(direction)
-      exitExposureTargetRef.current =
-        direction === "exit"
-          ? (overrides?.initialExposure ?? PP_EXPOSURE.target)
-          : PP_EXPOSURE.target
+
+      console.debug("[STARFIELD] Scene change animation:", direction)
 
       if (direction === "enter") {
-        console.debug("[STARFIELD] Hyperspace entering")
-        // Linear spring - per-property easing via applyEasing
         startSpring(1, {
-          duration: hyperspaceEnterTime,
+          duration: DEFAULT_ENTER_TIME,
         } as AnimationConfig).then(() => onComplete?.())
       } else {
-        // If starting exit from idle state, snap to hyperspace first
+        // If starting exit from idle state, snap to transition first
         const current = progress.get()
         if (current < PROGRESS_THRESHOLD) {
-          setUniformsToHyperspace(overrides?.initialExposure ?? undefined)
+          setUniformsToTransition()
           setSpring(1)
-        } else {
-          console.debug("[STARFIELD] Hyperspace exiting")
         }
-        // Linear spring - per-property easing via applyEasing
         startSpring(0, {
-          duration: hyperspaceExitTime,
+          duration: DEFAULT_EXIT_TIME,
         } as AnimationConfig).then(() => onComplete?.())
       }
     }
-  }, [
-    startSpring,
-    setSpring,
-    progress,
-    hyperspaceEnterTime,
-    hyperspaceExitTime,
-    setHyperspace,
-    setUniformsToHyperspace,
-  ])
+  }, [startSpring, setSpring, progress, setUniformsToTransition])
 
   // Register in the animation store (once on mount)
+  // The registered function delegates to the ref, so it's always current
   useLayoutEffect(() => {
-    useAnimationStore.getState().registerAnimation("hyperspace", {
-      start: (direction, onComplete, overrides) =>
-        startRef.current(direction, onComplete, overrides),
+    useAnimationStore.getState().registerAnimation("sceneChange", {
+      start: (direction, onComplete) => startRef.current(direction, onComplete),
     })
   }, [])
 
@@ -255,6 +211,8 @@ export function useHyperspaceAnimation() {
     if (p === null) return
 
     const isEntering = directionRef.current === "enter"
+    console.debug("[SCENE CHANGE] Frame:", { p, isEntering }) // Add this
+
     const { getUniform, updateUniform } = useUniformStore.getState()
 
     // --- Camera FOV ---
@@ -335,22 +293,12 @@ export function useHyperspaceAnimation() {
     }
 
     // --- Post-processing: Exposure ---
-    // Note: initial is 1.0 + exposureAmount from Leva (default 1.0)
-    // target is absolute exposure value during hyperspace
     const ppExposure = getUniform<number>("ppExposure")
     if (ppExposure) {
-      const exposureConfig = {
-        ...PP_EXPOSURE,
-        target: exitExposureTargetRef.current,
-      }
-      const newValue = lerpAnimatedProperty(
-        p,
-        isEntering,
-        ppExposure.initial!,
-        exposureConfig
+      updateUniform(
+        ppExposure,
+        lerpAnimatedProperty(p, isEntering, ppExposure.initial!, PP_EXPOSURE)
       )
-
-      updateUniform(ppExposure, newValue)
     }
 
     // --- Dithering effect ---
@@ -386,17 +334,6 @@ export function useHyperspaceAnimation() {
         updateUniform(ppDitheringGridSize, gridInitial)
         updateUniform(ppDitheringPixelSizeRatio, pixelInitial)
       }
-    }
-
-    // --- Shockwave trigger on exit ---
-    // Trigger shockwave when progress drops below threshold during exit
-    if (
-      !isEntering &&
-      !shockwaveTriggeredRef.current &&
-      p < SHOCKWAVE_EXIT_TRIGGER
-    ) {
-      shockwaveTriggeredRef.current = true
-      triggerShockwave()
     }
   })
 

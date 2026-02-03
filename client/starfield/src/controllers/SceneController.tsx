@@ -15,7 +15,9 @@ export function SceneController() {
   const isFirstSceneRef = useRef(true) // First scene applies immediately, no transition wait
   const processNextInQueueRef = useRef<(() => void) | null>(null)
   const sceneChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const enterTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const enterTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
   const setIsSceneChanging = useGameStore((state) => state.setIsSceneChanging)
 
   // Start or reset the timer to set isSceneChanging to false
@@ -138,19 +140,18 @@ export function SceneController() {
       return
     }
 
-    console.debug(
-      "[SCENE CONTROLLER] Processing scene:",
-      queuedScene.scene.id
-    )
+    console.debug("[SCENE CONTROLLER] Processing scene:", queuedScene.scene.id)
 
     // First scene: apply immediately (initial animation handles the reveal)
     if (isFirstSceneRef.current) {
       console.debug("[SCENE CONTROLLER] First scene, applying immediately")
       isFirstSceneRef.current = false
       applyScene(queuedScene.scene)
+      isProcessingRef.current = false
       // Defer isSceneChanging = false so AnimationController can see true first
+      // No timer needed - initial animation handles the reveal, no exit transition
       requestAnimationFrame(() => {
-        finishSceneProcessing()
+        setIsSceneChanging(false)
       })
       return
     }
@@ -158,11 +159,6 @@ export function SceneController() {
     // Subsequent scenes: wait for enter transition before applying
     const { starfieldConfig } = useGameStore.getState()
     const enterDelay = starfieldConfig.hyperspaceEnterTime ?? 1500
-
-    console.debug(
-      "[SCENE CONTROLLER] Waiting for enter transition:",
-      enterDelay
-    )
 
     // Clear any existing enter timer
     if (enterTransitionTimerRef.current) {
