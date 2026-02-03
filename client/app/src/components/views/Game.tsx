@@ -18,6 +18,7 @@ import { useNotificationSound } from "@/hooks/useNotificationSound"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
+import { Leaderboard } from "../dialogs/Leaderboard"
 import { Button } from "../primitives/Button"
 
 const disabledCx = "pointer-events-none opacity-0"
@@ -98,10 +99,13 @@ export const Game = () => {
       {/* Sub-screens (trading, ship, messaging, etc..) */}
       <ScreenContainer />
 
+      {/* Dialogs */}
+      <Settings />
+      <Leaderboard />
+
       {/* Other Renderables */}
       <Starfield />
       <ToastContainer />
-      <Settings />
       <PipecatClientAudio />
     </>
   )

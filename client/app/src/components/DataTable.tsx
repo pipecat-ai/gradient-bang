@@ -8,6 +8,9 @@ declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface ColumnMeta<TData, TValue> {
     align?: "left" | "center" | "right"
+    width?: string | number
+    headerClassName?: string
+    cellClassName?: string
   }
 }
 
@@ -29,6 +32,7 @@ interface DataTableProps<TData> {
   hoverable?: boolean
   fixedLayout?: boolean
   classNames?: DataTableClassNames
+  getRowClassName?: (row: TData) => string | undefined
 }
 
 export function DataTable<TData>({
@@ -38,19 +42,20 @@ export function DataTable<TData>({
   hoverable = false,
   fixedLayout = true,
   classNames = {},
+  getRowClassName,
 }: DataTableProps<TData>) {
   const table = useReactTable({
     data,
     columns,
-    defaultColumn: {},
+    defaultColumn: { size: 0 },
     getCoreRowModel: getCoreRowModel(),
   })
 
   return (
     <table
       className={cn(
-        "w-full border-separate border-spacing-0 text-xs",
-        fixedLayout && "table-fixed",
+        "border-separate border-spacing-0 text-xs",
+        fixedLayout ? "w-full table-fixed" : "w-max",
         classNames.table
       )}
     >
@@ -60,7 +65,11 @@ export function DataTable<TData>({
             {hg.headers.map((header) => (
               <th
                 key={header.id}
-                style={header.column.getSize() ? { width: header.column.getSize() } : undefined}
+                style={{
+                  width:
+                    header.column.columnDef.meta?.width ??
+                    (fixedLayout && header.column.getSize() ? header.column.getSize() : undefined),
+                }}
                 className={cn(
                   "sticky top-0 z-10 bg-background p-2 px-1.5 first:pl-2 last:pr-2 align-middle font-bold uppercase text-foreground whitespace-nowrap overflow-hidden text-ellipsis",
                   header.column.columnDef.meta?.align === "center" && "text-center",
@@ -68,7 +77,8 @@ export function DataTable<TData>({
                   header.column.columnDef.meta?.align !== "center" &&
                     header.column.columnDef.meta?.align !== "right" &&
                     "text-left",
-                  classNames.headerCell
+                  classNames.headerCell,
+                  header.column.columnDef.meta?.headerClassName
                 )}
               >
                 {header.isPlaceholder ? null : (
@@ -87,13 +97,18 @@ export function DataTable<TData>({
               "text-muted-foreground transition-colors bg-accent-background",
               hoverable && "hover:bg-accent",
               striped && "even:bg-subtle-background",
-              classNames.row
+              classNames.row,
+              getRowClassName?.(row.original)
             )}
           >
             {row.getVisibleCells().map((cell) => (
               <td
                 key={cell.id}
-                style={cell.column.getSize() ? { width: cell.column.getSize() } : undefined}
+                style={{
+                  width:
+                    cell.column.columnDef.meta?.width ??
+                    (fixedLayout && cell.column.getSize() ? cell.column.getSize() : undefined),
+                }}
                 className={cn(
                   "px-2 py-1.5 align-middle whitespace-nowrap overflow-hidden text-ellipsis border-b border-background",
                   cell.column.columnDef.meta?.align === "center" && "text-center",
@@ -101,7 +116,8 @@ export function DataTable<TData>({
                   cell.column.columnDef.meta?.align !== "center" &&
                     cell.column.columnDef.meta?.align !== "right" &&
                     "text-left",
-                  classNames.cell
+                  classNames.cell,
+                  cell.column.columnDef.meta?.cellClassName
                 )}
               >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -119,7 +135,7 @@ export function DataTableScrollArea<TData>({
   ...props
 }: React.ComponentProps<typeof ScrollArea> & DataTableProps<TData>) {
   return (
-    <ScrollArea className={cn("relative pointer-events-auto min-h-0", className)}>
+    <ScrollArea className={cn("relative pointer-events-auto min-h-0 min-w-0", className)}>
       <DataTable {...props} />
     </ScrollArea>
   )

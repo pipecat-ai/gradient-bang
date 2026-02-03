@@ -334,8 +334,24 @@ declare global {
     total_wealth: number
   }
 
+  interface LeaderboardTrading {
+    name: string
+    total_trades: number
+    total_trade_volume: number
+    ports_visited: number
+  }
+
+  interface LeaderboardExploration {
+    name: string
+    sectors_visited: number
+    first_visit: string
+  }
+
   interface LeaderboardResponse {
     wealth: LeaderboardWealth[]
+    trading: LeaderboardTrading[]
+    exploration: LeaderboardExploration[]
+    territory: LeaderboardTerritory[]
   }
 
   interface CharacterSelectResponse {

@@ -2,6 +2,7 @@ import { button, folder, useControls } from "leva"
 import { faker } from "@faker-js/faker"
 import type { Story } from "@ladle/react"
 
+import { LeaderboardPanel } from "@/components/panels/LeaderboardPanel"
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { useGameContext } from "@/hooks/useGameContext"
@@ -88,4 +89,19 @@ PlayerShipsAndMiniMapStory.meta = {
   useDevTools: true,
   enableMic: false,
   useChatControls: true,
+}
+
+export const LeaderboardPanelStory: Story = () => {
+  return (
+    <div className="w-3xl h-[400px] min-h-0 relative">
+      <LeaderboardPanel />
+    </div>
+  )
+}
+
+LeaderboardPanelStory.meta = {
+  disconnectedStory: true,
+  enableMic: false,
+  disableAudioOutput: true,
+  useDevTools: true,
 }

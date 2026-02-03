@@ -9,6 +9,7 @@ import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
 
 import { INCOMING_CHAT_TOOL_CALL_MOCK } from "@/mocks/chat.mock"
+import { LEADERBOARD_DATA_MOCK } from "@/mocks/misc.mock"
 import { MEGA_PORT_MOCK, PORT_MOCK, SECTOR_MOCK } from "@/mocks/sector.mock"
 import { SHIP_MOCK } from "@/mocks/ship.mock"
 
@@ -160,6 +161,15 @@ export const LevaControls = ({
         }),
       },
       { collapsed: true, order: 2 }
+    ),
+    Leaderboard: folder(
+      {
+        ["Set Leaderboard Data"]: button(() => {
+          const setLeaderboardData = useGameStore.getState().setLeaderboardData
+          setLeaderboardData(LEADERBOARD_DATA_MOCK)
+        }),
+      },
+      { collapsed: true, order: 3 }
     ),
   }))
 

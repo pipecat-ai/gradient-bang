@@ -10,6 +10,7 @@ import { Divider } from "@/components/primitives/Divider"
 import { SectorMap } from "@/components/SectorMap"
 import { SettingsPanel } from "@/components/SettingsPanel"
 import { Game } from "@/components/views/Game"
+import { Title } from "@/components/views/Title"
 import { WarpBadge } from "@/components/WarpBadge"
 import { AnimatedFrame } from "@/fx/frame"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
@@ -240,6 +241,9 @@ export const CharacterSelectStory: Story = () => {
 
   return (
     <CharacterSelect
+      onIsCreating={() => {
+        console.log("Creating character")
+      }}
       onCharacterSelect={(characterId) => {
         console.log("Selected character:", characterId)
       }}
@@ -248,6 +252,26 @@ export const CharacterSelectStory: Story = () => {
 }
 
 CharacterSelectStory.meta = {
+  disconnectedStory: true,
+  enableMic: false,
+  disableAudioOutput: true,
+  useDevTools: true,
+}
+
+export const TitleViewStory: Story = () => {
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      <Title
+        onViewNext={() => {
+          console.log("Viewing next")
+        }}
+      />
+      <AnimatedFrame />
+    </div>
+  )
+}
+
+TitleViewStory.meta = {
   disconnectedStory: true,
   enableMic: false,
   disableAudioOutput: true,
