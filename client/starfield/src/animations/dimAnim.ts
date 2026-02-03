@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber"
 
 import { useAnimationStore } from "@/useAnimationStore"
 import { useUniformStore } from "@/useUniformStore"
+
 import {
   lerpAnimatedProperty,
   useAnimationSpring,

@@ -15,7 +15,13 @@ export const App = () => {
     console.log("Starfield ready, calling scene change")
     changeScene({
       id: "1",
-      gameObjects: [],
+      gameObjects: [
+        {
+          id: "port-1",
+          type: "port",
+          label: "bbs",
+        },
+      ],
       config: {
         palette: "cosmicTeal",
       },
@@ -54,13 +60,6 @@ export const App = () => {
       onTargetRest={onTargetRest}
       onTargetClear={onTargetClear}
       onReady={onReady}
-      gameObjects={[
-        {
-          id: "port-1",
-          type: "port",
-          label: "bbs",
-        },
-      ]}
     />
   )
 }

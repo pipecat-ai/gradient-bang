@@ -64,10 +64,10 @@ export function AnimationController() {
 
     // Enter: start shake + scene change, Exit: stop shake + undim
     if (direction === "enter") {
-      //animations.shake?.start()
+      animations.shake?.start()
       animations.sceneChange?.start("enter")
     } else {
-      //animations.shake?.stop()
+      animations.shake?.stop()
       animations.sceneChange?.start("exit")
     }
   }, [])

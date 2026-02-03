@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import * as THREE from "three"
 
-import { useGameObjectAnimation } from "@/animations/useGameObjectAnimation"
+import { useGameObjectAnimation } from "@/animations/gameObjectFadeAnim"
 import { getPalette } from "@/colors"
 import { LAYERS } from "@/constants"
 import {

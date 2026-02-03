@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber"
 
 import { useAnimationStore } from "@/useAnimationStore"
 import { useUniformStore } from "@/useUniformStore"
+
 import {
   lerpAnimatedProperty,
   PROGRESS_THRESHOLD,
@@ -102,7 +103,14 @@ export function useExposureAnimation(options: ExposureAnimationOptions = {}) {
         )
       }
     }
-  }, [startSpring, setSpring, progress, enterTime, exitTime, setUniformsToTarget])
+  }, [
+    startSpring,
+    setSpring,
+    progress,
+    enterTime,
+    exitTime,
+    setUniformsToTarget,
+  ])
 
   // Register in the animation store (once on mount)
   useLayoutEffect(() => {

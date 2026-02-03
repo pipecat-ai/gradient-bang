@@ -25,7 +25,7 @@ const CAMERA_FOV: AnimatedPropertyConfig = {
   target: 60, // Slight zoom in (less extreme than hyperspace's 150)
   anim: {
     enter: { easing: easings.easeInCubic },
-    exit: { easing: easings.easeOutExpo, offset: 0.5 },
+    exit: { easing: easings.easeOutExpo },
   },
 }
 
@@ -34,7 +34,7 @@ const TUNNEL_OPACITY: AnimatedPropertyConfig = {
   target: 1,
   anim: {
     enter: { offset: 0.25 },
-    exit: { delay: 0.5, offset: 0.9 },
+    exit: { delay: 0.5 },
   },
 }
 
@@ -46,16 +46,16 @@ const TUNNEL_CONTRAST: AnimatedPropertyConfig = {
 }
 
 const TUNNEL_CENTER_HOLE: AnimatedPropertyConfig = {
-  target: 7,
+  target: 8,
   anim: {
-    exit: { delay: 0, offset: 0.5 },
+    exit: { delay: 0 },
   },
 }
 
 const TUNNEL_CENTER_SOFTNESS: AnimatedPropertyConfig = {
   target: 0.5,
   anim: {
-    exit: { delay: 0, offset: 0.95 },
+    exit: { delay: 0 },
   },
 }
 
@@ -63,7 +63,7 @@ const TUNNEL_ROTATION_SPEED: AnimatedPropertyConfig = {
   target: 0.01,
   anim: {
     enter: { easing: easings.easeInExpo },
-    exit: {},
+    exit: { easing: easings.easeOutExpo },
   },
 }
 
@@ -177,8 +177,6 @@ export function useSceneChangeAnimation() {
     ) => {
       directionRef.current = direction
 
-      console.debug("[STARFIELD] Scene change animation:", direction)
-
       if (direction === "enter") {
         startSpring(1, {
           duration: DEFAULT_ENTER_TIME,
@@ -211,8 +209,6 @@ export function useSceneChangeAnimation() {
     if (p === null) return
 
     const isEntering = directionRef.current === "enter"
-    console.debug("[SCENE CHANGE] Frame:", { p, isEntering }) // Add this
-
     const { getUniform, updateUniform } = useUniformStore.getState()
 
     // --- Camera FOV ---

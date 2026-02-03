@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
@@ -36,6 +36,8 @@ const TRANSIENT_PROPERTIES = [
   "enabled",
   "scale",
   "opacity",
+  "positionX",
+  "positionY",
   "tintIntensity",
   "shadowEnabled",
   "shadowRadius",
@@ -191,6 +193,16 @@ export const Planet = () => {
         : {}) as Schema
   )
 
+  // Sync selectedImagePath to Leva when it changes from store
+  useEffect(() => {
+    if (!showControls || !selectedImagePath) return
+    try {
+      set({ selectedImage: selectedImagePath })
+    } catch {
+      // Controls may not be mounted
+    }
+  }, [showControls, selectedImagePath, set])
+
   // Map planet config to match our defaults shape (flatten position)
   const mappedSource = useMemo(() => {
     if (!planetConfig) return undefined
@@ -295,7 +307,11 @@ export const Planet = () => {
 
   // Return null if no skybox assets available, no texture, or planet is explicitly disabled
   // Use === false to avoid hiding during HMR when values might be undefined
-  if (skyboxAssets.length === 0 || !planetTexture || controls.enabled === false) {
+  if (
+    skyboxAssets.length === 0 ||
+    !planetTexture ||
+    controls.enabled === false
+  ) {
     return null
   }
 

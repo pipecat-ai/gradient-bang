@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useLayoutEffect, useRef } from "react"
 import { PerformanceMonitor, Preload } from "@react-three/drei"
-import { Canvas, useFrame } from "@react-three/fiber"
+import { Canvas, invalidate, useFrame } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
 import { Leva } from "leva"
 import * as THREE from "three"
@@ -51,6 +51,10 @@ function SuspenseReady() {
     // Scene had loaded and suspense has fired, notify the animation store
     const { isReady } = useGameStore.getState()
     if (isReady) return
+
+    // With frameloop="demand", we need to explicitly request more frames
+    // until we're ready (otherwise only one frame runs and we never count to 4)
+    invalidate()
 
     // Count a few frames to ensure all objects are mounted
     frameCount.current++
