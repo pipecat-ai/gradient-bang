@@ -52,7 +52,7 @@ export const Port = ({
   // Shadow props
   shadowEnabled = true,
   shadowRadius = 1,
-  shadowOpacity = 0.6,
+  shadowOpacity = 0.4,
   shadowFalloff = 1,
   shadowColor,
   // Billboard mode

@@ -20,7 +20,7 @@ const QUALITY_OPTIONS = { Low: 0, Medium: 1, High: 2 }
 // Default lens flare config values
 const DEFAULT_LENSFLARE_CONFIG = {
   enabled: true,
-  intensity: 1,
+  intensity: 2,
   ghostIntensity: 1.0,
   haloIntensity: 1,
   streakIntensity: 0.5,
@@ -83,8 +83,6 @@ export const LensFlare = () => {
   const showControls = useShowControls()
   const materialRef = useRef<THREE.ShaderMaterial | null>(null)
   const { camera, size } = useThree()
-  const registerUniform = useUniformStore((state) => state.registerUniform)
-  const removeUniform = useUniformStore((state) => state.removeUniform)
   const {
     lensFlare: lensFlareConfig,
     galaxy: galaxyConfig,
@@ -208,13 +206,13 @@ export const LensFlare = () => {
       uniforms: {
         uResolution: { value: new THREE.Vector2(size.width, size.height) },
         uLightPosition: { value: new THREE.Vector2(0.3, 0.2) },
-        uIntensity: { value: 2.0 },
-        uOpacity: { value: 1.0 }, // FOV-based opacity (separate from intensity for animation)
+        uIntensity: { value: DEFAULT_LENSFLARE_CONFIG.intensity },
+        uOpacity: { value: 1.0 },
         uColor: { value: new THREE.Vector3(1.0, 1.0, 1.0) },
-        uGhostIntensity: { value: 2.0 },
-        uHaloIntensity: { value: 2.0 },
-        uStreakIntensity: { value: 2.0 },
-        uQuality: { value: 2 },
+        uGhostIntensity: { value: DEFAULT_LENSFLARE_CONFIG.ghostIntensity },
+        uHaloIntensity: { value: DEFAULT_LENSFLARE_CONFIG.haloIntensity },
+        uStreakIntensity: { value: DEFAULT_LENSFLARE_CONFIG.streakIntensity },
+        uQuality: { value: DEFAULT_LENSFLARE_CONFIG.quality },
       },
       vertexShader: lensFlareVertexShader,
       fragmentShader: lensFlareFragmentShader,
@@ -230,31 +228,12 @@ export const LensFlare = () => {
     materialRef.current = lensFlareMaterial
   }, [lensFlareMaterial])
 
-  // Register animated uniforms with the uniform registry
-  useEffect(() => {
-    const mat = lensFlareMaterial
-    if (!mat.uniforms) return
-
-    // Register intensity uniform for external animation
-    registerUniform("lensFlareIntensity", mat.uniforms.uIntensity, {
-      initial: controls.intensity,
-      meta: { effect: "lensFlare" },
-    })
-
-    return () => {
-      removeUniform("lensFlareIntensity")
-    }
-  }, [lensFlareMaterial, controls.intensity, registerUniform, removeUniform])
-
   // Cleanup
   useEffect(() => {
     return () => {
       lensFlareMaterial.dispose()
     }
   }, [lensFlareMaterial])
-
-  // Track the last intensity we set from controls (to detect external changes)
-  const lastControlIntensityRef = useRef(controls.intensity)
 
   // Pre-calculate galaxy direction (stable - only changes when config changes)
   const galaxyDir = useMemo(() => {
@@ -332,22 +311,8 @@ export const LensFlare = () => {
       opacity *= Math.min(1.0, behindFade)
     }
 
-    // Check if intensity was changed externally (by animation)
-    // Only update from controls if the uniform still matches what we last set
-    const currentUniformIntensity = material.uniforms.uIntensity.value
-    const expectedIntensity = lastControlIntensityRef.current
-    const wasAnimatedExternally =
-      Math.abs(currentUniformIntensity - expectedIntensity) > 0.001
-
-    if (!wasAnimatedExternally) {
-      // Update intensity from controls (no modifiers - those are in opacity now)
-      const newIntensity = controls.intensity
-      material.uniforms.uIntensity.value = newIntensity
-      lastControlIntensityRef.current = newIntensity
-    }
-    // If animated externally, leave the intensity uniform as-is (animation controls it)
-
-    // Always update opacity (handles FOV fade + galaxy-behind fade, independent of animation)
+    // Update uniforms from controls
+    material.uniforms.uIntensity.value = controls.intensity
     material.uniforms.uOpacity.value = opacity
     material.uniforms.uLightPosition.value.set(lightX, lightY)
     material.uniforms.uGhostIntensity.value = controls.ghostIntensity
