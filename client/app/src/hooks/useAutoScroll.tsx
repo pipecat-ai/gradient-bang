@@ -20,7 +20,7 @@ interface UseAutoScrollReturn {
 
 /**
  * Hook for managing auto-scroll behavior in scrollable containers.
- * 
+ *
  * This hook is optimized to never cause re-renders - all state is stored in refs.
  * The returned callbacks are stable and won't change between renders.
  *

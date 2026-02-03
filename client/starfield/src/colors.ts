@@ -51,7 +51,7 @@ export const STARFIELD_PALETTES: readonly StarfieldPalette[] = [
     tint: new THREE.Color("#c7e3e6"), // Pale cyan
     base: new THREE.Color("#0a0e10"), // Dark blue-black
     saturation: 0.3,
-    contrast: 0.16,
+    contrast: 0.1,
   },
   {
     name: "stellarGold",

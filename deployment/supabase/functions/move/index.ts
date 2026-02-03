@@ -333,12 +333,17 @@ async function handleMove({
     }
   }
 
+  const observerCorpId =
+    ship.owner_type === "corporation"
+      ? ship.owner_corporation_id
+      : character.corporation_id;
   observerMetadata = {
     characterId: character.character_id,
     characterName: character.name,
     shipId: ship.ship_id,
     shipName: ship.ship_name?.trim() || shipDefinition.display_name,
     shipType: ship.ship_type,
+    corpId: observerCorpId,
   };
   if (!adjacent.includes(destination)) {
     await emitErrorEvent(supabase, {
@@ -420,12 +425,15 @@ async function handleMove({
         source,
         sector: destinationSnapshot,
         hyperspace_time: hyperspaceSeconds,
+        player: {
+          id: character.character_id,
+          name: character.name,
+        },
       },
       shipId: ship.ship_id,
       sectorId: ship.current_sector,
       requestId,
       taskId,
-      corpId: character.corporation_id,
     });
     mark("emit_movement_start");
 
@@ -616,6 +624,10 @@ async function completeMovement({
   trace: Record<string, number>;
   mark: (label: string) => void;
 }): Promise<void> {
+  const corpId =
+    ship.owner_type === "corporation"
+      ? ship.owner_corporation_id
+      : character.corporation_id;
   // Release the connection BEFORE the delay to free it for other requests.
   // This is critical for connection pool efficiency under concurrent load.
   await pgClient.end();
@@ -674,14 +686,6 @@ async function completeMovement({
       known_to_corp: knownToCorp,
     } as Record<string, unknown>;
 
-    const corpId =
-      ship.owner_type === "corporation"
-        ? ship.owner_corporation_id
-        : character.corporation_id;
-    const additionalRecipients = corpId
-      ? await pgComputeCorpMemberRecipients(pg, [corpId], [characterId])
-      : [];
-
     await pgEmitCharacterEvent({
       pg,
       characterId,
@@ -691,8 +695,6 @@ async function completeMovement({
       sectorId: destination,
       requestId,
       taskId,
-      corpId,
-      additionalRecipients,
     });
     mark("emit_movement_complete");
 

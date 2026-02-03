@@ -1,4 +1,5 @@
-import { useControls } from "leva"
+import { folder, useControls } from "leva"
+import type { Schema } from "leva/dist/declarations/src/types"
 import {
   AdditiveBlending,
   MultiplyBlending,
@@ -8,7 +9,8 @@ import {
 } from "three"
 
 import { Stars as StarsComponent } from "@/components/Stars"
-import { LAYERS } from "@/constants"
+import { LAYERS, PANEL_ORDERING } from "@/constants"
+import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { useGameStore } from "@/useGameStore"
 
 const BLENDING_MODES: Record<string, Blending> = {
@@ -18,124 +20,128 @@ const BLENDING_MODES: Record<string, Blending> = {
   Multiply: MultiplyBlending,
 }
 
-export const Stars = () => {
-  const { stars: starsConfig } = useGameStore((state) => state.starfieldConfig)
-  const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
+// Default stars config values
+const DEFAULT_STARS_CONFIG = {
+  enabled: true,
+  radius: 1,
+  depth: 30,
+  count: 6000,
+  size: 0.8,
+  fade: true,
+  blendingMode: "Normal",
+  opacityMin: 0.05,
+  opacityMax: 0.5,
+}
 
-  const {
-    radius,
-    depth,
-    count,
-    factor,
-    saturation,
-    fade,
-    speed,
-    size,
-    blendingMode,
-    opacityMin,
-    opacityMax,
-  } = useControls(
-    "Stars",
-    {
-      enabled: {
-        value: starsConfig?.enabled ?? true,
-        onChange: (value: boolean) => {
-          setStarfieldConfig({ stars: { enabled: value } })
-        },
-      },
-      radius: {
-        value: starsConfig?.radius ?? 20,
-        min: 1,
-        max: 100,
-        step: 1,
-        label: "Radius",
-      },
-      depth: {
-        value: starsConfig?.depth ?? 40,
-        min: 1,
-        max: 100,
-        step: 1,
-        label: "Depth",
-      },
-      count: {
-        value: starsConfig?.count ?? 3000,
-        min: 1000,
-        max: 10000,
-        step: 100,
-        label: "Count",
-      },
-      factor: {
-        value: starsConfig?.factor ?? 4,
-        min: 1,
-        max: 10,
-        step: 1,
-        label: "Factor",
-      },
-      size: {
-        value: starsConfig?.size ?? 1.7,
-        min: 0.1,
-        max: 20,
-        step: 0.1,
-        label: "Size",
-      },
-      saturation: {
-        value: starsConfig?.saturation ?? 0,
-        min: 0,
-        max: 1,
-        step: 0.01,
-        label: "Saturation",
-      },
-      fade: {
-        value: true,
-        label: "Fade",
-      },
-      speed: {
-        value: 0,
-        min: 0,
-        max: 1,
-        step: 0.01,
-        label: "Speed",
-      },
-      blendingMode: {
-        value: "Normal",
-        options: Object.keys(BLENDING_MODES),
-        label: "Blending Mode",
-      },
-      opacityMin: {
-        value: 0.1,
-        min: 0,
-        max: 1,
-        step: 0.01,
-        label: "Opacity Min",
-      },
-      opacityMax: {
-        value: 0.4,
-        min: 0,
-        max: 1,
-        step: 0.01,
-        label: "Opacity Max",
-      },
-    },
-    {
-      collapsed: true,
-    }
+// Keys to sync to Leva when store changes
+const TRANSIENT_PROPERTIES = [
+  "enabled",
+  "radius",
+  "depth",
+  "count",
+  "size",
+] as const
+
+export const Stars = () => {
+  const showControls = useShowControls()
+  const { stars: starsConfig } = useGameStore((state) => state.starfieldConfig)
+
+  const [levaValues, set] = useControls(
+    () =>
+      (showControls
+        ? {
+            Objects: folder(
+              {
+                Stars: folder(
+                  {
+                    enabled: {
+                      value:
+                        starsConfig?.enabled ?? DEFAULT_STARS_CONFIG.enabled,
+                      label: "Enable Stars",
+                    },
+                    radius: {
+                      value: starsConfig?.radius ?? DEFAULT_STARS_CONFIG.radius,
+                      min: 1,
+                      max: 100,
+                      step: 1,
+                      label: "Radius",
+                    },
+                    depth: {
+                      value: starsConfig?.depth ?? DEFAULT_STARS_CONFIG.depth,
+                      min: 1,
+                      max: 100,
+                      step: 1,
+                      label: "Depth",
+                    },
+                    count: {
+                      value: starsConfig?.count ?? DEFAULT_STARS_CONFIG.count,
+                      min: 1000,
+                      max: 10000,
+                      step: 100,
+                      label: "Count",
+                    },
+                    size: {
+                      value: starsConfig?.size ?? DEFAULT_STARS_CONFIG.size,
+                      min: 0.1,
+                      max: 20,
+                      step: 0.1,
+                      label: "Size",
+                    },
+                    fade: {
+                      value: DEFAULT_STARS_CONFIG.fade,
+                      label: "Fade",
+                    },
+                    blendingMode: {
+                      value: DEFAULT_STARS_CONFIG.blendingMode,
+                      options: Object.keys(BLENDING_MODES),
+                      label: "Blending Mode",
+                    },
+                    opacityMin: {
+                      value: DEFAULT_STARS_CONFIG.opacityMin,
+                      min: 0,
+                      max: 1,
+                      step: 0.01,
+                      label: "Opacity Min",
+                    },
+                    opacityMax: {
+                      value: DEFAULT_STARS_CONFIG.opacityMax,
+                      min: 0,
+                      max: 1,
+                      step: 0.01,
+                      label: "Opacity Max",
+                    },
+                  },
+                  { collapsed: true }
+                ),
+              },
+              { collapsed: true, order: PANEL_ORDERING.RENDERING }
+            ),
+          }
+        : {}) as Schema
   )
 
+  // Get stable config - hook handles all stabilization
+  const controls = useControlSync({
+    source: starsConfig as Partial<typeof DEFAULT_STARS_CONFIG> | undefined,
+    defaults: DEFAULT_STARS_CONFIG,
+    sync: TRANSIENT_PROPERTIES,
+    levaValues: levaValues as Partial<typeof DEFAULT_STARS_CONFIG>,
+    set: set as (values: Partial<typeof DEFAULT_STARS_CONFIG>) => void,
+  })
+
+  // Only hide if explicitly disabled (not undefined during HMR settling)
+  if (controls.enabled === false) return null
+
   return (
-    starsConfig?.enabled && (
-      <StarsComponent
-        radius={radius}
-        depth={depth}
-        count={count}
-        factor={factor}
-        saturation={saturation}
-        fade={fade}
-        speed={speed}
-        size={size}
-        layers={LAYERS.BACKGROUND}
-        blending={BLENDING_MODES[blendingMode]}
-        opacityRange={[opacityMin, opacityMax]}
-      />
-    )
+    <StarsComponent
+      radius={controls.radius}
+      depth={controls.depth}
+      count={controls.count}
+      fade={controls.fade}
+      size={controls.size}
+      layers={LAYERS.BACKGROUND}
+      blending={BLENDING_MODES[controls.blendingMode]}
+      opacityRange={[controls.opacityMin, controls.opacityMax]}
+    />
   )
 }

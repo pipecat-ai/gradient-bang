@@ -5,7 +5,6 @@ import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
 
 import { GameContext } from "@/hooks/useGameContext"
 import useGameStore, { GameInitStateMessage } from "@/stores/game"
-import { wait } from "@/utils/animation"
 import {
   hasDeviatedFromCoursePlot,
   salvageCollectedSummaryString,
@@ -28,6 +27,7 @@ import {
   type ErrorMessage,
   type EventQueryMessage,
   type IncomingChatMessage,
+  type LLMTaskMessage,
   type MapLocalMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
@@ -99,7 +99,7 @@ export function GameProvider({ children }: GameProviderProps) {
     gameStore.setGameState("initializing")
 
     // 1. Construct and await heavier game instances
-    /*if (gameStore.settings.renderStarfield) {
+    if (gameStore.settings.renderStarfield) {
       console.debug("[GAME CONTEXT] Waiting on Starfield ready...")
       await new Promise<void>((resolve) => {
         if (useGameStore.getState().starfieldReady) {
@@ -116,9 +116,7 @@ export function GameProvider({ children }: GameProviderProps) {
           }
         )
       })
-    }*/
-
-    await wait(1000)
+    }
 
     // 2. Connect to agent
     gameStore.setGameStateMessage(GameInitStateMessage.CONNECTING)
@@ -152,9 +150,6 @@ export function GameProvider({ children }: GameProviderProps) {
     // 4. Set ready state and dispatch start event to bot
     gameStore.setGameStateMessage(GameInitStateMessage.READY)
     gameStore.setGameState("ready")
-
-    // A little bit of air, so the bot starts talking after the visor opens
-    // await wait(1000)
 
     // 5. Dispatch start event to bot to kick off the conversation
     // dispatchAction({ type: "start" } as StartAction)
@@ -760,7 +755,6 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as IncomingChatMessage
 
               gameStore.addMessage(data as ChatMessage)
-              gameStore.setNotifications({ newChatMessage: true })
 
               const timestampClient = Date.now()
 
@@ -769,6 +763,10 @@ export function GameProvider({ children }: GameProviderProps) {
                 data.from_name &&
                 data.from_name !== gameStore.player?.name
               ) {
+                // Show a nofication in the conversation panel
+                // @TODO: do not do this if chat window is open
+                gameStore.setNotifications({ newChatMessage: true })
+
                 gameStore.addActivityLogEntry({
                   type: "chat.direct",
                   message: `New direct message from [${data.from_name}]`,
@@ -781,6 +779,13 @@ export function GameProvider({ children }: GameProviderProps) {
                   },
                 })
               }
+              break
+            }
+
+            case "llm.function_call": {
+              console.debug("[GAME EVENT] LLM task message", e.payload)
+              const data = e.payload as LLMTaskMessage
+              gameStore.setLLMIsWorking(!!data.name)
               break
             }
 

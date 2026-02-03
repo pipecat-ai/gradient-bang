@@ -22,6 +22,7 @@ export interface ObserverMetadata {
   shipId: string;
   shipName: string;
   shipType: string;
+  corpId?: string | null;
 }
 
 export interface BuildCharacterMovedPayloadOptions {
@@ -103,6 +104,7 @@ export async function emitCharacterMovedEvents({
   sectorId,
   requestId,
   actorCharacterId,
+  corpId,
 }: {
   supabase: SupabaseClient;
   observers: string[];
@@ -110,6 +112,7 @@ export async function emitCharacterMovedEvents({
   sectorId: number;
   requestId?: string;
   actorCharacterId: string;
+  corpId?: string | null;
 }): Promise<void> {
   const recipients = dedupeRecipientSnapshots(
     observers.map((observerId) => ({
@@ -129,6 +132,7 @@ export async function emitCharacterMovedEvents({
     requestId,
     sectorId,
     actorCharacterId,
+    corpId: corpId ?? null,
     recipients,
   });
 }
@@ -201,6 +205,7 @@ export async function emitGarrisonCharacterMovedEvents({
       requestId,
       sectorId,
       actorCharacterId: owner.character_id,
+      corpId: owner.corporation_id ?? null,
       recipients: recipientSnapshots,
     });
     delivered += recipients.length;

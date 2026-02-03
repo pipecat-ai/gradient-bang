@@ -1,53 +1,64 @@
 import * as THREE from "three"
 
+export interface ImageAsset {
+  type: "skybox" | "port" | "ship" | "planet" | string
+  url: string
+}
+
+/**
+ * Configuration for Shockwave effect
+ */
+export interface ShockwaveConfig {
+  enabled: boolean
+  speed: number
+  maxRadius: number
+  waveSize: number
+  amplitude: number
+  distance: number
+}
+
+/**
+ * Configuration for Dithering effect
+ */
+export interface DitheringConfig {
+  enabled: boolean
+  gridSize: number
+  pixelSizeRatio: number
+  grayscaleOnly: boolean
+}
+
+/**
+ * Configuration for Sharpening effect
+ */
+export interface SharpeningConfig {
+  enabled: boolean
+  intensity: number
+  radius: number
+  threshold: number
+}
+
+/**
+ * Configuration for Exposure effect
+ */
+export interface ExposureConfig {
+  enabled: boolean
+  startAmount: number
+}
+
 export interface StarfieldConfig {
   palette?: string
-  imageAssets?: string[]
-  cameraBaseFov: number
+  imageAssets?: ImageAsset[]
+  cameraBaseFov?: number
   hyperspaceEnterTime?: number
   hyperspaceExitTime?: number
   hyperspaceDuration?: number
-  hyperspaceCooldown?: number
-  hyerpspaceUniforms: {
-    vignetteAmount: number
-    vignetteOffset: number
-    cameraFov: number
-    bloomIntensity: number
-    bloomRadius: number
-  }
   shakeIntensity?: number
   shakeRelaxTime?: number
   layerDimDuration?: number
-  shockwave: {
-    shockwaveEnabled?: boolean
-    shockwaveSpeed?: number
-    shockwaveMaxRadius?: number
-    shockwaveWaveSize?: number
-    shockwaveAmplitude?: number
-    shockwaveDistance?: number
-  }
-  dithering: {
-    ditheringEnabled: true
-    ditheringGridSize?: number
-    ditheringPixelSizeRatio?: number
-    ditheringGrayscaleOnly?: boolean
-  }
-  sharpening: {
-    sharpeningEnabled?: boolean
-    sharpeningIntensity?: number
-    sharpeningRadius?: number
-    sharpeningThreshold?: number
-  }
-  vignette: {
-    vignetteEnabled?: boolean
-    vignetteOffset?: number
-    vignetteDarkness?: number
-  }
-  scanlines: {
-    scanlinesEnabled?: boolean
-    scanlinesIntensity?: number
-    scanlinesFrequency?: number
-  }
+  exposureDuration?: number
+  shockwave?: Partial<ShockwaveConfig>
+  dithering?: Partial<DitheringConfig>
+  sharpening?: Partial<SharpeningConfig>
   stars?: {
     enabled?: boolean
     radius?: number
@@ -59,18 +70,20 @@ export interface StarfieldConfig {
     fade?: boolean
     speed?: number
   }
+  exposure?: Partial<ExposureConfig>
   dust?: Partial<DustConfig>
   fog?: Partial<FogConfig>
   planet?: Partial<PlanetConfig>
   sun?: Partial<SunConfig>
-  grading: Partial<GradingConfig>
+  grading?: Partial<GradingConfig>
   nebula?: Partial<NebulaConfig>
-  milkyWay?: Partial<MilkyWayConfig>
   tunnel?: Partial<TunnelConfig>
   volumetricClouds?: Partial<VolumetricCloudsConfig>
+  galaxy?: Partial<GalaxyConfig>
+  lensFlare?: Partial<LensFlareConfig>
 }
 
-export type PerformanceProfile = "low" | "mid" | "high"
+export type PerformanceProfile = "auto" | "low" | "mid" | "high"
 
 export type StarfieldState =
   | "idle"
@@ -82,14 +95,17 @@ export type StarfieldState =
 /**
  * Represents a game object in the scene
  */
+export type GameObjectType = "port" | "ship" | "planet" | "garrison" | "salvage"
 export interface GameObject {
   id: string
-  type?: string
+  type?: GameObjectType
+  scale?: number
+  opacity?: number
+  enabled?: boolean
+  label?: string
+  meta?: Record<string, unknown>
 }
 
-/**
- * Represents a positioned game object in 3D space
- */
 export interface PositionedGameObject extends GameObject {
   position: [number, number, number]
 }
@@ -136,37 +152,13 @@ export interface NebulaConfig {
   domainScale: number
   iterPrimary: number
   iterSecondary: number
-  seed1: number
-  seed2: number
-  seed3: number
-  rotation: [number, number, number]
-}
-
-/**
- * Configuration for MilkyWay object
- */
-export interface MilkyWayConfig {
-  enabled: boolean
-  intensity: number
-  // Galaxy axis
-  axisX: number
-  axisY: number
-  axisZ: number
-  // Band
-  bandColor: THREE.Color
-  bandWidth: number
-  bandFalloff: number
-  bandCoverage: number
-  bandCoverageFalloff: number
-  bandRotation: number
-  // Core
-  coreColor: THREE.Color
-  coreWidth: number
-  coreIntensity: number
-  coreFalloff: number
-  // Distortion
-  distortionAmount: number
-  distortionScale: number
+  rotationX: number
+  rotationY: number
+  rotationZ: number
+  warpDecay: number
+  warpOffsetX: number
+  warpOffsetY: number
+  warpOffsetZ: number
 }
 
 /**
@@ -174,6 +166,7 @@ export interface MilkyWayConfig {
  */
 export interface TunnelConfig {
   enabled: boolean
+  showDuringWarp: boolean
   speed: number
   rotationSpeed: number
   tunnelDepth: number
@@ -184,6 +177,9 @@ export interface TunnelConfig {
   noiseAnimationSpeed: number
   opacity: number
   contrast: number
+  centerHole: number
+  centerSoftness: number
+  pixelation: number
 }
 
 /**
@@ -299,21 +295,49 @@ export interface FogConfig {
 }
 
 /**
+ * Configuration for Galaxy object
+ */
+export interface GalaxyConfig {
+  enabled: boolean
+  intensity?: number
+  spread?: number // Controls width of galaxy band (higher = wider)
+  rotation?: number
+  offsetX?: number // Horizontal position: -1 to +1 maps to -180° to +180°
+  offsetY?: number // Vertical position: -1 to +1 maps to -90° to +90°
+  octaves?: number // FBM octaves (1-5), controls detail vs performance
+}
+
+/**
+ * Configuration for LensFlare object
+ */
+export interface LensFlareConfig {
+  enabled: boolean
+  intensity?: number
+  ghostIntensity?: number // Intensity of ghost reflections
+  haloIntensity?: number // Intensity of halo rings
+  streakIntensity?: number // Intensity of streak artifacts
+  quality?: number // 0 = low (halos only), 1 = medium (+ghosts/streaks), 2 = high (all)
+  lightX?: number // Light source X position (-1 to 1)
+  lightY?: number // Light source Y position (-1 to 1)
+  trackGalaxy?: boolean // Whether to track the Galaxy object position
+}
+
+/**
  * Scene configuration with nested object configs
  */
 export interface SceneConfig {
   palette?: string
+  galaxy?: Partial<GalaxyConfig>
   nebula?: Partial<NebulaConfig>
-  milkyWay?: Partial<MilkyWayConfig>
   stars?: Partial<StarsConfig>
   skybox?: Partial<SkyboxConfig>
   planet?: Partial<PlanetConfig>
   tunnel?: Partial<TunnelConfig>
   volumetricClouds?: Partial<VolumetricCloudsConfig>
-  sun?: Partial<SunConfig>
   grading?: Partial<GradingConfig>
   dust?: Partial<DustConfig>
   fog?: Partial<FogConfig>
+  lensFlare?: Partial<LensFlareConfig>
 }
 
 /**

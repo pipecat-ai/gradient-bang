@@ -23,7 +23,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
   const localMapData = useGameStore((state) => state.local_map_data)
   const ships = useGameStore.use.ships?.()
   const coursePlot = useGameStore.use.course_plot?.()
-
+  const setLookMode = useGameStore.use.setLookMode?.()
   const shipSectors = ships?.data
     ?.filter((s: ShipSelf) => s.owner_type !== "personal")
     .map((s: ShipSelf) => s.sector ?? 0)
@@ -34,9 +34,14 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
   )
 
   return (
-    <div className={cn("group relative", className)}>
+    <div
+      className={cn(
+        "group relative elbow elbow-foreground/0 hover:elbow-foreground/100",
+        className
+      )}
+    >
       <div className="absolute inset-0 flex items-center justify-center opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-600 ease-in-out">
-        <div className="bg-background/60 p-5 flex flex-col gap-1 shrink-0">
+        <div className="bg-background/60 p-4 flex flex-col gap-1 shrink-0">
           <Button
             variant="outline"
             className="shrink-0 bg-background hover:bg-accent-background"
@@ -45,7 +50,11 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
             <ArrowUpLeftIcon size={20} className="size-5" />
             <span className="flex-1 text-xs px-4">View map</span>
           </Button>
-          <Button variant="outline" className="shrink-0 bg-background hover:bg-accent-background">
+          <Button
+            variant="outline"
+            className="shrink-0 bg-background hover:bg-accent-background"
+            onClick={() => setLookMode(true)}
+          >
             <SphereIcon size={20} className="size-5" />
             <span className="flex-1 text-xs px-4">Look around</span>
           </Button>
@@ -92,7 +101,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
         maxDistance={4}
       />
       <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5">
-        <div className="h-[6px] dashed-bg-horizontal dashed-bg-accent shrink-0" />
+        <div className="h-[6px] dashed-bg-horizontal dashed-bg-foreground/30 shrink-0" />
         <div className="flex flex-row gap-1.5">
           <SectorBadge />
           <PortBadge />

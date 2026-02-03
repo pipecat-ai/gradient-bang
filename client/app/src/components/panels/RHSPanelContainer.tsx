@@ -3,13 +3,15 @@ import { useRef } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ArrowLeftIcon } from "@phosphor-icons/react"
 
+import { LogsPanel } from "@/components/panels/LogsPanel"
 import { PlayerPanel } from "@/components/panels/PlayerPanel"
+import { TaskPanel } from "@/components/panels/TaskPanel"
+import { Button } from "@/components/primitives/Button"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
-import { Button } from "../primitives/Button"
-import { TaskPanel } from "./TaskPanel"
+import { TradePanel } from "./TradePanel"
 
 export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
@@ -66,23 +68,24 @@ export const RHSPanelContainer = () => {
 
   return (
     <div
-      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/20 border-t border-l"
+      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/40 border-t border-l"
       id="panel-container"
     >
       <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert pointer-events-none" />
+
       <ScrollArea
-        disabled={activeSubPanel !== undefined}
+        disabled={activeSubPanel !== undefined || activePanel === "logs"}
         className={cn(
-          "w-full h-full pointer-events-auto",
+          "w-full h-full pointer-events-auto text-foreground",
           activeSubPanel && "pointer-events-none overflow-hidden [&>div]:overflow-hidden!"
         )}
       >
+        {activePanel === "logs" && <LogsPanel />}
         {activePanel === "sector" && <div className=""></div>}
         {activePanel === "player" && <PlayerPanel />}
-        {activePanel === "trade" && <div className=""></div>}
+        {activePanel === "trade" && <TradePanel />}
         {activePanel === "tasks" && <TaskPanel />}
         {activePanel === "corp" && <div className=""></div>}
-        {activePanel === "logs" && <div className=""></div>}
       </ScrollArea>
       <div
         className={cn("absolute inset-0 bg-background/50 z-8", activeSubPanel ? "block" : "hidden")}

@@ -1,26 +1,28 @@
 import { create } from "zustand"
 
-import type { Scene, SceneChangeOptions } from "./types"
+import type { PositionedGameObject, Scene, SceneChangeOptions } from "@/types"
 
 interface CallbackStore {
   onCreated: () => void
-  onStart: () => void
-  onStop: () => void
+  onReady: () => void
   onUnsupported: () => void
   enqueueScene: (scene: Scene, options?: SceneChangeOptions) => void
-  onWarpAnimationStart: () => void
+  onSceneChangeStart: () => void
+  onSceneChangeEnd: () => void
+  onTargetRest: (target: PositionedGameObject) => void
+  onTargetClear: () => void
 }
 
 export const useCallbackStore = create<CallbackStore>((set) => ({
-  onStart: () => {},
-  onStop: () => {},
   onCreated: () => {},
+  onReady: () => {},
   onUnsupported: () => {},
   enqueueScene: () => {},
+  onSceneChangeStart: () => {},
+  onSceneChangeEnd: () => {},
   setOnCreated: (fn: () => void) => set({ onCreated: fn }),
-  setOnStart: (fn: () => void) => set({ onStart: fn }),
-  setOnStop: (fn: () => void) => set({ onStop: fn }),
-  setOnWarpAnimationStart: (fn: () => void) =>
-    set({ onWarpAnimationStart: fn }),
-  onWarpAnimationStart: () => {},
+  setOnReady: (fn: () => void) => set({ onReady: fn }),
+  setOnSceneChangeStart: (fn: () => void) => set({ onSceneChangeStart: fn }),
+  onTargetRest: () => {},
+  onTargetClear: () => {},
 }))

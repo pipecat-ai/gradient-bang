@@ -1986,6 +1986,7 @@ export interface ObserverMetadata {
   shipId: string;
   shipName: string;
   shipType: string;
+  corpId?: string | null;
 }
 
 interface EventSource {
@@ -2247,6 +2248,7 @@ export async function pgEmitMovementObservers(
       requestId,
       sectorId,
       actorCharacterId: metadata.characterId,
+      corpId: metadata.corpId ?? null,
       recipients: allRecipients,
     });
   }
@@ -2300,6 +2302,7 @@ export async function pgEmitMovementObservers(
           requestId,
           sectorId,
           actorCharacterId: owner.character_id,
+          corpId: owner.corporation_id ?? null,
           recipients: recipientSnapshots,
         });
         garrisonRecipients += allGarrisonRecipients.length;

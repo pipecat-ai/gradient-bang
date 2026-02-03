@@ -70,6 +70,7 @@ export async function emitMovementObservers(
       sectorId,
       requestId,
       actorCharacterId: metadata.characterId,
+      corpId: metadata.corpId ?? null,
     });
   }
 

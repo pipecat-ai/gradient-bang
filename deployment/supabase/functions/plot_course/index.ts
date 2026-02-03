@@ -207,6 +207,7 @@ async function handlePlotCourse(
     sectorId: ship.current_sector ?? undefined,
     requestId,
     taskId,
+    shipId: ship.ship_id,
   });
 
   return successResponse({

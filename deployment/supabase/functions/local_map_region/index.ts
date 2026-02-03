@@ -208,6 +208,7 @@ async function handleLocalMapRegion(
     sectorId: centerSector,
     requestId,
     taskId,
+    shipId: ship.ship_id,
     scope: "direct",
   });
 

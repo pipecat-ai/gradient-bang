@@ -14,17 +14,9 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from gradientbang.utils.config import get_repo_root
-from gradientbang.utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.task_agent import TaskAgent
-
-from gradientbang.utils.api_client import RPCError  # noqa: E402
-
-if os.getenv("SUPABASE_URL"):
-    from gradientbang.utils.supabase_client import AsyncGameClient  # noqa: E402
-else:
-    from gradientbang.utils.api_client import AsyncGameClient  # noqa: E402
-from gradientbang.utils.task_agent import TaskAgent  # noqa: E402
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
 
@@ -152,7 +144,7 @@ Examples:
 
 Environment Variables:
   GOOGLE_API_KEY             Required. Google Generative AI key.
-  GAME_SERVER_URL            Optional. Defaults to http://localhost:8000.
+  SUPABASE_URL               Required. Base URL for Supabase (edge functions + REST).
 """,
     )
 
@@ -164,8 +156,8 @@ Environment Variables:
 
     parser.add_argument(
         "--server",
-        default=os.getenv("GAME_SERVER_URL", "http://localhost:8000"),
-        help="Game server URL (default: %(default)s)",
+        default=os.getenv("SUPABASE_URL"),
+        help="Supabase base URL (default: SUPABASE_URL)",
     )
 
     parser.add_argument(
@@ -200,6 +192,9 @@ def ensure_api_key() -> str:
 
 async def run_task(args: argparse.Namespace) -> int:
     _ = ensure_api_key()
+    if not args.server:
+        logger.error("SUPABASE_URL is required (or pass --server).")
+        return 1
     target_character_id = args.ship_id or args.actor_id
     actor_character_id = args.actor_id if args.ship_id else None
 

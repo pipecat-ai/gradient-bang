@@ -75,17 +75,17 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.services.google.llm import GoogleLLMService as PipecatGoogleLLMService
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
-from gradientbang.utils.api_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.weave_tracing import init_weave, traced
 
-from gradientbang.utils.prompts import (
+from gradientbang.utils.prompt_loader import (
     TaskOutputType,
+    build_task_agent_prompt,
+    build_task_progress_prompt,
     create_task_instruction_user_message,
-    create_task_system_message,
 )
 from gradientbang.utils.tools_schema import (
     MyStatus,
@@ -118,10 +118,11 @@ from gradientbang.utils.tools_schema import (
     CombatInitiate,
     CombatAction,
     CorporationInfo,
+    LoadGameInfo,
 )
 
 
-load_dotenv()
+load_dotenv(dotenv_path=".env.bot")
 
 DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
 # DEFAULT_GOOGLE_MODEL = "gemini-3-flash-preview"
@@ -131,6 +132,7 @@ EVENT_BATCH_INFERENCE_DELAY = 1.0
 ASYNC_COMPLETION_TIMEOUT = 5.0  # Timeout for waiting for async tool completion events
 MAX_NO_TOOL_NUDGES = 3  # Max times to nudge LLM when it responds without tool calls
 NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
+TASK_LOG_TTL_SECONDS = 15 * 60
 
 # Tools that have async completion events - inference is deferred until the event arrives.
 # See module docstring for full explanation of this pattern.
@@ -254,10 +256,10 @@ class TaskAgent:
 
     def __init__(
         self,
-        config: LLMConfig,
         game_client: AsyncGameClient,
         character_id: str,
         *,
+        config: Optional[LLMConfig] = None,
         output_callback: Optional[Callable[[str, Optional[str]], None]] = None,
         tool_call_event_callback: Optional[ToolEventCallback] = None,
         tools_list: Optional[List[Any]] = None,
@@ -267,15 +269,13 @@ class TaskAgent:
         idle_timeout_secs: Optional[float] = None,
         task_metadata: Optional[Dict[str, Any]] = None,
     ):
-        api_key = config.api_key or os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "Google API key must be provided in config or GOOGLE_API_KEY environment variable"
-            )
-
+        # Store config - API key validation is deferred to the LLM factory
+        # which handles provider-specific key lookup from environment
+        if config is None:
+            config = LLMConfig(api_key=None, model="")
         self.config = LLMConfig(
-            api_key=api_key,
-            model=config.model or DEFAULT_GOOGLE_MODEL,
+            api_key=config.api_key,
+            model=config.model or "",
         )
         self.game_client = game_client
         self.character_id = character_id
@@ -283,11 +283,13 @@ class TaskAgent:
         self.output_callback = output_callback
         self._tool_call_event_callback = tool_call_event_callback
         self._llm_service_factory = llm_service_factory or self._default_llm_service_factory
-        self._thinking_budget = thinking_budget or DEFAULT_THINKING_BUDGET
+        self._thinking_budget = thinking_budget
         self._include_thoughts = DEFAULT_INCLUDE_THOUGHTS
         self._pipeline_idle_timeout_secs = idle_timeout_secs
 
         self.messages: List[Dict[str, Any]] = []
+        self._task_log: List[str] = []
+        self._archived_task_logs: Dict[str, tuple[List[str], float]] = {}
         self.tools: Dict[str, Callable[..., Awaitable[Any]]] = {}
         self._tools_schema: Optional[ToolsSchema] = None
 
@@ -296,6 +298,7 @@ class TaskAgent:
         self.finished_message: Optional[str] = None
         self._active_pipeline_task: Optional[PipelineTask] = None
         self._step_counter: int = 0
+        self._max_iterations: Optional[int] = None
         self._tool_call_in_progress: bool = False
         self._inference_reasons: List[str] = []
         self._inference_delay = EVENT_BATCH_INFERENCE_DELAY
@@ -346,6 +349,7 @@ class TaskAgent:
             DumpCargo,
             CombatInitiate,
             CombatAction,
+            LoadGameInfo,
             (WaitInIdleState, {"agent": self}),
             TaskFinished,
         ]
@@ -400,18 +404,22 @@ class TaskAgent:
         init_weave()
 
     def _default_llm_service_factory(self) -> LLMService:
-        """Create the standard Pipecat GoogleLLMService with thinking enabled."""
-        service = PipecatGoogleLLMService(
-            api_key=self.config.api_key or "",
-            model=self.config.model or DEFAULT_GOOGLE_MODEL,
-            params=PipecatGoogleLLMService.InputParams(
-                thinking=PipecatGoogleLLMService.ThinkingConfig(
-                    thinking_budget=self._thinking_budget,
-                    include_thoughts=self._include_thoughts,
-                )
-            ),
-        )
-        return service
+        """Create LLM service using the factory with environment configuration."""
+        from gradientbang.utils.llm_factory import create_llm_service, get_task_agent_llm_config
+
+        config = get_task_agent_llm_config()
+
+        # Apply explicit TaskAgent overrides (model or API key)
+        if self.config.model:
+            config.model = self.config.model
+        if self.config.api_key:
+            config.api_key = self.config.api_key
+
+        # Override thinking budget if provided at instance level
+        if self._thinking_budget is not None and config.thinking:
+            config.thinking.budget_tokens = self._thinking_budget
+
+        return create_llm_service(config)
 
     def set_tools(self, tools_list: List[Any]) -> None:
         tool_entries: List[Tuple[Any, Dict[str, Any]]] = []
@@ -443,9 +451,80 @@ class TaskAgent:
     def clear_messages(self) -> None:
         self.messages = []
 
+    def _prune_task_logs(self, now: Optional[float] = None) -> None:
+        if now is None:
+            now = time.monotonic()
+        expired = [
+            task_id
+            for task_id, (_, expires_at) in self._archived_task_logs.items()
+            if expires_at <= now
+        ]
+        for task_id in expired:
+            self._archived_task_logs.pop(task_id, None)
+
+    def _archive_task_log(self) -> None:
+        if not self._task_id or not self._task_log:
+            self._task_log = []
+            return
+        expires_at = time.monotonic() + TASK_LOG_TTL_SECONDS
+        self._archived_task_logs[self._task_id] = (list(self._task_log), expires_at)
+        self._task_log = []
+        self._prune_task_logs()
+
+    def get_task_log(self, task_id: Optional[str] = None) -> List[str]:
+        self._prune_task_logs()
+        if task_id and task_id != self._task_id:
+            entry = self._archived_task_logs.get(task_id)
+            return list(entry[0]) if entry else []
+        return list(self._task_log)
+
     def cancel(self) -> None:
         self.cancelled = True
         self._output(self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED)
+
+    async def inject_user_message(
+        self,
+        text: str,
+        *,
+        role: str = "user",
+        tag: str = "steering",
+    ) -> None:
+        cleaned = text.strip()
+        if not cleaned:
+            raise ValueError("inject_user_message requires non-empty text")
+
+        message = {"role": role, "content": cleaned}
+        if self._context is not None:
+            self._context.add_message(message)
+        else:
+            self.add_message(message)
+
+        self._output(cleaned, TaskOutputType.INPUT)
+        await self._request_inference(tag)
+
+    async def query_task_progress(
+        self, prompt: str, *, system_prompt: Optional[str] = None
+    ) -> str:
+        cleaned = prompt.strip()
+        if not cleaned:
+            raise ValueError("query_task_progress requires a non-empty prompt")
+
+        if system_prompt is None:
+            log_lines = self.get_task_log()
+            if not log_lines:
+                return "No task log available."
+            system_prompt = build_task_progress_prompt(log_lines)
+
+        context = LLMContext(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": cleaned},
+            ],
+            tools=ToolsSchema([]),
+        )
+        llm_service = self._llm_service_factory()
+        response = await llm_service.run_inference(context)
+        return (response or "").strip()
 
     def reset_cancellation(self) -> None:
         self.cancelled = False
@@ -463,6 +542,7 @@ class TaskAgent:
 
     def reset_task_state(self) -> None:
         """Clear task-scoped state for reuse without unregistering handlers."""
+        self._archive_task_log()
         self.cancelled = False
         self.finished = False
         self.finished_message = None
@@ -471,6 +551,7 @@ class TaskAgent:
         self._finish_emitted = False
         self._task_start_monotonic = None
         self._step_counter = 0
+        self._max_iterations = None
         self._no_tool_nudge_count = 0
         self._tool_call_in_progress = False
         self._llm_inflight = False
@@ -711,7 +792,12 @@ class TaskAgent:
         self._task_id = task_id or str(uuid.uuid4())
         self._task_description = task
         self._finish_emitted = False
-        _ = max_iterations  # retained for API compatibility; pipeline controls turns
+        try:
+            self._max_iterations = int(max_iterations)
+        except (TypeError, ValueError):
+            self._max_iterations = None
+        if self._max_iterations is not None and self._max_iterations < 1:
+            self._max_iterations = None
 
         # Set task_id on game_client so all API calls are tagged with this task
         self.game_client.current_task_id = self._task_id
@@ -727,7 +813,7 @@ class TaskAgent:
         except Exception as exc:
             logger.warning(f"Failed to emit task.start event: {exc}")
 
-        self.add_message({"role": "system", "content": create_task_system_message()})
+        self.add_message({"role": "system", "content": build_task_agent_prompt()})
         self.add_message({"role": "user", "content": create_task_instruction_user_message(task)})
         # Note: initial_state parameter kept for API compatibility but not used
 
@@ -940,6 +1026,30 @@ class TaskAgent:
         tool_call_id = params.tool_call_id
         arguments = params.arguments or {}
 
+        if self._max_iterations is not None and self._step_counter >= self._max_iterations:
+            limit_message = (
+                f"Task stopped after {self._max_iterations} steps (max_iterations limit)."
+            )
+            self.finished = True
+            self.finished_message = limit_message
+            self._output(self._timestamped_text(limit_message), TaskOutputType.FINISHED)
+
+            if self._task_id and not self._finish_emitted:
+                try:
+                    await self.game_client.task_lifecycle(
+                        task_id=self._task_id,
+                        event_type="finish",
+                        task_summary=limit_message,
+                        task_status="failed",
+                        task_metadata=self._task_metadata,
+                    )
+                    self._finish_emitted = True
+                except Exception as exc:
+                    logger.warning(f"Failed to emit task.finish event: {exc}")
+
+            await params.llm.push_frame(EndFrame())
+            return
+
         if tool_name == "finished":
             self.finished = True
             self.finished_message = arguments.get("message", "Done")
@@ -1111,6 +1221,8 @@ class TaskAgent:
             logger.info("[{}] {}", type_value, text)
         else:
             logger.info("{}", text)
+
+        self._task_log.append(text)
 
         if self.output_callback:
             logger.info("output_callback payload type={} text={}", type_value, text)

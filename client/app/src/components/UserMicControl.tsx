@@ -55,7 +55,7 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
     <>
       <Button
         variant={
-          initializing ? "secondary"
+          initializing ? "micLoading"
           : isMicEnabled ?
             "micEnabled"
           : "micDisabled"

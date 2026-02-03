@@ -1,95 +1,140 @@
-import type { StarfieldConfig } from "./types"
+import type { PerformanceProfile, StarfieldConfig } from "./types"
+
+// Keys excluded from profile merging (preserve user/scene settings)
+export const EXCLUDED_PROFILE_KEYS = [
+  "cameraBaseFov",
+  "palette",
+  "imageAssets",
+  "shakeIntensity",
+  "shakeRelaxTime",
+  "layerDimDuration",
+  "hyperspaceEnterTime",
+  "hyperspaceExitTime",
+  "hyperspaceDuration",
+] as const
 
 export const defaultProfile: StarfieldConfig = {
+  cameraBaseFov: 50,
   palette: "cosmicTeal",
-  imageAssets: ["/test-skybox-1.png", "/test-skybox-2.png"],
-  cameraBaseFov: 85,
-  hyperspaceEnterTime: 2000,
-  hyperspaceExitTime: 2000,
-  hyperspaceDuration: 1000,
-  hyperspaceCooldown: 10000,
-  hyerpspaceUniforms: {
-    vignetteAmount: 0.5,
-    vignetteOffset: 1,
-    cameraFov: 165,
-    bloomIntensity: 20,
-    bloomRadius: 1,
-  },
+  imageAssets: [
+    { type: "skybox", url: "/test-skybox-1.png" },
+    { type: "skybox", url: "/test-skybox-2.png" },
+    { type: "port", url: "/test-port-1.png" },
+    { type: "port", url: "/test-port-2.png" },
+    { type: "port", url: "/test-port-3.png" },
+  ],
+  hyperspaceEnterTime: 1500,
+  hyperspaceExitTime: 1500,
+  hyperspaceDuration: 100,
   shakeIntensity: 1,
   shakeRelaxTime: 1000,
-  layerDimDuration: 300,
+  layerDimDuration: 5000,
+  galaxy: {
+    enabled: true,
+  },
   shockwave: {
-    shockwaveEnabled: true,
-    shockwaveSpeed: 0.5,
-    shockwaveMaxRadius: 0.45,
-    shockwaveWaveSize: 0.5,
-    shockwaveAmplitude: 0.1,
-    shockwaveDistance: 5.0,
+    enabled: true,
   },
   dithering: {
-    ditheringEnabled: true,
+    enabled: true,
   },
   sharpening: {
-    sharpeningEnabled: true,
+    enabled: true,
   },
-  vignette: {
-    vignetteEnabled: true,
-    vignetteOffset: 0.7,
-    vignetteDarkness: 0.3,
-  },
-  scanlines: {
-    scanlinesEnabled: false,
+  exposure: {
+    enabled: true,
   },
   stars: {
     enabled: true,
+    count: 6000,
   },
   dust: {
     enabled: true,
-  },
-  fog: {
-    enabled: true,
-    color: "#000000",
-    near: 0,
-    far: 80,
   },
   planet: {
     enabled: true,
   },
   sun: {
     enabled: true,
-    position: { x: 30, y: 30, z: -80 },
-    scale: 100,
-    intensity: 0.5,
   },
   grading: {
     enabled: true,
   },
   nebula: {
     enabled: true,
-    intensity: 0.5,
-    domainScale: 2,
   },
   volumetricClouds: {
     enabled: true,
-    count: 500,
-    radius: 300,
-    size: 40,
-    opacity: 0.03,
-    blendMode: "normal",
-    minDistance: 10,
-    fadeRange: 3,
+  },
+  tunnel: {
+    enabled: true,
+  },
+  lensFlare: {
+    enabled: true,
+    quality: 2,
+  },
+}
+
+export const midProfile: Partial<StarfieldConfig> = {
+  ...defaultProfile,
+  volumetricClouds: {
+    enabled: false,
+  },
+  shockwave: {
+    enabled: false,
+  },
+  stars: {
+    count: 3000,
+  },
+  tunnel: {
+    enabled: false,
+    showDuringWarp: false,
+  },
+  lensFlare: {
+    enabled: true,
+    quality: 1,
+  },
+  galaxy: {
+    enabled: true,
+    octaves: 3,
   },
 }
 
 export const lowProfile: Partial<StarfieldConfig> = {
-  ...defaultProfile,
-  fog: {
-    enabled: false,
-  },
-  dust: {
+  ...midProfile,
+  nebula: {
     enabled: false,
   },
   volumetricClouds: {
     enabled: false,
   },
+  shockwave: {
+    enabled: false,
+  },
+  stars: {
+    enabled: false,
+  },
+  sun: {
+    enabled: false,
+  },
+  tunnel: {
+    enabled: false,
+    showDuringWarp: false,
+  },
+  galaxy: {
+    enabled: false,
+  },
+  lensFlare: {
+    enabled: false,
+  },
+}
+
+export const PROFILE_MAP: Record<
+  PerformanceProfile,
+  Partial<StarfieldConfig>
+> = {
+  low: lowProfile,
+  mid: midProfile,
+  auto: defaultProfile,
+  high: defaultProfile,
 }

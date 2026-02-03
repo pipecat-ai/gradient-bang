@@ -10,9 +10,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     BotSpeakingFrame,
-    Frame,
     InterruptionFrame,
-    LLMContextFrame,
     LLMRunFrame,
     StartFrame,
     StopFrame,
@@ -27,11 +25,10 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
 )
-from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
-    RTVIObserver,
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
@@ -39,12 +36,12 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.services.google.llm import GoogleLLMService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.utils.time import time_now_iso8601
 
-from gradientbang.utils.prompts import CHAT_INSTRUCTIONS, GAME_DESCRIPTION, VOICE_INSTRUCTIONS
+from gradientbang.utils.llm_factory import create_llm_service, get_voice_llm_config
+from gradientbang.utils.prompt_loader import build_voice_agent_prompt
 
 load_dotenv(dotenv_path=".env.bot")
 
@@ -52,11 +49,6 @@ if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 
-# Use Supabase client if SUPABASE_URL is set, otherwise use legacy WebSocket client
-if os.getenv("SUPABASE_URL"):
-    from gradientbang.utils.supabase_client import AsyncGameClient
-else:
-    from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.pipecat_server.context_compression import (
     ContextCompressionConsumer,
     ContextCompressionProducer,
@@ -68,6 +60,7 @@ from gradientbang.pipecat_server.inference_gate import (
     PreLLMInferenceGate,
 )
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
+from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 
 # Configure loguru
@@ -87,7 +80,7 @@ async def _lookup_character_display_name(character_id: str, server_url: str) -> 
     """
     try:
         async with AsyncGameClient(
-            base_url=server_url, character_id=character_id, transport="websocket"
+            base_url=server_url, character_id=character_id, transport="supabase"
         ) as client:
             result = await client.character_info(character_id=character_id)
             return result.get("name")
@@ -127,34 +120,9 @@ async def _resolve_character_identity(character_id: str | None, server_url: str)
     return character_id, display_name
 
 
-class TaskProgressInserter(FrameProcessor):
-    def __init__(self, voice_task_manager: VoiceTaskManager):
-        super().__init__()
-        self._voice_task_manager = voice_task_manager
-
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        await super().process_frame(frame, direction)
-
-        if isinstance(frame, LLMContextFrame):
-            task_buffer = self._voice_task_manager.get_task_progress()
-            if task_buffer.strip():
-                frame.context._messages.insert(
-                    len(frame.context._messages) - 1,
-                    {
-                        "role": "user",
-                        "content": f"<task_progress>{task_buffer}</task_progress>",
-                    },
-                )
-
-        await self.push_frame(frame, direction)
-
-
 def create_chat_system_prompt() -> str:
     """Create the system prompt for the chat agent."""
-    return f"""{GAME_DESCRIPTION}
-{CHAT_INSTRUCTIONS}
-{VOICE_INSTRUCTIONS}
-"""
+    return build_voice_agent_prompt()
 
 
 async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
@@ -163,10 +131,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     # Create RTVI processor with config
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
-    # Get server URL from environment or use default
-    # Check SUPABASE_URL first (for cloud mode), then GAME_SERVER_URL, then default
-    server_url = os.getenv("SUPABASE_URL") or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
-    logger.info(f"Using server URL: {server_url}")
+    server_url = os.getenv("SUPABASE_URL")
+    if not server_url:
+        raise RuntimeError("SUPABASE_URL is required to run the bot.")
+    logger.info(f"Using Supabase URL: {server_url}")
 
     character_id, character_display_name = await _resolve_character_identity(
         (getattr(runner_args, "body", None) or {}).get("character_id", None)
@@ -199,13 +167,23 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # Initialize LLM service
     logger.info("Init LLM…")
-    llm = GoogleLLMService(
-        api_key=os.getenv("GOOGLE_API_KEY"),
-        model="gemini-2.5-flash-preview-09-2025",
-    )
+    voice_config = get_voice_llm_config()
+    llm = create_llm_service(voice_config)
     llm.register_function(None, task_manager.execute_tool_call)
 
-    task_progress = TaskProgressInserter(task_manager)
+    @llm.event_handler("on_function_calls_started")
+    async def on_function_calls_started(service, function_calls):
+        for call in function_calls:
+            await rtvi.push_frame(
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": "llm.function_call",
+                        "payload": {"name": call.function_name},
+                    }
+                )
+            )
+
     token_usage_metrics = TokenUsageMetricsProcessor(source="bot")
 
     # System prompt
@@ -222,9 +200,16 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # Create context aggregator
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
-    context_aggregator = LLMContextAggregatorPair(context)
-
-    inference_gate_state = InferenceGateState(cooldown_seconds=2.0)
+    context_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(
+            filter_incomplete_user_turns=True,
+        ),
+    )
+    inference_gate_state = InferenceGateState(
+        cooldown_seconds=2.0,
+        post_llm_grace_seconds=1.5,
+    )
     pre_llm_gate = PreLLMInferenceGate(inference_gate_state)
     post_llm_gate = PostLLMInferenceGate(inference_gate_state)
 
@@ -242,13 +227,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         [
             transport.input(),
             stt,
-            rtvi,  # Add RTVI processor for transcription events
+            # rtvi,  # Add RTVI processor for transcription events
             pre_llm_gate,
             context_aggregator.user(),
             ParallelPipeline(
                 # Main branch
                 [
-                    task_progress,
                     llm,
                     post_llm_gate,
                     token_usage_metrics,
@@ -274,7 +258,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        observers=[RTVIObserver(rtvi)],
+        rtvi_processor=rtvi,
         idle_timeout_frames=(BotSpeakingFrame, UserStartedSpeakingFrame, TaskActivityFrame),
     )
 

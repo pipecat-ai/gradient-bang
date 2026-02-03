@@ -25,12 +25,14 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 class InferenceGateState:
     """Shared inference gating state across multiple processors."""
 
-    def __init__(self, cooldown_seconds: float = 2.0):
+    def __init__(self, cooldown_seconds: float = 2.0, post_llm_grace_seconds: float = 0.0):
         self._cooldown_seconds = float(cooldown_seconds)
+        self._post_llm_grace_seconds = float(post_llm_grace_seconds)
         self._bot_speaking = False
         self._user_speaking = False
         self._cooldown_until: Optional[float] = None
         self._llm_in_flight = False
+        self._last_llm_end: Optional[float] = None
         self._pending = False
         self._pending_reason: Optional[str] = None
         self._pending_task: Optional[asyncio.Task] = None
@@ -102,6 +104,7 @@ class InferenceGateState:
                 self._llm_idle_event.clear()
             else:
                 self._llm_idle_event.set()
+                self._last_llm_end = time.monotonic()
             if self._pending:
                 self._ensure_pending_task_locked()
 
@@ -135,6 +138,20 @@ class InferenceGateState:
                 if not self._pending:
                     return
                 cooldown_until = self._cooldown_until
+                pending_reason = self._pending_reason
+                last_llm_end = self._last_llm_end
+                post_llm_grace_seconds = self._post_llm_grace_seconds
+
+            if (
+                pending_reason == "event"
+                and post_llm_grace_seconds > 0
+                and last_llm_end is not None
+            ):
+                grace_until = last_llm_end + post_llm_grace_seconds
+                now = time.monotonic()
+                if now < grace_until:
+                    await asyncio.sleep(grace_until - now)
+                    continue
 
             if cooldown_until is not None:
                 delay = cooldown_until - time.monotonic()

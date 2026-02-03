@@ -40,7 +40,7 @@ const COMMODITY_MAP: Record<string, number> = {
   neuro_symbolics: 2,
 };
 
-// Trading price calculation (ported from game-server/trading.py)
+// Trading price calculation (ported from legacy trading logic)
 const BASE_PRICES: Record<string, number> = {
   quantum_foam: 25,
   retro_organics: 10,
@@ -498,6 +498,7 @@ async function handleListKnownPorts(
     sectorId: fromSector,
     requestId,
     taskId,
+    shipId: ship.ship_id,
     scope: "direct",
   });
 

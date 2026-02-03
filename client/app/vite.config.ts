@@ -9,7 +9,7 @@ import react from "@vitejs/plugin-react"
 import { version } from "./package.json"
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(version),
   },
@@ -23,9 +23,7 @@ export default defineConfig(({ mode }) => ({
         enabled: false,
       },
       workbox: {
-        globPatterns: [
-          "**/*.{js,css,html,png,jpg,jpeg,svg,woff,woff2,wav,mp3,mp4}",
-        ],
+        globPatterns: ["**/*.{js,css,html,png,jpg,jpeg,svg,woff,woff2,wav,mp3,mp4}"],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
       },
       manifest: {
@@ -45,19 +43,28 @@ export default defineConfig(({ mode }) => ({
       filename: "bundle-analysis.html",
     }) as PluginOption,
   ],
+  build: {
+    rollupOptions: {
+      external: (id) => {
+        if (id.includes("@ladle")) return true
+        if (id.includes(".stories.")) return true
+        return false
+      },
+    },
+  },
   resolve: {
     alias: {
       "@/assets": path.resolve(__dirname, "./src/assets"),
       "@/fx": path.resolve(__dirname, "./src/fx"),
-      "@/hud": path.resolve(__dirname, "./src/components/hud"),
       "@/views": path.resolve(__dirname, "./src/components/views"),
       "@/screens": path.resolve(__dirname, "./src/components/screens"),
       "@/stores": path.resolve(__dirname, "./src/stores"),
       "@/mocks": path.resolve(__dirname, "./src/mocks"),
       "@": path.resolve(__dirname, "./src"),
-      ...(mode === "production" && {
-        leva: path.resolve(__dirname, "./src/mocks/leva.mock.ts"),
-      }),
+      // TODO: leva mock breaks starfield - include real leva for now
+      // ...(mode === "production" && {
+      //   leva: path.resolve(__dirname, "./src/mocks/leva.mock.ts"),
+      // }),
     },
   },
   optimizeDeps: {

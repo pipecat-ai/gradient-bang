@@ -133,7 +133,7 @@ export async function resolveEncounterRound(options: {
 
     // Send personalized combat.ended event to each participant with their own ship data
     // NO CORP VISIBILITY for combat.ended - personalized payload would corrupt client state
-    // (matches legacy pattern from game-server/combat/callbacks.py:394-412)
+    // (matches legacy pattern from previous combat callbacks)
     const { buildCombatEndedPayloadForViewer } =
       await import("./combat_events.ts");
     for (const recipient of recipients) {
@@ -146,6 +146,14 @@ export async function resolveEncounterRound(options: {
         recipient,
       );
       personalizedPayload.source = buildEventSource("combat.ended", requestId);
+      const shipId =
+        typeof personalizedPayload === "object" && personalizedPayload !== null
+          ? (personalizedPayload as Record<string, unknown>)["ship"]
+          : null;
+      const shipIdValue =
+        typeof shipId === "object" && shipId !== null
+          ? (shipId as Record<string, unknown>)["ship_id"]
+          : null;
 
       await emitCharacterEvent({
         supabase,
@@ -154,6 +162,7 @@ export async function resolveEncounterRound(options: {
         payload: personalizedPayload,
         sectorId: encounter.sector_id,
         requestId,
+        shipId: typeof shipIdValue === "string" ? shipIdValue : undefined,
       });
     }
 

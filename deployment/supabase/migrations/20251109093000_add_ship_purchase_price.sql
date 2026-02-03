@@ -1,4 +1,4 @@
--- Add explicit purchase_price column for ship definitions and sync stats with game-server/ships.py
+-- Add explicit purchase_price column for ship definitions and sync legacy ship stats
 
 ALTER TABLE ship_definitions
   ADD COLUMN IF NOT EXISTS purchase_price INTEGER NOT NULL DEFAULT 0;

@@ -1,59 +1,124 @@
-import { memo, Suspense, useLayoutEffect, useRef } from "react"
-import { PerformanceMonitor, Stats } from "@react-three/drei"
-import { Canvas } from "@react-three/fiber"
+import { Suspense, useEffect, useLayoutEffect, useRef } from "react"
+import { PerformanceMonitor, Preload } from "@react-three/drei"
+import { Canvas, invalidate, useFrame } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
 import { Leva } from "leva"
 import * as THREE from "three"
 
-import { RenderingIndicator } from "@/components/RenderingIndicator"
+import { AssetPreloader } from "@/components/AssetPreloader"
+import { DebugOverlay } from "@/components/DebugOverlay"
 import { LAYERS } from "@/constants"
 import { AnimationController } from "@/controllers/AnimationController"
-import { CameraController } from "@/controllers/Camera"
-import { EffectChainingController } from "@/controllers/EffectChainingController"
-import { PostProcessing } from "@/controllers/PostProcessing"
-import { SceneController } from "@/controllers/SceneController"
+import { CameraController } from "@/controllers/CameraController"
+import { GameObjectsController } from "@/controllers/GameObjectsController"
+import { PostProcessingController } from "@/controllers/PostProcessingController"
 import { useDevControls } from "@/hooks/useDevControls"
 import { usePerformanceProfile } from "@/hooks/usePerformanceProfile"
-import { Dust } from "@/objects/Dust"
-import { Fog } from "@/objects/Fog"
-import { Nebula } from "@/objects/Nebula"
-import { Planet } from "@/objects/Planet"
-import { Stars } from "@/objects/Stars"
-import { Sun } from "@/objects/Sun"
-import { Tunnel } from "@/objects/Tunnel"
-import { VolumetricClouds } from "@/objects/VolumetricClouds"
-import type { PerformanceProfile, StarfieldConfig } from "@/types"
+import {
+  Dust,
+  Fog,
+  Galaxy,
+  GameObjects,
+  LensFlare,
+  Nebula,
+  Planet,
+  Stars,
+  Tunnel,
+  VolumetricClouds,
+} from "@/objects"
+import type {
+  GameObject,
+  PerformanceProfile,
+  PositionedGameObject,
+  StarfieldConfig,
+} from "@/types"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
 
+import { SceneController } from "./controllers/SceneController"
+
+/**
+ * SuspenseReady - Signals when Suspense content has mounted (once only)
+ *
+ * Placed at the end of Suspense to ensure all scene objects are mounted.
+ * Waits 2 frames for shaders to compile, then signals suspenseReady.
+ * Only fires once - subsequent Suspense re-renders (from new asset loads) are ignored.
+ */
+function SuspenseReady() {
+  const frameCount = useRef(0)
+
+  useFrame(() => {
+    // Scene had loaded and suspense has fired, notify the animation store
+    const { isReady } = useGameStore.getState()
+    if (isReady) return
+
+    // With frameloop="demand", we need to explicitly request more frames
+    // until we're ready (otherwise only one frame runs and we never count to 4)
+    invalidate()
+
+    // Count a few frames to ensure all objects are mounted
+    frameCount.current++
+    if (frameCount.current >= 4) {
+      console.debug("[STARFIELD] Away we go...")
+
+      useGameStore.getState().setIsReady(true)
+      useCallbackStore.getState().onReady?.()
+    }
+  })
+
+  return null
+}
+
 interface StarfieldBaseProps {
+  lookMode?: boolean
   config?: Partial<StarfieldConfig>
   profile?: PerformanceProfile
   debug?: boolean
+  className?: string
+  gameObjects?: GameObject[]
+  lookAtTarget?: string
 }
 
+const IS_DEV = import.meta.env.DEV
+
 export interface StarfieldProps extends StarfieldBaseProps {
-  onStart?: () => void
-  onStop?: () => void
   onCreated?: () => void
+  onReady?: () => void
   onUnsupported?: () => void
-  onWarpAnimationStart?: () => void
+  onSceneChangeStart?: () => void
+  onSceneChangeEnd?: () => void
+  onTargetRest?: (target: PositionedGameObject) => void
+  onTargetClear?: () => void
   generateInitialScene?: boolean
 }
 
 export function StarfieldComponent({
   config,
+  lookMode = true,
+  profile = "auto",
   debug = false,
-  profile,
+  className,
+  gameObjects,
+  lookAtTarget,
 }: StarfieldBaseProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const isPaused = useGameStore((state) => state.isPaused)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
+  const setGameObjects = useGameStore((state) => state.setGameObjects)
+  const setLookAtTarget = useGameStore((state) => state.setLookAtTarget)
   const callbacks = useCallbackStore((state) => state)
 
   usePerformanceProfile({ initialProfile: profile })
 
   const { dpr } = useDevControls({ profile })
+
+  useEffect(() => {
+    useGameStore.getState().setIsReady(false)
+    return () => {
+      console.log("[STARFIELD] Unmounting Starfield")
+      useGameStore.getState().reset()
+    }
+  }, [])
 
   /* Handle config changes */
   const prevConfigRef = useRef<Partial<StarfieldConfig> | undefined>(undefined)
@@ -69,9 +134,28 @@ export function StarfieldComponent({
     }
   }, [config, setStarfieldConfig])
 
+  /* Handle gameObjects prop changes */
+  const prevGameObjectsRef = useRef<GameObject[] | undefined>(undefined)
+  useLayoutEffect(() => {
+    if (!gameObjects) return
+
+    // Only update if actually different
+    if (!deepEqual(prevGameObjectsRef.current, gameObjects)) {
+      console.debug("[STARFIELD] Updating Game Objects:", gameObjects)
+      setGameObjects(gameObjects)
+      prevGameObjectsRef.current = gameObjects
+    }
+  }, [gameObjects, setGameObjects])
+
+  useEffect(() => {
+    setLookAtTarget(lookAtTarget ?? undefined)
+  }, [lookAtTarget, setLookAtTarget])
+
   return (
     <>
-      <Leva hidden={!debug} />
+      {IS_DEV && debug && (
+        <Leva hidden={!debug} titleBar={{ title: "Starfield" }} />
+      )}
 
       <Canvas
         frameloop={isPaused ? "never" : "demand"}
@@ -90,11 +174,14 @@ export function StarfieldComponent({
           camera.layers.enable(LAYERS.SKYBOX)
           camera.layers.enable(LAYERS.FOREGROUND)
           camera.layers.enable(LAYERS.GAMEOBJECTS)
+          camera.layers.enable(LAYERS.OVERLAY)
           if (debug) {
             camera.layers.enable(LAYERS.DEBUG)
           }
+
           callbacks.onCreated?.()
         }}
+        className={className}
       >
         <PerformanceMonitor
           onIncline={() => {
@@ -107,59 +194,69 @@ export function StarfieldComponent({
           }}
         />
 
-        {debug && (
-          <>
-            <Stats showPanel={0} />
-            <RenderingIndicator />
-          </>
-        )}
-        <AnimationController>
-          <Suspense fallback={null}>
-            <Fog />
-            <Nebula />
-            <Tunnel />
-            <Sun />
-            <Stars />
-            <Dust />
-            <VolumetricClouds />
-            <Planet />
-          </Suspense>
+        {debug && <DebugOverlay />}
+        <Suspense fallback={null}>
+          <AssetPreloader />
+          <Galaxy />
+          <Fog />
+          <Nebula />
+          <Stars />
+          <Dust />
+          <VolumetricClouds />
+          <Planet />
+          <LensFlare />
+          <Tunnel />
+          <Preload all />
+          <SuspenseReady />
+        </Suspense>
 
-          <CameraController debug={debug} />
-          <EffectChainingController />
-          <SceneController />
-          <PostProcessingMemo />
-        </AnimationController>
+        <CameraController enabled={lookMode} />
+        <GameObjectsController />
+        <GameObjects />
+        <PostProcessingController />
+        <AnimationController />
+        <SceneController />
       </Canvas>
     </>
   )
 }
 
-export const PostProcessingMemo = memo(PostProcessing)
-
 export const Starfield = ({
-  onStart,
-  onStop,
+  debug = false,
   onCreated,
+  onReady,
   onUnsupported,
-  onWarpAnimationStart,
+  onSceneChangeStart,
+  onSceneChangeEnd,
+  onTargetRest,
+  onTargetClear,
   ...props
 }: StarfieldProps) => {
+  // Set debug in store synchronously BEFORE any child components render
+  // This ensures useShowControls has the correct value on first render
+  if (useGameStore.getState().debug !== debug) {
+    useGameStore.setState({ debug })
+  }
+
   const callbacksRef = useRef({
-    onStart,
-    onStop,
     onCreated,
+    onReady,
     onUnsupported,
-    onWarpAnimationStart,
+    onSceneChangeStart,
+    onSceneChangeEnd,
+    onTargetRest,
+    onTargetClear,
   })
 
   useLayoutEffect(() => {
     callbacksRef.current = {
-      onStart,
-      onStop,
       onCreated,
+      onReady,
       onUnsupported,
-      onWarpAnimationStart,
+      onSceneChangeStart,
+      onSceneChangeEnd,
+      onTargetRest,
+      onTargetClear,
     }
   })
 
@@ -169,12 +266,14 @@ export const Starfield = ({
 
     useCallbackStore.setState({
       onCreated: () => getCallbacks().onCreated?.(),
-      onStart: () => getCallbacks().onStart?.(),
-      onStop: () => getCallbacks().onStop?.(),
+      onReady: () => getCallbacks().onReady?.(),
       onUnsupported: () => getCallbacks().onUnsupported?.(),
-      onWarpAnimationStart: () => getCallbacks().onWarpAnimationStart?.(),
+      onSceneChangeStart: () => getCallbacks().onSceneChangeStart?.(),
+      onSceneChangeEnd: () => getCallbacks().onSceneChangeEnd?.(),
+      onTargetRest: (target) => getCallbacks().onTargetRest?.(target),
+      onTargetClear: () => getCallbacks().onTargetClear?.(),
     })
   }, [])
 
-  return <StarfieldComponent {...props} />
+  return <StarfieldComponent debug={debug} {...props} />
 }

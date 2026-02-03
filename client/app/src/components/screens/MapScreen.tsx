@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { XIcon } from "@phosphor-icons/react"
+
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
 import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
 import { Badge } from "@/components/primitives/Badge"
 import { Separator } from "@/components/primitives/Separator"
+import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
+import { formatTimeAgoOrDate } from "@/utils/date"
+import { cn } from "@/utils/tailwind"
 
+import { DottedTitle } from "../DottedTitle"
 import { MapZoomControls } from "../MapZoomControls"
 import { Button } from "../primitives/Button"
 import { CardContent } from "../primitives/Card"
@@ -16,9 +22,9 @@ import SectorMap, { type MapConfig } from "../SectorMap"
 import type { GetMapRegionAction } from "@/types/actions"
 
 const MAP_CONFIG: MapConfig = {
-  debug: true,
+  debug: false,
   clickable: true,
-  show_sector_ids: true,
+  show_sector_ids: false,
   show_partial_lanes: true,
   show_ports: true,
   show_hyperlanes: false,
@@ -26,6 +32,85 @@ const MAP_CONFIG: MapConfig = {
   show_port_labels: true,
 }
 
+export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
+  if (!node) return null
+
+  const qf_state = node.port?.split("")[0] === "B" ? "buy" : "sell"
+  const ro_state = node.port?.split("")[1] === "B" ? "buy" : "sell"
+  const ns_state = node.port?.split("")[2] === "B" ? "buy" : "sell"
+
+  return (
+    <div className="absolute top-0 left-0 w-70 h-fit bg-background border border-border p-ui-sm flex flex-col gap-2 shadow-long">
+      <DottedTitle title={`Sector ${node.id.toString()}`} textColor="text-white" />
+      <div className="flex flex-col gap-2 uppercase text-xxs text-foreground">
+        <div className="flex flex-row justify-between gap-2">
+          <span className="font-bold">Visited</span>
+          <span className="">
+            {node.visited ? node.source : <XIcon size={16} className="text-accent-foreground" />}
+          </span>
+        </div>
+        <div className="flex flex-row justify-between gap-2">
+          <span className="font-bold">Adjacent sectors</span>
+          <span className="">{node.adjacent_sectors?.join(",")}</span>
+        </div>
+        <div className="flex flex-row justify-between gap-2">
+          <span className="font-bold">Hops from center</span>
+          <span className="">{node.hops_from_center?.toString()}</span>
+        </div>
+        <div className="flex flex-row justify-between gap-2">
+          <span className="font-bold">Last visited</span>
+          <span className="">
+            {node.last_visited ? formatTimeAgoOrDate(node.last_visited) : "Never"}
+          </span>
+        </div>
+      </div>
+      {node.port && (
+        <>
+          <DottedTitle title={`Port ${node.port}`} textColor="text-white" />
+          <div className="flex flex-row justify-between gap-2">
+            <span className="font-bold text-xs inline-flex items-center gap-1">
+              <QuantumFoamIcon size={16} /> QF
+            </span>
+            <span
+              className={cn(
+                qf_state === "buy" ? "text-success" : "text-warning",
+                "text-xxs uppercase"
+              )}
+            >
+              {qf_state}
+            </span>
+          </div>
+          <div className="flex flex-row justify-between gap-2">
+            <span className="font-bold text-xs inline-flex items-center gap-1">
+              <RetroOrganicsIcon size={16} /> RO
+            </span>
+            <span
+              className={cn(
+                ro_state === "buy" ? "text-success" : "text-warning",
+                "text-xxs uppercase"
+              )}
+            >
+              {ro_state}
+            </span>
+          </div>
+          <div className="flex flex-row justify-between gap-2">
+            <span className="font-bold text-xs inline-flex items-center gap-1">
+              <NeuroSymbolicsIcon size={16} /> NS
+            </span>
+            <span
+              className={cn(
+                ns_state === "buy" ? "text-success" : "text-warning",
+                "text-xxs uppercase"
+              )}
+            >
+              {ns_state}
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 export const MapScreen = () => {
   const player = useGameStore((state) => state.player)
   const sector = useGameStore.use.sector?.()
@@ -36,6 +121,7 @@ export const MapScreen = () => {
   const setActiveScreen = useGameStore.use.setActiveScreen?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
   const [centerSector, setCenterSector] = useState<number | undefined>(sector?.id ?? undefined)
+  const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
 
   const throttleActive = useRef(false)
 
@@ -74,6 +160,7 @@ export const MapScreen = () => {
   return (
     <div className="flex flex-row gap-3 w-full h-full relative">
       <div className="flex-1 relative">
+        <MapNodeDetails node={hoveredNode} />
         <MapZoomControls />
         {mapData ?
           <SectorMap
@@ -84,6 +171,12 @@ export const MapScreen = () => {
             maxDistance={mapZoomLevel ?? 15}
             showLegend={false}
             onNodeClick={updateCenterSector}
+            onNodeEnter={(node) => {
+              setHoveredNode(node)
+            }}
+            onNodeExit={() => {
+              setHoveredNode(null)
+            }}
             coursePlot={coursePlot ?? null}
             ships={shipSectors}
           />

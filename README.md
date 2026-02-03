@@ -35,7 +35,7 @@ If you want to work on Gradient Bang, the first step is getting the entire app r
 
 First, run `supabase start`. Supabase is several services in a trenchcoat. This command downloads and runs all of the various Docker images. When you run this, you'll see a bunch of services listening on different ports that we'll use later.
 
-```bash
+```bashhttps://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
 npx supabase start --workdir deployment/
 ```
 
@@ -243,7 +243,7 @@ But _actually_, I created an alias to make that even easier:
 ```bash
 gb() {
   systemctl --user "$@" gradient-bang.target
-}
+}https://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
 
 # Now I can just do this to start:
 gb start
@@ -296,7 +296,7 @@ npx supabase projects api-keys --project-ref "$PROJECT_REF" --workdir deployment
     print "SUPABASE_ANON_KEY=" anon;
     print "SUPABASE_SERVICE_ROLE_KEY=" srv;
     print "POSTGRES_POOLER_URL=postgres://postgres:" pw "@db." pr ".supabase.co:6543/postgres";
-    print "EDGE_API_TOKEN=" tok;
+    print "EDGE_API_TOKEN=" tok;https://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
   }' > .env.cloud
 ```
 
@@ -352,12 +352,6 @@ npx supabase secrets set --env-file .env.cloud
 
 Note: we will need to add `BOT_START_START_URL` and `BOT_START_API_KEY` later
 
-### Optional: run tests against your Supabase cloud project
-
-```bash
-set -a && source .env.cloud && set +a && USE_SUPABASE_TESTS=1 uv run pytest tests/integration -v
-```
-
 #### Add world data
 
 If you don't already have a universe, create it like this:
@@ -374,18 +368,28 @@ uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 
 ### Deploy bot to Pipecat Cloud
 
-Create `.env.bot`
+Create `.env.bot` for Pipecat Cloud:
 
 ```bash
 DEEPGRAM_API_KEY=...
 CARTESIA_API_KEY=...
 GOOGLE_API_KEY=...
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
 
 SUPABASE_URL=https://{SUPABASE_PROJECT_ID}.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 EDGE_API_TOKEN=...
 
 BOT_USE_KRISP=1
+
+# Optional: LLM provider configuration (defaults shown)
+# Supported providers: google, anthropic, openai
+VOICE_LLM_PROVIDER=google
+VOICE_LLM_MODEL=gemini-2.5-flash
+TASK_LLM_PROVIDER=google
+TASK_LLM_MODEL=gemini-2.5-flash-preview-09-2025
+TASK_LLM_THINKING_BUDGET=2048
 
 # Optional:
 TOKEN_USAGE_LOG=logs/token_usage.csv
@@ -405,7 +409,7 @@ Note: create image pull credentials if publishing to a private repository
 docker build -f deployment/Dockerfile.bot -t gb-bot:latest .
 docker push gb-bot:latest
 
-cd deployment/
+cd deployment/https://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
 pipecat cloud deploy
 # ... or if public
 # pipecat cloud deploy --no-credentials
@@ -465,7 +469,7 @@ pnpm run dev
 
 
 ---
-
+https://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
 ### Chad's junk drawer
 
 
@@ -518,7 +522,7 @@ Open Inbucket (local email viewer) and click confirmation link. Note: In local d
 
 ```bash
 open http://127.0.0.1:54324
-```
+```https://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
 
 ### Login and obtain access token:
 

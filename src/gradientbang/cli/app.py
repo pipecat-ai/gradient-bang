@@ -9,7 +9,6 @@ from rich.console import Console
 from gradientbang.cli import dev as dev_cmd
 from gradientbang.cli import deploy as deploy_cmd
 from gradientbang.cli import env as env_cmd
-from gradientbang.cli import test as test_cmd
 from gradientbang.cli.utils import print_header, set_workdir_override
 
 # Console for rich output
@@ -26,7 +25,6 @@ app = typer.Typer(
 app.add_typer(dev_cmd.app, name="dev", help="Local development commands")
 app.add_typer(deploy_cmd.app, name="deploy", help="Production deployment commands")
 app.add_typer(env_cmd.app, name="env", help="Environment management")
-app.add_typer(test_cmd.app, name="test", help="Run tests")
 
 
 # Top-level convenience commands that delegate to subcommands
@@ -110,4 +108,3 @@ def main(
     
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
-

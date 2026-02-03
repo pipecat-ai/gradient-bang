@@ -8,7 +8,7 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.services.open_ai_adapter import OpenAILLMAdapter
 
-from gradientbang.utils.api_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient
 
 from openai.types.chat import ChatCompletionToolParam
 
@@ -469,6 +469,51 @@ class StopTask(GameClientTool):
                 },
             },
             required=[],
+        )
+
+
+class QueryTaskProgress(Tool):
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="query_task_progress",
+            description=(
+                "Check on what a running or recently finished task is doing by querying its task log."
+            ),
+            properties={
+                "task_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional task ID to query (short ID or full UUID). "
+                        "If omitted, defaults to your primary ship's active task."
+                    ),
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Question or instruction about task progress.",
+                },
+            },
+            required=["prompt"],
+        )
+
+
+class SteerTask(Tool):
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="steer_task",
+            description="Send a steering instruction to a running task.",
+            properties={
+                "task_id": {
+                    "type": "string",
+                    "description": "Task ID to steer (short ID or full UUID).",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Steering instruction to send to the task.",
+                },
+            },
+            required=["task_id", "message"],
         )
 
 
@@ -1546,6 +1591,52 @@ class CollectFighters(GameClientTool):
                 },
             },
             required=["sector", "quantity"],
+        )
+
+
+##
+
+
+class LoadGameInfo(Tool):
+    """Tool to load detailed game information on demand."""
+
+    def __call__(self, topic: str) -> dict:
+        from gradientbang.utils.prompt_loader import load_fragment, AVAILABLE_TOPICS
+
+        if topic not in AVAILABLE_TOPICS:
+            return {
+                "error": f"Unknown topic: {topic}. Available topics: {', '.join(AVAILABLE_TOPICS)}"
+            }
+        try:
+            content = load_fragment(topic)
+            return {"topic": topic, "content": content}
+        except FileNotFoundError as exc:
+            return {"error": str(exc)}
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="load_game_info",
+            description=(
+                "Load detailed game information about a specific topic. "
+                "Use when you need in-depth rules or mechanics."
+            ),
+            properties={
+                "topic": {
+                    "type": "string",
+                    "enum": [
+                        "exploration",
+                        "trading",
+                        "combat",
+                        "corporations",
+                        "transfers",
+                        "ships",
+                        "event_logs",
+                    ],
+                    "description": "The topic to load detailed information about",
+                },
+            },
+            required=["topic"],
         )
 
 

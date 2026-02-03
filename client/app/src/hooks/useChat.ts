@@ -3,11 +3,7 @@ import { useMemo, useRef } from "react"
 import { RTVIEvent } from "@pipecat-ai/client-js"
 import { useRTVIClientEvent } from "@pipecat-ai/client-react"
 
-import {
-  filterEmptyMessages,
-  mergeMessages,
-  sortByCreatedAt,
-} from "@/stores/chatSlice"
+import { filterEmptyMessages, mergeMessages, sortByCreatedAt } from "@/stores/chatSlice"
 import useGameStore from "@/stores/game"
 
 export type TextMode = "llm" | "tts"
@@ -32,9 +28,17 @@ export const useChat = ({ textMode = "llm" }: Props = {}) => {
   const removeEmptyLastMessage = useGameStore.use.removeEmptyLastMessage()
   const addChatMessage = useGameStore.use.addChatMessage()
   const upsertUserTranscript = useGameStore.use.upsertUserTranscript()
+  const setBotHasSpoken = useGameStore.use.setBotHasSpoken()
+  const addToolCallMessage = useGameStore.use.addToolCallMessage()
 
   useRTVIClientEvent(RTVIEvent.Connected, () => {
     clearMessages()
+  })
+
+  useRTVIClientEvent(RTVIEvent.ServerMessage, (data) => {
+    if (data?.event === "llm.function_call" && data?.payload?.name) {
+      addToolCallMessage(data.payload.name)
+    }
   })
 
   useRTVIClientEvent(RTVIEvent.BotLlmStarted, () => {
@@ -54,13 +58,13 @@ export const useChat = ({ textMode = "llm" }: Props = {}) => {
   useRTVIClientEvent(RTVIEvent.BotTtsStarted, () => {
     // Start a new assistant message for TTS if there isn't one already in progress
     const store = useGameStore.getState()
+    setBotHasSpoken(true)
+
     const lastAssistantIndex = store.chatMessages.findLastIndex(
       (msg: ConversationMessage) => msg.role === "assistant"
     )
     const lastAssistant =
-      lastAssistantIndex !== -1
-        ? store.chatMessages[lastAssistantIndex]
-        : undefined
+      lastAssistantIndex !== -1 ? store.chatMessages[lastAssistantIndex] : undefined
 
     if (!lastAssistant || lastAssistant.final) {
       addChatMessage({
@@ -108,8 +112,7 @@ export const useChat = ({ textMode = "llm" }: Props = {}) => {
       const lastUser = useGameStore
         .getState()
         .chatMessages.findLast((m: ConversationMessage) => m.role === "user")
-      const hasParts =
-        Array.isArray(lastUser?.parts) && lastUser!.parts.length > 0
+      const hasParts = Array.isArray(lastUser?.parts) && lastUser!.parts.length > 0
       if (!lastUser || !hasParts) {
         removeEmptyLastMessage("user")
       } else if (!lastUser.final) {
@@ -125,14 +128,15 @@ export const useChat = ({ textMode = "llm" }: Props = {}) => {
       if (message.role === "assistant") {
         const messageId = message.createdAt // Use createdAt as unique ID
         const textStream =
-          textMode === "llm"
-            ? llmTextStreams.get(messageId) || ""
-            : ttsTextStreams.get(messageId) || ""
+          textMode === "llm" ?
+            llmTextStreams.get(messageId) || ""
+          : ttsTextStreams.get(messageId) || ""
 
         return {
           ...message,
-          parts: textStream
-            ? [
+          parts:
+            textStream ?
+              [
                 {
                   text: textStream,
                   final: message.final || false,

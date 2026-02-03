@@ -1,6 +1,11 @@
 import type { StateCreator } from "zustand"
 
 const MAX_CHAT_MESSAGES = 500
+const TURN_MARKER_REGEX = /[✓○◐]/g
+
+const stripTurnMarkers = (text: string): string => {
+  return text.replace(TURN_MARKER_REGEX, "")
+}
 
 export interface ChatSlice {
   chatMessages: ConversationMessage[]
@@ -8,54 +13,41 @@ export interface ChatSlice {
   // Store separate text streams for LLM and TTS
   llmTextStreams: Map<string, string> // messageId -> accumulated LLM text
   ttsTextStreams: Map<string, string> // messageId -> accumulated TTS text
-
   // Actions
-  registerChatCallback: (
-    id: string,
-    callback?: (message: ConversationMessage) => void
-  ) => void
+  registerChatCallback: (id: string, callback?: (message: ConversationMessage) => void) => void
   unregisterChatCallback: (id: string) => void
   clearChatMessages: () => void
-  addChatMessage: (
-    message: Omit<ConversationMessage, "createdAt" | "updatedAt">
-  ) => void
-  updateLastMessage: (
-    role: "user" | "assistant",
-    updates: Partial<ConversationMessage>
-  ) => void
+  addChatMessage: (message: Omit<ConversationMessage, "createdAt" | "updatedAt">) => void
+  updateLastMessage: (role: "user" | "assistant", updates: Partial<ConversationMessage>) => void
   finalizeLastMessage: (role: "user" | "assistant") => void
   removeEmptyLastMessage: (role: "user" | "assistant") => void
   injectMessage: (message: {
-    role: "user" | "assistant" | "system"
+    role: ConversationMessageRole
     parts: ConversationMessagePart[]
   }) => void
   upsertUserTranscript: (text: string | React.ReactNode, final: boolean) => void
-  updateAssistantText: (
-    text: string,
-    final: boolean,
-    source: "llm" | "tts"
-  ) => void
+  updateAssistantText: (text: string, final: boolean, source: "llm" | "tts") => void
   startAssistantLlmStream: () => void
+  botHasSpoken: boolean
+  setBotHasSpoken: (botHasSpoken: boolean) => void
+  addToolCallMessage: (functionName: string) => void
+  removeTentativeToolMessages: () => void
+
+  llmIsWorking: boolean
+  setLLMIsWorking: (isWorking: boolean) => void
 }
 
-export const sortByCreatedAt = (
-  a: ConversationMessage,
-  b: ConversationMessage
-): number => {
+export const sortByCreatedAt = (a: ConversationMessage, b: ConversationMessage): number => {
   return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
 }
 
 export const isMessageEmpty = (message: ConversationMessage): boolean => {
   const parts = message.parts || []
   if (parts.length === 0) return true
-  return parts.every((p) =>
-    typeof p.text === "string" ? p.text.trim().length === 0 : false
-  )
+  return parts.every((p) => (typeof p.text === "string" ? p.text.trim().length === 0 : false))
 }
 
-export const filterEmptyMessages = (
-  messages: ConversationMessage[]
-): ConversationMessage[] => {
+export const filterEmptyMessages = (messages: ConversationMessage[]): ConversationMessage[] => {
   return messages.filter((message, index, array) => {
     if (!isMessageEmpty(message)) return true
 
@@ -68,19 +60,17 @@ export const filterEmptyMessages = (
   })
 }
 
-export const mergeMessages = (
-  messages: ConversationMessage[]
-): ConversationMessage[] => {
+export const mergeMessages = (messages: ConversationMessage[]): ConversationMessage[] => {
   const mergedMessages: ConversationMessage[] = []
 
   for (let i = 0; i < messages.length; i++) {
     const currentMessage = messages[i]
     const lastMerged = mergedMessages[mergedMessages.length - 1]
 
-    const timeDiff = lastMerged
-      ? Math.abs(
-          new Date(currentMessage.createdAt).getTime() -
-            new Date(lastMerged.createdAt).getTime()
+    const timeDiff =
+      lastMerged ?
+        Math.abs(
+          new Date(currentMessage.createdAt).getTime() - new Date(lastMerged.createdAt).getTime()
         )
       : Infinity
 
@@ -88,6 +78,7 @@ export const mergeMessages = (
       lastMerged &&
       lastMerged.role === currentMessage.role &&
       currentMessage.role !== "system" &&
+      currentMessage.role !== "tool" &&
       timeDiff < 30000
 
     if (shouldMerge) {
@@ -106,9 +97,7 @@ export const mergeMessages = (
 }
 
 // Helper function to prune messages to keep only the most recent
-const pruneMessages = (
-  messages: ConversationMessage[]
-): ConversationMessage[] => {
+const pruneMessages = (messages: ConversationMessage[]): ConversationMessage[] => {
   if (messages.length <= MAX_CHAT_MESSAGES) return messages
   return messages.slice(-MAX_CHAT_MESSAGES)
 }
@@ -133,6 +122,14 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
   llmTextStreams: new Map(),
   ttsTextStreams: new Map(),
 
+  llmIsWorking: false,
+  setLLMIsWorking: (isWorking: boolean) => set({ llmIsWorking: isWorking }),
+
+  botHasSpoken: false,
+  setBotHasSpoken: (botHasSpoken) => {
+    set({ botHasSpoken })
+  },
+
   registerChatCallback: (id, callback) =>
     set((state) => {
       const newState = { ...state }
@@ -152,6 +149,7 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
       chatMessages: [],
       llmTextStreams: new Map(),
       ttsTextStreams: new Map(),
+      botHasSpoken: false,
     }),
 
   addChatMessage: (messageData) => {
@@ -165,22 +163,20 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
     set((state) => {
       const updatedMessages = [...state.chatMessages, message]
       const processedMessages = pruneMessages(
-        mergeMessages(
-          filterEmptyMessages(updatedMessages.sort(sortByCreatedAt))
-        )
+        mergeMessages(filterEmptyMessages(updatedMessages.sort(sortByCreatedAt)))
       )
 
       callAllMessageCallbacks(state.chatCallbacks, message)
-      return { chatMessages: processedMessages }
+      return {
+        chatMessages: processedMessages,
+      }
     })
   },
 
   updateLastMessage: (role, updates) => {
     set((state) => {
       const messages = [...state.chatMessages]
-      const lastMessageIndex = messages.findLastIndex(
-        (msg) => msg.role === role
-      )
+      const lastMessageIndex = messages.findLastIndex((msg) => msg.role === role)
 
       if (lastMessageIndex === -1) return state
 
@@ -203,9 +199,7 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
   finalizeLastMessage: (role) => {
     set((state) => {
       const messages = [...state.chatMessages]
-      const lastMessageIndex = messages.findLastIndex(
-        (msg) => msg.role === role
-      )
+      const lastMessageIndex = messages.findLastIndex((msg) => msg.role === role)
 
       if (lastMessageIndex === -1) return state
 
@@ -241,16 +235,17 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
         mergeMessages(filterEmptyMessages(messages.sort(sortByCreatedAt)))
       )
 
-      return { chatMessages: processedMessages }
+      return {
+        chatMessages: processedMessages,
+        ...(role === "assistant" && { llmIsWorking: false }),
+      }
     })
   },
 
   removeEmptyLastMessage: (role) => {
     set((state) => {
       const messages = [...state.chatMessages]
-      const lastMessageIndex = messages.findLastIndex(
-        (msg) => msg.role === role
-      )
+      const lastMessageIndex = messages.findLastIndex((msg) => msg.role === role)
 
       if (lastMessageIndex === -1) return state
 
@@ -280,9 +275,7 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
     set((state) => {
       const updatedMessages = [...state.chatMessages, message]
       const processedMessages = pruneMessages(
-        mergeMessages(
-          filterEmptyMessages(updatedMessages.sort(sortByCreatedAt))
-        )
+        mergeMessages(filterEmptyMessages(updatedMessages.sort(sortByCreatedAt)))
       )
 
       callAllMessageCallbacks(state.chatCallbacks, message)
@@ -301,9 +294,8 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
       if (lastUserIndex !== -1 && !messages[lastUserIndex].final) {
         // Update existing user message
         const target = { ...messages[lastUserIndex] }
-        const parts: ConversationMessagePart[] = Array.isArray(target.parts)
-          ? [...target.parts]
-          : []
+        const parts: ConversationMessagePart[] =
+          Array.isArray(target.parts) ? [...target.parts] : []
 
         const lastPart = parts[parts.length - 1]
         if (!lastPart || lastPart.final) {
@@ -352,25 +344,59 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
 
       const updatedMessages = [...messages, newMessage]
       const processedMessages = pruneMessages(
-        mergeMessages(
-          filterEmptyMessages(updatedMessages.sort(sortByCreatedAt))
-        )
+        mergeMessages(filterEmptyMessages(updatedMessages.sort(sortByCreatedAt)))
       )
       callAllMessageCallbacks(state.chatCallbacks, newMessage)
       return { chatMessages: processedMessages }
     })
   },
 
+  addToolCallMessage: (functionName) => {
+    set((state) => {
+      const lastMessage = state.chatMessages[state.chatMessages.length - 1]
+      if (lastMessage?.role === "tool" && lastMessage.parts?.[0]?.text === functionName) {
+        // Duplicate tool call - skip
+        return state
+      }
+
+      const now = new Date()
+      const message: ConversationMessage = {
+        role: "tool",
+        final: true,
+        parts: [{ text: functionName, final: true, createdAt: now.toISOString() }],
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
+      const updatedMessages = [...state.chatMessages, message]
+      const processedMessages = pruneMessages(updatedMessages.sort(sortByCreatedAt))
+      callAllMessageCallbacks(state.chatCallbacks, message)
+      return { chatMessages: processedMessages }
+    })
+  },
+
+  removeTentativeToolMessages: () => {
+    set((state) => {
+      const messages = state.chatMessages.filter((m) => m.role !== "tool")
+      const processedMessages = pruneMessages(
+        mergeMessages(filterEmptyMessages(messages.sort(sortByCreatedAt)))
+      )
+      return { chatMessages: processedMessages }
+    })
+  },
+
   updateAssistantText: (text, final, source) => {
     const now = new Date()
+    const filteredText = stripTurnMarkers(text)
+
+    // Skip if filtering removed all content
+    if (!filteredText) return
+
     set((state) => {
       const messages = [...state.chatMessages]
       const llmTextStreams = new Map(state.llmTextStreams)
       const ttsTextStreams = new Map(state.ttsTextStreams)
 
-      const lastAssistantIndex = messages.findLastIndex(
-        (msg) => msg.role === "assistant"
-      )
+      const lastAssistantIndex = messages.findLastIndex((msg) => msg.role === "assistant")
 
       let messageId: string
 
@@ -400,21 +426,17 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
       // Update the appropriate text stream
       if (source === "llm") {
         const currentText = llmTextStreams.get(messageId) || ""
-        llmTextStreams.set(messageId, currentText + text)
+        llmTextStreams.set(messageId, currentText + filteredText)
       } else {
         const currentText = ttsTextStreams.get(messageId) || ""
         // Add space between TTS chunks for proper word separation
         const separator =
-          currentText && !currentText.endsWith(" ") && !text.startsWith(" ")
-            ? " "
-            : ""
-        ttsTextStreams.set(messageId, currentText + separator + text)
+          currentText && !currentText.endsWith(" ") && !filteredText.startsWith(" ") ? " " : ""
+        ttsTextStreams.set(messageId, currentText + separator + filteredText)
       }
 
       // Don't filter out messages that have text in the text streams
-      const processedMessages = pruneMessages(
-        mergeMessages(messages.sort(sortByCreatedAt))
-      )
+      const processedMessages = pruneMessages(mergeMessages(messages.sort(sortByCreatedAt)))
 
       return {
         chatMessages: processedMessages,
@@ -432,11 +454,8 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
 
       const lastIndex = messages.length - 1
       // Get the last assistant message
-      const lastAssistantIndex = messages.findLastIndex(
-        (msg) => msg.role === "assistant"
-      )
-      const lastAssistant =
-        lastAssistantIndex !== -1 ? messages[lastAssistantIndex] : undefined
+      const lastAssistantIndex = messages.findLastIndex((msg) => msg.role === "assistant")
+      const lastAssistant = lastAssistantIndex !== -1 ? messages[lastAssistantIndex] : undefined
 
       // Check if the last assistant message is final
       if (!lastAssistant || lastIndex !== lastAssistantIndex) {
