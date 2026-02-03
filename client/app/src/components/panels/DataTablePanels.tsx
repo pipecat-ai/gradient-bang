@@ -14,14 +14,14 @@ const columns: ColumnDef<MovementHistory>[] = [
   {
     accessorKey: "timestamp",
     header: "Arrival",
+    meta: { width: "25%" },
     cell: ({ getValue }) => formatDateTime24(getValue() as string),
   },
-  { accessorKey: "from", header: "From", size: 55, meta: { align: "center" } },
-  { accessorKey: "to", header: "To", size: 55, meta: { align: "center" } },
+  { accessorKey: "from", header: "From", meta: { align: "center" } },
+  { accessorKey: "to", header: "To", meta: { align: "center" } },
   {
     accessorKey: "port",
     header: "Port",
-    size: 40,
     meta: { align: "center" },
     cell: ({ getValue }) =>
       getValue() ? <CheckIcon size={16} className="mx-auto text-fuel" /> : null,
@@ -29,8 +29,7 @@ const columns: ColumnDef<MovementHistory>[] = [
   {
     accessorKey: "last_visited",
     header: "Last Visit",
-    size: 125,
-    meta: { align: "center" },
+    meta: { align: "center", width: "25%" },
     cell: ({ getValue }) => {
       const value = getValue() as string | null
       return value ? formatTimeAgoOrDate(value) : "Discovered"
