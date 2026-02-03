@@ -16,7 +16,7 @@ import {
 export const QuantumFoamIcon = AtomIcon
 export const RetroOrganicsIcon = PlantIcon
 export const NeuroSymbolicsIcon = CpuIcon
-export const ScrapIcon = GearSixIcon
+export const ScrapIcon = GearSixIcon // @deprecated
 export const CreditsIcon = CoinVerticalIcon
 export const CurrentSectorIcon = GpsIcon
 export const FuelIcon = LightningIcon
@@ -25,3 +25,4 @@ export const FighterIcon = DroneIcon
 export const TurnsPerWarpIcon = ArrowUUpRightIcon
 export const CargoIcon = CubeIcon
 export const EquipmentSlotsIcon = SquaresFourIcon
+export const SalvageIcon = GearSixIcon

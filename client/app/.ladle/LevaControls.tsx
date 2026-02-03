@@ -10,7 +10,7 @@ import { useTaskControls } from "./useTaskControls"
 
 import { INCOMING_CHAT_TOOL_CALL_MOCK } from "@/mocks/chat.mock"
 import { LEADERBOARD_DATA_MOCK } from "@/mocks/misc.mock"
-import { MEGA_PORT_MOCK, PORT_MOCK, SECTOR_MOCK } from "@/mocks/sector.mock"
+import { MEGA_PORT_MOCK, PORT_MOCK, SECTOR_FULL_MOCK, SECTOR_MOCK } from "@/mocks/sector.mock"
 import { SHIP_MOCK } from "@/mocks/ship.mock"
 
 export const LevaControls = ({
@@ -45,6 +45,7 @@ export const LevaControls = ({
         port: Math.random() > 0.5 ? PORT_MOCK : undefined,
       })
     ),
+    ["Load Mock Sector"]: button(() => setSector(SECTOR_FULL_MOCK)),
     ["Set ID"]: {
       value: 1,
       step: 1,

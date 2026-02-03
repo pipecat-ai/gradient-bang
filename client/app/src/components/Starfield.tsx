@@ -14,7 +14,7 @@ const skyboxImageList = Object.values(skyboxImages)
 const portImageList = Object.values(portImages)
 
 const StarfieldFallback = () => (
-  <div className="absolute h-full inset-0 overflow-hidden bg-background z-(--z-starfield)">
+  <div className="absolute h-full inset-0 overflow-hidden bg-black z-(--z-starfield)">
     <img
       src={Splash}
       alt="Splash"

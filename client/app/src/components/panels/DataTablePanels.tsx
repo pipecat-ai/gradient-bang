@@ -54,3 +54,18 @@ export const MovementHistoryPanel = ({ className }: { className?: string }) => {
     </Card>
   )
 }
+
+export const SectorPlayerMovementPanel = ({ className }: { className?: string }) => {
+  return (
+    <Card className={cn("flex h-full bg-background", className)} size="none">
+      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative">
+        <DataTableScrollArea
+          data={[]}
+          columns={[]}
+          striped
+          className="text-background dither-mask-sm dither-mask-invert h-full"
+        />
+      </CardContent>
+    </Card>
+  )
+}
