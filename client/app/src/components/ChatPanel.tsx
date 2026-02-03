@@ -1,10 +1,11 @@
-import { Fragment, useMemo } from "react"
+import { Fragment, useEffect, useMemo } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 import { PlugsIcon, WrenchIcon } from "@phosphor-icons/react"
 
 import { useChat } from "@/hooks/useChat"
 import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
+import usePlaySound from "@/hooks/usePlaySound"
 import useGameStore from "@/stores/game"
 
 import { Card, CardContent } from "./primitives/Card"
@@ -76,8 +77,15 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
 
 export const ChatPanel = () => {
   const { isConnected } = usePipecatConnectionState()
+  const { playSound } = usePlaySound()
   const { messages } = useChat({ textMode: "llm" })
   const llmIsWorking = useGameStore.use.llmIsWorking()
+
+  useEffect(() => {
+    if (llmIsWorking) {
+      playSound("chime7", { volume: 0.25 })
+    }
+  }, [llmIsWorking, playSound])
 
   const clxConnected = "flex-1 h-full bg-card/60 relative border-0 border-b border-b-foreground/30"
   const clxDisconnected = "flex-1 h-full opacity-50 stripe-frame-white/30"

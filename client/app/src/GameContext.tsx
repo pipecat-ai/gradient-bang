@@ -182,6 +182,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
               // Initialize game client if this is the first status update
               if (status.source?.method === "join") {
+                gameStore.setGameState("started")
                 gameStore.addActivityLogEntry({
                   type: "join",
                   message: "Joined the game",

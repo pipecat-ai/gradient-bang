@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react"
 
+import { MicrophoneIcon, SpeakerHifiIcon } from "@phosphor-icons/react"
+
+import { MicDeviceSelect, SpeakerDeviceSelect } from "@/components/DeviceSelect"
 import { Button } from "@/components/primitives/Button"
 import { CardContent, CardFooter } from "@/components/primitives/Card"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
@@ -10,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/primitives/Select"
+import { Separator } from "@/components/primitives/Separator"
 import { SliderControl } from "@/components/primitives/SliderControl"
 import { ToggleControl } from "@/components/primitives/ToggleControl"
 import useGameStore from "@/stores/game"
@@ -25,7 +29,6 @@ import {
   FieldSet,
   FieldValue,
 } from "./primitives/Field"
-import { Separator } from "./primitives/Separator"
 
 const SettingSelect = ({
   label,
@@ -147,27 +150,32 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
       <div className="flex-1 overflow-y-auto">
         <ScrollArea className="w-full h-full dotted-mask-42 dotted-mask-black">
           <CardContent className="flex flex-col gap-6 pb-6">
-            {/* AI */}
-            <FieldSet>
-              <FieldLegend>AI Personality</FieldLegend>
-              <FieldGroup>
-                <SettingSelect
-                  label="Voice"
-                  id="voice"
-                  value=""
-                  options={["male", "female"]}
-                  placeholder="Select a voice"
-                  onChange={() => null}
-                />
-              </FieldGroup>
-            </FieldSet>
-
-            <Separator decorative variant="dashed" />
-
             {/* Audio */}
             <FieldSet>
               <FieldLegend>Audio</FieldLegend>
-              {/* Remote Audio */}
+              <FieldGroup>
+                <Field orientation="horizontal">
+                  <FieldLabel htmlFor="remote-mic-select">
+                    <MicrophoneIcon size={20} weight="duotone" />
+                    Microphone
+                  </FieldLabel>
+                  <FieldContent>
+                    <MicDeviceSelect size="sm" className="w-64" />
+                  </FieldContent>
+                </Field>
+                <Field orientation="horizontal">
+                  <FieldLabel htmlFor="remote-speaker-select">
+                    <SpeakerHifiIcon size={20} weight="duotone" />
+                    Speaker
+                  </FieldLabel>
+                  <FieldContent>
+                    <SpeakerDeviceSelect size="sm" className="w-64" />
+                  </FieldContent>
+                </Field>
+              </FieldGroup>
+
+              <Separator decorative variant="dashed" />
+
               <FieldGroup>
                 <SettingSwitch
                   label="AI Speech Enabled"
@@ -215,6 +223,23 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                       soundFXVolume: value,
                     }))
                   }
+                />
+              </FieldGroup>
+            </FieldSet>
+
+            <Separator decorative variant="dashed" />
+
+            {/* AI */}
+            <FieldSet>
+              <FieldLegend>AI Personality</FieldLegend>
+              <FieldGroup>
+                <SettingSelect
+                  label="Voice"
+                  id="voice"
+                  value=""
+                  options={["male", "female"]}
+                  placeholder="Select a voice"
+                  onChange={() => null}
                 />
               </FieldGroup>
             </FieldSet>

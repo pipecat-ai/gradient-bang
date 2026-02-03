@@ -63,7 +63,7 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
         {viewState === "game" && (
           <>
             <AnimatePresence>
-              {gameState !== "ready" && (
+              {gameState !== "ready" && gameState !== "started" && (
                 <motion.div
                   initial={{ opacity: 1 }}
                   exit={{ opacity: 0 }}

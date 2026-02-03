@@ -16,13 +16,7 @@ export const EXCLUDED_PROFILE_KEYS = [
 export const defaultProfile: StarfieldConfig = {
   cameraBaseFov: 50,
   palette: "cosmicTeal",
-  imageAssets: [
-    { type: "skybox", url: "/test-skybox-1.png" },
-    { type: "skybox", url: "/test-skybox-2.png" },
-    { type: "port", url: "/test-port-1.png" },
-    { type: "port", url: "/test-port-2.png" },
-    { type: "port", url: "/test-port-3.png" },
-  ],
+  imageAssets: [],
   hyperspaceEnterTime: 1500,
   hyperspaceExitTime: 1500,
   hyperspaceDuration: 100,

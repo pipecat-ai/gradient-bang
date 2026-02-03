@@ -17,7 +17,7 @@ export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
   }, [gameState, diamondFXInstance])
 
   useEffect(() => {
-    if (gameState !== "ready" || !diamondFXInstance) return
+    if ((gameState !== "ready" && gameState !== "started") || !diamondFXInstance) return
 
     diamondFXInstance?.clear(true)
   }, [gameState, diamondFXInstance])

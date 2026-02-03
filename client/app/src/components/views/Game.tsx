@@ -2,6 +2,7 @@ import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
 import { ArrowLeftIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
+import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
 import { ConversationPanel } from "@/components/panels/ConversationPanel"
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
@@ -9,6 +10,7 @@ import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { RHSPanelContainer } from "@/components/panels/RHSPanelContainer"
 import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
+import { Button } from "@/components/primitives/Button"
 import { ScreenContainer } from "@/components/screens/ScreenContainer"
 import { SectorTitleBanner } from "@/components/SectorTitleBanner"
 import { Starfield } from "@/components/Starfield"
@@ -17,9 +19,6 @@ import { TopBar } from "@/components/TopBar"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
-
-import { Leaderboard } from "../dialogs/Leaderboard"
-import { Button } from "../primitives/Button"
 
 const disabledCx = "pointer-events-none opacity-0"
 const enabledCx = "pointer-events-auto opacity-100"
@@ -70,6 +69,7 @@ export const Game = () => {
           collapsible
           defaultSize="480px"
           minSize="400px"
+          maxSize="580px"
           collapsedSize="60px"
           className="@container/aside"
           panelRef={asidePanelRef}

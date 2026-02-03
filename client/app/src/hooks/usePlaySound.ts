@@ -16,6 +16,7 @@ const soundTypes: Record<keyof typeof soundUrls, SoundType> = {
   chime4: "fx",
   chime5: "fx",
   chime6: "fx",
+  chime7: "fx",
   text: "fx",
   ambience: "ambience",
   currency: "fx",
@@ -33,8 +34,7 @@ const _g = globalThis as typeof globalThis & {
   __gb_activeOnceSounds?: Map<string, OnceSoundEntry>
   __gb_soundCache?: Map<string, HTMLAudioElement>
 }
-_g.__gb_activeOnceSounds =
-  _g.__gb_activeOnceSounds || new Map<string, OnceSoundEntry>()
+_g.__gb_activeOnceSounds = _g.__gb_activeOnceSounds || new Map<string, OnceSoundEntry>()
 const activeOnceSounds = _g.__gb_activeOnceSounds as Map<string, OnceSoundEntry>
 
 // Global cache for sounds (persists across HMR)
@@ -72,14 +72,7 @@ export const usePlaySound = () => {
       disabledSoundFX,
       disableMusic,
     }
-  }, [
-    ambienceVolume,
-    soundFXVolume,
-    musicVolume,
-    disabledAmbience,
-    disabledSoundFX,
-    disableMusic,
-  ])
+  }, [ambienceVolume, soundFXVolume, musicVolume, disabledAmbience, disabledSoundFX, disableMusic])
 
   // Handle volume/mute changes for active once sounds
   useEffect(() => {
@@ -118,14 +111,7 @@ export const usePlaySound = () => {
         }
       }
     })
-  }, [
-    ambienceVolume,
-    soundFXVolume,
-    musicVolume,
-    disabledAmbience,
-    disabledSoundFX,
-    disableMusic,
-  ])
+  }, [ambienceVolume, soundFXVolume, musicVolume, disabledAmbience, disabledSoundFX, disableMusic])
 
   const playSound = useCallback(
     (
