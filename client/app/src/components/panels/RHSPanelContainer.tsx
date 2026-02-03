@@ -11,6 +11,8 @@ import { ScrollArea } from "@/components/primitives/ScrollArea"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
+import { TradePanel } from "./TradePanel"
+
 export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
@@ -81,7 +83,7 @@ export const RHSPanelContainer = () => {
         {activePanel === "logs" && <LogsPanel />}
         {activePanel === "sector" && <div className=""></div>}
         {activePanel === "player" && <PlayerPanel />}
-        {activePanel === "trade" && <div className=""></div>}
+        {activePanel === "trade" && <TradePanel />}
         {activePanel === "tasks" && <TaskPanel />}
         {activePanel === "corp" && <div className=""></div>}
       </ScrollArea>

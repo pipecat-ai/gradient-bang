@@ -40,6 +40,8 @@ export interface UISlice {
 
   lookMode: boolean
   setLookMode: (lookMode: boolean) => void
+  lookAtTarget: string | undefined
+  setLookAtTarget: (target: string | undefined) => void
 }
 
 export const createUISlice: StateCreator<UISlice> = (set, get) => ({
@@ -56,6 +58,8 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   toasts: [],
   displayingToastId: null,
   lookMode: false,
+  lookAtTarget: undefined,
+  llmIsWorking: false,
   setToasts: (toasts: Toast[]) => {
     set(
       produce((state) => {
@@ -181,6 +185,20 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.lookMode = lookMode
+      })
+    )
+  },
+  setLookAtTarget: (target: string | undefined) => {
+    set(
+      produce((state) => {
+        state.lookAtTarget = target
+      })
+    )
+  },
+  setLLMIsWorking: (isWorking: boolean) => {
+    set(
+      produce((state) => {
+        state.llmIsWorking = isWorking
       })
     )
   },

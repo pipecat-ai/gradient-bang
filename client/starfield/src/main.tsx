@@ -1,17 +1,67 @@
-import { StrictMode } from "react"
+import { useCallback } from "react"
 import { createRoot } from "react-dom/client"
 
+import { useSceneChange } from "@/hooks/useSceneChange"
 import { Starfield } from "@/Starfield"
+
+import type { PositionedGameObject } from "./types"
 
 import "./styles.css"
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
+export const App = () => {
+  const { changeScene } = useSceneChange()
+
+  const onReady = useCallback(() => {
+    console.log("Starfield ready, calling scene change")
+    changeScene({
+      id: "1",
+      gameObjects: [
+        {
+          id: "port-1",
+          type: "port",
+          label: "bbs",
+        },
+      ],
+      config: {
+        palette: "cosmicTeal",
+      },
+    })
+  }, [changeScene])
+
+  const onSceneChangeStart = useCallback(() => {
+    console.log("Scene change started")
+  }, [])
+  const onSceneChangeEnd = useCallback(() => {
+    console.log("Scene change ended")
+  }, [])
+  const onTargetRest = useCallback((target: PositionedGameObject) => {
+    console.log("Target rested:", target)
+  }, [])
+
+  const onTargetClear = useCallback(() => {
+    console.log("Target cleared")
+  }, [])
+
+  const onUnsupported = useCallback(() => {
+    console.log("Starfield unsupported")
+  }, [])
+
+  const onCreated = useCallback(() => {
+    console.log("Starfield created")
+  }, [])
+
+  return (
     <Starfield
       debug={true}
-      onCreated={() => console.log("Starfield created")}
-      onUnsupported={() => console.log("Starfield unsupported")}
-      onWarpAnimationStart={() => console.log("Warp animation started")}
+      onCreated={onCreated}
+      onUnsupported={onUnsupported}
+      onSceneChangeStart={onSceneChangeStart}
+      onSceneChangeEnd={onSceneChangeEnd}
+      onTargetRest={onTargetRest}
+      onTargetClear={onTargetClear}
+      onReady={onReady}
     />
-  </StrictMode>
-)
+  )
+}
+
+createRoot(document.getElementById("root")!).render(<App />)

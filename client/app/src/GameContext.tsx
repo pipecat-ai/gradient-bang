@@ -27,6 +27,7 @@ import {
   type ErrorMessage,
   type EventQueryMessage,
   type IncomingChatMessage,
+  type LLMTaskMessage,
   type MapLocalMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
@@ -778,6 +779,13 @@ export function GameProvider({ children }: GameProviderProps) {
                   },
                 })
               }
+              break
+            }
+
+            case "llm.function_call": {
+              console.debug("[GAME EVENT] LLM task message", e.payload)
+              const data = e.payload as LLMTaskMessage
+              gameStore.setLLMIsWorking(!!data.name)
               break
             }
 

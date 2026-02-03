@@ -1,7 +1,7 @@
 agent_name = "gradient-bang-bot"
 image = "your_username/gradient-bang-bot:latest"
 secret_set = "gb-bot-secrets"
-agent_profile = "agent-1x"
+agent_profile = "agent-2x"
 
 # RECOMMENDED: Set an image pull secret:
 # https://docs.pipecat.ai/deployment/pipecat-cloud/fundamentals/secrets#image-pull-secrets

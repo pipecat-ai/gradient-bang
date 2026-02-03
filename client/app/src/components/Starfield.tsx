@@ -1,9 +1,9 @@
-import { lazy, Suspense, useEffect, useMemo } from "react"
+import { lazy, Suspense, useCallback, useEffect, useMemo } from "react"
 
 import { motion } from "motion/react"
 import type { PerformanceProfile } from "@gradient-bang/starfield"
 
-import { skyboxImages } from "@/assets"
+import { portImages, skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
 import useGameStore from "@/stores/game"
 
@@ -11,6 +11,7 @@ import useGameStore from "@/stores/game"
 const StarfieldLazy = lazy(() => import("./StarfieldLazy"))
 
 const skyboxImageList = Object.values(skyboxImages)
+const portImageList = Object.values(portImages)
 
 const StarfieldFallback = () => (
   <div className="absolute h-full inset-0 overflow-hidden bg-background z-(--z-starfield)">
@@ -23,14 +24,52 @@ const StarfieldFallback = () => (
 )
 
 export const Starfield = () => {
-  const settings = useGameStore.use.settings()
+  // Use specific selectors to prevent re-renders from unrelated state changes
+  const renderStarfield = useGameStore((state) => state.settings.renderStarfield)
+  const qualityPreset = useGameStore((state) => state.settings.qualityPreset)
   const lookMode = useGameStore.use.lookMode()
   const starfieldReady = useGameStore.use.starfieldReady()
   const setStarfieldReady = useGameStore.use.setStarfieldReady()
+  const lookAtTarget = useGameStore.use.lookAtTarget()
+  const activePanel = useGameStore.use.activePanel?.()
+
+  useEffect(() => {
+    if (!useGameStore.getState().starfieldReady) return
+
+    if (activePanel === "trade") {
+      const sector = useGameStore.getState().sector
+      if (sector?.port) {
+        useGameStore.getState().setLookAtTarget("port-" + sector?.id.toString())
+      }
+    } else {
+      useGameStore.getState().setLookAtTarget(undefined)
+    }
+  }, [activePanel])
 
   const starfieldConfig = useMemo(() => {
     return {
-      imageAssets: skyboxImageList,
+      imageAssets: [
+        ...skyboxImageList.map((url) => ({ type: "skybox" as const, url })),
+        ...portImageList.map((url) => ({ type: "port" as const, url })),
+      ],
+    }
+  }, [])
+
+  // Stable callback reference - setStarfieldReady is from zustand so it's stable
+  const handleCreated = useCallback(() => {
+    console.debug("[STARFIELD] Starfield created")
+    setStarfieldReady(true)
+  }, [setStarfieldReady])
+
+  const handleSceneChangeEnd = useCallback(() => {
+    const ap = useGameStore.getState().activePanel
+    if (ap === "trade") {
+      const sector = useGameStore.getState().sector
+      if (sector?.port) {
+        useGameStore.getState().setLookAtTarget("port-" + sector?.id.toString())
+      }
+    } else {
+      useGameStore.getState().setLookAtTarget(undefined)
     }
   }, [])
 
@@ -42,7 +81,7 @@ export const Starfield = () => {
     }
   }, [lookMode])
 
-  if (!settings.renderStarfield || !skyboxImageList.length) {
+  if (!renderStarfield || !skyboxImageList.length) {
     return <StarfieldFallback />
   }
 
@@ -55,13 +94,13 @@ export const Starfield = () => {
         transition={{ delay: 1, duration: 2, ease: "easeOut" }}
       >
         <StarfieldLazy
-          profile={settings.qualityPreset as PerformanceProfile}
-          config={starfieldConfig}
-          onCreated={() => {
-            console.debug("[STARFIELD] Starfield ready")
-            setStarfieldReady(true)
-          }}
+          debug={false}
           lookMode={lookMode}
+          lookAtTarget={lookAtTarget}
+          profile={qualityPreset as PerformanceProfile}
+          config={starfieldConfig}
+          onCreated={handleCreated}
+          onSceneChangeEnd={handleSceneChangeEnd}
         />
       </motion.div>
     </Suspense>

@@ -1,14 +1,37 @@
 import { Fragment, useMemo } from "react"
 
-import { PlugsIcon } from "@phosphor-icons/react"
+import { AnimatePresence, motion } from "motion/react"
+import { PlugsIcon, WrenchIcon } from "@phosphor-icons/react"
 
 import { useChat } from "@/hooks/useChat"
 import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
+import useGameStore from "@/stores/game"
 
 import { Card, CardContent } from "./primitives/Card"
 import { ScrollArea } from "./primitives/ScrollArea"
 import { ShipOSDVisualizer } from "./ShipOSDVisualizer"
 
+const ChatMessageToolCallRow = ({ message }: { message: ConversationMessage }) => {
+  const timeString = useMemo(
+    () =>
+      new Date(message.createdAt).toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      }),
+    [message.createdAt]
+  )
+
+  return (
+    <div className="text-subtle-foreground font-extrabold text-xxs uppercase inline-flex gap-1 items-center">
+      <span className="text-accent-foreground">[{timeString}]</span>
+      <WrenchIcon weight="fill" size={11} className="size-[11px]" />
+      <span>Tool call </span>
+      <span className="font-bold text-medium">({message.parts?.[0]?.text})</span>
+    </div>
+  )
+}
 const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
   const timeString = useMemo(
     () =>
@@ -54,6 +77,7 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
 export const ChatPanel = () => {
   const { isConnected } = usePipecatConnectionState()
   const { messages } = useChat({ textMode: "llm" })
+  const llmIsWorking = useGameStore.use.llmIsWorking()
 
   const clxConnected = "flex-1 h-full bg-card/60 relative border-0 border-b border-b-foreground/30"
   const clxDisconnected = "flex-1 h-full opacity-50 stripe-frame-white/30"
@@ -75,26 +99,53 @@ export const ChatPanel = () => {
       )}
       <div className="relative flex-1 mb-0 text-foreground">
         <div className="absolute bottom-0 inset-x-0 h-[60px] z-10 pointer-events-none pl-ui-xs">
-          <ShipOSDVisualizer
-            barLineCap="square"
-            participantType="bot"
-            barColor="white"
-            peakLineColor="--color-terminal"
-            peakLineThickness={2}
-            peakOffset={6}
-            barMaxHeight={60}
-            barCount={12}
-            barWidth={4}
-            barGap={8}
-            barOrigin="bottom"
-          />
+          <div className="relative inline-block">
+            <ShipOSDVisualizer
+              barLineCap="square"
+              participantType="bot"
+              barColor="white"
+              peakLineColor="--color-terminal"
+              peakLineThickness={2}
+              peakOffset={6}
+              barMaxHeight={60}
+              barCount={12}
+              barWidth={4}
+              barGap={8}
+              barOrigin="bottom"
+              isThinking={llmIsWorking}
+              thinkingSpeed={4}
+              thinkingMaxHeight={15}
+              className={llmIsWorking ? "opacity-40" : "opacity-100"}
+            />
+            <AnimatePresence>
+              {llmIsWorking && (
+                <motion.div
+                  key="thinking-badge"
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 20, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="absolute bottom-ui-xs inset-x-0 flex flex-col items-center justify-center"
+                >
+                  <div className="px-2 py-1 bg-terminal-background/80 elbow elbow-1 elbow-offset-0 elbow-size-6 elbow-terminal text-terminal-foreground text-xs uppercase animate-pulse">
+                    Thinking
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
-        <CardContent className="absolute inset-0 min-h-0  mask-[linear-gradient(to_bottom,black_70%,transparent_100%)]">
+
+        <CardContent className="absolute inset-0 min-h-0  mask-[linear-gradient(to_bottom,black_60%,transparent_100%)]">
           <ScrollArea className="relative w-full h-full pointer-events-auto">
             <div className="flex flex-col gap-2">
-              {messages?.toReversed().map((message) => (
-                <ChatMessageRow key={message.createdAt} message={message} />
-              ))}
+              {messages
+                ?.toReversed()
+                .map((message) =>
+                  message.role === "tool" ?
+                    <ChatMessageToolCallRow key={message.createdAt} message={message} />
+                  : <ChatMessageRow key={message.createdAt} message={message} />
+                )}
             </div>
           </ScrollArea>
         </CardContent>

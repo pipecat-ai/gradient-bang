@@ -25,10 +25,10 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
 )
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
-    RTVIObserver,
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
@@ -49,7 +49,6 @@ if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 
-from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.pipecat_server.context_compression import (
     ContextCompressionConsumer,
     ContextCompressionProducer,
@@ -61,6 +60,7 @@ from gradientbang.pipecat_server.inference_gate import (
     PreLLMInferenceGate,
 )
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
+from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 
 # Configure loguru
@@ -200,8 +200,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # Create context aggregator
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
-    context_aggregator = LLMContextAggregatorPair(context)
-
+    context_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(
+            filter_incomplete_user_turns=True,
+        ),
+    )
     inference_gate_state = InferenceGateState(
         cooldown_seconds=2.0,
         post_llm_grace_seconds=1.5,
@@ -223,7 +227,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         [
             transport.input(),
             stt,
-            rtvi,  # Add RTVI processor for transcription events
+            # rtvi,  # Add RTVI processor for transcription events
             pre_llm_gate,
             context_aggregator.user(),
             ParallelPipeline(
@@ -254,7 +258,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        observers=[RTVIObserver(rtvi)],
+        rtvi_processor=rtvi,
         idle_timeout_frames=(BotSpeakingFrame, UserStartedSpeakingFrame, TaskActivityFrame),
     )
 

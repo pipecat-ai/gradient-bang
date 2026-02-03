@@ -5,6 +5,7 @@ import { create } from "zustand"
 import { defaultProfile } from "@/profiles"
 
 import {
+  type GameObject,
   type PerformanceProfile,
   type PositionedGameObject,
   type QueuedScene,
@@ -19,6 +20,8 @@ interface AppState {
     config: Partial<StarfieldConfig>,
     deepMerge?: boolean
   ) => void
+  debug: boolean
+  setDebug: (debug: boolean) => void
   performanceProfile: PerformanceProfile
   setPerformanceProfile: (profile: PerformanceProfile) => void
 
@@ -37,15 +40,24 @@ interface AppState {
   resetReadyFlags: () => void
   allComponentsReady: () => boolean
 
-  // Game Objects
-  positionedObjects: PositionedGameObject[]
-  setPositionedObjects: (objects: PositionedGameObject[]) => void
+  // Game Objects (input - may or may not have positions)
+  gameObjects: GameObject[]
+  setGameObjects: (objects: GameObject[]) => void
+  // Positioned Game Objects (output - always have positions, set by controller)
+  positionedGameObjects: PositionedGameObject[]
+  setPositionedGameObjects: (objects: PositionedGameObject[]) => void
+  // Camera look-at target (game object ID or null)
+  lookAtTarget: string | undefined
+  setLookAtTarget: (target: string | undefined) => void
+  // Camera transition state
+  isCameraTransitioning: boolean
+  setIsCameraTransitioning: (transitioning: boolean) => void
 
   // Scene Transition
   isSceneChanging: boolean
   setIsSceneChanging: (changing: boolean) => void
-  isWarpCooldownActive: boolean
-  setIsWarpCooldownActive: (active: boolean) => void
+  isSceneCooldownActive: boolean
+  setIsSceneCooldownActive: (active: boolean) => void
 
   // Scene Queue
   sceneQueue: QueuedScene[]
@@ -54,13 +66,17 @@ interface AppState {
   addSceneToQueue: (queuedScene: QueuedScene) => void
   removeSceneFromQueue: () => QueuedScene | undefined
   clearSceneQueue: () => void
+
+  reset: () => void
 }
 
 export const useGameStore = create<AppState>(
-  (set): AppState => ({
+  (set, get): AppState => ({
     starfieldConfig: {
       ...defaultProfile,
     },
+    debug: false,
+    setDebug: (debug: boolean) => set({ debug }),
     setStarfieldConfig: (config: Partial<StarfieldConfig>, deepMerge = false) =>
       set(
         produce((draft) => {
@@ -88,7 +104,7 @@ export const useGameStore = create<AppState>(
 
     performanceProfile: "high",
     setPerformanceProfile: (profile: PerformanceProfile) =>
-      profile !== useGameStore.getState().performanceProfile &&
+      profile !== get().performanceProfile &&
       set({ performanceProfile: profile }),
 
     // State
@@ -112,12 +128,61 @@ export const useGameStore = create<AppState>(
         })
       ),
 
-    // Game Objects
-    positionedObjects: [],
-    setPositionedObjects: (objects) =>
+    // Game Objects (input)
+    gameObjects: [],
+    setGameObjects: (gameObjects: GameObject[]) => {
+      // Remove lookAtTarget if it's no longer in the game objects
+      if (
+        get().lookAtTarget &&
+        !gameObjects.some((obj) => obj.id === get().lookAtTarget)
+      ) {
+        set(
+          produce((draft) => {
+            draft.lookAtTarget = undefined
+          })
+        )
+      }
       set(
         produce((draft) => {
-          draft.positionedObjects = objects
+          draft.gameObjects = gameObjects
+        })
+      )
+    },
+    // Positioned Game Objects (output)
+    positionedGameObjects: [],
+    setPositionedGameObjects: (positionedGameObjects: PositionedGameObject[]) =>
+      set(
+        produce((draft) => {
+          draft.positionedGameObjects = positionedGameObjects
+        })
+      ),
+    // Camera look-at target
+    lookAtTarget: undefined,
+    setLookAtTarget: (target: string | undefined) => {
+      // Lookup target game object
+      const targetGameObject = get().gameObjects.find(
+        (obj) => obj.id === target
+      )
+      if (targetGameObject) {
+        set(
+          produce((draft) => {
+            draft.lookAtTarget = targetGameObject.id
+          })
+        )
+      } else {
+        set(
+          produce((draft) => {
+            draft.lookAtTarget = undefined
+          })
+        )
+      }
+    },
+    // Camera transition state
+    isCameraTransitioning: false,
+    setIsCameraTransitioning: (transitioning: boolean) =>
+      set(
+        produce((draft) => {
+          draft.isCameraTransitioning = transitioning
         })
       ),
 
@@ -140,11 +205,11 @@ export const useGameStore = create<AppState>(
           draft.isSceneChanging = changing
         })
       ),
-    isWarpCooldownActive: false,
-    setIsWarpCooldownActive: (active: boolean) =>
+    isSceneCooldownActive: false,
+    setIsSceneCooldownActive: (active: boolean) =>
       set(
         produce((draft) => {
-          draft.isWarpCooldownActive = active
+          draft.isSceneCooldownActive = active
         })
       ),
 
@@ -164,8 +229,7 @@ export const useGameStore = create<AppState>(
         })
       ),
     removeSceneFromQueue: () => {
-      const state = useGameStore.getState()
-      const nextQueuedScene = state.sceneQueue[0]
+      const nextQueuedScene = get().sceneQueue[0]
       if (nextQueuedScene) {
         set(
           produce((draft) => {
@@ -181,5 +245,23 @@ export const useGameStore = create<AppState>(
           draft.sceneQueue = []
         })
       ),
+    reset: () =>
+      set({
+        starfieldConfig: {
+          ...defaultProfile,
+        },
+        debug: false,
+        performanceProfile: "high",
+        isReady: false,
+        isPaused: false,
+        gameObjects: [],
+        positionedGameObjects: [],
+        lookAtTarget: undefined,
+        isCameraTransitioning: false,
+        isSceneChanging: false,
+        isSceneCooldownActive: false,
+        sceneQueue: [],
+        currentScene: null,
+      }),
   })
 )

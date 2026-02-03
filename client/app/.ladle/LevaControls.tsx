@@ -8,6 +8,7 @@ import { useChatControls } from "./useChatControls"
 import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
 
+import { INCOMING_CHAT_TOOL_CALL_MOCK } from "@/mocks/chat.mock"
 import { MEGA_PORT_MOCK, PORT_MOCK, SECTOR_MOCK } from "@/mocks/sector.mock"
 import { SHIP_MOCK } from "@/mocks/ship.mock"
 
@@ -56,7 +57,7 @@ export const LevaControls = ({
       useGameStore.getState().setLookMode(!lookMode)
     }),
 
-    Chat: folder(
+    Conversation: folder(
       {
         ["Add System Message"]: button(() => {
           addChatMessage({
@@ -69,6 +70,18 @@ export const LevaControls = ({
               },
             ],
           })
+        }),
+        ["Add Incoming Tool Call"]: button(() => {
+          const state = useGameStore.getState()
+          state.addToolCallMessage(INCOMING_CHAT_TOOL_CALL_MOCK.name)
+        }),
+        ["Set LLM Is Working"]: button(() => {
+          const state = useGameStore.getState()
+          state.setLLMIsWorking(true)
+        }),
+        ["Set LLM Is Not Working"]: button(() => {
+          const state = useGameStore.getState()
+          state.setLLMIsWorking(false)
         }),
       },
       { collapsed: true }

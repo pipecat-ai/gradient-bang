@@ -1,35 +1,56 @@
-import { useEffect } from "react"
+import { useCallback, useEffect } from "react"
 
 import Starfield, {
+  type GameObject,
   generateRandomScene,
-  type PerformanceProfile,
+  type StarfieldProps,
   useSceneChange,
 } from "@gradient-bang/starfield"
 
 import useGameStore from "@/stores/game"
 
-interface StarfieldLazyProps {
-  profile: PerformanceProfile
-  config: { imageAssets: string[] }
-  onCreated: () => void
-  lookMode: boolean
+const generateGameObjects = (sector: Sector) => {
+  return sector.port ?
+      [
+        {
+          id: "port-" + sector.id.toString(),
+          type: "port",
+          label: sector.port.code,
+        } as GameObject,
+      ]
+    : []
 }
 
 /**
  * Lazy-loaded starfield component with utilities.
  * Keeps all Three.js deps out of the main bundle.
  */
-export default function StarfieldLazy({
-  profile,
-  config,
-  onCreated,
-  lookMode,
-}: StarfieldLazyProps) {
-  const settings = useGameStore.use.settings()
+export default function StarfieldLazy(props: StarfieldProps) {
+  // Use specific selector to prevent re-renders from unrelated settings changes
+  const renderStarfield = useGameStore((state) => state.settings.renderStarfield)
   const { changeScene } = useSceneChange()
 
+  const onReady = useCallback(() => {
+    console.debug("[STARFIELD] Starfield ready")
+    // Get current sector id
+    const sector = useGameStore.getState().sector
+    if (sector?.id) {
+      const newScene = generateRandomScene()
+      console.debug("[STARFIELD] Initial scene load", sector)
+
+      // Get game objects
+      const gameObjects = generateGameObjects(sector)
+
+      changeScene({
+        id: sector.id.toString(),
+        gameObjects,
+        config: newScene,
+      })
+    }
+  }, [changeScene])
+
   useEffect(() => {
-    if (!settings.renderStarfield) return
+    if (!renderStarfield) return
 
     // Subscribe to sector id changes
     const unsub = useGameStore.subscribe(
@@ -37,9 +58,14 @@ export default function StarfieldLazy({
       (sectorId, prevSectorId) => {
         if (sectorId !== prevSectorId && sectorId) {
           const newScene = generateRandomScene()
+          console.debug("[STARFIELD] Scene change")
+
+          const sector = useGameStore.getState().sector
+          if (sector === undefined) return
+
           changeScene({
             id: sectorId.toString(),
-            gameObjects: [],
+            gameObjects: generateGameObjects(sector),
             config: newScene,
           })
         }
@@ -47,14 +73,7 @@ export default function StarfieldLazy({
     )
 
     return unsub
-  }, [settings.renderStarfield, changeScene])
+  }, [renderStarfield, changeScene])
 
-  return (
-    <Starfield
-      profile={profile}
-      config={config}
-      onCreated={onCreated}
-      lookMode={lookMode}
-    />
-  )
+  return <Starfield {...props} onReady={onReady} />
 }

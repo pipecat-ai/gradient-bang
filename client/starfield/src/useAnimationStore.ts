@@ -1,15 +1,70 @@
 import { create } from "zustand"
 
+type AnimationDirection = "enter" | "exit"
+
+// Animation method types
+export type DirectionalAnimationStart = (
+  direction: AnimationDirection,
+  onComplete?: () => void,
+  overrides?: { initialExposure?: number }
+) => void
+
+export type ShakeAnimationStart = (config?: {
+  mode?: "perlin" | "circular"
+  strength?: number
+  frequency?: number
+  rampUpTime?: number
+  settleTime?: number
+  duration?: number
+}) => void
+
+// Registry of animation methods
+interface AnimationMethods {
+  sceneChange?: {
+    start: (direction: AnimationDirection, onComplete?: () => void) => void
+  }
+  hyperspace?: {
+    start: DirectionalAnimationStart
+  }
+  shake?: {
+    start: ShakeAnimationStart
+    stop: () => void
+    kill: () => void
+  }
+  shockwave?: {
+    start: () => void
+  }
+  dim?: {
+    start: (direction: AnimationDirection, onComplete?: () => void) => void
+  }
+  exposure?: {
+    start: (direction: AnimationDirection, onComplete?: () => void) => void
+  }
+}
+
 interface AnimationStore {
-  isWarping: boolean
-  startWarp: () => void
-  stopWarp: () => void
+  // Animation method registry
+  animations: AnimationMethods
+  registerAnimation: <K extends keyof AnimationMethods>(
+    name: K,
+    methods: AnimationMethods[K]
+  ) => void
+
+  isHyperspace: AnimationDirection | undefined
+  setHyperspace: (direction: AnimationDirection | undefined) => void
+
+  isShockwave: boolean
+  setShockwave: (active: boolean) => void
+  shockwaveSequence: number
+  triggerShockwave: () => void
+  shockwaveStartTime: number | null
+  setShockwaveStartTime: (time: number | null) => void
 
   isDimmed: boolean
   setIsDimmed: (isDimmed: boolean) => void
 
-  triggerShockwave: () => void
-  setTriggerShockwave: (fn: () => void) => void
+  exposure: number
+  setExposure: (exposure: number) => void
 
   isAnimating: boolean
   setIsAnimating: (isAnimating: boolean) => void
@@ -19,15 +74,34 @@ interface AnimationStore {
 }
 
 export const useAnimationStore = create<AnimationStore>((set) => ({
-  isWarping: false,
-  startWarp: () => set({ isWarping: true }),
-  stopWarp: () => set({ isWarping: false }),
+  // Animation method registry
+  animations: {},
+  registerAnimation: (name, methods) =>
+    set((state) => ({
+      animations: { ...state.animations, [name]: methods },
+    })),
+
+  isHyperspace: undefined,
+  setHyperspace: (direction) => set({ isHyperspace: direction }),
+  isShockwave: false,
+  setShockwave: (active: boolean) => set({ isShockwave: active }),
+  shockwaveSequence: 0,
+  triggerShockwave: () =>
+    set((state) => ({
+      isShockwave: true,
+      shockwaveSequence: state.shockwaveSequence + 1,
+    })),
+  shockwaveStartTime: null,
+  setShockwaveStartTime: (time: number | null) =>
+    set({ shockwaveStartTime: time }),
   isDimmed: false,
   setIsDimmed: (isDimmed: boolean) => set({ isDimmed }),
-  triggerShockwave: () => {},
-  setTriggerShockwave: (fn: () => void) => set({ triggerShockwave: fn }),
+  exposure: 0,
+  setExposure: (exposure: number) => set({ exposure }),
   isAnimating: false,
-  setIsAnimating: (isAnimating: boolean) => set({ isAnimating }),
+  setIsAnimating: (isAnimating: boolean) => {
+    set({ isAnimating })
+  },
   isShaking: false,
   setIsShaking: (isShaking: boolean) => set({ isShaking }),
 }))
