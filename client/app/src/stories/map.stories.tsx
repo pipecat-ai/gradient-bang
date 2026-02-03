@@ -37,8 +37,9 @@ export const BigMapStory: Story = () => {
             type: "get-my-map",
             payload: {
               center_sector: get("Map.center_sector"),
-              max_hops: get("Map.max_hops"),
-              max_sectors: get("Map.max_sectors"),
+              // max_hops: get("Map.max_hops"),
+              // max_sectors: get("Map.max_sectors"),
+              bounds: get("Map.max_bounds_distance") ?? 15,
             },
           } as GetMapRegionAction)
         }),
