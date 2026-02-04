@@ -7,11 +7,13 @@ Environment Variables:
     # Voice LLM (bot.py pipeline - typically no thinking mode)
     VOICE_LLM_PROVIDER: google, anthropic, openai (default: google)
     VOICE_LLM_MODEL: Model name (default: gemini-2.5-flash)
+    VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
     # Task Agent LLM (TaskAgent - with thinking mode)
     TASK_LLM_PROVIDER: google, anthropic, openai (default: google)
     TASK_LLM_MODEL: Model name (default: gemini-2.5-flash-preview-09-2025)
     TASK_LLM_THINKING_BUDGET: Token budget for thinking (default: 2048)
+    TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
     # API keys (used based on provider)
     GOOGLE_API_KEY
@@ -62,12 +64,14 @@ class LLMServiceConfig:
         model: The model name to use.
         api_key: Optional API key override (defaults to environment variable).
         thinking: Optional thinking configuration for task agents.
+        function_call_timeout_secs: Optional tool call timeout override.
     """
 
     provider: LLMProvider
     model: str
     api_key: Optional[str] = None
     thinking: Optional[UnifiedThinkingConfig] = None
+    function_call_timeout_secs: Optional[float] = None
 
 
 def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
@@ -119,11 +123,26 @@ def create_llm_service(config: LLMServiceConfig) -> LLMService:
     api_key = _get_api_key(config.provider, config.api_key)
 
     if config.provider == LLMProvider.GOOGLE:
-        return _create_google_service(api_key, config.model, config.thinking)
+        return _create_google_service(
+            api_key,
+            config.model,
+            config.thinking,
+            config.function_call_timeout_secs,
+        )
     elif config.provider == LLMProvider.ANTHROPIC:
-        return _create_anthropic_service(api_key, config.model, config.thinking)
+        return _create_anthropic_service(
+            api_key,
+            config.model,
+            config.thinking,
+            config.function_call_timeout_secs,
+        )
     elif config.provider == LLMProvider.OPENAI:
-        return _create_openai_service(api_key, config.model, config.thinking)
+        return _create_openai_service(
+            api_key,
+            config.model,
+            config.thinking,
+            config.function_call_timeout_secs,
+        )
     else:
         raise ValueError(f"Unsupported provider: {config.provider}")
 
@@ -132,6 +151,7 @@ def _create_google_service(
     api_key: str,
     model: str,
     thinking: Optional[UnifiedThinkingConfig],
+    function_call_timeout_secs: Optional[float] = None,
 ) -> LLMService:
     """Create Google (Gemini) LLM service."""
     from pipecat.services.google.llm import GoogleLLMService
@@ -145,10 +165,15 @@ def _create_google_service(
             )
         )
 
+    llm_kwargs = {}
+    if function_call_timeout_secs is not None:
+        llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
+
     return GoogleLLMService(
         api_key=api_key,
         model=model,
         params=params,
+        **llm_kwargs,
     )
 
 
@@ -156,6 +181,7 @@ def _create_anthropic_service(
     api_key: str,
     model: str,
     thinking: Optional[UnifiedThinkingConfig],
+    function_call_timeout_secs: Optional[float] = None,
 ) -> LLMService:
     """Create Anthropic (Claude) LLM service."""
     from pipecat.services.anthropic.llm import AnthropicLLMService
@@ -171,10 +197,15 @@ def _create_anthropic_service(
             )
         )
 
+    llm_kwargs = {}
+    if function_call_timeout_secs is not None:
+        llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
+
     return AnthropicLLMService(
         api_key=api_key,
         model=model,
         params=params,
+        **llm_kwargs,
     )
 
 
@@ -182,6 +213,7 @@ def _create_openai_service(
     api_key: str,
     model: str,
     thinking: Optional[UnifiedThinkingConfig],
+    function_call_timeout_secs: Optional[float] = None,
 ) -> LLMService:
     """Create OpenAI LLM service.
 
@@ -196,9 +228,14 @@ def _create_openai_service(
             f"Proceeding without thinking for model {model}."
         )
 
+    llm_kwargs = {}
+    if function_call_timeout_secs is not None:
+        llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
+
     return OpenAILLMService(
         api_key=api_key,
         model=model,
+        **llm_kwargs,
     )
 
 
@@ -208,6 +245,7 @@ def get_voice_llm_config() -> LLMServiceConfig:
     Environment Variables:
         VOICE_LLM_PROVIDER: google, anthropic, openai (default: google)
         VOICE_LLM_MODEL: Model name (default: gemini-2.5-flash)
+        VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
     Returns:
         LLMServiceConfig for voice pipeline (no thinking enabled).
@@ -230,12 +268,23 @@ def get_voice_llm_config() -> LLMServiceConfig:
 
     model = os.getenv("VOICE_LLM_MODEL", default_models[provider])
 
+    # Parse tool call timeout
+    timeout_str = os.getenv("VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS", "20")
+    try:
+        function_call_timeout_secs = float(timeout_str)
+    except ValueError:
+        logger.warning(
+            f"Invalid VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS '{timeout_str}', using default 20"
+        )
+        function_call_timeout_secs = 20.0
+
     logger.info(f"Voice LLM config: provider={provider.value}, model={model}")
 
     return LLMServiceConfig(
         provider=provider,
         model=model,
         thinking=None,  # Voice LLM typically doesn't use thinking mode
+        function_call_timeout_secs=function_call_timeout_secs,
     )
 
 
@@ -246,6 +295,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         TASK_LLM_PROVIDER: google, anthropic, openai (default: google)
         TASK_LLM_MODEL: Model name (default: gemini-2.5-flash-preview-09-2025)
         TASK_LLM_THINKING_BUDGET: Token budget for thinking (default: 2048)
+        TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
     Returns:
         LLMServiceConfig for task agent (with thinking enabled).
@@ -284,6 +334,16 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         include_thoughts=True,  # Always include thoughts for task LLMs
     )
 
+    # Parse tool call timeout
+    timeout_str = os.getenv("TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS", "20")
+    try:
+        function_call_timeout_secs = float(timeout_str)
+    except ValueError:
+        logger.warning(
+            f"Invalid TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS '{timeout_str}', using default 20"
+        )
+        function_call_timeout_secs = 20.0
+
     logger.info(
         f"Task LLM config: provider={provider.value}, model={model}, "
         f"thinking_budget={thinking_budget}"
@@ -293,4 +353,5 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         provider=provider,
         model=model,
         thinking=thinking,
+        function_call_timeout_secs=function_call_timeout_secs,
     )
