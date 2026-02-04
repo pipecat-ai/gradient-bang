@@ -193,6 +193,39 @@ export function normalizeMapKnowledge(raw: unknown): MapKnowledge {
   };
 }
 
+const SQRT3 = Math.sqrt(3);
+
+function hexToWorldPosition(
+  hexX: number,
+  hexY: number,
+): { x: number; y: number } {
+  const x = 1.5 * hexX;
+  const y = SQRT3 * (hexY + 0.5 * (hexX & 1));
+  return { x, y };
+}
+
+function offsetToCube(
+  col: number,
+  row: number,
+): { x: number; y: number; z: number } {
+  const x = col;
+  const z = row - (col - (col & 1)) / 2;
+  const y = -x - z;
+  return { x, y, z };
+}
+
+function hexDistance(
+  a: [number, number],
+  b: [number, number],
+): number {
+  const aCube = offsetToCube(a[0], a[1]);
+  const bCube = offsetToCube(b[0], b[1]);
+  const dx = Math.abs(aCube.x - bCube.x);
+  const dy = Math.abs(aCube.y - bCube.y);
+  const dz = Math.abs(aCube.z - bCube.z);
+  return Math.floor((dx + dy + dz) / 2);
+}
+
 /**
  * Merge two map knowledge objects. Used to combine personal and corp knowledge.
  * For sectors that appear in both, the one with the newer last_visited timestamp wins.
@@ -632,6 +665,59 @@ async function fetchUniverseRows(
   for (const row of data ?? []) {
     map.set(row.sector_id, {
       position: [row.position_x ?? 0, row.position_y ?? 0],
+      region: row.region ?? null,
+      warps: parseWarpEdges(row.warps),
+    });
+  }
+  return map;
+}
+
+async function fetchUniverseRowsByBounds(
+  supabase: SupabaseClient,
+  center: [number, number],
+  bounds: number,
+): Promise<
+  Map<number, { position: [number, number]; region: string | null; warps: WarpEdge[] }>
+> {
+  const padding = Math.ceil(bounds) + 2;
+  const qPadding = Math.ceil(bounds * 1.2) + 2;
+  const minX = center[0] - qPadding;
+  const maxX = center[0] + qPadding;
+  const minY = center[1] - padding;
+  const maxY = center[1] + padding;
+
+  const { data, error } = await supabase
+    .from("universe_structure")
+    .select("sector_id, position_x, position_y, region, warps")
+    .gte("position_x", minX)
+    .lte("position_x", maxX)
+    .gte("position_y", minY)
+    .lte("position_y", maxY);
+  if (error) {
+    throw new Error(`failed to load universe rows: ${error.message}`);
+  }
+
+  const centerWorld = hexToWorldPosition(center[0], center[1]);
+  const maxWorldDistance = bounds * SQRT3;
+  const maxDistanceSq = maxWorldDistance * maxWorldDistance + 1e-9;
+
+  const map = new Map<
+    number,
+    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+  >();
+  for (const row of data ?? []) {
+    const position: [number, number] = [
+      row.position_x ?? 0,
+      row.position_y ?? 0,
+    ];
+    const world = hexToWorldPosition(position[0], position[1]);
+    const dx = world.x - centerWorld.x;
+    const dy = world.y - centerWorld.y;
+    if (dx * dx + dy * dy > maxDistanceSq) {
+      continue;
+    }
+    map.set(row.sector_id, {
+      position,
       region: row.region ?? null,
       warps: parseWarpEdges(row.warps),
     });
@@ -1096,6 +1182,151 @@ export async function buildLocalMapRegion(
         port: portCodes[sectorId] ?? "",
         lanes: warps,
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
+        last_visited: knowledgeEntry?.last_visited,
+        source: knowledgeEntry?.source,
+      });
+    } else {
+      const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
+      const derivedLanes: WarpEdge[] = [];
+      for (const source of seenFrom) {
+        const sourceRow = universeRowCache.get(source);
+        const match = sourceRow?.warps.find((warp) => warp.to === sectorId);
+        if (match) {
+          derivedLanes.push({
+            to: source,
+            two_way: match.two_way,
+            hyperlane: match.hyperlane,
+          });
+        } else {
+          derivedLanes.push({ to: source });
+        }
+      }
+      resultSectors.push({
+        id: sectorId,
+        visited: false,
+        hops_from_center: hops,
+        position,
+        port: "",
+        lanes: derivedLanes,
+      });
+    }
+  }
+
+  const totalVisited = resultSectors.filter((sector) => sector.visited).length;
+  const totalUnvisited = resultSectors.length - totalVisited;
+
+  return {
+    center_sector: centerSector,
+    sectors: resultSectors,
+    total_sectors: resultSectors.length,
+    total_visited: totalVisited,
+    total_unvisited: totalUnvisited,
+  };
+}
+
+export async function buildLocalMapRegionByBounds(
+  supabase: SupabaseClient,
+  params: {
+    characterId: string;
+    centerSector: number;
+    bounds: number;
+    mapKnowledge?: MapKnowledge;
+  },
+): Promise<LocalMapRegionPayload> {
+  const { characterId, centerSector, bounds } = params;
+
+  let knowledge = params.mapKnowledge;
+  if (!knowledge) {
+    const { data, error } = await supabase
+      .from("characters")
+      .select("map_knowledge")
+      .eq("character_id", characterId)
+      .maybeSingle();
+    if (error) {
+      throw new Error(`failed to load map knowledge: ${error.message}`);
+    }
+    knowledge = normalizeMapKnowledge(data?.map_knowledge ?? null);
+  }
+
+  const visitedSet = new Set<number>(
+    Object.keys(knowledge.sectors_visited).map((key) => Number(key)),
+  );
+
+  const centerEntry = knowledge.sectors_visited[String(centerSector)];
+  let centerPosition = centerEntry?.position;
+  if (!centerPosition) {
+    const centerRow = await fetchSectorRow(supabase, centerSector);
+    if (!centerRow) {
+      throw new Error(`sector ${centerSector} does not exist in universe_structure`);
+    }
+    centerPosition = [centerRow.position_x ?? 0, centerRow.position_y ?? 0];
+  }
+
+  const universeRowCache = await fetchUniverseRowsByBounds(
+    supabase,
+    centerPosition,
+    bounds,
+  );
+
+  if (!universeRowCache.has(centerSector)) {
+    universeRowCache.set(centerSector, {
+      position: centerPosition,
+      region: null,
+      warps: [],
+    });
+  }
+
+  const visibleVisited = new Set<number>();
+  for (const sectorId of universeRowCache.keys()) {
+    if (visitedSet.has(sectorId)) {
+      visibleVisited.add(sectorId);
+    }
+  }
+
+  const unvisitedSeen = new Map<number, Set<number>>();
+  for (const sectorId of visibleVisited) {
+    const entry = knowledge.sectors_visited[String(sectorId)];
+    const adjacent = entry?.adjacent_sectors ?? [];
+    for (const neighbor of adjacent) {
+      if (visitedSet.has(neighbor)) {
+        continue;
+      }
+      let seenFrom = unvisitedSeen.get(neighbor);
+      if (!seenFrom) {
+        seenFrom = new Set();
+        unvisitedSeen.set(neighbor, seenFrom);
+      }
+      seenFrom.add(sectorId);
+    }
+  }
+
+  const sectorIds = Array.from(universeRowCache.keys()).filter((sectorId) =>
+    visibleVisited.has(sectorId) || unvisitedSeen.has(sectorId)
+  );
+
+  const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
+  const portCodes = await loadPortCodes(supabase, visitedSectorIds);
+
+  const resultSectors: LocalMapSector[] = [];
+  for (const sectorId of sectorIds.sort((a, b) => a - b)) {
+    const universeRow = universeRowCache.get(sectorId);
+    const position = universeRow?.position ?? [0, 0];
+    const hops = hexDistance(centerPosition, position);
+
+    if (visitedSet.has(sectorId)) {
+      const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+      const adjacent = knowledgeEntry?.adjacent_sectors ??
+        universeRow?.warps.map((edge) => edge.to) ??
+        [];
+      resultSectors.push({
+        id: sectorId,
+        visited: true,
+        hops_from_center: hops,
+        position,
+        region: universeRow?.region ?? null,
+        port: portCodes[sectorId] ?? "",
+        lanes: universeRow?.warps ?? [],
+        adjacent_sectors: adjacent,
         last_visited: knowledgeEntry?.last_visited,
         source: knowledgeEntry?.source,
       });

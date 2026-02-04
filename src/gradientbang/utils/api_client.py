@@ -1385,8 +1385,9 @@ class AsyncGameClient:
         self,
         character_id: str,
         center_sector: Optional[int] = None,
-        max_hops: int = 3,
-        max_sectors: int = 100,
+        max_hops: Optional[int] = None,
+        max_sectors: Optional[int] = None,
+        bounds: Optional[int] = None,
         source: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get all known sectors around current location for local navigation.
@@ -1394,8 +1395,9 @@ class AsyncGameClient:
         Args:
             character_id: Character to query (must match bound ID)
             center_sector: Optional center sector; defaults to current sector
-            max_hops: Maximum BFS depth (default 3, max 10)
-            max_sectors: Maximum sectors to return (default 100)
+            max_hops: Maximum BFS depth (default 3, max 10). Ignored if bounds-only.
+            max_sectors: Maximum sectors to return (default 100). Ignored if bounds-only.
+            bounds: Optional spatial bounds radius (hex distance) for map view.
 
         Returns:
             Minimal RPC acknowledgment (map data arrives via ``map.region``)
@@ -1413,8 +1415,16 @@ class AsyncGameClient:
         payload: Dict[str, Any] = {"character_id": character_id}
         if center_sector is not None:
             payload["center_sector"] = int(center_sector)
-        payload["max_hops"] = int(max_hops)
-        payload["max_sectors"] = int(max_sectors)
+        if bounds is not None:
+            payload["bounds"] = int(bounds)
+        if bounds is None:
+            payload["max_hops"] = int(3 if max_hops is None else max_hops)
+            payload["max_sectors"] = int(100 if max_sectors is None else max_sectors)
+        else:
+            if max_hops is not None:
+                payload["max_hops"] = int(max_hops)
+            if max_sectors is not None:
+                payload["max_sectors"] = int(max_sectors)
         if source is not None:
             payload["source"] = source
 
