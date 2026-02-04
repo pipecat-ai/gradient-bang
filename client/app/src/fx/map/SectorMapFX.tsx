@@ -187,7 +187,7 @@ export const DEFAULT_REGION_STYLES: RegionStyleOverrides = {
   },
   neutral: {
     fill: "#1e1b4b",
-    border: "#6366f1",
+    border: "#818cf8",
     outline: "rgba(99,102,241,0.5)",
   },
 }
