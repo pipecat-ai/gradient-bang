@@ -154,9 +154,10 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
   centered: {
     outline: "rgba(255,200,0,0.6)",
     outlineWidth: 5,
-    border: "rgba(255,200,0,0.6)",
-    borderWidth: 2,
-    fill: "rgba(255,200,0,0.6)",
+    border: "rgba(255,200,0,1)",
+    borderPosition: "inside",
+    borderWidth: 3,
+    fill: "rgba(255,200,0,0.4)",
   },
 }
 
@@ -169,14 +170,14 @@ export const DEFAULT_REGION_STYLES: RegionStyleOverrides = {
   neutral: {
     fill: "#1e1b4b",
     border: "#6366f1",
-    outline: "#c7d2fe",
+    outline: "rgba(99,102,241,0.5)",
   },
 }
 
 export const DEFAULT_REGION_LANE_STYLES: RegionLaneStyleOverrides = {
   "federation-space": {
     twoWayColor: "#99f6e4",
-    oneWayColor: "#5eead4",
+    oneWayColor: "#0d9488",
   },
   neutral: {
     twoWayColor: "#818cf8",
@@ -208,7 +209,7 @@ export interface LaneStyles {
 
 export const DEFAULT_LANE_STYLES: LaneStyles = {
   normal: {
-    color: "#e5e5e5",
+    color: "#a3a3a3",
     width: 1.5,
     dashPattern: "none",
     arrowColor: "none",
@@ -336,7 +337,7 @@ export const DEFAULT_LABEL_STYLES: LabelStyles = {
   },
   shipCount: {
     textColor: "#ffffff",
-    backgroundColor: "rgba(74,144,226,0.9)",
+    backgroundColor: "#0284c7",
     padding: 2,
     fontSize: 10,
     hoveredFontSize: 12,
@@ -396,7 +397,7 @@ export const DEFAULT_UI_STYLES: UIStyles = {
 }
 
 export const DEFAULT_SECTORMAP_CONFIG: Omit<SectorMapConfigBase, "center_sector_id"> = {
-  grid_spacing: 26,
+  grid_spacing: 27,
   hex_size: 20,
   sector_label_offset: 5,
   frame_padding: 40,
@@ -1828,7 +1829,7 @@ function renderWithCameraState(
 
   ctx.restore()
 
-  renderSectorLabels(
+  renderShipLabels(
     ctx,
     cameraState.filteredData,
     scale,
@@ -1837,6 +1838,7 @@ function renderWithCameraState(
     height,
     cameraState,
     config,
+    ships,
     coursePlotSectors,
     null
   )
@@ -1852,7 +1854,7 @@ function renderWithCameraState(
     coursePlotSectors,
     null
   )
-  renderShipLabels(
+  renderSectorLabels(
     ctx,
     cameraState.filteredData,
     scale,
@@ -1861,7 +1863,6 @@ function renderWithCameraState(
     height,
     cameraState,
     config,
-    ships,
     coursePlotSectors,
     null
   )
@@ -2088,7 +2089,7 @@ function renderWithCameraStateAndInteraction(
 
   ctx.restore()
 
-  renderSectorLabels(
+  renderShipLabels(
     ctx,
     cameraState.filteredData,
     scale,
@@ -2097,6 +2098,7 @@ function renderWithCameraStateAndInteraction(
     height,
     cameraState,
     config,
+    ships,
     coursePlotSectors,
     hoveredSectorId
   )
@@ -2112,7 +2114,7 @@ function renderWithCameraStateAndInteraction(
     coursePlotSectors,
     hoveredSectorId
   )
-  renderShipLabels(
+  renderSectorLabels(
     ctx,
     cameraState.filteredData,
     scale,
@@ -2121,7 +2123,6 @@ function renderWithCameraStateAndInteraction(
     height,
     cameraState,
     config,
-    ships,
     coursePlotSectors,
     hoveredSectorId
   )
