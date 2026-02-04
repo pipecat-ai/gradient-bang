@@ -35,7 +35,8 @@ const MAP_CONFIG: MapConfig = {
   show_port_labels: true,
 }
 
-export const DEFAULT_MAX_BOUNDS = 15
+export const DEFAULT_MAX_BOUNDS = 12
+export const MAX_BOUNDS_PADDING = 2
 export const MIN_BOUNDS = 4
 export const MAX_BOUNDS = 50
 
@@ -151,7 +152,8 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
       initialFetchRef.current = true
 
       // Get the initial zoom level inline to avoid a re-trigger loop
-      const initBounds = useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+      const initBounds =
+        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
 
       console.debug(
         `%c[GAME MAP SCREEN] Initial fetch for current sector ${sector?.id} with bounds ${initBounds}`,
@@ -189,7 +191,8 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
       )
 
       setIsFetching(true)
-      const bounds = useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+      const bounds =
+        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
 
       dispatchAction({
         type: "get-my-map",

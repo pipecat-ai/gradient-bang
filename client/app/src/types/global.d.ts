@@ -132,7 +132,6 @@ declare global {
       ship_name: string
       ship_type: string
     }
-
     cargo?: Record<Resource, number>
     credits?: number
     scrap?: number
