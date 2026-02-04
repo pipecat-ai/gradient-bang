@@ -371,9 +371,9 @@ const MapComponent = ({
     if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
       const hasEnough = hasEnoughMapData(normalizedMapData, center_sector_id, maxDistance)
 
-      // Only trigger fetch when USER explicitly changes center (not on topology updates)
-      // This prevents recursion: click → fetch → topology changes → fetch → ...
-      if (centerSectorChanged && !hasEnough) {
+      // Trigger fetch when USER changes center OR zoom level (not on topology updates)
+      // This prevents recursion: action → fetch → topology changes → fetch → ...
+      if ((centerSectorChanged || maxDistanceChanged) && !hasEnough) {
         const targetSector = normalizedMapData.find((s) => s.id === center_sector_id)
         const canFetch = targetSector?.visited === true
 
@@ -383,6 +383,8 @@ const MapComponent = ({
           console.debug(
             "[GAME SECTOR MAP] Insufficient data for sector",
             center_sector_id,
+            "with bounds",
+            maxDistance,
             "- requesting fetch (waiting for data)"
           )
           onMapFetch?.(center_sector_id)
