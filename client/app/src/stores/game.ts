@@ -1,4 +1,3 @@
-import { deepmerge } from "deepmerge-ts"
 import { produce } from "immer"
 import { create, type StateCreator, type StoreApi, type UseBoundStore } from "zustand"
 import { subscribeWithSelector } from "zustand/middleware"
@@ -354,14 +353,13 @@ const createGameSlice: StateCreator<
           return
         }
 
-        // Merge by sector ID using deepmerge for each sector's properties
+        // Cache by sector ID - replace existing sectors with newer data
         const existingById = new Map(
           state.regional_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
         )
 
         for (const sector of regionalMapData) {
-          const existing = existingById.get(sector.id)
-          existingById.set(sector.id, existing ? deepmerge(existing, sector) : sector)
+          existingById.set(sector.id, sector)
         }
 
         state.regional_map_data = Array.from(existingById.values())

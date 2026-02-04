@@ -36,6 +36,8 @@ const MAP_CONFIG: MapConfig = {
 }
 
 export const DEFAULT_MAX_BOUNDS = 15
+export const MIN_BOUNDS = 4
+export const MAX_BOUNDS = 50
 
 export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
   if (!node) return null

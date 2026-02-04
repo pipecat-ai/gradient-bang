@@ -3,7 +3,7 @@ import { useState } from "react"
 import { useDebouncedCallback } from "use-debounce"
 import { MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon } from "@phosphor-icons/react"
 
-import { DEFAULT_MAX_BOUNDS } from "@/components/screens/MapScreen"
+import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/components/screens/MapScreen"
 import useGameStore from "@/stores/game"
 
 import { Button } from "./primitives/Button"
@@ -36,7 +36,7 @@ export const MapZoomControls = () => {
         variant="outline"
         size="icon-sm"
         onClick={() => {
-          debounced(mapZoomLevel - 5)
+          debounced(Math.max(mapZoomLevel - 5, MIN_BOUNDS))
         }}
         className="shrink-0"
       >
@@ -44,8 +44,8 @@ export const MapZoomControls = () => {
       </Button>
       <SliderControl
         value={[sliderValue]}
-        min={1}
-        max={50}
+        min={MIN_BOUNDS}
+        max={MAX_BOUNDS}
         step={1}
         onValueChange={(value) => {
           setSliderValue(value[0])
@@ -57,7 +57,7 @@ export const MapZoomControls = () => {
         size="icon-sm"
         variant="outline"
         onClick={() => {
-          debounced(mapZoomLevel + 5)
+          debounced(Math.min(mapZoomLevel + 5, MAX_BOUNDS))
         }}
         className="shrink-0"
       >
