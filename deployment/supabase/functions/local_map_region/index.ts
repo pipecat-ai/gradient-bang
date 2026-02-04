@@ -13,7 +13,11 @@ import {
   buildEventSource,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
-import { buildLocalMapRegion, loadMapKnowledge } from "../_shared/map.ts";
+import {
+  buildLocalMapRegion,
+  buildLocalMapRegionByBounds,
+  loadMapKnowledge,
+} from "../_shared/map.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
@@ -169,35 +173,57 @@ async function handleLocalMapRegion(
     );
   }
 
-  let maxHops = optionalNumber(payload, "max_hops");
-  if (maxHops === null) {
-    maxHops = DEFAULT_MAX_HOPS;
-  }
-  if (!Number.isInteger(maxHops) || maxHops < 0 || maxHops > 100) {
-    throw new LocalMapRegionError(
-      "max_hops must be an integer between 0 and 100",
-      400,
-    );
-  }
+  const bounds = optionalNumber(payload, "bounds");
+  const maxHopsRaw = optionalNumber(payload, "max_hops");
+  const maxSectorsRaw = optionalNumber(payload, "max_sectors");
+  const useBoundsOnly = bounds !== null && maxHopsRaw === null &&
+    maxSectorsRaw === null;
 
-  let maxSectors = optionalNumber(payload, "max_sectors");
-  if (maxSectors === null) {
-    maxSectors = DEFAULT_MAX_SECTORS;
-  }
-  if (!Number.isInteger(maxSectors) || maxSectors <= 0) {
-    throw new LocalMapRegionError(
-      "max_sectors must be a positive integer",
-      400,
-    );
-  }
+  let mapRegion: Awaited<ReturnType<typeof buildLocalMapRegion>>;
+  if (useBoundsOnly) {
+    if (!Number.isFinite(bounds) || bounds < 0 || bounds > 100) {
+      throw new LocalMapRegionError(
+        "bounds must be a number between 0 and 100",
+        400,
+      );
+    }
+    mapRegion = await buildLocalMapRegionByBounds(supabase, {
+      characterId,
+      centerSector,
+      bounds,
+      mapKnowledge: knowledge,
+    });
+  } else {
+    let maxHops = maxHopsRaw;
+    if (maxHops === null) {
+      maxHops = DEFAULT_MAX_HOPS;
+    }
+    if (!Number.isInteger(maxHops) || maxHops < 0 || maxHops > 100) {
+      throw new LocalMapRegionError(
+        "max_hops must be an integer between 0 and 100",
+        400,
+      );
+    }
 
-  const mapRegion = await buildLocalMapRegion(supabase, {
-    characterId,
-    centerSector,
-    mapKnowledge: knowledge,
-    maxHops,
-    maxSectors,
-  });
+    let maxSectors = maxSectorsRaw;
+    if (maxSectors === null) {
+      maxSectors = DEFAULT_MAX_SECTORS;
+    }
+    if (!Number.isInteger(maxSectors) || maxSectors <= 0) {
+      throw new LocalMapRegionError(
+        "max_sectors must be a positive integer",
+        400,
+      );
+    }
+
+    mapRegion = await buildLocalMapRegion(supabase, {
+      characterId,
+      centerSector,
+      mapKnowledge: knowledge,
+      maxHops,
+      maxSectors,
+    });
+  }
   mapRegion["source"] = source;
 
   await emitCharacterEvent({

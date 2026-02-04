@@ -507,21 +507,35 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     raise ValueError("Missing required field 'center_sector'")
                 center_sector = int(center_sector)
 
+                bounds_raw = msg_data.get("bounds")
                 max_sectors_raw = msg_data.get("max_sectors")
                 max_hops_raw = msg_data.get("max_hops")
 
-                max_hops = int(max_hops_raw) if max_hops_raw is not None else 3
-                if max_hops < 0 or max_hops > 100:
+                bounds = int(bounds_raw) if bounds_raw is not None else None
+                if bounds is not None and (bounds < 0 or bounds > 100):
+                    raise ValueError("bounds must be between 0 and 100")
+
+                max_hops = (
+                    int(max_hops_raw)
+                    if max_hops_raw is not None
+                    else None if bounds is not None else 3
+                )
+                if max_hops is not None and (max_hops < 0 or max_hops > 100):
                     raise ValueError("max_hops must be between 0 and 100")
 
-                max_sectors = int(max_sectors_raw) if max_sectors_raw is not None else 1000
-                if max_sectors <= 0:
+                max_sectors = (
+                    int(max_sectors_raw)
+                    if max_sectors_raw is not None
+                    else None if bounds is not None else 1000
+                )
+                if max_sectors is not None and max_sectors <= 0:
                     raise ValueError("max_sectors must be positive")
 
                 # Use local_map_region endpoint
                 await task_manager.game_client.local_map_region(
                     character_id=task_manager.character_id,
                     center_sector=center_sector,
+                    bounds=bounds,
                     max_hops=max_hops,
                     max_sectors=max_sectors,
                     source="get-my-map",
