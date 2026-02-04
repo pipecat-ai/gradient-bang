@@ -1012,7 +1012,7 @@ function renderSector(
   scale: number,
   hexSize: number,
   config: SectorMapConfigBase,
-  currentRegion?: string,
+  _currentRegion?: string,
   opacity = 1,
   coursePlotSectors: Set<number> | null = null,
   coursePlot: CoursePlot | null = null,
@@ -1023,7 +1023,7 @@ function renderSector(
   const world = hexToWorld(node.position[0], node.position[1], scale)
   const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
   const isVisited = Boolean(node.visited) || isCurrent
-  const isCrossRegion = currentRegion && node.region && node.region !== currentRegion
+  //const isCrossRegion = currentRegion && node.region && node.region !== currentRegion
   const isHovered = node.id === hoveredSectorId
   // Centered style applies to center_sector_id, but NOT if it's also the current sector
   const isCentered = node.id === config.center_sector_id && !isCurrent
@@ -1068,9 +1068,9 @@ function renderSector(
     baseStyle = config.nodeStyles.muted
   } else if (isCurrent) {
     baseStyle = config.nodeStyles.current
-  // COMMENTED OUT: Cross-region styling disabled - nodes will use visited/unvisited style instead
-  // } else if (isCrossRegion) {
-  //   baseStyle = config.nodeStyles.crossRegion
+    // COMMENTED OUT: Cross-region styling disabled - nodes will use visited/unvisited style instead
+    // } else if (isCrossRegion) {
+    //   baseStyle = config.nodeStyles.crossRegion
   } else if (isVisited) {
     // Use visited_corp style if source is "corp", otherwise visited
     if (node.source === "corp") {
@@ -2289,7 +2289,9 @@ export function createSectorMapController(
       // Fire exit callback for previous sector
       if (previousHoveredId !== null && onNodeExitCallback) {
         // Find the previous sector from filtered data
-        const exitedSector = currentCameraState?.filteredData.find(s => s.id === previousHoveredId)
+        const exitedSector = currentCameraState?.filteredData.find(
+          (s) => s.id === previousHoveredId
+        )
         if (exitedSector) {
           onNodeExitCallback(exitedSector)
         }
@@ -2336,7 +2338,9 @@ export function createSectorMapController(
 
       // Fire exit callback for the sector we're leaving
       if (onNodeExitCallback) {
-        const exitedSector = currentCameraState?.filteredData.find(s => s.id === previousHoveredId)
+        const exitedSector = currentCameraState?.filteredData.find(
+          (s) => s.id === previousHoveredId
+        )
         if (exitedSector) {
           onNodeExitCallback(exitedSector)
         }
