@@ -1,4 +1,4 @@
-import { SlidersHorizontalIcon, SpeakerHighIcon, UserIcon } from "@phosphor-icons/react"
+import { MedalIcon, SlidersHorizontalIcon, UserIcon } from "@phosphor-icons/react"
 
 import useGameStore from "@/stores/game"
 import { formatCurrency } from "@/utils/formatting"
@@ -6,6 +6,7 @@ import { formatCurrency } from "@/utils/formatting"
 import { Badge } from "./primitives/Badge"
 import { Button } from "./primitives/Button"
 import { DotDivider } from "./primitives/DotDivider"
+import { Tooltip, TooltipContent, TooltipTrigger } from "./primitives/ToolTip"
 
 export const TopBarTextItem = ({ label, value }: { label: string; value: string | undefined }) => {
   return (
@@ -49,13 +50,27 @@ export const TopBar = () => {
         )}
       </div>
       <div className="flex flex-row gap-1.5">
-        <Button variant="outline" size="icon-sm">
-          <SpeakerHighIcon weight="bold" size={16} />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon-sm" onClick={() => setActiveModal("leaderboard")}>
+              <MedalIcon weight="bold" size={16} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Leaderboard</p>
+          </TooltipContent>
+        </Tooltip>
 
-        <Button variant="outline" size="icon-sm" onClick={() => setActiveModal("settings")}>
-          <SlidersHorizontalIcon weight="bold" size={16} />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon-sm" onClick={() => setActiveModal("settings")}>
+              <SlidersHorizontalIcon weight="bold" size={16} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Settings</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </header>
   )

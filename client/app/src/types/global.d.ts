@@ -17,7 +17,7 @@ declare global {
   }
 
   interface Player extends PlayerBase {
-    player_type: "npc" | "human" | "corporation_ship"
+    // player_type: "npc" | "human" | "corporation_ship"
     ship: Ship
     corporation?: Corporation
   }
@@ -50,7 +50,7 @@ declare global {
     shields?: number
     max_shields?: number
     max_fighters?: number
-    owner_type: "personal" | "corporation" | "unowned"
+    owner_type?: "personal" | "corporation" | "unowned"
     current_task_id?: string | null
     sector?: number
   }
@@ -78,6 +78,12 @@ declare global {
     purchase_price: number
   }
 
+  interface ShipUnowned extends Ship {
+    owner_type: "unowned"
+    became_unowned: string
+    former_owner_name: string
+    cargo: Record<Resource, number>
+  }
   // --- GARRISON
 
   interface Garrison {
@@ -104,14 +110,14 @@ declare global {
     planets?: Planet[]
     players?: Player[]
     port?: Port
-    region?: Region
-    unowned_ships?: Ship[]
-
+    region?: string
+    unowned_ships?: ShipUnowned[]
+    last_visited?: string
+    salvage?: Salvage[]
     scene_config?: unknown
 
     // Not yet implemented
     garrisons?: Garrison[]
-    salvage?: Salvage[]
   }
 
   interface Planet {
@@ -122,11 +128,17 @@ declare global {
 
   interface Salvage {
     salvage_id: string
-    source?: Ship
+    source?: {
+      ship_name: string
+      ship_type: string
+    }
 
     cargo?: Record<Resource, number>
     credits?: number
     scrap?: number
+    claimed?: boolean
+    metadata?: Record<string, unknown>
+    created_at?: string
 
     collected?: {
       cargo: Record<Resource, number>
@@ -151,7 +163,8 @@ declare global {
   interface Port extends PortBase {
     // max_capacity: Record<Resource, number>;
     code: string
-    observed_at?: string | null
+    port_class?: number
+    observed_at?: string
     stock: Record<Resource, number>
     prices: Record<Resource, number>
     warp_power_depot?: PortWarpPowerDepot
@@ -334,8 +347,24 @@ declare global {
     total_wealth: number
   }
 
+  interface LeaderboardTrading {
+    name: string
+    total_trades: number
+    total_trade_volume: number
+    ports_visited: number
+  }
+
+  interface LeaderboardExploration {
+    name: string
+    sectors_visited: number
+    first_visit: string
+  }
+
   interface LeaderboardResponse {
     wealth: LeaderboardWealth[]
+    trading: LeaderboardTrading[]
+    exploration: LeaderboardExploration[]
+    territory: LeaderboardTerritory[]
   }
 
   interface CharacterSelectResponse {

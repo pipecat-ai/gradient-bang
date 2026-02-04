@@ -27,7 +27,7 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(_store: S) =
   return store
 }
 
-type GameInitState = "not_ready" | "initializing" | "ready" | "error"
+type GameInitState = "not_ready" | "initializing" | "ready" | "started" | "error"
 type AlertTypes = "transfer"
 
 export const GameInitStateMessage = {
@@ -77,6 +77,10 @@ export interface GameState {
   gameStateMessage?: string
   fetchPromises: Partial<Record<ActionType, FetchPromiseEntry>>
   dispatchAction: (action: GameAction) => Promise<void> | undefined
+
+  leaderboard_data?: LeaderboardResponse
+  leaderboard_last_updated: string | null
+  setLeaderboardData: (leaderboardData: LeaderboardResponse) => void
 }
 
 export interface GameSlice extends GameState {
@@ -134,6 +138,8 @@ const createGameSlice: StateCreator<
   course_plot: undefined, // @TODO: move to map slice
   messages: [], // @TODO: move to chat slice
   messageFilters: "all",
+  leaderboard_data: undefined,
+  leaderboard_last_updated: null,
 
   starfieldReady: false,
   diamondFXInstance: undefined,
@@ -435,6 +441,14 @@ const createGameSlice: StateCreator<
 
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") =>
     set({ messageFilters: filters }),
+
+  setLeaderboardData: (leaderboardData: LeaderboardResponse) =>
+    set(
+      produce((state) => {
+        state.leaderboard_data = leaderboardData
+        state.leaderboard_last_updated = new Date().toISOString()
+      })
+    ),
 
   setGameState: (gameState: GameInitState) => set({ gameState }),
 })

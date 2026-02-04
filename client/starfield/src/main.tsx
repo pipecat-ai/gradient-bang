@@ -8,6 +8,15 @@ import type { PositionedGameObject } from "./types"
 
 import "./styles.css"
 
+const TEST_CONFIG = {
+  imageAssets: [
+    { type: "skybox", url: "/test-skybox-1.png" },
+    { type: "skybox", url: "/test-skybox-2.png" },
+    { type: "port", url: "/test-port-1.png" },
+    { type: "port", url: "/test-port-2.png" },
+    { type: "port", url: "/test-port-3.png" },
+  ],
+}
 export const App = () => {
   const { changeScene } = useSceneChange()
 
@@ -60,6 +69,7 @@ export const App = () => {
       onTargetRest={onTargetRest}
       onTargetClear={onTargetClear}
       onReady={onReady}
+      config={TEST_CONFIG}
     />
   )
 }

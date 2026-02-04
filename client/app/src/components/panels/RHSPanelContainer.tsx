@@ -5,13 +5,13 @@ import { ArrowLeftIcon } from "@phosphor-icons/react"
 
 import { LogsPanel } from "@/components/panels/LogsPanel"
 import { PlayerPanel } from "@/components/panels/PlayerPanel"
+import { SectorPanel } from "@/components/panels/SectorPanel"
 import { TaskPanel } from "@/components/panels/TaskPanel"
+import { TradePanel } from "@/components/panels/TradePanel"
 import { Button } from "@/components/primitives/Button"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
-
-import { TradePanel } from "./TradePanel"
 
 export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
@@ -81,7 +81,7 @@ export const RHSPanelContainer = () => {
         )}
       >
         {activePanel === "logs" && <LogsPanel />}
-        {activePanel === "sector" && <div className=""></div>}
+        {activePanel === "sector" && <SectorPanel />}
         {activePanel === "player" && <PlayerPanel />}
         {activePanel === "trade" && <TradePanel />}
         {activePanel === "tasks" && <TaskPanel />}

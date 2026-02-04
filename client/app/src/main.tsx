@@ -62,7 +62,9 @@ const App = lazy(async () => {
     const error = usePipecatClientStore((state) => state.error)
 
     if (!client) {
-      const newClient = new PipecatClient({ transport: transportInstance })
+      const newClient = new PipecatClient({
+        transport: transportInstance,
+      })
       setClient(newClient)
     }
 

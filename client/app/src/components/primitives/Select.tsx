@@ -39,16 +39,19 @@ const selectTriggerVariants = cva(
     },
   }
 )
+
+interface SelectTriggerProps extends React.ComponentProps<typeof SelectPrimitive.Trigger> {
+  size?: "sm" | "default"
+  variant?: "default" | "secondary"
+}
+
 function SelectTrigger({
   className,
   variant = "default",
   size = "default",
   children,
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
-  size?: "sm" | "default"
-  variant?: "default" | "secondary"
-}) {
+}: SelectTriggerProps) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
@@ -195,3 +198,5 @@ export {
   SelectTrigger,
   SelectValue,
 }
+
+export type { SelectTriggerProps }

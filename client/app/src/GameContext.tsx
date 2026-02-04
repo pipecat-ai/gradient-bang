@@ -182,6 +182,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
               // Initialize game client if this is the first status update
               if (status.source?.method === "join") {
+                gameStore.setGameState("started")
                 gameStore.addActivityLogEntry({
                   type: "join",
                   message: "Joined the game",
@@ -203,6 +204,9 @@ export function GameProvider({ children }: GameProviderProps) {
                   type: "character.moved",
                   message: `[${data.player.name}] arrived in sector`,
                   meta: {
+                    player: data.player,
+                    sector: data.sector,
+                    direction: "arrive",
                     silent: true,
                   },
                 })
@@ -213,6 +217,9 @@ export function GameProvider({ children }: GameProviderProps) {
                   type: "character.moved",
                   message: `[${data.player.name}] departed from sector`,
                   meta: {
+                    player: data.player,
+                    sector: data.sector,
+                    direction: "depart",
                     silent: true,
                   },
                 })

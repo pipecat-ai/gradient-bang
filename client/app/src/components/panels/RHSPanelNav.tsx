@@ -68,8 +68,8 @@ export const RHSPanelNav = () => {
   ]
 
   return (
-    <div className="flex flex-col gap-1 items-center select-none relative flex-1 max-h-min pr-panel-gap bg-background">
-      <div className="relative flex flex-row gap-panel-gap w-full">
+    <div className="flex flex-col gap-1 items-center select-none relative flex-1 max-h-min border-l bg-background">
+      <div className="relative flex flex-row gap-panel-gap w-full px-panel-gap">
         {tabs.map((tab) => (
           <RHSPanelNavItem
             key={tab.id}

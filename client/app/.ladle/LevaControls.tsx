@@ -9,7 +9,14 @@ import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
 
 import { INCOMING_CHAT_TOOL_CALL_MOCK } from "@/mocks/chat.mock"
-import { MEGA_PORT_MOCK, PORT_MOCK, SECTOR_MOCK } from "@/mocks/sector.mock"
+import { LEADERBOARD_DATA_MOCK } from "@/mocks/misc.mock"
+import {
+  MEGA_PORT_MOCK,
+  PLAYER_MOVEMENT_HISTORY_MOCK,
+  PORT_MOCK,
+  SECTOR_FULL_MOCK,
+  SECTOR_MOCK,
+} from "@/mocks/sector.mock"
 import { SHIP_MOCK } from "@/mocks/ship.mock"
 
 export const LevaControls = ({
@@ -25,6 +32,9 @@ export const LevaControls = ({
   const addToast = useGameStore.use.addToast()
   const setSector = useGameStore.use.setSector()
   const addChatMessage = useGameStore.use.addChatMessage()
+  const addSectorPlayer = useGameStore.use.addSectorPlayer()
+  const removeSectorPlayer = useGameStore.use.removeSectorPlayer()
+  const addActivityLogEntry = useGameStore.use.addActivityLogEntry()
 
   useControls(() => ({
     ["Connect"]: buttonGroup({
@@ -44,6 +54,7 @@ export const LevaControls = ({
         port: Math.random() > 0.5 ? PORT_MOCK : undefined,
       })
     ),
+    ["Load Mock Sector"]: button(() => setSector(SECTOR_FULL_MOCK)),
     ["Set ID"]: {
       value: 1,
       step: 1,
@@ -55,6 +66,60 @@ export const LevaControls = ({
     ["Look Around"]: button(() => {
       const lookMode = useGameStore.getState().lookMode
       useGameStore.getState().setLookMode(!lookMode)
+    }),
+
+    ["Mock Player Arrive"]: button(() => {
+      const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
+      const name = faker.person.fullName()
+      const player = { id: mockData.player.id, name: name }
+      const ship = {
+        ship_id: faker.string.uuid(),
+        ship_name: faker.vehicle.vehicle(),
+        ship_type: faker.vehicle.type(),
+      }
+      addSectorPlayer({
+        id: mockData.player.id,
+        name: name,
+        ship: ship,
+      })
+      addActivityLogEntry({
+        type: "character.moved",
+        message: `[${name}] arrived in sector`,
+        meta: {
+          sector: mockData.sector,
+          direction: "arrive",
+          player,
+          ship,
+          silent: true,
+        },
+      })
+    }),
+
+    ["Mock Player Depart"]: button(() => {
+      const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
+      const name = faker.person.fullName()
+      const player = { id: mockData.player.id, name: name }
+      const ship = {
+        ship_id: faker.string.uuid(),
+        ship_name: faker.vehicle.vehicle(),
+        ship_type: faker.vehicle.type(),
+      }
+      removeSectorPlayer({
+        id: mockData.player.id,
+        name: player.name,
+        ship: ship,
+      })
+      addActivityLogEntry({
+        type: "character.moved",
+        message: `[${name}] departed from sector`,
+        meta: {
+          sector: mockData.sector,
+          direction: "depart",
+          player,
+          ship,
+          silent: true,
+        },
+      })
     }),
 
     Conversation: folder(
@@ -160,6 +225,15 @@ export const LevaControls = ({
         }),
       },
       { collapsed: true, order: 2 }
+    ),
+    Leaderboard: folder(
+      {
+        ["Set Leaderboard Data"]: button(() => {
+          const setLeaderboardData = useGameStore.getState().setLeaderboardData
+          setLeaderboardData(LEADERBOARD_DATA_MOCK)
+        }),
+      },
+      { collapsed: true, order: 3 }
     ),
   }))
 

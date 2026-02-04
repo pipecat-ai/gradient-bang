@@ -9,11 +9,28 @@
  *   - force_refresh: boolean (optional) - Force refresh of cached data
  */
 
-import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
-import { errorResponse, successResponse } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// CORS headers for public access from web clients
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Max-Age": "86400",
+};
+
+function corsResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
+}
 
 class LeaderboardError extends Error {
   status: number;
@@ -26,9 +43,14 @@ class LeaderboardError extends Error {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
   // Only allow GET requests
   if (req.method !== "GET") {
-    return errorResponse("Method not allowed", 405);
+    return corsResponse({ success: false, error: "Method not allowed" }, 405);
   }
 
   const supabase = createServiceRoleClient();
@@ -200,7 +222,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         // Don't fail if cache update fails, just return fresh data
       }
 
-      return successResponse({
+      return corsResponse({
+        success: true,
         wealth: wealthResult.data ?? [],
         territory: territoryResult.data ?? [],
         trading: tradingResult.data ?? [],
@@ -209,7 +232,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     } else {
       // Return cached data
-      return successResponse({
+      return corsResponse({
+        success: true,
         wealth: cached.wealth ?? [],
         territory: cached.territory ?? [],
         trading: cached.trading ?? [],
@@ -220,9 +244,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
   } catch (err) {
     if (err instanceof LeaderboardError) {
-      return errorResponse(err.message, err.status);
+      return corsResponse({ success: false, error: err.message }, err.status);
     }
     console.error("leaderboard_resources.unhandled", err);
-    return errorResponse("internal server error", 500);
+    return corsResponse(
+      { success: false, error: "internal server error" },
+      500,
+    );
   }
 });

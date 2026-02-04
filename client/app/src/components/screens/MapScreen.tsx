@@ -131,15 +131,17 @@ export const MapScreen = () => {
 
   useEffect(() => {
     if (sector !== undefined && !throttleActive.current) {
-      console.debug("[GAME MAP SCREEN] Fetching", sector?.id)
+      console.debug(
+        `[GAME MAP SCREEN] Fetching with sector ${sector?.id} with bounds ${mapZoomLevel}`
+      )
       throttleActive.current = true
 
       dispatchAction({
         type: "get-my-map",
         payload: {
           center_sector: sector?.id ?? 0,
-          max_hops: 25,
-          max_sectors: 1000,
+          bounds: mapZoomLevel ?? 15,
+          //max_sectors: 1000,
         },
       } as GetMapRegionAction)
 
@@ -147,7 +149,7 @@ export const MapScreen = () => {
         throttleActive.current = false
       }, 250)
     }
-  }, [sector, dispatchAction])
+  }, [sector, dispatchAction, mapZoomLevel])
 
   const updateCenterSector = useCallback(
     (node: MapSectorNode | null) => {
