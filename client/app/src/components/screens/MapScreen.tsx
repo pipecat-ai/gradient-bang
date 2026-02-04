@@ -33,6 +33,14 @@ const MAP_CONFIG: MapConfig = {
   show_hyperlanes: false,
   show_grid: true,
   show_port_labels: true,
+  nodeStyles: {
+    current: {
+      glow: true,
+      offset: true,
+      outlineWidth: 6,
+      borderPosition: "center",
+    },
+  },
 }
 
 export const DEFAULT_MAX_BOUNDS = 12

@@ -25,7 +25,7 @@ export const BigMapStory: Story = () => {
       }),
       ["Config"]: folder({
         debug: {
-          value: true,
+          value: false,
         },
         clickable: {
           value: true,
@@ -36,7 +36,7 @@ export const BigMapStory: Story = () => {
 
   const storyMapConfig = useMemo(() => {
     return {
-      debug: levaMapConfig.debug ?? true,
+      debug: levaMapConfig.debug ?? false,
       clickable: levaMapConfig.clickable ?? true,
     }
   }, [levaMapConfig])

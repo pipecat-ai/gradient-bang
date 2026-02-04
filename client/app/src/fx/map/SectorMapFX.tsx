@@ -48,6 +48,16 @@ export interface NodeStyle {
   borderPosition?: "center" | "inside"
   outline: string
   outlineWidth: number
+  // Offset frame - larger outer ring around the node
+  offset?: boolean
+  offsetColor?: string
+  offsetSize?: number
+  offsetWeight?: number
+  // Glow - radial gradient behind the node
+  glow?: boolean
+  glowRadius?: number
+  glowColor?: string
+  glowFalloff?: number // 0-1, where the color starts to fade (0 = immediate fade, 1 = solid then sharp edge)
 }
 
 // Map of slugified region names to partial style overrides
@@ -76,13 +86,21 @@ export interface NodeStyles {
 
 export const DEFAULT_NODE_STYLES: NodeStyles = {
   current: {
-    fill: "#DCFD38",
-    border: "#F5FFC6",
+    fill: "rgba(74,144,226,0.4)",
+    border: "rgba(74,144,226,1)",
     borderWidth: 4,
     borderStyle: "solid",
     borderPosition: "inside",
-    outline: "rgba(220,253,56,0.6)",
-    outlineWidth: 4,
+    outline: "rgba(74,144,226,0.6)",
+    outlineWidth: 3,
+    offset: false,
+    offsetColor: "rgba(255,255,255,0.4)",
+    offsetSize: 30,
+    offsetWeight: 2,
+    glow: false,
+    glowRadius: 120,
+    glowColor: "rgba(255,255,255,0.15)",
+    glowFalloff: 0.3,
   },
   visited: {
     fill: "rgba(0,255,0,0.25)",
@@ -397,7 +415,7 @@ export const DEFAULT_UI_STYLES: UIStyles = {
 }
 
 export const DEFAULT_SECTORMAP_CONFIG: Omit<SectorMapConfigBase, "center_sector_id"> = {
-  grid_spacing: 27,
+  grid_spacing: 28,
   hex_size: 20,
   sector_label_offset: 5,
   frame_padding: 40,
@@ -1159,6 +1177,37 @@ function renderSector(
   // Only apply hover outline style when clickable (not just hoverable)
   if (isHovered && config.clickable) {
     nodeStyle = { ...baseStyle, ...config.nodeStyles.hovered }
+  }
+
+  // Render glow if enabled (radial gradient behind node)
+  if (nodeStyle.glow && nodeStyle.glowRadius && nodeStyle.glowColor) {
+    ctx.save()
+    const falloff = nodeStyle.glowFalloff ?? 0.3
+    const gradient = ctx.createRadialGradient(
+      world.x,
+      world.y,
+      0,
+      world.x,
+      world.y,
+      nodeStyle.glowRadius
+    )
+    gradient.addColorStop(0, applyAlpha(nodeStyle.glowColor, finalOpacity))
+    gradient.addColorStop(falloff, applyAlpha(nodeStyle.glowColor, finalOpacity))
+    gradient.addColorStop(1, applyAlpha(nodeStyle.glowColor, 0))
+    ctx.fillStyle = gradient
+    ctx.beginPath()
+    ctx.arc(world.x, world.y, nodeStyle.glowRadius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+
+  // Render offset frame if enabled (outermost ring)
+  if (nodeStyle.offset && nodeStyle.offsetColor && nodeStyle.offsetSize && nodeStyle.offsetWeight) {
+    ctx.save()
+    ctx.strokeStyle = applyAlpha(nodeStyle.offsetColor, finalOpacity)
+    ctx.lineWidth = nodeStyle.offsetWeight
+    drawHex(ctx, world.x, world.y, effectiveHexSize + nodeStyle.offsetSize, false)
+    ctx.restore()
   }
 
   // Render outline if specified
