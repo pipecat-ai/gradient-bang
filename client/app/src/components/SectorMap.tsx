@@ -54,12 +54,12 @@ interface MapProps {
   height?: number
   maxDistance?: number
   showLegend?: boolean
-  debug?: boolean
   coursePlot?: CoursePlot | null
   ships?: number[]
   onNodeClick?: (node: MapSectorNode | null) => void
   onNodeEnter?: (node: MapSectorNode) => void
   onNodeExit?: (node: MapSectorNode) => void
+  onMapFetch?: (centerSectorId: number) => void
 }
 
 const RESIZE_DELAY = 300
@@ -89,6 +89,49 @@ const courseplotsEqual = (
   return a.from_sector === b.from_sector && a.to_sector === b.to_sector
 }
 
+/**
+ * Check if we have enough map data to display a view centered on the given sector.
+ * Returns false if any sector within maxDistance hops has lanes to sectors
+ * that are not in our data set (indicating culled/missing data).
+ */
+const hasEnoughMapData = (
+  mapData: MapData,
+  centerSectorId: number,
+  maxDistance: number
+): boolean => {
+  const sectorIds = new Set(mapData.map((s) => s.id))
+  const sectorMap = new Map(mapData.map((s) => [s.id, s]))
+
+  // Center must exist in our data
+  if (!sectorIds.has(centerSectorId)) return false
+
+  // BFS to check all sectors within maxDistance hops
+  // At each level, verify all lane destinations exist in our data
+  const visited = new Set<number>([centerSectorId])
+  let currentLevel = [centerSectorId]
+
+  for (let depth = 0; depth < maxDistance; depth++) {
+    const nextLevel: number[] = []
+    for (const sectorId of currentLevel) {
+      const sector = sectorMap.get(sectorId)
+      if (!sector) continue
+      for (const lane of sector.lanes) {
+        // If any lane points to a sector not in our data, we're missing data
+        if (!sectorIds.has(lane.to)) {
+          return false
+        }
+        if (!visited.has(lane.to)) {
+          visited.add(lane.to)
+          nextLevel.push(lane.to)
+        }
+      }
+    }
+    currentLevel = nextLevel
+  }
+
+  return true
+}
+
 const MapComponent = ({
   center_sector_id: center_sector_id_prop,
   current_sector_id,
@@ -103,6 +146,7 @@ const MapComponent = ({
   onNodeClick,
   onNodeEnter,
   onNodeExit,
+  onMapFetch,
 }: MapProps) => {
   // Normalize map_data to always be an array (memoized to avoid dependency changes)
   const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
@@ -308,10 +352,36 @@ const MapComponent = ({
       ships: shipsMap,
     })
 
+    let skipReframe = false
+
     if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
-      // Camera needs to move or topology changed - use moveToSector to ensure new data is used
-      console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
-      controller.moveToSector(center_sector_id, normalizedMapData)
+      const hasEnough = hasEnoughMapData(normalizedMapData, center_sector_id, maxDistance)
+
+      // Only trigger fetch when USER explicitly changes center (not on topology updates)
+      // This prevents recursion: click → fetch → topology changes → fetch → ...
+      if (centerSectorChanged && !hasEnough) {
+        const targetSector = normalizedMapData.find((s) => s.id === center_sector_id)
+        const canFetch = targetSector?.visited === true
+
+        if (canFetch) {
+          // Need more data and can fetch - trigger fetch, DON'T reframe yet
+          // The incoming data will trigger topologyChanged and reframe then
+          console.debug(
+            "[GAME SECTOR MAP] Insufficient data for sector",
+            center_sector_id,
+            "- requesting fetch (waiting for data)"
+          )
+          onMapFetch?.(center_sector_id)
+          skipReframe = true
+        }
+      }
+
+      if (!skipReframe) {
+        // Reframe with available data
+        console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
+        controller.moveToSector(center_sector_id, normalizedMapData)
+      }
+
       prevCenterSectorIdRef.current = center_sector_id
     } else if (needsConfigUpdate || shipsChanged) {
       // Config/ships changed but topology and camera stay the same - just re-render
@@ -334,6 +404,7 @@ const MapComponent = ({
     coursePlot,
     shipsKey,
     shipsMap,
+    onMapFetch,
   ])
 
   // Update click callback when it changes
@@ -538,12 +609,6 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
       return false
     }
   }
-
-  // Callback - reference equality (updates handled by separate useEffect)
-  /*
-  if (prevProps.onNodeClick !== nextProps.onNodeClick) return false
-  if (prevProps.onNodeEnter !== nextProps.onNodeEnter) return false
-  if (prevProps.onNodeExit !== nextProps.onNodeExit) return false*/
 
   return true
 }

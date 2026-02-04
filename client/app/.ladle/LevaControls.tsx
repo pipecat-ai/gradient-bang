@@ -1,3 +1,5 @@
+import { useRef } from "react"
+
 import { button, buttonGroup, folder, Leva, useControls } from "leva"
 import { faker } from "@faker-js/faker"
 import { PipecatClient } from "@pipecat-ai/client-js"
@@ -36,6 +38,8 @@ export const LevaControls = ({
   const removeSectorPlayer = useGameStore.use.removeSectorPlayer()
   const addActivityLogEntry = useGameStore.use.addActivityLogEntry()
 
+  const isFirstRender = useRef(true)
+
   useControls(() => ({
     ["Connect"]: buttonGroup({
       label: "Connection",
@@ -59,6 +63,10 @@ export const LevaControls = ({
       value: 1,
       step: 1,
       onChange: (value) => {
+        if (isFirstRender.current) {
+          isFirstRender.current = false
+          return
+        }
         setSector({ ...SECTOR_MOCK, id: value, position: [0, 0], port: MEGA_PORT_MOCK } as Sector)
       },
     },
@@ -121,6 +129,17 @@ export const LevaControls = ({
         },
       })
     }),
+
+    Ships: folder(
+      {
+        ["Get My Ships"]: button(() => {
+          dispatchAction({
+            type: "get-my-ships",
+          })
+        }),
+      },
+      { collapsed: true }
+    ),
 
     Conversation: folder(
       {
