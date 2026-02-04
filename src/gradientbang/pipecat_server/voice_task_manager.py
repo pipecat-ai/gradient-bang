@@ -1767,6 +1767,68 @@ class VoiceTaskManager:
     def _build_task_progress_prompt(self, log_lines: list[str]) -> str:
         return build_task_progress_prompt(log_lines)
 
+    async def _run_query_task_progress_async(
+        self,
+        *,
+        task_id: str,
+        task_agent: TaskAgent,
+        prompt: str,
+        system_prompt: str,
+        log_line_count: int,
+        log_char_count: int,
+    ) -> None:
+        start = time.monotonic()
+        try:
+            response = await task_agent.query_task_progress(
+                prompt.strip(),
+                system_prompt=system_prompt,
+            )
+            elapsed = time.monotonic() - start
+            summary = (response or "").strip() or "No task log available."
+            logger.info(
+                "query_task_progress async completed task_id={} log_lines={} log_chars={} elapsed={:.2f}s",
+                task_id,
+                log_line_count,
+                log_char_count,
+                elapsed,
+            )
+            event_xml = (
+                f"<event name=\"task.progress\" task_id=\"{task_id}\">\n"
+                f"{summary}\n"
+                f"</event>"
+            )
+            if self._tool_call_inflight > 0:
+                logger.debug(
+                    "Deferring task.progress event while tool calls inflight count={}",
+                    self._tool_call_inflight,
+                )
+                self._deferred_llm_events.append((event_xml, True))
+            else:
+                await self._deliver_llm_event(event_xml, should_run_llm=True)
+        except Exception as exc:  # noqa: BLE001
+            elapsed = time.monotonic() - start
+            logger.exception(
+                "query_task_progress async failed task_id={} log_lines={} log_chars={} elapsed={:.2f}s error={}",
+                task_id,
+                log_line_count,
+                log_char_count,
+                elapsed,
+                exc,
+            )
+            event_xml = (
+                f"<event name=\"error\" task_id=\"{task_id}\">\n"
+                f"Task progress query failed: {exc}\n"
+                f"</event>"
+            )
+            if self._tool_call_inflight > 0:
+                logger.debug(
+                    "Deferring task.progress error event while tool calls inflight count={}",
+                    self._tool_call_inflight,
+                )
+                self._deferred_llm_events.append((event_xml, True))
+            else:
+                await self._deliver_llm_event(event_xml, should_run_llm=True)
+
     @traced
     async def _handle_query_task_progress(self, params: FunctionCallParams):
         self._prune_expired_tasks()
@@ -1808,11 +1870,30 @@ class VoiceTaskManager:
             return {"success": False, "error": f"No task log available for {task_id}"}
 
         system_prompt = self._build_task_progress_prompt(log_lines)
-        response = await task_agent.query_task_progress(
-            prompt.strip(),
-            system_prompt=system_prompt,
+        log_line_count = len(log_lines)
+        log_char_count = sum(len(line) for line in log_lines)
+        logger.info(
+            "query_task_progress scheduled task_id={} log_lines={} log_chars={}",
+            task_id,
+            log_line_count,
+            log_char_count,
         )
-        return {"success": True, "summary": response, "task_id": task_id}
+        asyncio.create_task(
+            self._run_query_task_progress_async(
+                task_id=task_id,
+                task_agent=task_agent,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                log_line_count=log_line_count,
+                log_char_count=log_char_count,
+            )
+        )
+        return {
+            "success": True,
+            "summary": "Checking task progress now; I'll report back shortly.",
+            "task_id": task_id,
+            "async": True,
+        }
 
     @traced
     async def _handle_steer_task(self, params: FunctionCallParams):
