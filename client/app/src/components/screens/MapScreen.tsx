@@ -35,7 +35,7 @@ const MAP_CONFIG: MapConfig = {
   show_port_labels: true,
 }
 
-export const DEFAULT_MAX_BOUNDS = 4
+export const DEFAULT_MAX_BOUNDS = 15
 
 export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
   if (!node) return null
@@ -132,8 +132,6 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
 
   const initialFetchRef = useRef(false)
 
-  //const throttleActive = useRef(false)
-
   const mapConfig = useMemo(() => {
     if (!config) return MAP_CONFIG
     return deepmerge(MAP_CONFIG, config) as MapConfig
@@ -157,20 +155,14 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
         `%c[GAME MAP SCREEN] Initial fetch for current sector ${sector?.id} with bounds ${initBounds}`,
         "font-weight: bold; color: #4CAF50;"
       )
-      //throttleActive.current = true
 
       dispatchAction({
         type: "get-my-map",
         payload: {
           center_sector: sector.id,
           bounds: initBounds,
-          //max_sectors: 1000,
         },
       } as GetMapRegionAction)
-
-      //setTimeout(() => {
-      //  throttleActive.current = false
-      //}, 250)
     }
   }, [sector, dispatchAction, mapZoomLevel])
 
@@ -233,7 +225,7 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
           )}
         </header>
 
-        {isFetching && <FillCrossLoader message="Updating map..." className="bg-card/40" />}
+        {isFetching && <FillCrossLoader message="Fetching map data" className="bg-card/40" />}
 
         {mapData ?
           <SectorMap
