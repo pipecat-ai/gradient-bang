@@ -50,7 +50,7 @@ declare global {
     shields?: number
     max_shields?: number
     max_fighters?: number
-    owner_type: "personal" | "corporation" | "unowned"
+    owner_type?: "personal" | "corporation" | "unowned"
     current_task_id?: string | null
     sector?: number
   }
@@ -128,11 +128,17 @@ declare global {
 
   interface Salvage {
     salvage_id: string
-    source?: Ship
+    source?: {
+      ship_name: string
+      ship_type: string
+    }
 
     cargo?: Record<Resource, number>
     credits?: number
     scrap?: number
+    claimed?: boolean
+    metadata?: Record<string, unknown>
+    created_at?: string
 
     collected?: {
       cargo: Record<Resource, number>

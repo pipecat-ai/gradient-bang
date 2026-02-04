@@ -1,3 +1,5 @@
+import type { CharacterMovedMessage } from "@/types/messages"
+
 export const SECTOR_MOCK: Sector = {
   id: 1,
   position: [0, 0],
@@ -67,7 +69,26 @@ export const SECTOR_FULL_MOCK: Sector = {
       },
     },
   ],
-  salvage: [],
+  salvage: [
+    {
+      cargo: {
+        quantum_foam: 0,
+        retro_organics: 1,
+        neuro_symbolics: 0,
+      },
+      scrap: 0,
+      source: {
+        ship_name: "Destroy The Things",
+        ship_type: "bulwark_destroyer",
+      },
+      claimed: false,
+      credits: 0,
+      metadata: {},
+      created_at: "2026-02-03T23:02:00.981Z",
+      expires_at: "2026-02-03T23:17:00.981Z",
+      salvage_id: "fd06dfb3-9d79-432d-b0f7-4b886759dc47",
+    },
+  ],
   garrisons: [],
   position: [94, 171],
   scene_config: null,
@@ -134,4 +155,22 @@ export const MEGA_PORT_MOCK: Port = {
     retro_organics: 100,
     neuro_symbolics: 100,
   },
+}
+
+export const PLAYER_MOVEMENT_HISTORY_MOCK: CharacterMovedMessage = {
+  name: "Corp Ship [f1b613]",
+  ship: {
+    ship_id: "f1b61393-5975-43dd-83ba-9bf042fcf465",
+    ship_name: "Pirate Probe 1",
+    ship_type: "autonomous_probe",
+  },
+  player: {
+    id: "f1b61393-5975-43dd-83ba-9bf042fcf465",
+    name: "Corp Ship [f1b613]",
+  },
+  sector: 1611,
+
+  movement: "arrive",
+  move_type: "normal",
+  timestamp: "2026-02-03T23:20:43.006Z",
 }

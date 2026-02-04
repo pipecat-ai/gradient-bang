@@ -16,11 +16,12 @@ import { SalvageIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
-import { PanelContentLoader } from "../PanelContentLoader"
+import { BlankSlateTile } from "../BlankSlates"
 import { Button } from "../primitives/Button"
 import { Card, CardContent, CardHeader, CardTitle } from "../primitives/Card"
 import { Divider } from "../primitives/Divider"
 import { ChevronSM } from "../svg/ChevronSM"
+import { SectorPlayerMovementPanel } from "./DataTablePanels"
 import { RHSPanelContent } from "./RHSPanelContainer"
 
 interface SectorInfoRowProps {
@@ -50,7 +51,7 @@ const SectorInfoRow = ({
         <Icon size={16} weight="duotone" />
       </div>
       <div className="w-12">
-        <Divider className="bg-accent" />
+        <Divider className="bg-accent shrink-0" />
       </div>
       <div className="flex flex-row flex-1 h-full justify-between items-center px-ui-sm bg-subtle-background bracket bracket-offset-0 bracket-accent">
         <span className="font-bold inline-flex items-center gap-2">
@@ -63,7 +64,13 @@ const SectorInfoRow = ({
           {label}
         </span>
         {onClick ?
-          <Button variant="link" size="sm" onClick={onClick} className="px-0! text-xs">
+          <Button
+            variant="link"
+            size="sm"
+            onClick={onClick}
+            className="px-0! text-xs"
+            disabled={count === 0}
+          >
             View <ArrowRightIcon size={16} />
           </Button>
         : <span className={cn(isEmpty ? "text-subtle" : "", valueClassName)}>
@@ -167,7 +174,10 @@ export const SectorPanel = () => {
               count={0}
               onClick={() => setActivePanel("trade")}
             />
-            <Divider variant="dotted" className="h-[6px] my-ui-xs text-accent-background" />
+            <Divider
+              variant="dotted"
+              className="h-[6px] my-ui-xs text-accent-background shrink-0"
+            />
             <SectorInfoRow
               label="Unmanned"
               value="view"
@@ -176,18 +186,28 @@ export const SectorPanel = () => {
               count={sector?.unowned_ships?.length ?? 0}
               onClick={() => setActivePanel("trade")}
             />
-            <Divider variant="dotted" className="h-[6px] my-ui-xs text-accent-background" />
+            <Divider
+              variant="dotted"
+              className="h-[6px] my-ui-xs text-accent-background shrink-0"
+            />
+            <SectorPlayerMovementPanel className="max-h-[280px]" />
           </div>
         </CardContent>
       </Card>
       <Card size="sm" className="border-x-0 border-y">
         <CardHeader>
-          <CardTitle>Salvage</CardTitle>
+          <CardTitle>Garrisons</CardTitle>
         </CardHeader>
         <CardContent>
-          <div>
-            <PanelContentLoader className="mx-auto" />
-          </div>
+          <BlankSlateTile text="No garrisons in sector" />
+        </CardContent>
+      </Card>
+      <Card size="sm" className="border-x-0 border-y">
+        <CardHeader>
+          <CardTitle>Planets</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <BlankSlateTile text="No planets in sector" />
         </CardContent>
       </Card>
     </RHSPanelContent>

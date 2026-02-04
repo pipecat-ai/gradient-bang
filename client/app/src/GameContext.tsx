@@ -204,6 +204,9 @@ export function GameProvider({ children }: GameProviderProps) {
                   type: "character.moved",
                   message: `[${data.player.name}] arrived in sector`,
                   meta: {
+                    player: data.player,
+                    sector: data.sector,
+                    direction: "arrive",
                     silent: true,
                   },
                 })
@@ -214,6 +217,9 @@ export function GameProvider({ children }: GameProviderProps) {
                   type: "character.moved",
                   message: `[${data.player.name}] departed from sector`,
                   meta: {
+                    player: data.player,
+                    sector: data.sector,
+                    direction: "depart",
                     silent: true,
                   },
                 })

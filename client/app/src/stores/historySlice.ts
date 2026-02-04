@@ -3,7 +3,7 @@ import type { StateCreator } from "zustand"
 
 import { createLogEntrySignature } from "@/utils/game"
 
-import type { EventQueryEntry, TaskHistoryEntry } from "@/types/messages"
+import type { EventQueryEntry } from "@/types/messages"
 
 const MAX_MOVEMENT_HISTORY = 200
 
@@ -38,14 +38,7 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
       produce((state) => {
         const timestamp = entry.timestamp ?? new Date().toISOString()
         const timestampClient = entry.timestamp_client ?? Date.now()
-        const meta = {
-          ...entry.meta,
-          //@TODO: see if we need this?
-          sector_id: state.sector?.id,
-          //player: state.player,
-          //ship: state.ship,
-          //sector: state.sector,
-        }
+        const meta = entry.meta ?? {}
 
         state.activity_log.push({
           ...entry,
@@ -61,6 +54,7 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
         })
       })
     ),
+
   movement_history: [],
   addMovementHistory: (history: Omit<MovementHistory, "timestamp">) => {
     return set(

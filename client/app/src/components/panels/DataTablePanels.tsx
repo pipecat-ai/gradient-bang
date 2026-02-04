@@ -8,6 +8,7 @@ import useGameStore from "@/stores/game"
 import { formatDateTime24, formatTimeAgoOrDate } from "@/utils/date"
 import { cn } from "@/utils/tailwind"
 
+import { BlankSlateTile } from "../BlankSlates"
 import { Card, CardContent } from "../primitives/Card"
 
 const columns: ColumnDef<MovementHistory>[] = [
@@ -55,15 +56,56 @@ export const MovementHistoryPanel = ({ className }: { className?: string }) => {
   )
 }
 
+const columnsSectorPlayerMovement: ColumnDef<LogEntry>[] = [
+  {
+    accessorKey: "meta.player.name",
+    header: "Player",
+    meta: { width: "40%" },
+  },
+  { accessorKey: "meta.ship.ship_name", header: "Ship" },
+  {
+    accessorKey: "meta.direction",
+    header: "Direction",
+    meta: { align: "center", width: 0 },
+    cell: ({ getValue }) => {
+      const direction = getValue() as string
+      const isArrival = direction === "arrive"
+      return (
+        <span className={isArrival ? "text-terminal" : "text-muted-foreground"}>
+          {isArrival ? "Arrive" : "Depart"}
+        </span>
+      )
+    },
+  },
+]
+
 export const SectorPlayerMovementPanel = ({ className }: { className?: string }) => {
+  const activityLog = useGameStore((state) => state.activity_log)
+  const sector = useGameStore((state) => state.sector)
+
+  const movementLogs = useMemo(
+    () =>
+      activityLog
+        .filter((entry) => entry.type === "character.moved" && entry.meta?.sector === sector?.id)
+        .reverse(),
+    [activityLog, sector?.id]
+  )
+
+  if (movementLogs.length <= 0) {
+    return <BlankSlateTile text="No player movement data" />
+  }
+
   return (
     <Card className={cn("flex h-full bg-background", className)} size="none">
-      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative">
+      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative px-0!">
         <DataTableScrollArea
-          data={[]}
-          columns={[]}
-          striped
-          className="text-background dither-mask-sm dither-mask-invert h-full"
+          data={movementLogs}
+          columns={columnsSectorPlayerMovement}
+          getRowClassName={(row) =>
+            row.meta?.direction === "arrive" ? "bg-accent-background" : "bg-subtle-background"
+          }
+          className="text-background h-full"
+          classNames={{ table: "text-xxs" }}
         />
       </CardContent>
     </Card>
