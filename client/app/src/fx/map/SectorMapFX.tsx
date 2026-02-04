@@ -1068,8 +1068,9 @@ function renderSector(
     baseStyle = config.nodeStyles.muted
   } else if (isCurrent) {
     baseStyle = config.nodeStyles.current
-  } else if (isCrossRegion) {
-    baseStyle = config.nodeStyles.crossRegion
+  // COMMENTED OUT: Cross-region styling disabled - nodes will use visited/unvisited style instead
+  // } else if (isCrossRegion) {
+  //   baseStyle = config.nodeStyles.crossRegion
   } else if (isVisited) {
     // Use visited_corp style if source is "corp", otherwise visited
     if (node.source === "corp") {
