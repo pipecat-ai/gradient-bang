@@ -91,8 +91,9 @@ const courseplotsEqual = (
 
 /**
  * Check if we have enough map data to display a view centered on the given sector.
- * Returns false if any sector within maxDistance hops has lanes to sectors
- * that are not in our data set (indicating culled/missing data).
+ * Uses spatial distance (position vector) to find sectors within bounds,
+ * then checks if any visible sector has lanes to sectors that SHOULD be visible
+ * but are missing from our cache.
  */
 const hasEnoughMapData = (
   mapData: MapData,
@@ -103,30 +104,43 @@ const hasEnoughMapData = (
   const sectorMap = new Map(mapData.map((s) => [s.id, s]))
 
   // Center must exist in our data
-  if (!sectorIds.has(centerSectorId)) return false
+  const centerSector = sectorMap.get(centerSectorId)
+  if (!centerSector) return false
 
-  // BFS to check all sectors within maxDistance hops
-  // At each level, verify all lane destinations exist in our data
-  const visited = new Set<number>([centerSectorId])
-  let currentLevel = [centerSectorId]
+  const centerPos = centerSector.position
 
-  for (let depth = 0; depth < maxDistance; depth++) {
-    const nextLevel: number[] = []
-    for (const sectorId of currentLevel) {
-      const sector = sectorMap.get(sectorId)
-      if (!sector) continue
+  // Find all sectors within spatial bounds of center (using position vector)
+  const visibleSectors = mapData.filter((sector) => {
+    const dx = sector.position[0] - centerPos[0]
+    const dy = sector.position[1] - centerPos[1]
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    return distance <= maxDistance
+  })
+
+  // Check if any visible sector has lanes to sectors that:
+  // 1. Are NOT in our cache, AND
+  // 2. WOULD be within our spatial bounds (if we knew their position)
+  // Since we don't know positions of missing sectors, we check if the lane
+  // destination exists in cache - if it does, we can verify it's covered.
+  // If it doesn't exist but the SOURCE sector is well inside our bounds
+  // (not at the edge), then we're missing interior data.
+  for (const sector of visibleSectors) {
+    const sectorDx = sector.position[0] - centerPos[0]
+    const sectorDy = sector.position[1] - centerPos[1]
+    const sectorDistance = Math.sqrt(sectorDx * sectorDx + sectorDy * sectorDy)
+
+    // Only check lanes from "inner" sectors (not at the edge of our bounds)
+    // Edge sectors are expected to have lanes pointing outside
+    const isInnerSector = sectorDistance <= maxDistance * 0.7
+
+    if (isInnerSector) {
       for (const lane of sector.lanes) {
-        // If any lane points to a sector not in our data, we're missing data
         if (!sectorIds.has(lane.to)) {
+          // Inner sector has lane to unknown sector - likely missing data
           return false
-        }
-        if (!visited.has(lane.to)) {
-          visited.add(lane.to)
-          nextLevel.push(lane.to)
         }
       }
     }
-    currentLevel = nextLevel
   }
 
   return true
