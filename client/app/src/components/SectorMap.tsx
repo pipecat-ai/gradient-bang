@@ -538,17 +538,7 @@ const MapComponent = ({
             />
             Lane
           </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span
-              style={{
-                width: 14,
-                height: 14,
-                border: `${baseConfig.nodeStyles.crossRegion.borderWidth}px solid ${baseConfig.nodeStyles.crossRegion.border}`,
-                background: baseConfig.nodeStyles.crossRegion.fill,
-              }}
-            />
-            Cross-region sector (vs current)
-          </span>
+
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span style={{ position: "relative", width: 18, height: 10 }}>
               <span

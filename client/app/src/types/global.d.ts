@@ -183,13 +183,13 @@ declare global {
     port?: string
     lanes: MapLane[]
     source?: "player" | "corp" | "both"
+    region?: string
     visited?: boolean
     position: [number, number]
     last_visited?: string
     adjacent_sectors?: number[]
     hops_from_center?: number
 
-    region?: string //@TODO: Unused
     is_mega?: boolean //@TODO: Unused
   }
 

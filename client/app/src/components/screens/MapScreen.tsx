@@ -52,6 +52,10 @@ export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
       <DottedTitle title={`Sector ${node.id.toString()}`} textColor="text-white" />
       <div className="flex flex-col gap-2 uppercase text-xxs text-foreground">
         <div className="flex flex-row justify-between gap-2">
+          <span className="font-bold">Region</span>
+          <span className="">{node.region}</span>
+        </div>
+        <div className="flex flex-row justify-between gap-2">
           <span className="font-bold">Visited</span>
           <span className="">
             {node.visited ? node.source : <XIcon size={16} className="text-accent-foreground" />}
