@@ -42,6 +42,7 @@ export const RATE_LIMITS: Record<string, RateLimitRule> = {
   // Public endpoints - stricter limits to prevent abuse
   register: { max: 5, window: 300 }, // 5 registrations per 5 minutes per IP
   login: { max: 20, window: 300 }, // 20 logins per 5 minutes per IP
+  user_confirm: { max: 10, window: 300 }, // 10 confirms per 5 minutes per IP
   character_create: { max: 10, window: 60 }, // 10 characters per minute per user
   character_list: { max: 30, window: 60 }, // 30 list requests per minute per user
 };
