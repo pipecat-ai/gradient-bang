@@ -30,11 +30,14 @@ export interface SectorMapConfigBase {
   hoverable: boolean
   hover_scale_factor?: number
   hover_animation_duration?: number
+  current_sector_scale?: number
   nodeStyles: NodeStyles
   laneStyles: LaneStyles
   labelStyles: LabelStyles
   portStyles: PortStyles
   uiStyles: UIStyles
+  regionStyles?: RegionStyleOverrides
+  regionLaneStyles?: RegionLaneStyleOverrides
 }
 
 export interface NodeStyle {
@@ -42,9 +45,30 @@ export interface NodeStyle {
   border: string
   borderWidth: number
   borderStyle: "solid" | "dashed" | "dotted"
+  borderPosition?: "center" | "inside"
   outline: string
   outlineWidth: number
+  // Offset frame - larger outer ring around the node
+  offset?: boolean
+  offsetColor?: string
+  offsetSize?: number
+  offsetWeight?: number
+  // Glow - radial gradient behind the node
+  glow?: boolean
+  glowRadius?: number
+  glowColor?: string
+  glowFalloff?: number // 0-1, where the color starts to fade (0 = immediate fade, 1 = solid then sharp edge)
 }
+
+// Map of slugified region names to partial style overrides
+export type RegionStyleOverrides = Record<string, Partial<NodeStyle>>
+
+// Region lane style overrides with separate one-way and two-way colors
+export interface RegionLaneStyle {
+  twoWayColor?: string
+  oneWayColor?: string
+}
+export type RegionLaneStyleOverrides = Record<string, RegionLaneStyle>
 
 export interface NodeStyles {
   current: NodeStyle
@@ -56,7 +80,6 @@ export interface NodeStyles {
   coursePlotEnd: NodeStyle
   coursePlotMid: NodeStyle
   coursePlotPassed: NodeStyle
-  crossRegion: NodeStyle
   hovered: Partial<NodeStyle>
   centered: Partial<NodeStyle>
 }
@@ -65,10 +88,19 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
   current: {
     fill: "rgba(74,144,226,0.4)",
     border: "rgba(74,144,226,1)",
-    borderWidth: 2,
+    borderWidth: 4,
     borderStyle: "solid",
+    borderPosition: "inside",
     outline: "rgba(74,144,226,0.6)",
-    outlineWidth: 4,
+    outlineWidth: 3,
+    offset: false,
+    offsetColor: "rgba(255,255,255,0.4)",
+    offsetSize: 30,
+    offsetWeight: 2,
+    glow: false,
+    glowRadius: 120,
+    glowColor: "rgba(255,255,255,0.15)",
+    glowFalloff: 0.3,
   },
   visited: {
     fill: "rgba(0,255,0,0.25)",
@@ -134,24 +166,40 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     outline: "none",
     outlineWidth: 0,
   },
-  crossRegion: {
-    fill: "rgba(255,120,120,0.25)",
-    border: "rgba(255,120,120,0.9)",
-    borderWidth: 2,
-    borderStyle: "solid",
-    outline: "none",
-    outlineWidth: 0,
-  },
   hovered: {
-    outline: "rgba(255,255,255,0.5)",
     outlineWidth: 4,
   },
   centered: {
     outline: "rgba(255,200,0,0.6)",
     outlineWidth: 5,
-    border: "rgba(255,200,0,0.6)",
-    borderWidth: 2,
-    fill: "rgba(255,200,0,0.6)",
+    border: "rgba(255,200,0,1)",
+    borderPosition: "inside",
+    borderWidth: 3,
+    fill: "rgba(255,200,0,0.4)",
+  },
+}
+
+export const DEFAULT_REGION_STYLES: RegionStyleOverrides = {
+  "federation-space": {
+    fill: "#042f2e",
+    border: "#5eead4",
+    outline: "rgba(94,234,212,0.5)",
+  },
+  neutral: {
+    fill: "#1e1b4b",
+    border: "#818cf8",
+    outline: "rgba(99,102,241,0.5)",
+  },
+}
+
+export const DEFAULT_REGION_LANE_STYLES: RegionLaneStyleOverrides = {
+  "federation-space": {
+    twoWayColor: "#99f6e4",
+    oneWayColor: "#0d9488",
+  },
+  neutral: {
+    twoWayColor: "#818cf8",
+    oneWayColor: "#6366f1",
   },
 }
 
@@ -179,7 +227,7 @@ export interface LaneStyles {
 
 export const DEFAULT_LANE_STYLES: LaneStyles = {
   normal: {
-    color: "rgba(120,230,160,1)",
+    color: "#a3a3a3",
     width: 1.5,
     dashPattern: "none",
     arrowColor: "none",
@@ -189,10 +237,10 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     lineCap: "round",
   },
   oneWay: {
-    color: "#4a90e2",
+    color: "#737373",
     width: 1.5,
     dashPattern: "none",
-    arrowColor: "#4a90e2",
+    arrowColor: "#737373",
     arrowSize: 8,
     shadowBlur: 0,
     shadowColor: "none",
@@ -307,7 +355,7 @@ export const DEFAULT_LABEL_STYLES: LabelStyles = {
   },
   shipCount: {
     textColor: "#ffffff",
-    backgroundColor: "rgba(74,144,226,0.9)",
+    backgroundColor: "#0284c7",
     padding: 2,
     fontSize: 10,
     hoveredFontSize: 12,
@@ -367,7 +415,7 @@ export const DEFAULT_UI_STYLES: UIStyles = {
 }
 
 export const DEFAULT_SECTORMAP_CONFIG: Omit<SectorMapConfigBase, "center_sector_id"> = {
-  grid_spacing: 30,
+  grid_spacing: 28,
   hex_size: 20,
   sector_label_offset: 5,
   frame_padding: 40,
@@ -388,11 +436,14 @@ export const DEFAULT_SECTORMAP_CONFIG: Omit<SectorMapConfigBase, "center_sector_
   hoverable: true,
   hover_scale_factor: 1.15,
   hover_animation_duration: 150,
+  current_sector_scale: 1,
   nodeStyles: DEFAULT_NODE_STYLES,
   laneStyles: DEFAULT_LANE_STYLES,
   labelStyles: DEFAULT_LABEL_STYLES,
   portStyles: DEFAULT_PORT_STYLES,
   uiStyles: DEFAULT_UI_STYLES,
+  regionStyles: DEFAULT_REGION_STYLES,
+  regionLaneStyles: DEFAULT_REGION_LANE_STYLES,
 }
 
 export interface SectorMapProps {
@@ -430,9 +481,9 @@ function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
 }
 
-/** Find sector by ID in array */
-function findSector(data: MapData, sectorId: number): MapSectorNode | undefined {
-  return data.find((s) => s.id === sectorId)
+/** Slugify region name for style lookup: lowercase, replace spaces with hyphens */
+function slugifyRegion(region: string): string {
+  return region.toLowerCase().replace(/\s+/g, "-")
 }
 
 /** Build an index for O(1) sector lookups by id */
@@ -645,6 +696,18 @@ function renderLane(
     laneStyle = config.laneStyles.oneWay
   }
 
+  // Apply region lane style overrides (use fromNode's region)
+  if (fromNode.region && config.regionLaneStyles) {
+    const regionKey = slugifyRegion(fromNode.region)
+    const regionOverride = config.regionLaneStyles[regionKey]
+    if (regionOverride) {
+      const regionColor = isBidirectional ? regionOverride.twoWayColor : regionOverride.oneWayColor
+      if (regionColor) {
+        laneStyle = { ...laneStyle, color: regionColor }
+      }
+    }
+  }
+
   // Apply lane style
   ctx.strokeStyle = laneStyle.color
   ctx.lineWidth = laneStyle.width
@@ -682,7 +745,7 @@ function renderLane(
   }
 
   if (needsArrow) {
-    ctx.strokeStyle = laneStyle.arrowColor
+    ctx.strokeStyle = laneStyle.color // Arrow matches lane color
     renderArrow(ctx, arrowFrom, arrowTo)
   }
 }
@@ -752,7 +815,16 @@ function renderHyperlaneStub(
     y: startEdge.y + stubLength * Math.sin(direction),
   }
 
-  const stubStyle = config.laneStyles.hyperlaneStub
+  let stubStyle = config.laneStyles.hyperlaneStub
+
+  // Apply region lane style overrides (use fromNode's region, hyperlanes use oneWayColor)
+  if (fromNode.region && config.regionLaneStyles) {
+    const regionKey = slugifyRegion(fromNode.region)
+    const regionOverride = config.regionLaneStyles[regionKey]
+    if (regionOverride?.oneWayColor) {
+      stubStyle = { ...stubStyle, color: regionOverride.oneWayColor }
+    }
+  }
 
   ctx.save()
   ctx.strokeStyle = stubStyle.color
@@ -835,10 +907,19 @@ function renderPartialLane(
   const isInPlot =
     coursePlotLanes ? coursePlotLanes.has(getUndirectedLaneKey(fromNode.id, culledToNode.id)) : true
 
-  const laneStyle =
+  let laneStyle =
     coursePlotLanes && !isInPlot ? config.laneStyles.muted
     : coursePlot && isInPlot ? config.laneStyles.coursePlot
     : config.laneStyles.partial
+
+  // Apply region lane style overrides (use fromNode's region, partial lanes use twoWayColor)
+  if (fromNode.region && config.regionLaneStyles) {
+    const regionKey = slugifyRegion(fromNode.region)
+    const regionOverride = config.regionLaneStyles[regionKey]
+    if (regionOverride?.twoWayColor) {
+      laneStyle = { ...laneStyle, color: regionOverride.twoWayColor }
+    }
+  }
 
   ctx.save()
 
@@ -1012,7 +1093,6 @@ function renderSector(
   scale: number,
   hexSize: number,
   config: SectorMapConfigBase,
-  currentRegion?: string,
   opacity = 1,
   coursePlotSectors: Set<number> | null = null,
   coursePlot: CoursePlot | null = null,
@@ -1023,7 +1103,6 @@ function renderSector(
   const world = hexToWorld(node.position[0], node.position[1], scale)
   const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
   const isVisited = Boolean(node.visited) || isCurrent
-  const isCrossRegion = currentRegion && node.region && node.region !== currentRegion
   const isHovered = node.id === hoveredSectorId
   // Centered style applies to center_sector_id, but NOT if it's also the current sector
   const isCentered = node.id === config.center_sector_id && !isCurrent
@@ -1032,8 +1111,10 @@ function renderSector(
   const finalOpacity = opacity
   const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true
 
-  // Apply hover scale to animating node (includes both hover-in and hover-out)
-  const effectiveHexSize = isAnimating ? hexSize * hoverScale : hexSize
+  // Apply scale: current sector gets permanent scale, hover scale stacks on top
+  const currentScale = isCurrent && config.current_sector_scale ? config.current_sector_scale : 1
+  const effectiveHexSize =
+    isAnimating ? hexSize * currentScale * hoverScale : hexSize * currentScale
 
   // Determine base node style (without hover/selected overlays)
   let baseStyle: NodeStyle
@@ -1068,8 +1149,6 @@ function renderSector(
     baseStyle = config.nodeStyles.muted
   } else if (isCurrent) {
     baseStyle = config.nodeStyles.current
-  } else if (isCrossRegion) {
-    baseStyle = config.nodeStyles.crossRegion
   } else if (isVisited) {
     // Use visited_corp style if source is "corp", otherwise visited
     if (node.source === "corp") {
@@ -1081,6 +1160,15 @@ function renderSector(
     baseStyle = config.nodeStyles.unvisited
   }
 
+  // Apply region style overrides if available
+  if (node.region && config.regionStyles) {
+    const regionKey = slugifyRegion(node.region)
+    const regionOverride = config.regionStyles[regionKey]
+    if (regionOverride) {
+      baseStyle = { ...baseStyle, ...regionOverride }
+    }
+  }
+
   // Apply centered/hover overlays on top of base style
   let nodeStyle: NodeStyle = baseStyle
   if (isCentered) {
@@ -1089,6 +1177,37 @@ function renderSector(
   // Only apply hover outline style when clickable (not just hoverable)
   if (isHovered && config.clickable) {
     nodeStyle = { ...baseStyle, ...config.nodeStyles.hovered }
+  }
+
+  // Render glow if enabled (radial gradient behind node)
+  if (nodeStyle.glow && nodeStyle.glowRadius && nodeStyle.glowColor) {
+    ctx.save()
+    const falloff = nodeStyle.glowFalloff ?? 0.3
+    const gradient = ctx.createRadialGradient(
+      world.x,
+      world.y,
+      0,
+      world.x,
+      world.y,
+      nodeStyle.glowRadius
+    )
+    gradient.addColorStop(0, applyAlpha(nodeStyle.glowColor, finalOpacity))
+    gradient.addColorStop(falloff, applyAlpha(nodeStyle.glowColor, finalOpacity))
+    gradient.addColorStop(1, applyAlpha(nodeStyle.glowColor, 0))
+    ctx.fillStyle = gradient
+    ctx.beginPath()
+    ctx.arc(world.x, world.y, nodeStyle.glowRadius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+
+  // Render offset frame if enabled (outermost ring)
+  if (nodeStyle.offset && nodeStyle.offsetColor && nodeStyle.offsetSize && nodeStyle.offsetWeight) {
+    ctx.save()
+    ctx.strokeStyle = applyAlpha(nodeStyle.offsetColor, finalOpacity)
+    ctx.lineWidth = nodeStyle.offsetWeight
+    drawHex(ctx, world.x, world.y, effectiveHexSize + nodeStyle.offsetSize, false)
+    ctx.restore()
   }
 
   // Render outline if specified
@@ -1116,7 +1235,19 @@ function renderSector(
     ctx.setLineDash([])
   }
 
-  drawHex(ctx, world.x, world.y, effectiveHexSize, true)
+  // Handle border position: "inside" draws border inset from edge
+  if (nodeStyle.borderPosition === "inside") {
+    // Draw fill at full size without border
+    ctx.save()
+    ctx.strokeStyle = "transparent"
+    drawHex(ctx, world.x, world.y, effectiveHexSize, true)
+    ctx.restore()
+    // Draw border inset by half the border width (stroke only)
+    drawHex(ctx, world.x, world.y, effectiveHexSize - nodeStyle.borderWidth / 2, false)
+  } else {
+    // Default: border centered on edge
+    drawHex(ctx, world.x, world.y, effectiveHexSize, true)
+  }
   ctx.setLineDash([])
   ctx.lineCap = "butt"
 
@@ -1724,25 +1855,12 @@ function renderWithCameraState(
       )
     : []
 
-  const centerSector = findSector(cameraState.filteredData, config.center_sector_id)
-  const centerRegion = centerSector?.region
-
   const fadingInIds = new Set(cameraState.fadingInData?.map((s) => s.id) ?? [])
 
   if (cameraState.fadingOutData && cameraState.fadeProgress !== undefined) {
     const fadeOpacity = 1 - cameraState.fadeProgress
     cameraState.fadingOutData.forEach((node) => {
-      renderSector(
-        ctx,
-        node,
-        scale,
-        hexSize,
-        config,
-        centerRegion,
-        fadeOpacity,
-        coursePlotSectors,
-        coursePlot
-      )
+      renderSector(ctx, node, scale, hexSize, config, fadeOpacity, coursePlotSectors, coursePlot)
     })
   }
 
@@ -1751,17 +1869,7 @@ function renderWithCameraState(
       fadingInIds.has(node.id) && cameraState.fadeProgress !== undefined ?
         cameraState.fadeProgress
       : 1
-    renderSector(
-      ctx,
-      node,
-      scale,
-      hexSize,
-      config,
-      centerRegion,
-      opacity,
-      coursePlotSectors,
-      coursePlot
-    )
+    renderSector(ctx, node, scale, hexSize, config, opacity, coursePlotSectors, coursePlot)
   })
 
   if (config.debug) {
@@ -1770,7 +1878,7 @@ function renderWithCameraState(
 
   ctx.restore()
 
-  renderSectorLabels(
+  renderShipLabels(
     ctx,
     cameraState.filteredData,
     scale,
@@ -1779,6 +1887,7 @@ function renderWithCameraState(
     height,
     cameraState,
     config,
+    ships,
     coursePlotSectors,
     null
   )
@@ -1794,7 +1903,7 @@ function renderWithCameraState(
     coursePlotSectors,
     null
   )
-  renderShipLabels(
+  renderSectorLabels(
     ctx,
     cameraState.filteredData,
     scale,
@@ -1803,7 +1912,6 @@ function renderWithCameraState(
     height,
     cameraState,
     config,
-    ships,
     coursePlotSectors,
     null
   )
@@ -1983,9 +2091,6 @@ function renderWithCameraStateAndInteraction(
       )
     : []
 
-  const centerSector = findSector(cameraState.filteredData, config.center_sector_id)
-  const centerRegion = centerSector?.region
-
   const fadingInIds = new Set(cameraState.fadingInData?.map((s) => s.id) ?? [])
 
   if (cameraState.fadingOutData && cameraState.fadeProgress !== undefined) {
@@ -1997,7 +2102,6 @@ function renderWithCameraStateAndInteraction(
         scale,
         hexSize,
         config,
-        centerRegion,
         fadeOpacity,
         coursePlotSectors,
         coursePlot,
@@ -2019,7 +2123,6 @@ function renderWithCameraStateAndInteraction(
       scale,
       hexSize,
       config,
-      centerRegion,
       opacity,
       coursePlotSectors,
       coursePlot,
@@ -2035,7 +2138,7 @@ function renderWithCameraStateAndInteraction(
 
   ctx.restore()
 
-  renderSectorLabels(
+  renderShipLabels(
     ctx,
     cameraState.filteredData,
     scale,
@@ -2044,6 +2147,7 @@ function renderWithCameraStateAndInteraction(
     height,
     cameraState,
     config,
+    ships,
     coursePlotSectors,
     hoveredSectorId
   )
@@ -2059,7 +2163,7 @@ function renderWithCameraStateAndInteraction(
     coursePlotSectors,
     hoveredSectorId
   )
-  renderShipLabels(
+  renderSectorLabels(
     ctx,
     cameraState.filteredData,
     scale,
@@ -2068,7 +2172,6 @@ function renderWithCameraStateAndInteraction(
     height,
     cameraState,
     config,
-    ships,
     coursePlotSectors,
     hoveredSectorId
   )
@@ -2288,7 +2391,9 @@ export function createSectorMapController(
       // Fire exit callback for previous sector
       if (previousHoveredId !== null && onNodeExitCallback) {
         // Find the previous sector from filtered data
-        const exitedSector = currentCameraState?.filteredData.find(s => s.id === previousHoveredId)
+        const exitedSector = currentCameraState?.filteredData.find(
+          (s) => s.id === previousHoveredId
+        )
         if (exitedSector) {
           onNodeExitCallback(exitedSector)
         }
@@ -2335,7 +2440,9 @@ export function createSectorMapController(
 
       // Fire exit callback for the sector we're leaving
       if (onNodeExitCallback) {
-        const exitedSector = currentCameraState?.filteredData.find(s => s.id === previousHoveredId)
+        const exitedSector = currentCameraState?.filteredData.find(
+          (s) => s.id === previousHoveredId
+        )
         if (exitedSector) {
           onNodeExitCallback(exitedSector)
         }

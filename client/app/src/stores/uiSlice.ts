@@ -35,7 +35,7 @@ export interface UISlice {
   setActivePanel: (panel?: UIPanel) => void
   setActiveSubPanel: (subPanel?: string) => void
 
-  mapZoomLevel: number
+  mapZoomLevel: number | undefined
   setMapZoomLevel: (zoomLevel: number) => void
 
   lookMode: boolean
@@ -50,7 +50,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   activeModal: undefined,
   activePanel: "logs",
   activeSubPanel: undefined,
-  mapZoomLevel: 15,
+  mapZoomLevel: undefined,
   notifications: {
     newChatMessage: false,
   },

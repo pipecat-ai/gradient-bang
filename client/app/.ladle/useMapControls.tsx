@@ -37,7 +37,7 @@ export const useMapControls = () => {
           setRegionalMapData(SMALL_MAP_DATA_MOCK)
           setLocalMapData(SMALL_MAP_DATA_MOCK)
         }),
-        ["Load Medium Mock"]: button(() => {
+        ["Load Medium Mock (599 center)"]: button(() => {
           setRegionalMapData(MEDIUM_MAP_DATA_MOCK)
           setLocalMapData(MEDIUM_MAP_DATA_MOCK)
         }),

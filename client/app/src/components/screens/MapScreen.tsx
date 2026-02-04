@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { deepmerge } from "deepmerge-ts"
 import { XIcon } from "@phosphor-icons/react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
@@ -13,9 +14,11 @@ import { formatTimeAgoOrDate } from "@/utils/date"
 import { cn } from "@/utils/tailwind"
 
 import { DottedTitle } from "../DottedTitle"
+import { FillCrossLoader } from "../FullScreenLoader"
 import { MapZoomControls } from "../MapZoomControls"
 import { Button } from "../primitives/Button"
 import { CardContent } from "../primitives/Card"
+import { Divider } from "../primitives/Divider"
 import { Progress } from "../primitives/Progress"
 import SectorMap, { type MapConfig } from "../SectorMap"
 
@@ -30,7 +33,20 @@ const MAP_CONFIG: MapConfig = {
   show_hyperlanes: false,
   show_grid: true,
   show_port_labels: true,
+  nodeStyles: {
+    current: {
+      glow: true,
+      offset: true,
+      outlineWidth: 6,
+      borderPosition: "center",
+    },
+  },
 }
+
+export const DEFAULT_MAX_BOUNDS = 12
+export const MAX_BOUNDS_PADDING = 2
+export const MIN_BOUNDS = 4
+export const MAX_BOUNDS = 50
 
 export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
   if (!node) return null
@@ -44,6 +60,10 @@ export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
       <DottedTitle title={`Sector ${node.id.toString()}`} textColor="text-white" />
       <div className="flex flex-col gap-2 uppercase text-xxs text-foreground">
         <div className="flex flex-row justify-between gap-2">
+          <span className="font-bold">Region</span>
+          <span className="">{node.region}</span>
+        </div>
+        <div className="flex flex-row justify-between gap-2">
           <span className="font-bold">Visited</span>
           <span className="">
             {node.visited ? node.source : <XIcon size={16} className="text-accent-foreground" />}
@@ -51,7 +71,7 @@ export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
         </div>
         <div className="flex flex-row justify-between gap-2">
           <span className="font-bold">Adjacent sectors</span>
-          <span className="">{node.adjacent_sectors?.join(",")}</span>
+          <span className="">{node.lanes?.map((lane) => lane.to).join(",")}</span>
         </div>
         <div className="flex flex-row justify-between gap-2">
           <span className="font-bold">Hops from center</span>
@@ -111,7 +131,7 @@ export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
     </div>
   )
 }
-export const MapScreen = () => {
+export const MapScreen = ({ config }: { config?: MapConfig }) => {
   const player = useGameStore((state) => state.player)
   const sector = useGameStore.use.sector?.()
   const mapData = useGameStore.use.regional_map_data?.()
@@ -120,34 +140,45 @@ export const MapScreen = () => {
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setActiveScreen = useGameStore.use.setActiveScreen?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
-  const [centerSector, setCenterSector] = useState<number | undefined>(sector?.id ?? undefined)
+  const [centerSector, setCenterSector] = useState<number | undefined>(undefined)
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
 
-  const throttleActive = useRef(false)
+  const [isFetching, setIsFetching] = useState(false)
+
+  const initialFetchRef = useRef(false)
+
+  const mapConfig = useMemo(() => {
+    if (!config) return MAP_CONFIG
+    return deepmerge(MAP_CONFIG, config) as MapConfig
+  }, [config])
 
   const shipSectors = ships?.data
     ?.filter((s: ShipSelf) => s.owner_type !== "personal")
     .map((s: ShipSelf) => s.sector ?? 0)
 
+  // Initial fetch of map data
   useEffect(() => {
-    if (sector !== undefined && !throttleActive.current) {
+    if (initialFetchRef.current) return
+
+    if (sector !== undefined && sector.id !== undefined) {
+      initialFetchRef.current = true
+
+      // Get the initial zoom level inline to avoid a re-trigger loop
+      const initBounds =
+        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
+
       console.debug(
-        `[GAME MAP SCREEN] Fetching with sector ${sector?.id} with bounds ${mapZoomLevel}`
+        `%c[GAME MAP SCREEN] Initial fetch for current sector ${sector?.id} with bounds ${initBounds}`,
+        "font-weight: bold; color: #4CAF50;"
       )
-      throttleActive.current = true
 
       dispatchAction({
         type: "get-my-map",
         payload: {
-          center_sector: sector?.id ?? 0,
-          bounds: mapZoomLevel ?? 15,
-          //max_sectors: 1000,
+          center_sector: sector.id,
+          bounds: initBounds,
         },
       } as GetMapRegionAction)
-
-      setTimeout(() => {
-        throttleActive.current = false
-      }, 250)
     }
   }, [sector, dispatchAction, mapZoomLevel])
 
@@ -159,18 +190,67 @@ export const MapScreen = () => {
     [setCenterSector, sector?.id]
   )
 
+  // Handles fetching map data when the center sector we select
+  // knows there are adjacent sectors culled by bounds
+  const handleMapFetch = useCallback(
+    (centerSectorId: number) => {
+      if (!initialFetchRef.current) return
+
+      console.debug(
+        "%c[GAME MAP SCREEN] Fetching map data to fulfill bounds",
+        "color: #4CAF50;",
+        centerSectorId
+      )
+
+      setIsFetching(true)
+      const bounds =
+        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
+
+      dispatchAction({
+        type: "get-my-map",
+        payload: {
+          center_sector: centerSectorId,
+          bounds: bounds,
+        },
+      } as GetMapRegionAction)
+    },
+    [dispatchAction, setIsFetching]
+  )
+
+  // When map data mutates after a fetch, set loading to false
+  useEffect(() => {
+    queueMicrotask(() => setIsFetching(false))
+  }, [mapData])
+
   return (
     <div className="flex flex-row gap-3 w-full h-full relative">
       <div className="flex-1 relative">
         <MapNodeDetails node={hoveredNode} />
-        <MapZoomControls />
+        <header className="absolute top-0 right-0 flex flex-col gap-ui-xs p-ui-md w-72">
+          <MapZoomControls />
+          <Divider color="secondary" />
+          {centerSector !== undefined && centerSector !== sector?.id && (
+            <Badge
+              variant="secondary"
+              border="bracket"
+              size="sm"
+              className="w-full -bracket-offset-0"
+            >
+              Selected Sector:
+              <span className="font-extrabold">{centerSector}</span>
+            </Badge>
+          )}
+        </header>
+
+        {isFetching && <FillCrossLoader message="Fetching map data" className="bg-card/40" />}
+
         {mapData ?
           <SectorMap
             center_sector_id={centerSector}
             current_sector_id={sector ? sector.id : undefined}
-            config={MAP_CONFIG as MapConfig}
+            config={mapConfig}
             map_data={mapData ?? []}
-            maxDistance={mapZoomLevel ?? 15}
+            maxDistance={mapZoomLevel ?? DEFAULT_MAX_BOUNDS}
             showLegend={false}
             onNodeClick={updateCenterSector}
             onNodeEnter={(node) => {
@@ -179,6 +259,7 @@ export const MapScreen = () => {
             onNodeExit={() => {
               setHoveredNode(null)
             }}
+            onMapFetch={handleMapFetch}
             coursePlot={coursePlot ?? null}
             ships={shipSectors}
           />

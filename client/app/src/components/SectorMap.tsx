@@ -54,12 +54,12 @@ interface MapProps {
   height?: number
   maxDistance?: number
   showLegend?: boolean
-  debug?: boolean
   coursePlot?: CoursePlot | null
   ships?: number[]
   onNodeClick?: (node: MapSectorNode | null) => void
   onNodeEnter?: (node: MapSectorNode) => void
   onNodeExit?: (node: MapSectorNode) => void
+  onMapFetch?: (centerSectorId: number) => void
 }
 
 const RESIZE_DELAY = 300
@@ -89,6 +89,63 @@ const courseplotsEqual = (
   return a.from_sector === b.from_sector && a.to_sector === b.to_sector
 }
 
+/**
+ * Check if we have enough map data to display a view centered on the given sector.
+ * Uses spatial distance (position vector) to find sectors within bounds,
+ * then checks if any visible sector has lanes to sectors that SHOULD be visible
+ * but are missing from our cache.
+ */
+const hasEnoughMapData = (
+  mapData: MapData,
+  centerSectorId: number,
+  maxDistance: number
+): boolean => {
+  const sectorIds = new Set(mapData.map((s) => s.id))
+  const sectorMap = new Map(mapData.map((s) => [s.id, s]))
+
+  // Center must exist in our data
+  const centerSector = sectorMap.get(centerSectorId)
+  if (!centerSector) return false
+
+  const centerPos = centerSector.position
+
+  // Find all sectors within spatial bounds of center (using position vector)
+  const visibleSectors = mapData.filter((sector) => {
+    const dx = sector.position[0] - centerPos[0]
+    const dy = sector.position[1] - centerPos[1]
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    return distance <= maxDistance
+  })
+
+  // Check if any visible sector has lanes to sectors that:
+  // 1. Are NOT in our cache, AND
+  // 2. WOULD be within our spatial bounds (if we knew their position)
+  // Since we don't know positions of missing sectors, we check if the lane
+  // destination exists in cache - if it does, we can verify it's covered.
+  // If it doesn't exist but the SOURCE sector is well inside our bounds
+  // (not at the edge), then we're missing interior data.
+  for (const sector of visibleSectors) {
+    const sectorDx = sector.position[0] - centerPos[0]
+    const sectorDy = sector.position[1] - centerPos[1]
+    const sectorDistance = Math.sqrt(sectorDx * sectorDx + sectorDy * sectorDy)
+
+    // Only check lanes from "inner" sectors (not at the edge of our bounds)
+    // Edge sectors are expected to have lanes pointing outside
+    const isInnerSector = sectorDistance <= maxDistance * 0.7
+
+    if (isInnerSector) {
+      for (const lane of sector.lanes) {
+        if (!sectorIds.has(lane.to)) {
+          // Inner sector has lane to unknown sector - likely missing data
+          return false
+        }
+      }
+    }
+  }
+
+  return true
+}
+
 const MapComponent = ({
   center_sector_id: center_sector_id_prop,
   current_sector_id,
@@ -103,6 +160,7 @@ const MapComponent = ({
   onNodeClick,
   onNodeEnter,
   onNodeExit,
+  onMapFetch,
 }: MapProps) => {
   // Normalize map_data to always be an array (memoized to avoid dependency changes)
   const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
@@ -308,10 +366,38 @@ const MapComponent = ({
       ships: shipsMap,
     })
 
+    let skipReframe = false
+
     if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
-      // Camera needs to move or topology changed - use moveToSector to ensure new data is used
-      console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
-      controller.moveToSector(center_sector_id, normalizedMapData)
+      const hasEnough = hasEnoughMapData(normalizedMapData, center_sector_id, maxDistance)
+
+      // Trigger fetch when USER changes center OR zoom level (not on topology updates)
+      // This prevents recursion: action → fetch → topology changes → fetch → ...
+      if ((centerSectorChanged || maxDistanceChanged) && !hasEnough) {
+        const targetSector = normalizedMapData.find((s) => s.id === center_sector_id)
+        const canFetch = targetSector?.visited === true
+
+        if (canFetch) {
+          // Need more data and can fetch - trigger fetch, DON'T reframe yet
+          // The incoming data will trigger topologyChanged and reframe then
+          console.debug(
+            "[GAME SECTOR MAP] Insufficient data for sector",
+            center_sector_id,
+            "with bounds",
+            maxDistance,
+            "- requesting fetch (waiting for data)"
+          )
+          onMapFetch?.(center_sector_id)
+          skipReframe = true
+        }
+      }
+
+      if (!skipReframe) {
+        // Reframe with available data
+        console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
+        controller.moveToSector(center_sector_id, normalizedMapData)
+      }
+
       prevCenterSectorIdRef.current = center_sector_id
     } else if (needsConfigUpdate || shipsChanged) {
       // Config/ships changed but topology and camera stay the same - just re-render
@@ -334,6 +420,7 @@ const MapComponent = ({
     coursePlot,
     shipsKey,
     shipsMap,
+    onMapFetch,
   ])
 
   // Update click callback when it changes
@@ -451,17 +538,7 @@ const MapComponent = ({
             />
             Lane
           </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span
-              style={{
-                width: 14,
-                height: 14,
-                border: `${baseConfig.nodeStyles.crossRegion.borderWidth}px solid ${baseConfig.nodeStyles.crossRegion.border}`,
-                background: baseConfig.nodeStyles.crossRegion.fill,
-              }}
-            />
-            Cross-region sector (vs current)
-          </span>
+
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span style={{ position: "relative", width: 18, height: 10 }}>
               <span
@@ -538,12 +615,6 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
       return false
     }
   }
-
-  // Callback - reference equality (updates handled by separate useEffect)
-  /*
-  if (prevProps.onNodeClick !== nextProps.onNodeClick) return false
-  if (prevProps.onNodeEnter !== nextProps.onNodeEnter) return false
-  if (prevProps.onNodeExit !== nextProps.onNodeExit) return false*/
 
   return true
 }

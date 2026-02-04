@@ -1,34 +1,47 @@
-import { useCallback, useEffect } from "react"
+import { useMemo } from "react"
 
 import { button, folder, useControls } from "leva"
 import { Story } from "@ladle/react"
 
-import { CoursePlotPanel } from "@/components/CoursePlotPanel"
-import { MapZoomControls } from "@/components/MapZoomControls"
-import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
-import { Badge } from "@/components/primitives/Badge"
-import { CardContent, CardTitle } from "@/components/primitives/Card"
-import { Progress } from "@/components/primitives/Progress"
-import { Separator } from "@/components/primitives/Separator"
-import SectorMap, { type MapConfig } from "@/components/SectorMap"
+import { DEFAULT_MAX_BOUNDS, MapScreen } from "@/components/screens/MapScreen"
 import useGameStore from "@/stores/game"
-
-import type { GetMapRegionAction } from "@/types/actions"
 
 export const BigMapStory: Story = () => {
   const dispatchAction = useGameStore.use.dispatchAction?.()
-  const player = useGameStore((state) => state.player)
-  const mapData = useGameStore.use.regional_map_data?.()
-  const sector = useGameStore((state) => state.sector)
-  const ships = useGameStore.use.ships?.()
-  const coursePlot = useGameStore.use.course_plot?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
 
-  const shipSectors = ships?.data
-    ?.filter((s: ShipSelf) => s.owner_type !== "personal")
-    .map((s: ShipSelf) => s.sector ?? 0)
+  const [levaMapConfig] = useControls(() => ({
+    Map: folder({
+      ["Get My Map"]: button(() => {
+        const currentSector = useGameStore.getState().sector
+        dispatchAction({
+          type: "get-my-map",
+          payload: {
+            center_sector: currentSector?.id ?? 0,
+            bounds: mapZoomLevel ?? DEFAULT_MAX_BOUNDS,
+          },
+        })
+      }),
+      ["Config"]: folder({
+        debug: {
+          value: false,
+        },
+        clickable: {
+          value: true,
+        },
+      }),
+    }),
+  }))
 
+  const storyMapConfig = useMemo(() => {
+    return {
+      debug: levaMapConfig.debug ?? false,
+      clickable: levaMapConfig.clickable ?? true,
+    }
+  }, [levaMapConfig])
+
+  /*
   const [{ current_sector, center_sector, show_legend }, set] = useControls(() => ({
     Map: folder(
       {
@@ -77,14 +90,6 @@ export const BigMapStory: Story = () => {
     ),
   }))
 
-  useEffect(() => {
-    set({ center_sector: sector?.id ?? 0 })
-  }, [set, sector])
-
-  useEffect(() => {
-    set({ current_sector: sector?.id ?? 0 })
-  }, [set, sector?.id])
-
   const [mapConfig, setMapConfig] = useControls(() => ({
     Map: folder({
       ["Config"]: folder(
@@ -128,70 +133,9 @@ export const BigMapStory: Story = () => {
   useEffect(() => {
     setMapConfig({ max_bounds_distance: mapZoomLevel ?? 15 })
   }, [setMapConfig, mapZoomLevel])
+  */
 
-  const updateCenterSector = useCallback(
-    (node: MapSectorNode | null) => {
-      // Click on empty space deselects (resets to current sector)
-      set({ center_sector: node?.id ?? current_sector ?? 0 })
-    },
-    [set, current_sector]
-  )
-
-  return (
-    <>
-      <div className="flex flex-row gap-3 h-full relative bg-black">
-        <CardTitle className="heading-1 absolute top-0 left-0">Universe Map</CardTitle>
-        <div className="flex-1 relative">
-          <MapZoomControls />
-          {mapConfig && (
-            <SectorMap
-              center_sector_id={center_sector}
-              current_sector_id={current_sector}
-              config={mapConfig as MapConfig}
-              map_data={mapData ?? []}
-              maxDistance={mapConfig.max_bounds_distance}
-              showLegend={show_legend}
-              onNodeClick={updateCenterSector}
-              coursePlot={coursePlot ?? null}
-              ships={shipSectors}
-            />
-          )}
-        </div>
-        <aside className="flex flex-col gap-6 w-md min-h-0 overflow-hidden">
-          <CardContent className="flex flex-col gap-3">
-            <Badge border="bracket" className="w-full -bracket-offset-3">
-              Current Sector:
-              <span
-                className={sector?.id !== undefined ? "opacity-100 font-extrabold" : "opacity-40"}
-              >
-                {sector?.id ?? "unknown"}
-              </span>
-            </Badge>
-            <Separator variant="dotted" className="w-full text-white/20 h-[12px]" />
-            <div className="flex flex-row gap-3">
-              <Badge variant="secondary" className="flex-1">
-                Discovered:
-                <span className="font-extrabold">{player?.sectors_visited}</span>
-              </Badge>
-              <Badge variant="secondary" className="flex-1">
-                Total:
-                <span className="font-extrabold">{player?.universe_size}</span>
-              </Badge>
-            </div>
-            <Badge border="elbow" className="text-xs w-full -elbow-offset-3 gap-3">
-              <Progress
-                value={(player?.sectors_visited / (player?.universe_size ?? 0)) * 100}
-                className="h-[12px] w-full"
-              />
-              {((player?.sectors_visited / (player?.universe_size ?? 0)) * 100).toFixed(2)}%
-            </Badge>
-          </CardContent>
-          <CoursePlotPanel />
-          <MovementHistoryPanel className="flex-1 min-h-0" />
-        </aside>
-      </div>
-    </>
-  )
+  return <MapScreen config={storyMapConfig} />
 }
 
 BigMapStory.meta = {

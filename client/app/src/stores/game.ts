@@ -348,7 +348,21 @@ const createGameSlice: StateCreator<
   setRegionalMapData: (regionalMapData: MapData) =>
     set(
       produce((state) => {
-        state.regional_map_data = regionalMapData
+        if (!state.regional_map_data) {
+          state.regional_map_data = regionalMapData
+          return
+        }
+
+        // Cache by sector ID - replace existing sectors with newer data
+        const existingById = new Map(
+          state.regional_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
+        )
+
+        for (const sector of regionalMapData) {
+          existingById.set(sector.id, sector)
+        }
+
+        state.regional_map_data = Array.from(existingById.values())
       })
     ),
 
