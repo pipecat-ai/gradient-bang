@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef } from "react"
 
+import useAudioStore from "@/stores/audio"
 import useGameStore, { selectIncomingMessageCount } from "@/stores/game"
-
-import { usePlaySound } from "./usePlaySound"
 
 const COOLDOWN_MS = 5000
 
 export const useNotificationSound = () => {
-  const { playSound } = usePlaySound()
+  const playSound = useAudioStore.use.playSound()
   const prevCountRef = useRef<number | null>(null)
   const lastPlayedRef = useRef(0)
   const prevAlertTransferRef = useRef<number | null>(null)

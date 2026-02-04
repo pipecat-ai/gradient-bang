@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 
 import { ScrambleText, type ScrambleTextRef } from "@/fx/ScrambleText"
-import { usePlaySound } from "@/hooks/usePlaySound"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
 /** Delay before showing banner when entering a new sector */
@@ -17,7 +17,7 @@ const ANIMATE_OUT = { opacity: 0, transition: { duration: 2, ease: "easeOut" } }
 type Phase = "idle" | "delaying" | "showing" | "exiting"
 
 export const SectorTitleBanner = () => {
-  const { playSound } = usePlaySound()
+  const playSound = useAudioStore.use.playSound()
   const activeTasks = useGameStore.use.activeTasks?.()
   const sector = useGameStore.use.sector?.()
 

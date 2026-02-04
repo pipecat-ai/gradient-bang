@@ -4,7 +4,7 @@ import { formatDistanceToNow } from "date-fns"
 import { AnimatePresence, motion } from "motion/react"
 import { PlusIcon, UserIcon } from "@phosphor-icons/react"
 
-import usePlaySound from "@/hooks/usePlaySound"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
 import { Card, CardContent } from "./primitives/Card"
@@ -18,7 +18,7 @@ const CharacterCard = ({
   index: number
   onSelect: (characterId: string) => void
 }) => {
-  const { playSound } = usePlaySound()
+  const playSound = useAudioStore.use.playSound()
 
   const lastActiveString = useMemo(
     () => formatDistanceToNow(new Date(character.last_active), { addSuffix: true }),

@@ -27,7 +27,7 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(_store: S) =
   return store
 }
 
-type GameInitState = "not_ready" | "initializing" | "ready" | "started" | "error"
+type GameInitState = "not_ready" | "initializing" | "ready" | "error"
 type AlertTypes = "transfer"
 
 export const GameInitStateMessage = {

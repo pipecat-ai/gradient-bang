@@ -1,10 +1,10 @@
 import * as React from "react"
 import type { ForwardRefComponent } from "@react-three/drei/helpers/ts-utils"
 import { useFrame, type ThreeElement } from "@react-three/fiber"
+import type { Points } from "three"
 import {
   AdditiveBlending,
   Color,
-  Points,
   ShaderMaterial,
   Spherical,
   Vector3,
