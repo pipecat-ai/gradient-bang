@@ -74,7 +74,7 @@ If you add or rename events:
 
 ```tsx
 {
-  scope: "player" | "corp",
+  scope: "player" | "corporation",
   ship: {
     ship_id: string,
     ship_name: string,
@@ -100,22 +100,22 @@ If you add or rename events:
     name: string,
     created_at: string,
     last_active: string,
-    player_type: "human" | "npc" | "corp_ship",
+    player_type: "human" | "npc" | "corporation_ship",
     universe_size: number,
     credits_in_bank: number,
     sectors_visited: number,
     total_sectors_known: number,
-    corp_sectors_visited?: number,
+    corp_sectors_visited: number | null,
   },
-  corporation?: {
+  corporation: {
     name: string,
     corp_id: string,
     joined_at: string,
     member_count: number,
-  },
+  } | null,
   sector: {
     id: number,
-    region: string,
+    region?: string,
     position: [number, number],
     adjacent_sectors: number[],
     scene_config?: unknown,
@@ -140,7 +140,7 @@ If you add or rename events:
       {
         id: string,
         name: string,
-        player_type: "human" | "npc" | "corp_ship",
+        player_type: "human" | "npc" | "corporation_ship",
         ship: {
           ship_id: string,
           ship_name: string,
@@ -151,8 +151,8 @@ If you add or rename events:
           corp_id: string,
           joined_at: string,
           member_count: number
-        },
-        created_at?: string,
+        } | null,
+        created_at: string | null,
       },
     ],
     salvage?: [
@@ -189,7 +189,7 @@ If you add or rename events:
         ship_id: string,
         ship_type: string,
         ship_name: string,
-        owner_type: "unowned",
+        owner_type: string | null,
         cargo: {
           quantum_foam?: number,
           retro_organics?: number,
@@ -203,7 +203,7 @@ If you add or rename events:
       }
     ],
   },
-
+  source: unknown
 }
 ```
 
