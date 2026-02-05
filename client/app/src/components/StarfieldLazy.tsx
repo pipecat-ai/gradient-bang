@@ -31,12 +31,12 @@ export default function StarfieldLazy(props: StarfieldProps) {
   const { changeScene } = useSceneChange()
 
   const onReady = useCallback(() => {
-    console.debug("[STARFIELD] Starfield ready")
+    console.debug("%c[STARFIELD] Starfield ready", "color: orange; font-weight: bold")
     // Get current sector id
     const sector = useGameStore.getState().sector
-    if (sector?.id) {
+    if (sector?.id !== undefined) {
       const newScene = generateRandomScene()
-      console.debug("[STARFIELD] Initial scene load", sector)
+      console.debug("%c[STARFIELD] Initial scene load", "color: orange; font-weight: bold", sector)
 
       // Get game objects
       const gameObjects = generateGameObjects(sector)
@@ -56,9 +56,9 @@ export default function StarfieldLazy(props: StarfieldProps) {
     const unsub = useGameStore.subscribe(
       (state) => state.sector?.id,
       (sectorId, prevSectorId) => {
-        if (sectorId !== prevSectorId && sectorId) {
+        if (sectorId !== prevSectorId && sectorId !== undefined) {
           const newScene = generateRandomScene()
-          console.debug("[STARFIELD] Scene change")
+          console.debug("%c[STARFIELD] Scene change", "color: orange; font-weight: bold")
 
           const sector = useGameStore.getState().sector
           if (sector === undefined) return

@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useLayoutEffect, useRef } from "react"
 import { PerformanceMonitor, Preload } from "@react-three/drei"
-import { Canvas, invalidate, useFrame } from "@react-three/fiber"
+import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
 import { Leva } from "leva"
 import * as THREE from "three"
@@ -38,32 +38,25 @@ import { useGameStore } from "@/useGameStore"
 import { SceneController } from "./controllers/SceneController"
 
 /**
- * SuspenseReady - Signals when Suspense content has mounted (once only)
- *
- * Placed at the end of Suspense to ensure all scene objects are mounted.
- * Waits 2 frames for shaders to compile, then signals suspenseReady.
- * Only fires once - subsequent Suspense re-renders (from new asset loads) are ignored.
+ * SuspenseReady - Signals when Suspense content has mounted and compiles scene (once only)
  */
 function SuspenseReady() {
-  const frameCount = useRef(0)
+  const { gl, scene, camera } = useThree()
+  const compiled = useRef(false)
 
   useFrame(() => {
-    // Scene had loaded and suspense has fired, notify the animation store
-    const { isReady } = useGameStore.getState()
-    if (isReady) return
+    if (compiled.current) return
+    compiled.current = true
 
-    // With frameloop="demand", we need to explicitly request more frames
-    // until we're ready (otherwise only one frame runs and we never count to 4)
-    invalidate()
+    gl.compile(scene, camera)
 
-    // Count a few frames to ensure all objects are mounted
-    frameCount.current++
-    if (frameCount.current >= 4) {
-      console.debug("[STARFIELD] Away we go...")
+    console.debug(
+      "%c[STARFIELD] Away we go...",
+      "color: blue; font-weight: bold"
+    )
 
-      useGameStore.getState().setIsReady(true)
-      useCallbackStore.getState().onReady?.()
-    }
+    useGameStore.getState().setIsReady(true)
+    useCallbackStore.getState().onReady?.()
   })
 
   return null

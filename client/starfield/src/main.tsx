@@ -21,7 +21,7 @@ export const App = () => {
   const { changeScene } = useSceneChange()
 
   const onReady = useCallback(() => {
-    console.log("Starfield ready, calling scene change")
+    // Timeout here to assert frame pacing issues
     changeScene({
       id: "1",
       gameObjects: [

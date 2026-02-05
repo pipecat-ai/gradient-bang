@@ -126,7 +126,8 @@ export function SceneController() {
         setIsSceneChanging(true) // Trigger AnimationController
 
         applyScene(scene)
-        // Defer isSceneChanging = false so AnimationController sees true first
+        // Single rAF is sufficient - AnimationController uses Zustand subscribe
+        // which fires synchronously when setIsSceneChanging(true) is called above
         requestAnimationFrame(() => {
           setIsSceneChanging(false)
           useCallbackStore.getState().onSceneChangeEnd()

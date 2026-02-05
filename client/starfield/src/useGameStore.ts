@@ -1,6 +1,7 @@
 import { deepmerge } from "deepmerge-ts"
 import { produce } from "immer"
 import { create } from "zustand"
+import { subscribeWithSelector } from "zustand/middleware"
 
 import { defaultProfile } from "@/profiles"
 
@@ -70,8 +71,8 @@ interface AppState {
   reset: () => void
 }
 
-export const useGameStore = create<AppState>(
-  (set, get): AppState => ({
+export const useGameStore = create<AppState>()(
+  subscribeWithSelector((set, get): AppState => ({
     starfieldConfig: {
       ...defaultProfile,
     },
@@ -263,5 +264,5 @@ export const useGameStore = create<AppState>(
         sceneQueue: [],
         currentScene: null,
       }),
-  })
+  }))
 )

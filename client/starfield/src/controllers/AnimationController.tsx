@@ -26,8 +26,6 @@ export function AnimationController() {
   const showControls = useShowControls()
   const initialAnimationPlayed = useRef(false)
   const isFirstSceneCycleRef = useRef(true) // Skip exit transition for first scene
-  const lastHandledStateRef = useRef<boolean | null>(null) // Prevent duplicate handling
-  const isSceneChanging = useGameStore((state) => state.isSceneChanging)
 
   // Animation hooks - these set up the animations and register in store
   // All animations are accessed via useAnimationStore.getState().animations
@@ -42,6 +40,10 @@ export function AnimationController() {
     // Double rAF here just to ensure all objects are mounted (precaution)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        console.debug(
+          "%c[STARFIELD] Playing initial animation",
+          "color: blue; font-weight: bold"
+        )
         const { animations } = useAnimationStore.getState()
         animations.shake?.start()
         animations.hyperspace?.start(
@@ -72,41 +74,42 @@ export function AnimationController() {
     }
   }, [])
 
-  // Scene transition handler - springs handle smooth transitions
+  // Scene transition handler - uses Zustand subscribe for synchronous updates
+  // This fires immediately when isSceneChanging changes, bypassing React's async render cycle
   useEffect(() => {
-    if (!useGameStore.getState().isReady) return
+    const unsub = useGameStore.subscribe(
+      (state) => state.isSceneChanging,
+      (isSceneChanging) => {
+        if (!useGameStore.getState().isReady) return
 
-    // Skip if we already handled this exact state value
-    // (prevents duplicate calls when effect re-runs due to dependency changes)
-    if (lastHandledStateRef.current === isSceneChanging) {
-      return
-    }
-    lastHandledStateRef.current = isSceneChanging
+        console.debug("[STARFIELD] Scene change requested:", isSceneChanging)
 
-    console.debug("[STARFIELD] Scene change requested:", isSceneChanging)
+        // First time the scene is changing, play the initial animation
+        if (!initialAnimationPlayed.current) {
+          playInitialAnimation()
+          initialAnimationPlayed.current = true
+          return
+        }
 
-    // First time the scene is changing, play the initial animation
-    if (!initialAnimationPlayed.current) {
-      playInitialAnimation()
-      initialAnimationPlayed.current = true
-      return
-    }
+        // First scene cycle: when isSceneChanging goes back to false, mark cycle complete
+        // but don't play exit transition (initial animation already revealed the scene)
+        if (isFirstSceneCycleRef.current) {
+          if (!isSceneChanging) {
+            console.debug(
+              "[STARFIELD] First scene cycle complete, no exit transition needed"
+            )
+            isFirstSceneCycleRef.current = false
+          }
+          return
+        }
 
-    // First scene cycle: when isSceneChanging goes back to false, mark cycle complete
-    // but don't play exit transition (initial animation already revealed the scene)
-    if (isFirstSceneCycleRef.current) {
-      if (!isSceneChanging) {
-        console.debug(
-          "[STARFIELD] First scene cycle complete, no exit transition needed"
-        )
-        isFirstSceneCycleRef.current = false
+        // Play transition - springs handle smooth state changes automatically
+        playTransitionAnimation(isSceneChanging ? "enter" : "exit")
       }
-      return
-    }
+    )
 
-    // Play transition - springs handle smooth state changes automatically
-    playTransitionAnimation(isSceneChanging ? "enter" : "exit")
-  }, [isSceneChanging, playInitialAnimation, playTransitionAnimation])
+    return unsub
+  }, [playInitialAnimation, playTransitionAnimation])
 
   // Subscribe to camera look-at target
   const lookAtTarget = useGameStore((state) => state.lookAtTarget)
