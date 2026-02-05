@@ -83,7 +83,7 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
               barOrigin="center"
               barWidth={3}
               barColor={isMicEnabled ? "--color-success" : "--color-destructive"}
-              className="mx-auto"
+              className="hidden @2xl/main:block"
             />
           </>
         }

@@ -32,15 +32,20 @@ export const Game = () => {
   return (
     <>
       {lookMode && (
-        <div className="fixed bottom-ui-lg z-90 inset-x-0 text-center">
-          <Button
-            variant="default"
-            size="lg"
-            onClick={() => setLookMode(false)}
-            className="mx-auto ring-4 ring-background/20 hover:bg-background"
-          >
-            Exit explore mode
-          </Button>
+        <div className="fixed bottom-ui-lg z-90 inset-x-0 text-center pointer-events-none">
+          <div className="flex flex-col gap-ui-md justify-center items-center">
+            <span className="text-xs text-subtle-foreground uppercase bg-background/40 p-ui-xs py-ui-xxs">
+              Click and drag scene to look around
+            </span>
+            <Button
+              variant="default"
+              size="lg"
+              onClick={() => setLookMode(false)}
+              className="mx-auto ring-4 ring-background/20 hover:bg-background pointer-events-auto"
+            >
+              Exit explore mode
+            </Button>
+          </div>
         </div>
       )}
       <Group
@@ -53,8 +58,6 @@ export const Game = () => {
         <Panel className="flex flex-col">
           <TopBar />
           <main className="flex-1 flex flex-col gap-0 @container/main">
-            <SectorTitleBanner />
-
             <div className="p-ui-xs flex-1">
               <TaskEnginesPanel />
             </div>
@@ -105,6 +108,7 @@ export const Game = () => {
 
       {/* Other Renderables */}
       <Starfield />
+      <SectorTitleBanner />
       <ToastContainer />
       <PipecatClientAudio />
     </>

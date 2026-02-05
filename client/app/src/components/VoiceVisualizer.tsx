@@ -94,7 +94,63 @@ export const VoiceVisualizer: React.FC<Props> = React.memo(
       const canvasCtx = canvas.getContext("2d")!
       resizeCanvas()
 
-      if (!track) return
+      // Helper function to draw inactive circles - defined early so we can use it before track check
+      function drawInactiveCircle(circleRadius: number, color: string, x: number, y: number) {
+        switch (barLineCap) {
+          case "square":
+            canvasCtx.fillStyle = color
+            canvasCtx.fillRect(
+              x + barWidth / 2 - circleRadius,
+              y - circleRadius,
+              circleRadius * 2,
+              circleRadius * 2
+            )
+            break
+          case "round":
+          default:
+            canvasCtx.beginPath()
+            canvasCtx.arc(x + barWidth / 2, y, circleRadius, 0, 2 * Math.PI)
+            canvasCtx.fillStyle = color
+            canvasCtx.fill()
+            canvasCtx.closePath()
+            break
+        }
+      }
+
+      function drawInactiveCircles(circleRadius: number, color: string) {
+        const totalBarsWidth = barCount * barWidth + (barCount - 1) * barGap
+        const startX = (canvas.width / scaleFactor - totalBarsWidth) / 2
+        const canvasHeight = canvas.height / scaleFactor
+
+        let y
+        switch (barOrigin) {
+          case "top":
+            y = circleRadius
+            break
+          case "bottom":
+            y = canvasHeight - circleRadius
+            break
+          case "center":
+          default:
+            y = canvasHeight / 2
+            break
+        }
+
+        for (let i = 0; i < barCount; i++) {
+          const x = startX + i * (barWidth + barGap)
+          drawInactiveCircle(circleRadius, color, x, y)
+        }
+      }
+
+      // If no track, draw inactive state and return
+      if (!track) {
+        const adjustedCircleRadius = barWidth / 2
+        canvasCtx.clearRect(0, 0, canvas.width / scaleFactor, canvas.height / scaleFactor)
+        canvasCtx.fillStyle = backgroundColor
+        canvasCtx.fillRect(0, 0, canvas.width / scaleFactor, canvas.height / scaleFactor)
+        drawInactiveCircles(adjustedCircleRadius, resolvedBarColorRef.current)
+        return
+      }
 
       const audioContext = new AudioContext()
       const source = audioContext.createMediaStreamSource(new MediaStream([track]))
@@ -317,53 +373,6 @@ export const VoiceVisualizer: React.FC<Props> = React.memo(
         requestAnimationFrame(drawSpectrum)
       }
 
-      function drawInactiveCircle(circleRadius: number, color: string, x: number, y: number) {
-        switch (barLineCap) {
-          case "square":
-            canvasCtx.fillStyle = color
-            canvasCtx.fillRect(
-              x + barWidth / 2 - circleRadius,
-              y - circleRadius,
-              circleRadius * 2,
-              circleRadius * 2
-            )
-            break
-          case "round":
-          default:
-            canvasCtx.beginPath()
-            canvasCtx.arc(x + barWidth / 2, y, circleRadius, 0, 2 * Math.PI)
-            canvasCtx.fillStyle = color
-            canvasCtx.fill()
-            canvasCtx.closePath()
-            break
-        }
-      }
-
-      function drawInactiveCircles(circleRadius: number, color: string) {
-        const totalBarsWidth = bands.length * barWidth + (bands.length - 1) * barGap
-        const startX = (canvas.width / scaleFactor - totalBarsWidth) / 2
-        const canvasHeight = canvas.height / scaleFactor
-
-        let y
-        switch (barOrigin) {
-          case "top":
-            y = circleRadius
-            break
-          case "bottom":
-            y = canvasHeight - circleRadius
-            break
-          case "center":
-          default:
-            y = canvasHeight / 2
-            break
-        }
-
-        bands.forEach((_, i) => {
-          const x = startX + i * (barWidth + barGap)
-          drawInactiveCircle(circleRadius, color, x, y)
-        })
-      }
-
       drawSpectrum()
 
       // Handle resizing
@@ -394,7 +403,6 @@ export const VoiceVisualizer: React.FC<Props> = React.memo(
       <canvas
         ref={canvasRef}
         style={{
-          display: "block",
           width: "100%",
           height: "100%",
         }}

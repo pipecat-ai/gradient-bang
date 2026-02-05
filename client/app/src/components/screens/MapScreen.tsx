@@ -5,6 +5,7 @@ import { XIcon } from "@phosphor-icons/react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
+import { MapLegend } from "@/components/MapLegends"
 import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
 import { Badge } from "@/components/primitives/Badge"
 import { Separator } from "@/components/primitives/Separator"
@@ -16,7 +17,6 @@ import { cn } from "@/utils/tailwind"
 import { DottedTitle } from "../DottedTitle"
 import { FillCrossLoader } from "../FullScreenLoader"
 import { MapZoomControls } from "../MapZoomControls"
-import { Button } from "../primitives/Button"
 import { CardContent } from "../primitives/Card"
 import { Divider } from "../primitives/Divider"
 import { Progress } from "../primitives/Progress"
@@ -30,7 +30,6 @@ const MAP_CONFIG: MapConfig = {
   show_sector_ids: false,
   show_partial_lanes: true,
   show_ports: true,
-  show_hyperlanes: false,
   show_grid: true,
   show_port_labels: true,
   nodeStyles: {
@@ -138,7 +137,6 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
-  const setActiveScreen = useGameStore.use.setActiveScreen?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
   const [centerSector, setCenterSector] = useState<number | undefined>(undefined)
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
@@ -242,6 +240,10 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
           )}
         </header>
 
+        <footer className="absolute bottom-0 left-0 w-full h-fit p-ui-md">
+          <MapLegend />
+        </footer>
+
         {isFetching && <FillCrossLoader message="Fetching map data" className="bg-card/40" />}
 
         {mapData ?
@@ -315,9 +317,6 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
         </CardContent>
         <CoursePlotPanel />
         <MovementHistoryPanel className="flex-1 min-h-0" />
-        <Button variant="default" className="w-full" onClick={() => setActiveScreen(undefined)}>
-          Close
-        </Button>
       </aside>
     </div>
   )

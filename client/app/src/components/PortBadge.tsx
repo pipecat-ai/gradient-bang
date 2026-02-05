@@ -5,7 +5,7 @@ import { cn } from "@/utils/tailwind"
 export const PortBadge = ({ className }: { className?: string }) => {
   const sector = useGameStore.use.sector?.()
   const isAtPort = sector?.id === 0 || sector?.port
-  const isMegaPort = sector?.id === 0
+  const isMegaPort = sector?.port?.mega ?? false
 
   return (
     <Badge

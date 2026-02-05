@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 
 import { ScrambleText, type ScrambleTextRef } from "@/fx/ScrambleText"
-import { usePlaySound } from "@/hooks/usePlaySound"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
 /** Delay before showing banner when entering a new sector */
@@ -17,7 +17,7 @@ const ANIMATE_OUT = { opacity: 0, transition: { duration: 2, ease: "easeOut" } }
 type Phase = "idle" | "delaying" | "showing" | "exiting"
 
 export const SectorTitleBanner = () => {
-  const { playSound } = usePlaySound()
+  const playSound = useAudioStore.use.playSound()
   const activeTasks = useGameStore.use.activeTasks?.()
   const sector = useGameStore.use.sector?.()
 
@@ -168,7 +168,7 @@ export const SectorTitleBanner = () => {
           initial={{ opacity: 0 }}
           animate={ANIMATE_IN}
           exit={ANIMATE_OUT}
-          className="w-full absolute left-0 top-1/2 -translate-y-1/2 z-20"
+          className="w-full absolute left-0 top-1/2 -translate-y-1/2 z-20 pointer-events-none"
         >
           <div className="flex flex-row gap-5 text-center justify-center items-center mx-auto w-max bg-background/70 p-2">
             <div className="dotted-bg-sm dotted-bg-white/60 self-stretch w-[160px]" />

@@ -4,7 +4,7 @@ import { cva } from "class-variance-authority"
 import { motion } from "motion/react"
 
 import { Separator } from "@/components/primitives/Separator"
-import usePlaySound from "@/hooks/usePlaySound"
+import useAudioStore from "@/stores/audio"
 import { cn } from "@/utils/tailwind"
 
 interface ToastBaseProps {
@@ -20,7 +20,7 @@ export const ToastBase = ({
   onAnimationComplete,
   onClick,
 }: ToastBaseProps) => {
-  const { playSound } = usePlaySound()
+  const playSound = useAudioStore.use.playSound()
 
   useEffect(() => {
     if (onAnimateIn) {

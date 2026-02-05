@@ -5,7 +5,7 @@ import { PlugsIcon, WrenchIcon } from "@phosphor-icons/react"
 
 import { useChat } from "@/hooks/useChat"
 import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
-import usePlaySound from "@/hooks/usePlaySound"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
 import { Card, CardContent } from "./primitives/Card"
@@ -77,7 +77,7 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
 
 export const ChatPanel = () => {
   const { isConnected } = usePipecatConnectionState()
-  const { playSound } = usePlaySound()
+  const playSound = useAudioStore.use.playSound()
   const { messages } = useChat({ textMode: "llm" })
   const llmIsWorking = useGameStore.use.llmIsWorking()
 

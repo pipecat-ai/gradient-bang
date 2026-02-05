@@ -68,8 +68,7 @@
   --z-starfield: 1;
   --z-ui: 2;
   --z-visor: 3;
-  --z-toasts: 4;
-  --z-screens: 20;
+  --z-toasts: 50;
 }
 
 @theme inline {
@@ -132,7 +131,6 @@
   --z-visor: var(--z-visor);
   --z-ui: var(--z-ui);
   --z-toasts: var(--z-toasts);
-  --z-screens: var(--z-screens);
 
   --spacing-ui-xxs: calc(var(--spacing) * 1);
   --spacing-ui-xs: calc(var(--spacing) * 2);
@@ -140,6 +138,7 @@
   --spacing-ui-md: calc(var(--spacing) * 5);
   --spacing-ui-lg: calc(var(--spacing) * 10);
   --spacing-ui-xl: calc(var(--spacing) * 12);
+  --spacing-ui-2xl: calc(var(--spacing) * 18);
   --spacing-separator: var(--separator);
   --spacing-scrollbar: calc(var(--spacing) * 3);
   --spacing-panel: calc(var(--spacing) * 2);
@@ -513,7 +512,6 @@ button {
   display: grid;
   place-items: center;
   overflow-y: auto;
-  z-index: 50;
 }
 
 .DialogContent {
@@ -526,7 +524,6 @@ button {
   padding-block: var(--spacing-screen-border-y);
   padding-inline: var(--spacing-screen-border-x);
   margin: auto;
-  z-index: 50;
 
   > * {
     --color-elbow: white;

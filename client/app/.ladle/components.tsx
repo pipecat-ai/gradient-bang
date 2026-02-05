@@ -76,9 +76,11 @@ const StoryWrapper = ({
 
       {storyMeta?.useDevTools && storyMeta?.useChatControls && <BasicDevTools />}
 
-      <LevaControls client={client} endpoint={endpoint} hidden={!storyMeta?.useDevTools} />
-
       {children}
+
+      <div className="pointer-events-auto">
+        <LevaControls client={client} endpoint={endpoint} hidden={!storyMeta?.useDevTools} />
+      </div>
     </>
   )
 }

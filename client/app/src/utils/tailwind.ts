@@ -39,6 +39,7 @@ const customTwMerge = extendTailwindMerge({
           "bracket-size": [(value: string) => !isNaN(Number(value))],
         },
       ],
+      "bracket-vertical": ["bracket-vertical"],
       bracket: [
         {
           bracket: [(value: string) => isNaN(Number(value))],

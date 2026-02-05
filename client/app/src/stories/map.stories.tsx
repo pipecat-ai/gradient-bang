@@ -148,8 +148,10 @@ BigMapStory.meta = {
 
 export const MiniMapStory: Story = () => {
   return (
-    <div className="flex flex-col items-center justify-center w-screen h-screen bg-muted">
-      <MiniMapPanel className="w-[330px] h-[330px] aspect-square border" />
+    <div className="flex flex-col items-center justify-center w-screen h-screen bg-white">
+      <div className="w-[330px] h-[330px] max-h-[330px]  overflow-hidden">
+        <MiniMapPanel />
+      </div>
     </div>
   )
 }

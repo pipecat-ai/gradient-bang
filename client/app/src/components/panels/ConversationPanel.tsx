@@ -17,7 +17,7 @@ export const ConversationPanel = ({ className }: { className?: string }) => {
             sendUserTextInput?.(text)
           }}
         />
-        <UserMicControl className="min-w-30" />
+        <UserMicControl className="@2xl/main:min-w-30" />
       </div>
       <Divider variant="dashed" className="h-[6px] text-foreground/30 " />
     </div>

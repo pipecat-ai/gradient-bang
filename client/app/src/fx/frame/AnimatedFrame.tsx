@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react"
 import { deepmergeCustom } from "deepmerge-ts"
 import mitt, { type Emitter, type Handler, type WildcardHandler } from "mitt"
 
-import usePlaySound from "@/hooks/usePlaySound"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
 /**
@@ -160,7 +160,7 @@ const mergeDiamondConfig = deepmergeCustom({
  */
 export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const { playSound } = usePlaySound()
+  const playSound = useAudioStore.use.playSound()
 
   useEffect(() => {
     const state = useGameStore.getState()

@@ -6,6 +6,7 @@ import type { PerformanceProfile } from "@gradient-bang/starfield"
 import { portImages, skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
 import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
 
 // Lazy load the starfield component - this keeps all starfield deps out of main bundle
 const StarfieldLazy = lazy(() => import("./StarfieldLazy"))
@@ -88,7 +89,10 @@ export const Starfield = () => {
   return (
     <Suspense fallback={null}>
       <motion.div
-        className="absolute inset-0 z-(--z-starfield) overflow-hidden"
+        className={cn(
+          "absolute inset-0 z-(--z-starfield) overflow-hidden",
+          lookMode ? "cursor-look-mode" : ""
+        )}
         initial={{ opacity: 0 }}
         animate={{ opacity: starfieldReady ? 1 : 0 }}
         transition={{ delay: 1, duration: 2, ease: "easeOut" }}

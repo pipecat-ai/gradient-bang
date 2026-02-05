@@ -1,5 +1,6 @@
 import { Effect } from "postprocessing"
-import { Texture, Uniform } from "three"
+import type { Texture } from "three"
+import { Uniform } from "three"
 
 /**
  * Interface for layer dim effect options
