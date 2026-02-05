@@ -5,6 +5,7 @@ import { XIcon } from "@phosphor-icons/react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
+import { MapLegend } from "@/components/MapLegends"
 import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
 import { Badge } from "@/components/primitives/Badge"
 import { Separator } from "@/components/primitives/Separator"
@@ -29,7 +30,6 @@ const MAP_CONFIG: MapConfig = {
   show_sector_ids: false,
   show_partial_lanes: true,
   show_ports: true,
-  show_hyperlanes: false,
   show_grid: true,
   show_port_labels: true,
   nodeStyles: {
@@ -239,6 +239,10 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
             </Badge>
           )}
         </header>
+
+        <footer className="absolute bottom-0 left-0 w-full h-fit p-ui-md">
+          <MapLegend />
+        </footer>
 
         {isFetching && <FillCrossLoader message="Fetching map data" className="bg-card/40" />}
 

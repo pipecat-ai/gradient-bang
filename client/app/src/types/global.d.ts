@@ -163,17 +163,19 @@ declare global {
   interface Port extends PortBase {
     // max_capacity: Record<Resource, number>;
     code: string
-    port_class?: number
-    observed_at?: string
+    mega?: boolean
     stock: Record<Resource, number>
     prices: Record<Resource, number>
-    warp_power_depot?: PortWarpPowerDepot
+    port_class?: number
+    observed_at?: string
+
+    //warp_power_depot?: PortWarpPowerDepot
   }
 
-  interface PortWarpPowerDepot {
-    note?: string
-    price_per_unit: number
-  }
+  // interface PortWarpPowerDepot {
+  //   note?: string
+  //   price_per_unit: number
+  // }
 
   // --- MAP
 
