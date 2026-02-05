@@ -414,6 +414,253 @@ If you add or rename events:
 }
 ```
 
+### `movement.start`
+
+```tsx
+{
+  player: {
+    id: string,
+    name: string,
+  },
+  sector: {
+    id: number,
+    region?: string,
+    position: [number, number],
+    adjacent_sectors: number[],
+    scene_config?: unknown,
+    port?: {
+      id: number,
+      code: string,
+      mega?: boolean,
+      stock: {
+        quantum_foam?: number,
+        retro_organics?: number,
+        neuro_symbolics?: number,
+      },
+      prices: {
+        quantum_foam?: number,
+        retro_organics?: number,
+        neuro_symbolics?: number,
+      },
+      port_class?: number,
+      observed_at?: string,
+    } | null,
+    players?: [
+      {
+        id: string,
+        name: string,
+        player_type: "human" | "npc" | "corporation_ship",
+        ship: {
+          ship_id: string,
+          ship_name: string,
+          ship_type: string,
+        },
+        corporation: {
+          name: string,
+          corp_id: string,
+          joined_at: string,
+          member_count: number
+        } | null,
+        created_at: string | null,
+      },
+    ],
+    salvage?: [
+      {
+        salvage_id: string,
+        cargo: {
+          quantum_foam?: number,
+          retro_organics?: number,
+          neuro_symbolics?: number,
+        },
+        scrap: number,
+        source: {
+          ship_name: string,
+          ship_type: string,
+        },
+        claimed: boolean,
+        credits: number,
+        metadata: Record<string, unknown>,
+        created_at: string,
+        expires_at: string,
+      }
+    ],
+    garrison?: {
+      owner_id: string,
+      owner_name: string,
+      fighters: number,
+      mode: "offensive" | "defensive" | "toll",
+      toll_amount: number,
+      toll_balance: number,
+      is_friendly: boolean,
+    } | null,
+    unowned_ships?: [
+      {
+        ship_id: string,
+        ship_type: string,
+        ship_name: string,
+        owner_type: string | null,
+        cargo: {
+          quantum_foam?: number,
+          retro_organics?: number,
+          neuro_symbolics?: number,
+        },
+        shields: number,
+        fighters: number,
+        owner_id: string | null,
+        became_unowned: string,
+        former_owner_name: string,
+      }
+    ],
+  },
+  source: {
+    type: "rpc",
+    method: string,
+    timestamp: string,
+    request_id: string,
+  },
+  hyperspace_time: number,
+  __task_id?: string,
+}
+```
+
+### `movement.complete`
+
+```tsx
+{
+  ship: {
+    ship_id: string,
+    ship_name: string,
+    ship_type: string,
+    cargo?: {
+      quantum_foam: number,
+      retro_organics: number,
+      neuro_symbolics: number,
+    },
+    credits?: number,
+    shields?: number,
+    fighters?: number,
+    warp_power?: number,
+    warp_power_capacity?: number,
+    empty_holds?: number,
+    max_shields?: number,
+    max_fighters?: number,
+    cargo_capacity?: number,
+    turns_per_warp?: number,
+  },
+  player: {
+    id: string,
+    name: string,
+    created_at: string,
+    last_active: string,
+    player_type: "human" | "npc" | "corporation_ship",
+    universe_size: number,
+    credits_in_bank: number,
+    sectors_visited: number,
+    total_sectors_known: number,
+    corp_sectors_visited: number | null,
+  },
+  sector: {
+    id: number,
+    region?: string,
+    position: [number, number],
+    adjacent_sectors: number[],
+    scene_config?: unknown,
+    port?: {
+      id: number,
+      code: string,
+      mega?: boolean,
+      stock: {
+        quantum_foam?: number,
+        retro_organics?: number,
+        neuro_symbolics?: number,
+      },
+      prices: {
+        quantum_foam?: number,
+        retro_organics?: number,
+        neuro_symbolics?: number,
+      },
+      port_class?: number,
+      observed_at?: string,
+    },
+    players?: [
+      {
+        id: string,
+        name: string,
+        player_type: "human" | "npc" | "corporation_ship",
+        ship: {
+          ship_id: string,
+          ship_name: string,
+          ship_type: string,
+        },
+        corporation: {
+          name: string,
+          corp_id: string,
+          joined_at: string,
+          member_count: number
+        } | null,
+        created_at: string | null,
+      },
+    ],
+    salvage?: [
+      {
+        salvage_id: string,
+        cargo: {
+          quantum_foam?: number,
+          retro_organics?: number,
+          neuro_symbolics?: number,
+        },
+        scrap: number,
+        source: {
+          ship_name: string,
+          ship_type: string,
+        },
+        claimed: boolean,
+        credits: number,
+        metadata: Record<string, unknown>,
+        created_at: string,
+        expires_at: string,
+      }
+    ],
+    garrison?: {
+      owner_id: string,
+      owner_name: string,
+      fighters: number,
+      mode: "offensive" | "defensive" | "toll",
+      toll_amount: number,
+      toll_balance: number,
+      is_friendly: boolean,
+    } | null,
+    unowned_ships?: [
+      {
+        ship_id: string,
+        ship_type: string,
+        ship_name: string,
+        owner_type: string | null,
+        cargo: {
+          quantum_foam?: number,
+          retro_organics?: number,
+          neuro_symbolics?: number,
+        },
+        shields: number,
+        fighters: number,
+        owner_id: string | null,
+        became_unowned: string,
+        former_owner_name: string,
+      }
+    ],
+  },
+  source: {
+    type: "rpc",
+    method: string,
+    timestamp: string,
+    request_id: string,
+  },
+  first_visit: boolean,
+  known_to_corp: boolean,
+  __task_id?: string,
+}
+```
+
 ### `course.plot`
 
 ```tsx
