@@ -1,7 +1,8 @@
-import { PORT_ICON, SHIP_ICON } from "./MapIcons"
+import { MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
 
 // Create Path2D once at module level for performance
 const portPath = new Path2D(PORT_ICON)
+const megaPortPath = new Path2D(MEGA_PORT_ICON)
 const shipPath = new Path2D(SHIP_ICON)
 const PORT_ICON_VIEWBOX = 256
 const SHIP_ICON_VIEWBOX = 256
@@ -48,6 +49,8 @@ export interface NodeStyle {
   borderPosition?: "center" | "inside"
   outline: string
   outlineWidth: number
+  // Port/icon fill color (overrides PortStyles color when set)
+  iconColor?: string
   // Offset frame - larger outer ring around the node
   offset?: boolean
   offsetColor?: string
@@ -76,6 +79,7 @@ export interface NodeStyles {
   visited_corp: NodeStyle
   unvisited: NodeStyle
   muted: NodeStyle
+  megaPort: NodeStyle
   coursePlotStart: NodeStyle
   coursePlotEnd: NodeStyle
   coursePlotMid: NodeStyle
@@ -134,6 +138,19 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     outline: "none",
     outlineWidth: 0,
   },
+  megaPort: {
+    fill: "rgba(255,215,0,0.3)",
+    border: "rgba(255,215,0,1)",
+    borderWidth: 3,
+    borderStyle: "solid",
+    outline: "rgba(255,215,0,0.5)",
+    outlineWidth: 2,
+    iconColor: "#fef9c3",
+    glow: true,
+    glowRadius: 100,
+    glowColor: "rgba(255,255,255,0.15)",
+    glowFalloff: 0.3,
+  },
   coursePlotStart: {
     fill: "rgba(0,220,200,0.35)",
     border: "rgba(0,255,230,0.9)",
@@ -184,11 +201,13 @@ export const DEFAULT_REGION_STYLES: RegionStyleOverrides = {
     fill: "#042f2e",
     border: "#5eead4",
     outline: "rgba(94,234,212,0.5)",
+    iconColor: "#d1fae5",
   },
   neutral: {
     fill: "#1e1b4b",
     border: "#818cf8",
     outline: "rgba(99,102,241,0.5)",
+    iconColor: "#e0e7ff",
   },
 }
 
@@ -1099,8 +1118,10 @@ function getNodeStyle(
   const isHovered = node.id === hoveredSectorId
   const isCentered = node.id === config.center_sector_id && !isCurrent
   const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true
+  const isMegaPort = node.port === "SSS"
 
   let baseStyle: NodeStyle
+
   if (coursePlot && isInPlot) {
     const currentIndex =
       config.current_sector_id !== undefined ?
@@ -1127,6 +1148,8 @@ function getNodeStyle(
     baseStyle = config.nodeStyles.muted
   } else if (isCurrent) {
     baseStyle = config.nodeStyles.current
+  } else if (isMegaPort) {
+    baseStyle = config.nodeStyles.megaPort
   } else if (isVisited) {
     if (node.source === "corp") {
       baseStyle = config.nodeStyles.visited_corp
@@ -1137,6 +1160,7 @@ function getNodeStyle(
     baseStyle = config.nodeStyles.unvisited
   }
 
+  // Apply region overrides
   if (node.region && config.regionStyles) {
     const regionKey = slugifyRegion(node.region)
     const regionOverride = config.regionStyles[regionKey]
@@ -1149,7 +1173,8 @@ function getNodeStyle(
   if (isCentered) {
     nodeStyle = { ...baseStyle, ...config.nodeStyles.centered }
   }
-  if (isHovered && config.clickable) {
+  // Don't apply hover overrides to the centered/selected node
+  if (isHovered && config.clickable && !isCentered) {
     nodeStyle = { ...baseStyle, ...config.nodeStyles.hovered }
   }
 
@@ -1276,13 +1301,15 @@ function renderSector(
   ctx.lineCap = "butt"
 
   if (config.show_ports && node.port) {
-    const isMegaPort = node.is_mega || node.id === 0
+    const isMegaPort = node.port === "SSS"
     const portStyle = isMegaPort ? config.portStyles.mega : config.portStyles.regular
 
-    // Use muted color for ports not in course plot
+    // Use nodeStyle.iconColor if set, otherwise fall back to portStyle colors
     let portColor: string
     if (coursePlotSectors && !isInPlot) {
       portColor = portStyle.mutedColor
+    } else if (nodeStyle.iconColor) {
+      portColor = nodeStyle.iconColor
     } else {
       portColor = portStyle.color
     }
@@ -1301,7 +1328,7 @@ function renderSector(
     ctx.translate(-PORT_ICON_VIEWBOX / 2, -PORT_ICON_VIEWBOX / 2)
 
     ctx.fillStyle = applyAlpha(portColor, finalOpacity)
-    ctx.fill(portPath)
+    ctx.fill(isMegaPort ? megaPortPath : portPath)
     ctx.restore()
   }
 
