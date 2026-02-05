@@ -179,6 +179,7 @@ export interface TradeExecutedMessage extends ServerMessagePayload {
 export interface SectorUpdateMessage extends ServerMessagePayload, Sector {}
 
 export interface SalvageCreatedMessage extends ServerMessagePayload {
+  scope?: "player" | "corporation"
   action?: string
   sector: Sector
   salvage_details: Salvage
@@ -186,6 +187,7 @@ export interface SalvageCreatedMessage extends ServerMessagePayload {
 }
 
 export interface SalvageCollectedMessage extends ServerMessagePayload {
+  scope?: "player" | "corporation"
   sector: Sector
   salvage_details: Salvage
   timestamp: string

@@ -1267,9 +1267,74 @@ class BankWithdraw(GameClientTool):
 
 class DumpCargo(GameClientTool):
     def __call__(self, items):
+        normalized_items = self._normalize_items(items)
         return self.game_client.dump_cargo(
-            items=items, character_id=self.game_client.character_id
+            items=normalized_items, character_id=self.game_client.character_id
         )
+
+    def _normalize_items(self, items):
+        if not isinstance(items, list):
+            raise ValueError(
+                "dump_cargo items must be a list of objects like "
+                '[{"commodity":"quantum_foam","units":1}]'
+            )
+
+        normalized = []
+        for entry in items:
+            if isinstance(entry, str):
+                parsed = self._parse_item_string(entry)
+                if not parsed:
+                    raise ValueError(
+                        "dump_cargo items must be objects like "
+                        '{"commodity":"quantum_foam","units":1}'
+                    )
+                normalized.append(parsed)
+                continue
+
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    "dump_cargo items must be objects like "
+                    '{"commodity":"quantum_foam","units":1}'
+                )
+
+            commodity = entry.get("commodity")
+            units = entry.get("units")
+            if commodity is None or units is None:
+                raise ValueError(
+                    "dump_cargo items must include commodity and units, e.g. "
+                    '{"commodity":"quantum_foam","units":1}'
+                )
+
+            if isinstance(units, str) and units.isdigit():
+                units = int(units)
+
+            normalized.append({**entry, "units": units})
+
+        return normalized
+
+    def _parse_item_string(self, entry: str):
+        if not entry:
+            return None
+        parts = [part.strip() for part in entry.split(",") if part.strip()]
+        if not parts:
+            return None
+        parsed = {}
+        for part in parts:
+            if ":" not in part:
+                return None
+            key, value = part.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if key == "commodity":
+                parsed["commodity"] = value
+            elif key == "units":
+                if value.isdigit():
+                    parsed["units"] = int(value)
+                else:
+                    return None
+        if "commodity" in parsed and "units" in parsed:
+            return parsed
+        return None
 
     @classmethod
     def schema(cls):

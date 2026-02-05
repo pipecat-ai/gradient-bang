@@ -429,6 +429,10 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Salvage created", e.payload)
               const data = e.payload as SalvageCreatedMessage
 
+              if (data.scope && data.scope !== "player") {
+                break
+              }
+
               // Note: we update sector contents in proceeding sector.update event
 
               // @TODO: status update is missing, so we may need to update player state here

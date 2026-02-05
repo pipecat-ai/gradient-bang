@@ -23,6 +23,7 @@ salvage.collected:
 - Added `scope` to `salvage.collected` when emitted from `salvage_collect`.
 - `scope` is derived from the target ship/character using shared helpers (`resolvePlayerType`, `resolveScope`).
 - Sector-wide `salvage.created` from combat remains unchanged (no scope), since it is not actor-scoped.
+- Added a client-side tool guard to normalize/validate `dump_cargo` items before RPC submission, preventing string-form cargo entries.
 
 **PR Summary (Salvage Events)**
 
@@ -30,3 +31,4 @@ salvage.collected:
 
 - Added optional `scope: "player" | "corporation"` to actor-scoped salvage events.
 - Updated the catalog and server payloads for `salvage.created` (dump cargo) and `salvage.collected`.
+- Added a tool-side validator for `dump_cargo` to parse or reject malformed `items` entries.
