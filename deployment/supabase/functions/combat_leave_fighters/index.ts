@@ -13,6 +13,7 @@ import {
   emitErrorEvent,
   buildEventSource,
   recordEventWithRecipients,
+  emitSectorEnvelope,
 } from "../_shared/events.ts";
 import {
   pgLoadCharacter,
@@ -50,6 +51,7 @@ import {
 import { computeNextCombatDeadline } from "../_shared/combat_resolution.ts";
 import { computeEventRecipients } from "../_shared/visibility.ts";
 import { loadUniverseMeta, isFedspaceSector } from "../_shared/fedspace.ts";
+import { buildSectorSnapshot } from "../_shared/map.ts";
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -373,7 +375,18 @@ async function handleCombatLeaveFighters(params: {
     corpId: character.corporation_id,
   });
 
-  // TODO: Emit sector.update to all sector occupants (omitted for initial deployment)
+  // Emit sector.update to all sector occupants with full sector snapshot
+  const sectorSnapshot = await buildSectorSnapshot(supabase, sector);
+  sectorSnapshot.source = buildEventSource("combat.leave_fighters", requestId);
+  await emitSectorEnvelope({
+    supabase,
+    sectorId: sector,
+    eventType: "sector.update",
+    payload: sectorSnapshot,
+    requestId,
+    actorCharacterId: characterId,
+    taskId,
+  });
 
   // If mode is 'offensive', auto-initiate combat with sector occupants
   if (mode === "offensive") {

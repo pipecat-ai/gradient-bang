@@ -19,6 +19,8 @@ import {
   loadCharacter,
   loadShip,
   loadShipDefinition,
+  resolvePlayerType,
+  resolveScope,
 } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
@@ -209,6 +211,8 @@ async function handleDumpCargo(
   const manifest = parseManifest(payload["items"] ?? payload["cargo"]);
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+  const playerType = resolvePlayerType(character.player_metadata);
+  const scope = resolveScope(ship.owner_type, playerType);
 
   await ensureActorAuthorization({
     supabase,
@@ -265,6 +269,7 @@ async function handleDumpCargo(
     eventType: "salvage.created",
     payload: {
       action: "dumped",
+      scope,
       salvage_details: {
         salvage_id: salvageEntry.salvage_id,
         cargo: salvageEntry.cargo,

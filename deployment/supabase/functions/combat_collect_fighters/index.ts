@@ -11,6 +11,7 @@ import {
   emitCharacterEvent,
   emitErrorEvent,
   buildEventSource,
+  emitSectorEnvelope,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
@@ -28,8 +29,7 @@ import {
   ActorAuthorizationError,
 } from "../_shared/actors.ts";
 import { getEffectiveCorporationId } from "../_shared/corporations.ts";
-import { computeSectorVisibilityRecipients } from "../_shared/visibility.ts";
-import { recordEventWithRecipients } from "../_shared/events.ts";
+import { buildSectorSnapshot } from "../_shared/map.ts";
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -401,31 +401,18 @@ async function handleCombatCollectFighters(params: {
     corpId: character.corporation_id,
   });
 
-  // Emit sector.update to all sector occupants
-  const recipients = await computeSectorVisibilityRecipients(
+  // Emit sector.update to all sector occupants with full sector snapshot
+  const sectorSnapshot = await buildSectorSnapshot(supabase, sector);
+  sectorSnapshot.source = buildEventSource("combat.collect_fighters", requestId);
+  await emitSectorEnvelope({
     supabase,
-    sector,
-    [],
-  );
-  if (recipients.length > 0) {
-    // Build sector update payload
-    // For now, we'll emit a simple notification that sector contents changed
-    // The full sector_contents payload would require loading all sector data
-    await recordEventWithRecipients({
-      supabase,
-      eventType: "sector.update",
-      payload: {
-        source: buildEventSource("combat.collect_fighters", requestId),
-        sector: { id: sector },
-        // TODO: Add full sector contents if needed
-      },
-      recipients,
-      sectorId: sector,
-      actorCharacterId: characterId,
-      requestId,
-      taskId,
-    });
-  }
+    sectorId: sector,
+    eventType: "sector.update",
+    payload: sectorSnapshot,
+    requestId,
+    actorCharacterId: characterId,
+    taskId,
+  });
 
   return successResponse({ success: true });
 }

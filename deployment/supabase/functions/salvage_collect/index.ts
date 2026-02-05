@@ -27,6 +27,8 @@ import {
   loadShip,
   loadShipDefinition,
   buildStatusPayload,
+  resolvePlayerType,
+  resolveScope,
 } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
@@ -160,6 +162,8 @@ async function handleSalvageCollect(params: {
   // Load character and ship
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+  const playerType = resolvePlayerType(character.player_metadata);
+  const scope = resolveScope(ship.owner_type, playerType);
   await ensureActorAuthorization({
     supabase,
     ship,
@@ -464,6 +468,7 @@ async function handleSalvageCollect(params: {
     eventType: "salvage.collected",
     payload: {
       action: "collected",
+      scope,
       salvage_details: {
         salvage_id: salvageId,
         collected: {
