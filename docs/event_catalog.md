@@ -107,6 +107,12 @@ If you add or rename events:
     total_sectors_known: number,
     corp_sectors_visited?: number,
   },
+  corporation?: {
+    name: string,
+    corp_id: string,
+    joined_at: string,
+    member_count: number,
+  },
   sector: {
     id: number,
     region: string,
@@ -140,15 +146,15 @@ If you add or rename events:
           ship_name: string,
           ship_type: string,
         },
+        corporation: {
+          name: string,
+          corp_id: string,
+          joined_at: string,
+          member_count: number
+        },
         created_at?: string,
       },
     ],
-    corporation?: {
-      name: string,
-      corp_id: string,
-      joined_at: string,
-      member_count: number,
-    },
     salvage?: [
       {
         salvage_id: string,
@@ -169,7 +175,15 @@ If you add or rename events:
         expires_at: string,
       }
     ],
-    garrison?: null,
+    garrison?: {
+      owner_id: string,
+      owner_name: string,
+      fighters: number,
+      mode: "offensive" | "defensive" | "toll",
+      toll_amount: number,
+      toll_balance: number,
+      is_friendly: boolean,
+    } | null,
     unowned_ships?: [
       {
         ship_id: string,
@@ -189,6 +203,7 @@ If you add or rename events:
       }
     ],
   },
+
 }
 ```
 
