@@ -381,7 +381,7 @@ const createGameSlice: StateCreator<
           // prevent a double render
           const updates =
             ignoreLocal ?
-              sectorUpdates.filter((s) => (s as MapSectorNode).source !== "player")
+              sectorUpdates.filter((s) => (s as MapSectorNode).scope !== "player")
             : sectorUpdates
 
           if (updates.length === 0) return
