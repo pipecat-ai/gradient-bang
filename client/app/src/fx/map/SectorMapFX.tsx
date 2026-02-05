@@ -28,7 +28,6 @@ export interface SectorMapConfigBase {
   show_sector_ids_hover: boolean
   show_ports: boolean
   show_port_labels: boolean
-  show_hyperlanes: boolean
   show_partial_lanes: boolean
   partial_lane_max_length?: number
   clickable: boolean
@@ -260,8 +259,6 @@ export interface LaneStyle {
 export interface LaneStyles {
   normal: LaneStyle
   oneWay: LaneStyle
-  hyperlane: LaneStyle
-  hyperlaneStub: LaneStyle
   partial: LaneStyle
   muted: LaneStyle
   coursePlot: LaneStyle
@@ -285,26 +282,6 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     dashPattern: "none",
     arrowColor: "#737373",
     arrowSize: 8,
-    shadowBlur: 0,
-    shadowColor: "none",
-    lineCap: "butt",
-  },
-  hyperlane: {
-    color: "rgba(190,160,255,1)",
-    width: 2,
-    dashPattern: "none",
-    arrowColor: "none",
-    arrowSize: 0,
-    shadowBlur: 0,
-    shadowColor: "none",
-    lineCap: "butt",
-  },
-  hyperlaneStub: {
-    color: "rgba(190,160,255,1)",
-    width: 2,
-    dashPattern: "4,4",
-    arrowColor: "rgba(190,160,255,1)",
-    arrowSize: 6,
     shadowBlur: 0,
     shadowColor: "none",
     lineCap: "butt",
@@ -364,7 +341,6 @@ export interface LabelStyle {
 export interface LabelStyles {
   sectorId: LabelStyle
   portCode: LabelStyle
-  hyperlane: LabelStyle
   shipCount: LabelStyle
 }
 
@@ -386,15 +362,6 @@ export const DEFAULT_LABEL_STYLES: LabelStyles = {
     hoveredFontSize: 12,
     fontWeight: 800,
     mutedOpacity: 0.3,
-  },
-  hyperlane: {
-    textColor: "#000000",
-    backgroundColor: "#ffffff",
-    padding: 2,
-    fontSize: 10,
-    hoveredFontSize: 10,
-    fontWeight: 800,
-    mutedOpacity: 1,
   },
   shipCount: {
     textColor: "#ffffff",
@@ -472,7 +439,6 @@ export const DEFAULT_SECTORMAP_CONFIG: Omit<SectorMapConfigBase, "center_sector_
   show_sector_ids_hover: true,
   show_ports: true,
   show_port_labels: true,
-  show_hyperlanes: false,
   show_partial_lanes: true,
   partial_lane_max_length: 40,
   clickable: false,
@@ -714,7 +680,6 @@ function getHexEdgePoint(
 /** Render a single lane between two sectors */
 function renderLane(
   ctx: CanvasRenderingContext2D,
-  lane: MapLane,
   fromNode: MapSectorNode,
   toNode: MapSectorNode,
   scale: number,
@@ -739,8 +704,6 @@ function renderLane(
     laneStyle = config.laneStyles.muted
   } else if (coursePlot && isInPlot) {
     laneStyle = config.laneStyles.coursePlot
-  } else if (lane.hyperlane && config.show_hyperlanes) {
-    laneStyle = config.laneStyles.hyperlane
   } else if (isBidirectional) {
     laneStyle = config.laneStyles.normal
   } else {
@@ -809,124 +772,6 @@ function renderLane(
   if (needsArrow && meetsLengthThreshold) {
     ctx.strokeStyle = laneStyle.arrowColor !== "none" ? laneStyle.arrowColor : laneStyle.color
     renderArrow(ctx, arrowFrom, arrowTo, laneStyle.arrowSize)
-  }
-}
-
-/** Find hex edge direction that avoids existing lane directions */
-
-/** Index-aware variant to avoid repeated linear lookups */
-function findAvailableEdgeDirectionWithIndex(
-  fromNode: MapSectorNode,
-  index: Map<number, MapSectorNode>,
-  scale: number
-): number {
-  const usedAngles = fromNode.lanes
-    .map((lane) => {
-      const toNode = index.get(lane.to)
-      if (!toNode) return null
-      const fromWorld = hexToWorld(fromNode.position[0], fromNode.position[1], scale)
-      const toWorld = hexToWorld(toNode.position[0], toNode.position[1], scale)
-      return Math.atan2(toWorld.y - fromWorld.y, toWorld.x - fromWorld.x)
-    })
-    .filter((angle): angle is number => angle !== null)
-
-  const hexDirections = [
-    0,
-    Math.PI / 3,
-    (2 * Math.PI) / 3,
-    Math.PI,
-    (4 * Math.PI) / 3,
-    (5 * Math.PI) / 3,
-  ]
-
-  for (const direction of hexDirections) {
-    const isAvailable = usedAngles.every((usedAngle) => {
-      let diff = Math.abs(direction - usedAngle)
-      if (diff > Math.PI) diff = 2 * Math.PI - diff
-      return diff > Math.PI / 4
-    })
-    if (isAvailable) return direction
-  }
-
-  return 0
-}
-
-/** Render short stub for hyperlanes to invisible destinations */
-function renderHyperlaneStub(
-  ctx: CanvasRenderingContext2D,
-  fromNode: MapSectorNode,
-  destinationId: number,
-  direction: number,
-  scale: number,
-  hexSize: number,
-  config: SectorMapConfigBase,
-  coursePlot: CoursePlot | null = null
-): { x: number; y: number; text: string } | null {
-  const fromWorld = hexToWorld(fromNode.position[0], fromNode.position[1], scale)
-
-  const stubLength = hexSize * 2
-  const startEdge = getHexEdgePoint(
-    fromWorld,
-    {
-      x: fromWorld.x + Math.cos(direction),
-      y: fromWorld.y + Math.sin(direction),
-    },
-    hexSize
-  )
-  const endPoint = {
-    x: startEdge.x + stubLength * Math.cos(direction),
-    y: startEdge.y + stubLength * Math.sin(direction),
-  }
-
-  let stubStyle = config.laneStyles.hyperlaneStub
-
-  // Apply region lane style overrides (only when no course plot is active)
-  if (!coursePlot && fromNode.region && config.regionLaneStyles) {
-    const regionKey = slugifyRegion(fromNode.region)
-    const regionOverride = config.regionLaneStyles[regionKey]
-    if (regionOverride?.oneWayColor) {
-      stubStyle = { ...stubStyle, color: regionOverride.oneWayColor }
-    }
-  }
-
-  ctx.save()
-  ctx.strokeStyle = stubStyle.color
-  ctx.lineWidth = stubStyle.width
-  ctx.lineCap = stubStyle.lineCap
-  if (stubStyle.dashPattern !== "none") {
-    ctx.setLineDash(stubStyle.dashPattern.split(",").map((n) => parseFloat(n)))
-  }
-  ctx.beginPath()
-  ctx.moveTo(startEdge.x, startEdge.y)
-  ctx.lineTo(endPoint.x, endPoint.y)
-  ctx.stroke()
-  ctx.restore()
-
-  if (stubStyle.arrowColor !== "none" && stubStyle.arrowSize > 0) {
-    ctx.save()
-    ctx.strokeStyle = stubStyle.arrowColor
-    ctx.fillStyle = stubStyle.arrowColor
-    ctx.lineWidth = stubStyle.width
-    const arrowSize = stubStyle.arrowSize
-    ctx.beginPath()
-    ctx.moveTo(endPoint.x, endPoint.y)
-    ctx.lineTo(
-      endPoint.x - arrowSize * Math.cos(direction - Math.PI / 6),
-      endPoint.y - arrowSize * Math.sin(direction - Math.PI / 6)
-    )
-    ctx.lineTo(
-      endPoint.x - arrowSize * Math.cos(direction + Math.PI / 6),
-      endPoint.y - arrowSize * Math.sin(direction + Math.PI / 6)
-    )
-    ctx.closePath()
-    ctx.fill()
-    ctx.restore()
-  }
-
-  return {
-    x: endPoint.x + 4,
-    y: endPoint.y - 4,
-    text: `→${destinationId}`,
   }
 }
 
@@ -1027,7 +872,7 @@ function renderPartialLane(
   ctx.restore()
 }
 
-/** Render all lanes and return hyperlane stub labels for later rendering */
+/** Render all lanes between sectors */
 function renderAllLanes(
   ctx: CanvasRenderingContext2D,
   filteredData: MapData,
@@ -1037,9 +882,8 @@ function renderAllLanes(
   config: SectorMapConfigBase,
   coursePlotLanes: Set<string> | null = null,
   coursePlot: CoursePlot | null = null
-): Array<{ x: number; y: number; text: string }> {
+): void {
   const renderedLanes = new Set<string>()
-  const hyperlaneLabels: Array<{ x: number; y: number; text: string }> = []
   const filteredIndex = createSectorIndex(filteredData)
   const fullIndex = createSectorIndex(fullData)
 
@@ -1063,25 +907,6 @@ function renderAllLanes(
               coursePlotLanes,
               coursePlot
             )
-            return
-          }
-        }
-
-        // Original hyperlane stub logic for truly missing sectors
-        if (lane.hyperlane && config.show_hyperlanes) {
-          const direction = findAvailableEdgeDirectionWithIndex(fromNode, filteredIndex, scale)
-          const labelInfo = renderHyperlaneStub(
-            ctx,
-            fromNode,
-            lane.to,
-            direction,
-            scale,
-            hexSize,
-            config,
-            coursePlot
-          )
-          if (labelInfo) {
-            hyperlaneLabels.push(labelInfo)
           }
         }
         return
@@ -1101,7 +926,6 @@ function renderAllLanes(
 
       renderLane(
         ctx,
-        lane,
         fromNode,
         toNode,
         scale,
@@ -1113,8 +937,6 @@ function renderAllLanes(
       )
     })
   })
-
-  return hyperlaneLabels
 }
 
 /** Apply opacity to color (multiplies existing alpha if present) */
@@ -1960,19 +1782,18 @@ function renderWithCameraState(
   ctx.scale(cameraState.zoom, cameraState.zoom)
   ctx.translate(cameraState.offsetX, cameraState.offsetY)
 
-  const hyperlaneLabels =
-    config.show_warps ?
-      renderAllLanes(
-        ctx,
-        cameraState.filteredData,
-        props.data,
-        scale,
-        hexSize,
-        config,
-        coursePlotLanes,
-        coursePlot
-      )
-    : []
+  if (config.show_warps) {
+    renderAllLanes(
+      ctx,
+      cameraState.filteredData,
+      props.data,
+      scale,
+      hexSize,
+      config,
+      coursePlotLanes,
+      coursePlot
+    )
+  }
 
   const fadingInIds = new Set(cameraState.fadingInData?.map((s) => s.id) ?? [])
 
@@ -2034,36 +1855,6 @@ function renderWithCameraState(
     coursePlotSectors,
     null
   )
-
-  // Hide hyperlane labels when course plot is active
-  if (hyperlaneLabels.length > 0 && !coursePlot) {
-    const labelStyle = config.labelStyles.hyperlane
-
-    ctx.save()
-    ctx.font = `${labelStyle.fontWeight} ${labelStyle.fontSize}px ${getCanvasFontFamily(ctx)}`
-    ctx.textAlign = "left"
-    ctx.textBaseline = "alphabetic"
-    hyperlaneLabels.forEach((label) => {
-      const screenPos = worldToScreen(label.x, label.y, width, height, cameraState)
-      const metrics = ctx.measureText(label.text)
-      const ascent = metrics.actualBoundingBoxAscent ?? labelStyle.fontSize
-      const descent = metrics.actualBoundingBoxDescent ?? 0
-      const textHeight = ascent + descent
-
-      const padding = labelStyle.padding
-      ctx.fillStyle = labelStyle.backgroundColor
-      ctx.fillRect(
-        screenPos.x - padding,
-        screenPos.y - ascent - padding,
-        metrics.width + padding * 2,
-        textHeight + padding * 2
-      )
-
-      ctx.fillStyle = labelStyle.textColor
-      ctx.fillText(label.text, screenPos.x, screenPos.y)
-    })
-    ctx.restore()
-  }
 }
 
 /** Render animated arrows on course plot lanes only */
@@ -2210,19 +2001,18 @@ function renderWithCameraStateAndInteraction(
   ctx.scale(cameraState.zoom, cameraState.zoom)
   ctx.translate(cameraState.offsetX, cameraState.offsetY)
 
-  const hyperlaneLabels =
-    config.show_warps ?
-      renderAllLanes(
-        ctx,
-        cameraState.filteredData,
-        props.data,
-        scale,
-        hexSize,
-        config,
-        coursePlotLanes,
-        coursePlot
-      )
-    : []
+  if (config.show_warps) {
+    renderAllLanes(
+      ctx,
+      cameraState.filteredData,
+      props.data,
+      scale,
+      hexSize,
+      config,
+      coursePlotLanes,
+      coursePlot
+    )
+  }
 
   const fadingInIds = new Set(cameraState.fadingInData?.map((s) => s.id) ?? [])
 
@@ -2308,36 +2098,6 @@ function renderWithCameraStateAndInteraction(
     coursePlotSectors,
     hoveredSectorId
   )
-
-  // Hide hyperlane labels when course plot is active
-  if (hyperlaneLabels.length > 0 && !coursePlot) {
-    const labelStyle = config.labelStyles.hyperlane
-
-    ctx.save()
-    ctx.font = `${labelStyle.fontWeight} ${labelStyle.fontSize}px ${getCanvasFontFamily(ctx)}`
-    ctx.textAlign = "left"
-    ctx.textBaseline = "alphabetic"
-    hyperlaneLabels.forEach((label) => {
-      const screenPos = worldToScreen(label.x, label.y, width, height, cameraState)
-      const metrics = ctx.measureText(label.text)
-      const ascent = metrics.actualBoundingBoxAscent ?? labelStyle.fontSize
-      const descent = metrics.actualBoundingBoxDescent ?? 0
-      const textHeight = ascent + descent
-
-      const padding = labelStyle.padding
-      ctx.fillStyle = labelStyle.backgroundColor
-      ctx.fillRect(
-        screenPos.x - padding,
-        screenPos.y - ascent - padding,
-        metrics.width + padding * 2,
-        textHeight + padding * 2
-      )
-
-      ctx.fillStyle = labelStyle.textColor
-      ctx.fillText(label.text, screenPos.x, screenPos.y)
-    })
-    ctx.restore()
-  }
 }
 
 export interface SectorMapController {
