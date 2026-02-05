@@ -210,6 +210,16 @@ export function resolvePlayerType(
   return "human";
 }
 
+export function resolveScope(
+  shipOwnerType: string | null | undefined,
+  playerType: string | null | undefined,
+): "player" | "corporation" {
+  if (shipOwnerType === "corporation" || playerType === "corporation_ship") {
+    return "corporation";
+  }
+  return "player";
+}
+
 export function buildPlayerSnapshot(
   character: CharacterRow,
   playerType: string,
@@ -331,6 +341,7 @@ export async function buildStatusPayload(
   const knowledge = await loadMapKnowledge(supabase, characterId);
   const universeSize = await loadUniverseSize(supabase);
   const playerType = resolvePlayerType(character.player_metadata);
+  const scope = resolveScope(ship.owner_type, playerType);
   const player = buildPlayerSnapshot(
     character,
     playerType,
@@ -359,6 +370,7 @@ export async function buildStatusPayload(
   }
 
   return {
+    scope,
     player,
     ship: shipSnapshot,
     sector: sectorSnapshot,
