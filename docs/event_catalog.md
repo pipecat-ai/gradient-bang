@@ -307,6 +307,18 @@ If you add or rename events:
 }
 ```
 
+### `course.plot`
+
+```tsx
+{
+  scope?: "player" | "corp" | "both",
+  path: number[],
+  distance: number,
+  to_sector: number,
+  from_sector: number,
+}
+```
+
 ### `ships.list`
 
 ```tsx
