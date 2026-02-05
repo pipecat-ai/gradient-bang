@@ -2844,7 +2844,6 @@ export function createSectorMapController(
 
   const updateProps = (newProps: Partial<SectorMapProps>) => {
     const hadCoursePlot = currentProps.coursePlot !== undefined && currentProps.coursePlot !== null
-    const hasCoursePlot = newProps.coursePlot !== undefined && newProps.coursePlot !== null
     const wasClickable = currentProps.config.clickable
     const wasHoverable = currentProps.config.hoverable
 
@@ -2852,6 +2851,9 @@ export function createSectorMapController(
     if (newProps.config) {
       Object.assign(currentProps.config, newProps.config)
     }
+
+    // Check course plot AFTER merging props (to handle partial updates that don't include coursePlot)
+    const hasCoursePlot = currentProps.coursePlot !== undefined && currentProps.coursePlot !== null
 
     // Start or stop animation based on coursePlot presence
     if (hasCoursePlot && !hadCoursePlot) {
