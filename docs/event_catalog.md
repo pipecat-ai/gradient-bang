@@ -3,6 +3,7 @@
 This catalog describes events emitted by Supabase edge functions. **Source of truth** is the edge-function code under `deployment/supabase/functions/**` and the shared emit helpers in `deployment/supabase/functions/_shared/events.ts`.
 
 ## Where Events Come From
+
 - Edge functions emit events by calling the helpers in `_shared/events.ts`.
 - Event payloads are built in shared helpers such as:
   - `_shared/status.ts` (status snapshots + player/ship payloads)
@@ -11,6 +12,7 @@ This catalog describes events emitted by Supabase edge functions. **Source of tr
   - `_shared/corporations.ts` (corporation payloads)
 
 ## Common Event Types
+
 These are the primary events consumed by the voice agent and NPC tooling (see `src/gradientbang/pipecat_server/voice_task_manager.py`).
 
 - `status.snapshot`
@@ -59,7 +61,135 @@ These are the primary events consumed by the voice agent and NPC tooling (see `s
 - `error`
 
 ## Updating This Catalog
+
 If you add or rename events:
+
 1. Update the emitting edge function(s).
 2. Add the new event type to `VoiceTaskManager._event_names` if the voice agent should consume it.
 3. Update this list if the event is user-facing.
+
+## Payloads
+
+### `status.update` | `status.snapshot`
+
+```tsx
+{
+  scope: "player" | "corporation",
+  ship: {
+    ship_id: string,
+    ship_name: string,
+    ship_type: string,
+    cargo?: {
+      quantum_foam: number,
+      retro_organics: number,
+      neuro_symbolics: number,
+    },
+    credits?: number,
+    shields?: number,
+    fighters?: number,
+    warp_power?: number,
+    warp_power_capacity?: number,
+    empty_holds?: number,
+    max_shields?: number,
+    max_fighters?: number,
+    cargo_capacity?: number,
+    turns_per_warp?: number,
+  },
+
+  player: {
+    id: string,
+    name: string,
+    created_at: string,
+    last_active: string,
+    player_type: "human" | "npc" | "corporation_ship",
+    universe_size: number,
+    credits_in_bank: number,
+    sectors_visited: number,
+    total_sectors_known: number,
+    corp_sectors_visited?: number,
+  },
+
+  sector: {
+    id: number,
+    region: string,
+    position: [number, number],
+    adjacent_sectors: number[],
+    scene_config?: unknown,
+    port?: {
+      id: number,
+      code: string,
+      mega?: boolean,
+      stock: {
+        quantum_foam?: number,
+        retro_organics?: number,
+        neuro_symbolics?: number,
+      },
+      prices: {
+        quantum_foam?: number,
+        retro_organics?: number,
+        neuro_symbolics?: number,
+      },
+      port_class?: number,
+      observed_at?: string,
+    },
+    players?: [
+      {
+        id: string,
+        name: string,
+        player_type: "human" | "npc" | "corporation_ship",
+        ship: {
+          ship_id: string,
+          ship_name: string,
+          ship_type: string,
+        },
+        created_at?: string,
+        corporation?: {
+          name: string,
+          corp_id: string,
+          joined_at: string,
+          member_count: number,
+        },
+      }
+    ],
+    salvage?: [
+      {
+        salvage_id: string,
+        cargo: {
+          quantum_foam?: number,
+          retro_organics?: number,
+          neuro_symbolics?: number,
+        },
+        scrap: number,
+        source: {
+          ship_name: string,
+          ship_type: string,
+        },
+        claimed: boolean,
+        credits: number,
+        metadata: Record<string, unknown>,
+        created_at: string,
+        expires_at: string,
+      }
+    ],
+    garrison?: null,
+    unowned_ships?: [
+      {
+        ship_id: string,
+        ship_type: string,
+        ship_name: string,
+        owner_type: "unowned",
+        cargo: {
+          quantum_foam?: number,
+          retro_organics?: number,
+          neuro_symbolics?: number,
+        },
+        shields: number,
+        fighters: number,
+        owner_id: string | null,
+        became_unowned: string,
+        former_owner_name: string,
+      }
+    ],
+  },
+}
+```
