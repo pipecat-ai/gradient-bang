@@ -206,6 +206,7 @@ declare global {
     to_sector: number
     path: number[]
     distance: number
+    scope?: "player" | "corporation"
   }
 
   // --- HISTORY

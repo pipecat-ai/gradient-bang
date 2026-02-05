@@ -474,6 +474,10 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Course plot", e.payload)
               const data = e.payload as CoursePlotMessage
 
+              if (data.scope && data.scope !== "player") {
+                break
+              }
+
               gameStore.setCoursePlot(data)
               break
             }
