@@ -100,7 +100,7 @@ If you add or rename events:
     name: string,
     created_at: string,
     last_active: string,
-    player_type: "human" | "npc" | "corporation_ship",
+    player_type: "human" | "npc" | "corp_ship",
     universe_size: number,
     credits_in_bank: number,
     sectors_visited: number,
@@ -134,7 +134,7 @@ If you add or rename events:
       {
         id: string,
         name: string,
-        player_type: "human" | "npc" | "corporation_ship",
+        player_type: "human" | "npc" | "corp_ship",
         ship: {
           ship_id: string,
           ship_name: string,
@@ -227,5 +227,35 @@ If you add or rename events:
   total_sectors: number,
   total_visited: number,
   total_unvisited: number,
+}
+```
+
+### `ships.list`
+
+```tsx
+{
+  ships: [
+    {
+      ship_id: string,
+      ship_name: string,
+      ship_type: string,
+      owner_type: "personal" | "corporation",
+      sector: number,
+      cargo: {
+        quantum_foam: number,
+        retro_organics: number,
+        neuro_symbolics: number,
+      },
+      credits: number,
+      shields: number,
+      max_shields: number,
+      fighters: number,
+      max_fighters: number,
+      warp_power: number,
+      warp_power_capacity: number,
+      cargo_capacity: number,
+      current_task_id: string | null,
+    }
+  ],
 }
 ```
