@@ -140,6 +140,7 @@
   --spacing-ui-md: calc(var(--spacing) * 5);
   --spacing-ui-lg: calc(var(--spacing) * 10);
   --spacing-ui-xl: calc(var(--spacing) * 12);
+  --spacing-ui-2xl: calc(var(--spacing) * 18);
   --spacing-separator: var(--separator);
   --spacing-scrollbar: calc(var(--spacing) * 3);
   --spacing-panel: calc(var(--spacing) * 2);

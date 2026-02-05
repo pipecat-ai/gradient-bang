@@ -69,6 +69,11 @@ export const ScreenContainer = () => {
 
   const isOpen = activeScreen?.screen !== undefined || isClosing
 
+  const dottedCX =
+    "DialogOverlay bg-muted/40 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle dialog-dots"
+  const noDottedCX =
+    "DialogOverlay motion-safe:bg-muted/40 motion-safe:backdrop-blur-xs text-subtle"
+
   return (
     <Dialog.Root
       open={isOpen}
@@ -79,7 +84,9 @@ export const ScreenContainer = () => {
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="DialogOverlay bg-muted/40 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle dialog-dots"></Dialog.Overlay>
+        <Dialog.Overlay
+          className={cn(activeScreen?.screen === "map" ? noDottedCX : dottedCX)}
+        ></Dialog.Overlay>
         <Dialog.Content
           aria-describedby={undefined}
           onClick={(e) => {
@@ -88,14 +95,14 @@ export const ScreenContainer = () => {
             }
           }}
           onCloseAutoFocus={(e) => e.preventDefault()}
-          className="DialogContent DialogContent-NoPadding w-[calc(100vw-var(--spacing-ui-lg)*2)] h-[calc(100dvh-var(--spacing-ui-lg)*2)] pointer-events-none"
+          className="DialogContent DialogContent-NoPadding w-[calc(100vw-var(--spacing-ui-2xl)*2)] h-[calc(100dvh-var(--spacing-ui-2xl)*2)] pointer-events-none"
         >
           <Dialog.Close asChild>
             <Button
               variant="secondary"
               size="icon-lg"
               onClick={handleClose}
-              className="fixed top-ui-md right-ui-md"
+              className="fixed top-ui-md right-ui-md z-50"
             >
               <XIcon weight="bold" className="size-4" />
             </Button>

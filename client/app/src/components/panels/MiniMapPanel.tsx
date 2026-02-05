@@ -15,7 +15,13 @@ import SectorMap, { type MapConfig } from "../SectorMap"
 
 const MINIMAP_CONFIG: MapConfig = {
   hoverable: false,
+  uiStyles: {
+    edgeFeather: {
+      size: 90,
+    },
+  },
 }
+const MAX_DISTANCE = 4
 
 export const MiniMapPanel = ({ className }: { className?: string }) => {
   const setActiveScreen = useGameStore.use.setActiveScreen?.()
@@ -36,11 +42,11 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
   return (
     <div
       className={cn(
-        "group relative elbow elbow-foreground/0 hover:elbow-foreground/100",
+        "group relative elbow elbow-foreground/0 hover:elbow-foreground/100 h-full",
         className
       )}
     >
-      <div className="absolute inset-0 flex items-center justify-center opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-600 ease-in-out">
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-600 ease-in-out z-10">
         <div className="bg-background/60 p-4 flex flex-col gap-1 shrink-0">
           <Button
             variant="outline"
@@ -93,14 +99,16 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
           </CardContent>
         </Card>
       )}
-      <SectorMap
-        current_sector_id={sector?.id ?? 0}
-        config={MINIMAP_CONFIG}
-        ships={shipSectors}
-        map_data={localMapData ?? []}
-        maxDistance={4}
-      />
-      <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5">
+      <div className="w-full h-full z-1 pb-12">
+        <SectorMap
+          current_sector_id={sector?.id ?? 0}
+          maxDistance={MAX_DISTANCE}
+          config={MINIMAP_CONFIG}
+          ships={shipSectors}
+          map_data={localMapData ?? []}
+        />
+      </div>
+      <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 z-2">
         <div className="h-[6px] dashed-bg-horizontal dashed-bg-foreground/30 shrink-0" />
         <div className="flex flex-row gap-1.5">
           <SectorBadge />

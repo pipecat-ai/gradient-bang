@@ -410,7 +410,7 @@ export const DEFAULT_UI_STYLES: UIStyles = {
     color: "#000000",
   },
   edgeFeather: {
-    size: 140,
+    size: 150,
   },
 }
 
@@ -1086,6 +1086,114 @@ function getCanvasFontFamily(ctx: CanvasRenderingContext2D): string {
   return cachedFontFamily
 }
 
+/** Get the computed node style for a sector (used for glow rendering) */
+function getNodeStyle(
+  node: MapSectorNode,
+  config: SectorMapConfigBase,
+  coursePlotSectors: Set<number> | null = null,
+  coursePlot: CoursePlot | null = null,
+  hoveredSectorId: number | null = null
+): NodeStyle {
+  const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
+  const isVisited = Boolean(node.visited) || isCurrent
+  const isHovered = node.id === hoveredSectorId
+  const isCentered = node.id === config.center_sector_id && !isCurrent
+  const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true
+
+  let baseStyle: NodeStyle
+  if (coursePlot && isInPlot) {
+    const currentIndex =
+      config.current_sector_id !== undefined ?
+        coursePlot.path.indexOf(config.current_sector_id)
+      : -1
+    const nodeIndex = coursePlot.path.indexOf(node.id)
+
+    if (
+      config.current_sector_id !== undefined &&
+      node.id === config.current_sector_id &&
+      nodeIndex !== -1
+    ) {
+      baseStyle = config.nodeStyles.coursePlotStart
+    } else if (node.id === coursePlot.to_sector) {
+      baseStyle = config.nodeStyles.coursePlotEnd
+    } else if (nodeIndex !== -1 && currentIndex !== -1 && nodeIndex < currentIndex) {
+      baseStyle = config.nodeStyles.coursePlotPassed
+    } else if (nodeIndex !== -1) {
+      baseStyle = config.nodeStyles.coursePlotMid
+    } else {
+      baseStyle = config.nodeStyles.coursePlotMid
+    }
+  } else if (coursePlotSectors && !isInPlot) {
+    baseStyle = config.nodeStyles.muted
+  } else if (isCurrent) {
+    baseStyle = config.nodeStyles.current
+  } else if (isVisited) {
+    if (node.source === "corp") {
+      baseStyle = config.nodeStyles.visited_corp
+    } else {
+      baseStyle = config.nodeStyles.visited
+    }
+  } else {
+    baseStyle = config.nodeStyles.unvisited
+  }
+
+  if (node.region && config.regionStyles) {
+    const regionKey = slugifyRegion(node.region)
+    const regionOverride = config.regionStyles[regionKey]
+    if (regionOverride) {
+      baseStyle = { ...baseStyle, ...regionOverride }
+    }
+  }
+
+  let nodeStyle: NodeStyle = baseStyle
+  if (isCentered) {
+    nodeStyle = { ...baseStyle, ...config.nodeStyles.centered }
+  }
+  if (isHovered && config.clickable) {
+    nodeStyle = { ...baseStyle, ...config.nodeStyles.hovered }
+  }
+
+  return nodeStyle
+}
+
+/** Render only the glow effects for all sectors (separate pass for feathering) */
+function renderSectorGlows(
+  ctx: CanvasRenderingContext2D,
+  data: MapData,
+  scale: number,
+  config: SectorMapConfigBase,
+  opacity = 1,
+  coursePlotSectors: Set<number> | null = null,
+  coursePlot: CoursePlot | null = null,
+  hoveredSectorId: number | null = null
+) {
+  data.forEach((node) => {
+    const nodeStyle = getNodeStyle(node, config, coursePlotSectors, coursePlot, hoveredSectorId)
+
+    if (nodeStyle.glow && nodeStyle.glowRadius && nodeStyle.glowColor) {
+      const world = hexToWorld(node.position[0], node.position[1], scale)
+      ctx.save()
+      const falloff = nodeStyle.glowFalloff ?? 0.3
+      const gradient = ctx.createRadialGradient(
+        world.x,
+        world.y,
+        0,
+        world.x,
+        world.y,
+        nodeStyle.glowRadius
+      )
+      gradient.addColorStop(0, applyAlpha(nodeStyle.glowColor, opacity))
+      gradient.addColorStop(falloff, applyAlpha(nodeStyle.glowColor, opacity))
+      gradient.addColorStop(1, applyAlpha(nodeStyle.glowColor, 0))
+      ctx.fillStyle = gradient
+      ctx.beginPath()
+      ctx.arc(world.x, world.y, nodeStyle.glowRadius, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+  })
+}
+
 /** Render a sector hex with optional opacity for fade effects */
 function renderSector(
   ctx: CanvasRenderingContext2D,
@@ -1102,10 +1210,6 @@ function renderSector(
 ) {
   const world = hexToWorld(node.position[0], node.position[1], scale)
   const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
-  const isVisited = Boolean(node.visited) || isCurrent
-  const isHovered = node.id === hoveredSectorId
-  // Centered style applies to center_sector_id, but NOT if it's also the current sector
-  const isCentered = node.id === config.center_sector_id && !isCurrent
   const isAnimating = node.id === animatingSectorId
 
   const finalOpacity = opacity
@@ -1116,90 +1220,10 @@ function renderSector(
   const effectiveHexSize =
     isAnimating ? hexSize * currentScale * hoverScale : hexSize * currentScale
 
-  // Determine base node style (without hover/selected overlays)
-  let baseStyle: NodeStyle
-  if (coursePlot && isInPlot) {
-    const currentIndex =
-      config.current_sector_id !== undefined ?
-        coursePlot.path.indexOf(config.current_sector_id)
-      : -1
-    const nodeIndex = coursePlot.path.indexOf(node.id)
+  // Get computed node style
+  const nodeStyle = getNodeStyle(node, config, coursePlotSectors, coursePlot, hoveredSectorId)
 
-    if (
-      config.current_sector_id !== undefined &&
-      node.id === config.current_sector_id &&
-      nodeIndex !== -1
-    ) {
-      // Player is at this node in the course
-      baseStyle = config.nodeStyles.coursePlotStart
-    } else if (node.id === coursePlot.to_sector) {
-      // Final destination
-      baseStyle = config.nodeStyles.coursePlotEnd
-    } else if (nodeIndex !== -1 && currentIndex !== -1 && nodeIndex < currentIndex) {
-      // Node is behind current position in course
-      baseStyle = config.nodeStyles.coursePlotPassed
-    } else if (nodeIndex !== -1) {
-      // Node is ahead in course
-      baseStyle = config.nodeStyles.coursePlotMid
-    } else {
-      // Fallback for nodes in plot set but not in path (shouldn't happen)
-      baseStyle = config.nodeStyles.coursePlotMid
-    }
-  } else if (coursePlotSectors && !isInPlot) {
-    baseStyle = config.nodeStyles.muted
-  } else if (isCurrent) {
-    baseStyle = config.nodeStyles.current
-  } else if (isVisited) {
-    // Use visited_corp style if source is "corp", otherwise visited
-    if (node.source === "corp") {
-      baseStyle = config.nodeStyles.visited_corp
-    } else {
-      baseStyle = config.nodeStyles.visited
-    }
-  } else {
-    baseStyle = config.nodeStyles.unvisited
-  }
-
-  // Apply region style overrides if available
-  if (node.region && config.regionStyles) {
-    const regionKey = slugifyRegion(node.region)
-    const regionOverride = config.regionStyles[regionKey]
-    if (regionOverride) {
-      baseStyle = { ...baseStyle, ...regionOverride }
-    }
-  }
-
-  // Apply centered/hover overlays on top of base style
-  let nodeStyle: NodeStyle = baseStyle
-  if (isCentered) {
-    nodeStyle = { ...baseStyle, ...config.nodeStyles.centered }
-  }
-  // Only apply hover outline style when clickable (not just hoverable)
-  if (isHovered && config.clickable) {
-    nodeStyle = { ...baseStyle, ...config.nodeStyles.hovered }
-  }
-
-  // Render glow if enabled (radial gradient behind node)
-  if (nodeStyle.glow && nodeStyle.glowRadius && nodeStyle.glowColor) {
-    ctx.save()
-    const falloff = nodeStyle.glowFalloff ?? 0.3
-    const gradient = ctx.createRadialGradient(
-      world.x,
-      world.y,
-      0,
-      world.x,
-      world.y,
-      nodeStyle.glowRadius
-    )
-    gradient.addColorStop(0, applyAlpha(nodeStyle.glowColor, finalOpacity))
-    gradient.addColorStop(falloff, applyAlpha(nodeStyle.glowColor, finalOpacity))
-    gradient.addColorStop(1, applyAlpha(nodeStyle.glowColor, 0))
-    ctx.fillStyle = gradient
-    ctx.beginPath()
-    ctx.arc(world.x, world.y, nodeStyle.glowRadius, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.restore()
-  }
+  // NOTE: Glow is rendered separately in renderSectorGlows() so it can be feathered
 
   // Render offset frame if enabled (outermost ring)
   if (nodeStyle.offset && nodeStyle.offsetColor && nodeStyle.offsetSize && nodeStyle.offsetWeight) {
@@ -1810,7 +1834,7 @@ function renderWithCameraState(
       )
     : null
 
-  // 1) Draw grid in world space
+  // 1) Draw grid and glows in world space (will be feathered)
   ctx.save()
   ctx.translate(width / 2, height / 2)
   ctx.scale(cameraState.zoom, cameraState.zoom)
@@ -1829,13 +1853,17 @@ function renderWithCameraState(
       config.uiStyles.grid
     )
   }
+
+  // Render glows before feather mask so they fade at edges
+  renderSectorGlows(ctx, cameraState.filteredData, scale, config, 1, coursePlotSectors, coursePlot)
+
   ctx.restore()
 
-  // 2) Apply rectangular feather mask to background + grid (screen space)
+  // 2) Apply rectangular feather mask to background, grid, and glows (screen space)
   const featherSize = Math.min(config.uiStyles.edgeFeather.size, Math.min(width, height) / 2)
   applyRectangularFeatherMask(ctx, width, height, featherSize)
 
-  // 3) Draw lanes and sectors in world space (unmasked)
+  // 3) Draw lanes and sectors in world space (unmasked - stays crisp at edges)
   ctx.save()
   ctx.translate(width / 2, height / 2)
   ctx.scale(cameraState.zoom, cameraState.zoom)
@@ -2046,7 +2074,7 @@ function renderWithCameraStateAndInteraction(
       )
     : null
 
-  // 1) Draw grid in world space
+  // 1) Draw grid and glows in world space (will be feathered)
   ctx.save()
   ctx.translate(width / 2, height / 2)
   ctx.scale(cameraState.zoom, cameraState.zoom)
@@ -2065,13 +2093,26 @@ function renderWithCameraStateAndInteraction(
       config.uiStyles.grid
     )
   }
+
+  // Render glows before feather mask so they fade at edges
+  renderSectorGlows(
+    ctx,
+    cameraState.filteredData,
+    scale,
+    config,
+    1,
+    coursePlotSectors,
+    coursePlot,
+    hoveredSectorId
+  )
+
   ctx.restore()
 
-  // 2) Apply rectangular feather mask to background + grid (screen space)
+  // 2) Apply rectangular feather mask to background, grid, and glows (screen space)
   const featherSize = Math.min(config.uiStyles.edgeFeather.size, Math.min(width, height) / 2)
   applyRectangularFeatherMask(ctx, width, height, featherSize)
 
-  // 3) Draw lanes and sectors in world space (unmasked)
+  // 3) Draw lanes and sectors in world space (unmasked - stays crisp at edges)
   ctx.save()
   ctx.translate(width / 2, height / 2)
   ctx.scale(cameraState.zoom, cameraState.zoom)

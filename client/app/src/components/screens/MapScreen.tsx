@@ -16,7 +16,6 @@ import { cn } from "@/utils/tailwind"
 import { DottedTitle } from "../DottedTitle"
 import { FillCrossLoader } from "../FullScreenLoader"
 import { MapZoomControls } from "../MapZoomControls"
-import { Button } from "../primitives/Button"
 import { CardContent } from "../primitives/Card"
 import { Divider } from "../primitives/Divider"
 import { Progress } from "../primitives/Progress"
@@ -138,7 +137,6 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
-  const setActiveScreen = useGameStore.use.setActiveScreen?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
   const [centerSector, setCenterSector] = useState<number | undefined>(undefined)
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
@@ -315,9 +313,6 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
         </CardContent>
         <CoursePlotPanel />
         <MovementHistoryPanel className="flex-1 min-h-0" />
-        <Button variant="default" className="w-full" onClick={() => setActiveScreen(undefined)}>
-          Close
-        </Button>
       </aside>
     </div>
   )
