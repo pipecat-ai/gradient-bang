@@ -19,23 +19,18 @@ This document lists where `map.local` is emitted and what must change on the ser
 
 **Payload Mismatches vs `docs/event_catalog.md`**
 
-1. `sectors[].port` is currently a **string port code** (or `""` when unknown). The catalog expects `port` to be **an object or null**: `{ code, mega? } | null`.
+1. `lanes[].two_way` can still be omitted for derived (unvisited) lanes because we are not changing lane construction logic; the catalog expects a boolean.
 
-2. `lanes[].two_way` is optional/missing in server output (especially for unvisited derived lanes). The catalog requires a boolean.
-3. `lanes[].hyperlane` is emitted by the server but no longer exists in the catalog and should be removed.
-4. `adjacent_sectors` is only present for **visited** sectors in the server payload. The catalog expects it to always be an array (can be empty).
+**Changes Implemented**
 
-**Recommended Server Changes (To Match Catalog Shapes)**
+- Renamed `sectors[].source` to `sectors[].scope`.
+- Replaced `sectors[].port` string with `{ code, mega? } | null` (empty string → `null`). `mega` is included when a port exists.
+- Removed `hyperlane` from lane objects.
+- Ensured `adjacent_sectors` is always present (empty array for unvisited sectors).
 
-1. Rename `sectors[].source` to `sectors[].scope` in both Supabase and PG builders.
-2. Replace `sectors[].port` string with a port object or null:
-   - Prefer `knowledge.sectors_visited[sectorId].port` (already stored from sector snapshots) and reduce it to `{ code, mega? }`.
-   - Or expand `loadPortCodes`/`pgLoadPortCodes` to return `{ code, mega? }` instead of a bare string.
-   - Replace empty string with `null` when no port exists.
-3. Ensure every lane includes `two_way` (default to `false` when unknown).
-4. Remove `hyperlane` from lanes in the payload.
-5. Provide `adjacent_sectors` for unvisited sectors (use universe adjacency) or set it to `[]`.
-6. Do **not** modify lane construction or mapping logic beyond removing `hyperlane`. If a change would require SQL or algorithm changes, leave it as-is and only strip the `hyperlane` property.
+**Lane Logic Note**
+
+- Do **not** modify lane construction or mapping logic beyond removing `hyperlane`. If a change would require SQL or algorithm changes, leave it as-is.
 
 **Notes**
 

@@ -240,6 +240,73 @@ If you add or rename events:
 }
 ```
 
+### `map.region`
+
+```tsx
+{
+  sectors: [
+    {
+      id: number,
+      scope?: "player" | "corp" | "both",
+      region?: string | null,
+      position: [number, number],
+      adjacent_sectors: number[],
+      hops_from_center: number,
+      port: {
+        code: string
+        mega?: boolean
+      } | null,
+      lanes: [
+        {
+          to: number,
+          two_way: boolean
+        }
+      ],
+      visited: boolean,
+      last_visited?: string,
+    }
+  ],
+  center_sector: number,
+  total_sectors: number,
+  total_visited: number,
+  total_unvisited: number,
+}
+```
+
+### map.update
+
+```tsx
+{
+  sectors: [
+    {
+      id: number,
+      scope?: "player" | "corp" | "both",
+      region?: string | null,
+      position: [number, number],
+      adjacent_sectors: number[],
+      hops_from_center: number,
+      port: {
+        code: string
+        mega?: boolean
+      } | null,
+      lanes: [
+        {
+          to: number,
+          two_way: boolean
+        }
+      ],
+      visited: boolean,
+      last_visited?: string,
+    }
+  ],
+  center_sector: number,
+  total_sectors: number,
+  total_visited: number,
+  total_unvisited: number,
+  __task_id?: string,
+}
+```
+
 ### `ships.list`
 
 ```tsx
