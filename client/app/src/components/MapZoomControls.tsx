@@ -12,6 +12,7 @@ import { SliderControl } from "./primitives/SliderControl"
 export const MapZoomControls = () => {
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel) ?? DEFAULT_MAX_BOUNDS
   const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
+  const coursePlot = useGameStore.use.course_plot?.()
   const [sliderValue, setSliderValue] = useState(mapZoomLevel)
 
   const debounced = useDebouncedCallback(
@@ -35,6 +36,7 @@ export const MapZoomControls = () => {
       <Button
         variant="outline"
         size="icon-sm"
+        disabled={coursePlot !== undefined}
         onClick={() => {
           debounced(Math.max(mapZoomLevel - 5, MIN_BOUNDS))
         }}
@@ -46,6 +48,7 @@ export const MapZoomControls = () => {
         value={[sliderValue]}
         min={MIN_BOUNDS}
         max={MAX_BOUNDS}
+        disabled={coursePlot !== undefined}
         step={1}
         onValueChange={(value) => {
           setSliderValue(value[0])
@@ -56,6 +59,7 @@ export const MapZoomControls = () => {
       <Button
         size="icon-sm"
         variant="outline"
+        disabled={coursePlot !== undefined}
         onClick={() => {
           debounced(Math.min(mapZoomLevel + 5, MAX_BOUNDS))
         }}

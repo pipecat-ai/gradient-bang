@@ -20,6 +20,14 @@ const MINIMAP_CONFIG: MapConfig = {
       size: 90,
     },
   },
+  nodeStyles: {
+    current: {
+      offset: true,
+      offsetColor: "rgba(255,255,255,0.4)",
+      offsetSize: 12,
+      offsetWeight: 2,
+    },
+  },
 }
 const MAX_DISTANCE = 4
 

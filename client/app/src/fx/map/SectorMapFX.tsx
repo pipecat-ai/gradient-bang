@@ -7,6 +7,10 @@ const shipPath = new Path2D(SHIP_ICON)
 const PORT_ICON_VIEWBOX = 256
 const SHIP_ICON_VIEWBOX = 256
 
+// Minimum lane length (in pixels) to render arrow heads on course plot lanes
+// Short lanes look cluttered with arrows
+const MIN_LANE_LENGTH_FOR_ARROWS = 30
+
 export interface SectorMapConfigBase {
   center_sector_id: number
   current_sector_id?: number
@@ -80,6 +84,7 @@ export interface NodeStyles {
   unvisited: NodeStyle
   muted: NodeStyle
   megaPort: NodeStyle
+  coursePlotCurrent: NodeStyle
   coursePlotStart: NodeStyle
   coursePlotEnd: NodeStyle
   coursePlotMid: NodeStyle
@@ -90,7 +95,7 @@ export interface NodeStyles {
 
 export const DEFAULT_NODE_STYLES: NodeStyles = {
   current: {
-    fill: "rgba(74,144,226,0.4)",
+    fill: "rgba(74,144,226,0.6)",
     border: "rgba(74,144,226,1)",
     borderWidth: 4,
     borderStyle: "solid",
@@ -131,8 +136,8 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     outlineWidth: 0,
   },
   muted: {
-    fill: "rgba(40,40,40,0.5)",
-    border: "rgba(40,40,40,0.5)",
+    fill: "rgba(255,255,255,0.1)",
+    border: "rgba(255,255,255,0.3)",
     borderWidth: 1,
     borderStyle: "solid",
     outline: "none",
@@ -149,6 +154,19 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     glow: true,
     glowRadius: 100,
     glowColor: "rgba(255,255,255,0.15)",
+    glowFalloff: 0.3,
+  },
+  coursePlotCurrent: {
+    fill: "rgba(74,144,226,0.4)",
+    border: "rgba(74,144,226,1)",
+    borderWidth: 4,
+    borderStyle: "solid",
+    borderPosition: "inside",
+    outline: "rgba(74,144,226,0.6)",
+    outlineWidth: 3,
+    glow: true,
+    glowRadius: 100,
+    glowColor: "rgba(74,144,226,0.15)",
     glowFalloff: 0.3,
   },
   coursePlotStart: {
@@ -176,8 +194,8 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     outlineWidth: 0,
   },
   coursePlotPassed: {
-    fill: "rgba(100,100,100,0.3)",
-    border: "rgba(120,180,170,0.6)",
+    fill: "rgba(0,201,80,0.3)",
+    border: "rgba(0,201,80,1)",
     borderWidth: 2,
     borderStyle: "solid",
     outline: "none",
@@ -253,7 +271,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 0,
     shadowBlur: 0,
     shadowColor: "none",
-    lineCap: "round",
+    lineCap: "butt",
   },
   oneWay: {
     color: "#737373",
@@ -263,7 +281,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 8,
     shadowBlur: 0,
     shadowColor: "none",
-    lineCap: "round",
+    lineCap: "butt",
   },
   hyperlane: {
     color: "rgba(190,160,255,1)",
@@ -273,7 +291,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 0,
     shadowBlur: 0,
     shadowColor: "none",
-    lineCap: "round",
+    lineCap: "butt",
   },
   hyperlaneStub: {
     color: "rgba(190,160,255,1)",
@@ -283,7 +301,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 6,
     shadowBlur: 0,
     shadowColor: "none",
-    lineCap: "round",
+    lineCap: "butt",
   },
   partial: {
     color: "rgba(120,230,160,1)",
@@ -293,7 +311,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 8,
     shadowBlur: 0,
     shadowColor: "none",
-    lineCap: "round",
+    lineCap: "butt",
   },
   muted: {
     color: "rgba(80,80,80,0.4)",
@@ -303,20 +321,20 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 8,
     shadowBlur: 0,
     shadowColor: "none",
-    lineCap: "round",
+    lineCap: "butt",
   },
   coursePlot: {
-    color: "rgba(120,230,160,1)",
+    color: "#059669",
     width: 4,
     dashPattern: "none",
-    arrowColor: "rgba(120,230,160,1)",
-    arrowSize: 8,
+    arrowColor: "#059669",
+    arrowSize: 12,
     shadowBlur: 0,
-    shadowColor: "none",
-    lineCap: "round",
+    shadowColor: "#059669",
+    lineCap: "butt",
   },
   coursePlotAnimation: {
-    color: "rgba(255,255,255,0.6)",
+    color: "#a7f3d0",
     width: 4,
     dashPattern: "12,8",
     arrowColor: "none",
@@ -643,21 +661,29 @@ function renderDebugBounds(
   ctx.restore()
 }
 
-/** Render directional arrow for one-way lanes */
+/** Render directional arrow for one-way lanes (positioned at middle of lane) */
 function renderArrow(
   ctx: CanvasRenderingContext2D,
   from: { x: number; y: number },
-  to: { x: number; y: number }
+  to: { x: number; y: number },
+  arrowSize: number
 ) {
   const angle = Math.atan2(to.y - from.y, to.x - from.x)
-  const arrowX = to.x - 15 * Math.cos(angle)
-  const arrowY = to.y - 15 * Math.sin(angle)
+  // Position arrow at the middle of the lane
+  const midX = (from.x + to.x) / 2
+  const midY = (from.y + to.y) / 2
 
   ctx.beginPath()
-  ctx.moveTo(arrowX, arrowY)
-  ctx.lineTo(arrowX - 8 * Math.cos(angle - Math.PI / 6), arrowY - 8 * Math.sin(angle - Math.PI / 6))
-  ctx.moveTo(arrowX, arrowY)
-  ctx.lineTo(arrowX - 8 * Math.cos(angle + Math.PI / 6), arrowY - 8 * Math.sin(angle + Math.PI / 6))
+  ctx.moveTo(midX, midY)
+  ctx.lineTo(
+    midX - arrowSize * Math.cos(angle - Math.PI / 6),
+    midY - arrowSize * Math.sin(angle - Math.PI / 6)
+  )
+  ctx.moveTo(midX, midY)
+  ctx.lineTo(
+    midX - arrowSize * Math.cos(angle + Math.PI / 6),
+    midY - arrowSize * Math.sin(angle + Math.PI / 6)
+  )
   ctx.stroke()
 }
 
@@ -715,8 +741,8 @@ function renderLane(
     laneStyle = config.laneStyles.oneWay
   }
 
-  // Apply region lane style overrides (use fromNode's region)
-  if (fromNode.region && config.regionLaneStyles) {
+  // Apply region lane style overrides (only when no course plot is active)
+  if (!coursePlot && fromNode.region && config.regionLaneStyles) {
     const regionKey = slugifyRegion(fromNode.region)
     const regionOverride = config.regionLaneStyles[regionKey]
     if (regionOverride) {
@@ -763,9 +789,14 @@ function renderLane(
     }
   }
 
-  if (needsArrow) {
-    ctx.strokeStyle = laneStyle.color // Arrow matches lane color
-    renderArrow(ctx, arrowFrom, arrowTo)
+  // Only apply length threshold for course plot lanes (short lanes look cluttered with arrows)
+  const isCoursePlotLane = coursePlot && isInPlot
+  const laneLength = Math.sqrt((to.x - from.x) ** 2 + (to.y - from.y) ** 2)
+  const meetsLengthThreshold = !isCoursePlotLane || laneLength >= MIN_LANE_LENGTH_FOR_ARROWS
+
+  if (needsArrow && meetsLengthThreshold) {
+    ctx.strokeStyle = laneStyle.arrowColor !== "none" ? laneStyle.arrowColor : laneStyle.color
+    renderArrow(ctx, arrowFrom, arrowTo, laneStyle.arrowSize)
   }
 }
 
@@ -816,7 +847,8 @@ function renderHyperlaneStub(
   direction: number,
   scale: number,
   hexSize: number,
-  config: SectorMapConfigBase
+  config: SectorMapConfigBase,
+  coursePlot: CoursePlot | null = null
 ): { x: number; y: number; text: string } | null {
   const fromWorld = hexToWorld(fromNode.position[0], fromNode.position[1], scale)
 
@@ -836,8 +868,8 @@ function renderHyperlaneStub(
 
   let stubStyle = config.laneStyles.hyperlaneStub
 
-  // Apply region lane style overrides (use fromNode's region, hyperlanes use oneWayColor)
-  if (fromNode.region && config.regionLaneStyles) {
+  // Apply region lane style overrides (only when no course plot is active)
+  if (!coursePlot && fromNode.region && config.regionLaneStyles) {
     const regionKey = slugifyRegion(fromNode.region)
     const regionOverride = config.regionLaneStyles[regionKey]
     if (regionOverride?.oneWayColor) {
@@ -931,8 +963,8 @@ function renderPartialLane(
     : coursePlot && isInPlot ? config.laneStyles.coursePlot
     : config.laneStyles.partial
 
-  // Apply region lane style overrides (use fromNode's region, partial lanes use twoWayColor)
-  if (fromNode.region && config.regionLaneStyles) {
+  // Apply region lane style overrides (only when no course plot is active)
+  if (!coursePlot && fromNode.region && config.regionLaneStyles) {
     const regionKey = slugifyRegion(fromNode.region)
     const regionOverride = config.regionLaneStyles[regionKey]
     if (regionOverride?.twoWayColor) {
@@ -960,8 +992,15 @@ function renderPartialLane(
   ctx.lineTo(to.x, to.y)
   ctx.stroke()
 
-  // Add arrow for partial lanes if style specifies
-  if (laneStyle.arrowColor !== "none" && laneStyle.arrowSize > 0 && coursePlot && isInPlot) {
+  // Add arrow for partial lanes if style specifies (skip if lane is too short)
+  const laneLength = Math.sqrt((to.x - from.x) ** 2 + (to.y - from.y) ** 2)
+  if (
+    laneStyle.arrowColor !== "none" &&
+    laneStyle.arrowSize > 0 &&
+    laneLength >= MIN_LANE_LENGTH_FOR_ARROWS &&
+    coursePlot &&
+    isInPlot
+  ) {
     const fromIndex = coursePlot.path.indexOf(fromNode.id)
     const toIndex = coursePlot.path.indexOf(culledToNode.id)
 
@@ -969,7 +1008,7 @@ function renderPartialLane(
       const arrowFrom = fromIndex < toIndex ? from : to
       const arrowTo = fromIndex < toIndex ? to : from
       ctx.strokeStyle = laneStyle.arrowColor
-      renderArrow(ctx, arrowFrom, arrowTo)
+      renderArrow(ctx, arrowFrom, arrowTo, laneStyle.arrowSize)
     }
   }
 
@@ -1026,7 +1065,8 @@ function renderAllLanes(
             direction,
             scale,
             hexSize,
-            config
+            config,
+            coursePlot
           )
           if (labelInfo) {
             hyperlaneLabels.push(labelInfo)
@@ -1134,12 +1174,19 @@ function getNodeStyle(
       node.id === config.current_sector_id &&
       nodeIndex !== -1
     ) {
-      baseStyle = config.nodeStyles.coursePlotStart
+      // Current sector in the course plot
+      baseStyle = config.nodeStyles.coursePlotCurrent
     } else if (node.id === coursePlot.to_sector) {
+      // Final destination
       baseStyle = config.nodeStyles.coursePlotEnd
     } else if (nodeIndex !== -1 && currentIndex !== -1 && nodeIndex < currentIndex) {
+      // Node is behind current position in course
       baseStyle = config.nodeStyles.coursePlotPassed
+    } else if (nodeIndex === 0) {
+      // First sector in the course (start point, not yet reached)
+      baseStyle = config.nodeStyles.coursePlotStart
     } else if (nodeIndex !== -1) {
+      // Node is ahead in course
       baseStyle = config.nodeStyles.coursePlotMid
     } else {
       baseStyle = config.nodeStyles.coursePlotMid
@@ -1160,8 +1207,8 @@ function getNodeStyle(
     baseStyle = config.nodeStyles.unvisited
   }
 
-  // Apply region overrides
-  if (node.region && config.regionStyles) {
+  // Apply region overrides (only when no course plot is active)
+  if (!coursePlot && node.region && config.regionStyles) {
     const regionKey = slugifyRegion(node.region)
     const regionOverride = config.regionStyles[regionKey]
     if (regionOverride) {
@@ -1300,15 +1347,14 @@ function renderSector(
   ctx.setLineDash([])
   ctx.lineCap = "butt"
 
-  if (config.show_ports && node.port) {
+  // Hide port icons when course plot is active
+  if (config.show_ports && node.port && !coursePlot) {
     const isMegaPort = node.port === "SSS"
     const portStyle = isMegaPort ? config.portStyles.mega : config.portStyles.regular
 
     // Use nodeStyle.iconColor if set, otherwise fall back to portStyle colors
     let portColor: string
-    if (coursePlotSectors && !isInPlot) {
-      portColor = portStyle.mutedColor
-    } else if (nodeStyle.iconColor) {
+    if (nodeStyle.iconColor) {
       portColor = nodeStyle.iconColor
     } else {
       portColor = portStyle.color
@@ -1587,6 +1633,9 @@ function renderSectorLabels(
   coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
+  // Hide all labels when course plot is active
+  if (coursePlotSectors) return
+
   // Return early if neither show_sector_ids nor show_sector_ids_hover is enabled
   if (!config.show_sector_ids && !config.show_sector_ids_hover) return
 
@@ -1634,9 +1683,8 @@ function renderSectorLabels(
     const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0
     const textHeight = ascent + descent
 
-    // Apply muted opacity to labels for sectors not in course plot
-    const labelOpacity =
-      coursePlotSectors && !coursePlotSectors.has(node.id) ? labelStyle.mutedOpacity : 1
+    // Labels are hidden during course plot (early return above), so always full opacity here
+    const labelOpacity = 1
 
     ctx.save()
     ctx.translate(textX, textY)
@@ -1666,6 +1714,9 @@ function renderPortLabels(
   coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
+  // Hide all labels when course plot is active
+  if (coursePlotSectors) return
+
   if (!config.show_port_labels) return
 
   const labelStyle = config.labelStyles.portCode
@@ -1711,9 +1762,8 @@ function renderPortLabels(
     const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0
     const textHeight = ascent + descent
 
-    // Apply muted opacity to labels for sectors not in course plot
-    const labelOpacity =
-      coursePlotSectors && !coursePlotSectors.has(node.id) ? labelStyle.mutedOpacity : 1
+    // Labels are hidden during course plot (early return above), so always full opacity here
+    const labelOpacity = 1
 
     ctx.save()
     ctx.translate(textX, textY)
@@ -1744,6 +1794,9 @@ function renderShipLabels(
   coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
+  // Hide all labels when course plot is active
+  if (coursePlotSectors) return
+
   if (!ships || ships.size === 0) return
 
   const labelStyle = config.labelStyles.shipCount
@@ -1773,9 +1826,8 @@ function renderShipLabels(
 
     const screenPos = worldToScreen(edgeWorldX, edgeWorldY, width, height, cameraState)
 
-    // Apply muted opacity for sectors not in course plot
-    const labelOpacity =
-      coursePlotSectors && !coursePlotSectors.has(node.id) ? labelStyle.mutedOpacity : 1
+    // Labels are hidden during course plot (early return above), so always full opacity here
+    const labelOpacity = 1
 
     // Calculate text metrics
     const text = shipCount.toString()
@@ -1971,7 +2023,8 @@ function renderWithCameraState(
     null
   )
 
-  if (hyperlaneLabels.length > 0) {
+  // Hide hyperlane labels when course plot is active
+  if (hyperlaneLabels.length > 0 && !coursePlot) {
     const labelStyle = config.labelStyles.hyperlane
 
     ctx.save()
@@ -2244,7 +2297,8 @@ function renderWithCameraStateAndInteraction(
     hoveredSectorId
   )
 
-  if (hyperlaneLabels.length > 0) {
+  // Hide hyperlane labels when course plot is active
+  if (hyperlaneLabels.length > 0 && !coursePlot) {
     const labelStyle = config.labelStyles.hyperlane
 
     ctx.save()
@@ -2615,6 +2669,113 @@ export function createSectorMapController(
     currentCameraState = cameraState
   }
 
+  // Animate camera reframe (e.g., when entering/exiting course plot mode)
+  const animateCameraReframe = (onComplete?: () => void) => {
+    if (animationCleanup) {
+      animationCleanup()
+      animationCleanup = null
+    }
+    if (animationCompletionTimeout !== null) {
+      window.clearTimeout(animationCompletionTimeout)
+      animationCompletionTimeout = null
+    }
+
+    const { width, height, data, config, maxDistance = 3, coursePlot } = currentProps
+    const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
+    const hexSize = config.hex_size ?? gridSpacing * 0.85
+    const scale = gridSpacing
+
+    const targetCameraState = calculateCameraState(
+      data,
+      config,
+      width,
+      height,
+      scale,
+      hexSize,
+      maxDistance,
+      coursePlot
+    )
+
+    if (!targetCameraState || !currentCameraState || config.bypass_animation) {
+      render()
+      onComplete?.()
+      return
+    }
+
+    // Calculate fading sectors
+    const currentDataIds = new Set(currentCameraState.filteredData.map((s) => s.id))
+    const targetDataIds = new Set(targetCameraState.filteredData.map((s) => s.id))
+    const fadingOutData = currentCameraState.filteredData.filter((s) => !targetDataIds.has(s.id))
+    const fadingInData = targetCameraState.filteredData.filter((s) => !currentDataIds.has(s.id))
+
+    const startCameraWithFade: CameraState = {
+      offsetX: currentCameraState.offsetX,
+      offsetY: currentCameraState.offsetY,
+      zoom: currentCameraState.zoom,
+      filteredData: targetCameraState.filteredData,
+      fadingOutData,
+      fadingInData,
+      fadeProgress: 0,
+    }
+
+    const panDuration = config.animation_duration_pan
+    const zoomDuration = config.animation_duration_zoom
+    const fadeDuration = Math.max(panDuration, zoomDuration)
+
+    const animationState: AnimationState = {
+      isAnimating: true,
+      startTime: performance.now(),
+      panDuration,
+      zoomDuration,
+      fadeDuration,
+      startCamera: startCameraWithFade,
+      targetCamera: targetCameraState,
+    }
+
+    const animate = (currentTime: number) => {
+      if (!animationState.isAnimating) return
+
+      const elapsed = currentTime - animationState.startTime
+      const panProgress = Math.min(elapsed / animationState.panDuration, 1)
+      const zoomProgress = Math.min(elapsed / animationState.zoomDuration, 1)
+      const fadeProgress = Math.min(elapsed / animationState.fadeDuration, 1)
+
+      const interpolatedCamera = interpolateCameraState(
+        animationState.startCamera,
+        animationState.targetCamera,
+        panProgress,
+        zoomProgress,
+        fadeProgress
+      )
+
+      renderWithCameraState(canvas, currentProps, interpolatedCamera)
+
+      // Also render course plot animation during reframe if course plot is active
+      if (currentProps.coursePlot) {
+        courseAnimationOffset = (courseAnimationOffset + 0.5) % 20
+        renderCoursePlotAnimation(canvas, currentProps, interpolatedCamera, courseAnimationOffset)
+      }
+
+      if (fadeProgress < 1) {
+        animationState.animationFrameId = requestAnimationFrame(animate)
+      } else {
+        animationState.isAnimating = false
+        currentCameraState = targetCameraState
+        animationCleanup = null
+        onComplete?.()
+      }
+    }
+
+    animationState.animationFrameId = requestAnimationFrame(animate)
+
+    animationCleanup = () => {
+      animationState.isAnimating = false
+      if (animationState.animationFrameId !== undefined) {
+        cancelAnimationFrame(animationState.animationFrameId)
+      }
+    }
+  }
+
   const moveToSector = (newSectorId: number, newMapData?: MapData) => {
     if (animationCleanup) {
       animationCleanup()
@@ -2664,16 +2825,16 @@ export function createSectorMapController(
         animationCleanup = null
         animationCompletionTimeout = null
         isMovingToSector = false
-        // Restart course animation if it was running
-        if (wasAnimating && updatedProps.coursePlot) {
+        // Start course animation if course plot is active
+        if (updatedProps.coursePlot) {
           startCourseAnimation()
         }
       }, animDuration)
     } else {
       render()
       isMovingToSector = false
-      // Restart course animation immediately if no camera animation
-      if (wasAnimating && updatedProps.coursePlot) {
+      // Start course animation immediately if course plot is active
+      if (updatedProps.coursePlot) {
         startCourseAnimation()
       }
     }
@@ -2710,10 +2871,22 @@ export function createSectorMapController(
       ) {
         // Update center and animate to current sector, then start course animation
         moveToSector(currentProps.config.current_sector_id)
+      } else {
+        // Animate camera reframe to course plot framing, then start animation
+        animateCameraReframe(() => {
+          startCourseAnimation()
+        })
       }
-      startCourseAnimation()
     } else if (!hasCoursePlot && hadCoursePlot) {
       stopCourseAnimation()
+      // Animate camera reframe back to normal view
+      animateCameraReframe()
+    } else if (hasCoursePlot && hadCoursePlot) {
+      // Course plot already active - ensure animation is running (may have been stopped by panel close/reopen)
+      if (courseAnimationFrameId === null) {
+        render()
+        startCourseAnimation()
+      }
     }
 
     // Handle clickable/hoverable config changes
@@ -2731,7 +2904,14 @@ export function createSectorMapController(
 
   const startCourseAnimation = () => {
     if (courseAnimationFrameId !== null) return // Already running
-    if (!currentProps.coursePlot || !currentCameraState) return
+    if (!currentProps.coursePlot) return
+
+    // If camera state is missing, try to render first to establish it
+    if (!currentCameraState) {
+      render()
+      // If still no camera state after render, we can't animate
+      if (!currentCameraState) return
+    }
 
     const animate = () => {
       courseAnimationOffset = (courseAnimationOffset + 0.5) % 20 // Cycle through dash pattern smoothly
@@ -2785,8 +2965,11 @@ export function createSectorMapController(
   render()
 
   // Start animation if coursePlot is already active
+  // Use requestAnimationFrame to ensure the initial render is complete
   if (props.coursePlot) {
-    startCourseAnimation()
+    requestAnimationFrame(() => {
+      startCourseAnimation()
+    })
   }
 
   // Attach event listeners if clickable or hoverable
