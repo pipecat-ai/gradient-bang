@@ -210,6 +210,16 @@ export function resolvePlayerType(
   return "human";
 }
 
+export function resolveScope(
+  shipOwnerType: string | null | undefined,
+  playerType: string | null | undefined,
+): "player" | "corporation" {
+  if (shipOwnerType === "corporation" || playerType === "corporation_ship") {
+    return "corporation";
+  }
+  return "player";
+}
+
 export function buildPlayerSnapshot(
   character: CharacterRow,
   playerType: string,

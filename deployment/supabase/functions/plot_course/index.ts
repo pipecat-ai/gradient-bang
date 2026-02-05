@@ -18,7 +18,12 @@ import {
   PathNotFoundError,
   fetchSectorRow,
 } from "../_shared/map.ts";
-import { loadCharacter, loadShip } from "../_shared/status.ts";
+import {
+  loadCharacter,
+  loadShip,
+  resolvePlayerType,
+  resolveScope,
+} from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
   ActorAuthorizationError,
@@ -192,6 +197,8 @@ async function handlePlotCourse(
     fromSector,
     toSector,
   });
+  const playerType = resolvePlayerType(character.player_metadata);
+  const scope = resolveScope(ship.owner_type, playerType);
 
   await emitCharacterEvent({
     supabase,
@@ -199,6 +206,7 @@ async function handlePlotCourse(
     eventType: "course.plot",
     payload: {
       source,
+      scope,
       from_sector: fromSector,
       to_sector: toSector,
       path,
