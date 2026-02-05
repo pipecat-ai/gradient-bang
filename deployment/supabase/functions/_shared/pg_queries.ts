@@ -1344,6 +1344,7 @@ async function pgLoadPortCodes(
 function buildLocalMapPort(
   portValue: Record<string, unknown> | null | undefined,
   fallbackCode?: string,
+  fallbackMega?: boolean,
 ): { code: string; mega?: boolean } | null {
   const portCode =
     (portValue && typeof portValue.code === "string"
@@ -1357,7 +1358,9 @@ function buildLocalMapPort(
     return null;
   }
   const mega =
-    portValue && typeof portValue.mega === "boolean" ? portValue.mega : undefined;
+    portValue && typeof portValue.mega === "boolean"
+      ? portValue.mega
+      : fallbackMega;
   return mega === undefined ? { code: portCode } : { code: portCode, mega };
 }
 
@@ -1626,6 +1629,7 @@ export async function pgBuildLocalMapRegion(
   const portCodes = await pgLoadPortCodes(pg, visitedSectorIds);
 
   const resultSectors: LocalMapSector[] = [];
+  const universeMeta = await pgLoadUniverseMeta(pg);
   const disconnectedSet = new Set(disconnectedSectors);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
     const isDisconnected = disconnectedSet.has(sectorId);
@@ -1640,9 +1644,12 @@ export async function pgBuildLocalMapRegion(
 
     if (visitedSet.has(sectorId)) {
       const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+      const hasPort = Boolean(portCodes[sectorId]);
+      const mega = hasPort ? pgIsMegaPortSector(universeMeta, sectorId) : undefined;
       const portPayload = buildLocalMapPort(
         knowledgeEntry?.port as Record<string, unknown> | null,
         portCodes[sectorId],
+        mega,
       );
       resultSectors.push({
         id: sectorId,

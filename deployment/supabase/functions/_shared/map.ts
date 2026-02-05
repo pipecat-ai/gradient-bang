@@ -823,6 +823,7 @@ async function loadPortCodes(
 function buildLocalMapPort(
   portValue: Record<string, unknown> | null | undefined,
   fallbackCode?: string,
+  fallbackMega?: boolean,
 ): LocalMapPort | null {
   const portCode =
     (portValue && typeof portValue.code === "string"
@@ -836,7 +837,9 @@ function buildLocalMapPort(
     return null;
   }
   const mega =
-    portValue && typeof portValue.mega === "boolean" ? portValue.mega : undefined;
+    portValue && typeof portValue.mega === "boolean"
+      ? portValue.mega
+      : fallbackMega;
   return mega === undefined ? { code: portCode } : { code: portCode, mega };
 }
 
@@ -1196,6 +1199,7 @@ export async function buildLocalMapRegion(
   const portCodes = await loadPortCodes(supabase, visitedSectorIds);
 
   const resultSectors: LocalMapSector[] = [];
+  const universeMeta = await loadUniverseMeta(supabase);
   const disconnectedSet = new Set(disconnectedSectors);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
     const isDisconnected = disconnectedSet.has(sectorId);
@@ -1210,9 +1214,12 @@ export async function buildLocalMapRegion(
 
     if (visitedSet.has(sectorId)) {
       const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+      const hasPort = Boolean(portCodes[sectorId]);
+      const mega = hasPort ? isMegaPortSector(universeMeta, sectorId) : undefined;
       const portPayload = buildLocalMapPort(
         knowledgeEntry?.port as Record<string, unknown> | null,
         portCodes[sectorId],
+        mega,
       );
       resultSectors.push({
         id: sectorId,
@@ -1349,6 +1356,7 @@ export async function buildLocalMapRegionByBounds(
   const portCodes = await loadPortCodes(supabase, visitedSectorIds);
 
   const resultSectors: LocalMapSector[] = [];
+  const universeMeta = await loadUniverseMeta(supabase);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
     const universeRow = universeRowCache.get(sectorId);
     const position = universeRow?.position ?? [0, 0];
@@ -1359,9 +1367,12 @@ export async function buildLocalMapRegionByBounds(
       const adjacent = knowledgeEntry?.adjacent_sectors ??
         universeRow?.warps.map((edge) => edge.to) ??
         [];
+      const hasPort = Boolean(portCodes[sectorId]);
+      const mega = hasPort ? isMegaPortSector(universeMeta, sectorId) : undefined;
       const portPayload = buildLocalMapPort(
         knowledgeEntry?.port as Record<string, unknown> | null,
         portCodes[sectorId],
+        mega,
       );
       resultSectors.push({
         id: sectorId,
