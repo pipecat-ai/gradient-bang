@@ -168,7 +168,7 @@ export const SectorTitleBanner = () => {
           initial={{ opacity: 0 }}
           animate={ANIMATE_IN}
           exit={ANIMATE_OUT}
-          className="w-full absolute left-0 top-1/2 -translate-y-1/2 z-20"
+          className="w-full absolute left-0 top-1/2 -translate-y-1/2 z-20 pointer-events-none"
         >
           <div className="flex flex-row gap-5 text-center justify-center items-center mx-auto w-max bg-background/70 p-2">
             <div className="dotted-bg-sm dotted-bg-white/60 self-stretch w-[160px]" />

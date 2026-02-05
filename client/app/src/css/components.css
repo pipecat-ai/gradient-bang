@@ -1,4 +1,10 @@
 @layer components {
+  .cursor-look-mode {
+    cursor:
+      url("../assets/cursor.svg") 32 32,
+      crosshair;
+  }
+
   .dither-mask-md,
   .dither-mask-sm {
     position: relative;
