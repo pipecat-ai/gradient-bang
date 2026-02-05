@@ -1,9 +1,12 @@
+import { useEffect, useRef } from "react"
+
 import { AnimatePresence, motion } from "motion/react"
 import { Dialog } from "radix-ui"
 
 import { ModalCloseButton } from "@/components/ModalCloseButton"
-import { cn } from "@/utils/tailwind"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
 
 const OVERLAY_ANIMATION = {
   initial: { opacity: 0 },
@@ -42,6 +45,7 @@ export interface BaseDialogProps {
   overlayVariant?: "dots" | "dotted" | "none"
   contentClassName?: string
   noPadding?: boolean
+  playOpenSound?: boolean
   onClose?: () => void
   onOpenAutoFocus?: (e: Event) => void
   onCloseAutoFocus?: (e: Event) => void
@@ -55,14 +59,25 @@ export const BaseDialog = ({
   overlayVariant = "dots",
   contentClassName,
   noPadding = false,
+  playOpenSound = true,
   onClose,
   onOpenAutoFocus,
   onCloseAutoFocus,
 }: BaseDialogProps) => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
+  const playSound = useAudioStore.use.playSound()
+  const wasOpenRef = useRef(false)
 
   const isOpen = activeModal === modalName
+
+  // Play sound when modal opens
+  useEffect(() => {
+    if (isOpen && !wasOpenRef.current && playOpenSound) {
+      playSound("chime4")
+    }
+    wasOpenRef.current = isOpen
+  }, [isOpen, playOpenSound, playSound])
 
   const handleClose = () => {
     onClose?.()
@@ -87,7 +102,7 @@ export const BaseDialog = ({
                   )}
                 />
               </Dialog.Overlay>
-              <motion.div {...CONTENT_ANIMATION} className="z-[51]">
+              <motion.div {...CONTENT_ANIMATION} className="fixed top-0 right-0 z-50">
                 <ModalCloseButton handleClose={handleClose} />
               </motion.div>
               <Dialog.Content

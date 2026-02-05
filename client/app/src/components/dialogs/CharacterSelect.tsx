@@ -23,6 +23,7 @@ export const CharacterSelectDialog = ({
       title="Select Character"
       size="full"
       noPadding
+      playOpenSound={false}
       contentClassName="max-h-min"
       onClose={handleClose}
       onOpenAutoFocus={(e) => {
