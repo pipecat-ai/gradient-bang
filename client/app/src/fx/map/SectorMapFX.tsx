@@ -992,7 +992,7 @@ function getNodeStyle(
   const isHovered = node.id === hoveredSectorId
   const isCentered = node.id === config.center_sector_id && !isCurrent
   const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true
-  const isMegaPort = node.port === "SSS"
+  const isMegaPort = Boolean((node.port as Port | null)?.mega)
 
   let baseStyle: NodeStyle
 
@@ -1032,7 +1032,7 @@ function getNodeStyle(
   } else if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
   } else if (isVisited) {
-    if (node.source === "corp") {
+    if (node.scope === "corp") {
       baseStyle = config.nodeStyles.visited_corp
     } else {
       baseStyle = config.nodeStyles.visited
@@ -1183,7 +1183,7 @@ function renderSector(
 
   // Hide port icons when course plot is active
   if (config.show_ports && node.port && !coursePlot) {
-    const isMegaPort = node.port === "SSS"
+    const isMegaPort = Boolean((node.port as Port | null)?.mega)
     const portStyle = isMegaPort ? config.portStyles.mega : config.portStyles.regular
 
     // Use nodeStyle.iconColor if set, otherwise fall back to portStyle colors
@@ -1565,7 +1565,8 @@ function renderPortLabels(
   ctx.font = `${labelStyle.fontWeight} ${labelStyle.fontSize}px ${getCanvasFontFamily(ctx)}`
 
   data.forEach((node) => {
-    if (!node.port) return
+    const portCode = node.port?.code
+    if (!portCode) return
     // Skip labels for current sector (player's location)
     if (config.current_sector_id !== undefined && node.id === config.current_sector_id) return
 
@@ -1585,7 +1586,7 @@ function renderPortLabels(
 
     const screenPos = worldToScreen(edgeWorldX, edgeWorldY, width, height, cameraState)
 
-    const text = node.port
+    const text = portCode
     const textX = screenPos.x + labelOffset
     const textY = screenPos.y
 
