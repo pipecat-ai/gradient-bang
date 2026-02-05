@@ -512,7 +512,7 @@ If you add or rename events:
       ship_name: string,
       ship_type: string,
       owner_type: "personal" | "corporation",
-      sector: number,
+      sector: number | null,
       cargo: {
         quantum_foam: number,
         retro_organics: number,
@@ -529,5 +529,11 @@ If you add or rename events:
       current_task_id: string | null,
     }
   ],
+  source?: {
+    type: "rpc",
+    method: string,
+    timestamp: string,
+    request_id: string,
+  },
 }
 ```

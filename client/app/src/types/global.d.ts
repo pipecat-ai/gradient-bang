@@ -53,7 +53,7 @@ declare global {
     max_fighters?: number
     owner_type?: "personal" | "corporation" | "unowned"
     current_task_id?: string | null
-    sector?: number
+    sector?: number | null
   }
 
   interface ShipSelf extends Ship {
