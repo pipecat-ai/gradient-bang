@@ -82,6 +82,7 @@ export interface TaskFinishMessage extends ServerMessagePayload {
 export interface IncomingChatMessage extends ServerMessagePayload, ChatMessage {}
 
 export interface StatusMessage extends ServerMessagePayload {
+  scope: "player" | "corporation"
   player: PlayerSelf
   ship: ShipSelf
   sector: Sector

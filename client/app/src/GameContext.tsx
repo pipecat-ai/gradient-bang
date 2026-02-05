@@ -172,12 +172,9 @@ export function GameProvider({ children }: GameProviderProps) {
 
               const status = e.payload as StatusMessage
 
-              // @TODO: properly handle status updates from other characters
-              if (
-                status.player.player_type !== "human" &&
-                status.player.id !== gameStore.player.id
-              ) {
+              if (status.scope !== "player") {
                 console.debug("[GAME EVENT] Status update from non-human player, skipping")
+                // @TODO: properly handle status updates for other scopes
                 break
               }
 
