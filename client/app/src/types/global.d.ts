@@ -18,7 +18,7 @@ declare global {
   }
 
   interface Player extends PlayerBase {
-    // player_type: "npc" | "human" | "corporation_ship"
+    player_type: "npc" | "human" | "corporation_ship"
     ship: Ship
     corporation?: Corporation
   }
@@ -80,6 +80,7 @@ declare global {
   }
 
   interface ShipUnowned extends Ship {
+    owner_id: string
     owner_type: "unowned"
     became_unowned: string
     former_owner_name: string
@@ -118,7 +119,7 @@ declare global {
     scene_config?: unknown
 
     // Not yet implemented
-    garrisons?: Garrison[]
+    garrison?: Garrison[] | null
   }
 
   interface Planet {

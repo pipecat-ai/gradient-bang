@@ -8,7 +8,7 @@ import { RATE_LIMITS } from "./constants.ts";
 import type { CharacterRow, ShipRow, ShipDefinitionRow } from "./status.ts";
 import type { MapKnowledge, WarpEdge, SectorSnapshot } from "./map.ts";
 import { parseWarpEdges, normalizeMapKnowledge, mergeMapKnowledge } from "./map.ts";
-import { resolvePlayerType } from "./status.ts";
+import { resolvePlayerType, resolveScope } from "./status.ts";
 import { ActorAuthorizationError } from "./actors.ts";
 import { getPortPrices, getPortStock, type PortData } from "./trading.ts";
 
@@ -1235,6 +1235,7 @@ export async function pgBuildStatusPayload(
   const knowledge = await pgLoadMapKnowledge(pg, characterId);
   const universeSize = await pgLoadUniverseSize(pg);
   const playerType = resolvePlayerType(character.player_metadata);
+  const scope = resolveScope(ship.owner_type, playerType);
   const player = buildPlayerSnapshot(character, playerType, knowledge, universeSize);
   const shipSnapshot = buildShipSnapshot(ship, definition);
   const sectorSnapshot =
@@ -1268,6 +1269,7 @@ export async function pgBuildStatusPayload(
   }
 
   return convertBigInts({
+    scope,
     player,
     ship: shipSnapshot,
     sector: sectorSnapshot,
