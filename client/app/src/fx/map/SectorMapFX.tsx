@@ -74,6 +74,8 @@ export type RegionStyleOverrides = Record<string, Partial<NodeStyle>>
 export interface RegionLaneStyle {
   twoWayColor?: string
   oneWayColor?: string
+  twoWayArrowColor?: string
+  oneWayArrowColor?: string
 }
 export type RegionLaneStyleOverrides = Record<string, RegionLaneStyle>
 
@@ -233,10 +235,14 @@ export const DEFAULT_REGION_LANE_STYLES: RegionLaneStyleOverrides = {
   "federation-space": {
     twoWayColor: "#99f6e4",
     oneWayColor: "#0d9488",
+    twoWayArrowColor: "#99f6e4",
+    oneWayArrowColor: "#0d9488",
   },
   neutral: {
     twoWayColor: "#818cf8",
     oneWayColor: "#6366f1",
+    twoWayArrowColor: "#818cf8",
+    oneWayArrowColor: "#6366f1",
   },
 }
 
@@ -747,8 +753,14 @@ function renderLane(
     const regionOverride = config.regionLaneStyles[regionKey]
     if (regionOverride) {
       const regionColor = isBidirectional ? regionOverride.twoWayColor : regionOverride.oneWayColor
-      if (regionColor) {
-        laneStyle = { ...laneStyle, color: regionColor }
+      const regionArrowColor =
+        isBidirectional ? regionOverride.twoWayArrowColor : regionOverride.oneWayArrowColor
+      if (regionColor || regionArrowColor) {
+        laneStyle = {
+          ...laneStyle,
+          ...(regionColor && { color: regionColor }),
+          ...(regionArrowColor && { arrowColor: regionArrowColor }),
+        }
       }
     }
   }
