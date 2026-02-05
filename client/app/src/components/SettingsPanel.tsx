@@ -5,6 +5,16 @@ import { MicrophoneIcon, SpeakerHifiIcon } from "@phosphor-icons/react"
 import { MicDeviceSelect, SpeakerDeviceSelect } from "@/components/DeviceSelect"
 import { Button } from "@/components/primitives/Button"
 import { CardContent, CardFooter } from "@/components/primitives/Card"
+import { Divider } from "@/components/primitives/Divider"
+import {
+  Field,
+  FieldContent,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldValue,
+} from "@/components/primitives/Field"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
 import {
   Select,
@@ -16,19 +26,9 @@ import {
 import { Separator } from "@/components/primitives/Separator"
 import { SliderControl } from "@/components/primitives/SliderControl"
 import { ToggleControl } from "@/components/primitives/ToggleControl"
+import usePipecatClientStore from "@/stores/client"
 import useGameStore from "@/stores/game"
 import type { SettingsSlice } from "@/stores/settingsSlice"
-
-import { Divider } from "./primitives/Divider"
-import {
-  Field,
-  FieldContent,
-  FieldGroup,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
-  FieldValue,
-} from "./primitives/Field"
 
 const SettingSelect = ({
   label,
@@ -133,8 +133,19 @@ interface SettingsPanelProps {
 
 export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
   const storeSettings = useGameStore.use.settings()
+  const client = usePipecatClientStore((state) => state.client)
 
   const [formSettings, setFormSettings] = useState<SettingsSlice["settings"]>(storeSettings)
+
+  useEffect(() => {
+    console.debug(
+      "%c[DEVICES] Initializing devices",
+      "color: #DDDDDD; font-weight: bold;",
+      client?.state
+    )
+    if (client?.state !== "disconnected") return
+    client?.initDevices()
+  }, [client])
 
   useEffect(() => {
     setFormSettings(storeSettings)

@@ -1,5 +1,3 @@
-import { useEffect } from "react"
-
 import { usePipecatClientMediaDevices } from "@pipecat-ai/client-react"
 
 import {
@@ -10,7 +8,6 @@ import {
   type SelectTriggerProps,
   SelectValue,
 } from "@/components/primitives/Select"
-import usePipecatClientStore from "@/stores/client"
 
 export const MicDeviceSelect = ({
   className,
@@ -18,21 +15,14 @@ export const MicDeviceSelect = ({
 }: SelectTriggerProps & { className?: string }) => {
   const { availableMics, selectedMic, updateMic } = usePipecatClientMediaDevices()
 
-  useEffect(() => {
-    const client = usePipecatClientStore.getState().client
-    if (client) {
-      client.initDevices()
-    }
-  }, [])
-
+  const placeholder = availableMics?.length > 0 ? "Use default" : "Loading devices..."
   const selectedValue = selectedMic?.deviceId ?? ""
-  const placeholder = selectedMic?.label ?? "Loading devices..."
 
   return (
     <Select value={selectedValue} onValueChange={(v) => updateMic?.(v)}>
       <SelectTrigger id="remote-mic-select" className={className} {...props}>
         <SelectValue placeholder={placeholder} className="truncate">
-          <span className="truncate">{placeholder}</span>
+          <span className="truncate">{selectedMic?.label ?? placeholder}</span>
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
@@ -51,21 +41,14 @@ export const SpeakerDeviceSelect = ({
 }: SelectTriggerProps & { className?: string }) => {
   const { availableSpeakers, selectedSpeaker, updateSpeaker } = usePipecatClientMediaDevices()
 
-  useEffect(() => {
-    const client = usePipecatClientStore.getState().client
-    if (client) {
-      client.initDevices()
-    }
-  }, [])
-
+  const placeholder = availableSpeakers?.length > 0 ? "Use default" : "Loading devices..."
   const selectedValue = selectedSpeaker?.deviceId ?? ""
-  const placeholder = selectedSpeaker?.label ?? "Loading devices..."
 
   return (
     <Select value={selectedValue} onValueChange={(v) => updateSpeaker?.(v)}>
       <SelectTrigger id="remote-mic-select" className={className} {...props}>
         <SelectValue placeholder={placeholder} className="truncate">
-          <span className="truncate">{placeholder}</span>
+          <span className="truncate">{selectedSpeaker?.label ?? placeholder}</span>
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
