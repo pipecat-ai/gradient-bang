@@ -1275,7 +1275,10 @@ class DumpCargo(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="dump_cargo",
-            description="Jettison cargo into space to create salvage in the current sector.",
+            description=(
+                "Jettison cargo into space to create salvage in the current sector. "
+                "Example: dump_cargo({\"items\": [{\"commodity\": \"quantum_foam\", \"units\": 1}]})"
+            ),
             properties={
                 "items": {
                     "type": "array",

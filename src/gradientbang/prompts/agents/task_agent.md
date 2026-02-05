@@ -87,6 +87,12 @@ trade(trade_type="sell", commodity="quantum_foam", quantity=30)
 → Events: trade.executed, port.update
 ```
 
+### Dump Cargo
+```
+dump_cargo(items=[{"commodity":"quantum_foam","units":1}])
+→ Events: salvage.created, status.update, sector.update
+```
+
 ## Task Examples
 
 ### Moving Between Sectors
