@@ -8,6 +8,7 @@ declare global {
   }
 
   interface PlayerSelf extends PlayerBase {
+    player_type: "human" | "npc" | "corporation_ship"
     sectors_visited: number
     total_sectors_known: number
     credits_in_bank: number

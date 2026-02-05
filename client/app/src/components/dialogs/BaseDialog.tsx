@@ -97,12 +97,12 @@ export const BaseDialog = ({
                 <motion.div
                   {...OVERLAY_ANIMATION}
                   className={cn(
-                    "DialogOverlay bg-muted/80 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle",
+                    "DialogOverlay z-[90] bg-muted/80 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle",
                     overlayVariantClass
                   )}
                 />
               </Dialog.Overlay>
-              <motion.div {...CONTENT_ANIMATION} className="fixed top-0 right-0 z-50">
+              <motion.div {...CONTENT_ANIMATION} className="fixed top-0 right-0 z-90">
                 <ModalCloseButton handleClose={handleClose} />
               </motion.div>
               <Dialog.Content
@@ -110,7 +110,7 @@ export const BaseDialog = ({
                 forceMount
                 aria-describedby={undefined}
                 className={cn(
-                  "DialogContent",
+                  "DialogContent z-90",
                   sizeClass,
                   noPadding && "DialogContent-NoPadding",
                   contentClassName

@@ -172,6 +172,15 @@ export function GameProvider({ children }: GameProviderProps) {
 
               const status = e.payload as StatusMessage
 
+              // @TODO: properly handle status updates from other characters
+              if (
+                status.player.player_type !== "human" &&
+                status.player.id !== gameStore.player.id
+              ) {
+                console.debug("[GAME EVENT] Status update from non-human player, skipping")
+                break
+              }
+
               // Update store
               gameStore.setState({
                 player: status.player,
@@ -542,6 +551,18 @@ export function GameProvider({ children }: GameProviderProps) {
 
               // Largely a noop as status.update is dispatched immediately after
               // warp purchase. We just update activity log here for now.
+
+              // Filter out any corporation ship warp purchases
+              // @TODO: we should have an owner type field on this message
+              const shipId = useGameStore.getState().ship.ship_id
+              if (data.ship_id !== shipId) {
+                console.debug(
+                  "[GAME EVENT] Warp purchase from corporation ship, skipping toast",
+                  data,
+                  shipId
+                )
+                break
+              }
 
               gameStore.addActivityLogEntry({
                 type: "warp.purchase",
