@@ -215,23 +215,18 @@ If you add or rename events:
     {
       id: number,
       scope?: "player" | "corp" | "both",
-      region?: string,
+      region?: string | null,
       position: [number, number],
       adjacent_sectors: number[],
       hops_from_center: number,
       port: {
         code: string
         mega?: boolean
-        stock: Record<Resource, number>
-        prices: Record<Resource, number>
-        port_class?: number
-        observed_at?: string
-      },
+      } | null,
       lanes: [
         {
           to: number,
-          two_way: boolean,
-          hyperlane: boolean,
+          two_way: boolean
         }
       ],
       visited: boolean,
