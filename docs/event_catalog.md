@@ -74,7 +74,7 @@ If you add or rename events:
 
 ```tsx
 {
-  scope: "player" | "corporation",
+  scope: "player" | "corp",
   ship: {
     ship_id: string,
     ship_name: string,
@@ -95,7 +95,6 @@ If you add or rename events:
     cargo_capacity?: number,
     turns_per_warp?: number,
   },
-
   player: {
     id: string,
     name: string,
@@ -108,7 +107,6 @@ If you add or rename events:
     total_sectors_known: number,
     corp_sectors_visited?: number,
   },
-
   sector: {
     id: number,
     region: string,
@@ -143,14 +141,14 @@ If you add or rename events:
           ship_type: string,
         },
         created_at?: string,
-        corporation?: {
-          name: string,
-          corp_id: string,
-          joined_at: string,
-          member_count: number,
-        },
-      }
+      },
     ],
+    corporation?: {
+      name: string,
+      corp_id: string,
+      joined_at: string,
+      member_count: number,
+    },
     salvage?: [
       {
         salvage_id: string,
@@ -191,5 +189,43 @@ If you add or rename events:
       }
     ],
   },
+}
+```
+
+### `map.local`
+
+```tsx
+{
+  sectors: [
+    {
+      id: number,
+      scope?: "player" | "corp" | "both",
+      region?: string,
+      position: [number, number],
+      adjacent_sectors: number[],
+      hops_from_center: number,
+      port: {
+        code: string
+        mega?: boolean
+        stock: Record<Resource, number>
+        prices: Record<Resource, number>
+        port_class?: number
+        observed_at?: string
+      },
+      lanes: [
+        {
+          to: number,
+          two_way: boolean,
+          hyperlane: boolean,
+        }
+      ],
+      visited: boolean,
+      last_visited?: string,
+    }
+  ],
+  center_sector: number,
+  total_sectors: number,
+  total_visited: number,
+  total_unvisited: number,
 }
 ```
