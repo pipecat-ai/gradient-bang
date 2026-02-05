@@ -359,6 +359,12 @@ const createGameSlice: StateCreator<
         )
 
         for (const sector of regionalMapData) {
+          // Preserve the existing scope (player/corp/both) since scope is per-player
+          // and incoming data from other players' moves may have incorrect scope values
+          const existing = existingById.get(sector.id) as MapSectorNode | undefined
+          if (existing?.scope === "both" && sector.scope !== "both") {
+            sector.scope = existing.scope
+          }
           existingById.set(sector.id, sector)
         }
 
@@ -397,8 +403,13 @@ const createGameSlice: StateCreator<
           for (const sectorUpdate of updates) {
             const existingIdx = existingIndex.get(sectorUpdate.id)
             if (existingIdx !== undefined) {
-              // Update existing sector
+              // Preserve the existing scope (player/corp/both) since scope is per-player
+              // and incoming data from other players' moves may have incorrect scope values
+              const existingScope = mapData[existingIdx].scope
               Object.assign(mapData[existingIdx], sectorUpdate)
+              if (existingScope === "both" && sectorUpdate.scope !== "both") {
+                mapData[existingIdx].scope = existingScope
+              }
             } else {
               // Add new sector
               mapData.push(sectorUpdate as MapSectorNode)

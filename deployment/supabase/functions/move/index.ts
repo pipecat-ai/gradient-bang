@@ -453,6 +453,7 @@ async function handleMove({
       ship,
       shipDefinition,
       characterId,
+      actorCharacterId,
       shipId: ship.ship_id,
       destination,
       requestId,
@@ -596,6 +597,7 @@ async function completeMovement({
   ship,
   shipDefinition,
   characterId,
+  actorCharacterId,
   shipId,
   destination,
   requestId,
@@ -613,6 +615,7 @@ async function completeMovement({
   ship: ShipRow;
   shipDefinition: ShipDefinitionRow;
   characterId: string;
+  actorCharacterId: string | null;
   shipId: string;
   destination: number;
   requestId: string;
@@ -673,8 +676,11 @@ async function completeMovement({
     });
     mark("mark_sector_visited");
 
-    // Load merged knowledge for local map (personal + corp)
-    const mergedKnowledge = await pgLoadMapKnowledge(pg, characterId);
+    // Load merged knowledge for local map from the actor's perspective (personal + corp).
+    // For corp ship moves, the actor is the human player controlling the ship, whose
+    // personal knowledge determines the correct scope (player/corp/both) for each sector.
+    const mapKnowledgeCharId = actorCharacterId ?? characterId;
+    const mergedKnowledge = await pgLoadMapKnowledge(pg, mapKnowledgeCharId);
     mark("load_map_knowledge");
 
     const movementCompletePayload = {

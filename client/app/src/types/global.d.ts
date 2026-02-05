@@ -159,6 +159,7 @@ declare global {
 
   interface PortBase {
     code: string
+    mega?: boolean
   }
 
   interface Port extends PortBase {
