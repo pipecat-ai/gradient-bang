@@ -1341,17 +1341,44 @@ async function pgLoadPortCodes(
   return portCodes;
 }
 
+function buildLocalMapPort(
+  portValue: Record<string, unknown> | null | undefined,
+  fallbackCode?: string,
+): { code: string; mega?: boolean } | null {
+  const portCode =
+    (portValue && typeof portValue.code === "string"
+      ? portValue.code
+      : null) ??
+    (portValue && typeof portValue.port_code === "string"
+      ? portValue.port_code
+      : null) ??
+    (fallbackCode && fallbackCode.trim().length > 0 ? fallbackCode : null);
+  if (!portCode) {
+    return null;
+  }
+  const mega =
+    portValue && typeof portValue.mega === "boolean" ? portValue.mega : undefined;
+  return mega === undefined ? { code: portCode } : { code: portCode, mega };
+}
+
+function stripHyperlane(lanes: WarpEdge[]): { to: number; two_way?: boolean }[] {
+  return lanes.map((lane) => ({
+    to: lane.to,
+    two_way: lane.two_way,
+  }));
+}
+
 interface LocalMapSector {
   id: number;
   visited: boolean;
   hops_from_center: number;
   position: [number, number];
   region?: string | null;
-  port: string;
-  lanes: WarpEdge[];
-  adjacent_sectors?: number[];
+  port: { code: string; mega?: boolean } | null;
+  lanes: { to: number; two_way?: boolean }[];
+  adjacent_sectors: number[];
   last_visited?: string;
-  source?: 'player' | 'corp' | 'both';
+  scope?: 'player' | 'corp' | 'both';
 }
 
 interface LocalMapRegionPayload {
@@ -1613,21 +1640,25 @@ export async function pgBuildLocalMapRegion(
 
     if (visitedSet.has(sectorId)) {
       const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+      const portPayload = buildLocalMapPort(
+        knowledgeEntry?.port as Record<string, unknown> | null,
+        portCodes[sectorId],
+      );
       resultSectors.push({
         id: sectorId,
         visited: true,
         hops_from_center: hops,
         position,
         region: universeRow?.region ?? null,
-        port: portCodes[sectorId] ?? "",
-        lanes: warps,
+        port: portPayload,
+        lanes: stripHyperlane(warps),
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
         last_visited: knowledgeEntry?.last_visited,
-        source: knowledgeEntry?.source,
+        scope: knowledgeEntry?.source,
       });
     } else {
       const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
-      const derivedLanes: WarpEdge[] = [];
+      const derivedLanes: { to: number; two_way?: boolean }[] = [];
       for (const source of seenFrom) {
         const sourceRow = universeRowCache.get(source);
         const match = sourceRow?.warps.find((warp) => warp.to === sectorId);
@@ -1635,7 +1666,6 @@ export async function pgBuildLocalMapRegion(
           derivedLanes.push({
             to: source,
             two_way: match.two_way,
-            hyperlane: match.hyperlane,
           });
         } else {
           derivedLanes.push({ to: source });
@@ -1646,8 +1676,9 @@ export async function pgBuildLocalMapRegion(
         visited: false,
         hops_from_center: hops,
         position,
-        port: "",
+        port: null,
         lanes: derivedLanes,
+        adjacent_sectors: [],
       });
     }
   }

@@ -183,17 +183,15 @@ declare global {
 
   interface MapSectorNode {
     id: number
-    port?: string
+    port?: PortBase | null
     lanes: MapLane[]
-    source?: "player" | "corp" | "both"
+    scope?: "player" | "corp" | "both"
     region?: string
     visited?: boolean
     position: [number, number]
     last_visited?: string
     adjacent_sectors?: number[]
     hops_from_center?: number
-
-    is_mega?: boolean //@TODO: Unused
   }
 
   interface MapLane {
