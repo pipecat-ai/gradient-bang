@@ -60,7 +60,6 @@ from gradientbang.pipecat_server.inference_gate import (
     PostLLMInferenceGate,
     PreLLMInferenceGate,
 )
-from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStrategy
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
@@ -204,15 +203,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
     context_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(
-            filter_incomplete_user_turns=True,
-            user_mute_strategies=[
-                TextInputBypassFirstBotMuteStrategy(),
-            ],
-        ),
+        user_params=LLMUserAggregatorParams(filter_incomplete_user_turns=True),
     )
     user_mute_state = {"muted": True}
     user_unmuted_event = asyncio.Event()
+
     @context_aggregator.user().event_handler("on_user_mute_started")
     async def on_user_mute_started(aggregator):
         logger.info("User input muted")

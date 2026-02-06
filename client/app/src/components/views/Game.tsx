@@ -1,3 +1,5 @@
+import { useCallback, useState } from "react"
+
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
 import { ArrowLeftIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
@@ -28,6 +30,12 @@ export const Game = () => {
   const asidePanelRef = usePanelRef()
   const lookMode = useGameStore.use.lookMode()
   const setLookMode = useGameStore.use.setLookMode?.()
+  const [isCollapsed, setIsCollapsed] = useState(false)
+
+  const handleAsideResize = useCallback(() => {
+    const collapsed = asidePanelRef.current?.isCollapsed?.() ?? false
+    setIsCollapsed(collapsed)
+  }, [asidePanelRef])
 
   return (
     <>
@@ -76,6 +84,7 @@ export const Game = () => {
           collapsedSize="60px"
           className="@container/aside"
           panelRef={asidePanelRef}
+          onResize={handleAsideResize}
         >
           <aside className="h-full border-transparent border-l-(length:--separator) border-l-background flex-col hidden @sm/aside:flex">
             <header className="pb-separator flex flex-col gap-separator bg-black">
@@ -86,16 +95,18 @@ export const Game = () => {
             </div>
             <RHSPanelNav />
           </aside>
-          <div className="h-full flex-col items-center justify-center hidden @max-sm/aside:flex">
-            <Button
-              variant="secondary"
-              size="icon"
-              className=""
-              onClick={() => asidePanelRef?.current?.expand()}
-            >
-              <ArrowLeftIcon size={16} />
-            </Button>
-          </div>
+          {isCollapsed && (
+            <div className="h-full flex-col items-center justify-center flex bg-background/80">
+              <Button
+                variant="secondary"
+                size="icon"
+                className="bg-background"
+                onClick={() => asidePanelRef?.current?.expand()}
+              >
+                <ArrowLeftIcon size={16} />
+              </Button>
+            </div>
+          )}
         </Panel>
       </Group>
 

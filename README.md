@@ -508,7 +508,7 @@ This creates `artifacts/universe-map.svg` showing sectors, warps, fedspace (high
 
 Open Inbucket (local email viewer) and click confirmation link. Note: In local dev, the redirect URL will not be found.
 
-```bash
+````bash
 open http://127.0.0.1:54324
 ```
 
@@ -521,7 +521,7 @@ curl -X POST http://127.0.0.1:54321/functions/v1/login \
     "email": "test@example.com",
     "password": "secret123"
   }'
-```
+````
 
 **Grab the `access_token` for the next steps!**
 
