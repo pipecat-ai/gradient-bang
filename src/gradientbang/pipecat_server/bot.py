@@ -466,6 +466,63 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 )
             return
 
+        # Client requested chat history
+        if msg_type == "get-chat-history":
+            try:
+                since_hours_raw = msg_data.get("since_hours") if isinstance(msg_data, dict) else None
+                since_hours = min(int(since_hours_raw), 72) if since_hours_raw is not None else 24
+                max_rows_raw = msg_data.get("max_rows") if isinstance(msg_data, dict) else None
+                max_rows = min(int(max_rows_raw), 100) if max_rows_raw is not None else 50
+
+                end_time = datetime.now(timezone.utc)
+                start_time = end_time - timedelta(hours=since_hours)
+
+                result = await task_manager.game_client.event_query(
+                    start=start_time.isoformat(),
+                    end=end_time.isoformat(),
+                    character_id=task_manager.character_id,
+                    filter_event_type="chat.message",
+                    include_broadcasts=True,
+                    max_rows=max_rows,
+                    sort_direction="reverse",
+                )
+
+                raw_events = result.get("events", [])
+
+                # Transform raw events into clean chat message objects
+                messages = []
+                for event in raw_events:
+                    payload = event.get("payload", {})
+                    messages.append(
+                        {
+                            "id": payload.get("id"),
+                            "type": payload.get("type"),
+                            "from_name": payload.get("from_name"),
+                            "content": payload.get("content"),
+                            "to_name": payload.get("to_name"),
+                            "timestamp": payload.get("timestamp") or event.get("timestamp"),
+                        }
+                    )
+
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "chat.history",
+                            "payload": {
+                                "messages": messages,
+                                "total_count": len(messages),
+                            },
+                        }
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to fetch chat history")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+                )
+            return
+
         # Client requested task cancellation
         if msg_type == "cancel-task":
             try:

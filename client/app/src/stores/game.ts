@@ -93,6 +93,7 @@ export interface GameSlice extends GameState {
   setAccessToken: (accessToken: string) => void
   setCharacterAndToken: (characterId: string, accessToken: string) => void
   addMessage: (message: ChatMessage) => void
+  setChatHistory: (messages: ChatMessage[]) => void
   setPlayer: (player: Partial<PlayerSelf>) => void
   setShip: (ship: Partial<ShipSelf>) => void
   setShips: (ships: ShipSelf[]) => void
@@ -295,6 +296,17 @@ const createGameSlice: StateCreator<
         state.messages.push({
           ...message,
         })
+      })
+    ),
+
+  setChatHistory: (messages: ChatMessage[]) =>
+    set(
+      produce((state) => {
+        // Deduplicate: build set of existing message IDs, then prepend only new ones
+        const existingIds = new Set(state.messages.map((m: ChatMessage) => m.id))
+        const newMessages = messages.filter((m) => !existingIds.has(m.id))
+        // History arrives newest-first; reverse so oldest are at the front
+        state.messages = [...newMessages.reverse(), ...state.messages]
       })
     ),
 

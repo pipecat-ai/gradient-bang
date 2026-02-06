@@ -17,6 +17,7 @@ import { RESOURCE_SHORT_NAMES } from "./types/constants"
 import {
   type BankTransactionMessage,
   type CharacterMovedMessage,
+  type ChatHistoryMessage,
   type CombatActionResponseMessage,
   type CombatRoundResolvedMessage,
   type CombatRoundWaitingMessage,
@@ -1035,6 +1036,13 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Task history", e.payload)
               const data = e.payload as TaskHistoryMessage
               gameStore.setTaskHistory(data.tasks)
+              break
+            }
+
+            case "chat.history": {
+              console.debug("[GAME EVENT] Chat history", e.payload)
+              const data = e.payload as ChatHistoryMessage
+              gameStore.setChatHistory(data.messages)
               break
             }
 
