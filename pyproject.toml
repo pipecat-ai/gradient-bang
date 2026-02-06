@@ -12,6 +12,7 @@ dependencies = [
     "loguru>=0.7.0",
     "psycopg[binary]>=3.2.1",
     "supabase>=2.24.0",
+    "weave>=0.52.23",
 ]
 
 [dependency-groups]

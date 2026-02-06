@@ -71,6 +71,8 @@ export default defineConfig(() => ({
     exclude: ["@gradient-bang/starfield"],
   },
   server: {
+    host: '0.0.0.0',
+    allowedHosts: true,
     watch: {
       // Watch the starfield dist for changes
       ignored: ["!**/node_modules/@gradient-bang/**"],

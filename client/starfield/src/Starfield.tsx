@@ -238,6 +238,19 @@ export const Starfield = ({
     useGameStore.setState({ debug })
   }
 
+  // Apply imageAssets synchronously BEFORE any child components render.
+  // Without this, AssetPreloader reads the default profile's test URLs
+  // (e.g. /test-port-1.png) and starts loading them before the
+  // useLayoutEffect in StarfieldComponent can update the config.
+  if (props.config?.imageAssets) {
+    const currentAssets = useGameStore.getState().starfieldConfig.imageAssets
+    if (!deepEqual(currentAssets, props.config.imageAssets)) {
+      useGameStore.getState().setStarfieldConfig({
+        imageAssets: props.config.imageAssets,
+      })
+    }
+  }
+
   const callbacksRef = useRef({
     onCreated,
     onReady,

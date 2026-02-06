@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'linux'",
@@ -1193,6 +1193,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "supabase" },
+    { name = "weave" },
 ]
 
 [package.dev-dependencies]
@@ -1226,6 +1227,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "supabase", specifier = ">=2.24.0" },
+    { name = "weave", specifier = ">=0.52.23" },
 ]
 
 [package.metadata.requires-dev]

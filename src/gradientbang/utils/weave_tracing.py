@@ -43,11 +43,8 @@ def is_weave_enabled() -> bool:
     return _weave_initialized
 
 
-def init_weave(project_name: str = "gradientbang") -> bool:
+def init_weave() -> bool:
     """Initialize Weave if available and WANDB_API_KEY is set.
-
-    Args:
-        project_name: W&B project name for traces
 
     Returns:
         True if Weave was initialized, False otherwise
@@ -62,6 +59,7 @@ def init_weave(project_name: str = "gradientbang") -> bool:
     if _weave_initialized:
         return True
     try:
+        project_name = os.getenv("WANDB_PROJECT_NAME") or "dailyco/Gradient Bang"
         weave.init(project_name)
         _weave_initialized = True
         logger.info(f"Weave tracing enabled: project={project_name}")
