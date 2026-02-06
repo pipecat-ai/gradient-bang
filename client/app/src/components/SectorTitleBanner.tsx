@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
+import { StarIcon } from "@phosphor-icons/react"
 
 import { ScrambleText, type ScrambleTextRef } from "@/fx/ScrambleText"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
+
+import { Divider } from "./primitives/Divider"
 
 /** Delay before showing banner when entering a new sector */
 const DELAY_BEFORE_SHOW = 1500
@@ -177,6 +181,22 @@ export const SectorTitleBanner = () => {
             </p>
             <div className="dotted-bg-sm dotted-bg-subtle self-stretch w-[160px]" />
           </div>
+          {sector?.port && (
+            <div
+              className={
+                "flex flex-row w-fit mx-auto gap-3 items-center text-sm font-bold uppercase mt-2 px-2 py-0.5" +
+                (sector.port.mega ? " bg-fuel-background/70" : " bg-terminal-background/50")
+              }
+            >
+              <Divider className={cn("w-8", sector.port.mega ? "bg-fuel/30" : "bg-terminal/30")} />
+              {sector.port.mega && <StarIcon weight="fill" className="size-3.5 text-fuel" />}
+              <span className={cn("text-accent", sector.port.mega ? "text-fuel" : "text-terminal")}>
+                {sector.port.mega ? "Mega" : ""} {sector.port.code} Port
+              </span>
+              {sector.port.mega && <StarIcon weight="fill" className="size-3.5 text-fuel" />}
+              <Divider className={cn("w-8", sector.port.mega ? "bg-fuel/30" : "bg-terminal/30")} />
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
