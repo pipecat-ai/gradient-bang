@@ -18,7 +18,8 @@ import {
   type BankTransactionMessage,
   type CharacterMovedMessage,
   type ChatHistoryMessage,
-  type CombatActionResponseMessage,
+  type CombatActionAcceptedMessage,
+  type CombatEndedMessage,
   type CombatRoundResolvedMessage,
   type CombatRoundWaitingMessage,
   type CorporationCreatedMessage,
@@ -27,6 +28,10 @@ import {
   type CreditsTransferMessage,
   type ErrorMessage,
   type EventQueryMessage,
+  type GarrisonCharacterMovedMessage,
+  type GarrisonCollectedMessage,
+  type GarrisonDeployedMessage,
+  type GarrisonModeChangedMessage,
   type IncomingChatMessage,
   type LLMTaskMessage,
   type MapLocalMessage,
@@ -565,7 +570,7 @@ export function GameProvider({ children }: GameProviderProps) {
                 type: "salvage.created",
                 message: `Salvage created in [sector ${
                   data.sector.id
-                }] ${salvageCreatedSummaryString(data.salvage_details)}`,
+                }] ${salvageCreatedSummaryString(data.salvage_details as Salvage)}`,
               })
 
               gameStore.addToast({
@@ -799,7 +804,15 @@ export function GameProvider({ children }: GameProviderProps) {
                 })
                 break
               }
-              // Update combat session with new round details
+              // Keep active combat session in sync with latest round state.
+              gameStore.updateActiveCombatSession({
+                participants: data.participants as CombatParticipant[],
+                garrison: (data.garrison ?? null) as CombatGarrison | null,
+                round: data.round,
+                deadline: data.deadline,
+                current_time: data.current_time,
+                initiator: data.initiator,
+              })
               break
             }
 
@@ -823,9 +836,10 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "combat.action_accepted":
             case "combat.action_response": {
               console.debug("[GAME EVENT] Combat action response", e.payload)
-              const data = e.payload as CombatActionResponseMessage
+              const data = e.payload as CombatActionAcceptedMessage
               const payloadPlayerId = getPayloadPlayerId(data)
               const activeCombatId = gameStore.activeCombatSession?.combat_id
               const isPersonalAction =
@@ -841,18 +855,18 @@ export function GameProvider({ children }: GameProviderProps) {
                 break
               }
 
-              // @TODO: update store to log action round action
+              gameStore.addCombatActionReceipt(data as CombatActionReceipt)
 
               gameStore.addActivityLogEntry({
-                type: "combat.action.response",
-                message: `Combat action response for round ${data.round}: [${data.action}]`,
+                type: "combat.action.accepted",
+                message: `Combat action accepted for round ${data.round}: [${data.action}]`,
               })
               break
             }
 
             case "combat.ended": {
               console.debug("[GAME EVENT] Combat ended", e.payload)
-              const data = e.payload as CombatRoundResolvedMessage
+              const data = e.payload as CombatEndedMessage
               const activeCombatId = gameStore.activeCombatSession?.combat_id
               const hasPersonalAction =
                 !!playerSessionId &&
@@ -862,6 +876,10 @@ export function GameProvider({ children }: GameProviderProps) {
                 logIgnored("combat.ended", "not part of combat", data)
                 break
               }
+
+              gameStore.addCombatRound(data as CombatRound)
+              gameStore.addCombatHistory(data as CombatEndedRound)
+              gameStore.setLastCombatEnded(data as CombatEndedRound)
 
               // Return to idle UI state
               gameStore.setUIState("idle")
@@ -968,6 +986,65 @@ export function GameProvider({ children }: GameProviderProps) {
               if (data.was_cancelled) {
                 gameStore.setTaskWasCancelled(true)
               }
+              break
+            }
+
+            // ----- COMBAT (SUPPLEMENTAL)
+
+            case "garrison.deployed": {
+              console.debug("[GAME EVENT] Garrison deployed", e.payload)
+              const data = e.payload as GarrisonDeployedMessage
+
+              gameStore.addActivityLogEntry({
+                type: "garrison.deployed",
+                message: `Garrison deployed in [sector ${data.sector.id}] with [${data.garrison.fighters}] fighters`,
+              })
+              break
+            }
+
+            case "garrison.collected": {
+              console.debug("[GAME EVENT] Garrison collected", e.payload)
+              const data = e.payload as GarrisonCollectedMessage
+
+              gameStore.addActivityLogEntry({
+                type: "garrison.collected",
+                message: `Collected fighters from [sector ${data.sector.id}] - ship now has [${data.fighters_on_ship}] fighters`,
+              })
+              break
+            }
+
+            case "garrison.mode_changed": {
+              console.debug("[GAME EVENT] Garrison mode changed", e.payload)
+              const data = e.payload as GarrisonModeChangedMessage
+
+              gameStore.addActivityLogEntry({
+                type: "garrison.mode_changed",
+                message: `Garrison mode changed to [${data.garrison.mode}] in [sector ${data.sector.id}]`,
+              })
+              break
+            }
+
+            case "garrison.character_moved": {
+              console.debug("[GAME EVENT] Garrison character moved", e.payload)
+              const data = e.payload as GarrisonCharacterMovedMessage
+              const sectorId = typeof data.sector === "number" ? data.sector : data.sector?.id
+              const isLocalSector =
+                typeof sectorId === "number" &&
+                typeof gameStore.sector?.id === "number" &&
+                sectorId === gameStore.sector.id
+
+              if (isLocalSector) {
+                if (data.movement === "depart") {
+                  gameStore.removeSectorPlayer(data.player)
+                } else if (data.movement === "arrive") {
+                  gameStore.addSectorPlayer(data.player)
+                }
+              }
+
+              gameStore.addActivityLogEntry({
+                type: "garrison.character_moved",
+                message: `[${data.player.name}] ${data.movement === "depart" ? "departed" : "arrived"} near garrison`,
+              })
               break
             }
 
