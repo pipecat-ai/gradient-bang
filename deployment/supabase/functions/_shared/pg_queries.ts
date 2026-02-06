@@ -1392,6 +1392,24 @@ function buildLocalMapPort(
   return mega === undefined ? { code: portCode } : { code: portCode, mega };
 }
 
+function extractPortCodeValue(
+  portValue: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!portValue) {
+    return null;
+  }
+  const code =
+    typeof portValue.code === "string"
+      ? portValue.code
+      : typeof portValue.port_code === "string"
+        ? portValue.port_code
+        : null;
+  if (!code || !code.trim()) {
+    return null;
+  }
+  return code;
+}
+
 export async function pgBuildLocalMapRegion(
   pg: Client,
   params: {
@@ -1642,10 +1660,31 @@ export async function pgBuildLocalMapRegion(
     .concat(Array.from(disconnectedUnvisitedNeighbors));
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
   await hydrateUniverseRows(sectorIds);
-  const portCodes = await pgLoadPortCodes(pg, visitedSectorIds);
+  let needsPortCodes = false;
+  let needsUniverseMeta = false;
+  for (const sectorId of visitedSectorIds) {
+    const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+    const portValue = knowledgeEntry?.port as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    const portCode = extractPortCodeValue(portValue);
+    if (!portCode) {
+      needsPortCodes = true;
+      needsUniverseMeta = true;
+      continue;
+    }
+    if (typeof portValue?.mega !== "boolean") {
+      needsUniverseMeta = true;
+    }
+  }
+
+  const portCodes = needsPortCodes
+    ? await pgLoadPortCodes(pg, visitedSectorIds)
+    : {};
+  const universeMeta = needsUniverseMeta ? await pgLoadUniverseMeta(pg) : null;
 
   const resultSectors: LocalMapSector[] = [];
-  const universeMeta = await pgLoadUniverseMeta(pg);
   const disconnectedSet = new Set(disconnectedSectors);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
     const isDisconnected = disconnectedSet.has(sectorId);
@@ -1660,13 +1699,21 @@ export async function pgBuildLocalMapRegion(
 
     if (visitedSet.has(sectorId)) {
       const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
-      const hasPort = Boolean(portCodes[sectorId]);
+      const portValue = knowledgeEntry?.port as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      const portCodeFromKnowledge = extractPortCodeValue(portValue);
+      const fallbackCode = portCodes[sectorId];
+      const hasPort = Boolean(fallbackCode || portCodeFromKnowledge);
       const mega = hasPort
-        ? pgIsMegaPortSector(universeMeta, sectorId)
+        ? universeMeta
+          ? pgIsMegaPortSector(universeMeta, sectorId)
+          : undefined
         : undefined;
       const portPayload = buildLocalMapPort(
-        knowledgeEntry?.port as Record<string, unknown> | null,
-        portCodes[sectorId],
+        portValue,
+        fallbackCode,
         mega,
       );
       resultSectors.push({

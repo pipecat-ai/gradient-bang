@@ -737,80 +737,38 @@ async function loadPortCodes(
     return {};
   }
   const uniqueIds = Array.from(new Set(sectorIds));
-  const { data: contents, error: contentsError } = await supabase
+  const { data, error } = await supabase
     .from("sector_contents")
-    .select("sector_id, port_id")
+    .select("sector_id, ports!inner(port_code)")
     .in("sector_id", uniqueIds);
-  if (contentsError) {
-    throw new Error(`failed to load sector contents: ${contentsError.message}`);
-  }
-
-  const portIds = Array.from(
-    new Set(
-      (contents ?? [])
-        .map((row) => {
-          const value = row.port_id;
-          if (typeof value === "number") {
-            return value;
-          }
-          if (typeof value === "string") {
-            const parsed = Number(value);
-            return Number.isFinite(parsed) ? parsed : null;
-          }
-          return null;
-        })
-        .filter((portId): portId is number => typeof portId === "number"),
-    ),
-  );
-  if (portIds.length === 0) {
-    return {};
-  }
-
-  const { data: ports, error: portsError } = await supabase
-    .from("ports")
-    .select("port_id, port_code")
-    .in("port_id", portIds);
-  if (portsError) {
-    throw new Error(`failed to load port codes: ${portsError.message}`);
-  }
-
-  const portCodeById = new Map<number, string>();
-  for (const row of ports ?? []) {
-    const portIdValue = row.port_id;
-    const portId =
-      typeof portIdValue === "number"
-        ? portIdValue
-        : typeof portIdValue === "string"
-          ? Number(portIdValue)
-          : null;
-    if (portId === null || !Number.isFinite(portId)) {
-      continue;
-    }
-    if (typeof row.port_code === "string") {
-      portCodeById.set(portId, row.port_code);
-    }
+  if (error) {
+    throw new Error(`failed to load port codes: ${error.message}`);
   }
 
   const result: Record<number, string> = {};
-  for (const row of contents ?? []) {
-    if (typeof row.sector_id !== "number") {
-      continue;
-    }
-    const portIdValue = row.port_id;
-    const portId =
-      typeof portIdValue === "number"
-        ? portIdValue
-        : typeof portIdValue === "string"
-          ? Number(portIdValue)
+  for (const row of data ?? []) {
+    const sectorIdValue = row.sector_id;
+    const sectorId =
+      typeof sectorIdValue === "number"
+        ? sectorIdValue
+        : typeof sectorIdValue === "string"
+          ? Number(sectorIdValue)
           : null;
-    if (portId === null || !Number.isFinite(portId)) {
+    if (sectorId === null || !Number.isFinite(sectorId)) {
       continue;
     }
-    const code = portCodeById.get(portId);
-    if (code) {
-      result[row.sector_id] = code;
+
+    const portsValue = (row as { ports?: unknown }).ports;
+    const portRow = Array.isArray(portsValue) ? portsValue[0] : portsValue;
+    const portCode =
+      portRow && typeof (portRow as { port_code?: unknown }).port_code === "string"
+        ? (portRow as { port_code: string }).port_code
+        : null;
+    if (portCode) {
+      result[sectorId] = portCode;
     }
   }
+
   return result;
 }
 
@@ -833,6 +791,24 @@ function buildLocalMapPort(
       ? portValue.mega
       : fallbackMega;
   return mega === undefined ? { code: portCode } : { code: portCode, mega };
+}
+
+function extractPortCodeValue(
+  portValue: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!portValue) {
+    return null;
+  }
+  const code =
+    typeof portValue.code === "string"
+      ? portValue.code
+      : typeof portValue.port_code === "string"
+        ? portValue.port_code
+        : null;
+  if (!code || !code.trim()) {
+    return null;
+  }
+  return code;
 }
 
 export async function findShortestPath(
@@ -1197,10 +1173,33 @@ export async function buildLocalMapRegion(
     .concat(Array.from(disconnectedUnvisitedNeighbors));
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
   await hydrateUniverseRows(sectorIds);
-  const portCodes = await loadPortCodes(supabase, visitedSectorIds);
+  let needsPortCodes = false;
+  let needsUniverseMeta = false;
+  for (const sectorId of visitedSectorIds) {
+    const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+    const portValue = knowledgeEntry?.port as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    const portCode = extractPortCodeValue(portValue);
+    if (!portCode) {
+      needsPortCodes = true;
+      needsUniverseMeta = true;
+      continue;
+    }
+    if (typeof portValue?.mega !== "boolean") {
+      needsUniverseMeta = true;
+    }
+  }
+
+  const portCodes = needsPortCodes
+    ? await loadPortCodes(supabase, visitedSectorIds)
+    : {};
+  const universeMeta = needsUniverseMeta
+    ? await loadUniverseMeta(supabase)
+    : null;
 
   const resultSectors: LocalMapSector[] = [];
-  const universeMeta = await loadUniverseMeta(supabase);
   const disconnectedSet = new Set(disconnectedSectors);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
     const isDisconnected = disconnectedSet.has(sectorId);
@@ -1215,13 +1214,21 @@ export async function buildLocalMapRegion(
 
     if (visitedSet.has(sectorId)) {
       const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
-      const hasPort = Boolean(portCodes[sectorId]);
+      const portValue = knowledgeEntry?.port as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      const portCodeFromKnowledge = extractPortCodeValue(portValue);
+      const fallbackCode = portCodes[sectorId];
+      const hasPort = Boolean(fallbackCode || portCodeFromKnowledge);
       const mega = hasPort
-        ? isMegaPortSector(universeMeta, sectorId)
+        ? universeMeta
+          ? isMegaPortSector(universeMeta, sectorId)
+          : undefined
         : undefined;
       const portPayload = buildLocalMapPort(
-        knowledgeEntry?.port as Record<string, unknown> | null,
-        portCodes[sectorId],
+        portValue,
+        fallbackCode,
         mega,
       );
       resultSectors.push({
@@ -1358,10 +1365,33 @@ export async function buildLocalMapRegionByBounds(
   );
 
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
-  const portCodes = await loadPortCodes(supabase, visitedSectorIds);
+  let needsPortCodes = false;
+  let needsUniverseMeta = false;
+  for (const sectorId of visitedSectorIds) {
+    const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+    const portValue = knowledgeEntry?.port as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    const portCode = extractPortCodeValue(portValue);
+    if (!portCode) {
+      needsPortCodes = true;
+      needsUniverseMeta = true;
+      continue;
+    }
+    if (typeof portValue?.mega !== "boolean") {
+      needsUniverseMeta = true;
+    }
+  }
+
+  const portCodes = needsPortCodes
+    ? await loadPortCodes(supabase, visitedSectorIds)
+    : {};
+  const universeMeta = needsUniverseMeta
+    ? await loadUniverseMeta(supabase)
+    : null;
 
   const resultSectors: LocalMapSector[] = [];
-  const universeMeta = await loadUniverseMeta(supabase);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
     const universeRow = universeRowCache.get(sectorId);
     const position = universeRow?.position ?? [0, 0];
@@ -1373,13 +1403,21 @@ export async function buildLocalMapRegionByBounds(
         knowledgeEntry?.adjacent_sectors ??
         universeRow?.warps.map((edge) => edge.to) ??
         [];
-      const hasPort = Boolean(portCodes[sectorId]);
+      const portValue = knowledgeEntry?.port as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      const portCodeFromKnowledge = extractPortCodeValue(portValue);
+      const fallbackCode = portCodes[sectorId];
+      const hasPort = Boolean(fallbackCode || portCodeFromKnowledge);
       const mega = hasPort
-        ? isMegaPortSector(universeMeta, sectorId)
+        ? universeMeta
+          ? isMegaPortSector(universeMeta, sectorId)
+          : undefined
         : undefined;
       const portPayload = buildLocalMapPort(
-        knowledgeEntry?.port as Record<string, unknown> | null,
-        portCodes[sectorId],
+        portValue,
+        fallbackCode,
         mega,
       );
       resultSectors.push({
