@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
-import { StarIcon } from "@phosphor-icons/react"
 
 import { ScrambleText, type ScrambleTextRef } from "@/fx/ScrambleText"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
-import { cn } from "@/utils/tailwind"
 
 import { Divider } from "./primitives/Divider"
 import { DotDivider } from "./primitives/DotDivider"
