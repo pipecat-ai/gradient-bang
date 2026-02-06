@@ -92,7 +92,7 @@ export const LogsPanel = () => {
   const messages = useGameStore.use.messages()
   const player = useGameStore.use.player()
   const prevMessagesLengthRef = useRef(messages?.length ?? 0)
-  const { AutoScrollAnchor, handleScroll, scrollToBottom } = useAutoScroll()
+  const { AutoScrollAnchor, handleScroll, resetAutoScroll, scrollToBottom } = useAutoScroll()
   const messageFilters = useGameStore.use.messageFilters()
   const setMessageFilters = useGameStore.use.setMessageFilters()
   const [hasRecentActivity, setHasRecentActivity] = useState(false)
@@ -140,6 +140,11 @@ export const LogsPanel = () => {
       return false
     })
   }, [messages, messageFilters])
+
+  // Scroll to bottom when filter changes
+  useEffect(() => {
+    resetAutoScroll()
+  }, [messageFilters, resetAutoScroll])
 
   // Scroll and track activity when messages change
   useEffect(() => {
