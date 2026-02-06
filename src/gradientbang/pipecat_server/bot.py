@@ -53,12 +53,13 @@ from gradientbang.pipecat_server.context_compression import (
     ContextCompressionConsumer,
     ContextCompressionProducer,
 )
-from gradientbang.pipecat_server.frames import TaskActivityFrame
+from gradientbang.pipecat_server.frames import TaskActivityFrame, UserTextInputFrame
 from gradientbang.pipecat_server.inference_gate import (
     InferenceGateState,
     PostLLMInferenceGate,
     PreLLMInferenceGate,
 )
+from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStrategy
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
@@ -204,8 +205,25 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         context,
         user_params=LLMUserAggregatorParams(
             filter_incomplete_user_turns=True,
+            user_mute_strategies=[
+                TextInputBypassFirstBotMuteStrategy(),
+            ],
         ),
     )
+    user_mute_state = {"muted": True}
+    user_unmuted_event = asyncio.Event()
+    @context_aggregator.user().event_handler("on_user_mute_started")
+    async def on_user_mute_started(aggregator):
+        logger.info("User input muted")
+        user_mute_state["muted"] = True
+        user_unmuted_event.clear()
+
+    @context_aggregator.user().event_handler("on_user_mute_stopped")
+    async def on_user_mute_stopped(aggregator):
+        logger.info("User input unmuted")
+        user_mute_state["muted"] = False
+        user_unmuted_event.set()
+
     inference_gate_state = InferenceGateState(
         cooldown_seconds=2.0,
         post_llm_grace_seconds=1.5,
@@ -570,11 +588,17 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         # Handle user text input messages
         if msg_type == "user-text-input":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
-            if text:
+            await task.queue_frame(UserTextInputFrame(text=text))
+            if user_mute_state["muted"]:
+                try:
+                    await asyncio.wait_for(user_unmuted_event.wait(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    logger.warning("Timed out waiting for user unmute after text input")
+            frames = [InterruptionFrame()]
+            if text.strip():
                 logger.info(f"[USER-TEXT-INPUT] Received text: {text}")
-                await task.queue_frames(
+                frames.extend(
                     [
-                        InterruptionFrame(),
                         UserStartedSpeakingFrame(),
                         TranscriptionFrame(
                             text=text, user_id="player", timestamp=time_now_iso8601()
@@ -582,6 +606,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                         UserStoppedSpeakingFrame(),
                     ]
                 )
+            await task.queue_frames(frames)
             return
 
         # Client sent a custom message

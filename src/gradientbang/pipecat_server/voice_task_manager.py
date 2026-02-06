@@ -330,6 +330,10 @@ class VoiceTaskManager:
     async def join(self):
         logger.info(f"Joining game as character: {self.character_id}")
         result = await self.game_client.join(self.character_id)
+        # Track the join request_id so the resulting status.snapshot triggers
+        # LLM inference for the bot's first speaking turn.
+        if isinstance(result, Mapping):
+            self._track_request_id(result.get("request_id"))
         await self.game_client.subscribe_my_messages()
         # Send ships list so client has it on connection
         await self.game_client.list_user_ships(character_id=self.character_id)
