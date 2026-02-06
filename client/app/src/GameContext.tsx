@@ -57,6 +57,7 @@ interface GameProviderProps {
 export function GameProvider({ children }: GameProviderProps) {
   const gameStore = useGameStore()
   const client = usePipecatClient()
+  const playerSessionId = gameStore.playerSessionId
   const dispatchAction = useGameStore((state) => state.dispatchAction)
 
   /**
@@ -165,8 +166,15 @@ export function GameProvider({ children }: GameProviderProps) {
       (e: ServerMessage) => {
         if ("event" in e) {
           console.debug("[GAME EVENT] Server message received", e.event, e)
-          let personalPlayerId = gameStore.personalPlayerId ?? gameStore.player?.id
 
+          // Early out if player's session ID is not set
+          // Without it, we can't determine if the event is for the player or not
+          if (!playerSessionId) {
+            console.warn("[GAME EVENT] Session not set, skipping event", e)
+            return
+          }
+
+          // Helper functions
           const getPayloadPlayerId = (payload: ServerMessagePayload): string | undefined => {
             if (payload.player && typeof payload.player.id === "string" && payload.player.id) {
               return payload.player.id
@@ -178,33 +186,32 @@ export function GameProvider({ children }: GameProviderProps) {
             console.warn(`[GAME EVENT] Missing player.id for ${eventName}`, payload)
           }
 
-          const logIgnored = (
-            eventName: string,
-            reason: string,
-            payload: ServerMessagePayload
-          ) => {
-            console.debug(`[GAME EVENT] Ignoring ${eventName} (${reason})`, payload)
+          const logIgnored = (eventName: string, reason: string, payload: ServerMessagePayload) => {
+            console.debug(
+              `%c[GAME EVENT] Ignoring ${eventName} (${reason})`,
+              "color: #888",
+              payload
+            )
           }
 
-          const isPersonalPayload = (
+          const isPlayerSessionPayload = (
             eventName: string,
             payload: ServerMessagePayload
           ): boolean => {
-            const playerId = getPayloadPlayerId(payload)
-            if (!playerId) {
+            const eventPlayerId = getPayloadPlayerId(payload)
+            if (!eventPlayerId) {
               logMissingPlayerId(eventName, payload)
               return false
             }
-            if (!personalPlayerId) {
-              logIgnored(eventName, "personalPlayerId not set", payload)
-              return false
-            }
-            if (playerId !== personalPlayerId) {
-              logIgnored(eventName, `player ${playerId}`, payload)
+            if (eventPlayerId !== playerSessionId) {
+              logIgnored(eventName, `player ${eventPlayerId}`, payload)
               return false
             }
             return true
           }
+
+          // --- EVENT HANDLERS ---
+
           switch (e.event) {
             // ----- STATUS
             case "status.snapshot":
@@ -214,23 +221,12 @@ export function GameProvider({ children }: GameProviderProps) {
               const status = e.payload as StatusMessage
 
               if (e.event === "status.snapshot" && status.player.player_type === "human") {
-                if (status.player.id) {
-                  if (gameStore.personalPlayerId !== status.player.id) {
-                    gameStore.setState({ personalPlayerId: status.player.id })
-                  }
-                  personalPlayerId = status.player.id
-                } else {
+                if (!status.player.id) {
                   logMissingPlayerId(e.event, status)
                 }
               }
 
-              const statusPlayerId = status.player.id
-              if (!statusPlayerId) {
-                logMissingPlayerId(e.event, status)
-                break
-              }
-
-              if (personalPlayerId && statusPlayerId === personalPlayerId) {
+              if (isPlayerSessionPayload(e.event, status)) {
                 // Update store
                 gameStore.setState({
                   player: status.player,
@@ -247,7 +243,7 @@ export function GameProvider({ children }: GameProviderProps) {
                   })
                 }
               } else if (status.player.player_type === "corporation_ship") {
-                if (!status.ship?.ship_id) {
+                if (!status.ship.ship_id) {
                   console.warn(
                     "[GAME EVENT] Status update missing ship_id for corporation ship",
                     status
@@ -255,15 +251,15 @@ export function GameProvider({ children }: GameProviderProps) {
                   break
                 }
                 const shipUpdate: Partial<ShipSelf> & { ship_id: string } = {
-                  ship_id: status.ship.ship_id,
                   ...status.ship,
+                  ship_id: status.ship.ship_id,
                 }
                 if (typeof status.sector?.id === "number") {
                   shipUpdate.sector = status.sector.id
                 }
                 gameStore.updateShip(shipUpdate)
               } else {
-                logIgnored(e.event, `player ${statusPlayerId}`, status)
+                logIgnored(e.event, `player ${status.player.id}`, status)
               }
 
               break
@@ -274,8 +270,7 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Character moved", e.payload)
               const data = e.payload as CharacterMovedMessage
 
-              const sectorId =
-                typeof data.sector === "number" ? data.sector : data.sector?.id
+              const sectorId = typeof data.sector === "number" ? data.sector : data.sector?.id
               const currentSectorId = gameStore.sector?.id
               const isLocalSector =
                 typeof sectorId === "number" &&
@@ -333,7 +328,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "movement.start": {
               console.debug("[GAME EVENT] Move started", e.payload)
               const data = e.payload as MovementStartMessage
-              if (!isPersonalPayload("movement.start", data)) {
+              if (!isPlayerSessionPayload("movement.start", data)) {
                 break
               }
 
@@ -377,7 +372,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "movement.complete": {
               console.debug("[GAME EVENT] Move completed", e.payload)
               const data = e.payload as MovementCompleteMessage
-              if (!isPersonalPayload("movement.complete", data)) {
+              if (!isPlayerSessionPayload("movement.complete", data)) {
                 break
               }
 
@@ -444,20 +439,16 @@ export function GameProvider({ children }: GameProviderProps) {
               const payloadPlayerId = getPayloadPlayerId(data)
               const bankCharacterId = data.character_id
               const isPersonalBank =
-                !!personalPlayerId &&
-                ((payloadPlayerId && payloadPlayerId === personalPlayerId) ||
-                  (!payloadPlayerId && bankCharacterId === personalPlayerId))
+                !!playerSessionId &&
+                ((payloadPlayerId && payloadPlayerId === playerSessionId) ||
+                  (!payloadPlayerId && bankCharacterId === playerSessionId))
               if (!isPersonalBank) {
                 if (!payloadPlayerId && !bankCharacterId) {
                   logMissingPlayerId("bank.transaction", data)
                 } else if (payloadPlayerId) {
                   logIgnored("bank.transaction", `player ${payloadPlayerId}`, data)
                 } else {
-                  logIgnored(
-                    "bank.transaction",
-                    `character ${bankCharacterId ?? "unknown"}`,
-                    data
-                  )
+                  logIgnored("bank.transaction", `character ${bankCharacterId ?? "unknown"}`, data)
                 }
                 break
               }
@@ -547,7 +538,7 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as SalvageCreatedMessage
               const salvagePlayerId = getPayloadPlayerId(data)
               if (salvagePlayerId) {
-                if (!isPersonalPayload("salvage.created", data)) {
+                if (!isPlayerSessionPayload("salvage.created", data)) {
                   break
                 }
               } else {
@@ -581,7 +572,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "salvage.collected": {
               console.debug("[GAME EVENT] Salvage claimed", e.payload)
               const data = e.payload as SalvageCollectedMessage
-              if (!isPersonalPayload("salvage.collected", data)) {
+              if (!isPlayerSessionPayload("salvage.collected", data)) {
                 break
               }
 
@@ -605,7 +596,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "course.plot": {
               console.debug("[GAME EVENT] Course plot", e.payload)
               const data = e.payload as CoursePlotMessage
-              if (!isPersonalPayload(e.event, data)) {
+              if (!isPlayerSessionPayload(e.event, data)) {
                 break
               }
 
@@ -615,7 +606,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "map.region": {
               console.debug("[GAME EVENT] Regional map data", e.payload)
-              if (!isPersonalPayload("map.region", e.payload as ServerMessagePayload)) {
+              if (!isPlayerSessionPayload("map.region", e.payload as ServerMessagePayload)) {
                 break
               }
 
@@ -625,7 +616,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", e.payload)
-              if (!isPersonalPayload("map.local", e.payload as ServerMessagePayload)) {
+              if (!isPlayerSessionPayload("map.local", e.payload as ServerMessagePayload)) {
                 break
               }
 
@@ -645,7 +636,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "trade.executed": {
               console.debug("[GAME EVENT] Trade executed", e.payload)
               const data = e.payload as TradeExecutedMessage
-              if (!isPersonalPayload("trade.executed", data)) {
+              if (!isPlayerSessionPayload("trade.executed", data)) {
                 break
               }
 
@@ -689,7 +680,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "warp.purchase": {
               console.debug("[GAME EVENT] Warp purchase", e.payload)
               const data = e.payload as WarpPurchaseMessage
-              if (!isPersonalPayload("warp.purchase", data)) {
+              if (!isPlayerSessionPayload("warp.purchase", data)) {
                 break
               }
 
@@ -727,11 +718,10 @@ export function GameProvider({ children }: GameProviderProps) {
               const fromId = data.from?.id
               const toId = data.to?.id
               const isPersonalTransfer =
-                !!personalPlayerId &&
-                ((payloadPlayerId && payloadPlayerId === personalPlayerId) ||
+                !!playerSessionId &&
+                ((payloadPlayerId && payloadPlayerId === playerSessionId) ||
                   (!payloadPlayerId &&
-                    ((fromId && fromId === personalPlayerId) ||
-                      (toId && toId === personalPlayerId))))
+                    ((fromId && fromId === playerSessionId) || (toId && toId === playerSessionId))))
               if (!isPersonalTransfer) {
                 if (!payloadPlayerId && !fromId && !toId) {
                   logMissingPlayerId(eventType, data)
@@ -777,12 +767,12 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.round_waiting": {
               console.debug("[GAME EVENT] Combat round waiting", e.payload)
               const data = e.payload as CombatRoundWaitingMessage
-              if (!personalPlayerId) {
+              if (!playerSessionId) {
                 logIgnored("combat.round_waiting", "personalPlayerId not set", data)
                 break
               }
               const isParticipant = data.participants?.some(
-                (participant) => participant.id === personalPlayerId
+                (participant) => participant.id === playerSessionId
               )
               if (!isParticipant) {
                 logIgnored("combat.round_waiting", "not a participant", data)
@@ -810,9 +800,9 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as CombatRoundResolvedMessage
               const activeCombatId = gameStore.activeCombatSession?.combat_id
               const hasPersonalAction =
-                !!personalPlayerId &&
+                !!playerSessionId &&
                 !!data.actions &&
-                Object.prototype.hasOwnProperty.call(data.actions, personalPlayerId)
+                Object.prototype.hasOwnProperty.call(data.actions, playerSessionId)
               if (!hasPersonalAction && data.combat_id !== activeCombatId) {
                 logIgnored("combat.round_resolved", "not part of combat", data)
                 break
@@ -831,8 +821,8 @@ export function GameProvider({ children }: GameProviderProps) {
               const payloadPlayerId = getPayloadPlayerId(data)
               const activeCombatId = gameStore.activeCombatSession?.combat_id
               const isPersonalAction =
-                !!personalPlayerId &&
-                ((payloadPlayerId && payloadPlayerId === personalPlayerId) ||
+                !!playerSessionId &&
+                ((payloadPlayerId && payloadPlayerId === playerSessionId) ||
                   (!payloadPlayerId && data.combat_id === activeCombatId))
               if (!isPersonalAction) {
                 if (payloadPlayerId) {
@@ -857,9 +847,9 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as CombatRoundResolvedMessage
               const activeCombatId = gameStore.activeCombatSession?.combat_id
               const hasPersonalAction =
-                !!personalPlayerId &&
+                !!playerSessionId &&
                 !!data.actions &&
-                Object.prototype.hasOwnProperty.call(data.actions, personalPlayerId)
+                Object.prototype.hasOwnProperty.call(data.actions, playerSessionId)
               if (!hasPersonalAction && data.combat_id !== activeCombatId) {
                 logIgnored("combat.ended", "not part of combat", data)
                 break
@@ -938,7 +928,7 @@ export function GameProvider({ children }: GameProviderProps) {
               gameStore.addTaskSummary(data as unknown as TaskSummary)
 
               // Refetch task history
-              dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
+              gameStore.dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
               break
             }
 
@@ -1072,7 +1062,9 @@ export function GameProvider({ children }: GameProviderProps) {
           }*/
         }
       },
-      [gameStore]
+
+      // Note: playerSessionId is included to ensure the callback is re-created if it changes
+      [gameStore, playerSessionId]
     )
   )
 
