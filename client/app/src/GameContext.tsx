@@ -57,7 +57,7 @@ interface GameProviderProps {
 export function GameProvider({ children }: GameProviderProps) {
   const gameStore = useGameStore()
   const client = usePipecatClient()
-  const playerSessionId = gameStore.playerSessionId
+  const playerSessionId = useGameStore((state) => state.playerSessionId)
   const dispatchAction = useGameStore((state) => state.dispatchAction)
 
   /**
@@ -97,6 +97,8 @@ export function GameProvider({ children }: GameProviderProps) {
   const initialize = useCallback(async () => {
     console.debug("[GAME CONTEXT] Initializing...")
 
+    // Set initial state
+    gameStore.setPlayerSessionId(null)
     gameStore.setGameStateMessage(GameInitStateMessage.INIT)
     gameStore.setGameState("initializing")
 
@@ -167,13 +169,6 @@ export function GameProvider({ children }: GameProviderProps) {
         if ("event" in e) {
           console.debug("[GAME EVENT] Server message received", e.event, e)
 
-          // Early out if player's session ID is not set
-          // Without it, we can't determine if the event is for the player or not
-          if (!playerSessionId) {
-            console.warn("[GAME EVENT] Session not set, skipping event", e)
-            return
-          }
-
           // Helper functions
           const getPayloadPlayerId = (payload: ServerMessagePayload): string | undefined => {
             if (payload.player && typeof payload.player.id === "string" && payload.player.id) {
@@ -189,7 +184,7 @@ export function GameProvider({ children }: GameProviderProps) {
           const logIgnored = (eventName: string, reason: string, payload: ServerMessagePayload) => {
             console.debug(
               `%c[GAME EVENT] Ignoring ${eventName} (${reason})`,
-              "color: #888",
+              "color: #000; background: #CCC",
               payload
             )
           }
@@ -203,7 +198,7 @@ export function GameProvider({ children }: GameProviderProps) {
               logMissingPlayerId(eventName, payload)
               return false
             }
-            if (eventPlayerId !== playerSessionId) {
+            if (eventPlayerId !== useGameStore.getState().playerSessionId) {
               logIgnored(eventName, `player ${eventPlayerId}`, payload)
               return false
             }
@@ -226,6 +221,26 @@ export function GameProvider({ children }: GameProviderProps) {
                 }
               }
 
+              // Initialize game client if this is the first status update
+              if (status.source?.method === "join") {
+                // Note: we only mutate when `playerSessionId` is null retain
+                // a source of truth on client creation
+                if (!gameStore.playerSessionId) {
+                  console.debug(
+                    "%c[GAME EVENT] status.update join event, setting player session ID",
+                    "color: #ffffff; background: #000000",
+                    status.player.id
+                  )
+                  gameStore.setPlayerSessionId(status.player.id)
+                }
+
+                gameStore.addActivityLogEntry({
+                  type: "join",
+                  message: "Joined the game",
+                })
+              }
+
+              // Handle status update accordingly
               if (isPlayerSessionPayload(e.event, status)) {
                 // Update store
                 gameStore.setState({
@@ -234,14 +249,6 @@ export function GameProvider({ children }: GameProviderProps) {
                   ship: status.ship,
                   sector: status.sector,
                 })
-
-                // Initialize game client if this is the first status update
-                if (status.source?.method === "join") {
-                  gameStore.addActivityLogEntry({
-                    type: "join",
-                    message: "Joined the game",
-                  })
-                }
               } else if (status.player.player_type === "corporation_ship") {
                 if (!status.ship.ship_id) {
                   console.warn(
@@ -1063,7 +1070,6 @@ export function GameProvider({ children }: GameProviderProps) {
         }
       },
 
-      // Note: playerSessionId is included to ensure the callback is re-created if it changes
       [gameStore, playerSessionId]
     )
   )

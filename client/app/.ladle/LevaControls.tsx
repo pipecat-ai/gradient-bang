@@ -48,6 +48,7 @@ export const LevaControls = ({
         ["Disconnect"]: () => client.disconnect(),
       },
     }),
+    ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),
     ["Set Sector 0"]: button(() =>
       setSector({ ...SECTOR_MOCK, id: 0, position: [0, 0], port: MEGA_PORT_MOCK } as Sector)
     ),
