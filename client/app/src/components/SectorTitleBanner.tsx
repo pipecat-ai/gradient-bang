@@ -9,6 +9,7 @@ import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
 import { Divider } from "./primitives/Divider"
+import { DotDivider } from "./primitives/DotDivider"
 
 /** Delay before showing banner when entering a new sector */
 const DELAY_BEFORE_SHOW = 1500
@@ -164,6 +165,8 @@ export const SectorTitleBanner = () => {
   // Cleanup on unmount
   useEffect(() => clearTimers, [clearTimers])
 
+  const showSubBadge =
+    (sector && sector.players && sector.players.length > 0) || (sector && sector.port)
   return (
     <AnimatePresence onExitComplete={onExitComplete}>
       {isShowing && (
@@ -181,20 +184,23 @@ export const SectorTitleBanner = () => {
             </p>
             <div className="dotted-bg-sm dotted-bg-subtle self-stretch w-[160px]" />
           </div>
-          {sector?.port && (
-            <div
-              className={
-                "flex flex-row w-fit mx-auto gap-3 items-center text-sm font-bold uppercase mt-2 px-2 py-0.5" +
-                (sector.port.mega ? " bg-fuel-background/70" : " bg-terminal-background/50")
-              }
-            >
-              <Divider className={cn("w-8", sector.port.mega ? "bg-fuel/30" : "bg-terminal/30")} />
-              {sector.port.mega && <StarIcon weight="fill" className="size-3.5 text-fuel" />}
-              <span className={cn("text-accent", sector.port.mega ? "text-fuel" : "text-terminal")}>
-                {sector.port.mega ? "Mega" : ""} {sector.port.code} Port
-              </span>
-              {sector.port.mega && <StarIcon weight="fill" className="size-3.5 text-fuel" />}
-              <Divider className={cn("w-8", sector.port.mega ? "bg-fuel/30" : "bg-terminal/30")} />
+          {showSubBadge && (
+            <div className="flex flex-row w-fit mx-auto gap-3 items-center text-sm font-semibold uppercase mt-2 px-2 py-0.5 text-subtle-foreground bg-accent-background/70">
+              <Divider className="w-8 bg-subtle" />
+              {sector.players && sector.players.length > 0 && (
+                <>
+                  <span>{sector.players?.length ?? 0} Ships</span>
+                  <DotDivider className="bg-subtle" />
+                </>
+              )}
+              {sector.port && (
+                <>
+                  <span className={sector.port?.mega ? "text-fuel" : "text-terminal"}>
+                    {sector.port?.mega ? "Mega" : ""} {sector.port?.code} Port
+                  </span>
+                </>
+              )}
+              <Divider className="w-8 bg-subtle" />
             </div>
           )}
         </motion.div>
