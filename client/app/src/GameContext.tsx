@@ -36,6 +36,7 @@ import {
   type SalvageCreatedMessage,
   type SectorUpdateMessage,
   type ServerMessage,
+  type ServerMessagePayload,
   type ShipDestroyedMessage,
   type ShipsListMessage,
   type StatusMessage,
@@ -164,6 +165,46 @@ export function GameProvider({ children }: GameProviderProps) {
       (e: ServerMessage) => {
         if ("event" in e) {
           console.debug("[GAME EVENT] Server message received", e.event, e)
+          let personalPlayerId = gameStore.personalPlayerId ?? gameStore.player?.id
+
+          const getPayloadPlayerId = (payload: ServerMessagePayload): string | undefined => {
+            if (payload.player && typeof payload.player.id === "string" && payload.player.id) {
+              return payload.player.id
+            }
+            return undefined
+          }
+
+          const logMissingPlayerId = (eventName: string, payload: ServerMessagePayload) => {
+            console.warn(`[GAME EVENT] Missing player.id for ${eventName}`, payload)
+          }
+
+          const logIgnored = (
+            eventName: string,
+            reason: string,
+            payload: ServerMessagePayload
+          ) => {
+            console.debug(`[GAME EVENT] Ignoring ${eventName} (${reason})`, payload)
+          }
+
+          const isPersonalPayload = (
+            eventName: string,
+            payload: ServerMessagePayload
+          ): boolean => {
+            const playerId = getPayloadPlayerId(payload)
+            if (!playerId) {
+              logMissingPlayerId(eventName, payload)
+              return false
+            }
+            if (!personalPlayerId) {
+              logIgnored(eventName, "personalPlayerId not set", payload)
+              return false
+            }
+            if (playerId !== personalPlayerId) {
+              logIgnored(eventName, `player ${playerId}`, payload)
+              return false
+            }
+            return true
+          }
           switch (e.event) {
             // ----- STATUS
             case "status.snapshot":
@@ -172,29 +213,57 @@ export function GameProvider({ children }: GameProviderProps) {
 
               const status = e.payload as StatusMessage
 
-              // @TODO: properly handle status updates from other characters
-              if (
-                status.player.player_type !== "human" &&
-                status.player.id !== gameStore.player.id
-              ) {
-                console.debug("[GAME EVENT] Status update from non-human player, skipping")
+              if (e.event === "status.snapshot" && status.player.player_type === "human") {
+                if (status.player.id) {
+                  if (gameStore.personalPlayerId !== status.player.id) {
+                    gameStore.setState({ personalPlayerId: status.player.id })
+                  }
+                  personalPlayerId = status.player.id
+                } else {
+                  logMissingPlayerId(e.event, status)
+                }
+              }
+
+              const statusPlayerId = status.player.id
+              if (!statusPlayerId) {
+                logMissingPlayerId(e.event, status)
                 break
               }
 
-              // Update store
-              gameStore.setState({
-                player: status.player,
-                corporation: status.corporation,
-                ship: status.ship,
-                sector: status.sector,
-              })
-
-              // Initialize game client if this is the first status update
-              if (status.source?.method === "join") {
-                gameStore.addActivityLogEntry({
-                  type: "join",
-                  message: "Joined the game",
+              if (personalPlayerId && statusPlayerId === personalPlayerId) {
+                // Update store
+                gameStore.setState({
+                  player: status.player,
+                  corporation: status.corporation,
+                  ship: status.ship,
+                  sector: status.sector,
                 })
+
+                // Initialize game client if this is the first status update
+                if (status.source?.method === "join") {
+                  gameStore.addActivityLogEntry({
+                    type: "join",
+                    message: "Joined the game",
+                  })
+                }
+              } else if (status.player.player_type === "corporation_ship") {
+                if (!status.ship?.ship_id) {
+                  console.warn(
+                    "[GAME EVENT] Status update missing ship_id for corporation ship",
+                    status
+                  )
+                  break
+                }
+                const shipUpdate: Partial<ShipSelf> & { ship_id: string } = {
+                  ship_id: status.ship.ship_id,
+                  ...status.ship,
+                }
+                if (typeof status.sector?.id === "number") {
+                  shipUpdate.sector = status.sector.id
+                }
+                gameStore.updateShip(shipUpdate)
+              } else {
+                logIgnored(e.event, `player ${statusPlayerId}`, status)
               }
 
               break
@@ -205,42 +274,57 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Character moved", e.payload)
               const data = e.payload as CharacterMovedMessage
 
-              if (data.movement === "arrive") {
-                console.debug("[GAME EVENT] Adding player to sector", e.payload)
-                gameStore.addSectorPlayer(data.player)
-                gameStore.addActivityLogEntry({
-                  type: "character.moved",
-                  message: `[${data.player.name}] arrived in sector`,
-                  meta: {
-                    player: data.player,
-                    sector: data.sector,
-                    direction: "arrive",
-                    silent: true,
-                  },
-                })
-              } else if (data.movement === "depart") {
-                console.debug("[GAME EVENT] Removing player from sector", e.payload)
-                gameStore.removeSectorPlayer(data.player)
-                gameStore.addActivityLogEntry({
-                  type: "character.moved",
-                  message: `[${data.player.name}] departed from sector`,
-                  meta: {
-                    player: data.player,
-                    sector: data.sector,
-                    direction: "depart",
-                    silent: true,
-                  },
-                })
+              const sectorId =
+                typeof data.sector === "number" ? data.sector : data.sector?.id
+              const currentSectorId = gameStore.sector?.id
+              const isLocalSector =
+                typeof sectorId === "number" &&
+                typeof currentSectorId === "number" &&
+                sectorId === currentSectorId
+
+              if (isLocalSector) {
+                if (data.movement === "arrive") {
+                  console.debug("[GAME EVENT] Adding player to sector", e.payload)
+                  gameStore.addSectorPlayer(data.player)
+                  gameStore.addActivityLogEntry({
+                    type: "character.moved",
+                    message: `[${data.player.name}] arrived in sector`,
+                    meta: {
+                      player: data.player,
+                      sector: data.sector,
+                      direction: "arrive",
+                      silent: true,
+                    },
+                  })
+                } else if (data.movement === "depart") {
+                  console.debug("[GAME EVENT] Removing player from sector", e.payload)
+                  gameStore.removeSectorPlayer(data.player)
+                  gameStore.addActivityLogEntry({
+                    type: "character.moved",
+                    message: `[${data.player.name}] departed from sector`,
+                    meta: {
+                      player: data.player,
+                      sector: data.sector,
+                      direction: "depart",
+                      silent: true,
+                    },
+                  })
+                } else {
+                  console.warn("[GAME EVENT] Unknown movement type", data.movement)
+                }
               } else {
-                console.warn("[GAME EVENT] Unknown movement type", data.movement)
+                logIgnored("character.moved", "non-local sector", data)
               }
 
-              // Check if this ship belongs to the player or corporation
-              // Update the ship's sector to the new sector
-              gameStore.updateShip({
-                ship_id: data.ship.ship_id,
-                sector: data.sector,
-              })
+              // Update corp ship position icons regardless of sector visibility
+              if (data.ship?.ship_id && typeof sectorId === "number") {
+                gameStore.updateShip({
+                  ship_id: data.ship.ship_id,
+                  sector: sectorId,
+                })
+              } else if (!data.ship?.ship_id) {
+                console.warn("[GAME EVENT] character.moved missing ship_id", data)
+              }
 
               break
             }
@@ -249,6 +333,9 @@ export function GameProvider({ children }: GameProviderProps) {
             case "movement.start": {
               console.debug("[GAME EVENT] Move started", e.payload)
               const data = e.payload as MovementStartMessage
+              if (!isPersonalPayload("movement.start", data)) {
+                break
+              }
 
               const gameStore = useGameStore.getState()
 
@@ -290,6 +377,9 @@ export function GameProvider({ children }: GameProviderProps) {
             case "movement.complete": {
               console.debug("[GAME EVENT] Move completed", e.payload)
               const data = e.payload as MovementCompleteMessage
+              if (!isPersonalPayload("movement.complete", data)) {
+                break
+              }
 
               // Update ship and player
               // This hydrates things like warp power, player last active, etc.
@@ -351,6 +441,26 @@ export function GameProvider({ children }: GameProviderProps) {
             case "bank.transaction": {
               console.debug("[GAME EVENT] Deposit", e.payload)
               const data = e.payload as BankTransactionMessage
+              const payloadPlayerId = getPayloadPlayerId(data)
+              const bankCharacterId = data.character_id
+              const isPersonalBank =
+                !!personalPlayerId &&
+                ((payloadPlayerId && payloadPlayerId === personalPlayerId) ||
+                  (!payloadPlayerId && bankCharacterId === personalPlayerId))
+              if (!isPersonalBank) {
+                if (!payloadPlayerId && !bankCharacterId) {
+                  logMissingPlayerId("bank.transaction", data)
+                } else if (payloadPlayerId) {
+                  logIgnored("bank.transaction", `player ${payloadPlayerId}`, data)
+                } else {
+                  logIgnored(
+                    "bank.transaction",
+                    `character ${bankCharacterId ?? "unknown"}`,
+                    data
+                  )
+                }
+                break
+              }
 
               // Note: we do not need to update the player or ship state
               // as status.update is dispatched immediately after
@@ -416,7 +526,11 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Sector update", e.payload)
               const data = e.payload as SectorUpdateMessage
 
-              gameStore.setSector(data as Sector)
+              if (gameStore.sector?.id !== data.id) {
+                logIgnored("sector.update", "non-current sector", data)
+                break
+              }
+              gameStore.updateSector(data as Sector)
 
               // Note: not updating activity log as redundant from other logs
 
@@ -431,6 +545,18 @@ export function GameProvider({ children }: GameProviderProps) {
             case "salvage.created": {
               console.debug("[GAME EVENT] Salvage created", e.payload)
               const data = e.payload as SalvageCreatedMessage
+              const salvagePlayerId = getPayloadPlayerId(data)
+              if (salvagePlayerId) {
+                if (!isPersonalPayload("salvage.created", data)) {
+                  break
+                }
+              } else {
+                const sectorId = data.sector?.id
+                if (!sectorId || sectorId !== gameStore.sector?.id) {
+                  logIgnored("salvage.created", "non-current sector", data)
+                  break
+                }
+              }
 
               // Note: we update sector contents in proceeding sector.update event
 
@@ -455,6 +581,9 @@ export function GameProvider({ children }: GameProviderProps) {
             case "salvage.collected": {
               console.debug("[GAME EVENT] Salvage claimed", e.payload)
               const data = e.payload as SalvageCollectedMessage
+              if (!isPersonalPayload("salvage.collected", data)) {
+                break
+              }
 
               gameStore.addActivityLogEntry({
                 type: "salvage.collected",
@@ -476,6 +605,9 @@ export function GameProvider({ children }: GameProviderProps) {
             case "course.plot": {
               console.debug("[GAME EVENT] Course plot", e.payload)
               const data = e.payload as CoursePlotMessage
+              if (!isPersonalPayload(e.event, data)) {
+                break
+              }
 
               gameStore.setCoursePlot(data)
               break
@@ -483,6 +615,9 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "map.region": {
               console.debug("[GAME EVENT] Regional map data", e.payload)
+              if (!isPersonalPayload("map.region", e.payload as ServerMessagePayload)) {
+                break
+              }
 
               gameStore.setRegionalMapData((e.payload as MapLocalMessage).sectors)
               break
@@ -490,6 +625,9 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", e.payload)
+              if (!isPersonalPayload("map.local", e.payload as ServerMessagePayload)) {
+                break
+              }
 
               gameStore.setLocalMapData((e.payload as MapLocalMessage).sectors)
               break
@@ -507,6 +645,9 @@ export function GameProvider({ children }: GameProviderProps) {
             case "trade.executed": {
               console.debug("[GAME EVENT] Trade executed", e.payload)
               const data = e.payload as TradeExecutedMessage
+              if (!isPersonalPayload("trade.executed", data)) {
+                break
+              }
 
               gameStore.addActivityLogEntry({
                 type: "trade.executed",
@@ -548,21 +689,12 @@ export function GameProvider({ children }: GameProviderProps) {
             case "warp.purchase": {
               console.debug("[GAME EVENT] Warp purchase", e.payload)
               const data = e.payload as WarpPurchaseMessage
+              if (!isPersonalPayload("warp.purchase", data)) {
+                break
+              }
 
               // Largely a noop as status.update is dispatched immediately after
               // warp purchase. We just update activity log here for now.
-
-              // Filter out any corporation ship warp purchases
-              // @TODO: we should have an owner type field on this message
-              const shipId = useGameStore.getState().ship.ship_id
-              if (data.ship_id !== shipId) {
-                console.debug(
-                  "[GAME EVENT] Warp purchase from corporation ship, skipping toast",
-                  data,
-                  shipId
-                )
-                break
-              }
 
               gameStore.addActivityLogEntry({
                 type: "warp.purchase",
@@ -591,6 +723,29 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug(`[GAME EVENT] ${transferType} transfer`, e.payload)
 
               const data = e.payload as WarpTransferMessage | CreditsTransferMessage
+              const payloadPlayerId = getPayloadPlayerId(data)
+              const fromId = data.from?.id
+              const toId = data.to?.id
+              const isPersonalTransfer =
+                !!personalPlayerId &&
+                ((payloadPlayerId && payloadPlayerId === personalPlayerId) ||
+                  (!payloadPlayerId &&
+                    ((fromId && fromId === personalPlayerId) ||
+                      (toId && toId === personalPlayerId))))
+              if (!isPersonalTransfer) {
+                if (!payloadPlayerId && !fromId && !toId) {
+                  logMissingPlayerId(eventType, data)
+                } else if (payloadPlayerId) {
+                  logIgnored(eventType, `player ${payloadPlayerId}`, data)
+                } else {
+                  logIgnored(
+                    eventType,
+                    `transfer ${fromId ?? "unknown"} -> ${toId ?? "unknown"}`,
+                    data
+                  )
+                }
+                break
+              }
 
               // Note: we do not need to update the player or ship state
               // as status.update is dispatched immediately after
@@ -622,6 +777,17 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.round_waiting": {
               console.debug("[GAME EVENT] Combat round waiting", e.payload)
               const data = e.payload as CombatRoundWaitingMessage
+              if (!personalPlayerId) {
+                logIgnored("combat.round_waiting", "personalPlayerId not set", data)
+                break
+              }
+              const isParticipant = data.participants?.some(
+                (participant) => participant.id === personalPlayerId
+              )
+              if (!isParticipant) {
+                logIgnored("combat.round_waiting", "not a participant", data)
+                break
+              }
 
               // Immediately set the UI state to be "combat" for user feedback
               gameStore.setUIState("combat")
@@ -642,6 +808,15 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.round_resolved": {
               console.debug("[GAME EVENT] Combat round resolved", e.payload)
               const data = e.payload as CombatRoundResolvedMessage
+              const activeCombatId = gameStore.activeCombatSession?.combat_id
+              const hasPersonalAction =
+                !!personalPlayerId &&
+                !!data.actions &&
+                Object.prototype.hasOwnProperty.call(data.actions, personalPlayerId)
+              if (!hasPersonalAction && data.combat_id !== activeCombatId) {
+                logIgnored("combat.round_resolved", "not part of combat", data)
+                break
+              }
               gameStore.addCombatRound(data as CombatRound)
               gameStore.addActivityLogEntry({
                 type: "combat.round.resolved",
@@ -653,6 +828,20 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.action_response": {
               console.debug("[GAME EVENT] Combat action response", e.payload)
               const data = e.payload as CombatActionResponseMessage
+              const payloadPlayerId = getPayloadPlayerId(data)
+              const activeCombatId = gameStore.activeCombatSession?.combat_id
+              const isPersonalAction =
+                !!personalPlayerId &&
+                ((payloadPlayerId && payloadPlayerId === personalPlayerId) ||
+                  (!payloadPlayerId && data.combat_id === activeCombatId))
+              if (!isPersonalAction) {
+                if (payloadPlayerId) {
+                  logIgnored("combat.action_response", `player ${payloadPlayerId}`, data)
+                } else {
+                  logIgnored("combat.action_response", "not active combat", data)
+                }
+                break
+              }
 
               // @TODO: update store to log action round action
 
@@ -666,6 +855,15 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.ended": {
               console.debug("[GAME EVENT] Combat ended", e.payload)
               const data = e.payload as CombatRoundResolvedMessage
+              const activeCombatId = gameStore.activeCombatSession?.combat_id
+              const hasPersonalAction =
+                !!personalPlayerId &&
+                !!data.actions &&
+                Object.prototype.hasOwnProperty.call(data.actions, personalPlayerId)
+              if (!hasPersonalAction && data.combat_id !== activeCombatId) {
+                logIgnored("combat.ended", "not part of combat", data)
+                break
+              }
 
               // Return to idle UI state
               gameStore.setUIState("idle")

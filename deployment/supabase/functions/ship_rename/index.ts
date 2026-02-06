@@ -296,6 +296,7 @@ async function handleRename(params: {
         requestId,
         taskId,
         shipId: ship.ship_id,
+        corpId: character.corporation_id,
       });
     }
   }

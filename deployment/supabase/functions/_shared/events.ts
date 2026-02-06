@@ -5,6 +5,7 @@ import {
   dedupeRecipientSnapshots,
   type EventRecipientSnapshot,
 } from "./visibility.ts";
+import { injectCharacterEventIdentity } from "./event_identity.ts";
 
 type EventScope =
   | "direct"
@@ -208,11 +209,18 @@ export async function emitCharacterEvent(
     return;
   }
 
+  const finalPayload = injectCharacterEventIdentity({
+    payload,
+    characterId,
+    shipId,
+    eventType,
+  });
+
   const eventId = await recordEventWithRecipients({
     supabase,
     eventType,
     scope: scope ?? "direct",
-    payload,
+    payload: finalPayload,
     requestId,
     meta,
     corpId,
