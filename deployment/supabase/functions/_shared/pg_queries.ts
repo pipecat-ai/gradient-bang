@@ -11,6 +11,7 @@ import { parseWarpEdges, normalizeMapKnowledge, mergeMapKnowledge } from "./map.
 import { resolvePlayerType } from "./status.ts";
 import { ActorAuthorizationError } from "./actors.ts";
 import { getPortPrices, getPortStock, type PortData } from "./trading.ts";
+import { injectCharacterEventIdentity } from "./event_identity.ts";
 
 // Helper to convert BigInt values to numbers recursively
 // deno-postgres returns BigInt for int8 columns even with ::int cast
@@ -1958,11 +1959,18 @@ export async function pgEmitCharacterEvent(
 
   if (!recipients.length) return;
 
+  const finalPayload = injectCharacterEventIdentity({
+    payload,
+    characterId,
+    shipId,
+    eventType,
+  });
+
   await pgRecordEvent({
     pg,
     eventType,
     scope: scope ?? "direct",
-    payload,
+    payload: finalPayload,
     requestId,
     meta,
     corpId,

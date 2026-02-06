@@ -51,6 +51,7 @@ interface ActiveProperty<T> {
 export interface GameState {
   characters: CharacterSelectResponse[]
   player: PlayerSelf
+  personalPlayerId?: string
   corporation?: Corporation
   character_id?: string
   access_token?: string
@@ -127,6 +128,7 @@ const createGameSlice: StateCreator<
 > = (set, get) => ({
   characters: [],
   player: {} as PlayerSelf,
+  personalPlayerId: undefined,
   corporation: undefined,
   character_id: undefined,
   access_token: undefined,

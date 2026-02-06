@@ -667,10 +667,13 @@ class VoiceTaskManager:
 
         # Filter out corp-visible movement events we don't want to forward
         drop_event = False
+        drop_reason: Optional[str] = None
         if event_name == "movement.start" and is_other_player_event:
             drop_event = True
+            drop_reason = "other_player_movement_start"
         elif event_name == "movement.complete" and is_other_player_event:
             drop_event = True
+            drop_reason = "other_player_movement_complete"
         elif event_name == "character.moved" and is_other_player_event:
             movement = payload.get("movement") if isinstance(payload, Mapping) else None
             if movement == "depart":
@@ -678,8 +681,15 @@ class VoiceTaskManager:
                 if self._current_sector_id is not None and sector_id is not None:
                     if sector_id != self._current_sector_id:
                         drop_event = True
+                        drop_reason = "other_player_depart_outside_sector"
 
         if drop_event:
+            logger.debug(
+                "dropping event due to identity filter",
+                event=event_name,
+                player_id=player_id,
+                reason=drop_reason,
+            )
             return
 
         # Keep display name in sync from our own status events

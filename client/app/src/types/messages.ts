@@ -8,6 +8,12 @@ export interface ServerMessage {
   task_id?: string
 }
 
+export interface EventPlayerIdentity {
+  id: string
+  name?: string
+  player_type?: "human" | "npc" | "corporation_ship"
+}
+
 export interface ServerMessagePayload {
   source?: {
     method: string
@@ -15,6 +21,8 @@ export interface ServerMessagePayload {
     timestamp: string
     type: string
   }
+  player?: EventPlayerIdentity
+  ship_id?: string
   [key: string]: unknown
 }
 
@@ -137,7 +145,7 @@ export interface CharacterMovedMessage extends ServerMessagePayload {
   move_type: string
   name: string
   movement?: "depart" | "arrive"
-  sector?: number
+  sector?: number | { id: number }
 }
 
 export interface KnownPortListMessage extends ServerMessagePayload {
