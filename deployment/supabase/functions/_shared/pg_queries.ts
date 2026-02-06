@@ -1738,6 +1738,7 @@ export async function pgBuildLocalMapRegion(
           derivedLanes.push({
             to: source,
             two_way: match.two_way,
+            hyperlane: match.hyperlane,
           });
         } else {
           derivedLanes.push({ to: source });
