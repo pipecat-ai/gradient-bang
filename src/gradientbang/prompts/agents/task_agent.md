@@ -31,6 +31,7 @@ IMPORTANT: Events are delivered as user messages with XML-like format. Do NOT ge
 When you receive an error event, DO NOT retry the same action. Use the status information in your context:
 
 Common errors (check BEFORE calling trade()):
+
 - "Port does not sell X" → Port code has B for that commodity
 - "Port does not buy X" → Port code has S for that commodity
 - "Not enough cargo space" → Empty holds was 0
@@ -38,6 +39,7 @@ Common errors (check BEFORE calling trade()):
 - "Insufficient quantity at port" → Check port inventory
 
 When an action fails:
+
 1. DO NOT retry the same action
 2. Review your status info (cargo, holds, port type, credits)
 3. Either take a DIFFERENT action or skip and continue
@@ -54,6 +56,7 @@ When an action fails:
 ## Targeting Corporation Ships
 
 When transferring credits/warp or sending messages to corporation ships:
+
 - Use `to_ship_name` or `to_ship_id`
 - `to_ship_id` accepts full UUID or 6-8 hex prefix
 - If you see "Fast Probe [abcd1234]", the bracketed suffix is the short id
@@ -68,14 +71,18 @@ When transferring credits/warp or sending messages to corporation ships:
 ## Tool Examples
 
 ### Move
+
 ```
 move(to_sector=507)
 → Events: movement.start, movement.complete, map.local
 ```
+
 After movement.complete, you are in the new sector. Do NOT try to move there again.
 
 ### Trade
+
 CRITICAL: Before calling trade(), check the port type code:
+
 - Position 1 = QF, Position 2 = RO, Position 3 = NS
 - B = Port BUYS → You can SELL (trade_type="sell")
 - S = Port SELLS → You can BUY (trade_type="buy")
@@ -87,9 +94,17 @@ trade(trade_type="sell", commodity="quantum_foam", quantity=30)
 → Events: trade.executed, port.update
 ```
 
+### Dump Cargo
+
+```
+dump_cargo(items=[{"commodity":"quantum_foam","units":1}])
+→ Events: salvage.created, status.update, sector.update
+```
+
 ## Task Examples
 
 ### Moving Between Sectors
+
 1. Check if destination is adjacent to current sector
 2. If adjacent, move directly
 3. If not, plot_course to find the path
@@ -99,6 +114,7 @@ trade(trade_type="sell", commodity="quantum_foam", quantity=30)
 IMPORTANT: Once you plot a course, the full path is in your context. Do NOT call plot_course again after each move.
 
 ### Move and Buy
+
 1. Move to target sector (directly or via plot_course)
 2. Check port info in movement.complete event
 3. If port sells the commodity with sufficient stock, call trade
@@ -107,23 +123,25 @@ IMPORTANT: Once you plot a course, the full path is in your context. Do NOT call
 
 ## Tool Usage Reference
 
-| Action | Tool | Events |
-|--------|------|--------|
-| Check status | my_status() | status.snapshot |
-| Find a path | plot_course(to_sector=N) | course.plot |
-| Move one sector | move(to_sector=N) | movement.start, movement.complete, map.local |
-| Query local map | local_map_region() | map.local |
-| List known ports | list_known_ports() | ports.list |
-| Complete task | finished(message="...") | (ends task) |
+| Action           | Tool                     | Events                                       |
+| ---------------- | ------------------------ | -------------------------------------------- |
+| Check status     | my_status()              | status.snapshot                              |
+| Find a path      | plot_course(to_sector=N) | course.plot                                  |
+| Move one sector  | move(to_sector=N)        | movement.start, movement.complete, map.local |
+| Query local map  | local_map_region()       | map.local                                    |
+| List known ports | list_known_ports()       | ports.list                                   |
+| Complete task    | finished(message="...")  | (ends task)                                  |
 
 ## Combat Notes
 
 ### Initiating Combat
+
 1. Use combat_initiate tool
 2. Wait exactly 1 second: wait_in_idle_state(seconds=1)
 3. Submit your first round action
 
 ### During Combat
+
 - Receive combat.round_waiting events
 - Call combat_action for each round (attack, brace, flee, or pay)
 - Combat ends with combat.ended event

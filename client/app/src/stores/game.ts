@@ -49,9 +49,11 @@ interface ActiveProperty<T> {
 }
 
 export interface GameState {
+  playerSessionId: string | null
+  setPlayerSessionId: (playerSessionId: string | null) => void
+
   characters: CharacterSelectResponse[]
   player: PlayerSelf
-  personalPlayerId?: string
   corporation?: Corporation
   character_id?: string
   access_token?: string
@@ -126,9 +128,11 @@ const createGameSlice: StateCreator<
   [],
   GameSlice
 > = (set, get) => ({
+  playerSessionId: null,
+  setPlayerSessionId: (playerSessionId: string | null) => set({ playerSessionId }),
+
   characters: [],
   player: {} as PlayerSelf,
-  personalPlayerId: undefined,
   corporation: undefined,
   character_id: undefined,
   access_token: undefined,

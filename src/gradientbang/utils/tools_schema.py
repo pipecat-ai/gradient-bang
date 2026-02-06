@@ -1,17 +1,15 @@
 # tools_schema.py
 
+import re
 from abc import ABC
 from typing import Any, Dict, List, Optional
-import re
 
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from openai.types.chat import ChatCompletionToolParam
 from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.adapters.services.open_ai_adapter import OpenAILLMAdapter
 
 from gradientbang.utils.supabase_client import AsyncGameClient
-
-from openai.types.chat import ChatCompletionToolParam
-
 
 _ID_PREFIX_LEN = 6
 _UUID_RE = re.compile(
@@ -761,9 +759,7 @@ class JoinCorporation(GameClientTool):
         resolved_corp_id = (corp_id or "").strip() if corp_id else ""
         if not resolved_corp_id:
             if not corp_name:
-                raise ValueError(
-                    "join_corporation requires either corp_id or corp_name."
-                )
+                raise ValueError("join_corporation requires either corp_id or corp_name.")
             corps = await self.game_client.list_corporations()
             match_name = corp_name.strip().lower()
             resolved_corp_id = ""
@@ -917,17 +913,17 @@ class PurchaseShip(GameClientTool):
                 "ship_type": {
                     "type": "string",
                     "enum": [
-                        "kestrel_courier",       # 25,000 - starter ship
-                        "sparrow_scout",         # 35,000 - recon
-                        "wayfarer_freighter",    # 120,000 - main trader
-                        "pioneer_lifter",        # 220,000 - logistics
-                        "atlas_hauler",          # 260,000 - bulk cargo
-                        "corsair_raider",        # 180,000 - pirate
-                        "pike_frigate",          # 300,000 - assault
-                        "bulwark_destroyer",     # 450,000 - line combat
-                        "aegis_cruiser",         # 700,000 - control/escort
-                        "sovereign_starcruiser", # 2,500,000 - flagship
-                        "autonomous_probe",      # 1,000 - corp only
+                        "kestrel_courier",  # 25,000 - starter ship
+                        "sparrow_scout",  # 35,000 - recon
+                        "wayfarer_freighter",  # 120,000 - main trader
+                        "pioneer_lifter",  # 220,000 - logistics
+                        "atlas_hauler",  # 260,000 - bulk cargo
+                        "corsair_raider",  # 180,000 - pirate
+                        "pike_frigate",  # 300,000 - assault
+                        "bulwark_destroyer",  # 450,000 - line combat
+                        "aegis_cruiser",  # 700,000 - control/escort
+                        "sovereign_starcruiser",  # 2,500,000 - flagship
+                        "autonomous_probe",  # 1,000 - corp only
                         "autonomous_light_hauler",  # 5,000 - corp only
                     ],
                     "description": (
@@ -1267,15 +1263,82 @@ class BankWithdraw(GameClientTool):
 
 class DumpCargo(GameClientTool):
     def __call__(self, items):
+        normalized_items = self._normalize_items(items)
         return self.game_client.dump_cargo(
-            items=items, character_id=self.game_client.character_id
+            items=normalized_items, character_id=self.game_client.character_id
         )
+
+    def _normalize_items(self, items):
+        if not isinstance(items, list):
+            raise ValueError(
+                "dump_cargo items must be a list of objects like "
+                '[{"commodity":"quantum_foam","units":1}]'
+            )
+
+        normalized = []
+        for entry in items:
+            if isinstance(entry, str):
+                parsed = self._parse_item_string(entry)
+                if not parsed:
+                    raise ValueError(
+                        "dump_cargo items must be objects like "
+                        '{"commodity":"quantum_foam","units":1}'
+                    )
+                normalized.append(parsed)
+                continue
+
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    'dump_cargo items must be objects like {"commodity":"quantum_foam","units":1}'
+                )
+
+            commodity = entry.get("commodity")
+            units = entry.get("units")
+            if commodity is None or units is None:
+                raise ValueError(
+                    "dump_cargo items must include commodity and units, e.g. "
+                    '{"commodity":"quantum_foam","units":1}'
+                )
+
+            if isinstance(units, str) and units.isdigit():
+                units = int(units)
+
+            normalized.append({**entry, "units": units})
+
+        return normalized
+
+    def _parse_item_string(self, entry: str):
+        if not entry:
+            return None
+        parts = [part.strip() for part in entry.split(",") if part.strip()]
+        if not parts:
+            return None
+        parsed = {}
+        for part in parts:
+            if ":" not in part:
+                return None
+            key, value = part.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if key == "commodity":
+                parsed["commodity"] = value
+            elif key == "units":
+                if value.isdigit():
+                    parsed["units"] = int(value)
+                else:
+                    return None
+        if "commodity" in parsed and "units" in parsed:
+            return parsed
+        return None
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
             name="dump_cargo",
-            description="Jettison cargo into space to create salvage in the current sector.",
+            description=(
+                "Jettison cargo into space to create salvage in the current sector. "
+                'Example: dump_cargo({"items": [{"commodity": "quantum_foam", "units": 1}]})'
+            ),
             properties={
                 "items": {
                     "type": "array",
@@ -1601,7 +1664,7 @@ class LoadGameInfo(Tool):
     """Tool to load detailed game information on demand."""
 
     def __call__(self, topic: str) -> dict:
-        from gradientbang.utils.prompt_loader import load_fragment, AVAILABLE_TOPICS
+        from gradientbang.utils.prompt_loader import AVAILABLE_TOPICS, load_fragment
 
         if topic not in AVAILABLE_TOPICS:
             return {

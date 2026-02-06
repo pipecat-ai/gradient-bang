@@ -1,17 +1,17 @@
 // --- Server / Inbound Messages
 
+export interface PlayerIdentity {
+  id: string
+  name?: string
+  player_type?: "human" | "npc" | "corporation_ship"
+}
+
 export interface ServerMessage {
   event: string
   payload: ServerMessagePayload
   summary?: string
   tool_name?: string
   task_id?: string
-}
-
-export interface EventPlayerIdentity {
-  id: string
-  name?: string
-  player_type?: "human" | "npc" | "corporation_ship"
 }
 
 export interface ServerMessagePayload {
@@ -21,7 +21,7 @@ export interface ServerMessagePayload {
     timestamp: string
     type: string
   }
-  player?: EventPlayerIdentity
+  player?: PlayerIdentity
   ship_id?: string
   [key: string]: unknown
 }

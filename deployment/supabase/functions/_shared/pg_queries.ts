@@ -7,7 +7,11 @@ import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 import { RATE_LIMITS } from "./constants.ts";
 import type { CharacterRow, ShipRow, ShipDefinitionRow } from "./status.ts";
 import type { MapKnowledge, WarpEdge, SectorSnapshot } from "./map.ts";
-import { parseWarpEdges, normalizeMapKnowledge, mergeMapKnowledge } from "./map.ts";
+import {
+  parseWarpEdges,
+  normalizeMapKnowledge,
+  mergeMapKnowledge,
+} from "./map.ts";
 import { resolvePlayerType } from "./status.ts";
 import { ActorAuthorizationError } from "./actors.ts";
 import { getPortPrices, getPortStock, type PortData } from "./trading.ts";
@@ -79,7 +83,10 @@ function normalizeSectorList(raw: unknown): number[] {
   return Array.from(new Set(values));
 }
 
-export function pgIsMegaPortSector(meta: UniverseMeta, sectorId: number): boolean {
+export function pgIsMegaPortSector(
+  meta: UniverseMeta,
+  sectorId: number,
+): boolean {
   const list = normalizeSectorList(meta.mega_port_sectors);
   if (list.length > 0) {
     return list.includes(sectorId);
@@ -116,7 +123,7 @@ async function pgIsFedspaceSector(
 
   const regionName =
     typeof resolvedMeta.fedspace_region_name === "string" &&
-      resolvedMeta.fedspace_region_name.trim()
+    resolvedMeta.fedspace_region_name.trim()
       ? resolvedMeta.fedspace_region_name.trim()
       : "Federation Space";
   const result = await pg.queryObject<{ region: string | null }>(
@@ -140,7 +147,7 @@ export class RateLimitError extends Error {
 export async function pgEnforceRateLimit(
   pg: Client,
   characterId: string | null,
-  endpoint: string
+  endpoint: string,
 ): Promise<void> {
   if (!characterId) {
     return;
@@ -150,7 +157,7 @@ export async function pgEnforceRateLimit(
 
   const result = await pg.queryArray<[boolean]>(
     `SELECT check_and_increment_rate_limit($1, $2, $3, $4)`,
-    [characterId, endpoint, rule.max, rule.window]
+    [characterId, endpoint, rule.max, rule.window],
   );
 
   const allowed = result.rows[0]?.[0];
@@ -165,7 +172,7 @@ export async function pgEnforceRateLimit(
 
 export async function pgLoadCharacter(
   pg: Client,
-  characterId: string
+  characterId: string,
 ): Promise<CharacterRow> {
   const result = await pg.queryObject<CharacterRow>(
     `SELECT
@@ -181,7 +188,7 @@ export async function pgLoadCharacter(
       corporation_joined_at
     FROM characters
     WHERE character_id = $1`,
-    [characterId]
+    [characterId],
   );
 
   const row = result.rows[0];
@@ -218,7 +225,7 @@ export async function pgLoadShip(pg: Client, shipId: string): Promise<ShipRow> {
       current_fighters::int as current_fighters
     FROM ship_instances
     WHERE ship_id = $1`,
-    [shipId]
+    [shipId],
   );
 
   const row = result.rows[0];
@@ -230,7 +237,7 @@ export async function pgLoadShip(pg: Client, shipId: string): Promise<ShipRow> {
 
 export async function pgLoadShipDefinition(
   pg: Client,
-  shipType: string
+  shipType: string,
 ): Promise<ShipDefinitionRow> {
   const result = await pg.queryObject<ShipDefinitionRow>(
     `SELECT
@@ -244,7 +251,7 @@ export async function pgLoadShipDefinition(
       purchase_price::numeric as purchase_price
     FROM ship_definitions
     WHERE ship_type = $1`,
-    [shipType]
+    [shipType],
   );
 
   const row = result.rows[0];
@@ -261,7 +268,7 @@ export async function pgLoadShipDefinition(
 export async function pgEnsureActorCanControlShip(
   pg: Client,
   actorId: string,
-  corpId: string
+  corpId: string,
 ): Promise<boolean> {
   const result = await pg.queryObject<{ character_id: string }>(
     `SELECT character_id
@@ -270,7 +277,7 @@ export async function pgEnsureActorCanControlShip(
       AND character_id = $2
       AND left_at IS NULL
     LIMIT 1`,
-    [corpId, actorId]
+    [corpId, actorId],
   );
   return result.rows.length > 0;
 }
@@ -286,13 +293,13 @@ interface CombatRow {
 
 export async function pgLoadCombatForSector(
   pg: Client,
-  sectorId: number
+  sectorId: number,
 ): Promise<{ combat: unknown; sector_id: number } | null> {
   const result = await pg.queryObject<CombatRow>(
     `SELECT sector_id::int, combat
     FROM sector_contents
     WHERE sector_id = $1`,
-    [sectorId]
+    [sectorId],
   );
 
   const row = result.rows[0];
@@ -315,20 +322,20 @@ interface SectorRow {
 
 export async function pgFetchSectorRow(
   pg: Client,
-  sectorId: number
+  sectorId: number,
 ): Promise<SectorRow | null> {
   const result = await pg.queryObject<SectorRow>(
     `SELECT sector_id::int, position_x::int, position_y::int, warps
     FROM universe_structure
     WHERE sector_id = $1`,
-    [sectorId]
+    [sectorId],
   );
   return result.rows[0] ?? null;
 }
 
 export async function pgGetAdjacentSectors(
   pg: Client,
-  sectorId: number
+  sectorId: number,
 ): Promise<number[]> {
   const row = await pgFetchSectorRow(pg, sectorId);
   return parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
@@ -341,7 +348,7 @@ export interface ShortestPathResult {
 
 export async function pgFindShortestPath(
   pg: Client,
-  params: { fromSector: number; toSector: number }
+  params: { fromSector: number; toSector: number },
 ): Promise<ShortestPathResult | null> {
   const { fromSector, toSector } = params;
   if (fromSector === toSector) {
@@ -380,7 +387,7 @@ export async function pgFindShortestPath(
       if (row) {
         adjacencyCache.set(
           sectorId,
-          row.warps.map((edge) => edge.to)
+          row.warps.map((edge) => edge.to),
         );
       } else {
         toFetch.push(sectorId);
@@ -459,7 +466,7 @@ export async function pgStartHyperspace(
     destination: number;
     eta: string;
     newWarpTotal: number;
-  }
+  },
 ): Promise<void> {
   const { shipId, currentSector, destination, eta, newWarpTotal } = params;
 
@@ -474,7 +481,7 @@ export async function pgStartHyperspace(
       AND in_hyperspace = false
       AND current_sector = $5
     RETURNING ship_id`,
-    [destination, eta, newWarpTotal, shipId, currentSector]
+    [destination, eta, newWarpTotal, shipId, currentSector],
   );
 
   if (result.rows.length === 0) {
@@ -487,7 +494,7 @@ export async function pgFinishHyperspace(
   params: {
     shipId: string;
     destination: number;
-  }
+  },
 ): Promise<void> {
   const { shipId, destination } = params;
 
@@ -499,7 +506,7 @@ export async function pgFinishHyperspace(
       hyperspace_destination = NULL,
       hyperspace_eta = NULL
     WHERE ship_id = $2`,
-    [destination, shipId]
+    [destination, shipId],
   );
 
   if (result.rowCount === 0) {
@@ -513,13 +520,13 @@ export async function pgFinishHyperspace(
 
 export async function pgUpdateCharacterLastActive(
   pg: Client,
-  characterId: string
+  characterId: string,
 ): Promise<void> {
   await pg.queryObject(
     `UPDATE characters
     SET last_active = NOW()
     WHERE character_id = $1`,
-    [characterId]
+    [characterId],
   );
 }
 
@@ -535,14 +542,14 @@ function setPlayerSource(knowledge: MapKnowledge): MapKnowledge {
     last_update: knowledge.last_update,
   };
   for (const [sectorId, entry] of Object.entries(knowledge.sectors_visited)) {
-    result.sectors_visited[sectorId] = { ...entry, source: 'player' };
+    result.sectors_visited[sectorId] = { ...entry, source: "player" };
   }
   return result;
 }
 
 export async function pgLoadMapKnowledge(
   pg: Client,
-  characterId: string
+  characterId: string,
 ): Promise<MapKnowledge> {
   const result = await pg.queryObject<{
     map_knowledge: unknown;
@@ -556,7 +563,7 @@ export async function pgLoadMapKnowledge(
     FROM characters c
     LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
     WHERE c.character_id = $1`,
-    [characterId]
+    [characterId],
   );
 
   const row = result.rows[0];
@@ -572,13 +579,13 @@ export async function pgLoadMapKnowledge(
 export async function pgUpdateMapKnowledge(
   pg: Client,
   characterId: string,
-  knowledge: MapKnowledge
+  knowledge: MapKnowledge,
 ): Promise<void> {
   await pg.queryObject(
     `UPDATE characters
     SET map_knowledge = $1::jsonb
     WHERE character_id = $2`,
-    [JSON.stringify(knowledge), characterId]
+    [JSON.stringify(knowledge), characterId],
   );
 }
 
@@ -592,7 +599,7 @@ export async function pgUpsertCorporationSectorKnowledge(
     corpId: string;
     sectorId: number;
     sectorSnapshot: SectorSnapshot;
-  }
+  },
 ): Promise<{ firstVisit: boolean; knowledge: MapKnowledge }> {
   const { corpId, sectorId, sectorSnapshot } = params;
   const sectorKey = String(sectorId);
@@ -603,7 +610,7 @@ export async function pgUpsertCorporationSectorKnowledge(
     `INSERT INTO corporation_map_knowledge (corp_id)
     VALUES ($1)
     ON CONFLICT (corp_id) DO NOTHING`,
-    [corpId]
+    [corpId],
   );
 
   // Load current corp knowledge
@@ -611,10 +618,12 @@ export async function pgUpsertCorporationSectorKnowledge(
     `SELECT map_knowledge
     FROM corporation_map_knowledge
     WHERE corp_id = $1`,
-    [corpId]
+    [corpId],
   );
 
-  const knowledge = normalizeMapKnowledge(result.rows[0]?.map_knowledge ?? null);
+  const knowledge = normalizeMapKnowledge(
+    result.rows[0]?.map_knowledge ?? null,
+  );
   const visitedBefore = Boolean(knowledge.sectors_visited[sectorKey]);
 
   // Update the sector entry
@@ -623,7 +632,7 @@ export async function pgUpsertCorporationSectorKnowledge(
     sectorId,
     sectorSnapshot.adjacent_sectors,
     sectorSnapshot.position,
-    timestamp
+    timestamp,
   );
 
   const entry = nextKnowledge.sectors_visited[sectorKey] ?? {};
@@ -638,7 +647,7 @@ export async function pgUpsertCorporationSectorKnowledge(
     `UPDATE corporation_map_knowledge
     SET map_knowledge = $1::jsonb
     WHERE corp_id = $2`,
-    [JSON.stringify(nextKnowledge), corpId]
+    [JSON.stringify(nextKnowledge), corpId],
   );
 
   return { firstVisit: !visitedBefore, knowledge: nextKnowledge };
@@ -652,19 +661,6 @@ interface SectorContentsRow {
   sector_id: number;
   port_id: string | null;
   salvage: unknown;
-}
-
-interface PortRow {
-  port_id: string;
-  port_code: string;
-  port_class: string;
-  max_qf: number;
-  max_ro: number;
-  max_ns: number;
-  stock_qf: number;
-  stock_ro: number;
-  stock_ns: number;
-  last_updated: string;
 }
 
 interface ShipInSectorRow {
@@ -720,7 +716,7 @@ function formatShipDisplayName(shipType: string): string {
 export async function pgBuildSectorSnapshot(
   pg: Client,
   sectorId: number,
-  currentCharacterId?: string
+  currentCharacterId?: string,
 ): Promise<SectorSnapshot> {
   // Single CTE query to fetch all sector data in one round trip
   const result = await pg.queryObject<{
@@ -823,7 +819,7 @@ export async function pgBuildSectorSnapshot(
       (SELECT COALESCE(json_agg(c), '[]'::json) FROM corps_data c) as corps_json
     FROM sector_base sb
     LEFT JOIN sector_contents sc ON sc.sector_id = sb.sector_id`,
-    [sectorId]
+    [sectorId],
   );
 
   const row = result.rows[0];
@@ -935,7 +931,11 @@ export async function pgBuildSectorSnapshot(
       sells: [],
     };
     // Determine buys/sells from port code
-    const commodityOrder = ["quantum_foam", "retro_organics", "neuro_symbolics"] as const;
+    const commodityOrder = [
+      "quantum_foam",
+      "retro_organics",
+      "neuro_symbolics",
+    ] as const;
     for (let i = 0; i < commodityOrder.length; i++) {
       const char = portData.port_code?.charAt(i) ?? "S";
       if (char === "B") {
@@ -971,7 +971,7 @@ export async function pgBuildSectorSnapshot(
     .filter((id): id is string => typeof id === "string");
   const occupantCharIds = new Set(occupants.map((o) => o.character_id));
   const missingOwnerIds = garrisonOwnerIds.filter(
-    (id) => !occupantCharIds.has(id)
+    (id) => !occupantCharIds.has(id),
   );
 
   let characterCorpMap = new Map<string, string | null>();
@@ -993,7 +993,7 @@ export async function pgBuildSectorSnapshot(
       `SELECT character_id, corporation_id, name
       FROM characters
       WHERE character_id = ANY($1::uuid[])`,
-      [missingOwnerIds]
+      [missingOwnerIds],
     );
     for (const char of extraChars.rows) {
       characterCorpMap.set(char.character_id, char.corporation_id);
@@ -1044,7 +1044,7 @@ export async function pgBuildSectorSnapshot(
         : "";
     const displayName = legacyDisplayName?.length
       ? legacyDisplayName
-      : occupant.name ?? occupant.character_id;
+      : (occupant.name ?? occupant.character_id);
     const shipName =
       typeof ship.ship_name === "string" ? ship.ship_name.trim() : "";
     const shipDisplayName =
@@ -1089,13 +1089,13 @@ export async function pgBuildSectorSnapshot(
 
     const isFriendly = Boolean(
       currentCharacterId === garrisonOwnerId ||
-        (currentCharacterCorpId &&
-          garrisonOwnerCorpId &&
-          currentCharacterCorpId === garrisonOwnerCorpId)
+      (currentCharacterCorpId &&
+        garrisonOwnerCorpId &&
+        currentCharacterCorpId === garrisonOwnerCorpId),
     );
 
     const ownerName = garrisonOwnerId
-      ? characterNameMap.get(garrisonOwnerId) ?? "unknown"
+      ? (characterNameMap.get(garrisonOwnerId) ?? "unknown")
       : "unknown";
 
     garrisonObject = {
@@ -1137,7 +1137,7 @@ async function pgLoadUniverseSize(pg: Client): Promise<number> {
     `SELECT sector_count::int
     FROM universe_config
     WHERE id = 1`,
-    []
+    [],
   );
   cachedUniverseSize = result.rows[0]?.sector_count ?? 0;
   return cachedUniverseSize;
@@ -1147,7 +1147,7 @@ function buildPlayerSnapshot(
   character: CharacterRow,
   playerType: string,
   knowledge: MapKnowledge,
-  universeSize: number
+  universeSize: number,
 ): Record<string, unknown> {
   // Derive stats from source field
   let sectorsVisited = 0;
@@ -1155,10 +1155,10 @@ function buildPlayerSnapshot(
   let hasCorpKnowledge = false;
 
   for (const entry of Object.values(knowledge.sectors_visited)) {
-    if (entry.source === 'player' || entry.source === 'both') {
+    if (entry.source === "player" || entry.source === "both") {
       sectorsVisited++;
     }
-    if (entry.source === 'corp' || entry.source === 'both') {
+    if (entry.source === "corp" || entry.source === "both") {
       corpSectorsVisited++;
       hasCorpKnowledge = true;
     }
@@ -1182,7 +1182,7 @@ function buildPlayerSnapshot(
 
 function buildShipSnapshot(
   ship: ShipRow,
-  definition: ShipDefinitionRow
+  definition: ShipDefinitionRow,
 ): Record<string, unknown> {
   const cargo = {
     quantum_foam: ship.cargo_qf ?? 0,
@@ -1223,7 +1223,7 @@ export interface PgBuildStatusPayloadOptions {
 export async function pgBuildStatusPayload(
   pg: Client,
   characterId: string,
-  options?: Omit<PgBuildStatusPayloadOptions, "pg" | "characterId">
+  options?: Omit<PgBuildStatusPayloadOptions, "pg" | "characterId">,
 ): Promise<Record<string, unknown>> {
   // Use provided data or fetch if not provided
   const character =
@@ -1236,7 +1236,12 @@ export async function pgBuildStatusPayload(
   const knowledge = await pgLoadMapKnowledge(pg, characterId);
   const universeSize = await pgLoadUniverseSize(pg);
   const playerType = resolvePlayerType(character.player_metadata);
-  const player = buildPlayerSnapshot(character, playerType, knowledge, universeSize);
+  const player = buildPlayerSnapshot(
+    character,
+    playerType,
+    knowledge,
+    universeSize,
+  );
   const shipSnapshot = buildShipSnapshot(ship, definition);
   const sectorSnapshot =
     options?.sectorSnapshot ??
@@ -1255,7 +1260,7 @@ export async function pgBuildStatusPayload(
       LEFT JOIN corporation_members cm ON cm.corp_id = c.corp_id AND cm.left_at IS NULL
       WHERE c.corp_id = $1
       GROUP BY c.corp_id, c.name`,
-      [character.corporation_id]
+      [character.corporation_id],
     );
     const corp = corpResult.rows[0];
     if (corp) {
@@ -1290,9 +1295,12 @@ interface UniverseRow {
 
 async function pgFetchUniverseRows(
   pg: Client,
-  sectorIds: number[]
+  sectorIds: number[],
 ): Promise<
-  Map<number, { position: [number, number]; region: string | null; warps: WarpEdge[] }>
+  Map<
+    number,
+    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+  >
 > {
   if (sectorIds.length === 0) {
     return new Map();
@@ -1302,7 +1310,7 @@ async function pgFetchUniverseRows(
     `SELECT sector_id::int, position_x::int, position_y::int, region, warps
     FROM universe_structure
     WHERE sector_id = ANY($1::int[])`,
-    [uniqueIds]
+    [uniqueIds],
   );
 
   const map = new Map<
@@ -1321,7 +1329,7 @@ async function pgFetchUniverseRows(
 
 async function pgLoadPortCodes(
   pg: Client,
-  sectorIds: number[]
+  sectorIds: number[],
 ): Promise<Record<number, string>> {
   if (sectorIds.length === 0) {
     return {};
@@ -1348,11 +1356,11 @@ interface LocalMapSector {
   hops_from_center: number;
   position: [number, number];
   region?: string | null;
-  port: string;
+  port: { code: string; mega?: boolean } | null;
   lanes: WarpEdge[];
-  adjacent_sectors?: number[];
+  adjacent_sectors: number[];
   last_visited?: string;
-  source?: 'player' | 'corp' | 'both';
+  source?: "player" | "corp" | "both";
 }
 
 interface LocalMapRegionPayload {
@@ -1363,6 +1371,45 @@ interface LocalMapRegionPayload {
   total_unvisited: number;
 }
 
+function buildLocalMapPort(
+  portValue: Record<string, unknown> | null | undefined,
+  fallbackCode?: string,
+  fallbackMega?: boolean,
+): { code: string; mega?: boolean } | null {
+  const portCode =
+    (portValue && typeof portValue.code === "string" ? portValue.code : null) ??
+    (portValue && typeof portValue.port_code === "string"
+      ? portValue.port_code
+      : null) ??
+    (fallbackCode && fallbackCode.trim().length > 0 ? fallbackCode : null);
+  if (!portCode) {
+    return null;
+  }
+  const mega =
+    portValue && typeof portValue.mega === "boolean"
+      ? portValue.mega
+      : fallbackMega;
+  return mega === undefined ? { code: portCode } : { code: portCode, mega };
+}
+
+function extractPortCodeValue(
+  portValue: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!portValue) {
+    return null;
+  }
+  const code =
+    typeof portValue.code === "string"
+      ? portValue.code
+      : typeof portValue.port_code === "string"
+        ? portValue.port_code
+        : null;
+  if (!code || !code.trim()) {
+    return null;
+  }
+  return code;
+}
+
 export async function pgBuildLocalMapRegion(
   pg: Client,
   params: {
@@ -1371,7 +1418,7 @@ export async function pgBuildLocalMapRegion(
     mapKnowledge?: MapKnowledge;
     maxHops?: number;
     maxSectors?: number;
-  }
+  },
 ): Promise<LocalMapRegionPayload> {
   const { characterId, centerSector } = params;
   const maxHops = params.maxHops ?? 4;
@@ -1383,7 +1430,7 @@ export async function pgBuildLocalMapRegion(
   }
 
   const visitedSet = new Set<number>(
-    Object.keys(knowledge.sectors_visited).map((key) => Number(key))
+    Object.keys(knowledge.sectors_visited).map((key) => Number(key)),
   );
 
   if (!visitedSet.has(centerSector)) {
@@ -1436,7 +1483,9 @@ export async function pgBuildLocalMapRegion(
     }
   };
 
-  const ensureUniverseAdjacency = async (sectorIds: number[]): Promise<void> => {
+  const ensureUniverseAdjacency = async (
+    sectorIds: number[],
+  ): Promise<void> => {
     const toFetch: number[] = [];
     for (const sectorId of sectorIds) {
       if (universeAdjacencyCache.has(sectorId)) {
@@ -1446,7 +1495,7 @@ export async function pgBuildLocalMapRegion(
       if (row) {
         universeAdjacencyCache.set(
           sectorId,
-          row.warps.map((edge) => edge.to)
+          row.warps.map((edge) => edge.to),
         );
       } else {
         toFetch.push(sectorId);
@@ -1508,7 +1557,10 @@ export async function pgBuildLocalMapRegion(
   }
 
   // Calculate bounding box from BFS results to find disconnected visited sectors
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
   for (const [sectorId] of distanceMap) {
     if (visitedSet.has(sectorId)) {
       const entry = knowledge.sectors_visited[String(sectorId)];
@@ -1524,11 +1576,19 @@ export async function pgBuildLocalMapRegion(
   // Find visited sectors within the bounding box that weren't found by BFS
   const disconnectedSectors: number[] = [];
   if (minX !== Infinity) {
-    for (const [sectorIdStr, entry] of Object.entries(knowledge.sectors_visited)) {
+    for (const [sectorIdStr, entry] of Object.entries(
+      knowledge.sectors_visited,
+    )) {
       const sectorId = Number(sectorIdStr);
       if (distanceMap.has(sectorId)) continue; // Already found by BFS
       const pos = entry.position;
-      if (pos && pos[0] >= minX && pos[0] <= maxX && pos[1] >= minY && pos[1] <= maxY) {
+      if (
+        pos &&
+        pos[0] >= minX &&
+        pos[0] <= maxX &&
+        pos[1] >= minY &&
+        pos[1] <= maxY
+      ) {
         disconnectedSectors.push(sectorId);
       }
     }
@@ -1541,7 +1601,10 @@ export async function pgBuildLocalMapRegion(
     const seen = new Set<number>([centerSector]);
     let bfsFrontier: number[] = [centerSector];
     let bfsHops = 0;
-    while (bfsFrontier.length > 0 && disconnectedDistances.size < targetSet.size) {
+    while (
+      bfsFrontier.length > 0 &&
+      disconnectedDistances.size < targetSet.size
+    ) {
       await ensureUniverseAdjacency(bfsFrontier);
       const next: number[] = [];
       for (const sectorId of bfsFrontier) {
@@ -1597,7 +1660,29 @@ export async function pgBuildLocalMapRegion(
     .concat(Array.from(disconnectedUnvisitedNeighbors));
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
   await hydrateUniverseRows(sectorIds);
-  const portCodes = await pgLoadPortCodes(pg, visitedSectorIds);
+  let needsPortCodes = false;
+  let needsUniverseMeta = false;
+  for (const sectorId of visitedSectorIds) {
+    const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+    const portValue = knowledgeEntry?.port as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    const portCode = extractPortCodeValue(portValue);
+    if (!portCode) {
+      needsPortCodes = true;
+      needsUniverseMeta = true;
+      continue;
+    }
+    if (typeof portValue?.mega !== "boolean") {
+      needsUniverseMeta = true;
+    }
+  }
+
+  const portCodes = needsPortCodes
+    ? await pgLoadPortCodes(pg, visitedSectorIds)
+    : {};
+  const universeMeta = needsUniverseMeta ? await pgLoadUniverseMeta(pg) : null;
 
   const resultSectors: LocalMapSector[] = [];
   const disconnectedSet = new Set(disconnectedSectors);
@@ -1614,13 +1699,30 @@ export async function pgBuildLocalMapRegion(
 
     if (visitedSet.has(sectorId)) {
       const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+      const portValue = knowledgeEntry?.port as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      const portCodeFromKnowledge = extractPortCodeValue(portValue);
+      const fallbackCode = portCodes[sectorId];
+      const hasPort = Boolean(fallbackCode || portCodeFromKnowledge);
+      const mega = hasPort
+        ? universeMeta
+          ? pgIsMegaPortSector(universeMeta, sectorId)
+          : undefined
+        : undefined;
+      const portPayload = buildLocalMapPort(
+        portValue,
+        fallbackCode,
+        mega,
+      );
       resultSectors.push({
         id: sectorId,
         visited: true,
         hops_from_center: hops,
         position,
         region: universeRow?.region ?? null,
-        port: portCodes[sectorId] ?? "",
+        port: portPayload,
         lanes: warps,
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
         last_visited: knowledgeEntry?.last_visited,
@@ -1636,7 +1738,6 @@ export async function pgBuildLocalMapRegion(
           derivedLanes.push({
             to: source,
             two_way: match.two_way,
-            hyperlane: match.hyperlane,
           });
         } else {
           derivedLanes.push({ to: source });
@@ -1647,8 +1748,9 @@ export async function pgBuildLocalMapRegion(
         visited: false,
         hops_from_center: hops,
         position,
-        port: "",
+        port: null,
         lanes: derivedLanes,
+        adjacent_sectors: [],
       });
     }
   }
@@ -1674,7 +1776,7 @@ function upsertVisitedSector(
   sectorId: number,
   adjacent: number[],
   position: [number, number],
-  timestamp: string
+  timestamp: string,
 ): { updated: boolean; knowledge: MapKnowledge } {
   const key = String(sectorId);
   const existing = knowledge.sectors_visited[key];
@@ -1695,7 +1797,7 @@ function upsertVisitedSector(
   const total = Object.keys(knowledge.sectors_visited).length;
   knowledge.total_sectors_visited = Math.max(
     knowledge.total_sectors_visited,
-    total
+    total,
   );
   return { updated: true, knowledge };
 }
@@ -1712,7 +1814,7 @@ export async function pgMarkSectorVisited(
     characterId: string;
     sectorId: number;
     sectorSnapshot: SectorSnapshot;
-  }
+  },
 ): Promise<MarkSectorVisitedResult> {
   const { characterId, sectorId, sectorSnapshot } = params;
   const sectorKey = String(sectorId);
@@ -1733,7 +1835,7 @@ export async function pgMarkSectorVisited(
     FROM characters c
     LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
     WHERE c.character_id = $1`,
-    [characterId]
+    [characterId],
   );
 
   const charRow = charResult.rows[0];
@@ -1749,9 +1851,15 @@ export async function pgMarkSectorVisited(
   if (isCorporationShip) {
     if (!corpId) {
       // Corp ship without corporation (shouldn't happen, but handle gracefully)
-      console.warn(`Corp ship ${characterId} has no corporation_id, skipping knowledge update`);
+      console.warn(
+        `Corp ship ${characterId} has no corporation_id, skipping knowledge update`,
+      );
       const emptyKnowledge = normalizeMapKnowledge(null);
-      return { firstPersonalVisit: false, knownToCorp: false, knowledge: emptyKnowledge };
+      return {
+        firstPersonalVisit: false,
+        knownToCorp: false,
+        knowledge: emptyKnowledge,
+      };
     }
 
     const result = await pgUpsertCorporationSectorKnowledge(pg, {
@@ -1785,7 +1893,7 @@ export async function pgMarkSectorVisited(
     sectorId,
     sectorSnapshot.adjacent_sectors,
     sectorSnapshot.position,
-    timestamp
+    timestamp,
   );
 
   const entry = nextKnowledge.sectors_visited[sectorKey] ?? {};
@@ -1833,7 +1941,7 @@ export interface PgRecordEventOptions {
 }
 
 function dedupeRecipients(
-  recipients: EventRecipientSnapshot[]
+  recipients: EventRecipientSnapshot[],
 ): EventRecipientSnapshot[] {
   if (!recipients.length) return [];
   const seen = new Set<string>();
@@ -1849,7 +1957,7 @@ function dedupeRecipients(
 }
 
 export async function pgRecordEvent(
-  options: PgRecordEventOptions
+  options: PgRecordEventOptions,
 ): Promise<number | null> {
   const {
     pg,
@@ -1900,7 +2008,7 @@ export async function pgRecordEvent(
       recipientReasons,
       broadcast,
       taskId ?? null,
-    ]
+    ],
   );
 
   const returnVal = result.rows[0]?.record_event_with_recipients;
@@ -1932,7 +2040,7 @@ export interface PgEmitCharacterEventOptions {
 }
 
 export async function pgEmitCharacterEvent(
-  options: PgEmitCharacterEventOptions
+  options: PgEmitCharacterEventOptions,
 ): Promise<void> {
   const {
     pg,
@@ -2007,7 +2115,7 @@ interface EventSource {
 async function pgListSectorObservers(
   pg: Client,
   sectorId: number,
-  exclude: string[] = []
+  exclude: string[] = [],
 ): Promise<string[]> {
   const excludeSet = new Set(exclude);
   const result = await pg.queryObject<{
@@ -2020,7 +2128,7 @@ async function pgListSectorObservers(
     WHERE current_sector = $1
       AND in_hyperspace = false
       AND (owner_character_id IS NOT NULL OR owner_type = 'character')`,
-    [sectorId]
+    [sectorId],
   );
 
   const observers: string[] = [];
@@ -2058,13 +2166,13 @@ interface GarrisonContext {
 
 async function pgLoadGarrisonContext(
   pg: Client,
-  sectorId: number
+  sectorId: number,
 ): Promise<GarrisonContext> {
   const garrisonResult = await pg.queryObject<GarrisonRow>(
     `SELECT owner_id, fighters::int, mode, toll_amount::numeric, deployed_at
     FROM garrisons
     WHERE sector_id = $1`,
-    [sectorId]
+    [sectorId],
   );
 
   const garrisonRows = garrisonResult.rows;
@@ -2072,8 +2180,8 @@ async function pgLoadGarrisonContext(
     new Set(
       garrisonRows
         .map((row) => row.owner_id)
-        .filter((id): id is string => typeof id === "string" && id.length > 0)
-    )
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
   );
 
   const ownerMap = new Map<string, CharacterInfo>();
@@ -2084,7 +2192,7 @@ async function pgLoadGarrisonContext(
       `SELECT character_id, name, corporation_id
       FROM characters
       WHERE character_id = ANY($1::uuid[])`,
-      [ownerIds]
+      [ownerIds],
     );
     for (const row of ownerResult.rows) {
       ownerMap.set(row.character_id, row);
@@ -2104,7 +2212,7 @@ async function pgLoadGarrisonContext(
       `SELECT character_id, corporation_id
       FROM characters
       WHERE corporation_id = ANY($1::uuid[])`,
-      [corpIdList]
+      [corpIdList],
     );
     for (const row of memberResult.rows) {
       if (!row.corporation_id) continue;
@@ -2121,14 +2229,18 @@ function buildCharacterMovedPayload(
   metadata: ObserverMetadata,
   movement: "depart" | "arrive",
   source?: EventSource,
-  options?: { moveType?: string; extraFields?: Record<string, unknown> }
+  options?: { moveType?: string; extraFields?: Record<string, unknown> },
 ): Record<string, unknown> {
   const timestamp = new Date().toISOString();
   const moveType = options?.moveType ?? "normal";
   const extraFields = options?.extraFields;
   const payload: Record<string, unknown> = {
     player: { id: metadata.characterId, name: metadata.characterName },
-    ship: { ship_id: metadata.shipId, ship_name: metadata.shipName, ship_type: metadata.shipType },
+    ship: {
+      ship_id: metadata.shipId,
+      ship_name: metadata.shipName,
+      ship_type: metadata.shipType,
+    },
     timestamp,
     move_type: moveType,
     movement,
@@ -2168,7 +2280,7 @@ export interface MovementObserverResult {
 export async function pgComputeCorpMemberRecipients(
   pg: Client,
   corpIds: string[],
-  excludeCharacterIds: string[] = []
+  excludeCharacterIds: string[] = [],
 ): Promise<EventRecipientSnapshot[]> {
   if (!corpIds.length) {
     return [];
@@ -2176,12 +2288,15 @@ export async function pgComputeCorpMemberRecipients(
   const excludeSet = new Set(excludeCharacterIds);
   const uniqueCorpIds = Array.from(new Set(corpIds));
 
-  const result = await pg.queryObject<{ character_id: string; corp_id: string }>(
+  const result = await pg.queryObject<{
+    character_id: string;
+    corp_id: string;
+  }>(
     `SELECT character_id, corp_id
     FROM corporation_members
     WHERE corp_id = ANY($1::uuid[])
       AND left_at IS NULL`,
-    [uniqueCorpIds]
+    [uniqueCorpIds],
   );
 
   const recipients: EventRecipientSnapshot[] = [];
@@ -2197,7 +2312,7 @@ export async function pgComputeCorpMemberRecipients(
 }
 
 export async function pgEmitMovementObservers(
-  options: PgMovementObserverOptions
+  options: PgMovementObserverOptions,
 ): Promise<MovementObserverResult> {
   const {
     pg,
@@ -2223,7 +2338,7 @@ export async function pgEmitMovementObservers(
   const observers = await pgListSectorObservers(
     pg,
     sectorId,
-    Array.from(exclude)
+    Array.from(exclude),
   );
   const payload = buildCharacterMovedPayload(metadata, movement, source, {
     moveType,
@@ -2236,7 +2351,7 @@ export async function pgEmitMovementObservers(
     corpMemberRecipients = await pgComputeCorpMemberRecipients(
       pg,
       corpIds,
-      Array.from(exclude)
+      Array.from(exclude),
     );
   }
 
@@ -2266,7 +2381,7 @@ export async function pgEmitMovementObservers(
   if (includeGarrisons) {
     const { garrisons, ownerMap, membersByCorp } = await pgLoadGarrisonContext(
       pg,
-      sectorId
+      sectorId,
     );
 
     for (const garrison of garrisons) {
@@ -2277,7 +2392,9 @@ export async function pgEmitMovementObservers(
       if (!owner || !owner.corporation_id) continue;
 
       const corpMembers = membersByCorp.get(owner.corporation_id) ?? [];
-      const allGarrisonRecipients = Array.from(new Set([ownerId, ...corpMembers]));
+      const allGarrisonRecipients = Array.from(
+        new Set([ownerId, ...corpMembers]),
+      );
       if (!allGarrisonRecipients.length) continue;
 
       const garrisonPayload = {
@@ -2298,7 +2415,7 @@ export async function pgEmitMovementObservers(
             charId === owner.character_id
               ? "garrison_owner"
               : "garrison_corp_member",
-        }))
+        })),
       );
 
       if (recipientSnapshots.length > 0) {
@@ -2331,7 +2448,11 @@ export async function pgEmitMovementObservers(
     });
   }
 
-  return { characterObservers: observers.length, garrisonRecipients, corpMemberRecipients: corpMemberCount };
+  return {
+    characterObservers: observers.length,
+    garrisonRecipients,
+    corpMemberRecipients: corpMemberCount,
+  };
 }
 
 // ============================================================================
@@ -2364,7 +2485,7 @@ export interface PgCheckGarrisonAutoEngageOptions {
  * where no combat is needed, avoiding expensive REST calls.
  */
 export async function pgCheckGarrisonAutoEngage(
-  options: PgCheckGarrisonAutoEngageOptions
+  options: PgCheckGarrisonAutoEngageOptions,
 ): Promise<boolean> {
   const { pg, characterId, sectorId } = options;
   const meta = await pgLoadUniverseMeta(pg);
@@ -2375,21 +2496,21 @@ export async function pgCheckGarrisonAutoEngage(
   // Check if character's ship is in hyperspace
   const charResult = await pg.queryObject<{ current_ship_id: string }>(
     `SELECT current_ship_id FROM characters WHERE character_id = $1`,
-    [characterId]
+    [characterId],
   );
   const charRow = charResult.rows[0];
   if (!charRow?.current_ship_id) return false;
 
   const shipResult = await pg.queryObject<{ in_hyperspace: boolean }>(
     `SELECT in_hyperspace FROM ship_instances WHERE ship_id = $1`,
-    [charRow.current_ship_id]
+    [charRow.current_ship_id],
   );
   if (shipResult.rows[0]?.in_hyperspace) return false;
 
   // Check if there's existing active combat
   const combatResult = await pg.queryObject<{ combat: unknown }>(
     `SELECT combat FROM sector_contents WHERE sector_id = $1`,
-    [sectorId]
+    [sectorId],
   );
   const combatRow = combatResult.rows[0];
   if (combatRow?.combat) {
@@ -2403,13 +2524,13 @@ export async function pgCheckGarrisonAutoEngage(
             toll_amount::numeric, toll_balance::numeric, deployed_at
     FROM garrisons
     WHERE sector_id = $1 AND fighters > 0`,
-    [sectorId]
+    [sectorId],
   );
   const garrisons = garrisonResult.rows;
 
   // Check for auto-engaging garrisons (offensive or toll mode)
   const autoEngagingGarrisons = garrisons.filter(
-    (g) => g.mode === "offensive" || g.mode === "toll"
+    (g) => g.mode === "offensive" || g.mode === "toll",
   );
   if (autoEngagingGarrisons.length === 0) return false;
 
@@ -2419,7 +2540,7 @@ export async function pgCheckGarrisonAutoEngage(
       (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
       (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $2)
     ) as corp_id`,
-    [characterId, charRow.current_ship_id]
+    [characterId, charRow.current_ship_id],
   );
   const charCorpId = charCorpResult.rows[0]?.corp_id ?? null;
 
@@ -2433,7 +2554,7 @@ export async function pgCheckGarrisonAutoEngage(
     const ownerCorpResult = await pg.queryObject<{ corp_id: string }>(
       `SELECT corp_id FROM corporation_members
       WHERE character_id = $1 AND left_at IS NULL`,
-      [ownerId]
+      [ownerId],
     );
     const ownerCorpId = ownerCorpResult.rows[0]?.corp_id ?? null;
 
@@ -2459,7 +2580,7 @@ export async function pgEnsureActorAuthorization(
     adminOverride: boolean;
     targetCharacterId?: string | null;
     requireActorForCorporationShip?: boolean;
-  }
+  },
 ): Promise<void> {
   const {
     ship,
@@ -2482,7 +2603,7 @@ export async function pgEnsureActorAuthorization(
     ) {
       throw new ActorAuthorizationError(
         "actor_character_id must match character_id unless admin_override is true",
-        403
+        403,
       );
     }
     return;
@@ -2498,13 +2619,13 @@ export async function pgEnsureActorAuthorization(
     if (requireActorForCorporationShip && !actorCharacterId) {
       throw new ActorAuthorizationError(
         "actor_character_id is required when controlling a corporation ship",
-        400
+        400,
       );
     }
     if (!ship.owner_corporation_id) {
       throw new ActorAuthorizationError(
         "Corporation ship is missing ownership data",
-        403
+        403,
       );
     }
     if (!actorCharacterId) {
@@ -2513,12 +2634,12 @@ export async function pgEnsureActorAuthorization(
     const allowed = await pgEnsureActorCanControlShip(
       pg,
       actorCharacterId,
-      ship.owner_corporation_id
+      ship.owner_corporation_id,
     );
     if (!allowed) {
       throw new ActorAuthorizationError(
         "Actor is not authorized to control this corporation ship",
-        403
+        403,
       );
     }
     return;
@@ -2527,7 +2648,7 @@ export async function pgEnsureActorAuthorization(
   if (actorCharacterId && actorCharacterId !== resolvedTargetId) {
     throw new ActorAuthorizationError(
       "actor_character_id must match character_id unless admin_override is true",
-      403
+      403,
     );
   }
 }
@@ -2556,7 +2677,7 @@ export interface PortRow {
 
 export async function pgLoadPortBySector(
   pg: Client,
-  sectorId: number
+  sectorId: number,
 ): Promise<PortRow | null> {
   const result = await pg.queryObject<PortRow>(
     `SELECT p.port_id::int, sc.sector_id::int, p.port_code, p.port_class::int,
@@ -2566,7 +2687,7 @@ export async function pgLoadPortBySector(
     FROM sector_contents sc
     JOIN ports p ON p.port_id = sc.port_id
     WHERE sc.sector_id = $1`,
-    [sectorId]
+    [sectorId],
   );
   return convertBigInts(result.rows[0]) ?? null;
 }
@@ -2575,7 +2696,7 @@ export async function pgAttemptPortUpdate(
   pg: Client,
   portRow: PortRow,
   updatedStock: { QF: number; RO: number; NS: number },
-  observedAt: string
+  observedAt: string,
 ): Promise<PortRow | null> {
   const result = await pg.queryObject<PortRow>(
     `UPDATE ports
@@ -2597,7 +2718,7 @@ export async function pgAttemptPortUpdate(
       portRow.version + 1,
       portRow.port_id,
       portRow.version,
-    ]
+    ],
   );
   return convertBigInts(result.rows[0]) ?? null;
 }
@@ -2605,7 +2726,7 @@ export async function pgAttemptPortUpdate(
 export async function pgRevertPortInventory(
   pg: Client,
   previous: PortRow,
-  current: PortRow
+  current: PortRow,
 ): Promise<void> {
   await pg.queryObject(
     `UPDATE ports
@@ -2623,7 +2744,7 @@ export async function pgRevertPortInventory(
       current.version + 1,
       current.port_id,
       current.version,
-    ]
+    ],
   );
 }
 
@@ -2638,7 +2759,7 @@ export async function pgUpdateShipAfterTrade(
   pg: Client,
   shipId: string,
   ownerId: string | null,
-  updates: ShipTradeUpdate
+  updates: ShipTradeUpdate,
 ): Promise<boolean> {
   let query = `UPDATE ship_instances
     SET credits = $1,
@@ -2679,7 +2800,7 @@ export interface PortTransactionParams {
 
 export async function pgRecordPortTransaction(
   pg: Client,
-  params: PortTransactionParams
+  params: PortTransactionParams,
 ): Promise<void> {
   await pg.queryObject(
     `INSERT INTO port_transactions (
@@ -2697,21 +2818,21 @@ export async function pgRecordPortTransaction(
       params.transactionType,
       params.pricePerUnit,
       params.totalPrice,
-    ]
+    ],
   );
 }
 
 export async function pgListCharactersInSector(
   pg: Client,
   sectorId: number,
-  excludeCharacterIds: string[] = []
+  excludeCharacterIds: string[] = [],
 ): Promise<string[]> {
   // Get ships in sector that are not in hyperspace
   const shipResult = await pg.queryObject<{ ship_id: string }>(
     `SELECT ship_id
     FROM ship_instances
     WHERE current_sector = $1 AND in_hyperspace = false`,
-    [sectorId]
+    [sectorId],
   );
 
   const shipIds = shipResult.rows.map((row) => row.ship_id).filter(Boolean);
@@ -2724,7 +2845,7 @@ export async function pgListCharactersInSector(
     `SELECT character_id
     FROM characters
     WHERE current_ship_id = ANY($1::uuid[])`,
-    [shipIds]
+    [shipIds],
   );
 
   const excludeSet = new Set(excludeCharacterIds);
@@ -2747,7 +2868,7 @@ export async function pgExecuteTradeTransaction(
     shipId: string;
     ownerId: string | null;
     shipUpdates: ShipTradeUpdate;
-  }
+  },
 ): Promise<
   | { success: true; updatedPort: PortRow }
   | { success: false; reason: "version_mismatch" | "ship_update_failed" }
@@ -2776,7 +2897,7 @@ export async function pgExecuteTradeTransaction(
         params.portRow.version + 1,
         params.portRow.port_id,
         params.portRow.version,
-      ]
+      ],
     );
 
     if (!portResult.rows[0]) {
@@ -2808,7 +2929,7 @@ export async function pgExecuteTradeTransaction(
 
     const shipResult = await pg.queryObject<{ ship_id: string }>(
       shipQuery,
-      shipParams
+      shipParams,
     );
     if (!shipResult.rows[0]) {
       await pg.queryObject("ROLLBACK");
@@ -2850,7 +2971,7 @@ export async function pgResolveTargetSector(
     sectorOverride: number | null;
     fallbackSector: number;
     defaultSector?: number;
-  }
+  },
 ): Promise<number> {
   const DEFAULT_START_SECTOR = params.defaultSector ?? 0;
   const target =
@@ -2858,7 +2979,7 @@ export async function pgResolveTargetSector(
 
   const result = await pg.queryObject<{ sector_id: number }>(
     `SELECT sector_id::int FROM universe_structure WHERE sector_id = $1`,
-    [target]
+    [target],
   );
 
   if (!result.rows[0]) {
@@ -2876,7 +2997,7 @@ export async function pgUpdateShipState(
     shipId: string;
     sectorId: number;
     creditsOverride?: number | null;
-  }
+  },
 ): Promise<void> {
   const { shipId, sectorId, creditsOverride } = params;
 
@@ -2889,7 +3010,7 @@ export async function pgUpdateShipState(
           hyperspace_eta = NULL,
           credits = $2
       WHERE ship_id = $3`,
-      [sectorId, creditsOverride, shipId]
+      [sectorId, creditsOverride, shipId],
     );
   } else {
     await pg.queryObject(
@@ -2899,7 +3020,7 @@ export async function pgUpdateShipState(
           hyperspace_destination = NULL,
           hyperspace_eta = NULL
       WHERE ship_id = $2`,
-      [sectorId, shipId]
+      [sectorId, shipId],
     );
   }
 }
@@ -2910,13 +3031,13 @@ export async function pgUpdateShipState(
 export async function pgEnsureCharacterShipLink(
   pg: Client,
   characterId: string,
-  shipId: string
+  shipId: string,
 ): Promise<void> {
   await pg.queryObject(
     `UPDATE characters
     SET current_ship_id = $1, last_active = NOW()
     WHERE character_id = $2`,
-    [shipId, characterId]
+    [shipId, characterId],
   );
 }
 
@@ -2952,7 +3073,7 @@ export async function pgUpsertKnowledgeEntry(
     characterId: string;
     sectorId: number;
     existingKnowledge?: MapKnowledge;
-  }
+  },
 ): Promise<void> {
   const { characterId, sectorId } = params;
 
@@ -2961,7 +3082,7 @@ export async function pgUpsertKnowledgeEntry(
     `SELECT sector_id::int, position_x::int, position_y::int, warps
     FROM universe_structure
     WHERE sector_id = $1`,
-    [sectorId]
+    [sectorId],
   );
 
   const structure = structResult.rows[0];
@@ -2975,9 +3096,11 @@ export async function pgUpsertKnowledgeEntry(
     // Load personal knowledge directly (not merged) since we're updating the character's map_knowledge
     const charResult = await pg.queryObject<{ map_knowledge: unknown }>(
       `SELECT map_knowledge FROM characters WHERE character_id = $1`,
-      [characterId]
+      [characterId],
     );
-    knowledge = normalizeMapKnowledge(charResult.rows[0]?.map_knowledge ?? null);
+    knowledge = normalizeMapKnowledge(
+      charResult.rows[0]?.map_knowledge ?? null,
+    );
   }
 
   const adjacent = parseAdjacentIds(structure);
@@ -3006,7 +3129,7 @@ export async function pgUpsertKnowledgeEntry(
   const total = Object.keys(knowledge.sectors_visited).length;
   knowledge.total_sectors_visited = Math.max(
     knowledge.total_sectors_visited,
-    total
+    total,
   );
 
   // Persist
@@ -3019,7 +3142,7 @@ export async function pgUpsertKnowledgeEntry(
  */
 export async function pgLoadCharacterForJoin(
   pg: Client,
-  characterId: string
+  characterId: string,
 ): Promise<(CharacterRow & { corporation_id: string | null }) | null> {
   const result = await pg.queryObject<
     CharacterRow & { corporation_id: string | null }
@@ -3037,7 +3160,7 @@ export async function pgLoadCharacterForJoin(
       corporation_joined_at
     FROM characters
     WHERE character_id = $1`,
-    [characterId]
+    [characterId],
   );
 
   const row = result.rows[0];

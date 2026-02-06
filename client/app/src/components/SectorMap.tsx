@@ -154,7 +154,6 @@ const MapComponent = ({
   width,
   height,
   maxDistance = 2,
-  showLegend = false,
   coursePlot,
   ships,
   onNodeClick,
@@ -474,112 +473,6 @@ const MapComponent = ({
           ...(isWaitingForMeasurement && { visibility: "hidden" }),
         }}
       />
-      {showLegend && baseConfig.nodeStyles && (
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            flexWrap: "wrap",
-            fontSize: 12,
-            color: "#bbb",
-          }}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span
-              style={{
-                width: 14,
-                height: 14,
-                background: baseConfig.nodeStyles.visited.fill,
-                border: `${baseConfig.nodeStyles.visited.borderWidth}px solid ${baseConfig.nodeStyles.visited.border}`,
-              }}
-            />
-            Visited
-          </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span
-              style={{
-                width: 14,
-                height: 14,
-                background: baseConfig.nodeStyles.unvisited.fill,
-                border: `${baseConfig.nodeStyles.unvisited.borderWidth}px solid ${baseConfig.nodeStyles.unvisited.border}`,
-              }}
-            />
-            Unvisited
-          </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span
-              style={{
-                width: 14,
-                height: 14,
-                background: baseConfig.portStyles.regular.color,
-                borderRadius: 7,
-              }}
-            />
-            Port
-          </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span
-              style={{
-                width: 14,
-                height: 14,
-                background: baseConfig.portStyles.mega.color,
-                borderRadius: 7,
-              }}
-            />
-            Mega Port
-          </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span
-              style={{
-                width: 16,
-                height: 2,
-                background: baseConfig.laneStyles.normal.color,
-              }}
-            />
-            Lane
-          </span>
-
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span style={{ position: "relative", width: 18, height: 10 }}>
-              <span
-                style={{
-                  position: "absolute",
-                  top: 4,
-                  left: 0,
-                  width: 12,
-                  height: 2,
-                  background: baseConfig.laneStyles.oneWay.color,
-                }}
-              />
-              <span
-                style={{
-                  position: "absolute",
-                  top: 1,
-                  left: 10,
-                  width: 0,
-                  height: 0,
-                  borderTop: "4px solid transparent",
-                  borderBottom: "4px solid transparent",
-                  borderLeft: `6px solid ${baseConfig.laneStyles.oneWay.arrowColor}`,
-                }}
-              />
-            </span>
-            One-way
-          </span>
-          {baseConfig.show_hyperlanes && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span
-                style={{
-                  width: 16,
-                  height: 2,
-                  background: `linear-gradient(90deg, transparent, ${baseConfig.laneStyles.hyperlane.color}, transparent)`,
-                }}
-              />
-              Hyperlane
-            </span>
-          )}
-        </div>
-      )}
     </div>
   )
 }
