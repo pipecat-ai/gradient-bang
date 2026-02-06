@@ -172,14 +172,6 @@ export const LevaControls = ({
       { collapsed: true }
     ),
 
-    Messages: folder(
-      {
-        ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),
-        ["Get Known Port List"]: button(() => dispatchAction({ type: "get-known-ports" })),
-      },
-      { collapsed: true, order: 0 }
-    ),
-
     Toasts: folder(
       {
         ["Add Bank Withdrawal Toast"]: button(() =>
