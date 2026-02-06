@@ -18,7 +18,11 @@ function formatShipDisplayName(shipType: string): string {
 export interface WarpEdge {
   to: number;
   two_way?: boolean;
-  hyperlane?: boolean;
+}
+
+export interface LocalMapPort {
+  code: string;
+  mega?: boolean;
 }
 
 export interface SectorSnapshot {
@@ -40,7 +44,7 @@ export interface LocalMapSector {
   hops_from_center: number;
   position: [number, number];
   region?: string | null;
-  port: string;
+  port: LocalMapPort | null;
   lanes: WarpEdge[];
   adjacent_sectors?: number[];
   last_visited?: string;
@@ -123,12 +127,9 @@ export function parseWarpEdges(raw: unknown): WarpEdge[] {
       return {
         to,
         two_way: Boolean((entry as Record<string, unknown>)["two_way"] ?? true),
-        hyperlane: Boolean(
-          (entry as Record<string, unknown>)["hyperlane"] ?? false,
-        ),
       } satisfies WarpEdge;
     })
-    .filter((edge): edge is WarpEdge => Boolean(edge));
+    .filter((edge): edge is WarpEdge => edge !== null);
 }
 
 export function normalizeMapKnowledge(raw: unknown): MapKnowledge {
@@ -214,10 +215,7 @@ function offsetToCube(
   return { x, y, z };
 }
 
-function hexDistance(
-  a: [number, number],
-  b: [number, number],
-): number {
+function hexDistance(a: [number, number], b: [number, number]): number {
   const aCube = offsetToCube(a[0], a[1]);
   const bCube = offsetToCube(b[0], b[1]);
   const dx = Math.abs(aCube.x - bCube.x);
@@ -645,7 +643,10 @@ async function fetchUniverseRows(
   supabase: SupabaseClient,
   sectorIds: number[],
 ): Promise<
-  Map<number, { position: [number, number]; region: string | null; warps: WarpEdge[] }>
+  Map<
+    number,
+    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+  >
 > {
   if (sectorIds.length === 0) {
     return new Map();
@@ -677,7 +678,10 @@ async function fetchUniverseRowsByBounds(
   center: [number, number],
   bounds: number,
 ): Promise<
-  Map<number, { position: [number, number]; region: string | null; warps: WarpEdge[] }>
+  Map<
+    number,
+    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+  >
 > {
   const padding = Math.ceil(bounds) + 2;
   const qPadding = Math.ceil(bounds * 1.2) + 2;
@@ -808,6 +812,27 @@ async function loadPortCodes(
     }
   }
   return result;
+}
+
+function buildLocalMapPort(
+  portValue: Record<string, unknown> | null | undefined,
+  fallbackCode?: string,
+  fallbackMega?: boolean,
+): LocalMapPort | null {
+  const portCode =
+    (portValue && typeof portValue.code === "string" ? portValue.code : null) ??
+    (portValue && typeof portValue.port_code === "string"
+      ? portValue.port_code
+      : null) ??
+    (fallbackCode && fallbackCode.trim().length > 0 ? fallbackCode : null);
+  if (!portCode) {
+    return null;
+  }
+  const mega =
+    portValue && typeof portValue.mega === "boolean"
+      ? portValue.mega
+      : fallbackMega;
+  return mega === undefined ? { code: portCode } : { code: portCode, mega };
 }
 
 export async function findShortestPath(
@@ -993,7 +1018,9 @@ export async function buildLocalMapRegion(
     }
   };
 
-  const ensureUniverseAdjacency = async (sectorIds: number[]): Promise<void> => {
+  const ensureUniverseAdjacency = async (
+    sectorIds: number[],
+  ): Promise<void> => {
     const toFetch: number[] = [];
     for (const sectorId of sectorIds) {
       if (universeAdjacencyCache.has(sectorId)) {
@@ -1065,7 +1092,10 @@ export async function buildLocalMapRegion(
   }
 
   // Calculate bounding box from BFS results to find disconnected visited sectors
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
   const bfsVisitedSectorIds: number[] = [];
   for (const [sectorId] of distanceMap) {
     if (visitedSet.has(sectorId)) {
@@ -1083,11 +1113,19 @@ export async function buildLocalMapRegion(
   // Find visited sectors within the bounding box that weren't found by BFS
   const disconnectedSectors: number[] = [];
   if (minX !== Infinity) {
-    for (const [sectorIdStr, entry] of Object.entries(knowledge.sectors_visited)) {
+    for (const [sectorIdStr, entry] of Object.entries(
+      knowledge.sectors_visited,
+    )) {
       const sectorId = Number(sectorIdStr);
       if (distanceMap.has(sectorId)) continue; // Already found by BFS
       const pos = entry.position;
-      if (pos && pos[0] >= minX && pos[0] <= maxX && pos[1] >= minY && pos[1] <= maxY) {
+      if (
+        pos &&
+        pos[0] >= minX &&
+        pos[0] <= maxX &&
+        pos[1] >= minY &&
+        pos[1] <= maxY
+      ) {
         disconnectedSectors.push(sectorId);
       }
     }
@@ -1100,7 +1138,10 @@ export async function buildLocalMapRegion(
     const seen = new Set<number>([centerSector]);
     let bfsFrontier: number[] = [centerSector];
     let bfsHops = 0;
-    while (bfsFrontier.length > 0 && disconnectedDistances.size < targetSet.size) {
+    while (
+      bfsFrontier.length > 0 &&
+      disconnectedDistances.size < targetSet.size
+    ) {
       await ensureUniverseAdjacency(bfsFrontier);
       const next: number[] = [];
       for (const sectorId of bfsFrontier) {
@@ -1159,6 +1200,7 @@ export async function buildLocalMapRegion(
   const portCodes = await loadPortCodes(supabase, visitedSectorIds);
 
   const resultSectors: LocalMapSector[] = [];
+  const universeMeta = await loadUniverseMeta(supabase);
   const disconnectedSet = new Set(disconnectedSectors);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
     const isDisconnected = disconnectedSet.has(sectorId);
@@ -1173,13 +1215,22 @@ export async function buildLocalMapRegion(
 
     if (visitedSet.has(sectorId)) {
       const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+      const hasPort = Boolean(portCodes[sectorId]);
+      const mega = hasPort
+        ? isMegaPortSector(universeMeta, sectorId)
+        : undefined;
+      const portPayload = buildLocalMapPort(
+        knowledgeEntry?.port as Record<string, unknown> | null,
+        portCodes[sectorId],
+        mega,
+      );
       resultSectors.push({
         id: sectorId,
         visited: true,
         hops_from_center: hops,
         position,
         region: universeRow?.region ?? null,
-        port: portCodes[sectorId] ?? "",
+        port: portPayload,
         lanes: warps,
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
         last_visited: knowledgeEntry?.last_visited,
@@ -1195,7 +1246,6 @@ export async function buildLocalMapRegion(
           derivedLanes.push({
             to: source,
             two_way: match.two_way,
-            hyperlane: match.hyperlane,
           });
         } else {
           derivedLanes.push({ to: source });
@@ -1206,8 +1256,9 @@ export async function buildLocalMapRegion(
         visited: false,
         hops_from_center: hops,
         position,
-        port: "",
+        port: null,
         lanes: derivedLanes,
+        adjacent_sectors: [],
       });
     }
   }
@@ -1257,7 +1308,9 @@ export async function buildLocalMapRegionByBounds(
   if (!centerPosition) {
     const centerRow = await fetchSectorRow(supabase, centerSector);
     if (!centerRow) {
-      throw new Error(`sector ${centerSector} does not exist in universe_structure`);
+      throw new Error(
+        `sector ${centerSector} does not exist in universe_structure`,
+      );
     }
     centerPosition = [centerRow.position_x ?? 0, centerRow.position_y ?? 0];
   }
@@ -1300,14 +1353,15 @@ export async function buildLocalMapRegionByBounds(
     }
   }
 
-  const sectorIds = Array.from(universeRowCache.keys()).filter((sectorId) =>
-    visibleVisited.has(sectorId) || unvisitedSeen.has(sectorId)
+  const sectorIds = Array.from(universeRowCache.keys()).filter(
+    (sectorId) => visibleVisited.has(sectorId) || unvisitedSeen.has(sectorId),
   );
 
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
   const portCodes = await loadPortCodes(supabase, visitedSectorIds);
 
   const resultSectors: LocalMapSector[] = [];
+  const universeMeta = await loadUniverseMeta(supabase);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
     const universeRow = universeRowCache.get(sectorId);
     const position = universeRow?.position ?? [0, 0];
@@ -1315,16 +1369,26 @@ export async function buildLocalMapRegionByBounds(
 
     if (visitedSet.has(sectorId)) {
       const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
-      const adjacent = knowledgeEntry?.adjacent_sectors ??
+      const adjacent =
+        knowledgeEntry?.adjacent_sectors ??
         universeRow?.warps.map((edge) => edge.to) ??
         [];
+      const hasPort = Boolean(portCodes[sectorId]);
+      const mega = hasPort
+        ? isMegaPortSector(universeMeta, sectorId)
+        : undefined;
+      const portPayload = buildLocalMapPort(
+        knowledgeEntry?.port as Record<string, unknown> | null,
+        portCodes[sectorId],
+        mega,
+      );
       resultSectors.push({
         id: sectorId,
         visited: true,
         hops_from_center: hops,
         position,
         region: universeRow?.region ?? null,
-        port: portCodes[sectorId] ?? "",
+        port: portPayload,
         lanes: universeRow?.warps ?? [],
         adjacent_sectors: adjacent,
         last_visited: knowledgeEntry?.last_visited,
@@ -1340,7 +1404,6 @@ export async function buildLocalMapRegionByBounds(
           derivedLanes.push({
             to: source,
             two_way: match.two_way,
-            hyperlane: match.hyperlane,
           });
         } else {
           derivedLanes.push({ to: source });
@@ -1351,8 +1414,9 @@ export async function buildLocalMapRegionByBounds(
         visited: false,
         hops_from_center: hops,
         position,
-        port: "",
+        port: null,
         lanes: derivedLanes,
+        adjacent_sectors: [],
       });
     }
   }

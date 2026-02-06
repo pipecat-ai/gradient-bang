@@ -50,9 +50,10 @@ export const MAX_BOUNDS = 50
 export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
   if (!node) return null
 
-  const qf_state = node.port?.split("")[0] === "B" ? "buy" : "sell"
-  const ro_state = node.port?.split("")[1] === "B" ? "buy" : "sell"
-  const ns_state = node.port?.split("")[2] === "B" ? "buy" : "sell"
+  const portCode = node.port?.code ?? ""
+  const qf_state = portCode[0] === "B" ? "buy" : "sell"
+  const ro_state = portCode[1] === "B" ? "buy" : "sell"
+  const ns_state = portCode[2] === "B" ? "buy" : "sell"
 
   return (
     <div className="absolute top-0 left-0 w-70 h-fit bg-background border border-border p-ui-sm flex flex-col gap-2 shadow-long">
@@ -83,9 +84,9 @@ export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
           </span>
         </div>
       </div>
-      {node.port && (
+      {portCode && (
         <>
-          <DottedTitle title={`Port ${node.port}`} textColor="text-white" />
+          <DottedTitle title={`Port ${portCode.toUpperCase()}`} textColor="text-white" />
           <div className="flex flex-row justify-between gap-2">
             <span className="font-bold text-xs inline-flex items-center gap-1">
               <QuantumFoamIcon size={16} /> QF

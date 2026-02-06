@@ -110,7 +110,7 @@ declare global {
     last_visited?: string
     planets?: Planet[]
     players?: Player[]
-    port?: Port
+    port?: PortBase | null
     region?: string
     unowned_ships?: ShipUnowned[]
     last_visited?: string
@@ -158,6 +158,7 @@ declare global {
 
   interface PortBase {
     code: string
+    mega?: boolean
   }
 
   interface Port extends PortBase {
@@ -183,7 +184,7 @@ declare global {
 
   interface MapSectorNode {
     id: number
-    port?: string
+    port?: PortBase | null
     lanes: MapLane[]
     source?: "player" | "corp" | "both"
     region?: string
