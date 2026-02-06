@@ -40,7 +40,7 @@ const buttonVariants = cva(
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        ui: "h-auto gap-ui-xs px-ui-xs h-6 text-xs",
+        ui: "gap-ui-xs px-ui-xs h-6 text-xs",
         sm: "h-8 gap-1.5 px-3 has-[>svg]:px-2.5 text-xs",
         lg: "h-10 px-6 has-[>svg]:px-4",
         xl: "h-12 px-8 has-[>svg]:px-6 text-base",

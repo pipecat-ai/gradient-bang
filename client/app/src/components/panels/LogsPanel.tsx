@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { CaretRightIcon } from "@phosphor-icons/react"
 
 import { ToggleControl } from "@/components/primitives/ToggleControl"
+import { ScrollNewItemsButton } from "@/components/ScrollNewItemsButton"
 import { useAutoScroll } from "@/hooks/useAutoScroll"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
@@ -92,10 +93,13 @@ export const LogsPanel = () => {
   const messages = useGameStore.use.messages()
   const player = useGameStore.use.player()
   const prevMessagesLengthRef = useRef(messages?.length ?? 0)
-  const { AutoScrollAnchor, handleScroll, resetAutoScroll, scrollToBottom } = useAutoScroll()
+  const { AutoScrollAnchor, handleScroll, resetAutoScroll, scrollToBottom, isAutoScrollEnabledRef } =
+    useAutoScroll()
   const messageFilters = useGameStore.use.messageFilters()
   const setMessageFilters = useGameStore.use.setMessageFilters()
   const [hasRecentActivity, setHasRecentActivity] = useState(false)
+  const [isScrollLocked, setIsScrollLocked] = useState(false)
+  const [lockedAtLength, setLockedAtLength] = useState(0)
   const [muteBroadcastActivity, setMuteBroadcastActivity] = useState(false)
   const activityTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevMessagesRef = useRef(messages)
@@ -141,9 +145,15 @@ export const LogsPanel = () => {
     })
   }, [messages, messageFilters])
 
+  const visibleMessagesLength = filteredMessages?.length ?? 0
+
   // Scroll to bottom when filter changes
   useEffect(() => {
     resetAutoScroll()
+    queueMicrotask(() => {
+      setIsScrollLocked(false)
+      setLockedAtLength(0)
+    })
   }, [messageFilters, resetAutoScroll])
 
   // Scroll and track activity when messages change
@@ -172,6 +182,27 @@ export const LogsPanel = () => {
     }
     prevMessagesRef.current = messages
   }, [filteredMessages?.length, scrollToBottom, messages, muteBroadcastActivity, triggerActivity])
+
+  const wrappedHandleScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      handleScroll(event)
+      const isAtBottom = isAutoScrollEnabledRef.current
+      if (isAtBottom) {
+        if (isScrollLocked) setIsScrollLocked(false)
+      } else if (!isScrollLocked) {
+        setIsScrollLocked(true)
+        setLockedAtLength(visibleMessagesLength)
+      }
+    },
+    [handleScroll, isAutoScrollEnabledRef, isScrollLocked, visibleMessagesLength]
+  )
+
+  const handleNewMessageClick = useCallback(() => {
+    setIsScrollLocked(false)
+    resetAutoScroll()
+  }, [resetAutoScroll])
+
+  const hasNewMessages = isScrollLocked && visibleMessagesLength > lockedAtLength
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -232,11 +263,11 @@ export const LogsPanel = () => {
           />
         </div>
       </div>
-      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+      <div className="relative flex-1 flex flex-col overflow-hidden min-h-0">
         <ScrollArea
           className="relative w-full flex-1 overflow-hidden"
           fullHeight
-          onScroll={handleScroll}
+          onScroll={wrappedHandleScroll}
         >
           <div className="table-cell align-bottom h-full p-ui-sm">
             <div className="flex flex-col gap-ui-md pb-10">
@@ -258,6 +289,7 @@ export const LogsPanel = () => {
             </div>
           </div>
         </ScrollArea>
+        {hasNewMessages && <ScrollNewItemsButton onClick={handleNewMessageClick} />}
       </div>
     </div>
   )
