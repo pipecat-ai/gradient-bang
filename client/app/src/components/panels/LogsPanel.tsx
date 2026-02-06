@@ -91,7 +91,7 @@ const MessageRow = ({ message, local = false }: { message: ChatMessage; local?: 
 export const LogsPanel = () => {
   const messages = useGameStore.use.messages()
   const player = useGameStore.use.player()
-  const prevMessagesLengthRef = useRef(messages.length)
+  const prevMessagesLengthRef = useRef(messages?.length ?? 0)
   const { AutoScrollAnchor, handleScroll, scrollToBottom } = useAutoScroll()
   const messageFilters = useGameStore.use.messageFilters()
   const setMessageFilters = useGameStore.use.setMessageFilters()
@@ -133,7 +133,7 @@ export const LogsPanel = () => {
   }, [activePanel, triggerActivity])
 
   const filteredMessages = useMemo(() => {
-    return messages.filter((message) => {
+    return messages?.filter((message) => {
       if (messageFilters === "all") return true
       if (messageFilters === "direct" && message.type === "direct") return true
       if (messageFilters === "broadcast" && message.type === "broadcast") return true
@@ -143,6 +143,8 @@ export const LogsPanel = () => {
 
   // Scroll and track activity when messages change
   useEffect(() => {
+    if (!filteredMessages?.length) return
+
     if (filteredMessages.length !== prevMessagesLengthRef.current) {
       const isNewMessage = filteredMessages.length > prevMessagesLengthRef.current
       prevMessagesLengthRef.current = filteredMessages.length
@@ -150,8 +152,8 @@ export const LogsPanel = () => {
 
       if (isNewMessage) {
         // Find new messages by comparing with previous
-        const prevIds = new Set(prevMessagesRef.current.map((m) => m.id))
-        const newMessages = messages.filter((m) => !prevIds.has(m.id))
+        const prevIds = new Set(prevMessagesRef.current?.map((m) => m.id) ?? [])
+        const newMessages = messages?.filter((m) => !prevIds.has(m.id)) ?? []
 
         // Check if any new message should trigger activity
         const shouldTriggerActivity = newMessages.some(
@@ -164,7 +166,7 @@ export const LogsPanel = () => {
       }
     }
     prevMessagesRef.current = messages
-  }, [filteredMessages.length, scrollToBottom, messages, muteBroadcastActivity, triggerActivity])
+  }, [filteredMessages?.length, scrollToBottom, messages, muteBroadcastActivity, triggerActivity])
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -233,13 +235,20 @@ export const LogsPanel = () => {
         >
           <div className="table-cell align-bottom h-full p-ui-sm">
             <div className="flex flex-col gap-ui-md pb-10">
-              {filteredMessages.map((message) => (
-                <MessageRow
-                  key={message.id}
-                  message={message}
-                  local={(player.name ?? "Unknown") === message.from_name}
-                />
-              ))}
+              {filteredMessages && player.name ?
+                filteredMessages.map((message) => (
+                  <MessageRow
+                    key={message.id}
+                    message={message}
+                    local={player.name === message.from_name}
+                  />
+                ))
+              : <div className="w-full h-full flex items-center justify-center">
+                  <span className="text-xs text-muted-foreground animate-pulse uppercase">
+                    Awaiting wave history
+                  </span>
+                </div>
+              }
               <AutoScrollAnchor />
             </div>
           </div>

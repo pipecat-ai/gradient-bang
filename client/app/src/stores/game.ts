@@ -63,7 +63,7 @@ export interface GameState {
   local_map_data?: MapData
   regional_map_data?: MapData
   course_plot?: CoursePlot
-  messages: ChatMessage[]
+  messages: ChatMessage[] | null
   messageFilters: "all" | "direct" | "broadcast" | "corporation"
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
 
@@ -143,7 +143,7 @@ const createGameSlice: StateCreator<
   local_map_data: undefined, // @TODO: move to map slice
   regional_map_data: undefined, // @TODO: move to map slice
   course_plot: undefined, // @TODO: move to map slice
-  messages: [], // @TODO: move to chat slice
+  messages: null, // @TODO: move to chat slice
   messageFilters: "all",
   leaderboard_data: undefined,
   leaderboard_last_updated: null,
@@ -293,6 +293,9 @@ const createGameSlice: StateCreator<
   addMessage: (message: ChatMessage) =>
     set(
       produce((state) => {
+        if (!state.messages) {
+          state.messages = []
+        }
         state.messages.push({
           ...message,
         })
@@ -302,11 +305,11 @@ const createGameSlice: StateCreator<
   setChatHistory: (messages: ChatMessage[]) =>
     set(
       produce((state) => {
-        // Deduplicate: build set of existing message IDs, then prepend only new ones
-        const existingIds = new Set(state.messages.map((m: ChatMessage) => m.id))
+        const existing = state.messages ?? []
+        const existingIds = new Set(existing.map((m: ChatMessage) => m.id))
         const newMessages = messages.filter((m) => !existingIds.has(m.id))
         // History arrives newest-first; reverse so oldest are at the front
-        state.messages = [...newMessages.reverse(), ...state.messages]
+        state.messages = [...newMessages.reverse(), ...existing]
       })
     ),
 
@@ -467,9 +470,9 @@ const createGameSlice: StateCreator<
     set({ diamondFXInstance }),
 
   getIncomingMessageLength: () =>
-    get().messages.filter(
+    get().messages?.filter(
       (message) => message.type === "direct" && message.from_name !== get().player.name
-    ).length,
+    )?.length ?? 0,
 
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") =>
     set({ messageFilters: filters }),
@@ -487,9 +490,9 @@ const createGameSlice: StateCreator<
 
 // Selectors
 export const selectIncomingMessageCount = (state: GameSlice) =>
-  state.messages.filter(
+  state.messages?.filter(
     (message) => message.type === "direct" && message.from_name !== state.player?.name
-  ).length
+  )?.length ?? 0
 
 const useGameStoreBase = create<
   GameSlice & ChatSlice & CombatSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
