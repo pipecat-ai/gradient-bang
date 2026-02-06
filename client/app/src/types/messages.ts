@@ -266,6 +266,13 @@ export interface TaskHistoryMessage extends ServerMessagePayload {
   total_count: number
 }
 
+// --- Chat History Messages
+
+export interface ChatHistoryMessage extends ServerMessagePayload {
+  messages: ChatMessage[]
+  total_count: number
+}
+
 export interface ShipsListMessage extends ServerMessagePayload {
   ships: ShipSelf[]
 }

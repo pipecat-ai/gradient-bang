@@ -9,6 +9,14 @@ export const useChatControls = () => {
   return useControls(() => ({
     Chat: folder(
       {
+        ["Get Chat History"]: button(() => {
+          const state = useGameStore.getState()
+          state.dispatchAction({ type: "get-chat-history" })
+        }),
+        ["Clear Chat History"]: button(() => {
+          const state = useGameStore.getState()
+          state.setChatHistory([])
+        }),
         ["Mock Incoming DM"]: button(() => {
           const state = useGameStore.getState()
           state.setNotifications({ newChatMessage: true })

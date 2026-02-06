@@ -1039,6 +1039,8 @@ class AsyncGameClient:
         filter_task_id: Optional[str] = None,
         filter_event_type: Optional[str] = None,
         filter_string_match: Optional[str] = None,
+        # When True, also return broadcast events (stored in event_broadcast_recipients)
+        include_broadcasts: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Query event logs within a time range.
 
@@ -1048,6 +1050,9 @@ class AsyncGameClient:
         Filter parameters (filter_*) are used to filter query results.
         Metadata parameters (character_id, task_id via auto-injection) identify
         the caller and are used for permissions and tagging the query event.
+
+        Set include_broadcasts=True to also return broadcast events alongside
+        direct/recipient-based events.
         """
 
         payload: Dict[str, Any] = {
@@ -1078,6 +1083,8 @@ class AsyncGameClient:
             payload["filter_event_type"] = filter_event_type
         if filter_string_match:
             payload["filter_string_match"] = filter_string_match
+        if include_broadcasts is not None:
+            payload["include_broadcasts"] = include_broadcasts
 
         actor_value = (
             actor_character_id

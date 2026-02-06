@@ -287,6 +287,8 @@ async function executeEventQuery(
     }
   }
 
+  const includeBroadcasts = payload["include_broadcasts"] === true;
+
   const { events, hasMore, nextCursor } = await fetchEvents({
     supabase,
     start,
@@ -303,6 +305,7 @@ async function executeEventQuery(
     corporationId,
     expandedTaskScope: useExpandedTaskScope,
     actorCharacterId: actorCandidate,
+    includeBroadcasts,
   });
 
   return {
@@ -342,6 +345,7 @@ async function fetchEvents(options: {
   corporationId?: string | null;
   expandedTaskScope?: boolean;
   actorCharacterId?: string | null;
+  includeBroadcasts?: boolean;
 }): Promise<{
   events: JsonRecord[];
   hasMore: boolean;
@@ -363,6 +367,7 @@ async function fetchEvents(options: {
     corporationId,
     expandedTaskScope = false,
     actorCharacterId = null,
+    includeBroadcasts = false,
   } = options;
 
   const ascending = sortDirection === "forward";
@@ -476,6 +481,88 @@ async function fetchEvents(options: {
   }
 
   let rows: EventRow[] = Array.isArray(data) ? (data as EventRow[]) : [];
+
+  // When include_broadcasts is enabled, fetch broadcast events separately and merge.
+  // This is needed because the main query uses an INNER JOIN on event_character_recipients
+  // which excludes broadcast events (stored in event_broadcast_recipients instead).
+  // Follows the same pattern as events_since/index.ts.
+  if (includeBroadcasts && !useDirectQuery) {
+    let broadcastQuery = supabase
+      .from("events")
+      .select(
+        `
+        id,
+        timestamp,
+        direction,
+        event_type,
+        character_id,
+        sender_id,
+        sector_id,
+        ship_id,
+        request_id,
+        payload,
+        meta,
+        corp_id,
+        task_id,
+        actor_character_id,
+        event_broadcast_recipients!inner(event_id)
+      `,
+      )
+      .gte("timestamp", start.toISOString())
+      .lte("timestamp", end.toISOString())
+      .order("id", { ascending })
+      .limit(dbLimit);
+
+    // Apply the same filters to the broadcast query
+    if (sector !== null) {
+      broadcastQuery = broadcastQuery.eq("sector_id", sector);
+    }
+    if (filterTaskId !== null) {
+      if (filterTaskId.length <= 12) {
+        broadcastQuery = broadcastQuery.ilike(
+          "task_id_prefix",
+          `${filterTaskId}%`,
+        );
+      } else {
+        broadcastQuery = broadcastQuery.eq("task_id", filterTaskId);
+      }
+    }
+    if (filterEventType !== null) {
+      broadcastQuery = broadcastQuery.eq("event_type", filterEventType);
+    }
+    if (cursor !== null) {
+      if (ascending) {
+        broadcastQuery = broadcastQuery.gt("id", cursor);
+      } else {
+        broadcastQuery = broadcastQuery.lt("id", cursor);
+      }
+    }
+
+    const { data: broadcastData, error: broadcastError } =
+      await broadcastQuery;
+    if (broadcastError) {
+      console.error("event_query.broadcast_query", broadcastError);
+      // Non-fatal: proceed with direct-message results only
+    } else {
+      // Merge broadcast events into rows, deduplicating by event ID
+      const existingIds = new Set(rows.map((r) => r.id));
+      for (const event of (broadcastData ?? []) as EventRow[]) {
+        if (!existingIds.has(event.id)) {
+          // Normalize: replace broadcast_recipients join data with empty character_recipients
+          rows.push({
+            ...event,
+            event_character_recipients: [],
+          } as EventRow);
+        }
+      }
+      // Re-sort after merge
+      rows.sort((a, b) =>
+        ascending ? a.id - b.id : b.id - a.id,
+      );
+      // Re-apply limit
+      rows = rows.slice(0, dbLimit);
+    }
+  }
 
   // For corporation queries, filter to include events where:
   // - Recipient is a corporation member OR

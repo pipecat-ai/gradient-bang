@@ -49,6 +49,7 @@ if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 
+from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_chat_history
 from gradientbang.pipecat_server.context_compression import (
     ContextCompressionConsumer,
     ContextCompressionProducer,
@@ -466,6 +467,30 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 )
             return
 
+        # Client requested chat history
+        if msg_type == "get-chat-history":
+            try:
+                since_hours_raw = (
+                    msg_data.get("since_hours") if isinstance(msg_data, dict) else None
+                )
+                since_hours = int(since_hours_raw) if since_hours_raw is not None else 24
+                max_rows_raw = msg_data.get("max_rows") if isinstance(msg_data, dict) else None
+                max_rows = int(max_rows_raw) if max_rows_raw is not None else 50
+
+                messages = await fetch_chat_history(
+                    task_manager.game_client,
+                    task_manager.character_id,
+                    since_hours=since_hours,
+                    max_rows=max_rows,
+                )
+                await emit_chat_history(rtvi, messages)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to fetch chat history")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+                )
+            return
+
         # Client requested task cancellation
         if msg_type == "cancel-task":
             try:
@@ -518,7 +543,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 max_hops = (
                     int(max_hops_raw)
                     if max_hops_raw is not None
-                    else None if bounds is not None else 3
+                    else None
+                    if bounds is not None
+                    else 3
                 )
                 if max_hops is not None and (max_hops < 0 or max_hops > 100):
                     raise ValueError("max_hops must be between 0 and 100")
@@ -526,7 +553,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 max_sectors = (
                     int(max_sectors_raw)
                     if max_sectors_raw is not None
-                    else None if bounds is not None else 1000
+                    else None
+                    if bounds is not None
+                    else 1000
                 )
                 if max_sectors is not None and max_sectors <= 0:
                     raise ValueError("max_sectors must be positive")

@@ -17,6 +17,7 @@ import os
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.prompt_loader import TaskOutputType, build_task_progress_prompt
 from gradientbang.utils.task_agent import TaskAgent
+from gradientbang.pipecat_server.chat_history import fetch_chat_history, emit_chat_history
 from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.utils.supabase_client import RPCError
 from gradientbang.utils.weave_tracing import (
@@ -333,10 +334,23 @@ class VoiceTaskManager:
         await self.game_client.subscribe_my_messages()
         # Send ships list so client has it on connection
         await self.game_client.list_user_ships(character_id=self.character_id)
+        # Send recent chat history so client has messages on connection
+        await self._send_initial_chat_history()
         if isinstance(result, Mapping):
             self._update_display_name(result)
         logger.info(f"Join successful as {self.display_name}: {result}")
         return result
+
+    async def _send_initial_chat_history(self):
+        """Fetch recent chat messages and emit them as a chat.history event."""
+        try:
+            messages = await fetch_chat_history(
+                self.game_client, self.character_id,
+            )
+            await emit_chat_history(self.rtvi_processor, messages)
+            logger.info(f"Sent initial chat history: {len(messages)} messages")
+        except Exception:
+            logger.exception("Failed to send initial chat history")
 
     def _get_voice_summary(self, event_name: str, event: Dict[str, Any]) -> Optional[str]:
         """Get a condensed summary suitable for voice LLM context.

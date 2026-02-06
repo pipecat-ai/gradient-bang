@@ -18,6 +18,7 @@ function formatShipDisplayName(shipType: string): string {
 export interface WarpEdge {
   to: number;
   two_way?: boolean;
+  hyperlane?: boolean;
 }
 
 export interface LocalMapPort {
@@ -32,7 +33,7 @@ export interface SectorSnapshot {
   position: [number, number];
   port: Record<string, unknown> | null;
   players: Array<Record<string, unknown>>;
-  garrison: Array<Record<string, unknown>> | null;
+  garrison: Record<string, unknown> | null;
   salvage: Array<Record<string, unknown>>;
   unowned_ships: Array<Record<string, unknown>>;
   scene_config: unknown;
@@ -85,7 +86,7 @@ export interface PathRegionSector {
   adjacent_to_path_nodes?: number[];
   port?: Record<string, unknown> | null;
   players?: Array<Record<string, unknown>>;
-  garrison?: Array<Record<string, unknown>>;
+  garrison?: Record<string, unknown> | null;
   salvage?: Array<Record<string, unknown>>;
   unowned_ships?: Array<Record<string, unknown>>;
   position?: [number, number];
@@ -127,6 +128,9 @@ export function parseWarpEdges(raw: unknown): WarpEdge[] {
       return {
         to,
         two_way: Boolean((entry as Record<string, unknown>)["two_way"] ?? true),
+        hyperlane: Boolean(
+          (entry as Record<string, unknown>)["hyperlane"] ?? false,
+        ),
       } satisfies WarpEdge;
     })
     .filter((edge): edge is WarpEdge => edge !== null);
@@ -1253,6 +1257,7 @@ export async function buildLocalMapRegion(
           derivedLanes.push({
             to: source,
             two_way: match.two_way,
+            hyperlane: match.hyperlane,
           });
         } else {
           derivedLanes.push({ to: source });
@@ -1442,6 +1447,7 @@ export async function buildLocalMapRegionByBounds(
           derivedLanes.push({
             to: source,
             two_way: match.two_way,
+            hyperlane: match.hyperlane,
           });
         } else {
           derivedLanes.push({ to: source });

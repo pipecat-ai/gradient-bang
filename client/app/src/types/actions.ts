@@ -48,6 +48,15 @@ export interface RenameShipAction {
   type: "rename-ship"
   payload: { ship_id: string; ship_name: string }
 }
+
+export interface GetChatHistoryAction {
+  type: "get-chat-history"
+  payload?: {
+    since_hours?: number
+    max_rows?: number
+  }
+}
+
 type ActionMeta = { async?: boolean }
 
 export type GameAction = (
@@ -59,6 +68,7 @@ export type GameAction = (
   | GetMyShipsAction
   | CancelTaskAction
   | RenameShipAction
+  | GetChatHistoryAction
 ) &
   ActionMeta
 
