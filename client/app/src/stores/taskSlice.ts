@@ -29,23 +29,24 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
   localTaskId: null,
 
   addTaskOutput: (taskOutput: TaskOutput) =>
-    set(
-      produce((state) => {
-        if (!state.taskOutputs[taskOutput.task_id]) {
-          state.taskOutputs[taskOutput.task_id] = []
-        }
-        state.taskOutputs[taskOutput.task_id].push(taskOutput)
-      })
-    ),
+    set((state) => {
+      const existing = state.taskOutputs[taskOutput.task_id] ?? []
+      const updated = [...existing, taskOutput]
+      return {
+        taskOutputs: {
+          ...state.taskOutputs,
+          [taskOutput.task_id]: updated.length > 200 ? updated.slice(-200) : updated,
+        },
+      }
+    }),
 
   getTaskOutputsByTaskId: (taskId: string) => get().taskOutputs[taskId] ?? [],
   getTaskOutputs: () => get().taskOutputs,
   removeTaskOutputsByTaskId: (taskId: string) =>
-    set(
-      produce((state) => {
-        delete state.taskOutputs[taskId]
-      })
-    ),
+    set((state) => {
+      const { [taskId]: _, ...rest } = state.taskOutputs
+      return { taskOutputs: rest }
+    }),
 
   addActiveTask: (task: ActiveTask) =>
     set(

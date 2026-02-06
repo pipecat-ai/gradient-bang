@@ -144,6 +144,7 @@ export const PORT_MOCK: Port = {
 
 export const MEGA_PORT_MOCK: Port = {
   code: "SSS",
+  mega: true,
   observed_at: "2026-01-28T12:00:00.000Z",
   stock: {
     quantum_foam: 100000,

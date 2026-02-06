@@ -16,6 +16,8 @@ interface UseAutoScrollReturn {
   resetAutoScroll: () => void
   /** Scroll to bottom if auto-scroll is enabled (call when content changes) */
   scrollToBottom: () => void
+  /** Ref indicating whether auto-scroll is currently enabled (user is at bottom) */
+  isAutoScrollEnabledRef: React.RefObject<boolean>
 }
 
 /**
@@ -94,5 +96,6 @@ export function useAutoScroll(options: UseAutoScrollOptions = {}): UseAutoScroll
     handleScroll,
     resetAutoScroll,
     scrollToBottom,
+    isAutoScrollEnabledRef,
   }
 }

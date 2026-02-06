@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 
 import { ScrollArea } from "@/components/primitives/ScrollArea"
+import { ScrollNewItemsButton } from "@/components/ScrollNewItemsButton"
 import { useAutoScroll } from "@/hooks/useAutoScroll"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
@@ -81,8 +82,18 @@ export const TaskOutputStreamComponent = ({
   tasks: TaskOutput[]
   onResetAutoScroll?: (reset: () => void) => void
 }) => {
-  const { AutoScrollAnchor, handleScroll, resetAutoScroll, scrollToBottom } = useAutoScroll()
+  const {
+    AutoScrollAnchor,
+    handleScroll,
+    resetAutoScroll,
+    scrollToBottom,
+    isAutoScrollEnabledRef,
+  } = useAutoScroll()
   const prevTasksLengthRef = useRef(tasks.length)
+
+  // Track scroll lock transitions via event handlers only (no effects needed)
+  const [isScrollLocked, setIsScrollLocked] = useState(false)
+  const [lockedAtLength, setLockedAtLength] = useState(0)
 
   useEffect(() => {
     onResetAutoScroll?.(resetAutoScroll)
@@ -94,6 +105,29 @@ export const TaskOutputStreamComponent = ({
       scrollToBottom()
     }
   }, [tasks.length, scrollToBottom])
+
+  const wrappedHandleScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      handleScroll(event)
+      // Read ref in event handler (safe — not during render)
+      const isAtBottom = isAutoScrollEnabledRef.current
+      if (isAtBottom) {
+        if (isScrollLocked) setIsScrollLocked(false)
+      } else if (!isScrollLocked) {
+        setIsScrollLocked(true)
+        setLockedAtLength(tasks.length)
+      }
+    },
+    [handleScroll, isAutoScrollEnabledRef, isScrollLocked, tasks.length]
+  )
+
+  const handleNewMessageClick = useCallback(() => {
+    setIsScrollLocked(false)
+    resetAutoScroll()
+  }, [resetAutoScroll])
+
+  // Derived: show badge when scroll-locked and new messages arrived since locking
+  const hasNewMessages = isScrollLocked && tasks.length > lockedAtLength
 
   const visibleTasks = tasks.slice(-MAX_TASK_SUMMARY_LENGTH)
 
@@ -107,7 +141,7 @@ export const TaskOutputStreamComponent = ({
           className="w-full h-full overflow-hidden pointer-events-auto"
           fullHeight={true}
           classNames={{ scrollbar: "*:first:bg-white/30" }}
-          onScroll={handleScroll}
+          onScroll={wrappedHandleScroll}
         >
           <div className="table-cell align-bottom h-full">
             <div className="h-full flex flex-col justify-end hover:opacity-100 select-none pt-10">
@@ -118,6 +152,9 @@ export const TaskOutputStreamComponent = ({
             <AutoScrollAnchor />
           </div>
         </ScrollArea>
+        {hasNewMessages && (
+          <ScrollNewItemsButton onClick={handleNewMessageClick} className="bottom-1" />
+        )}
       </CardContent>
     </Card>
   )
@@ -126,8 +163,6 @@ export const TaskOutputStreamComponent = ({
 const EMPTY_OUTPUTS: TaskOutput[] = []
 
 export const TaskOutputStream = ({ taskId }: { taskId?: string | null }) => {
-  // Track the last taskId and cached outputs - reset cache when taskId changes
-  const [cachedTaskId, setCachedTaskId] = useState<string | null>(null)
   const [cachedOutputs, setCachedOutputs] = useState<TaskOutput[]>([])
   const resetAutoScrollRef = useRef<(() => void) | null>(null)
 
@@ -135,11 +170,29 @@ export const TaskOutputStream = ({ taskId }: { taskId?: string | null }) => {
     taskId ? (state.taskOutputs[taskId] ?? EMPTY_OUTPUTS) : EMPTY_OUTPUTS
   )
 
-  // When taskId changes to a new value, reset the cache for the new task (during render)
-  if (taskId && taskId !== cachedTaskId) {
-    setCachedTaskId(taskId)
-    setCachedOutputs([])
-  }
+  // Keep cache in sync with live outputs via store subscription.
+  // First callback (fireImmediately) clears/sets cache for the current taskId.
+  useEffect(() => {
+    if (!taskId) return
+
+    let isFirst = true
+    const unsubscribe = useGameStore.subscribe(
+      (state) => state.taskOutputs[taskId],
+      (outputs) => {
+        if (isFirst) {
+          isFirst = false
+          setCachedOutputs(outputs ?? [])
+          return
+        }
+        if (outputs && outputs.length > 0) {
+          setCachedOutputs(outputs)
+        }
+      },
+      { fireImmediately: true }
+    )
+
+    return unsubscribe
+  }, [taskId])
 
   // Reset auto-scroll when taskId changes
   useEffect(() => {
@@ -147,11 +200,6 @@ export const TaskOutputStream = ({ taskId }: { taskId?: string | null }) => {
       resetAutoScrollRef.current?.()
     }
   }, [taskId])
-
-  // Update cache whenever we have real outputs - this preserves them after task finishes
-  if (tasks.length > 0 && tasks !== cachedOutputs) {
-    setCachedOutputs(tasks)
-  }
 
   // Stable callback to capture reset function
   const handleResetAutoScroll = useCallback((reset: () => void) => {

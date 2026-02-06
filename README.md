@@ -30,7 +30,6 @@ If you want to work on Gradient Bang, the first step is getting the entire app r
 - (Optional) **[Pipecat Cloud Account](https://docs.pipecat.ai/deployment/pipecat-cloud/introduction)**: Production agent hosting
 - (Optional) - **[Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started)**: If you cannot use `npx`, install the CLI globally instead
 
-
 ### Step 1: Set up Supabase
 
 First, run `supabase start`. Supabase is several services in a trenchcoat. This command downloads and runs all of the various Docker images. When you run this, you'll see a bunch of services listening on different ports that we'll use later.
@@ -54,7 +53,6 @@ npx supabase status -o env --workdir deployment | awk -F= -v tok="$tok" '
 '  > .env.supabase
 ```
 
-
 Next, run this helper after `supabase start` (and after any manual database reset). It sets up some important PL/pgSQL functions to keep combat rounds auto-resolving:
 
 ```bash
@@ -76,7 +74,6 @@ uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 
 From here forward, you'll need the Supabase edge functions process running:
 
-
 ```bash
 npx supabase functions serve --workdir deployment --no-verify-jwt --env-file .env.supabase
 ```
@@ -97,7 +94,6 @@ curl -X POST http://127.0.0.1:54321/functions/v1/register \
     "password": "secret123"
   }'
 ```
-
 
 ### Step 3: Run the Pipecat bot and game client
 
@@ -125,7 +121,6 @@ uv run bot -t daily --host 0.0.0.0
 ```
 
 ### Run web client
-
 
 If you're running everything else, the client should run out of the box without an env.
 
@@ -302,6 +297,7 @@ npx supabase projects api-keys --project-ref "$PROJECT_REF" --workdir deployment
 
 Load environment variables, so the next steps will work:
 camera briefcase
+
 ```bash
 set -a && source .env.cloud && set +a
 ```
@@ -409,7 +405,7 @@ Note: create image pull credentials if publishing to a private repository
 docker build -f deployment/Dockerfile.bot -t gb-bot:latest .
 docker push gb-bot:latest
 
-cd deployment/https://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
+cd deployment/
 pipecat cloud deploy
 # ... or if public
 # pipecat cloud deploy --no-credentials
@@ -467,11 +463,11 @@ cd client/
 pnpm run dev
 ```
 
-
 ---
-https://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
-### Chad's junk drawer
 
+https://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
+
+### Chad's junk drawer
 
 ### Combat cron for local dev
 
@@ -483,13 +479,11 @@ scripts/supabase-reset-with-cron.sh
 
 See `docs/combat_tick_cron_setup.md` for local/production seeding details and verification queries.
 
-
 ### Optional: run Supabase tests
 
 ```bash
 set -a && source .env.supabase && set +a && USE_SUPABASE_TESTS=1 uv run pytest tests/integration -v
 ```
-
 
 This creates `world-data/universe.json` containing:
 
@@ -509,18 +503,14 @@ This creates `artifacts/universe-map.svg` showing sectors, warps, fedspace (high
 ### Copy world data to local Supabase database
 
 ```bash
+
 ```
-
-
-
-
-
 
 ### Verify Email:
 
 Open Inbucket (local email viewer) and click confirmation link. Note: In local dev, the redirect URL will not be found.
 
-```bash
+````bash
 open http://127.0.0.1:54324
 ```https://drive.google.com/file/d/1JsDVnlYOlrQ1qugBMl3qF7-m3gdeJYvQ/view?usp=drive_link
 
@@ -533,7 +523,7 @@ curl -X POST http://127.0.0.1:54321/functions/v1/login \
     "email": "test@example.com",
     "password": "secret123"
   }'
-```
+````
 
 **Grab the `access_token` for the next steps!**
 
