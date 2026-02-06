@@ -51,3 +51,10 @@ class TaskActivityFrame(DataFrame):
 
     task_id: str
     activity_type: str  # "output", "event", "progress"
+
+
+@dataclass
+class UserTextInputFrame(DataFrame):
+    """Frame indicating the client sent a text input message."""
+
+    text: str = ""
