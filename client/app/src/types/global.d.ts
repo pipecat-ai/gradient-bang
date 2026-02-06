@@ -229,38 +229,100 @@ declare global {
 
   // --- COMBAT
 
+  type CombatActionType = "brace" | "attack" | "flee" | "pay"
+
+  interface CombatParticipantShip {
+    ship_type: string
+    ship_name: string
+    shield_integrity: number
+    shield_damage?: number | null
+    fighter_loss?: number | null
+  }
+
+  interface CombatParticipant {
+    id?: string
+    name: string
+    created_at: string
+    player_type: "npc" | "human" | "corporation_ship"
+    ship: CombatParticipantShip
+  }
+
+  interface CombatGarrison {
+    owner_name: string
+    fighters: number
+    fighter_loss: number | null
+    mode: "offensive" | "defensive" | "toll"
+    toll_amount: number
+    deployed_at: string | null
+    is_friendly?: boolean
+  }
+
   interface CombatSession {
     combat_id: string
-    initiator: string
-    participants: Player[]
+    initiator?: string
+    participants: CombatParticipant[]
+    garrison?: CombatGarrison | null
     round: number
-    deadline: string
+    deadline: string | null
     current_time: string
   }
 
   interface CombatAction {
+    action: CombatActionType
+    commit: number
+    timed_out: boolean
+    submitted_at: string
+    target?: string | null
+    target_id?: string | null
+    destination_sector?: number | null
+  }
+
+  interface CombatActionReceipt {
     combat_id: string
-    action: "brace" | "attack" | "flee"
-    commit?: number
-    round?: number
-    target_id?: string
-    to_sector?: number
+    round: number
+    action: CombatActionType
+    commit: number
+    target_id: string | null
+    round_resolved?: boolean
+  }
+
+  interface CombatRoundLog {
+    round_number: number
+    actions: Record<string, CombatAction>
+    hits: Record<string, number>
+    offensive_losses: Record<string, number>
+    defensive_losses: Record<string, number>
+    shield_loss: Record<string, number>
+    result: string | null
+    timestamp: string
   }
 
   interface CombatRound {
     combat_id: string
-    sector: Sector
+    sector: { id: number }
     round: number
 
     hits: Record<string, number> // player_id -> number of hits
     offensive_losses: Record<string, number> // player_id -> number of offensive losses
     defensive_losses: Record<string, number> // player_id -> number of defensive losses
     shield_loss: Record<string, number> // player_id -> number of shield losses
+    fighters_remaining: Record<string, number>
+    shields_remaining: Record<string, number>
     flee_results: Record<string, boolean> // player_id -> true if they fled successfully, false if they failed to flee
-    actions: Record<string, CombatAction> // player_id -> CombatAction
+    actions?: Record<string, CombatAction> // participant display name -> CombatAction
+    participants: CombatParticipant[]
+    garrison: CombatGarrison | null
 
-    end: string
-    result: string
+    deadline: string | null
+    end: string | null
+    result: string | null
+    round_result?: string | null
+  }
+
+  interface CombatEndedRound extends CombatRound {
+    salvage: Salvage[]
+    logs: CombatRoundLog[]
+    ship?: ShipSelf
   }
 
   // --- MISC

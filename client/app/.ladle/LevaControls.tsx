@@ -6,6 +6,7 @@ import { PipecatClient } from "@pipecat-ai/client-js"
 
 import useGameStore from "@/stores/game"
 
+import { useCombatControls } from "./combat/useCombatControls"
 import { useChatControls } from "./useChatControls"
 import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
@@ -191,6 +192,9 @@ export const LevaControls = ({
 
     Player: folder(
       {
+        ["List known ports"]: button(() => {
+          dispatchAction({ type: "get-known-ports" })
+        }),
         ["Ship Mock"]: button(() => {
           const setShip = useGameStore.getState().setShip
           setShip({ ...SHIP_MOCK, owner_type: "corporation" })
@@ -252,6 +256,7 @@ export const LevaControls = ({
   useTaskControls()
   useMapControls()
   useChatControls()
+  useCombatControls()
 
   return <Leva hidden={hidden} />
 }

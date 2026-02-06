@@ -186,9 +186,18 @@ export interface SectorUpdateMessage extends ServerMessagePayload, Sector {}
 
 export interface SalvageCreatedMessage extends ServerMessagePayload {
   action?: string
-  sector: Sector
-  salvage_details: Salvage
+  sector: { id: number }
+  salvage_details?: Salvage
   dumped_cargo?: Record<Resource, number>
+  timestamp?: string
+
+  // combat_finalization salvage.created shape
+  salvage_id?: string
+  cargo?: Record<Resource, number>
+  scrap?: number
+  credits?: number
+  from_ship_type?: string
+  from_ship_name?: string
 }
 
 export interface SalvageCollectedMessage extends ServerMessagePayload {
@@ -217,35 +226,151 @@ export interface WarpTransferMessage extends TransferMessageBase {
   }
 }
 
-export interface CombatActionResponseMessage extends ServerMessagePayload {
+export type CombatActionType = "attack" | "brace" | "flee" | "pay"
+
+export interface CombatParticipantShipSnapshot {
+  ship_type: string
+  ship_name: string
+  shield_integrity: number
+  shield_damage: number | null
+  fighter_loss: number | null
+}
+
+export interface CombatParticipantSnapshot {
+  // Some clients still key participants by id; round_waiting may not include this.
+  id?: string
+  name: string
+  created_at: string
+  player_type: "human" | "npc" | "corporation_ship"
+  ship: CombatParticipantShipSnapshot
+}
+
+export interface CombatGarrisonSnapshot {
+  owner_name: string
+  fighters: number
+  fighter_loss: number | null
+  mode: "offensive" | "defensive" | "toll"
+  toll_amount: number
+  deployed_at: string | null
+  is_friendly?: boolean
+}
+
+export interface CombatRoundActionSnapshot {
+  action: CombatActionType
+  commit: number
+  timed_out: boolean
+  submitted_at: string
+  target?: string | null
+  target_id?: string | null
+  destination_sector?: number | null
+}
+
+export interface CombatRoundLogMessage {
+  round_number: number
+  actions: Record<string, CombatRoundActionSnapshot>
+  hits: Record<string, number>
+  offensive_losses: Record<string, number>
+  defensive_losses: Record<string, number>
+  shield_loss: Record<string, number>
+  result: string | null
+  timestamp: string
+}
+
+export interface CombatActionAcceptedMessage extends ServerMessagePayload {
   combat_id: string
   round: number
-  action: "attack" | "brace" | "flee"
-  round_resolved: boolean
-  target_id: string
+  action: CombatActionType
+  commit: number
+  target_id: string | null
+}
+
+/**
+ * @deprecated Legacy alias. Current edge functions emit `combat.action_accepted`.
+ */
+export interface CombatActionResponseMessage extends CombatActionAcceptedMessage {
+  round_resolved?: boolean
 }
 
 export interface CombatRoundWaitingMessage extends ServerMessagePayload {
   combat_id: string
-  sector: Sector
-  participants: Player[]
+  sector: { id: number }
+  participants: CombatParticipantSnapshot[]
+  garrison?: CombatGarrisonSnapshot | null
   round: number
-  deadline: string
+  deadline: string | null
   current_time: string
   initiator?: string
 }
 
-export interface CombatRoundResolvedMessage extends ServerMessagePayload, CombatRound {}
+export interface CombatRoundResolvedMessage extends ServerMessagePayload {
+  combat_id: string
+  sector: { id: number }
+  round: number
+  hits: Record<string, number>
+  offensive_losses: Record<string, number>
+  defensive_losses: Record<string, number>
+  shield_loss: Record<string, number>
+  fighters_remaining: Record<string, number>
+  shields_remaining: Record<string, number>
+  flee_results: Record<string, boolean>
+  actions?: Record<string, CombatRoundActionSnapshot>
+  participants: CombatParticipantSnapshot[]
+  garrison: CombatGarrisonSnapshot | null
+  deadline: string | null
+  end: string | null
+  result: string | null
+  round_result?: string | null
+}
 
-export interface ShipDestroyedMessage extends ServerMessagePayload {
+export interface CombatEndedShipSnapshot {
   ship_id: string
   ship_type: string
-  ship_name: string | null
-  player_type: "human" | "corporation_ship"
-  player_name: string
-  sector: Sector
-  combat_id: string
-  salvage_created: boolean
+  ship_name: string
+  credits: number
+  cargo: Record<Resource, number>
+  cargo_capacity: number
+  empty_holds: number
+  warp_power: number
+  shields: number
+  fighters: number
+  max_shields: number
+  max_fighters: number
+}
+
+export interface CombatEndedMessage extends CombatRoundResolvedMessage {
+  salvage: Salvage[]
+  logs: CombatRoundLogMessage[]
+  ship?: CombatEndedShipSnapshot
+}
+
+export interface GarrisonDeployedMessage extends ServerMessagePayload {
+  sector: { id: number }
+  garrison: CombatGarrisonSnapshot
+  fighters_remaining: number
+}
+
+export interface GarrisonCollectedMessage extends ServerMessagePayload {
+  sector: { id: number }
+  credits_collected: number
+  garrison: CombatGarrisonSnapshot | null
+  fighters_on_ship: number
+}
+
+export interface GarrisonModeChangedMessage extends ServerMessagePayload {
+  sector: { id: number }
+  garrison: CombatGarrisonSnapshot
+}
+
+export interface GarrisonCharacterMovedMessage extends CharacterMovedMessage {
+  garrison: {
+    owner_id: string
+    owner_name: string
+    corporation_id: string | null
+    fighters: number
+    mode: "offensive" | "defensive" | "toll"
+    toll_amount: number
+    deployed_at: string | null
+  }
 }
 
 export interface ShipDestroyedMessage extends ServerMessagePayload {
@@ -254,9 +379,10 @@ export interface ShipDestroyedMessage extends ServerMessagePayload {
   ship_name: string | null
   player_type: "human" | "corporation_ship"
   player_name: string
-  sector: Sector
+  sector: { id: number }
   combat_id: string
   salvage_created: boolean
+  timestamp?: string
 }
 
 // --- Task History Messages
