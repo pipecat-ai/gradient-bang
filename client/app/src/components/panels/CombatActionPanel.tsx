@@ -125,6 +125,12 @@ export const CombatActionPanel = () => {
           participantNameById.set(entry.id, entry.name)
         }
       }
+      if (round.garrison?.id) {
+        participantNameById.set(
+          round.garrison.id,
+          round.garrison.name ?? `${round.garrison.owner_name} Garrison`
+        )
+      }
       const targetFromId =
         action.target_id ? (participantNameById.get(action.target_id) ?? action.target_id) : null
       const targetFromRaw =
@@ -208,21 +214,36 @@ export const CombatActionPanel = () => {
     : timerPercent > 33 ? ("warning" as const)
     : ("destructive" as const)
 
-  const attackTargets = useMemo<AttackTargetOption[]>(
-    () =>
-      (activeCombatSession?.participants ?? [])
-        .filter((participant) => {
-          const isPlayerById = Boolean(playerId && participant.id === playerId)
-          const isPlayerByName = Boolean(playerName && participant.name === playerName)
-          return !isPlayerById && !isPlayerByName
-        })
-        .map((participant, index) => ({
-          key: participant.id ?? participant.name ?? `target-${index}`,
-          id: participant.id ?? null,
-          name: participant.name ?? null,
-        })),
-    [activeCombatSession?.participants, playerId, playerName]
-  )
+  const attackTargets = useMemo<AttackTargetOption[]>(() => {
+    const participantTargets = (activeCombatSession?.participants ?? [])
+      .filter((participant) => {
+        const isPlayerById = Boolean(playerId && participant.id === playerId)
+        const isPlayerByName = Boolean(playerName && participant.name === playerName)
+        return !isPlayerById && !isPlayerByName
+      })
+      .map((participant, index) => ({
+        key: participant.id ?? participant.name ?? `target-${index}`,
+        id: participant.id ?? null,
+        name: participant.name ?? null,
+      }))
+
+    const garrison = activeCombatSession?.garrison
+    if (!garrison) {
+      return participantTargets
+    }
+
+    const garrisonName = garrison.name ?? `${garrison.owner_name} Garrison`
+    const garrisonKey = garrison.id ?? garrison.name ?? `garrison:${garrison.owner_name}`
+
+    return [
+      ...participantTargets,
+      {
+        key: garrisonKey,
+        id: garrison.id ?? null,
+        name: garrisonName,
+      },
+    ]
+  }, [activeCombatSession?.participants, activeCombatSession?.garrison, playerId, playerName])
 
   const selectedAttackTarget =
     attackTargets.find((target) => target.key === selectedTargetKey) ?? attackTargets[0] ?? null
@@ -253,11 +274,6 @@ export const CombatActionPanel = () => {
       setError("Brace unavailable: no shields remaining")
       return
     }
-    if (selectedAction === "pay" && !canPayToll) {
-      setError("Pay is unavailable for this round")
-      return
-    }
-
     const commit = Number.parseInt(attackCommit, 10)
     if (selectedAction === "attack" && (!Number.isFinite(commit) || commit <= 0)) {
       setError("Attack commit must be greater than 0")

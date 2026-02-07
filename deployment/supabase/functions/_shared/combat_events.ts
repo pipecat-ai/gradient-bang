@@ -62,9 +62,18 @@ function buildGarrisonPayload(
   const ownerName = typeof metadata.owner_name === 'string'
     ? metadata.owner_name
     : (participant.owner_character_id ?? participant.combatant_id);
+  const maxShields = Math.max(0, participant.max_shields ?? 0);
+  const shields = Math.max(0, participant.shields ?? 0);
+  const shieldIntegrity = maxShields > 0 ? (shields / maxShields) * 100 : 0;
   return {
+    id: participant.combatant_id,
+    name: participant.name,
     owner_name: ownerName,  // Human-readable name, not UUID
     fighters: participant.fighters,
+    shields,
+    shield_integrity: Number.isFinite(shieldIntegrity)
+      ? Number(shieldIntegrity.toFixed(1))
+      : 0,
     fighter_loss: fighterLoss > 0 ? fighterLoss : null,
     mode: metadata.mode ?? 'offensive',
     toll_amount: metadata.toll_amount ?? 0,
@@ -277,8 +286,8 @@ export async function buildCombatEndedPayloadForViewer(
       warp_power: ship.current_warp_power ?? definition.warp_power_capacity,
       shields: ship.current_shields ?? 0,
       fighters: ship.current_fighters ?? 0,
-      max_shields: definition.max_shields,
-      max_fighters: definition.max_fighters,
+      max_shields: definition.shields,
+      max_fighters: definition.fighters,
     };
   } catch (err) {
     console.error('Failed to load ship data for viewer', viewerId, err);

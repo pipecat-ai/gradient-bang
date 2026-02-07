@@ -250,8 +250,12 @@ declare global {
   }
 
   interface CombatGarrison {
+    id?: string
+    name?: string
     owner_name: string
     fighters: number
+    shields?: number
+    shield_integrity?: number
     fighter_loss: number | null
     mode: "offensive" | "defensive" | "toll"
     toll_amount: number
