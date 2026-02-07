@@ -70,8 +70,6 @@ const COMBAT_GARRISON: CombatRoundWaitingMessage["garrison"] = {
   name: "Marshal Kira Garrison",
   owner_name: "Marshal Kira",
   fighters: 120,
-  shields: 0,
-  shield_integrity: 0,
   fighter_loss: null,
   mode: "offensive",
   toll_amount: 0,

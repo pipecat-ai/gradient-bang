@@ -145,9 +145,6 @@ const CombatParticipant = ({
 
 const CombatGarrison = ({ garrison }: { garrison: CombatGarrison }) => {
   const destroyed = garrison.fighters <= 0
-  const garrisonShields = typeof garrison.shields === "number" ? garrison.shields : 0
-  const shieldIntegrity =
-    typeof garrison.shield_integrity === "number" ? garrison.shield_integrity : 0
 
   return (
     <li className="relative flex-1 flex flex-row items-center gap-ui-xs p-ui-xs bg-accent-background even:bg-subtle-background">
@@ -164,14 +161,6 @@ const CombatGarrison = ({ garrison }: { garrison: CombatGarrison }) => {
           {garrison.owner_name} Garrison
         </strong>
         <footer className="flex flex-row items-center gap-2 uppercase text-xxs">
-          <div className="inline-flex items-center gap-1 text-muted-foreground">
-            <ShieldIcon className="size-4" weight="duotone" />
-            <span className={cn(getShieldColor(shieldIntegrity), "font-bold")}>
-              {shieldIntegrity.toFixed(0)}%
-            </span>
-            <span className="text-foreground">({garrisonShields})</span>
-          </div>
-          <DotDivider />
           <div className="inline-flex items-center gap-1 text-muted-foreground">
             <FighterIcon className="size-4" weight="duotone" />
             <span className="text-foreground font-bold">{garrison.fighters}</span>

@@ -62,18 +62,11 @@ function buildGarrisonPayload(
   const ownerName = typeof metadata.owner_name === 'string'
     ? metadata.owner_name
     : (participant.owner_character_id ?? participant.combatant_id);
-  const maxShields = Math.max(0, participant.max_shields ?? 0);
-  const shields = Math.max(0, participant.shields ?? 0);
-  const shieldIntegrity = maxShields > 0 ? (shields / maxShields) * 100 : 0;
   return {
     id: participant.combatant_id,
     name: participant.name,
     owner_name: ownerName,  // Human-readable name, not UUID
     fighters: participant.fighters,
-    shields,
-    shield_integrity: Number.isFinite(shieldIntegrity)
-      ? Number(shieldIntegrity.toFixed(1))
-      : 0,
     fighter_loss: fighterLoss > 0 ? fighterLoss : null,
     mode: metadata.mode ?? 'offensive',
     toll_amount: metadata.toll_amount ?? 0,
