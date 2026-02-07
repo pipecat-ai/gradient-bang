@@ -1,14 +1,16 @@
 import { useMemo } from "react"
 
-import { CheckIcon } from "@phosphor-icons/react"
+import { ArrowRightIcon, CheckIcon } from "@phosphor-icons/react"
 import { type ColumnDef } from "@tanstack/react-table"
 
 import { DataTableScrollArea } from "@/components/DataTable"
 import useGameStore from "@/stores/game"
+import { sumRecordValues } from "@/utils/combat"
 import { formatDateTime24, formatTimeAgoOrDate } from "@/utils/date"
 import { cn } from "@/utils/tailwind"
 
 import { BlankSlateTile } from "../BlankSlates"
+import { Button } from "../primitives/Button"
 import { Card, CardContent } from "../primitives/Card"
 
 const columns: ColumnDef<MovementHistory>[] = [
@@ -116,46 +118,86 @@ type CombatRoundTableRow = {
   id: string
   round: number
   roundLabel: string
-  outcome: string
-  takeaway: string
+  status: "pending" | "resolved" | "ended"
+  yourAction: string
+  hits: number
   roundData: CombatRound
 }
 
-const getOutcomeClassName = (outcome: string) => {
-  const value = outcome.toLowerCase()
-  if (value === "continued") {
-    return "text-muted-foreground"
-  }
-  if (value.includes("victory") || value.includes("satisfied")) {
-    return "text-success"
-  }
-  if (value.includes("defeat") || value.includes("destroyed")) {
-    return "text-destructive"
-  }
-  if (value.includes("fled") || value.includes("stalemate")) {
-    return "text-warning"
-  }
-  return "text-foreground"
-}
+const buildPendingCombatRound = (combatSession: CombatSession): CombatRound => ({
+  combat_id: combatSession.combat_id,
+  sector: { id: 0 },
+  round: combatSession.round,
+  hits: {},
+  offensive_losses: {},
+  defensive_losses: {},
+  shield_loss: {},
+  fighters_remaining: {},
+  shields_remaining: {},
+  flee_results: {},
+  actions: {},
+  participants: combatSession.participants,
+  garrison: combatSession.garrison ?? null,
+  deadline: combatSession.deadline,
+  end: null,
+  result: null,
+  round_result: null,
+})
 
 const columnsCombatRounds: ColumnDef<CombatRoundTableRow>[] = [
   {
     accessorKey: "roundLabel",
     header: "Round",
-    meta: { width: "22%" },
+    meta: { width: "12%" },
   },
   {
-    accessorKey: "outcome",
-    header: "Outcome",
-    meta: { width: "22%", align: "center" },
+    accessorKey: "status",
+    header: "Status",
+    meta: { width: "20%", align: "center" },
     cell: ({ getValue }) => {
-      const outcome = getValue() as string
-      return <span className={cn("uppercase", getOutcomeClassName(outcome))}>{outcome}</span>
+      const status = getValue() as CombatRoundTableRow["status"]
+      const tone =
+        status === "ended" ? "text-destructive"
+        : status === "resolved" ? "text-muted-foreground"
+        : "text-terminal"
+      return <span className={cn("uppercase font-semibold", tone)}>{status}</span>
     },
   },
   {
-    accessorKey: "takeaway",
-    header: "Takeaway",
+    accessorKey: "yourAction",
+    header: "Your Action",
+    meta: { width: "24%", align: "center" },
+    cell: ({ getValue }) => {
+      const value = String(getValue() ?? "—")
+      const tone =
+        value === "ATTACK" ? "text-destructive"
+        : value === "BRACE" ? "text-accent-foreground"
+        : value === "FLEE" ? "text-warning"
+        : value === "PAY" ? "text-success"
+        : "text-muted-foreground"
+      return <span className={cn("uppercase font-semibold", tone)}>{value}</span>
+    },
+  },
+  {
+    accessorKey: "hits",
+    header: "Hits",
+    meta: { width: "12%", align: "center" },
+  },
+  {
+    id: "open",
+    header: "",
+    meta: { width: "10%", align: "right" },
+    cell: () => (
+      <Button
+        type="button"
+        size="ui"
+        variant="link"
+        className="text-muted-foreground hover:text-foreground p-0 size-4"
+        aria-label="Open round details"
+      >
+        <ArrowRightIcon size={12} weight="bold" className="size-3" />
+      </Button>
+    ),
   },
 ]
 
@@ -166,44 +208,75 @@ export const CombatRoundTablePanel = ({
   className?: string
   onRowClick?: (round: CombatRound) => void
 }) => {
+  const activeCombatSession = useGameStore((state) => state.activeCombatSession)
+  const playerId = useGameStore((state) => state.player?.id ?? null)
+  const playerName = useGameStore((state) => state.player?.name ?? null)
   const combatRounds = useGameStore((state) => state.combatRounds)
+  const combatActionReceipts = useGameStore((state) => state.combatActionReceipts)
 
-  const roundRows = useMemo<CombatRoundTableRow[]>(
-    () =>
-      [...combatRounds]
-        .sort((a, b) => b.round - a.round)
-        .map((round) => {
-          const outcomeRaw = round.round_result ?? round.result ?? round.end
-          const outcome = outcomeRaw ? String(outcomeRaw).replace(/_/g, " ") : "continued"
+  const roundRows = useMemo<CombatRoundTableRow[]>(() => {
+    const activeCombatId = activeCombatSession?.combat_id
+    const baseRounds =
+      activeCombatId ?
+        combatRounds.filter((round) => round.combat_id === activeCombatId)
+      : combatRounds
 
-          const destroyedCount = Object.entries(round.fighters_remaining ?? {}).reduce(
-            (count, [combatantId, fightersRemaining]) => {
-              if (fightersRemaining > 0) return count
-              const lossesThisRound =
-                (round.offensive_losses?.[combatantId] ?? 0) +
-                (round.defensive_losses?.[combatantId] ?? 0)
-              return lossesThisRound > 0 ? count + 1 : count
-            },
-            0
+    const rows: CombatRoundTableRow[] = [...baseRounds]
+      .sort((a, b) => b.round - a.round)
+      .map((round) => {
+        const status: CombatRoundTableRow["status"] =
+          round.end || round.result || round.round_result ? "ended" : "resolved"
+        const selfParticipant = round.participants?.find(
+          (participant) =>
+            (playerId && participant.id === playerId) ||
+            (playerName && participant.name === playerName)
+        )
+        const selfAction =
+          (selfParticipant?.name ? round.actions?.[selfParticipant.name] : undefined) ??
+          (selfParticipant?.id ? round.actions?.[selfParticipant.id] : undefined) ??
+          (playerId ? round.actions?.[playerId] : undefined) ??
+          (playerName ? round.actions?.[playerName] : undefined)
+
+        return {
+          id: `${round.combat_id}:${round.round}`,
+          round: round.round,
+          roundLabel: String(round.round),
+          status,
+          yourAction: selfAction?.action?.toUpperCase() ?? "—",
+          hits: sumRecordValues(round.hits),
+          roundData: round,
+        }
+      })
+
+    if (activeCombatSession) {
+      const hasCurrentRoundRow = rows.some(
+        (row) =>
+          row.round === activeCombatSession.round &&
+          row.id.startsWith(`${activeCombatSession.combat_id}:`)
+      )
+
+      if (!hasCurrentRoundRow) {
+        const latestPersonalReceipt = [...combatActionReceipts]
+          .filter(
+            (receipt) =>
+              receipt.combat_id === activeCombatSession.combat_id &&
+              receipt.round === activeCombatSession.round
           )
-          const fledCount = Object.values(round.flee_results ?? {}).filter(Boolean).length
-          const paidCount = Object.values(round.actions ?? {}).filter(
-            (action) => action.action === "pay"
-          ).length
+          .at(-1)
+        rows.unshift({
+          id: `${activeCombatSession.combat_id}:${activeCombatSession.round}:pending`,
+          round: activeCombatSession.round,
+          roundLabel: String(activeCombatSession.round),
+          status: "pending",
+          yourAction: latestPersonalReceipt?.action?.toUpperCase() ?? "—",
+          hits: 0,
+          roundData: buildPendingCombatRound(activeCombatSession),
+        })
+      }
+    }
 
-          const takeaway = `Destroyed: ${destroyedCount} | Fled: ${fledCount} | Paid: ${paidCount}`
-
-          return {
-            id: `${round.combat_id}:${round.round}`,
-            round: round.round,
-            roundLabel: `Round ${round.round}`,
-            outcome,
-            takeaway,
-            roundData: round,
-          }
-        }),
-    [combatRounds]
-  )
+    return rows
+  }, [activeCombatSession, combatActionReceipts, combatRounds, playerId, playerName])
 
   if (roundRows.length <= 0) {
     return <BlankSlateTile text="No combat rounds yet" />
@@ -218,7 +291,7 @@ export const CombatRoundTablePanel = ({
           striped
           hoverable={Boolean(onRowClick)}
           onRowClick={onRowClick ? (row) => onRowClick(row.roundData) : undefined}
-          className="text-background h-full"
+          className="text-background dither-mask-sm dither-mask-invert h-full"
           classNames={{ table: "text-xxs" }}
         />
       </CardContent>

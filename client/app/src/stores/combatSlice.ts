@@ -36,6 +36,16 @@ export const createCombatSlice: StateCreator<CombatSlice> = (set) => ({
   setActiveCombatSession: (combatSession: CombatSession | null) =>
     set(
       produce((state: CombatSlice) => {
+        const previousCombatId = state.activeCombatSession?.combat_id
+        const nextCombatId = combatSession?.combat_id
+        const isNewCombatSession =
+          !!nextCombatId && nextCombatId !== previousCombatId
+
+        if (isNewCombatSession) {
+          state.combatRounds = []
+          state.combatActionReceipts = []
+        }
+
         state.activeCombatSession = combatSession
       })
     ),

@@ -9,6 +9,7 @@ import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
 import { Button } from "../primitives/Button"
+import { CombatResultsScreen } from "./CombatResultsScreen"
 import { ShipDetails } from "./ShipDetails"
 
 const variants = {
@@ -129,6 +130,11 @@ export const ScreenContainer = () => {
                 {displayedScreen.screen === "ship-details" && (
                   <ScreenBase>
                     <ShipDetails ship={displayedScreen.data as ShipDefinition} />
+                  </ScreenBase>
+                )}
+                {displayedScreen.screen === "combat-results" && (
+                  <ScreenBase>
+                    <CombatResultsScreen combat={displayedScreen.data as CombatEndedRound | undefined} />
                   </ScreenBase>
                 )}
               </motion.div>

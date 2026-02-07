@@ -880,6 +880,7 @@ export function GameProvider({ children }: GameProviderProps) {
               gameStore.addCombatRound(data as CombatRound)
               gameStore.addCombatHistory(data as CombatEndedRound)
               gameStore.setLastCombatEnded(data as CombatEndedRound)
+              gameStore.setActiveScreen("combat-results", data as CombatEndedRound)
 
               // Return to idle UI state
               gameStore.setUIState("idle")
