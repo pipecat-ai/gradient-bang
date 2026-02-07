@@ -44,7 +44,7 @@ from gradientbang.utils.config import get_world_data_path
 # ===================== Tunables / Defaults =====================
 
 # --- Regions configuration ---
-FEDSPACE_SECTOR_COUNT = 200
+FEDSPACE_SECTOR_COUNT = 75
 FEDSPACE_REGION_NAME = "Federation Space"
 NEUTRAL_REGION_NAME = "Neutral"
 FEDSPACE_REGION_ID = 1
@@ -67,7 +67,7 @@ PORT_PERCENTAGE = BASE_PORT_DENSITY * INITIAL_PORT_BUILD_RATE
 
 # --- Mega port configuration ---
 MEGA_PORT_STOCK_MULTIPLIER = 10  # 10x normal capacity
-MEGA_PORT_COUNT = 4  # Four mega-ports per universe
+MEGA_PORT_COUNT = 3  # Three mega-ports per universe
 
 # --- Warps / topology ---
 MIN_WARPS_PER_SECTOR = 1
