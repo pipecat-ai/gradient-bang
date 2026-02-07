@@ -12,6 +12,8 @@ import { Separator } from "@/components/primitives/Separator"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
+import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS_PADDING } from "@/utils/mapZoom"
+import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
 import { DottedTitle } from "../DottedTitle"
@@ -42,15 +44,10 @@ const MAP_CONFIG: MapConfig = {
   },
 }
 
-export const DEFAULT_MAX_BOUNDS = 12
-export const MAX_BOUNDS_PADDING = 2
-export const MIN_BOUNDS = 4
-export const MAX_BOUNDS = 50
-
 export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
   if (!node) return null
 
-  const portCode = node.port?.code ?? ""
+  const portCode = getPortCode(node.port ?? null)
   const qf_state = portCode[0] === "B" ? "buy" : "sell"
   const ro_state = portCode[1] === "B" ? "buy" : "sell"
   const ns_state = portCode[2] === "B" ? "buy" : "sell"

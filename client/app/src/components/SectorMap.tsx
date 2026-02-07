@@ -198,6 +198,7 @@ const MapComponent = ({
   const lastConfigRef = useRef<Omit<SectorMapConfigBase, "center_sector_id"> | null>(null)
   const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot)
   const lastShipsKeyRef = useRef<string>(shipsKey)
+  const maxZoomFetchedRef = useRef<Map<number, number>>(new Map())
 
   const [measuredSize, setMeasuredSize] = useState<{
     width: number
@@ -317,6 +318,7 @@ const MapComponent = ({
       lastConfigRef.current = baseConfig
       lastCoursePlotRef.current = coursePlot
       lastShipsKeyRef.current = shipsKey
+      maxZoomFetchedRef.current.set(center_sector_id, maxDistance)
       return
     }
 
@@ -369,25 +371,39 @@ const MapComponent = ({
 
     if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
       const hasEnough = hasEnoughMapData(normalizedMapData, center_sector_id, maxDistance)
+      const prevMax = maxZoomFetchedRef.current.get(center_sector_id) ?? 0
+      const needsFetchByZoom = maxDistance > prevMax
+      const needsFetchByTopology = !hasEnough
 
       // Trigger fetch when USER changes center OR zoom level (not on topology updates)
       // This prevents recursion: action → fetch → topology changes → fetch → ...
-      if ((centerSectorChanged || maxDistanceChanged) && !hasEnough) {
+      if (
+        (centerSectorChanged || maxDistanceChanged) &&
+        (needsFetchByZoom || needsFetchByTopology)
+      ) {
         const targetSector = normalizedMapData.find((s) => s.id === center_sector_id)
         const canFetch = targetSector?.visited === true
 
         if (canFetch) {
-          // Need more data and can fetch - trigger fetch, DON'T reframe yet
-          // The incoming data will trigger topologyChanged and reframe then
+          // Need more data and can fetch - trigger fetch
+          if (maxDistance > prevMax) {
+            maxZoomFetchedRef.current.set(center_sector_id, maxDistance)
+          }
+          const fetchReasons: string[] = []
+          if (needsFetchByTopology) fetchReasons.push("topology")
+          if (needsFetchByZoom) fetchReasons.push("zoom")
           console.debug(
-            "[GAME SECTOR MAP] Insufficient data for sector",
+            "[GAME SECTOR MAP] Requesting fetch for sector",
             center_sector_id,
             "with bounds",
             maxDistance,
-            "- requesting fetch (waiting for data)"
+            "- reasons:",
+            fetchReasons.length > 0 ? fetchReasons.join(", ") : "unknown"
           )
           onMapFetch?.(center_sector_id)
-          skipReframe = true
+          if (needsFetchByTopology) {
+            skipReframe = true
+          }
         }
       }
 

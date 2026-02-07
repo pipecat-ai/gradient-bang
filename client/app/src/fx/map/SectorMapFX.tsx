@@ -1,3 +1,6 @@
+import { getPortCode } from "@/utils/port"
+import { DEFAULT_MAX_BOUNDS } from "@/utils/mapZoom"
+
 import { MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
 
 // Create Path2D once at module level for performance
@@ -1373,6 +1376,34 @@ function calculateCameraState(
     return null
   }
 
+  if (!coursePlot) {
+    const centerSector = data.find((sector) => sector.id === config.center_sector_id)
+    if (centerSector) {
+      const framePadding = config.frame_padding ?? 0
+      const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
+      const radius = Math.max(maxWorldDistance + hexSize, hexSize)
+      const availableWidth = Math.max(width - framePadding * 2, 1)
+      const availableHeight = Math.max(height - framePadding * 2, 1)
+      const referenceZoom = DEFAULT_MAX_BOUNDS
+      const minZoom = Math.max(
+        0.08,
+        0.3 * (referenceZoom / Math.max(maxDistance, referenceZoom))
+      )
+      const zoom = Math.max(
+        minZoom,
+        Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5)
+      )
+      const centerWorld = hexToWorld(centerSector.position[0], centerSector.position[1], scale)
+
+      return {
+        offsetX: -centerWorld.x,
+        offsetY: -centerWorld.y,
+        zoom,
+        filteredData,
+      }
+    }
+  }
+
   const camera = calculateCameraTransform(
     framingData,
     width,
@@ -1565,7 +1596,7 @@ function renderPortLabels(
   ctx.font = `${labelStyle.fontWeight} ${labelStyle.fontSize}px ${getCanvasFontFamily(ctx)}`
 
   data.forEach((node) => {
-    const portCode = node.port?.code
+    const portCode = getPortCode(node.port ?? null)
     if (!portCode) return
     // Skip labels for current sector (player's location)
     if (config.current_sector_id !== undefined && node.id === config.current_sector_id) return

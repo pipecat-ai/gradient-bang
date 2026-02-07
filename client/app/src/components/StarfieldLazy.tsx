@@ -8,14 +8,16 @@ import Starfield, {
 } from "@gradient-bang/starfield"
 
 import useGameStore from "@/stores/game"
+import { getPortCode } from "@/utils/port"
 
 const generateGameObjects = (sector: Sector) => {
+  const portCode = getPortCode(sector.port ?? null)
   return sector.port ?
       [
         {
           id: "port-" + sector.id.toString(),
           type: "port",
-          label: sector.port.code,
+          label: portCode,
         } as GameObject,
       ]
     : []
