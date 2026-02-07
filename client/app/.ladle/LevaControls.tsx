@@ -78,60 +78,6 @@ export const LevaControls = ({
       useGameStore.getState().setLookMode(!lookMode)
     }),
 
-    ["Mock Player Arrive"]: button(() => {
-      const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
-      const name = faker.person.fullName()
-      const player = { id: mockData.player.id, name: name }
-      const ship = {
-        ship_id: faker.string.uuid(),
-        ship_name: faker.vehicle.vehicle(),
-        ship_type: faker.vehicle.type(),
-      }
-      addSectorPlayer({
-        id: mockData.player.id,
-        name: name,
-        ship: ship,
-      })
-      addActivityLogEntry({
-        type: "character.moved",
-        message: `[${name}] arrived in sector`,
-        meta: {
-          sector: mockData.sector,
-          direction: "arrive",
-          player,
-          ship,
-          silent: true,
-        },
-      })
-    }),
-
-    ["Mock Player Depart"]: button(() => {
-      const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
-      const name = faker.person.fullName()
-      const player = { id: mockData.player.id, name: name }
-      const ship = {
-        ship_id: faker.string.uuid(),
-        ship_name: faker.vehicle.vehicle(),
-        ship_type: faker.vehicle.type(),
-      }
-      removeSectorPlayer({
-        id: mockData.player.id,
-        name: player.name,
-        ship: ship,
-      })
-      addActivityLogEntry({
-        type: "character.moved",
-        message: `[${name}] departed from sector`,
-        meta: {
-          sector: mockData.sector,
-          direction: "depart",
-          player,
-          ship,
-          silent: true,
-        },
-      })
-    }),
-
     Ships: folder(
       {
         ["Get My Ships"]: button(() => {
@@ -238,6 +184,59 @@ export const LevaControls = ({
           const setShip = useGameStore.getState().setShip
           const currentCredits = ship?.credits ?? 0
           setShip({ ...ship, credits: currentCredits - 1000 })
+        }),
+        ["Mock Player Arrive"]: button(() => {
+          const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
+          const name = faker.person.fullName()
+          const player = { id: mockData.player.id, name: name }
+          const ship = {
+            ship_id: faker.string.uuid(),
+            ship_name: faker.vehicle.vehicle(),
+            ship_type: faker.vehicle.type(),
+          }
+          addSectorPlayer({
+            id: mockData.player.id,
+            name: name,
+            ship: ship,
+          })
+          addActivityLogEntry({
+            type: "character.moved",
+            message: `[${name}] arrived in sector`,
+            meta: {
+              sector: mockData.sector,
+              direction: "arrive",
+              player,
+              ship,
+              silent: true,
+            },
+          })
+        }),
+
+        ["Mock Player Depart"]: button(() => {
+          const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
+          const name = faker.person.fullName()
+          const player = { id: mockData.player.id, name: name }
+          const ship = {
+            ship_id: faker.string.uuid(),
+            ship_name: faker.vehicle.vehicle(),
+            ship_type: faker.vehicle.type(),
+          }
+          removeSectorPlayer({
+            id: mockData.player.id,
+            name: player.name,
+            ship: ship,
+          })
+          addActivityLogEntry({
+            type: "character.moved",
+            message: `[${name}] departed from sector`,
+            meta: {
+              sector: mockData.sector,
+              direction: "depart",
+              player,
+              ship,
+              silent: true,
+            },
+          })
         }),
       },
       { collapsed: true, order: 2 }

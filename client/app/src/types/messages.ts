@@ -241,7 +241,7 @@ export interface CombatParticipantSnapshot {
   id?: string
   name: string
   created_at: string
-  player_type: "human" | "npc" | "corporation_ship"
+  player_type: PlayerType
   ship: CombatParticipantShipSnapshot
 }
 

@@ -1,3 +1,5 @@
+import { useEffect } from "react"
+
 import { button, buttonGroup, folder, useControls } from "leva"
 
 import useGameStore from "@/stores/game"
@@ -26,12 +28,20 @@ const applyCombatRoundWaiting = () => {
   state.setActiveCombatSession(COMBAT_ROUND_WAITING_PAYLOAD_MOCK)
 }
 
-const applyCombatActionAccepted = () => {
+const applyCombatActionAccepted = (action: CombatActionType) => {
   const state = useGameStore.getState()
-  state.addCombatActionReceipt(COMBAT_ACTION_ACCEPTED_PAYLOAD_MOCK)
+  const receipt: CombatActionReceipt = {
+    combat_id: state.activeCombatSession?.combat_id ?? COMBAT_ACTION_ACCEPTED_PAYLOAD_MOCK.combat_id,
+    round: state.activeCombatSession?.round ?? COMBAT_ACTION_ACCEPTED_PAYLOAD_MOCK.round,
+    action,
+    commit: COMBAT_ACTION_ACCEPTED_PAYLOAD_MOCK.commit + state.combatActionReceipts.length + 1,
+    target_id: action === "attack" ? COMBAT_ACTION_ACCEPTED_PAYLOAD_MOCK.target_id : null,
+  }
+
+  state.addCombatActionReceipt(receipt)
   state.addActivityLogEntry({
     type: "combat.action.accepted",
-    message: `Accepted [${COMBAT_ACTION_ACCEPTED_PAYLOAD_MOCK.action}] for round ${COMBAT_ACTION_ACCEPTED_PAYLOAD_MOCK.round}`,
+    message: `Accepted [${receipt.action}] for round ${receipt.round}`,
   })
 }
 
@@ -70,7 +80,7 @@ const applyCombatEnded = () => {
 
 const applyCombatTimeline = () => {
   applyCombatRoundWaiting()
-  applyCombatActionAccepted()
+  applyCombatActionAccepted("attack")
   applyCombatRoundResolved()
   applyCombatEnded()
 }
@@ -179,47 +189,71 @@ const applyCombatError = () => {
 }
 
 export const useCombatControls = () => {
-  return useControls(() => ({
-    Combat: folder(
-      {
-        ["Start / Round Waiting"]: button(() => applyCombatRoundWaiting()),
-        ["Action Accepted"]: button(() => applyCombatActionAccepted()),
-        ["Round Resolved"]: button(() => applyCombatRoundResolved()),
-        ["Combat Ended"]: button(() => applyCombatEnded()),
-        ["Run Full Timeline"]: button(() => applyCombatTimeline()),
-        ["Reset Combat State"]: button(() => applyCombatReset()),
-      },
-      { collapsed: true }
-    ),
+  const activeCombatSession = useGameStore((state) => state.activeCombatSession)
 
-    ["Combat Side Events"]: folder(
-      {
-        ["Ship Destroyed"]: button(() => applyShipDestroyed()),
-        ["Salvage Created"]: button(() => applySalvageCreated()),
-        ["Sector Update (Full)"]: button(() => applySectorUpdateFull()),
-        ["Sector Update (Minimal)"]: button(() => applySectorUpdateMinimal()),
-        ["Garrison Deployed"]: button(() => applyGarrisonDeployed()),
-        ["Garrison Collected"]: button(() => applyGarrisonCollected()),
-        ["Garrison Mode Changed"]: button(() => applyGarrisonModeChanged()),
-        ["Status Update (Collect)"]: button(() => applyStatusUpdateFromCollect()),
-        ["Garrison Character Moved"]: button(() => applyGarrisonCharacterMoved()),
-        ["Combat Error"]: button(() => applyCombatError()),
-      },
-      { collapsed: true }
-    ),
+  const [, set] = useControls(
+    () => ({
+      Combat: folder(
+        {
+          ["Current Status"]: {
+            value: "inactive",
+            editable: false,
+          },
+          Flow: folder(
+            {
+              ["Start / Round Waiting"]: button(() => applyCombatRoundWaiting()),
+              ["Round Action"]: buttonGroup({
+                Attack: () => applyCombatActionAccepted("attack"),
+                Brace: () => applyCombatActionAccepted("brace"),
+                Flee: () => applyCombatActionAccepted("flee"),
+                Pay: () => applyCombatActionAccepted("pay"),
+              }),
+              ["Round Resolved"]: button(() => applyCombatRoundResolved()),
+              ["Combat Ended"]: button(() => applyCombatEnded()),
+              ["Run Full Timeline"]: button(() => applyCombatTimeline()),
+              ["Reset Combat State"]: button(() => applyCombatReset()),
+            },
+            { collapsed: false }
+          ),
+          ["Side Events"]: folder(
+            {
+              ["Ship Destroyed"]: button(() => applyShipDestroyed()),
+              ["Salvage Created"]: button(() => applySalvageCreated()),
+              ["Sector Update (Full)"]: button(() => applySectorUpdateFull()),
+              ["Sector Update (Minimal)"]: button(() => applySectorUpdateMinimal()),
+              ["Garrison Deployed"]: button(() => applyGarrisonDeployed()),
+              ["Garrison Collected"]: button(() => applyGarrisonCollected()),
+              ["Garrison Mode Changed"]: button(() => applyGarrisonModeChanged()),
+              ["Status Update (Collect)"]: button(() => applyStatusUpdateFromCollect()),
+              ["Garrison Character Moved"]: button(() => applyGarrisonCharacterMoved()),
+              ["Combat Error"]: button(() => applyCombatError()),
+            },
+            { collapsed: true }
+          ),
+          Payloads: folder(
+            {
+              Preview: buttonGroup({
+                ["Round Waiting"]: () =>
+                  console.log("combat.round_waiting", COMBAT_EVENT_PAYLOADS_MOCK.round_waiting),
+                ["Round Resolved"]: () =>
+                  console.log("combat.round_resolved", COMBAT_EVENT_PAYLOADS_MOCK.round_resolved),
+                ["Ended"]: () => console.log("combat.ended", COMBAT_EVENT_PAYLOADS_MOCK.ended),
+              }),
+            },
+            { collapsed: true }
+          ),
+        },
+        { collapsed: true }
+      ),
+    }),
+    []
+  )
 
-    ["Combat Payloads"]: folder(
-      {
-        Preview: buttonGroup({
-          ["Round Waiting"]: () =>
-            console.log("combat.round_waiting", COMBAT_EVENT_PAYLOADS_MOCK.round_waiting),
-          ["Round Resolved"]: () =>
-            console.log("combat.round_resolved", COMBAT_EVENT_PAYLOADS_MOCK.round_resolved),
-          ["Ended"]: () => console.log("combat.ended", COMBAT_EVENT_PAYLOADS_MOCK.ended),
-        }),
-      },
-      { collapsed: true }
-    ),
-  }))
+  useEffect(() => {
+    set({
+      "Current Status": activeCombatSession ? "active" : "inactive",
+    })
+  }, [activeCombatSession, set])
+
+  return null
 }
-

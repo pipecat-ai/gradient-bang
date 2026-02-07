@@ -43,7 +43,7 @@ const COMBAT_PARTICIPANTS: CombatRoundWaitingMessage["participants"] = [
     name: "Captain Vega",
     player_type: "human",
     ship: {
-      ship_type: "merchant_cruiser",
+      ship_type: "aegis_cruiser",
       ship_name: "Asteria",
       shield_integrity: 100,
       shield_damage: null,
@@ -56,7 +56,7 @@ const COMBAT_PARTICIPANTS: CombatRoundWaitingMessage["participants"] = [
     name: "Rook AI",
     player_type: "corporation_ship",
     ship: {
-      ship_type: "interceptor",
+      ship_type: "pike_frigate",
       ship_name: "Rook-7",
       shield_integrity: 100,
       shield_damage: null,
@@ -513,4 +513,3 @@ export const COMBAT_SERVER_MESSAGES_MOCK: ServerMessage[] = [
   { event: "garrison.character_moved", payload: GARRISON_CHARACTER_MOVED_PAYLOAD_MOCK },
   { event: "error", payload: COMBAT_ERROR_PAYLOAD_MOCK },
 ]
-

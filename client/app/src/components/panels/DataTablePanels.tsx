@@ -111,3 +111,117 @@ export const SectorPlayerMovementPanel = ({ className }: { className?: string })
     </Card>
   )
 }
+
+type CombatRoundTableRow = {
+  id: string
+  round: number
+  roundLabel: string
+  outcome: string
+  takeaway: string
+  roundData: CombatRound
+}
+
+const getOutcomeClassName = (outcome: string) => {
+  const value = outcome.toLowerCase()
+  if (value === "continued") {
+    return "text-muted-foreground"
+  }
+  if (value.includes("victory") || value.includes("satisfied")) {
+    return "text-success"
+  }
+  if (value.includes("defeat") || value.includes("destroyed")) {
+    return "text-destructive"
+  }
+  if (value.includes("fled") || value.includes("stalemate")) {
+    return "text-warning"
+  }
+  return "text-foreground"
+}
+
+const columnsCombatRounds: ColumnDef<CombatRoundTableRow>[] = [
+  {
+    accessorKey: "roundLabel",
+    header: "Round",
+    meta: { width: "22%" },
+  },
+  {
+    accessorKey: "outcome",
+    header: "Outcome",
+    meta: { width: "22%", align: "center" },
+    cell: ({ getValue }) => {
+      const outcome = getValue() as string
+      return <span className={cn("uppercase", getOutcomeClassName(outcome))}>{outcome}</span>
+    },
+  },
+  {
+    accessorKey: "takeaway",
+    header: "Takeaway",
+  },
+]
+
+export const CombatRoundTablePanel = ({
+  className,
+  onRowClick,
+}: {
+  className?: string
+  onRowClick?: (round: CombatRound) => void
+}) => {
+  const combatRounds = useGameStore((state) => state.combatRounds)
+
+  const roundRows = useMemo<CombatRoundTableRow[]>(
+    () =>
+      [...combatRounds]
+        .sort((a, b) => b.round - a.round)
+        .map((round) => {
+          const outcomeRaw = round.round_result ?? round.result ?? round.end
+          const outcome = outcomeRaw ? String(outcomeRaw).replace(/_/g, " ") : "continued"
+
+          const destroyedCount = Object.entries(round.fighters_remaining ?? {}).reduce(
+            (count, [combatantId, fightersRemaining]) => {
+              if (fightersRemaining > 0) return count
+              const lossesThisRound =
+                (round.offensive_losses?.[combatantId] ?? 0) +
+                (round.defensive_losses?.[combatantId] ?? 0)
+              return lossesThisRound > 0 ? count + 1 : count
+            },
+            0
+          )
+          const fledCount = Object.values(round.flee_results ?? {}).filter(Boolean).length
+          const paidCount = Object.values(round.actions ?? {}).filter(
+            (action) => action.action === "pay"
+          ).length
+
+          const takeaway = `Destroyed: ${destroyedCount} | Fled: ${fledCount} | Paid: ${paidCount}`
+
+          return {
+            id: `${round.combat_id}:${round.round}`,
+            round: round.round,
+            roundLabel: `Round ${round.round}`,
+            outcome,
+            takeaway,
+            roundData: round,
+          }
+        }),
+    [combatRounds]
+  )
+
+  if (roundRows.length <= 0) {
+    return <BlankSlateTile text="No combat rounds yet" />
+  }
+
+  return (
+    <Card className={cn("flex h-full bg-background", className)} size="none">
+      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative px-0!">
+        <DataTableScrollArea
+          data={roundRows}
+          columns={columnsCombatRounds}
+          striped
+          hoverable={Boolean(onRowClick)}
+          onRowClick={onRowClick ? (row) => onRowClick(row.roundData) : undefined}
+          className="text-background h-full"
+          classNames={{ table: "text-xxs" }}
+        />
+      </CardContent>
+    </Card>
+  )
+}

@@ -124,6 +124,7 @@ export function SceneController() {
         )
         isFirstSceneRef.current = false
         setIsSceneChanging(true) // Trigger AnimationController
+        useCallbackStore.getState().onSceneChangeStart(true)
 
         applyScene(scene)
         // Single rAF is sufficient - AnimationController uses Zustand subscribe
@@ -145,7 +146,7 @@ export function SceneController() {
         isProcessingRef.current = true
         state.setLookAtTarget(undefined)
         setIsSceneChanging(true)
-        useCallbackStore.getState().onSceneChangeStart()
+        useCallbackStore.getState().onSceneChangeStart(false)
         processNextScene()
       } else {
         console.debug("[SCENE CONTROLLER] Already processing, scene queued")

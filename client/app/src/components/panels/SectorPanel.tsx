@@ -21,6 +21,7 @@ import { Button } from "../primitives/Button"
 import { Card, CardContent, CardHeader, CardTitle } from "../primitives/Card"
 import { Divider } from "../primitives/Divider"
 import { ChevronSM } from "../svg/ChevronSM"
+import { CombatAsidePanel } from "./CombatAsidePanel"
 import { SectorPlayerMovementPanel } from "./DataTablePanels"
 import { RHSPanelContent } from "./RHSPanelContainer"
 
@@ -85,12 +86,18 @@ const SectorInfoRow = ({
 export const SectorPanel = () => {
   const sector = useGameStore.use.sector?.()
   const setActivePanel = useGameStore.use.setActivePanel?.()
+  const uiState = useGameStore.use.uiState?.()
 
   const playerCount = useMemo(() => sector?.players?.length ?? 0, [sector?.players])
 
   return (
     <RHSPanelContent>
-      <Card size="sm" className="border-0 border-b">
+      {uiState === "combat" && <CombatAsidePanel />}
+
+      <Card
+        size="sm"
+        className={cn("border-0", uiState === "combat" ? "border-b border-t" : "border-b")}
+      >
         <CardHeader className="gap-0">
           <CardTitle>Sector {sector?.id}</CardTitle>
         </CardHeader>

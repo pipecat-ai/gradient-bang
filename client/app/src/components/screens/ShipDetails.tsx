@@ -3,29 +3,21 @@ import { useState } from "react"
 import { CircleNotchIcon, ShieldIcon } from "@phosphor-icons/react"
 
 import ImageAegisCruiser from "@/assets/images/ships/aegis_cruiser.png"
-import ImageAegisCruiserLogo from "@/assets/images/ships/aegis_cruiser_logo.png"
 import ImageAtlasHauler from "@/assets/images/ships/atlas_hauler.png"
-import ImageAtlasHaulerLogo from "@/assets/images/ships/atlas_hauler_logo.png"
 import ImageAutonomousLightHauler from "@/assets/images/ships/autonomous_light_hauler.png"
-import ImageAutonomousLightHaulerLogo from "@/assets/images/ships/autonomous_light_hauler_logo.png"
 import ImageAutonomousProbe from "@/assets/images/ships/autonomous_probe.png"
-import ImageAutonomousProbeLogo from "@/assets/images/ships/autonomous_probe_logo.png"
 import ImageBulwarkDestroyer from "@/assets/images/ships/bulwark_destroyer.png"
-import ImageBulwarkDestroyerLogo from "@/assets/images/ships/bulwark_destroyer_logo.png"
 import ImageCorsairRaider from "@/assets/images/ships/corsair_raider.png"
-import ImageCorsairRaiderLogo from "@/assets/images/ships/corsair_raider_logo.png"
 import ImageKestrel from "@/assets/images/ships/kestrel_courier.png"
-import ImageKestrelLogo from "@/assets/images/ships/kestrel_courier_logo.png"
 import ImagePikeFrigate from "@/assets/images/ships/pike_frigate.png"
-import ImagePikeFrigateLogo from "@/assets/images/ships/pike_frigate_logo.png"
 import ImagePioneerLifter from "@/assets/images/ships/pioneer_lifter.png"
-import ImagePioneerLifterLogo from "@/assets/images/ships/pioneer_lifter_logo.png"
 import ImageSovereignStarcruiser from "@/assets/images/ships/sovereign_starcruiser.png"
-import ImageSovereignStarcruiserLogo from "@/assets/images/ships/sovereign_starcruiser_logo.png"
 import ImageSparrowScout from "@/assets/images/ships/sparrow_scout.png"
-import ImageSparrowScoutLogo from "@/assets/images/ships/sparrow_scout_logo.png"
 import ImageWayfarerFreighter from "@/assets/images/ships/wayfarer_freighter.png"
-import ImageWayfarerFreighterLogo from "@/assets/images/ships/wayfarer_freighter_logo.png"
+import { DottedTitle } from "@/components/DottedTitle"
+import { Badge } from "@/components/primitives/Badge"
+import { Button } from "@/components/primitives/Button"
+import { Divider } from "@/components/primitives/Divider"
 import { useGameContext } from "@/hooks/useGameContext"
 import {
   CargoIcon,
@@ -37,11 +29,7 @@ import {
 } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatCurrency } from "@/utils/formatting"
-
-import { DottedTitle } from "../DottedTitle"
-import { Badge } from "../primitives/Badge"
-import { Button } from "../primitives/Button"
-import { Divider } from "../primitives/Divider"
+import { getShipLogoImage } from "@/utils/images"
 
 const SHIP_IMAGE_MAP = {
   autonomous_probe: ImageAutonomousProbe,
@@ -56,20 +44,6 @@ const SHIP_IMAGE_MAP = {
   sparrow_scout: ImageSparrowScout,
   aegis_cruiser: ImageAegisCruiser,
   pike_frigate: ImagePikeFrigate,
-}
-const SHIP_LOGO_MAP = {
-  corsair_raider: ImageCorsairRaiderLogo,
-  pioneer_lifter: ImagePioneerLifterLogo,
-  sovereign_starcruiser: ImageSovereignStarcruiserLogo,
-  kestrel_courier: ImageKestrelLogo,
-  atlas_hauler: ImageAtlasHaulerLogo,
-  bulwark_destroyer: ImageBulwarkDestroyerLogo,
-  sparrow_scout: ImageSparrowScoutLogo,
-  autonomous_probe: ImageAutonomousProbeLogo,
-  autonomous_light_hauler: ImageAutonomousLightHaulerLogo,
-  wayfarer_freighter: ImageWayfarerFreighterLogo,
-  aegis_cruiser: ImageAegisCruiserLogo,
-  pike_frigate: ImagePikeFrigateLogo,
 }
 
 type ShipDetailsItemProps = {
@@ -93,7 +67,7 @@ const ShipDetailsItem = ({ label, icon, value, showBorder = true }: ShipDetailsI
 
 export const ShipDetails = ({ ship }: { ship: ShipDefinition }) => {
   const shipImage = SHIP_IMAGE_MAP[ship.ship_type as keyof typeof SHIP_IMAGE_MAP]
-  const shipLogo = SHIP_LOGO_MAP[ship.ship_type as keyof typeof SHIP_LOGO_MAP]
+  const shipLogo = getShipLogoImage(ship.ship_type)
   const sector = useGameStore.use.sector?.()
   const setActiveScreen = useGameStore.use.setActiveScreen?.()
   const { sendUserTextInput } = useGameContext()

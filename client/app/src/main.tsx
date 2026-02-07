@@ -36,7 +36,16 @@ useGameStore.getState().setBotConfig(
   transport as "smallwebrtc" | "daily"
 )
 
-console.debug("[MAIN] Pipecat Configuration:", endpoint, transport)
+console.debug(
+  "Gradient Bang Version " + import.meta.env.VITE_APP_VERSION,
+  "color: black; font-weight: bold"
+)
+console.debug(
+  "%c[GAME INIT] Pipecat Configuration",
+  "color: orange; font-weight: bold",
+  endpoint,
+  transport
+)
 
 const App = lazy(async () => {
   const createTransport =

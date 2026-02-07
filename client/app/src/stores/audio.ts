@@ -23,8 +23,8 @@ interface OnceSoundEntry {
 
 // Type metadata for each sound
 const soundTypes: Record<SoundName, SoundType> = {
-  warp: "fx",
-  start: "fx",
+  enter: "fx",
+  enterCombat: "fx",
   message: "fx",
   chime1: "fx",
   chime2: "fx",

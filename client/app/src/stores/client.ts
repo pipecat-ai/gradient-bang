@@ -10,7 +10,7 @@ interface ClientStore {
 export default create<ClientStore>((set) => ({
   client: null,
   setClient: (client: PipecatClient) => {
-    console.debug("[MAIN] Pipecat Client:", client)
+    console.debug("%c[GAME] Pipecat Client Created", "color: orange; font-weight: bold")
     set({ client })
   },
   error: null,

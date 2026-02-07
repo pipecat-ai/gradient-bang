@@ -32,7 +32,7 @@ export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
           onAnimationComplete={(definition) => {
             if (definition === "animate") panelRef.current?.focus()
           }}
-          className="h-full bg-background absolute z-9 left-6 right-0 inset-y-0 outline-none pointer-events-auto"
+          className="h-full bg-background absolute z-50 left-6 right-0 inset-y-0 outline-none pointer-events-auto"
         >
           <div className="w-full h-full bg-card border-l text-foreground overflow-hidden">
             <header className="p-ui-xs">

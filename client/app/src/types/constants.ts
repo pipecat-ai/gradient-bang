@@ -9,3 +9,9 @@ export const RESOURCE_VERBOSE_NAMES = {
   retro_organics: "Retro Organics",
   neuro_symbolics: "Neuro Symbolics",
 } as const satisfies Record<Resource, string>
+
+export const PLAYER_TYPE_NAMES = {
+  human: "Human",
+  npc: "NPC",
+  corporation_ship: "Autonomous",
+} as const satisfies Record<PlayerType, string>
