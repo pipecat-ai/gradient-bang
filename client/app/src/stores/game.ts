@@ -27,6 +27,58 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(_store: S) =
   return store
 }
 
+type PortLike =
+  | PortBase
+  | Port
+  | {
+      port_code?: unknown
+      mega?: unknown
+      [key: string]: unknown
+    }
+  | string
+  | null
+  | undefined
+
+const normalizePort = (port: PortLike): PortBase | null => {
+  if (!port) return null
+
+  if (typeof port === "string") {
+    const code = port.trim()
+    if (!code) return null
+    return { code }
+  }
+
+  if (typeof port === "object") {
+    const portObj = port as {
+      code?: unknown
+      port_code?: unknown
+      mega?: unknown
+      [key: string]: unknown
+    }
+    const code =
+      typeof portObj.code === "string"
+        ? portObj.code
+        : typeof portObj.port_code === "string"
+          ? portObj.port_code
+          : null
+    if (!code || !code.trim()) return null
+    if (typeof portObj.code === "string") {
+      return portObj as PortBase
+    }
+    return { ...portObj, code } as PortBase
+  }
+
+  return null
+}
+
+const normalizeMapData = (mapData: MapData): MapData =>
+  mapData.map((sector) => normalizeSector(sector))
+
+const normalizeSector = (sector: Sector): Sector => ({
+  ...sector,
+  port: normalizePort(sector.port as PortLike),
+})
+
 type GameInitState = "not_ready" | "initializing" | "ready" | "error"
 type AlertTypes = "transfer"
 
@@ -316,7 +368,7 @@ const createGameSlice: StateCreator<
   setSector: (sector: Sector) =>
     set(
       produce((state) => {
-        state.sector = sector
+        state.sector = normalizeSector(sector)
       })
     ),
 
@@ -325,6 +377,7 @@ const createGameSlice: StateCreator<
       produce((state) => {
         if (state.sector?.id !== undefined && sectorUpdate.id === state.sector.id) {
           state.sector = { ...state.sector, ...sectorUpdate }
+          state.sector.port = normalizePort(state.sector.port as PortLike)
         }
       })
     ),
@@ -355,22 +408,23 @@ const createGameSlice: StateCreator<
   setSectorBuffer: (sector: Sector) =>
     set(
       produce((state) => {
-        state.sectorBuffer = sector
+        state.sectorBuffer = normalizeSector(sector)
       })
     ),
 
   setLocalMapData: (localMapData: MapData) =>
     set(
       produce((state) => {
-        state.local_map_data = localMapData
+        state.local_map_data = normalizeMapData(localMapData)
       })
     ),
 
   setRegionalMapData: (regionalMapData: MapData) =>
     set(
       produce((state) => {
+        const normalizedMapData = normalizeMapData(regionalMapData)
         if (!state.regional_map_data) {
-          state.regional_map_data = regionalMapData
+          state.regional_map_data = normalizedMapData
           return
         }
 
@@ -379,7 +433,7 @@ const createGameSlice: StateCreator<
           state.regional_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
         )
 
-        for (const sector of regionalMapData) {
+        for (const sector of normalizedMapData) {
           existingById.set(sector.id, sector)
         }
 
@@ -420,9 +474,19 @@ const createGameSlice: StateCreator<
             if (existingIdx !== undefined) {
               // Update existing sector
               Object.assign(mapData[existingIdx], sectorUpdate)
+              if (sectorUpdate.port !== undefined) {
+                const normalizedPort = normalizePort(
+                  (sectorUpdate as MapSectorNode).port as PortLike
+                )
+                mapData[existingIdx].port = normalizedPort as MapSectorNode["port"]
+              }
             } else {
               // Add new sector
-              mapData.push(sectorUpdate as MapSectorNode)
+              const newSector = {
+                ...sectorUpdate,
+                port: normalizePort((sectorUpdate as MapSectorNode).port as PortLike),
+              } as MapSectorNode
+              mapData.push(newSector)
             }
           }
         }

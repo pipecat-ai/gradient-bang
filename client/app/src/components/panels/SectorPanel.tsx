@@ -14,6 +14,7 @@ import {
 
 import { SalvageIcon } from "@/icons"
 import useGameStore from "@/stores/game"
+import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
 import { BlankSlateTile } from "../BlankSlates"
@@ -87,6 +88,7 @@ export const SectorPanel = () => {
   const setActivePanel = useGameStore.use.setActivePanel?.()
 
   const playerCount = useMemo(() => sector?.players?.length ?? 0, [sector?.players])
+  const portCode = useMemo(() => getPortCode(sector?.port ?? null), [sector?.port])
 
   return (
     <RHSPanelContent>
@@ -141,7 +143,7 @@ export const SectorPanel = () => {
                   sector?.port ? "text-fuel-foreground font-bold  z-10" : "text-subtle z-10"
                 )}
               >
-                {sector?.port ? "View " + sector?.port?.code + " port" : "No port in sector"}
+                {sector?.port ? "View " + portCode + " port" : "No port in sector"}
               </span>
               <div className="inline-flex items-center gap-0.5">
                 <ChevronSM className="size-3 text-fuel rotate-90 opacity-20" />

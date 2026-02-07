@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { ScrambleText, type ScrambleTextRef } from "@/fx/ScrambleText"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
+import { getPortCode } from "@/utils/port"
 
 import { Divider } from "./primitives/Divider"
 import { DotDivider } from "./primitives/DotDivider"
@@ -165,6 +166,7 @@ export const SectorTitleBanner = () => {
 
   const showSubBadge =
     (sector && sector.players && sector.players.length > 0) || (sector && sector.port)
+  const portCode = getPortCode(sector?.port ?? null)
   return (
     <AnimatePresence onExitComplete={onExitComplete}>
       {isShowing && (
@@ -194,7 +196,7 @@ export const SectorTitleBanner = () => {
               {sector.port && (
                 <>
                   <span className={sector.port?.mega ? "text-fuel" : "text-terminal"}>
-                    {sector.port?.mega ? "Mega" : ""} {sector.port?.code} Port
+                    {sector.port?.mega ? "Mega" : ""} {portCode} Port
                   </span>
                 </>
               )}

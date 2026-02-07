@@ -1,11 +1,13 @@
 import { Badge } from "@/components/primitives/Badge"
 import useGameStore from "@/stores/game"
+import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
 export const PortBadge = ({ className }: { className?: string }) => {
   const sector = useGameStore.use.sector?.()
   const isAtPort = sector?.id === 0 || sector?.port
   const isMegaPort = sector?.port?.mega ?? false
+  const portCode = getPortCode(sector?.port ?? null)
 
   return (
     <Badge
@@ -23,7 +25,7 @@ export const PortBadge = ({ className }: { className?: string }) => {
       {isMegaPort ?
         "Mega Port"
       : isAtPort ?
-        `Port ${sector?.port?.code}`
+        `Port ${portCode}`
       : "No Port"}
     </Badge>
   )

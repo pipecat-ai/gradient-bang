@@ -4,7 +4,8 @@ import { button, folder, useControls } from "leva"
 import { Story } from "@ladle/react"
 
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
-import { DEFAULT_MAX_BOUNDS, MapScreen } from "@/components/screens/MapScreen"
+import { MapScreen } from "@/components/screens/MapScreen"
+import { DEFAULT_MAX_BOUNDS } from "@/utils/mapZoom"
 import useGameStore from "@/stores/game"
 
 export const BigMapStory: Story = () => {

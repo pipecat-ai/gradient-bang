@@ -694,15 +694,39 @@ async function fetchUniverseRowsByBounds(
   const minY = center[1] - padding;
   const maxY = center[1] + padding;
 
-  const { data, error } = await supabase
-    .from("universe_structure")
-    .select("sector_id, position_x, position_y, region, warps")
-    .gte("position_x", minX)
-    .lte("position_x", maxX)
-    .gte("position_y", minY)
-    .lte("position_y", maxY);
-  if (error) {
-    throw new Error(`failed to load universe rows: ${error.message}`);
+  // Fetch all rows within the bounding box. The default PostgREST limit is
+  // 1000 rows which is too low for large viewport bounds, so we paginate.
+  const allRows: Array<{
+    sector_id: number;
+    position_x: number | null;
+    position_y: number | null;
+    region: string | null;
+    warps: unknown;
+  }> = [];
+  const PAGE_SIZE = 1000;
+  let offset = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data, error } = await supabase
+      .from("universe_structure")
+      .select("sector_id, position_x, position_y, region, warps")
+      .gte("position_x", minX)
+      .lte("position_x", maxX)
+      .gte("position_y", minY)
+      .lte("position_y", maxY)
+      .order("sector_id", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) {
+      throw new Error(`failed to load universe rows: ${error.message}`);
+    }
+    if (!data || data.length === 0) {
+      break;
+    }
+    allRows.push(...data);
+    if (data.length < PAGE_SIZE) {
+      break;
+    }
+    offset += PAGE_SIZE;
   }
 
   const centerWorld = hexToWorldPosition(center[0], center[1]);
@@ -713,7 +737,7 @@ async function fetchUniverseRowsByBounds(
     number,
     { position: [number, number]; region: string | null; warps: WarpEdge[] }
   >();
-  for (const row of data ?? []) {
+  for (const row of allRows) {
     const position: [number, number] = [
       row.position_x ?? 0,
       row.position_y ?? 0,
@@ -1350,9 +1374,9 @@ export async function buildLocalMapRegionByBounds(
 
   const unvisitedSeen = new Map<number, Set<number>>();
   for (const sectorId of visibleVisited) {
-    const entry = knowledge.sectors_visited[String(sectorId)];
-    const adjacent = entry?.adjacent_sectors ?? [];
-    for (const neighbor of adjacent) {
+    const warps = universeRowCache.get(sectorId)?.warps ?? [];
+    for (const warp of warps) {
+      const neighbor = warp.to;
       if (visitedSet.has(neighbor)) {
         continue;
       }
@@ -1362,6 +1386,26 @@ export async function buildLocalMapRegionByBounds(
         unvisitedSeen.set(neighbor, seenFrom);
       }
       seenFrom.add(sectorId);
+    }
+  }
+
+  // Fetch any unvisited neighbor sectors that fell outside the spatial bounds
+  const missingNeighbors = Array.from(unvisitedSeen.keys()).filter(
+    (id) => !universeRowCache.has(id),
+  );
+  if (missingNeighbors.length > 0) {
+    const { data: missingRows, error: missingErr } = await supabase
+      .from("universe_structure")
+      .select("sector_id, position_x, position_y, region, warps")
+      .in("sector_id", missingNeighbors);
+    if (!missingErr && missingRows) {
+      for (const row of missingRows) {
+        universeRowCache.set(row.sector_id, {
+          position: [row.position_x ?? 0, row.position_y ?? 0],
+          region: row.region ?? null,
+          warps: parseWarpEdges(row.warps),
+        });
+      }
     }
   }
 

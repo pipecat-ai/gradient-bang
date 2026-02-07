@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { Dialog } from "radix-ui"
 import { XIcon } from "@phosphor-icons/react"
 
-import { MapScreen } from "@/components/screens/MapScreen"
+import { MapScreenBoundary } from "@/components/screens/MapScreenBoundary"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
@@ -123,7 +123,7 @@ export const ScreenContainer = () => {
               >
                 {displayedScreen.screen === "map" && (
                   <ScreenBase full>
-                    <MapScreen />
+                    <MapScreenBoundary />
                   </ScreenBase>
                 )}
                 {displayedScreen.screen === "ship-details" && (

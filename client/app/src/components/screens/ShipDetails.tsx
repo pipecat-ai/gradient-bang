@@ -37,6 +37,7 @@ import {
 } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatCurrency } from "@/utils/formatting"
+import { getPortCode } from "@/utils/port"
 
 import { DottedTitle } from "../DottedTitle"
 import { Badge } from "../primitives/Badge"
@@ -99,7 +100,7 @@ export const ShipDetails = ({ ship }: { ship: ShipDefinition }) => {
   const { sendUserTextInput } = useGameContext()
   const [imageLoading, setImageLoading] = useState(true)
 
-  const isMegaPort = sector?.port?.code === "SSS"
+  const isMegaPort = getPortCode(sector?.port ?? null) === "SSS"
 
   return (
     <div className="relative flex flex-row gap-ui-md">
