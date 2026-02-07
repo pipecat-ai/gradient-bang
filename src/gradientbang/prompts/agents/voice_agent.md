@@ -98,6 +98,21 @@ Use the `ui_show_panel` tool to switch UI panels:
 
 Show the trade panel when the pilot asks about the port in the current sector.
 
+## Strategy: Finding a Mega-Port
+
+A mega-port offers warp recharge, banking, and ship buying/selling. There are three mega-ports, all in Federation Space.
+
+To help a player find a mega-port:
+1. Check status for current sector and adjacent sectors
+2. Each move, prefer unvisited adjacent sectors
+3. If all neighbors are visited, backtrack through Federation Space sectors
+4. After each move, check if the sector has a mega-port (MEGA designation in port info)
+5. If a sector is outside Federation Space, backtrack immediately
+6. Track visited sectors and regions for informed decisions
+7. If the task instructions suggest trading opportunistically, buy or sell when you pass through sectors with ports
+
+The first time you visit a sector with a mega-port, tell the player you've found a mega-port and suggest recharging the ship's warp power.
+
 ## Critical Rule
 
 FOR MULTI-STEP ACTIONS, ALWAYS CALL THE `start_task` TOOL TO START AN ASYNC TASK.

@@ -15,7 +15,7 @@ from pipecat.frames.frames import FunctionCallResultProperties, LLMMessagesAppen
 import os
 
 from gradientbang.utils.supabase_client import AsyncGameClient
-from gradientbang.utils.prompt_loader import TaskOutputType, build_task_progress_prompt
+from gradientbang.utils.prompt_loader import build_task_progress_prompt
 from gradientbang.utils.task_agent import TaskAgent
 from gradientbang.pipecat_server.chat_history import fetch_chat_history, emit_chat_history
 from gradientbang.pipecat_server.frames import TaskActivityFrame
@@ -204,14 +204,22 @@ class VoiceTaskManager:
         self._finished_task_queue: deque[tuple[str, float]] = deque()
         self._task_log_cursors: Dict[str, int] = {}
 
+        # Onboarding: detect new players who haven't found a mega-port
+        self._onboarding_phase = False
+        self._onboarding_pending = True
+        self._mega_check_request_id: Optional[str] = None
+        self._player_knows_megaport: Optional[bool] = None  # None = unknown
+        self._initial_status_delivered = False
+        self._onboarding_timeout_task: Optional[asyncio.Task] = None
+        self._onboarding_check_task: Optional[asyncio.Task] = None
+        self._ignored_ports_list_request_ids: set[str] = set()
+
         # Build generic tool dispatch map for common game tools
         # Start/stop/ui_show_panel are handled inline in execute_tool_call
         # Note: Most game_client methods require character_id, but the LLM tools
         # don't expose it. We wrap methods to inject self.character_id automatically.
         self._tool_dispatch = {
-            "my_status": lambda: self.game_client.my_status(
-                character_id=self.character_id
-            ),
+            "my_status": lambda: self.game_client.my_status(character_id=self.character_id),
             "leaderboard_resources": lambda **kwargs: self.game_client.leaderboard_resources(
                 character_id=self.character_id, **kwargs
             ),
@@ -232,7 +240,7 @@ class VoiceTaskManager:
             ),
             "corporation_info": lambda **kwargs: self.game_client._request(
                 "corporation.list" if kwargs.get("list_all") else "my_corporation",
-                {} if kwargs.get("list_all") else {"character_id": self.character_id}
+                {} if kwargs.get("list_all") else {"character_id": self.character_id},
             ),
             "rename_ship": lambda **kwargs: self.game_client.rename_ship(
                 character_id=self.character_id, **kwargs
@@ -244,6 +252,7 @@ class VoiceTaskManager:
 
     async def close(self) -> None:
         """Clean up all resources: cancel active tasks and close game clients."""
+        self._reset_onboarding_state()
         # Cancel all active task agents
         for task_id, task_info in list(self._active_tasks.items()):
             task_agent = task_info.get("task_agent")
@@ -328,13 +337,29 @@ class VoiceTaskManager:
         if isinstance(candidate, str) and candidate and candidate != self.display_name:
             self.display_name = candidate
 
+    def _reset_onboarding_state(self) -> None:
+        if self._onboarding_timeout_task and not self._onboarding_timeout_task.done():
+            self._onboarding_timeout_task.cancel()
+        if self._onboarding_check_task and not self._onboarding_check_task.done():
+            self._onboarding_check_task.cancel()
+        self._onboarding_phase = False
+        self._onboarding_pending = True
+        self._mega_check_request_id = None
+        self._player_knows_megaport = None
+        self._initial_status_delivered = False
+        self._onboarding_timeout_task = None
+        self._onboarding_check_task = None
+        self._ignored_ports_list_request_ids.clear()
+
     async def join(self):
         logger.info(f"Joining game as character: {self.character_id}")
+        self._reset_onboarding_state()
         result = await self.game_client.join(self.character_id)
         # Track the join request_id so the resulting status.snapshot triggers
         # LLM inference for the bot's first speaking turn.
         if isinstance(result, Mapping):
             self._track_request_id(result.get("request_id"))
+
         await self.game_client.subscribe_my_messages()
         # Send ships list so client has it on connection
         await self.game_client.list_user_ships(character_id=self.character_id)
@@ -349,7 +374,8 @@ class VoiceTaskManager:
         """Fetch recent chat messages and emit them as a chat.history event."""
         try:
             messages = await fetch_chat_history(
-                self.game_client, self.character_id,
+                self.game_client,
+                self.character_id,
             )
             await emit_chat_history(self.rtvi_processor, messages)
             logger.info(f"Sent initial chat history: {len(messages)} messages")
@@ -631,6 +657,52 @@ class VoiceTaskManager:
         self._last_corporation_id = corp_id
         self._update_polling_scope()
 
+    def _should_onboard_from_status(self, payload: Mapping[str, Any]) -> bool:
+        sector = payload.get("sector")
+        region = None
+        if isinstance(sector, Mapping):
+            region = sector.get("region")
+        if region is None:
+            region = payload.get("region")
+        if isinstance(region, str):
+            normalized = region.strip().lower()
+            if normalized:
+                return "federation" in normalized or "fedspace" in normalized
+        return True
+
+    def _start_onboarding_megaport_check(self) -> None:
+        if self._onboarding_check_task and not self._onboarding_check_task.done():
+            return
+        self._onboarding_check_task = asyncio.create_task(self._issue_megaport_check())
+
+    async def _issue_megaport_check(self) -> None:
+        try:
+            if not self._onboarding_phase:
+                return
+            mega_ack = await self.game_client.list_known_ports(
+                character_id=self.character_id,
+                mega=True,
+                max_hops=100,
+            )
+            mega_req_id = mega_ack.get("request_id") if isinstance(mega_ack, Mapping) else None
+            if not mega_req_id:
+                logger.warning("Onboarding: no request_id from mega-port check, skipping")
+                self._player_knows_megaport = True
+                await self._maybe_complete_onboarding()
+                return
+            if not self._onboarding_phase:
+                self._ignored_ports_list_request_ids.add(mega_req_id)
+                return
+            self._mega_check_request_id = mega_req_id
+            self._onboarding_timeout_task = asyncio.create_task(self._onboarding_timeout())
+            logger.info(f"Onboarding: mega-port check issued, request_id={mega_req_id}")
+        except Exception:
+            logger.exception("Onboarding: mega-port check failed, skipping")
+            self._player_knows_megaport = True
+            await self._maybe_complete_onboarding()
+        finally:
+            if asyncio.current_task() is self._onboarding_check_task:
+                self._onboarding_check_task = None
 
     async def _relay_event(self, event: Dict[str, Any]) -> None:
         self._prune_expired_tasks()
@@ -638,6 +710,15 @@ class VoiceTaskManager:
         payload = event.get("payload")
         event_request_id = event.get("request_id")
         clean_payload = self._strip_internal_event_metadata(payload)
+
+        # Onboarding: drop late mega-port check results
+        if (
+            event_name == "ports.list"
+            and event_request_id
+            and event_request_id in self._ignored_ports_list_request_ids
+        ):
+            logger.info(f"Onboarding: ignoring ports.list for request_id={event_request_id}")
+            return
 
         # Find the task_id for this event (if it belongs to a task)
         task_id: Optional[str] = None
@@ -669,6 +750,23 @@ class VoiceTaskManager:
                 if task_agent and task_game_client and task_game_client != self.game_client:
                     await task_agent._handle_event(event)
 
+        # Onboarding: intercept mega-port check result (don't relay to UI or LLM)
+        if (
+            self._onboarding_phase
+            and event_name == "ports.list"
+            and event_request_id
+            and event_request_id == self._mega_check_request_id
+        ):
+            ports = clean_payload.get("ports", []) if isinstance(clean_payload, Mapping) else []
+            self._player_knows_megaport = len(ports) > 0
+            self._ignored_ports_list_request_ids.add(event_request_id)
+            self._mega_check_request_id = None
+            logger.info(
+                f"Onboarding: mega check result: knows_megaport={self._player_knows_megaport}"
+            )
+            await self._maybe_complete_onboarding()
+            return
+
         player_id: Optional[str] = None
         if isinstance(payload, Mapping):
             player = payload.get("player")
@@ -677,9 +775,7 @@ class VoiceTaskManager:
                 if isinstance(candidate, str) and candidate.strip():
                     player_id = candidate
 
-        is_other_player_event = bool(
-            player_id and player_id != self.character_id
-        )
+        is_other_player_event = bool(player_id and player_id != self.character_id)
 
         # map.update is emitted server-side in Supabase move handler.
 
@@ -709,6 +805,24 @@ class VoiceTaskManager:
                 reason=drop_reason,
             )
             return
+
+        # Onboarding: decide whether to run onboarding on the initial status snapshot
+        if (
+            self._onboarding_pending
+            and not is_other_player_event
+            and event_name == "status.snapshot"
+        ):
+            self._onboarding_pending = False
+            should_onboard = (
+                self._should_onboard_from_status(clean_payload)
+                if isinstance(clean_payload, Mapping)
+                else True
+            )
+            if should_onboard:
+                self._onboarding_phase = True
+                self._start_onboarding_megaport_check()
+            else:
+                logger.info("Onboarding: outside Federation Space, skipping")
 
         # Keep display name in sync from our own status events
         if (
@@ -807,32 +921,32 @@ class VoiceTaskManager:
 
         # Build event XML with optional task_id
         if task_id:
-            event_xml = f"<event name=\"{event_name}\" task_id=\"{task_id}\">\n{summary}\n</event>"
+            event_xml = f'<event name="{event_name}" task_id="{task_id}">\n{summary}\n</event>'
         else:
-            event_xml = f"<event name=\"{event_name}\">\n{summary}\n</event>"
+            event_xml = f'<event name="{event_name}">\n{summary}\n</event>'
 
         # Determine if this event should trigger LLM inference
         # Most events only trigger inference when they came from voice agent's own tool calls
         # (task events don't match our tracked request IDs and handle their own inference)
         inference_triggering_events = {
-            "status.snapshot",       # my_status results
-            "ports.list",            # list_known_ports results
-            "course.plot",           # plot_course results
-            "chat.message",          # Direct messages to bot
+            "status.snapshot",  # my_status results
+            "ports.list",  # list_known_ports results
+            "course.plot",  # plot_course results
+            "chat.message",  # Direct messages to bot
             "combat.round_waiting",  # Need to submit combat action
-            "combat.round_resolved", # Combat updates
-            "combat.ended",          # Combat finished
-            "error",                 # Error messages
+            "combat.round_resolved",  # Combat updates
+            "combat.ended",  # Combat finished
+            "error",  # Error messages
         }
 
         # Events that should always trigger inference (don't require request_id match)
         # These are external events the voice agent must respond to
         always_trigger_events = {
-            "chat.message",          # Incoming messages from other players
+            "chat.message",  # Incoming messages from other players
             "combat.round_waiting",  # Combat system waiting for action
-            "combat.round_resolved", # Combat round completed
-            "combat.ended",          # Combat finished
-            "ship.renamed",          # Corp ship renamed (want to know about all corp activity)
+            "combat.round_resolved",  # Combat round completed
+            "combat.ended",  # Combat finished
+            "ship.renamed",  # Corp ship renamed (want to know about all corp activity)
         }
 
         # Check if event came from voice agent's tool call
@@ -854,6 +968,11 @@ class VoiceTaskManager:
         )
         logger.debug(f"  should_run_llm: {should_run_llm}")
 
+        # Onboarding: suppress initial inference, let _maybe_complete_onboarding trigger it
+        if should_run_llm and self._onboarding_phase and event_name == "status.snapshot":
+            logger.info("Onboarding: suppressing initial status.snapshot inference")
+            should_run_llm = False
+
         # Defer task-scoped events while a tool call is inflight so the tool call
         # appears in context before its resulting events.
         if payload_task_id and self._tool_call_inflight > 0:
@@ -868,6 +987,11 @@ class VoiceTaskManager:
 
         await self._deliver_llm_event(event_xml, should_run_llm)
 
+        # Onboarding: mark status delivered, check if onboarding can complete
+        if self._onboarding_phase and event_name == "status.snapshot":
+            self._initial_status_delivered = True
+            await self._maybe_complete_onboarding()
+
     async def _deliver_llm_event(self, event_xml: str, should_run_llm: bool) -> None:
         await self.rtvi_processor.push_frame(
             LLMMessagesAppendFrame(
@@ -880,6 +1004,63 @@ class VoiceTaskManager:
                 run_llm=should_run_llm,
             )
         )
+
+    async def _maybe_complete_onboarding(self) -> None:
+        """Trigger the first inference once both onboarding conditions are met."""
+        if self._player_knows_megaport is None or not self._initial_status_delivered:
+            return
+        if not self._onboarding_phase:
+            return
+
+        self._onboarding_phase = False
+        current_task = asyncio.current_task()
+        if self._onboarding_timeout_task and not self._onboarding_timeout_task.done():
+            if self._onboarding_timeout_task is not current_task:
+                self._onboarding_timeout_task.cancel()
+            self._onboarding_timeout_task = None
+        if self._onboarding_check_task and not self._onboarding_check_task.done():
+            if self._onboarding_check_task is not current_task:
+                self._onboarding_check_task.cancel()
+            self._onboarding_check_task = None
+        if self._mega_check_request_id:
+            self._ignored_ports_list_request_ids.add(self._mega_check_request_id)
+            self._mega_check_request_id = None
+
+        if not self._player_knows_megaport:
+            onboarding_xml = (
+                '<event name="onboarding">\n'
+                f"This is a new player who has not yet discovered a mega-port. "
+                f"For your first message, welcome {self.display_name} and explain:\n"
+                f"- Welcome them to the Gradient Bang universe\n"
+                f"- You're their friendly ship AI, here to explore and trade together\n"
+                f"- You're in Federation Space, a safe zone where nobody can attack\n"
+                f"- There are three mega-ports in Federation Space for warp recharge\n"
+                f"- Warp power is needed to move, so finding a mega-port is the first priority\n"
+                f"- Ask: should we search for a mega-port now?\n"
+                f"- Ask: do you want to trade along the way, or just focus on finding the mega-port?\n"
+                f"Converse naturally with the player. When they want to search for the mega-port, start a task to find it. Note in the task instructions whether to trade or not. "
+                "</event>"
+            )
+            logger.info("Onboarding: new player, injecting welcome message")
+            await self._deliver_llm_event(onboarding_xml, should_run_llm=True)
+        else:
+            logger.info("Onboarding: player knows mega-ports, normal startup")
+            await self._deliver_llm_event(
+                '<event name="session.start">\nSession started.\n</event>',
+                should_run_llm=True,
+            )
+
+    async def _onboarding_timeout(self, timeout_seconds: float = 10.0) -> None:
+        """Fallback: if mega-port check doesn't return, proceed normally."""
+        try:
+            await asyncio.sleep(timeout_seconds)
+        except asyncio.CancelledError:
+            return
+        if not self._onboarding_phase:
+            return
+        logger.warning(f"Onboarding: timeout after {timeout_seconds}s, proceeding normally")
+        self._player_knows_megaport = True
+        await self._maybe_complete_onboarding()
 
     async def _flush_deferred_llm_events(self) -> None:
         while self._deferred_llm_events:
@@ -999,11 +1180,15 @@ class VoiceTaskManager:
                     return candidate.strip()
             return None
 
-        top_player_name = _extract_name(players[0] if players else None, ("name", "player_name", "character_name"))
+        top_player_name = _extract_name(
+            players[0] if players else None, ("name", "player_name", "character_name")
+        )
         if top_player_name:
             summary += f" Top player: {_shorten_embedded_ids(top_player_name)}."
 
-        top_corp_name = _extract_name(corporations[0] if corporations else None, ("name", "corp_name", "corporation_name"))
+        top_corp_name = _extract_name(
+            corporations[0] if corporations else None, ("name", "corp_name", "corporation_name")
+        )
         if top_corp_name:
             summary += f" Top corp: {_shorten_embedded_ids(top_corp_name)}."
 
@@ -1027,9 +1212,7 @@ class VoiceTaskManager:
 
         return None
 
-    async def _emit_tool_result(
-        self, tool_name: str, payload: Dict[str, Any]
-    ) -> None:
+    async def _emit_tool_result(self, tool_name: str, payload: Dict[str, Any]) -> None:
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
@@ -1042,19 +1225,23 @@ class VoiceTaskManager:
 
     def _create_agent_output_callback(self, task_id: str, task_type: str) -> Callable:
         """Create a task-specific output callback that includes task_id and task_type."""
+
         def _handle_agent_output(text: str, message_type: Optional[str] = None) -> None:
             """Schedule processing of agent output asynchronously."""
             asyncio.create_task(self._task_output_handler(text, message_type, task_id, task_type))
+
         return _handle_agent_output
 
-    def _handle_agent_output(
-        self, text: str, message_type: Optional[str] = None
-    ) -> None:
+    def _handle_agent_output(self, text: str, message_type: Optional[str] = None) -> None:
         """Legacy callback for backwards compatibility - uses player_ship task type."""
         asyncio.create_task(self._task_output_handler(text, message_type, None, "player_ship"))
 
     async def _task_output_handler(
-        self, text: str, message_type: Optional[str] = None, task_id: Optional[str] = None, task_type: str = "player_ship"
+        self,
+        text: str,
+        message_type: Optional[str] = None,
+        task_id: Optional[str] = None,
+        task_type: str = "player_ship",
     ) -> None:
         """Handle output from the task agent.
 
@@ -1064,7 +1251,9 @@ class VoiceTaskManager:
             task_id: Optional task ID for multi-task tracking
             task_type: Type of task ("player_ship" or "corp_ship")
         """
-        logger.info(f"!!! task output: [{message_type}] task_id={task_id} task_type={task_type} {text}")
+        logger.info(
+            f"!!! task output: [{message_type}] task_id={task_id} task_type={task_type} {text}"
+        )
 
         # send everything from the task agent to the client to be displayed
         await self.rtvi_processor.push_frame(
@@ -1117,16 +1306,24 @@ class VoiceTaskManager:
         # Set trace attributes for this task session
         # actor_id is always the human player controlling VoiceTaskManager
         # ship_id is the entity being controlled (character_id for player, ship UUID for corp)
-        with trace_attributes(task_attributes(
-            task_id=task_id,
-            task_type=task_type,
-            ship_id=target_character_id,
-            actor_id=self.character_id,
-            task_description=task_description,
-        )):
+        with trace_attributes(
+            task_attributes(
+                task_id=task_id,
+                task_type=task_type,
+                ship_id=target_character_id,
+                actor_id=self.character_id,
+                task_description=task_description,
+            )
+        ):
             return await self._run_task_impl(
-                task_id, task_agent, task_game_client, task_description,
-                target_character_id, is_corp_ship, task_type, full_task_id
+                task_id,
+                task_agent,
+                task_game_client,
+                task_description,
+                target_character_id,
+                is_corp_ship,
+                task_type,
+                full_task_id,
             )
 
     async def _run_task_impl(
@@ -1230,9 +1427,7 @@ class VoiceTaskManager:
             self.task_agent.cancel()
             self.task_running = False
             # Add immediate feedback
-            self._handle_agent_output(
-                "Cancellation requested - stopping task...", "cancelled"
-            )
+            self._handle_agent_output("Cancellation requested - stopping task...", "cancelled")
 
     @traced
     async def execute_tool_call(self, params: FunctionCallParams):
@@ -1244,18 +1439,18 @@ class VoiceTaskManager:
         {result: ...} on success or {error: ...} on failure. Always calls
         params.result_callback with the same payload.
         """
-        with trace_attributes(voice_session_attributes(
-            character_id=self.character_id,
-            display_name=self.display_name,
-        )):
+        with trace_attributes(
+            voice_session_attributes(
+                character_id=self.character_id,
+                display_name=self.display_name,
+            )
+        ):
             return await self._execute_tool_call_impl(params)
 
     async def _execute_tool_call_impl(self, params: FunctionCallParams):
         """Implementation of execute_tool_call, separated for trace attributes."""
         # Try to discover the tool name from params (Pipecat provides name)
-        tool_name = getattr(params, "name", None) or getattr(
-            params, "function_name", None
-        )
+        tool_name = getattr(params, "name", None) or getattr(params, "function_name", None)
         if not tool_name:
             # Fallback: try to peek at arguments for an injected name (not expected)
             tool_name = "unknown"
@@ -1264,10 +1459,10 @@ class VoiceTaskManager:
         # This prevents duplicate data in context (function_response + event).
         # run_llm=False because the event arrival will trigger inference.
         event_generating_tools = {
-            "my_status",        # generates status.snapshot
-            "plot_course",      # generates course.plot
-            "list_known_ports", # generates ports.list
-            "rename_ship",      # generates ship.renamed
+            "my_status",  # generates status.snapshot
+            "plot_course",  # generates course.plot
+            "list_known_ports",  # generates ports.list
+            "rename_ship",  # generates ship.renamed
         }
 
         # Tools that need explicit run_llm=True because they don't emit
@@ -1314,8 +1509,8 @@ class VoiceTaskManager:
                 # Extract from result (preferred) or fall back to last_request_id
                 req_id = None
                 if isinstance(result, dict):
-                    req_id = result.get('request_id')
-                if not req_id and hasattr(self.game_client, 'last_request_id'):
+                    req_id = result.get("request_id")
+                if not req_id and hasattr(self.game_client, "last_request_id"):
                     req_id = self.game_client.last_request_id
                 if req_id:
                     self._track_request_id(req_id)
@@ -1348,7 +1543,9 @@ class VoiceTaskManager:
                 else:
                     # Return the full content - this is the whole point of the tool
                     content = result.get("content", "") if isinstance(result, dict) else ""
-                    topic = result.get("topic", "unknown") if isinstance(result, dict) else "unknown"
+                    topic = (
+                        result.get("topic", "unknown") if isinstance(result, dict) else "unknown"
+                    )
                     response_payload = {"topic": topic, "content": content}
                     properties = FunctionCallResultProperties(run_llm=True)
                     await params.result_callback(response_payload, properties=properties)
@@ -1383,9 +1580,9 @@ class VoiceTaskManager:
     def _is_valid_uuid(self, value: str) -> bool:
         """Check if a string is a valid UUID format."""
         import re
+
         uuid_pattern = re.compile(
-            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-            re.IGNORECASE
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
         )
         return bool(uuid_pattern.match(value))
 
@@ -1546,7 +1743,10 @@ class VoiceTaskManager:
 
             # Check if this specific ship already has a running task
             for task_id, task_info in self._active_tasks.items():
-                if task_info["target_character_id"] == target_character_id and not task_info["asyncio_task"].done():
+                if (
+                    task_info["target_character_id"] == target_character_id
+                    and not task_info["asyncio_task"].done()
+                ):
                     return {
                         "success": False,
                         "error": f"Ship {target_character_id[:8]}... already has task {task_id} running. Stop it first.",
@@ -1607,7 +1807,9 @@ class VoiceTaskManager:
                 )
             else:
                 task_agent = self.task_agent
-                task_agent.output_callback = self._create_agent_output_callback(short_task_id, task_type)
+                task_agent.output_callback = self._create_agent_output_callback(
+                    short_task_id, task_type
+                )
                 task_agent.set_task_metadata(task_metadata)
                 task_agent.reset_task_state()
 
@@ -1765,7 +1967,10 @@ class VoiceTaskManager:
                 # Cancel player ship task (backwards compatibility)
                 player_ship_task_id = None
                 for tid, task_info in self._active_tasks.items():
-                    if task_info["target_character_id"] == self.character_id and not task_info["asyncio_task"].done():
+                    if (
+                        task_info["target_character_id"] == self.character_id
+                        and not task_info["asyncio_task"].done()
+                    ):
                         player_ship_task_id = tid
                         break
 
@@ -1775,7 +1980,10 @@ class VoiceTaskManager:
                         self.task_agent.cancel()
                         return {"success": True, "message": "Task cancelled"}
                     else:
-                        return {"success": False, "error": "No player ship task is currently running"}
+                        return {
+                            "success": False,
+                            "error": "No player ship task is currently running",
+                        }
 
                 task_info = self._active_tasks[player_ship_task_id]
                 task_agent = task_info["task_agent"]
@@ -1820,11 +2028,7 @@ class VoiceTaskManager:
                 log_char_count,
                 elapsed,
             )
-            event_xml = (
-                f"<event name=\"task.progress\" task_id=\"{task_id}\">\n"
-                f"{summary}\n"
-                f"</event>"
-            )
+            event_xml = f'<event name="task.progress" task_id="{task_id}">\n{summary}\n</event>'
             if self._tool_call_inflight > 0:
                 logger.debug(
                     "Deferring task.progress event while tool calls inflight count={}",
@@ -1844,7 +2048,7 @@ class VoiceTaskManager:
                 exc,
             )
             event_xml = (
-                f"<event name=\"error\" task_id=\"{task_id}\">\n"
+                f'<event name="error" task_id="{task_id}">\n'
                 f"Task progress query failed: {exc}\n"
                 f"</event>"
             )
