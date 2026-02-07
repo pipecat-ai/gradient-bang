@@ -299,6 +299,7 @@ export function GameProvider({ children }: GameProviderProps) {
                     message: `[${data.player.name}] arrived in sector`,
                     meta: {
                       player: data.player,
+                      ship: data.ship,
                       sector: data.sector,
                       direction: "arrive",
                       silent: true,
@@ -312,6 +313,7 @@ export function GameProvider({ children }: GameProviderProps) {
                     message: `[${data.player.name}] departed from sector`,
                     meta: {
                       player: data.player,
+                      ship: data.ship,
                       sector: data.sector,
                       direction: "depart",
                       silent: true,
@@ -565,20 +567,40 @@ export function GameProvider({ children }: GameProviderProps) {
               // Note: we update sector contents in proceeding sector.update event
 
               // @TODO: status update is missing, so we may need to update player state here
+              const salvageDetails: Salvage | undefined =
+                data.salvage_details ??
+                (data.salvage_id ?
+                  {
+                    salvage_id: data.salvage_id,
+                    source:
+                      data.from_ship_name || data.from_ship_type ?
+                        {
+                          ship_name: data.from_ship_name ?? "Unknown",
+                          ship_type: data.from_ship_type ?? "unknown",
+                        }
+                      : undefined,
+                    cargo: data.cargo,
+                    scrap: data.scrap,
+                    credits: data.credits,
+                    created_at: data.timestamp,
+                  }
+                : undefined)
 
               gameStore.addActivityLogEntry({
                 type: "salvage.created",
                 message: `Salvage created in [sector ${
                   data.sector.id
-                }] ${salvageCreatedSummaryString(data.salvage_details as Salvage)}`,
+                }] ${salvageCreatedSummaryString(salvageDetails ?? {})}`,
               })
 
-              gameStore.addToast({
-                type: "salvage.created",
-                meta: {
-                  salvage: data.salvage_details as Salvage,
-                },
-              })
+              if (salvageDetails) {
+                gameStore.addToast({
+                  type: "salvage.created",
+                  meta: {
+                    salvage: salvageDetails,
+                  },
+                })
+              }
               break
             }
 
@@ -784,13 +806,13 @@ export function GameProvider({ children }: GameProviderProps) {
                 logIgnored("combat.round_waiting", "personalPlayerId not set", data)
                 break
               }
-              const isParticipant = data.participants?.some(
+              /*const isParticipant = data.participants?.some(
                 (participant) => participant.id === playerSessionId
               )
               if (!isParticipant) {
                 logIgnored("combat.round_waiting", "not a participant", data)
                 break
-              }
+              }*/
 
               // Immediately set the UI state to be "combat" for user feedback
               gameStore.setUIState("combat")

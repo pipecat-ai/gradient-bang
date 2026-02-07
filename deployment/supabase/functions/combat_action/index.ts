@@ -302,6 +302,89 @@ function normalizeAction(value: string): CombatantAction {
   throw err;
 }
 
+function resolveAttackTargetId(params: {
+  encounter: CombatEncounterState;
+  actorCombatantId: string;
+  targetIdRaw: string;
+}): string {
+  const { encounter, actorCombatantId, targetIdRaw } = params;
+  const targetId = targetIdRaw.trim();
+  if (!targetId) {
+    const err = new Error("Missing target_id for attack") as Error & {
+      status?: number;
+    };
+    err.status = 400;
+    throw err;
+  }
+
+  // Fast path: exact participant ID.
+  if (targetId in encounter.participants) {
+    if (targetId === actorCombatantId) {
+      const err = new Error("Cannot target yourself") as Error & {
+        status?: number;
+      };
+      err.status = 400;
+      throw err;
+    }
+    return targetId;
+  }
+
+  const normalizedTarget = targetId.toLowerCase();
+  const allowPrefixMatch = targetId.length >= 6 && targetId.length <= 12;
+  const matches: string[] = [];
+
+  for (const [pid, candidate] of Object.entries(encounter.participants)) {
+    if (pid === actorCombatantId) {
+      continue;
+    }
+
+    const metadata = (candidate.metadata ?? {}) as Record<string, unknown>;
+    const candidateName = candidate.name;
+    const candidateShipId =
+      typeof metadata.ship_id === "string" ? metadata.ship_id : null;
+    const candidateShipName =
+      typeof metadata.ship_name === "string" ? metadata.ship_name : null;
+    const candidateLegacyId =
+      typeof metadata.legacy_character_id === "string"
+        ? metadata.legacy_character_id
+        : null;
+
+    const exactMatch =
+      pid === targetId ||
+      candidateName === targetId ||
+      candidateShipId === targetId ||
+      candidateShipName === targetId ||
+      candidateLegacyId === targetId;
+    const caseInsensitiveMatch =
+      candidateName.toLowerCase() === normalizedTarget ||
+      (candidateShipName?.toLowerCase() ?? "") === normalizedTarget;
+    const prefixMatch =
+      allowPrefixMatch &&
+      (pid.startsWith(targetId) || (candidateShipId?.startsWith(targetId) ?? false));
+
+    if (exactMatch || caseInsensitiveMatch || prefixMatch) {
+      matches.push(pid);
+    }
+  }
+
+  if (matches.length === 1) {
+    return matches[0];
+  }
+  if (matches.length > 1) {
+    const err = new Error(
+      "Target is ambiguous in this encounter; use full participant id",
+    ) as Error & { status?: number };
+    err.status = 409;
+    throw err;
+  }
+
+  const err = new Error("Target combatant not found in encounter") as Error & {
+    status?: number;
+  };
+  err.status = 404;
+  throw err;
+}
+
 async function buildActionState(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   encounter: CombatEncounterState;
@@ -331,16 +414,11 @@ async function buildActionState(params: {
       err.status = 400;
       throw err;
     }
-    if (
-      targetId === participant.combatant_id ||
-      !encounter.participants[targetId]
-    ) {
-      const err = new Error(
-        "Target combatant not found in encounter",
-      ) as Error & { status?: number };
-      err.status = 404;
-      throw err;
-    }
+    targetId = resolveAttackTargetId({
+      encounter,
+      actorCombatantId: participant.combatant_id,
+      targetIdRaw: targetId,
+    });
     commit = Math.max(
       1,
       Math.min(commit || participant.fighters, participant.fighters),

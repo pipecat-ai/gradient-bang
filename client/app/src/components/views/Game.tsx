@@ -44,7 +44,7 @@ export const Game = () => {
   useEffect(() => {
     if (uiState === "combat") {
       console.debug("%c[GAME] Entering combat", "color: red; font-weight: bold")
-      useAudioStore.getState().playSound("enterCombat", { volume: 0.4, once: true, loop: false })
+      useAudioStore.getState().playSound("enterCombat", { volume: 0.1, once: true, loop: false })
       // Reset look mode and active screen
       const gameStore = useGameStore.getState()
       gameStore.setLookMode(false)

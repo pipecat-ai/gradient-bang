@@ -36,6 +36,10 @@ const soundTypes: Record<SoundName, SoundType> = {
   text: "fx",
   ambience: "ambience",
   currency: "fx",
+  impact1: "fx",
+  impact2: "fx",
+  impact3: "fx",
+  impact4: "fx",
 }
 
 interface AudioState {

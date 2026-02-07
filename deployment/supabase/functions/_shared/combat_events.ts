@@ -44,9 +44,11 @@ function buildParticipantPayload(
     fighter_loss: ctx.fighterLoss && ctx.fighterLoss > 0 ? ctx.fighterLoss : null,
   };
   return {
+    id: participant.combatant_id,
     created_at: typeof metadata.first_visit === 'string' ? metadata.first_visit : new Date().toISOString(),
     name: participant.name,
     player_type: (metadata.player_type as string) ?? 'human',
+    ship_id: typeof metadata.ship_id === 'string' ? metadata.ship_id : null,
     ship: shipPayload,
   };
 }

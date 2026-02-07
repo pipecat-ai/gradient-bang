@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/primitives/Select"
 import { useGameContext } from "@/hooks/useGameContext"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { getRoundOutcome, getRoundOutcomeTone } from "@/utils/combat"
 import { cn } from "@/utils/tailwind"
@@ -159,6 +160,10 @@ export const CombatActionPanel = () => {
     if (damageTaken <= 0) return
 
     animateImpact(0.015, 200, 1000, 100, 2000)
+    const impactSounds = ["impact1", "impact2", "impact3", "impact4"] as const
+    useAudioStore
+      .getState()
+      .playSound(impactSounds[Math.floor(Math.random() * impactSounds.length)], { volume: 0.3 })
   }, [combatId, latestPersonalResult, animateImpact])
 
   const pendingReceipt = useMemo(() => {

@@ -36,6 +36,10 @@ import chime7Sound from "./sounds/chime-7.wav"
 import currencySound from "./sounds/currency.wav"
 import enterSound from "./sounds/enter.wav"
 import enterCombatSound from "./sounds/enter-combat.wav"
+import impact1Sound from "./sounds/impact-1.wav"
+import impact2Sound from "./sounds/impact-2.wav"
+import impact3Sound from "./sounds/impact-3.wav"
+import impact4Sound from "./sounds/impact-4.wav"
 import messageSound from "./sounds/message.wav"
 import textSound from "./sounds/text.wav"
 // Videos
@@ -92,6 +96,10 @@ export const sounds = {
   chime5: chime5Sound,
   chime6: chime6Sound,
   chime7: chime7Sound,
+  impact1: impact1Sound,
+  impact2: impact2Sound,
+  impact3: impact3Sound,
+  impact4: impact4Sound,
   text: textSound,
   ambience: ambienceSound,
   currency: currencySound,

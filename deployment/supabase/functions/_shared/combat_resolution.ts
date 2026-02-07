@@ -28,7 +28,7 @@ import {
 import { persistCombatState } from "./combat_state.ts";
 
 const ROUND_TIMEOUT_SECONDS = Number(
-  Deno.env.get("COMBAT_ROUND_TIMEOUT") ?? "15",
+  Deno.env.get("COMBAT_ROUND_TIMEOUT") ?? "30",
 );
 const SHIELD_REGEN_PER_ROUND = Number(
   Deno.env.get("SHIELD_REGEN_PER_ROUND") ?? "10",
