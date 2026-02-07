@@ -20,6 +20,7 @@ import { useGameContext } from "@/hooks/useGameContext"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { getRoundOutcome, getRoundOutcomeTone } from "@/utils/combat"
+import { formatCurrency } from "@/utils/formatting"
 import { cn } from "@/utils/tailwind"
 
 const DEFAULT_ROUND_MS = 15_000
@@ -40,6 +41,7 @@ type PersonalRoundResult = {
   round: number
   action: string
   outcome: string
+  target: string | null
   hits: number
   offensiveLosses: number
   defensiveLosses: number
@@ -117,6 +119,17 @@ export const CombatActionPanel = () => {
       if (!action) continue
 
       const keyCandidates = [participant?.id, participant?.name, playerId, playerName]
+      const participantNameById = new Map<string, string>()
+      for (const entry of round.participants ?? []) {
+        if (entry.id) {
+          participantNameById.set(entry.id, entry.name)
+        }
+      }
+      const targetFromId =
+        action.target_id ? (participantNameById.get(action.target_id) ?? action.target_id) : null
+      const targetFromRaw =
+        action.target ? (participantNameById.get(action.target) ?? action.target) : null
+
       const hits = readCombatValue(round.hits, keyCandidates) ?? 0
       const offensiveLosses = readCombatValue(round.offensive_losses, keyCandidates) ?? 0
       const defensiveLosses = readCombatValue(round.defensive_losses, keyCandidates) ?? 0
@@ -129,6 +142,7 @@ export const CombatActionPanel = () => {
         round: round.round,
         action: action.action.toUpperCase(),
         outcome: getRoundOutcome(round),
+        target: targetFromId ?? targetFromRaw ?? null,
         hits,
         offensiveLosses,
         defensiveLosses,
@@ -144,8 +158,9 @@ export const CombatActionPanel = () => {
 
   const latestPersonalResult = personalRoundResults[0]
 
+  // Damage received effect
   useEffect(() => {
-    if (!combatId || !latestPersonalResult) return
+    if (!combatId || !latestPersonalResult || !activeCombatSession) return
 
     const roundKey = `${combatId}:${latestPersonalResult.round}`
     if (lastDamageNoticeRoundRef.current === roundKey) return
@@ -159,12 +174,13 @@ export const CombatActionPanel = () => {
 
     if (damageTaken <= 0) return
 
+    // Damage received this round: play impact animation and sound
     animateImpact(0.015, 200, 1000, 100, 2000)
     const impactSounds = ["impact1", "impact2", "impact3", "impact4"] as const
     useAudioStore
       .getState()
-      .playSound(impactSounds[Math.floor(Math.random() * impactSounds.length)], { volume: 0.3 })
-  }, [combatId, latestPersonalResult, animateImpact])
+      .playSound(impactSounds[Math.floor(Math.random() * impactSounds.length)], { volume: 1 })
+  }, [combatId, latestPersonalResult, animateImpact, activeCombatSession])
 
   const pendingReceipt = useMemo(() => {
     if (!activeCombatSession) return null
@@ -210,10 +226,37 @@ export const CombatActionPanel = () => {
 
   const selectedAttackTarget =
     attackTargets.find((target) => target.key === selectedTargetKey) ?? attackTargets[0] ?? null
+  const currentFighters =
+    typeof latestPersonalResult?.fightersRemaining === "number" ?
+      latestPersonalResult.fightersRemaining
+    : typeof ship.fighters === "number" ? ship.fighters
+    : 0
+  const currentShields =
+    typeof latestPersonalResult?.shieldsRemaining === "number" ?
+      latestPersonalResult.shieldsRemaining
+    : typeof ship.shields === "number" ? ship.shields
+    : 0
+  const canAttack = currentFighters > 0
+  const canBrace = currentShields > 0
+  const canPayToll = Boolean(activeCombatSession?.garrison)
+  const payTollAmount = activeCombatSession?.garrison?.toll_amount ?? null
 
   const handleSubmitAction = () => {
     if (!activeCombatSession) return
     setError(null)
+
+    if (selectedAction === "attack" && !canAttack) {
+      setError("Attack unavailable: no fighters remaining")
+      return
+    }
+    if (selectedAction === "brace" && !canBrace) {
+      setError("Brace unavailable: no shields remaining")
+      return
+    }
+    if (selectedAction === "pay" && !canPayToll) {
+      setError("Pay is unavailable for this round")
+      return
+    }
 
     const commit = Number.parseInt(attackCommit, 10)
     if (selectedAction === "attack" && (!Number.isFinite(commit) || commit <= 0)) {
@@ -222,6 +265,10 @@ export const CombatActionPanel = () => {
     }
     if (selectedAction === "attack" && !selectedAttackTarget) {
       setError("No valid target available for attack")
+      return
+    }
+    if (selectedAction === "pay" && !canPayToll) {
+      setError("Pay is unavailable for this round")
       return
     }
 
@@ -310,6 +357,11 @@ export const CombatActionPanel = () => {
                   key={action}
                   variant={selectedAction === action ? "default" : "secondary"}
                   size="sm"
+                  disabled={
+                    (action === "attack" && !canAttack) ||
+                    (action === "brace" && !canBrace) ||
+                    (action === "pay" && !canPayToll)
+                  }
                   onClick={() => {
                     setSelectedAction(action)
                     setError(null)
@@ -359,6 +411,15 @@ export const CombatActionPanel = () => {
                   : "No target found"}
                 </div>
               </div>
+            : selectedAction === "pay" ?
+              <div className="p-ui-xs border border-accent bg-subtle-background text-xxs uppercase text-subtle-foreground">
+                Toll:{" "}
+                <span className="text-foreground font-bold">
+                  {typeof payTollAmount === "number" ?
+                    `${formatCurrency(payTollAmount, "standard")} credits`
+                  : "No toll available"}
+                </span>
+              </div>
             : null}
 
             {error ?
@@ -369,8 +430,12 @@ export const CombatActionPanel = () => {
               size="sm"
               onClick={handleSubmitAction}
               disabled={
-                (selectedAction === "attack" && Number.parseInt(attackCommit, 10) <= 0) ||
-                (selectedAction === "attack" && attackTargets.length === 0)
+                (selectedAction === "attack" &&
+                  (!canAttack ||
+                    Number.parseInt(attackCommit, 10) <= 0 ||
+                    attackTargets.length === 0)) ||
+                (selectedAction === "brace" && !canBrace) ||
+                (selectedAction === "pay" && !canPayToll)
               }
             >
               Submit {selectedAction}
@@ -411,9 +476,12 @@ export const CombatActionPanel = () => {
                         {result.outcome}
                       </span>
                     </div>
+                    <div className="text-xxs uppercase text-subtle-foreground truncate">
+                      Target: {result.target ?? "—"}
+                    </div>
                     <div className="grid grid-cols-3 gap-ui-xs text-xxs uppercase">
                       <div className="border border-accent bg-card p-1 text-center">
-                        <div className="text-muted-foreground">Hits</div>
+                        <div className="text-muted-foreground">Hits on Target</div>
                         <div className="font-bold text-foreground">{result.hits}</div>
                       </div>
                       <div className="border border-accent bg-card p-1 text-center">

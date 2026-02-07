@@ -3,7 +3,7 @@ import { useMemo, useState } from "react"
 import { Card, CardContent } from "@/components/primitives/Card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/primitives/Popover"
 import { ShipDetailsCallout } from "@/components/ShipDetailsCallout"
-import { FighterIcon, ShieldIcon } from "@/icons"
+import { FighterIcon, GarrisonIcon, ShieldIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import {
   getRoundDestroyedCount,
@@ -143,6 +143,50 @@ const CombatParticipant = ({
   )
 }
 
+const CombatGarrison = ({ garrison }: { garrison: CombatGarrison }) => {
+  const destroyed = garrison.fighters <= 0
+
+  return (
+    <li className="relative flex-1 flex flex-row items-center gap-ui-xs p-ui-xs bg-accent-background even:bg-subtle-background">
+      <div
+        className={cn(
+          "size-6 flex items-center justify-center transition-opacity duration-200",
+          destroyed ? "opacity-30 cross-lines-destructive" : ""
+        )}
+      >
+        <GarrisonIcon className="size-5 text-foreground" weight="duotone" />
+      </div>
+      <div className="flex-1 flex flex-col gap-1 border-l border-accent px-ui-xs uppercase">
+        <strong className={cn("text-xs font-semibold", destroyed ? "text-destructive" : "")}>
+          {garrison.owner_name} Garrison
+        </strong>
+        <footer className="flex flex-row items-center gap-2 uppercase text-xxs">
+          <div className="inline-flex items-center gap-1 text-muted-foreground">
+            <FighterIcon className="size-4" weight="duotone" />
+            <span className="text-foreground font-bold">{garrison.fighters}</span>
+            {garrison.fighter_loss ?
+              <span className="text-warning">(-{garrison.fighter_loss})</span>
+            : null}
+          </div>
+          <DotDivider />
+          <div className="inline-flex items-center gap-1 text-muted-foreground">
+            <span>Mode:</span>
+            <span className="text-foreground font-bold">{garrison.mode}</span>
+          </div>
+          <DotDivider />
+          <div className="inline-flex items-center gap-1 text-muted-foreground">
+            <span>Toll:</span>
+            <span className="text-terminal font-bold">{garrison.toll_amount}</span>
+          </div>
+          {destroyed ?
+            <div className="ml-auto text-destructive font-bold">Destroyed</div>
+          : null}
+        </footer>
+      </div>
+    </li>
+  )
+}
+
 const CombatRoundSummaryPanel = ({
   round,
   participants = [],
@@ -270,12 +314,33 @@ const CombatRoundSummaryPanel = ({
 
 export const CombatAsidePanel = () => {
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
+  const localPlayer = useGameStore.use.player?.()
   const activeCombatSession = useGameStore.use.activeCombatSession?.()
   const combatRounds = useGameStore.use.combatRounds?.()
   const [selectedRound, setSelectedRound] = useState<CombatRound | null>(null)
   const latestCombatRound =
     combatRounds && combatRounds.length > 0 ? combatRounds[combatRounds.length - 1] : undefined
   const combatInitiator = activeCombatSession?.initiator
+  const garrisonView = useMemo(() => {
+    const sessionGarrison = activeCombatSession?.garrison ?? null
+    const latestGarrison = latestCombatRound?.garrison ?? null
+
+    if (!latestGarrison && !sessionGarrison) {
+      return null
+    }
+    if (!latestGarrison) {
+      return sessionGarrison
+    }
+    if (!sessionGarrison) {
+      return latestGarrison
+    }
+
+    return {
+      ...sessionGarrison,
+      ...latestGarrison,
+    }
+  }, [activeCombatSession?.garrison, latestCombatRound?.garrison])
+
   const participantViews = useMemo(() => {
     if (!activeCombatSession?.participants?.length) {
       return []
@@ -293,49 +358,57 @@ export const CombatAsidePanel = () => {
       latestByName.set(participant.name, participant)
     }
 
-    const views = activeCombatSession.participants.map((sessionParticipant) => {
-      const latestParticipant =
-        (sessionParticipant.id ? latestById.get(sessionParticipant.id) : undefined) ??
-        latestByName.get(sessionParticipant.name)
+    const views = activeCombatSession.participants
+      .filter((sessionParticipant) => {
+        if (!localPlayer) return true
+        if (localPlayer.id && sessionParticipant.id) {
+          return sessionParticipant.id !== localPlayer.id
+        }
+        return sessionParticipant.name !== localPlayer.name
+      })
+      .map((sessionParticipant) => {
+        const latestParticipant =
+          (sessionParticipant.id ? latestById.get(sessionParticipant.id) : undefined) ??
+          latestByName.get(sessionParticipant.name)
 
-      const participant: CombatParticipant =
-        latestParticipant ?
-          {
-            ...sessionParticipant,
-            ...latestParticipant,
-            ship: {
-              ...sessionParticipant.ship,
-              ...latestParticipant.ship,
-            },
-          }
-        : sessionParticipant
+        const participant: CombatParticipant =
+          latestParticipant ?
+            {
+              ...sessionParticipant,
+              ...latestParticipant,
+              ship: {
+                ...sessionParticipant.ship,
+                ...latestParticipant.ship,
+              },
+            }
+          : sessionParticipant
 
-      const combatantId = latestParticipant?.id ?? sessionParticipant.id
-      const fightersRemaining =
-        combatantId ? (latestCombatRound?.fighters_remaining?.[combatantId] ?? null) : null
-      const shieldsRemaining =
-        combatantId ? (latestCombatRound?.shields_remaining?.[combatantId] ?? null) : null
-      const destroyed = typeof fightersRemaining === "number" && fightersRemaining <= 0
-      const fled = Boolean(combatantId && latestCombatRound?.flee_results?.[combatantId])
-      const actionState =
-        latestRoundActions[participant.name] ??
-        (combatantId ? latestRoundActions[combatantId] : undefined)
-      const paid = actionState?.action === "pay"
+        const combatantId = latestParticipant?.id ?? sessionParticipant.id
+        const fightersRemaining =
+          combatantId ? (latestCombatRound?.fighters_remaining?.[combatantId] ?? null) : null
+        const shieldsRemaining =
+          combatantId ? (latestCombatRound?.shields_remaining?.[combatantId] ?? null) : null
+        const destroyed = typeof fightersRemaining === "number" && fightersRemaining <= 0
+        const fled = Boolean(combatantId && latestCombatRound?.flee_results?.[combatantId])
+        const actionState =
+          latestRoundActions[participant.name] ??
+          (combatantId ? latestRoundActions[combatantId] : undefined)
+        const paid = actionState?.action === "pay"
 
-      const isInitiator =
-        !!combatInitiator &&
-        (participant.id === combatInitiator || participant.name === combatInitiator)
+        const isInitiator =
+          !!combatInitiator &&
+          (participant.id === combatInitiator || participant.name === combatInitiator)
 
-      return {
-        participant,
-        fightersRemaining,
-        shieldsRemaining,
-        destroyed,
-        fled,
-        paid,
-        isInitiator,
-      }
-    })
+        return {
+          participant,
+          fightersRemaining,
+          shieldsRemaining,
+          destroyed,
+          fled,
+          paid,
+          isInitiator,
+        }
+      })
 
     // Keep original relative order, but force initiator row to top.
     views.sort((a, b) => {
@@ -344,7 +417,7 @@ export const CombatAsidePanel = () => {
     })
 
     return views
-  }, [activeCombatSession?.participants, combatInitiator, latestCombatRound])
+  }, [activeCombatSession?.participants, combatInitiator, latestCombatRound, localPlayer])
 
   return (
     <>
@@ -375,6 +448,12 @@ export const CombatAsidePanel = () => {
               )
             )}
           </ul>
+          <DottedTitle title="Garrisons" textColor="text-foreground" />
+          {garrisonView ?
+            <ul className="flex flex-col bg-card">
+              <CombatGarrison garrison={garrisonView} />
+            </ul>
+          : <BlankSlateTile text="No garrison in combat" />}
           <span className="text-xxs uppercase text-accent-foreground">
             Initiator: {combatInitiator}
           </span>

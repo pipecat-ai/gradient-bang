@@ -1,6 +1,7 @@
 import {
   ArrowUUpRightIcon,
   AtomIcon,
+  CastleTurretIcon,
   CoinVerticalIcon,
   CpuIcon,
   CubeIcon,
@@ -26,3 +27,4 @@ export const TurnsPerWarpIcon = ArrowUUpRightIcon
 export const CargoIcon = CubeIcon
 export const EquipmentSlotsIcon = SquaresFourIcon
 export const SalvageIcon = GearSixIcon
+export const GarrisonIcon = CastleTurretIcon

@@ -1,3 +1,9 @@
+import type { GameStore } from "@/stores/game"
+
+import { wait } from "./animation"
+
+import type { ShipDestroyedMessage } from "@/types/messages"
+
 export const getShieldColor = (shieldIntegrity: number) => {
   if (shieldIntegrity < 25) {
     return "text-destructive"
@@ -8,9 +14,7 @@ export const getShieldColor = (shieldIntegrity: number) => {
   return "text-success"
 }
 
-export const getRoundOutcome = (
-  round: Pick<CombatRound, "round_result" | "result" | "end">
-) => {
+export const getRoundOutcome = (round: Pick<CombatRound, "round_result" | "result" | "end">) => {
   const outcomeRaw = round.round_result ?? round.result ?? round.end
   return outcomeRaw ? String(outcomeRaw).replace(/_/g, " ") : "continued"
 }
@@ -54,3 +58,141 @@ export const getRoundFledCount = (round: CombatRound) =>
 
 export const getRoundPaidCount = (round: CombatRound) =>
   Object.values(round.actions ?? {}).filter((action) => action.action === "pay").length
+
+const readRoundValue = (
+  values: Record<string, number> | undefined,
+  keys: (string | null | undefined)[]
+) => {
+  if (!values) return undefined
+  for (const key of keys) {
+    if (!key) continue
+    if (key in values) return values[key]
+  }
+  return undefined
+}
+
+const syncShipFromCombatRound = (gameStore: GameStore, combatRound: CombatRound) => {
+  const playerId = typeof gameStore.player?.id === "string" ? gameStore.player.id : undefined
+  const playerName = typeof gameStore.player?.name === "string" ? gameStore.player.name : undefined
+
+  const playerParticipant = combatRound.participants?.find(
+    (participant) =>
+      (playerId && participant.id === playerId) || (playerName && participant.name === playerName)
+  )
+
+  const keyCandidates = [playerParticipant?.id, playerParticipant?.name, playerId, playerName]
+  const fighters = readRoundValue(combatRound.fighters_remaining, keyCandidates)
+  const shields = readRoundValue(combatRound.shields_remaining, keyCandidates)
+
+  if (!Number.isFinite(fighters) && !Number.isFinite(shields)) {
+    return
+  }
+
+  gameStore.setShip({
+    ...(Number.isFinite(fighters) ? { fighters: Math.max(0, fighters as number) } : {}),
+    ...(Number.isFinite(shields) ? { shields: Math.max(0, shields as number) } : {}),
+  })
+}
+
+export const applyCombatRoundWaitingState = (
+  gameStore: GameStore,
+  combatSession: CombatSession
+) => {
+  gameStore.setUIState("combat")
+
+  const activeCombatId = gameStore.activeCombatSession?.combat_id
+  const incomingCombatId = combatSession.combat_id
+  const shouldStartSession =
+    !gameStore.activeCombatSession || (activeCombatId && activeCombatId !== incomingCombatId)
+
+  if (shouldStartSession) {
+    gameStore.setActiveCombatSession(combatSession)
+    gameStore.addActivityLogEntry({
+      type: "combat.session.started",
+      message: `Combat session started with ${combatSession.participants.length} participants`,
+    })
+    return
+  }
+
+  gameStore.updateActiveCombatSession({
+    participants: combatSession.participants,
+    garrison: combatSession.garrison ?? null,
+    round: combatSession.round,
+    deadline: combatSession.deadline,
+    current_time: combatSession.current_time,
+    initiator: combatSession.initiator,
+  })
+}
+
+export const applyCombatRoundResolvedState = (gameStore: GameStore, combatRound: CombatRound) => {
+  gameStore.addCombatRound(combatRound)
+  syncShipFromCombatRound(gameStore, combatRound)
+  gameStore.addActivityLogEntry({
+    type: "combat.round.resolved",
+    message: `Combat round ${combatRound.round} resolved in sector ${combatRound.sector.id}`,
+  })
+}
+
+export const applyCombatActionAcceptedState = (
+  gameStore: GameStore,
+  receipt: CombatActionReceipt
+) => {
+  gameStore.addCombatActionReceipt(receipt)
+  gameStore.addActivityLogEntry({
+    type: "combat.action.accepted",
+    message: `Combat action accepted for round ${receipt.round}: [${receipt.action}]`,
+  })
+}
+
+export const applyCombatEndedState = async (
+  gameStore: GameStore,
+  combatEnded: CombatEndedRound
+) => {
+  gameStore.addCombatRound(combatEnded)
+  syncShipFromCombatRound(gameStore, combatEnded)
+  if (combatEnded.ship) {
+    gameStore.setShip(combatEnded.ship)
+  }
+  gameStore.addCombatHistory(combatEnded)
+  gameStore.setLastCombatEnded(combatEnded)
+  gameStore.setUIState("idle")
+  gameStore.endActiveCombatSession()
+  gameStore.addActivityLogEntry({
+    type: "combat.session.ended",
+    message: `Combat session ended with result: [${combatEnded.result}]`,
+  })
+
+  await wait(1000)
+
+  gameStore.setActiveScreen("combat-results", combatEnded)
+}
+
+export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDestroyedMessage) => {
+  const localShipId = gameStore.ship?.ship_id
+  const localPlayerName = gameStore.player?.name
+  const isLocalShipDestroyed =
+    (typeof localShipId === "string" && destroyed.ship_id === localShipId) ||
+    (destroyed.player_type !== "corporation_ship" &&
+      typeof localPlayerName === "string" &&
+      destroyed.player_name === localPlayerName)
+
+  const shipDescription =
+    isLocalShipDestroyed ? "[Your ship]"
+    : destroyed.player_type === "corporation_ship" ?
+      `Corporation ship [${destroyed.ship_name ?? destroyed.ship_type}]`
+    : `[${destroyed.player_name}]'s ship`
+
+  if (isLocalShipDestroyed) {
+    gameStore.setShip({
+      fighters: 0,
+      shields: 0,
+    })
+  }
+
+  gameStore.addActivityLogEntry({
+    type: "ship.destroyed",
+    message: `${shipDescription} destroyed in [sector ${destroyed.sector.id}]${
+      destroyed.salvage_created ? " - salvage created" : ""
+    }`,
+  })
+}

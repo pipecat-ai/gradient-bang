@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import type { Story } from "@ladle/react"
 
+import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
 import {
   COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK,
   COMBAT_ROUND_WAITING_PAYLOAD_MOCK,
@@ -808,6 +809,22 @@ export const CombatFlowStory: Story = () => {
 }
 
 CombatFlowStory.meta = {
+  useDevTools: true,
+  useChatControls: false,
+  disconnectedStory: true,
+  enableMic: false,
+  disableAudioOutput: true,
+}
+
+export const CombatActionPanelOnlyStory: Story = () => {
+  return (
+    <div className="h-screen bg-background text-foreground p-4">
+      <CombatActionPanel />
+    </div>
+  )
+}
+
+CombatActionPanelOnlyStory.meta = {
   useDevTools: true,
   useChatControls: false,
   disconnectedStory: true,

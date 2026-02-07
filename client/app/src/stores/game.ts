@@ -494,9 +494,15 @@ export const selectIncomingMessageCount = (state: GameSlice) =>
     (message) => message.type === "direct" && message.from_name !== state.player?.name
   )?.length ?? 0
 
-const useGameStoreBase = create<
-  GameSlice & ChatSlice & CombatSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
->()(
+export type GameStoreState = GameSlice &
+  ChatSlice &
+  CombatSlice &
+  HistorySlice &
+  TaskSlice &
+  SettingsSlice &
+  UISlice
+
+const useGameStoreBase = create<GameStoreState>()(
   subscribeWithSelector((...a) => ({
     ...createGameSlice(...a),
     ...createChatSlice(...a),
@@ -510,5 +516,5 @@ const useGameStoreBase = create<
 
 const useGameStore = createSelectors(useGameStoreBase)
 
-export type GameStore = ReturnType<typeof useGameStoreBase>
+export type GameStore = GameStoreState
 export default useGameStore

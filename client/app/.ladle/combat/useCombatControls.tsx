@@ -1,22 +1,21 @@
 import { button, buttonGroup, folder, useControls } from "leva"
 
 import useGameStore from "@/stores/game"
+import {
+  applyCombatActionAcceptedState,
+  applyCombatEndedState,
+  applyCombatRoundResolvedState,
+  applyCombatRoundWaitingState,
+  applyShipDestroyedState,
+} from "@/utils/combat"
 
 import {
   COMBAT_ACTION_ACCEPTED_PAYLOAD_MOCK,
   COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK,
   COMBAT_ENDED_PAYLOAD_MOCK,
-  COMBAT_ERROR_PAYLOAD_MOCK,
   COMBAT_EVENT_PAYLOADS_MOCK,
   COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK,
   COMBAT_ROUND_WAITING_PAYLOAD_MOCK,
-  COMBAT_SECTOR_UPDATE_FULL_PAYLOAD_MOCK,
-  COMBAT_SECTOR_UPDATE_MINIMAL_PAYLOAD_MOCK,
-  GARRISON_CHARACTER_MOVED_PAYLOAD_MOCK,
-  GARRISON_COLLECTED_PAYLOAD_MOCK,
-  GARRISON_DEPLOYED_PAYLOAD_MOCK,
-  GARRISON_MODE_CHANGED_PAYLOAD_MOCK,
-  SALVAGE_CREATED_PAYLOAD_MOCK,
   SHIP_DESTROYED_PAYLOAD_MOCK,
 } from "@/mocks/combat.mock"
 
@@ -31,14 +30,19 @@ const applyCombatRoundWaiting = () => {
   const state = useGameStore.getState()
   const nowIso = new Date().toISOString()
   const deadlineIso = new Date(Date.now() + 15_000).toISOString()
+
+  // Seed local player/ship/sector state first so combat UI has a valid actor context.
+  state.setPlayer(COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.player)
+  state.setShip(COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.ship)
+  state.setSector(COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.sector)
+
   const roundWaitingPayload: CombatSession = {
     ...COMBAT_ROUND_WAITING_PAYLOAD_MOCK,
     round: 1,
     current_time: nowIso,
     deadline: deadlineIso,
   }
-  state.setUIState("combat")
-  state.setActiveCombatSession(roundWaitingPayload)
+  applyCombatRoundWaitingState(state, roundWaitingPayload)
 }
 
 const applyCombatActionAccepted = (action: CombatActionType) => {
@@ -52,23 +56,15 @@ const applyCombatActionAccepted = (action: CombatActionType) => {
     target_id: action === "attack" ? COMBAT_ACTION_ACCEPTED_PAYLOAD_MOCK.target_id : null,
   }
 
-  state.addCombatActionReceipt(receipt)
-  state.addActivityLogEntry({
-    type: "combat.action.accepted",
-    message: `Accepted [${receipt.action}] for round ${receipt.round}`,
-  })
+  applyCombatActionAcceptedState(state, receipt)
 }
 
 const applyCombatRoundResolved = () => {
   const state = useGameStore.getState()
-  state.addCombatRound(COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK)
-  state.addActivityLogEntry({
-    type: "combat.round.resolved",
-    message: `Combat round ${COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK.round} resolved in sector ${COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK.sector.id}`,
-  })
+  applyCombatRoundResolvedState(state, COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK)
 }
 
-const applyRandomCombatRoundResult = () => {
+const applyRandomCombatRoundResult = (forcedAction?: "attack" | "brace" | "flee") => {
   const state = useGameStore.getState()
   if (!state.activeCombatSession) {
     applyCombatRoundWaiting()
@@ -103,10 +99,16 @@ const applyRandomCombatRoundResult = () => {
   const actions: Record<string, CombatAction> = {}
 
   const updatedParticipants = participants.map((participant) => {
+    const isPlayerParticipant =
+      Boolean(refreshed.player?.id && participant.id === refreshed.player.id) ||
+      Boolean(refreshed.player?.name && participant.name === refreshed.player.name)
     const participantId = participant.id ?? participant.name
     const targetPool = participants.filter((candidate) => candidate.id !== participant.id)
     const target = targetPool.length > 0 ? pickRandom(targetPool) : null
-    const action = pickRandom<CombatActionType>(["attack", "brace", "flee", "pay"])
+    const action =
+      forcedAction && isPlayerParticipant ?
+        forcedAction
+      : pickRandom<CombatActionType>(["attack", "brace", "flee", "pay"])
     const previousFighters =
       latestRound?.fighters_remaining?.[participantId] ?? randomInt(20, 80)
     const previousShields =
@@ -204,44 +206,36 @@ const applyRandomCombatRoundResult = () => {
     round_result: null,
   }
 
-  state.addCombatRound(randomRound)
-  state.updateActiveCombatSession({
+  applyCombatRoundResolvedState(state, randomRound)
+
+  const nextWaitingState: CombatSession = {
+    ...activeCombatSession,
     participants: updatedParticipants,
     garrison: randomRound.garrison,
     round: nextRound + 1,
     current_time: new Date().toISOString(),
     deadline: new Date(Date.now() + 15_000).toISOString(),
-  })
-  state.addActivityLogEntry({
-    type: "combat.round.randomized",
-    message: `Randomized round ${nextRound} added`,
-  })
+  }
+  applyCombatRoundWaitingState(state, nextWaitingState)
 }
 
-const applyCombatEnded = () => {
+const applyCombatEnded = (overrides?: { ship?: CombatEndedRound["ship"] }) => {
   const state = useGameStore.getState()
+  const combatId = state.activeCombatSession?.combat_id ?? COMBAT_ENDED_PAYLOAD_MOCK.combat_id
   const combatEndedRound: CombatEndedRound = {
     ...COMBAT_ENDED_PAYLOAD_MOCK,
-    ship:
-      COMBAT_ENDED_PAYLOAD_MOCK.ship ?
+    combat_id: combatId,
+    ship: overrides?.ship
+      ?? (COMBAT_ENDED_PAYLOAD_MOCK.ship ?
         {
           ...COMBAT_ENDED_PAYLOAD_MOCK.ship,
           turns_per_warp: COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.ship.turns_per_warp,
           warp_power_capacity: COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.ship.warp_power_capacity,
         }
-      : undefined,
+      : undefined),
   }
 
-  state.addCombatRound(COMBAT_ENDED_PAYLOAD_MOCK)
-  state.addCombatHistory(combatEndedRound)
-  state.setLastCombatEnded(combatEndedRound)
-  state.setActiveScreen("combat-results", combatEndedRound)
-  state.endActiveCombatSession()
-  state.setUIState("idle")
-  state.addActivityLogEntry({
-    type: "combat.session.ended",
-    message: `Combat ended with result [${COMBAT_ENDED_PAYLOAD_MOCK.result}]`,
-  })
+  applyCombatEndedState(state, combatEndedRound)
 }
 
 const applyOpenCombatResults = () => {
@@ -267,100 +261,63 @@ const applyCombatReset = () => {
 }
 
 const applyShipDestroyed = () => {
-  const state = useGameStore.getState()
-  state.addActivityLogEntry({
-    type: "ship.destroyed",
-    message: `${SHIP_DESTROYED_PAYLOAD_MOCK.player_name}'s ship destroyed in sector ${SHIP_DESTROYED_PAYLOAD_MOCK.sector.id}`,
-  })
-}
-
-const applySalvageCreated = () => {
-  const state = useGameStore.getState()
-  const salvageFromPayload: Salvage = {
-    salvage_id: SALVAGE_CREATED_PAYLOAD_MOCK.salvage_id ?? "unknown-salvage",
-    cargo: SALVAGE_CREATED_PAYLOAD_MOCK.cargo,
-    scrap: SALVAGE_CREATED_PAYLOAD_MOCK.scrap,
-    credits: SALVAGE_CREATED_PAYLOAD_MOCK.credits,
-    source: {
-      ship_name: SALVAGE_CREATED_PAYLOAD_MOCK.from_ship_name ?? "Unknown",
-      ship_type: SALVAGE_CREATED_PAYLOAD_MOCK.from_ship_type ?? "unknown",
-    },
+  if (!useGameStore.getState().activeCombatSession) {
+    applyCombatRoundWaiting()
   }
-  state.addToast({
-    type: "salvage.created",
-    meta: {
-      salvage: salvageFromPayload,
-    },
+
+  const state = useGameStore.getState()
+  const combatId = state.activeCombatSession?.combat_id ?? SHIP_DESTROYED_PAYLOAD_MOCK.combat_id
+
+  applyShipDestroyedState(state, {
+    ...SHIP_DESTROYED_PAYLOAD_MOCK,
+    combat_id: combatId,
   })
-  state.addActivityLogEntry({
-    type: "salvage.created",
-    message: `Salvage created in sector ${SALVAGE_CREATED_PAYLOAD_MOCK.sector.id}`,
-  })
+
+  applyCombatEnded()
 }
 
-const applySectorUpdateFull = () => {
-  const state = useGameStore.getState()
-  state.setSector(COMBAT_SECTOR_UPDATE_FULL_PAYLOAD_MOCK)
-}
-
-const applySectorUpdateMinimal = () => {
-  const state = useGameStore.getState()
-  state.updateSector({
-    id: COMBAT_SECTOR_UPDATE_MINIMAL_PAYLOAD_MOCK.sector.id,
-  })
-}
-
-const applyGarrisonDeployed = () => {
-  const state = useGameStore.getState()
-  state.addActivityLogEntry({
-    type: "garrison.deployed",
-    message: `Garrison deployed in sector ${GARRISON_DEPLOYED_PAYLOAD_MOCK.sector.id} with ${GARRISON_DEPLOYED_PAYLOAD_MOCK.garrison.fighters} fighters`,
-  })
-}
-
-const applyGarrisonCollected = () => {
-  const state = useGameStore.getState()
-  state.addActivityLogEntry({
-    type: "garrison.collected",
-    message: `Collected ${GARRISON_COLLECTED_PAYLOAD_MOCK.fighters_on_ship} fighters to ship`,
-  })
-}
-
-const applyGarrisonModeChanged = () => {
-  const state = useGameStore.getState()
-  state.addActivityLogEntry({
-    type: "garrison.mode_changed",
-    message: `Garrison mode changed to [${GARRISON_MODE_CHANGED_PAYLOAD_MOCK.garrison.mode}]`,
-  })
-}
-
-const applyStatusUpdateFromCollect = () => {
-  const state = useGameStore.getState()
-  state.setPlayer(COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.player)
-  state.setShip(COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.ship)
-  state.setSector(COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.sector)
-}
-
-const applyGarrisonCharacterMoved = () => {
-  const state = useGameStore.getState()
-  const payload = GARRISON_CHARACTER_MOVED_PAYLOAD_MOCK
-  if (payload.movement === "depart") {
-    state.removeSectorPlayer(payload.player)
-  } else {
-    state.addSectorPlayer(payload.player)
+const applyOwnShipDestroyed = () => {
+  if (!useGameStore.getState().activeCombatSession) {
+    applyCombatRoundWaiting()
   }
-  state.addActivityLogEntry({
-    type: "garrison.character_moved",
-    message: `${payload.player.name} ${payload.movement === "depart" ? "departed" : "arrived"} near garrison`,
-  })
-}
 
-const applyCombatError = () => {
   const state = useGameStore.getState()
-  state.addActivityLogEntry({
-    type: "error",
-    message: `[${COMBAT_ERROR_PAYLOAD_MOCK.endpoint}] ${COMBAT_ERROR_PAYLOAD_MOCK.error}`,
+  const combatId = state.activeCombatSession?.combat_id ?? SHIP_DESTROYED_PAYLOAD_MOCK.combat_id
+  const localShip = state.ship
+  const localPlayer = state.player
+
+  applyShipDestroyedState(state, {
+    ...SHIP_DESTROYED_PAYLOAD_MOCK,
+    combat_id: combatId,
+    ship_id: localShip?.ship_id ?? SHIP_DESTROYED_PAYLOAD_MOCK.ship_id,
+    ship_type: localShip?.ship_type ?? SHIP_DESTROYED_PAYLOAD_MOCK.ship_type,
+    ship_name: localShip?.ship_name ?? SHIP_DESTROYED_PAYLOAD_MOCK.ship_name,
+    player_type: "human",
+    player_name: localPlayer?.name ?? SHIP_DESTROYED_PAYLOAD_MOCK.player_name,
   })
+
+  const cargoCapacity =
+    localShip?.cargo_capacity ?? COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.ship.cargo_capacity
+
+  const destroyedShipSnapshot: CombatEndedRound["ship"] = {
+    ...COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.ship,
+    ship_id: localShip?.ship_id ?? COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.ship.ship_id,
+    ship_type: "escape_pod",
+    ship_name: "Escape Pod",
+    credits: 0,
+    cargo: {
+      quantum_foam: 0,
+      retro_organics: 0,
+      neuro_symbolics: 0,
+    },
+    cargo_capacity: cargoCapacity,
+    empty_holds: cargoCapacity,
+    warp_power: 0,
+    shields: 0,
+    fighters: 0,
+  }
+
+  applyCombatEnded({ ship: destroyedShipSnapshot })
 }
 
 const getLatestRoundForActiveCombat = (state: ReturnType<typeof useGameStore.getState>) => {
@@ -503,6 +460,11 @@ export const useCombatControls = () => {
               }),
               ["Round Resolved"]: button(() => applyCombatRoundResolved()),
               ["Random Round Result"]: button(() => applyRandomCombatRoundResult()),
+              ["Random Round (Force Action)"]: buttonGroup({
+                Attack: () => applyRandomCombatRoundResult("attack"),
+                Brace: () => applyRandomCombatRoundResult("brace"),
+                Flee: () => applyRandomCombatRoundResult("flee"),
+              }),
               ["Combat Ended"]: button(() => applyCombatEnded()),
               ["Open Results Screen"]: button(() => applyOpenCombatResults()),
               ["Run Full Timeline"]: button(() => applyCombatTimeline()),
@@ -512,16 +474,8 @@ export const useCombatControls = () => {
           ),
           ["Side Events"]: folder(
             {
-              ["Ship Destroyed"]: button(() => applyShipDestroyed()),
-              ["Salvage Created"]: button(() => applySalvageCreated()),
-              ["Sector Update (Full)"]: button(() => applySectorUpdateFull()),
-              ["Sector Update (Minimal)"]: button(() => applySectorUpdateMinimal()),
-              ["Garrison Deployed"]: button(() => applyGarrisonDeployed()),
-              ["Garrison Collected"]: button(() => applyGarrisonCollected()),
-              ["Garrison Mode Changed"]: button(() => applyGarrisonModeChanged()),
-              ["Status Update (Collect)"]: button(() => applyStatusUpdateFromCollect()),
-              ["Garrison Character Moved"]: button(() => applyGarrisonCharacterMoved()),
-              ["Combat Error"]: button(() => applyCombatError()),
+              ["Ship Destroyed (Other)"]: button(() => applyShipDestroyed()),
+              ["Your Ship Destroyed"]: button(() => applyOwnShipDestroyed()),
             },
             { collapsed: true }
           ),
