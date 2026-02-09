@@ -14,6 +14,8 @@ import { useTaskControls } from "./useTaskControls"
 import { INCOMING_CHAT_TOOL_CALL_MOCK } from "@/mocks/chat.mock"
 import { LEADERBOARD_DATA_MOCK } from "@/mocks/misc.mock"
 import {
+  createRandomPlayer,
+  createRandomUnownedShip,
   MEGA_PORT_MOCK,
   PLAYER_MOVEMENT_HISTORY_MOCK,
   PORT_MOCK,
@@ -38,6 +40,7 @@ export const LevaControls = ({
   const addSectorPlayer = useGameStore.use.addSectorPlayer()
   const removeSectorPlayer = useGameStore.use.removeSectorPlayer()
   const addActivityLogEntry = useGameStore.use.addActivityLogEntry()
+  const updateSector = useGameStore.use.updateSector()
 
   const isFirstRender = useRef(true)
 
@@ -185,6 +188,31 @@ export const LevaControls = ({
           const currentCredits = ship?.credits ?? 0
           setShip({ ...ship, credits: currentCredits - 1000 })
         }),
+        ["Add Random Player"]: button(() => {
+          const player = createRandomPlayer()
+          addSectorPlayer(player)
+          addActivityLogEntry({
+            type: "character.moved",
+            message: `[${player.name}] arrived in sector`,
+            meta: {
+              direction: "arrive",
+              player: { id: player.id, name: player.name },
+              ship: player.ship,
+              silent: true,
+            },
+          })
+        }),
+
+        ["Add Unowned Ship"]: button(() => {
+          const sector = useGameStore.getState().sector
+          if (!sector) return
+          const ship = createRandomUnownedShip()
+          updateSector({
+            id: sector.id,
+            unowned_ships: [...(sector.unowned_ships ?? []), ship],
+          })
+        }),
+
         ["Mock Player Arrive"]: button(() => {
           const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
           const name = faker.person.fullName()

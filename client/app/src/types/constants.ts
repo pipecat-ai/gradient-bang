@@ -13,5 +13,5 @@ export const RESOURCE_VERBOSE_NAMES = {
 export const PLAYER_TYPE_NAMES = {
   human: "Human",
   npc: "NPC",
-  corporation_ship: "Autonomous",
+  corporation_ship: "Corporation Ship",
 } as const satisfies Record<PlayerType, string>

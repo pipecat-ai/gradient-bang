@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react"
 
 import { Card, CardContent } from "@/components/primitives/Card"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/primitives/Popover"
-import { ShipDetailsCallout } from "@/components/ShipDetailsCallout"
+import { ShipLogoPopover } from "@/components/ShipLogoPopover"
 import { useFlashAnimation } from "@/hooks/useFlashAnimation"
 import { FighterIcon, GarrisonIcon, ShieldIcon } from "@/icons"
 import useGameStore from "@/stores/game"
@@ -16,14 +15,12 @@ import {
   sumRecordValues,
 } from "@/utils/combat"
 import { formatCurrency } from "@/utils/formatting"
-import { getShipLogoImage } from "@/utils/images"
 import { cn } from "@/utils/tailwind"
 
 import { BlankSlateTile } from "../BlankSlates"
 import { DottedTitle } from "../DottedTitle"
 import { Badge } from "../primitives/Badge"
 import { DotDivider } from "../primitives/DotDivider"
-import { InfoIconSM } from "../svg/InfoIconSM"
 import { CombatRoundTablePanel } from "./DataTablePanels"
 import { RHSSubPanel } from "./RHSPanelContainer"
 
@@ -46,46 +43,17 @@ const CombatParticipant = ({
   fled?: boolean
   paid?: boolean
 }) => {
-  const [popoverOpen, setPopoverOpen] = useState(false)
   const isInitiator =
     !!initiator && (participant.id === initiator || participant.name === initiator)
-  const isInactive = destroyed || fled || paid
   return (
     <li className="relative flex-1 flex flex-row items-center gap-ui-xs p-ui-xs bg-accent-background even:bg-subtle-background">
-      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "group not-[]:size-6 select-none relative cursor-pointer transition-opacity duration-200",
-              popoverOpen ? "opacity-30" : "",
-              destroyed ? "cross-lines-destructive"
-              : fled ? "cross-lines-warning"
-              : paid ? "cross-lines-terminal"
-              : ""
-            )}
-          >
-            <img
-              src={getShipLogoImage(participant.ship.ship_type)}
-              alt={participant.ship.ship_name}
-              width={32}
-              height={32}
-              className={
-                isInactive ? "opacity-30"
-                : !popoverOpen ?
-                  "group-hover:opacity-30"
-                : ""
-              }
-            />
-            <span className="absolute inset-0 flex items-center justify-center pointer-events-none invisible group-hover:visible">
-              <InfoIconSM className="shrink-0 size-3 text-foreground" />
-            </span>
-          </button>
-        </PopoverTrigger>
-        <PopoverContent side="left" className="w-72">
-          <ShipDetailsCallout ship_type={participant.ship.ship_type} />
-        </PopoverContent>
-      </Popover>
+      <ShipLogoPopover
+        ship_type={participant.ship.ship_type}
+        alt={participant.ship.ship_name}
+        destroyed={destroyed}
+        fled={fled}
+        paid={paid}
+      />
       <div className="flex-1 flex flex-col gap-1 border-l border-accent px-ui-xs uppercase">
         <strong
           className={cn(

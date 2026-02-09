@@ -9,6 +9,10 @@ export const SHIP_LOGO_IMAGE_MAP = {
   corsair_raider: images.corsairRaiderLogo,
   kestrel_courier: images.kestrelLogo,
   pike_frigate: images.pikeFrigateLogo,
+  pioneer_lifter: images.pioneerLifterLogo,
+  sovereign_starcruiser: images.sovereignStarcruiserLogo,
+  sparrow_scout: images.sparrowScoutLogo,
+  wayfarer_freighter: images.wayfarerFreighterLogo,
 }
 
 export const getShipLogoImage = (shipType: string) => {

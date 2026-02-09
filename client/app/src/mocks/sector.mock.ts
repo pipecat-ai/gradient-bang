@@ -1,4 +1,90 @@
+import { faker } from "@faker-js/faker"
+
 import type { CharacterMovedMessage } from "@/types/messages"
+import { SHIP_DEFINITIONS } from "@/types/ships"
+
+const PLAYER_TYPES: PlayerType[] = ["human", "npc", "corporation_ship"]
+
+const CORP_NAME_PREFIXES = [
+  "Stellar", "Quantum", "Nova", "Apex", "Void",
+  "Nebula", "Crimson", "Shadow", "Iron", "Obsidian",
+]
+const CORP_NAME_SUFFIXES = [
+  "Industries", "Syndicate", "Collective", "Corp", "Alliance",
+  "Trading Co.", "Enterprises", "Holdings", "Group", "Federation",
+]
+
+function createRandomCorporation(): Corporation {
+  const prefix = faker.helpers.arrayElement(CORP_NAME_PREFIXES)
+  const suffix = faker.helpers.arrayElement(CORP_NAME_SUFFIXES)
+  return {
+    corp_id: faker.string.uuid(),
+    name: `${prefix} ${suffix}`,
+    member_count: faker.number.int({ min: 1, max: 50 }),
+    joined_at: faker.date.recent({ days: 30 }).toISOString(),
+  }
+}
+
+function pickRandomShipDef() {
+  return faker.helpers.arrayElement(SHIP_DEFINITIONS)
+}
+
+export function createRandomPlayer(): Player {
+  const playerType = faker.helpers.arrayElement(PLAYER_TYPES)
+  const id = faker.string.uuid()
+  const shipDef = pickRandomShipDef()
+  const name =
+    playerType === "corporation_ship"
+      ? `Corp Ship [${id.slice(0, 6)}]`
+      : faker.person.fullName()
+
+  // Corp ships always have a corporation, humans sometimes do, NPCs never
+  const hasCorp =
+    playerType === "corporation_ship"
+      ? true
+      : playerType === "human"
+        ? faker.datatype.boolean()
+        : false
+
+  return {
+    id,
+    name,
+    player_type: playerType,
+    corporation: hasCorp ? createRandomCorporation() : undefined,
+    ship: {
+      ship_id: faker.string.uuid(),
+      ship_name: shipDef.display_name,
+      ship_type: shipDef.ship_type,
+      fighters: faker.number.int({ min: 0, max: shipDef.fighters }),
+      shields: faker.number.int({ min: 0, max: shipDef.shields }),
+      owner_type:
+        playerType === "corporation_ship"
+          ? "corporation"
+          : playerType === "npc"
+            ? "personal"
+            : "personal",
+    },
+  }
+}
+
+export function createRandomUnownedShip(): ShipUnowned {
+  const shipDef = pickRandomShipDef()
+  return {
+    ship_id: faker.string.uuid(),
+    ship_name: shipDef.display_name,
+    ship_type: shipDef.ship_type,
+    fighters: faker.number.int({ min: 0, max: shipDef.fighters }),
+    shields: faker.number.int({ min: 0, max: shipDef.shields }),
+    owner_type: "unowned",
+    became_unowned: faker.date.recent({ days: 7 }).toISOString(),
+    former_owner_name: faker.person.fullName(),
+    cargo: {
+      quantum_foam: faker.number.int({ min: 0, max: 50 }),
+      retro_organics: faker.number.int({ min: 0, max: 50 }),
+      neuro_symbolics: faker.number.int({ min: 0, max: 50 }),
+    },
+  }
+}
 
 export const SECTOR_MOCK: Sector = {
   id: 1,

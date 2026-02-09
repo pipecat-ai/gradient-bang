@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 
 import type { Icon } from "@phosphor-icons/react"
 import {
@@ -19,6 +19,7 @@ import { cn } from "@/utils/tailwind"
 
 import { BlankSlateTile } from "../BlankSlates"
 import { Button } from "../primitives/Button"
+import { ButtonGroup } from "../primitives/ButtonGroup"
 import { Card, CardContent, CardHeader, CardTitle } from "../primitives/Card"
 import { Divider } from "../primitives/Divider"
 import { ChevronSM } from "../svg/ChevronSM"
@@ -88,9 +89,27 @@ const SectorInfoRow = ({
 export const SectorPanel = () => {
   const sector = useGameStore.use.sector?.()
   const setActivePanel = useGameStore.use.setActivePanel?.()
+  const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
   const uiState = useGameStore.use.uiState?.()
 
-  const playerCount = useMemo(() => sector?.players?.length ?? 0, [sector?.players])
+  const [shipSubPanelFilter, setShipSubPanelFilter] = useState<PlayerType>("human")
+
+  const humanPlayerCount = useMemo(
+    () =>
+      sector?.players?.length ?
+        sector?.players.filter((player) => player.player_type === "human").length
+      : 0,
+    [sector?.players]
+  )
+  const autonomousPlayerCount = useMemo(
+    () =>
+      sector?.players?.length ?
+        sector?.players.filter(
+          (player) => player.player_type === "corporation_ship" || player.player_type === "npc"
+        ).length
+      : 0,
+    [sector?.players]
+  )
   const portCode = useMemo(() => getPortCode(sector?.port ?? null), [sector?.port])
 
   return (
@@ -137,12 +156,17 @@ export const SectorPanel = () => {
             <Divider variant="dotted" className="h-[6px] mb-ui-sm text-accent-background" />
             <Button
               variant="ghost"
-              onClick={() => setActivePanel("trade")}
+              disabled={!sector?.port}
+              onClick={() => {
+                if (sector?.port) {
+                  setActivePanel("trade")
+                }
+              }}
               className={cn(
                 "w-full relative px-0 text-xs hover:bg-fuel-background/40 text-foreground",
                 sector?.port ?
                   "bg-fuel-background/60 text-fuel-foreground border border-fuel"
-                : "text-subtle-background after:content-[''] after:absolute after:inset-0 after:bg-stripes-sm after:bg-stripes-accent-background"
+                : "disabled:opacity-100 text-subtle-background after:content-[''] after:absolute after:inset-0 after:bg-stripes-sm after:bg-stripes-accent-background"
               )}
             >
               <div className="flex-1 flex flex-row items-center justify-between p-ui-xs">
@@ -178,16 +202,22 @@ export const SectorPanel = () => {
                 value="view"
                 empty="Unknown"
                 Icon={UserIcon}
-                count={playerCount}
-                onClick={() => setActivePanel("trade")}
+                count={humanPlayerCount}
+                onClick={() => {
+                  setShipSubPanelFilter("human")
+                  setActiveSubPanel("players")
+                }}
               />
               <SectorInfoRow
                 label="Autonomous"
                 value="view"
                 empty="Unknown"
                 Icon={HeadCircuitIcon}
-                count={0}
-                onClick={() => setActivePanel("trade")}
+                count={autonomousPlayerCount}
+                onClick={() => {
+                  setShipSubPanelFilter("corporation_ship")
+                  setActiveSubPanel("players")
+                }}
               />
               <Divider
                 variant="dotted"
@@ -227,8 +257,35 @@ export const SectorPanel = () => {
         </Card>
       </RHSPanelContent>
 
-      <RHSSubPanel>
-        <SectorShipSubPanel />
+      <RHSSubPanel
+        headerContent={
+          <ButtonGroup className="bg-background/60">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShipSubPanelFilter("human")}
+              className={
+                shipSubPanelFilter === "human" ? "bg-background text-accent-foreground" : ""
+              }
+            >
+              Human
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShipSubPanelFilter("corporation_ship")}
+              className={
+                shipSubPanelFilter === "corporation_ship" ?
+                  "bg-background text-accent-foreground"
+                : ""
+              }
+            >
+              Autonomous
+            </Button>
+          </ButtonGroup>
+        }
+      >
+        <SectorShipSubPanel sector={sector} filter={shipSubPanelFilter} />
       </RHSSubPanel>
     </>
   )

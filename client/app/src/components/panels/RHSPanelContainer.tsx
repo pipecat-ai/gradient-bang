@@ -13,7 +13,13 @@ import { ScrollArea } from "@/components/primitives/ScrollArea"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
-export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
+export const RHSSubPanel = ({
+  children,
+  headerContent,
+}: {
+  children: React.ReactNode
+  headerContent?: React.ReactNode
+}) => {
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -35,11 +41,12 @@ export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
           className="h-full bg-background absolute z-50 left-6 right-0 inset-y-0 outline-none pointer-events-auto"
         >
           <div className="w-full h-full bg-card border-l text-foreground overflow-hidden">
-            <header className="p-ui-xs">
+            <header className="p-ui-xs flex flex-row gap-ui-xs items-center justify-between">
               <Button variant="link" onClick={() => setActiveSubPanel(undefined)} size="sm">
                 <ArrowLeftIcon size={16} weight="bold" />
                 Go Back
               </Button>
+              {headerContent}
             </header>
             <ScrollArea className="p-ui-xs w-full h-full pointer-events-auto *:pb-24">
               {children}

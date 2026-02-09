@@ -20,9 +20,9 @@ declare global {
   }
 
   interface Player extends PlayerBase {
-    // player_type: "npc" | "human" | "corporation_ship"
     ship: Ship
     corporation?: Corporation
+    player_type?: PlayerType
   }
 
   // --- CORPORATION
