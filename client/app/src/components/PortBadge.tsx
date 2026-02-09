@@ -25,7 +25,7 @@ export const PortBadge = ({ className }: { className?: string }) => {
       {isMegaPort ?
         "Mega Port"
       : isAtPort ?
-        `Port ${portCode}`
+        `${portCode} Port`
       : "No Port"}
     </Badge>
   )

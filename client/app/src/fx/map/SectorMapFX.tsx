@@ -1,5 +1,5 @@
-import { getPortCode } from "@/utils/port"
 import { DEFAULT_MAX_BOUNDS } from "@/utils/map"
+import { getPortCode } from "@/utils/port"
 
 import { MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
 
@@ -1030,10 +1030,10 @@ function getNodeStyle(
     }
   } else if (coursePlotSectors && !isInPlot) {
     baseStyle = config.nodeStyles.muted
-  } else if (isCurrent) {
-    baseStyle = config.nodeStyles.current
   } else if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
+  } else if (isCurrent) {
+    baseStyle = config.nodeStyles.current
   } else if (isVisited) {
     if (node.source === "corp") {
       baseStyle = config.nodeStyles.visited_corp
