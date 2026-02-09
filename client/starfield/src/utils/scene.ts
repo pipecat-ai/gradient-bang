@@ -18,7 +18,7 @@ export function generateRandomScene(
     Math.random() * (skyboxAssets?.length || 1)
   )
 
-  const randomPlanetScale = Math.floor(Math.random() * 110) + 30 // 30-140
+  const randomPlanetScale = Math.floor(Math.random() * 100) + 30 // 30-100
 
   // Opacity: smaller planets are more transparent
   const randomPlanetOpacity =

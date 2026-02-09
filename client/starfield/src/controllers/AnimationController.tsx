@@ -13,6 +13,14 @@ import { useShowControls } from "@/hooks/useStarfieldControls"
 import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
 
+const TRANSITION_SHAKE_CONFIG = {
+  mode: "circular",
+  strength: 0.01,
+  frequency: 10,
+  duration: 2000,
+  rampUpTime: 800,
+  settleTime: 1000,
+}
 /**
  * AnimationController - Manages all scene animations
  *
@@ -22,6 +30,7 @@ import { useGameStore } from "@/useGameStore"
  * - Reacting to suspenseReady signal to start fade-in animation
  * - Runtime animations (dim, exposure, hyperspace, shockwave)
  */
+
 export function AnimationController() {
   const showControls = useShowControls()
   const initialAnimationPlayed = useRef(false)
@@ -45,7 +54,10 @@ export function AnimationController() {
           "color: blue; font-weight: bold"
         )
         const { animations } = useAnimationStore.getState()
-        animations.shake?.start()
+        animations.shake?.start({
+          ...TRANSITION_SHAKE_CONFIG,
+          mode: "circular",
+        })
         animations.hyperspace?.start(
           "exit",
           () => {
@@ -66,10 +78,10 @@ export function AnimationController() {
 
     // Enter: start shake + scene change, Exit: stop shake + undim
     if (direction === "enter") {
-      animations.shake?.start()
+      animations.shake?.start({ ...TRANSITION_SHAKE_CONFIG, mode: "circular" })
       animations.sceneChange?.start("enter")
     } else {
-      animations.shake?.stop()
+      animations.shake?.start({ ...TRANSITION_SHAKE_CONFIG, mode: "circular" })
       animations.sceneChange?.start("exit")
     }
   }, [])
