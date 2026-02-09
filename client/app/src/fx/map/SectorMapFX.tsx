@@ -1032,6 +1032,17 @@ function getNodeStyle(
     baseStyle = config.nodeStyles.muted
   } else if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
+    // If this is also the current sector, carry over the offset frame indicator
+    if (isCurrent) {
+      const cs = config.nodeStyles.current
+      baseStyle = {
+        ...baseStyle,
+        offset: cs.offset,
+        offsetColor: cs.offsetColor,
+        offsetSize: cs.offsetSize,
+        offsetWeight: cs.offsetWeight,
+      }
+    }
   } else if (isCurrent) {
     baseStyle = config.nodeStyles.current
   } else if (isVisited) {
