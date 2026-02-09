@@ -1,5 +1,5 @@
 import { getPortCode } from "@/utils/port"
-import { DEFAULT_MAX_BOUNDS } from "@/utils/mapZoom"
+import { DEFAULT_MAX_BOUNDS } from "@/utils/map"
 
 import { MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
 
@@ -1385,10 +1385,7 @@ function calculateCameraState(
       const availableWidth = Math.max(width - framePadding * 2, 1)
       const availableHeight = Math.max(height - framePadding * 2, 1)
       const referenceZoom = DEFAULT_MAX_BOUNDS
-      const minZoom = Math.max(
-        0.08,
-        0.3 * (referenceZoom / Math.max(maxDistance, referenceZoom))
-      )
+      const minZoom = Math.max(0.08, 0.3 * (referenceZoom / Math.max(maxDistance, referenceZoom)))
       const zoom = Math.max(
         minZoom,
         Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5)

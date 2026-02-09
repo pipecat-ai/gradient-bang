@@ -169,14 +169,19 @@ declare global {
     prices: Record<Resource, number>
     port_class?: number
     observed_at?: string
-
-    //warp_power_depot?: PortWarpPowerDepot
   }
 
-  // interface PortWarpPowerDepot {
-  //   note?: string
-  //   price_per_unit: number
-  // }
+  type PortLike =
+    | PortBase
+    | Port
+    | {
+        port_code?: unknown
+        mega?: unknown
+        [key: string]: unknown
+      }
+    | string
+    | null
+    | undefined
 
   // --- MAP
 

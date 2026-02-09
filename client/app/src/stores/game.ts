@@ -4,6 +4,7 @@ import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
 import usePipecatClientStore from "@/stores/client"
+import { normalizeMapData, normalizePort, normalizeSector } from "@/utils/map"
 
 import { type ChatSlice, createChatSlice } from "./chatSlice"
 import { type CombatSlice, createCombatSlice } from "./combatSlice"
@@ -26,58 +27,6 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(_store: S) =
 
   return store
 }
-
-type PortLike =
-  | PortBase
-  | Port
-  | {
-      port_code?: unknown
-      mega?: unknown
-      [key: string]: unknown
-    }
-  | string
-  | null
-  | undefined
-
-const normalizePort = (port: PortLike): PortBase | null => {
-  if (!port) return null
-
-  if (typeof port === "string") {
-    const code = port.trim()
-    if (!code) return null
-    return { code }
-  }
-
-  if (typeof port === "object") {
-    const portObj = port as {
-      code?: unknown
-      port_code?: unknown
-      mega?: unknown
-      [key: string]: unknown
-    }
-    const code =
-      typeof portObj.code === "string"
-        ? portObj.code
-        : typeof portObj.port_code === "string"
-          ? portObj.port_code
-          : null
-    if (!code || !code.trim()) return null
-    if (typeof portObj.code === "string") {
-      return portObj as PortBase
-    }
-    return { ...portObj, code } as PortBase
-  }
-
-  return null
-}
-
-const normalizeMapData = (mapData: MapData): MapData =>
-  mapData.map((sector) => normalizeSector(sector))
-
-const normalizeSector = (sector: Sector): Sector => ({
-  ...sector,
-  port: normalizePort(sector.port as PortLike),
-})
 
 type GameInitState = "not_ready" | "initializing" | "ready" | "error"
 type AlertTypes = "transfer"

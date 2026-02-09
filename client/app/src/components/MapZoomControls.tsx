@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useDebouncedCallback } from "use-debounce"
 import { MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon } from "@phosphor-icons/react"
 
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/utils/mapZoom"
+import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/utils/map"
 import useGameStore from "@/stores/game"
 
 import { Button } from "./primitives/Button"
@@ -19,8 +19,7 @@ const ZOOM_LEVELS = (() => {
   return Array.from(new Set(levels)).sort((a, b) => a - b)
 })()
 
-const clampIndex = (index: number) =>
-  Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index))
+const clampIndex = (index: number) => Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index))
 
 const getClosestZoomIndex = (zoomLevel: number) => {
   let closestIndex = 0
@@ -40,10 +39,7 @@ export const MapZoomControls = () => {
   const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
   const coursePlot = useGameStore.use.course_plot?.()
   const resolvedZoomLevel = mapZoomLevel ?? DEFAULT_MAX_BOUNDS
-  const currentIndex = useMemo(
-    () => getClosestZoomIndex(resolvedZoomLevel),
-    [resolvedZoomLevel]
-  )
+  const currentIndex = useMemo(() => getClosestZoomIndex(resolvedZoomLevel), [resolvedZoomLevel])
   const [sliderIndex, setSliderIndex] = useState(currentIndex)
 
   useEffect(() => {
