@@ -23,8 +23,8 @@ interface OnceSoundEntry {
 
 // Type metadata for each sound
 const soundTypes: Record<SoundName, SoundType> = {
-  warp: "fx",
-  start: "fx",
+  enter: "fx",
+  enterCombat: "fx",
   message: "fx",
   chime1: "fx",
   chime2: "fx",
@@ -36,6 +36,10 @@ const soundTypes: Record<SoundName, SoundType> = {
   text: "fx",
   ambience: "ambience",
   currency: "fx",
+  impact1: "fx",
+  impact2: "fx",
+  impact3: "fx",
+  impact4: "fx",
 }
 
 interface AudioState {

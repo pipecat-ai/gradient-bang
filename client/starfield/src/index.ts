@@ -1,5 +1,6 @@
 export { Starfield, Starfield as default } from "@/Starfield"
 export { generateRandomScene } from "@/utils/scene"
 export { useSceneChange } from "@/hooks/useSceneChange"
+export { useStarfieldEvent } from "@/hooks/useStarfieldEvent"
 export type { StarfieldProps } from "@/Starfield"
 export type * from "@/types"

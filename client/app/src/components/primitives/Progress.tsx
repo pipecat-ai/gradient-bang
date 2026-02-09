@@ -17,6 +17,7 @@ const progressVariants = cva("relative min-w-10 h-2 overflow-hidden w-full", {
       success: "bg-success/20",
       fuel: "bg-fuel/20",
       terminal: "bg-terminal/20",
+      subtle: "bg-subtle/20",
     },
   },
   defaultVariants: {
@@ -32,6 +33,7 @@ const indicatorColorVariants = {
   success: "bg-success",
   fuel: "bg-fuel",
   terminal: "bg-terminal",
+  subtle: "bg-subtle",
 } as const
 
 const clampValue = (val?: number | null) => {
@@ -62,12 +64,16 @@ function Progress({
   color = "primary",
   segmented = false,
   segmentHoldMs = 1200,
+  smooth = false,
+  smoothDurationMs = 500,
   classNames,
   ...props
 }: React.ComponentProps<typeof ProgressPrimitive.Root> &
   VariantProps<typeof progressVariants> & {
     segmented?: boolean
     segmentHoldMs?: number
+    smooth?: boolean
+    smoothDurationMs?: number
     classNames?: ProgressClassNames
   }) {
   const {
@@ -218,7 +224,14 @@ function Progress({
         <ProgressPrimitive.Indicator
           data-slot="progress-indicator"
           ref={indicatorRef}
-          style={{ transform: `translateX(-${100 - indicatorValue}%)` }}
+          style={{
+            transform: `translateX(-${100 - indicatorValue}%)`,
+            ...(smooth ?
+              {
+                transition: `transform ${smoothDurationMs}ms linear, background-color ${smoothDurationMs}ms linear`,
+              }
+            : {}),
+          }}
           className={cn("h-full flex-1 transition-all", indicatorColorClass, classNameIndicator)}
         />
       )}

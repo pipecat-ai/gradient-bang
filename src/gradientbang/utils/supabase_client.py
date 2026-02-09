@@ -258,8 +258,12 @@ class AsyncGameClient(BaseAsyncGameClient):
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"character_id": canonicalize_character_id(character_id)}
         if target_id is not None:
-            payload["target_id"] = canonicalize_character_id(target_id)
-            payload["target_type"] = target_type
+            cleaned_target = target_id.strip()
+            if cleaned_target:
+                # Combat targets can be combatant IDs, ship IDs, or display labels;
+                # do not force UUID canonicalization here.
+                payload["target_id"] = cleaned_target
+                payload["target_type"] = target_type
         return await self._request("combat_initiate", payload)
 
     async def combat_action(
@@ -281,7 +285,10 @@ class AsyncGameClient(BaseAsyncGameClient):
         if commit:
             payload["commit"] = commit
         if target_id is not None:
-            payload["target_id"] = canonicalize_character_id(target_id)
+            cleaned_target = target_id.strip()
+            if cleaned_target:
+                # Preserve raw target labels/IDs; server resolves to combatant_id.
+                payload["target_id"] = cleaned_target
         if to_sector is not None:
             payload["destination_sector"] = to_sector
         if round_number is not None:

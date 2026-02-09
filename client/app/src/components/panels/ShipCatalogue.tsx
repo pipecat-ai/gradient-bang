@@ -93,7 +93,7 @@ export const ShipCatalogue = () => {
               variant="ghost"
               size="sm"
               border="elbow"
-              className="flex-1 self-stretch w-18 elbow-offset-0"
+              className="flex-1 self-stretch w-ui-2xl elbow-offset-0"
             >
               <CreditsIcon weight="duotone" className="size-4" />
               <span className="text-xs">{formatCurrency(ship.purchase_price)}</span>

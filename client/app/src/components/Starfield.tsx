@@ -5,6 +5,7 @@ import type { PerformanceProfile } from "@gradient-bang/starfield"
 
 import { portImages, skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
@@ -74,6 +75,12 @@ export const Starfield = () => {
     }
   }, [])
 
+  const handleSceneChangeStart = useCallback((isInitial = false) => {
+    if (isInitial) {
+      useAudioStore.getState().playSound("enter", { volume: 0.2 })
+    }
+  }, [])
+
   // Blur any focused element when lookMode becomes active
   // This prevents needing to click twice to interact with the starfield
   useEffect(() => {
@@ -105,6 +112,7 @@ export const Starfield = () => {
           config={starfieldConfig}
           onCreated={handleCreated}
           onSceneChangeEnd={handleSceneChangeEnd}
+          onSceneChangeStart={handleSceneChangeStart}
         />
       </motion.div>
     </Suspense>

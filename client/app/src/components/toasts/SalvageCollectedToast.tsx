@@ -27,6 +27,10 @@ export const SalvageCollectedToast = ({
   onDismiss,
 }: SalvageCollectedToastProps) => {
   const { meta } = toast;
+  const collected = meta?.salvage?.collected;
+  const cargo = collected?.cargo;
+  const credits = collected?.credits;
+  const scrap = collected?.scrap;
 
   return (
     <ToastBase
@@ -45,9 +49,9 @@ export const SalvageCollectedToast = ({
           </ToastTitle>
           <div className="flex flex-row gap-1.5 w-full h-full">
             <ToastResourceTile
-              active={!!meta?.salvage.collected?.cargo?.quantum_foam}
+              active={!!cargo?.quantum_foam}
               commodity={RESOURCE_SHORT_NAMES["quantum_foam"]}
-              units={meta?.salvage.collected?.cargo?.quantum_foam}
+              units={cargo?.quantum_foam}
             >
               <QuantumFoamIcon
                 size={24}
@@ -56,9 +60,9 @@ export const SalvageCollectedToast = ({
               />
             </ToastResourceTile>
             <ToastResourceTile
-              active={!!meta?.salvage.collected?.cargo?.retro_organics}
+              active={!!cargo?.retro_organics}
               commodity={RESOURCE_SHORT_NAMES["retro_organics"]}
-              units={meta?.salvage.collected?.cargo?.retro_organics}
+              units={cargo?.retro_organics}
             >
               <RetroOrganicsIcon
                 size={24}
@@ -67,9 +71,9 @@ export const SalvageCollectedToast = ({
               />
             </ToastResourceTile>
             <ToastResourceTile
-              active={!!meta?.salvage.collected?.cargo?.neuro_symbolics}
+              active={!!cargo?.neuro_symbolics}
               commodity={RESOURCE_SHORT_NAMES["neuro_symbolics"]}
-              units={meta?.salvage.collected?.cargo?.neuro_symbolics}
+              units={cargo?.neuro_symbolics}
             >
               <NeuroSymbolicsIcon
                 size={24}
@@ -79,9 +83,9 @@ export const SalvageCollectedToast = ({
             </ToastResourceTile>
             <Separator orientation="vertical" className="opacity-50 mx-1" />
             <ToastResourceTile
-              active={!!meta?.salvage.collected?.credits}
+              active={!!credits}
               commodity="cr"
-              units={meta?.salvage.collected?.credits}
+              units={credits}
             >
               <CreditsIcon
                 size={24}
@@ -91,9 +95,9 @@ export const SalvageCollectedToast = ({
             </ToastResourceTile>
             <Separator orientation="vertical" className="opacity-50 mx-1" />
             <ToastResourceTile
-              active={!!meta?.salvage.collected?.scrap}
+              active={!!scrap}
               commodity="Scrap"
-              units={meta?.salvage.collected?.scrap}
+              units={scrap}
             >
               <ScrapIcon
                 size={24}

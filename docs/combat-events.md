@@ -979,6 +979,102 @@ Sent when:
 
 ---
 
+## Client UI State Model
+This section maps the server event stream to practical client UI states.
+
+### 1) `idle` (not in combat)
+Entered when:
+- Normal exploration/trading gameplay
+- After `combat.ended` cleanup
+
+Primary data available:
+- Previous combat summary (`combatHistory`, `lastCombatEnded`)
+- Ambient combat-adjacent events (`ship.destroyed`, `salvage.created`, `garrison.*`)
+
+Suggested UX:
+- Keep standard sector/map interface active
+- Show optional "last combat result" summary chip/panel
+
+### 2) `combat.waiting` (decision phase)
+Entered when:
+- `combat.round_waiting` is received and player is a participant
+
+Primary data available:
+- `combat_id`, `round`, `deadline`, `current_time`
+- `participants[]`
+- Optional `garrison`
+
+Suggested UX:
+- Prominent round timer/countdown
+- Participant cards (ship type/name, shield integrity, fighter loss indicators)
+- Action controls for `attack`, `brace`, `flee`, `pay`
+- Target picker + commit control for `attack`
+
+### 3) `combat.submitted` (action acknowledged)
+Entered when:
+- `combat.action_accepted` is received for the local player
+
+Primary data available:
+- `combat_id`, `round`, `action`, `commit`, `target_id`
+
+Suggested UX:
+- Confirm action was accepted
+- Keep timer visible until round resolves
+- Allow resubmission/replace semantics before resolution (server stores latest pending action for the player in the round)
+
+### 4) `combat.round_result` (round recap)
+Entered when:
+- `combat.round_resolved` is received
+
+Primary data available:
+- `hits`
+- `offensive_losses`
+- `defensive_losses`
+- `shield_loss`
+- `fighters_remaining`
+- `shields_remaining`
+- `flee_results`
+- `actions` (if present)
+- `participants`, `garrison`
+
+Suggested UX:
+- Round timeline entry: who acted, who hit, losses taken
+- Per-combatant delta display (fighter/shield changes)
+- Transition back to decision phase if `result/end` is `null`
+
+### 5) `combat.ended_summary` (post-combat)
+Entered when:
+- `combat.ended` is received
+
+Primary data available:
+- Final round outcome fields (same structure as `combat.round_resolved`)
+- `result` / `end`
+- `logs` (full round logs)
+- `salvage`
+- Personalized `ship` snapshot (viewer-specific post-combat ship state)
+
+Suggested UX:
+- Final result modal/screen
+- Round-by-round recap
+- Ship aftermath + salvage outcome
+- "Return to sector" action back to idle gameplay
+
+## Player UX Flow (Broad Strokes)
+1. Player enters/joins a sector combat and receives `combat.round_waiting`.
+2. Combat UI opens with timer, participants, and available actions.
+3. Player submits action (`attack`, `brace`, `flee`, or `pay`) and gets `combat.action_accepted`.
+4. UI waits for resolution (all actions or deadline).
+5. `combat.round_resolved` arrives; UI shows exact outcomes and updated state.
+6. If combat continues, next `combat.round_waiting` begins another decision cycle.
+7. If combat ends, `combat.ended` shows final summary and returns player to idle UI.
+
+## Client Data Caveats
+- There is no exact pre-round damage prediction payload; exact outcomes are only known after `combat.round_resolved`.
+- In `combat.round_resolved`, `actions` keys are display names (not combatant IDs).
+- Combat-adjacent side events (`ship.destroyed`, `salvage.created`, sector updates) can arrive around the same time as final combat events and should be rendered as supplemental updates.
+
+---
+
 ## Optional Test Wrapper (Event + Payload)
 If you want to mock the event stream with explicit event type:
 
@@ -995,4 +1091,3 @@ If you want to mock the event stream with explicit event type:
   }
 }
 ```
-

@@ -1504,7 +1504,10 @@ class CombatAction(GameClientTool):
                 },
                 "target_id": {
                     "type": "string",
-                    "description": "Target combatant identifier (required for attack).",
+                    "description": (
+                        "Target combatant identifier (required for attack). "
+                        "Use participant id from combat.round_waiting when available."
+                    ),
                 },
                 "to_sector": {
                     "type": "integer",

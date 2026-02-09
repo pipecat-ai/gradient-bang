@@ -11,6 +11,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        bland: "hover:bg-transparent hover:outline-0 focus-visible:outline-0",
         ui: "bg-background hover:bg-accent-background hover:outline-0 border",
         default:
           "bg-primary text-primary-foreground hover:bg-white/20 hover:text-primary transition-[background,color] focus-hover hover:animate-outline-pulse",

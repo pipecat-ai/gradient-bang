@@ -701,7 +701,7 @@ def path_region_summary(result: Dict[str, Any]) -> str:
 
 def _format_participant_names(event: Dict[str, Any]) -> str:
     participants = event.get("participants")
-    names: List[str] = []
+    labels: List[str] = []
     if isinstance(participants, list):
         for entry in participants:
             if not isinstance(entry, dict):
@@ -709,14 +709,21 @@ def _format_participant_names(event: Dict[str, Any]) -> str:
             name = entry.get("name")
             if not name and isinstance(entry.get("ship"), dict):
                 name = entry["ship"].get("ship_name")
-            if name:
-                names.append(_shorten_embedded_ids(str(name)))
-    if not names:
+            participant_id = entry.get("id")
+            if not name and not participant_id:
+                continue
+
+            display_name = _shorten_embedded_ids(str(name)) if name else "unknown"
+            if isinstance(participant_id, str) and participant_id.strip():
+                labels.append(f"{display_name} (target_id={participant_id})")
+            else:
+                labels.append(display_name)
+    if not labels:
         return "unknown opponents"
-    if len(names) > 4:
-        head = ", ".join(names[:3])
-        return f"{head}, +{len(names) - 3} more"
-    return ", ".join(names)
+    if len(labels) > 4:
+        head = ", ".join(labels[:3])
+        return f"{head}, +{len(labels) - 3} more"
+    return ", ".join(labels)
 
 
 def combat_round_waiting_summary(event: Dict[str, Any]) -> str:

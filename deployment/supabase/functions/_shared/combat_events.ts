@@ -44,9 +44,11 @@ function buildParticipantPayload(
     fighter_loss: ctx.fighterLoss && ctx.fighterLoss > 0 ? ctx.fighterLoss : null,
   };
   return {
+    id: participant.combatant_id,
     created_at: typeof metadata.first_visit === 'string' ? metadata.first_visit : new Date().toISOString(),
     name: participant.name,
     player_type: (metadata.player_type as string) ?? 'human',
+    ship_id: typeof metadata.ship_id === 'string' ? metadata.ship_id : null,
     ship: shipPayload,
   };
 }
@@ -61,6 +63,8 @@ function buildGarrisonPayload(
     ? metadata.owner_name
     : (participant.owner_character_id ?? participant.combatant_id);
   return {
+    id: participant.combatant_id,
+    name: participant.name,
     owner_name: ownerName,  // Human-readable name, not UUID
     fighters: participant.fighters,
     fighter_loss: fighterLoss > 0 ? fighterLoss : null,
@@ -275,8 +279,8 @@ export async function buildCombatEndedPayloadForViewer(
       warp_power: ship.current_warp_power ?? definition.warp_power_capacity,
       shields: ship.current_shields ?? 0,
       fighters: ship.current_fighters ?? 0,
-      max_shields: definition.max_shields,
-      max_fighters: definition.max_fighters,
+      max_shields: definition.shields,
+      max_fighters: definition.fighters,
     };
   } catch (err) {
     console.error('Failed to load ship data for viewer', viewerId, err);
