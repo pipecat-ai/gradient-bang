@@ -114,8 +114,8 @@ export const useDevControls = ({
                   {
                     dpr: {
                       value: defaultDpr,
-                      min: 1,
-                      max: 2,
+                      min: 0.5,
+                      max: 1.5,
                       step: 0.5,
                       label: "DPR",
                     },
