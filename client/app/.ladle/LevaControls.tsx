@@ -213,6 +213,35 @@ export const LevaControls = ({
           })
         }),
 
+        ["Add Mock Salvage"]: button(() => {
+          const sector = useGameStore.getState().sector
+          if (!sector) return
+          const resources: Resource[] = ["neuro_symbolics", "quantum_foam", "retro_organics"]
+          const cargo: Partial<Record<Resource, number>> = {}
+          // Pick 1-3 random resources with random amounts
+          const numResources = Math.floor(Math.random() * 3) + 1
+          const shuffled = [...resources].sort(() => Math.random() - 0.5)
+          for (let i = 0; i < numResources; i++) {
+            cargo[shuffled[i]] = Math.floor(Math.random() * 50) + 5
+          }
+          const salvageItem: Salvage = {
+            salvage_id: faker.string.uuid(),
+            source: {
+              ship_name: faker.vehicle.vehicle(),
+              ship_type: faker.vehicle.type(),
+            },
+            cargo: cargo as Record<Resource, number>,
+            credits: Math.random() > 0.5 ? Math.floor(Math.random() * 5000) + 100 : undefined,
+            scrap: Math.random() > 0.5 ? Math.floor(Math.random() * 20) + 1 : undefined,
+            claimed: false,
+            created_at: new Date().toISOString(),
+          }
+          updateSector({
+            id: sector.id,
+            salvage: [...(sector.salvage ?? []), salvageItem],
+          })
+        }),
+
         ["Mock Player Arrive"]: button(() => {
           const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
           const name = faker.person.fullName()

@@ -26,7 +26,9 @@ import { ChevronSM } from "../svg/ChevronSM"
 import { CombatAsidePanel } from "./CombatAsidePanel"
 import { SectorPlayerMovementPanel } from "./DataTablePanels"
 import { RHSPanelContent, RHSSubPanel } from "./RHSPanelContainer"
+import { SectorSalvageSubPanel } from "./SectorSalvageSubPanel"
 import { SectorShipSubPanel } from "./SectorShipSubPanel"
+import { SectorUnownedSubPanel } from "./SectorUnownedSubPanel"
 
 interface SectorInfoRowProps {
   label: string
@@ -89,6 +91,7 @@ const SectorInfoRow = ({
 export const SectorPanel = () => {
   const sector = useGameStore.use.sector?.()
   const setActivePanel = useGameStore.use.setActivePanel?.()
+  const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
   const uiState = useGameStore.use.uiState?.()
 
@@ -148,7 +151,7 @@ export const SectorPanel = () => {
                 count={sector?.salvage?.length ?? 0}
                 value={undefined}
                 Icon={SalvageIcon}
-                onClick={() => console.log("salvage")}
+                onClick={() => setActiveSubPanel("salvage")}
               />
             </div>
           </CardContent>
@@ -229,7 +232,7 @@ export const SectorPanel = () => {
                 empty="Unknown"
                 Icon={EmptyIcon}
                 count={sector?.unowned_ships?.length ?? 0}
-                onClick={() => setActivePanel("trade")}
+                onClick={() => setActiveSubPanel("unowned")}
               />
               <Divider
                 variant="dotted"
@@ -259,33 +262,39 @@ export const SectorPanel = () => {
 
       <RHSSubPanel
         headerContent={
-          <ButtonGroup className="bg-background/60">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShipSubPanelFilter("human")}
-              className={
-                shipSubPanelFilter === "human" ? "bg-background text-accent-foreground" : ""
-              }
-            >
-              Human
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShipSubPanelFilter("corporation_ship")}
-              className={
-                shipSubPanelFilter === "corporation_ship" ?
-                  "bg-background text-accent-foreground"
-                : ""
-              }
-            >
-              Autonomous
-            </Button>
-          </ButtonGroup>
+          activeSubPanel === "players" ?
+            <ButtonGroup className="bg-background/60">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShipSubPanelFilter("human")}
+                className={
+                  shipSubPanelFilter === "human" ? "bg-background text-accent-foreground" : ""
+                }
+              >
+                Human
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShipSubPanelFilter("corporation_ship")}
+                className={
+                  shipSubPanelFilter === "corporation_ship" ?
+                    "bg-background text-accent-foreground"
+                  : ""
+                }
+              >
+                Autonomous
+              </Button>
+            </ButtonGroup>
+          : undefined
         }
       >
-        <SectorShipSubPanel sector={sector} filter={shipSubPanelFilter} />
+        {activeSubPanel === "players" && (
+          <SectorShipSubPanel sector={sector} filter={shipSubPanelFilter} />
+        )}
+        {activeSubPanel === "unowned" && <SectorUnownedSubPanel sector={sector} />}
+        {activeSubPanel === "salvage" && <SectorSalvageSubPanel sector={sector} />}
       </RHSSubPanel>
     </>
   )
