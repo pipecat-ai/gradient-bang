@@ -86,7 +86,7 @@ export const PlayerFightersBadge = ({ className }: { className?: string }) => {
 
   return (
     <StatBadge
-      label="ATK"
+      label="FGHT"
       value={ship.fighters ?? 0}
       maxValue={ship.max_fighters ?? 0}
       icon={<DroneIcon weight="duotone" size={16} className="size-5" />}
@@ -102,7 +102,7 @@ export const PlayerShieldsBadge = ({ className }: { className?: string }) => {
 
   return (
     <StatBadge
-      label="DEF"
+      label="SHLD"
       value={ship.shields ?? 0}
       maxValue={ship.max_shields ?? 0}
       icon={<ShieldIcon weight="duotone" size={16} className="size-5" />}

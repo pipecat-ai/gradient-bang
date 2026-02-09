@@ -329,6 +329,26 @@ declare global {
     ship?: ShipSelf
   }
 
+  type CombatPersonalRoundResult = {
+    round: number
+    action: string
+    outcome: string
+    target: string | null
+    hits: number
+    offensiveLosses: number
+    defensiveLosses: number
+    shieldLoss: number
+    fightersRemaining: number | null
+    shieldsRemaining: number | null
+    fleeSuccess: boolean | null
+  }
+
+  type CombatAttackTargetOption = {
+    key: string
+    id: string | null
+    name: string | null
+  }
+
   // --- MISC
 
   type TaskType =

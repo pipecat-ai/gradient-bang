@@ -3,6 +3,7 @@ import { useMemo, useState } from "react"
 import { Card, CardContent } from "@/components/primitives/Card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/primitives/Popover"
 import { ShipDetailsCallout } from "@/components/ShipDetailsCallout"
+import { useFlashAnimation } from "@/hooks/useFlashAnimation"
 import { FighterIcon, GarrisonIcon, ShieldIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import {
@@ -14,6 +15,7 @@ import {
   getShieldColor,
   sumRecordValues,
 } from "@/utils/combat"
+import { formatCurrency } from "@/utils/formatting"
 import { getShipLogoImage } from "@/utils/images"
 import { cn } from "@/utils/tailwind"
 
@@ -173,11 +175,17 @@ const CombatGarrison = ({ garrison }: { garrison: CombatGarrison }) => {
             <span>Mode:</span>
             <span className="text-foreground font-bold">{garrison.mode}</span>
           </div>
-          <DotDivider />
-          <div className="inline-flex items-center gap-1 text-muted-foreground">
-            <span>Toll:</span>
-            <span className="text-terminal font-bold">{garrison.toll_amount}</span>
-          </div>
+          {garrison.mode === "toll" && (
+            <>
+              <DotDivider />
+              <div className="inline-flex items-center gap-1 text-muted-foreground">
+                <span>Toll:</span>
+                <span className="text-terminal font-bold">
+                  {formatCurrency(garrison.toll_amount)}
+                </span>
+              </div>
+            </>
+          )}
           {destroyed ?
             <div className="ml-auto text-destructive font-bold">Destroyed</div>
           : null}
@@ -233,8 +241,13 @@ const CombatRoundSummaryPanel = ({
   return (
     <div className="flex flex-col gap-ui-sm">
       <section className="p-ui-sm bg-accent-background/60 border border-accent bracket bracket-offset-0">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-bold uppercase text-foreground">Round {round.round}</span>
+        <div className="flex items-center justify-between gap-2 corner-dots corner-dots-offset-6">
+          <span className="text-xs font-bold uppercase text-foreground">
+            Round
+            <span className="bg-foreground text-background px-1.5 font-extrabold ml-2 min-w-10 text-center">
+              {round.round}
+            </span>
+          </span>
           <span className={cn("text-xxs uppercase font-bold", getRoundOutcomeTone(outcome))}>
             {outcome}
           </span>
@@ -422,6 +435,7 @@ export const CombatAsidePanel = () => {
     return views
   }, [activeCombatSession?.participants, combatInitiator, latestCombatRound, localPlayer])
 
+  const { isFlashing } = useFlashAnimation(latestCombatRound?.round ?? 1)
   return (
     <>
       <Card size="sm" className="border-0 border-b">
@@ -429,10 +443,20 @@ export const CombatAsidePanel = () => {
           <Badge
             variant="secondary"
             border="bracket"
-            className="w-full bg-terminal-background/40 bracket-terminal/50 flex flex-row gap-2 text-sm"
+            className={cn(
+              "w-full bg-terminal-background/40 bracket-terminal/50 flex flex-row gap-0.5 text-sm",
+              isFlashing && "animate-new-msg"
+            )}
           >
             Round
-            <span className="text-terminal font-bold">{latestCombatRound?.round ?? 1}</span>
+            <span
+              className={cn(
+                "bg-foreground text-background px-1.5 font-extrabold ml-2 min-w-6 text-center",
+                isFlashing && "animate-blink"
+              )}
+            >
+              {latestCombatRound?.round ?? 1}
+            </span>
           </Badge>
           <DottedTitle title="Participants" textColor="text-foreground" />
           <ul className="flex flex-col bg-card flex-1">
@@ -460,7 +484,7 @@ export const CombatAsidePanel = () => {
           <span className="text-xxs uppercase text-accent-foreground">
             Initiator: {combatInitiator}
           </span>
-          <DottedTitle title="Round Actions" textColor="text-foreground" />
+          <DottedTitle title="Round Outcomes" textColor="text-foreground" />
           <CombatRoundTablePanel
             onRowClick={(round) => {
               setSelectedRound(round)

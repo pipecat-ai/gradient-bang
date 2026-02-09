@@ -5,25 +5,17 @@ import { useStarfieldEvent } from "@gradient-bang/starfield"
 import { BlankSlateTile } from "@/components/BlankSlates"
 import { DottedTitle } from "@/components/DottedTitle"
 import { PlayerFightersBadge, PlayerShieldsBadge } from "@/components/PlayerShipBadges"
-import { Button } from "@/components/primitives/Button"
 import { Card, CardContent } from "@/components/primitives/Card"
-import { Input } from "@/components/primitives/Input"
-import { Progress } from "@/components/primitives/Progress"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/primitives/Select"
 import { useGameContext } from "@/hooks/useGameContext"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { getRoundOutcome, getRoundOutcomeTone } from "@/utils/combat"
-import { formatCurrency } from "@/utils/formatting"
-import { cn } from "@/utils/tailwind"
 
-const DEFAULT_ROUND_MS = 15_000
+import { CombatRoundTimer } from "../CombatRoundTimer"
+import { CombatFighterTile } from "../CombatTiles"
+import { ScrollArea } from "../primitives/ScrollArea"
+import { CombatActionOptions } from "./CombatActionOptions"
+import { CombatRoundResults } from "./CombatRoundResults"
 
 const readCombatValue = <T,>(
   values: Record<string, T> | undefined,
@@ -37,26 +29,6 @@ const readCombatValue = <T,>(
   return undefined
 }
 
-type PersonalRoundResult = {
-  round: number
-  action: string
-  outcome: string
-  target: string | null
-  hits: number
-  offensiveLosses: number
-  defensiveLosses: number
-  shieldLoss: number
-  fightersRemaining: number | null
-  shieldsRemaining: number | null
-  fleeSuccess: boolean | null
-}
-
-type AttackTargetOption = {
-  key: string
-  id: string | null
-  name: string | null
-}
-
 export const CombatActionPanel = () => {
   const { sendUserTextInput } = useGameContext()
 
@@ -67,20 +39,15 @@ export const CombatActionPanel = () => {
   const combatRounds = useGameStore((state) => state.combatRounds)
   const combatActionReceipts = useGameStore((state) => state.combatActionReceipts)
   const lastCombatEnded = useGameStore((state) => state.lastCombatEnded)
+
   const [selectedAction, setSelectedAction] = useState<CombatActionType>("brace")
-  const [attackCommit, setAttackCommit] = useState("10")
+  const [attackCommit, setAttackCommit] = useState<string>("1")
   const [selectedTargetKey, setSelectedTargetKey] = useState<string>("")
-  const [tickNow, setTickNow] = useState(0)
+
   const [error, setError] = useState<string | null>(null)
   const lastDamageNoticeRoundRef = useRef<string | null>(null)
 
   const { animateImpact } = useStarfieldEvent()
-
-  useEffect(() => {
-    if (!activeCombatSession?.deadline) return
-    const timerId = window.setInterval(() => setTickNow(Date.now()), 250)
-    return () => window.clearInterval(timerId)
-  }, [activeCombatSession?.combat_id, activeCombatSession?.round, activeCombatSession?.deadline])
 
   const combatId = activeCombatSession?.combat_id ?? lastCombatEnded?.combat_id ?? null
 
@@ -102,8 +69,8 @@ export const CombatActionPanel = () => {
     return Array.from(roundMap.values()).sort((a, b) => b.round - a.round)
   }, [combatId, combatRounds, lastCombatEnded])
 
-  const personalRoundResults = useMemo<PersonalRoundResult[]>(() => {
-    const results: PersonalRoundResult[] = []
+  const personalRoundResults = useMemo<CombatPersonalRoundResult[]>(() => {
+    const results: CombatPersonalRoundResult[] = []
 
     for (const round of timelineRounds) {
       const participant = round.participants?.find(
@@ -199,22 +166,7 @@ export const CombatActionPanel = () => {
       )
   }, [activeCombatSession, combatActionReceipts])
 
-  const deadlineMs = activeCombatSession?.deadline ? Date.parse(activeCombatSession.deadline) : NaN
-  const currentMs =
-    activeCombatSession?.current_time ? Date.parse(activeCombatSession.current_time) : NaN
-  const totalMs =
-    Number.isFinite(deadlineMs) && Number.isFinite(currentMs) && deadlineMs > currentMs ?
-      deadlineMs - currentMs
-    : DEFAULT_ROUND_MS
-  const remainingMs = Number.isFinite(deadlineMs) ? Math.max(0, deadlineMs - tickNow) : 0
-  const timerPercent =
-    activeCombatSession ? Math.max(0, Math.min(100, (remainingMs / totalMs) * 100)) : 0
-  const timerColor =
-    timerPercent > 66 ? ("success" as const)
-    : timerPercent > 33 ? ("warning" as const)
-    : ("destructive" as const)
-
-  const attackTargets = useMemo<AttackTargetOption[]>(() => {
+  const attackTargets = useMemo<CombatAttackTargetOption[]>(() => {
     const participantTargets = (activeCombatSession?.participants ?? [])
       .filter((participant) => {
         const isPlayerById = Boolean(playerId && participant.id === playerId)
@@ -259,8 +211,9 @@ export const CombatActionPanel = () => {
     : 0
   const canAttack = currentFighters > 0
   const canBrace = currentShields > 0
-  const canPayToll = Boolean(activeCombatSession?.garrison)
-  const payTollAmount = activeCombatSession?.garrison?.toll_amount ?? null
+  const activeGarrison = activeCombatSession?.garrison ?? null
+  const canPayToll = Boolean(activeGarrison && activeGarrison.mode === "toll")
+  const payTollAmount = canPayToll ? (activeGarrison?.toll_amount ?? null) : null
 
   const handleSubmitAction = () => {
     if (!activeCombatSession) return
@@ -274,7 +227,7 @@ export const CombatActionPanel = () => {
       setError("Brace unavailable: no shields remaining")
       return
     }
-    const commit = Number.parseInt(attackCommit, 10)
+    const commit = attackCommit ? Number.parseInt(attackCommit, 10) : 0
     if (selectedAction === "attack" && (!Number.isFinite(commit) || commit <= 0)) {
       setError("Attack commit must be greater than 0")
       return
@@ -309,228 +262,61 @@ export const CombatActionPanel = () => {
   }
 
   return (
-    <div className="relative z-10 h-full flex flex-col gap-ui-sm">
-      <Card size="xs" className="border border-accent">
-        <CardContent className="flex items-center justify-between gap-ui-sm">
-          <div className="text-xxs uppercase text-subtle-foreground">
-            Combat | round {activeCombatSession.round}
-          </div>
-          <div className="text-xxs uppercase text-foreground">
-            {activeCombatSession.deadline ? `${Math.ceil(remainingMs / 1000)}s` : "No deadline"}
-          </div>
-        </CardContent>
-        <CardContent>
-          <Progress value={timerPercent} color={timerColor} className="h-2" />
-        </CardContent>
-      </Card>
+    <div className="relative z-10 h-full flex flex-col justify-between">
+      <section className="flex flex-col gap-ui-sm flex-1 p-ui-sm">
+        <header className="flex flex-row items-center gap-ui-sm">
+          <CombatRoundTimer
+            deadline={activeCombatSession.deadline}
+            currentTime={activeCombatSession.current_time}
+            combatId={activeCombatSession.combat_id}
+            round={activeCombatSession.round}
+            noTimer={!activeCombatSession.deadline}
+          />
+        </header>
 
-      <section className="grid grid-cols-1 xl:grid-cols-2 gap-ui-sm min-h-0 flex-1">
-        <Card size="sm" className="border border-accent min-h-0">
+        <Card size="none" className="border-0 combat-tile shrink-0">
           <CardContent className="flex flex-col gap-ui-sm">
             <DottedTitle title="Your Ship Status" textColor="text-foreground" />
             <div className="text-xs uppercase text-subtle-foreground">
               {ship.ship_name}, {ship.ship_type?.replace(/_/g, " ")}
             </div>
             <div className="flex flex-row gap-ui-xs">
-              <PlayerShieldsBadge className="flex-1" />
               <PlayerFightersBadge className="flex-1" />
-            </div>
-            <div className="grid grid-cols-3 gap-ui-xs text-xxs uppercase">
-              <div className="p-ui-xs border border-accent bg-subtle-background text-center">
-                <div className="text-muted-foreground">Round Fighters</div>
-                <div className="text-foreground font-bold">
-                  {typeof latestPersonalResult?.fightersRemaining === "number" ?
-                    latestPersonalResult.fightersRemaining
-                  : "—"}
-                </div>
-              </div>
-              <div className="p-ui-xs border border-accent bg-subtle-background text-center">
-                <div className="text-muted-foreground">Round Shields</div>
-                <div className="text-foreground font-bold">
-                  {typeof latestPersonalResult?.shieldsRemaining === "number" ?
-                    latestPersonalResult.shieldsRemaining
-                  : "—"}
-                </div>
-              </div>
-              <div className="p-ui-xs border border-accent bg-subtle-background text-center">
-                <div className="text-muted-foreground">Flee</div>
-                <div className="text-foreground font-bold">
-                  {typeof latestPersonalResult?.fleeSuccess === "boolean" ?
-                    latestPersonalResult.fleeSuccess ?
-                      "Success"
-                    : "Failed"
-                  : "—"}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-
-          <CardContent className="flex flex-col gap-ui-sm border-t border-accent">
-            <DottedTitle title="Choose Action" textColor="text-foreground" />
-            <div className="grid grid-cols-2 gap-ui-xs">
-              {(["brace", "attack", "flee", "pay"] as const).map((action) => (
-                <Button
-                  key={action}
-                  variant={selectedAction === action ? "default" : "secondary"}
-                  size="sm"
-                  disabled={
-                    (action === "attack" && !canAttack) ||
-                    (action === "brace" && !canBrace) ||
-                    (action === "pay" && !canPayToll)
-                  }
-                  onClick={() => {
-                    setSelectedAction(action)
-                    setError(null)
-                  }}
-                >
-                  {action}
-                </Button>
-              ))}
-            </div>
-
-            {selectedAction === "attack" ?
-              <div className="flex flex-col gap-ui-xs">
-                <Select
-                  value={selectedAttackTarget?.key ?? ""}
-                  onValueChange={(value) => {
-                    setSelectedTargetKey(value)
-                    setError(null)
-                  }}
-                  disabled={attackTargets.length === 0}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue placeholder="Select a target" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {attackTargets.map((target) => (
-                      <SelectItem key={target.key} value={target.key}>
-                        {target.name ?? target.id ?? "Unknown target"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  type="number"
-                  min={1}
-                  size="sm"
-                  value={attackCommit}
-                  onChange={(event) => {
-                    setAttackCommit(event.target.value)
-                    setError(null)
-                  }}
-                  placeholder="Commit"
-                />
-                <div className="text-xxs uppercase text-subtle-foreground">
-                  Target:{" "}
-                  {selectedAttackTarget ?
-                    `${selectedAttackTarget.name ?? selectedAttackTarget.id ?? "Unknown"}${selectedAttackTarget.id ? ` (${selectedAttackTarget.id})` : ""}`
-                  : "No target found"}
-                </div>
-              </div>
-            : selectedAction === "pay" ?
-              <div className="p-ui-xs border border-accent bg-subtle-background text-xxs uppercase text-subtle-foreground">
-                Toll:{" "}
-                <span className="text-foreground font-bold">
-                  {typeof payTollAmount === "number" ?
-                    `${formatCurrency(payTollAmount, "standard")} credits`
-                  : "No toll available"}
-                </span>
-              </div>
-            : null}
-
-            {error ?
-              <div className="text-xxs uppercase text-destructive">{error}</div>
-            : null}
-
-            <Button
-              size="sm"
-              onClick={handleSubmitAction}
-              disabled={
-                (selectedAction === "attack" &&
-                  (!canAttack ||
-                    Number.parseInt(attackCommit, 10) <= 0 ||
-                    attackTargets.length === 0)) ||
-                (selectedAction === "brace" && !canBrace) ||
-                (selectedAction === "pay" && !canPayToll)
-              }
-            >
-              Submit {selectedAction}
-            </Button>
-
-            <div className="text-xxs uppercase text-subtle-foreground">
-              {pendingReceipt ?
-                `Pending ack: ${pendingReceipt.action} (commit ${pendingReceipt.commit})`
-              : "No pending action receipt for this round"}
+              <PlayerShieldsBadge className="flex-1" />
             </div>
           </CardContent>
         </Card>
 
-        <Card size="sm" className="border border-accent min-h-0">
-          <CardContent className="flex flex-col gap-ui-sm h-full min-h-0">
-            <DottedTitle title="Your Round Results" textColor="text-foreground" />
-            {personalRoundResults.length === 0 ?
-              <BlankSlateTile text="No personal round results yet" />
-            : <ul className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-ui-xs">
-                {personalRoundResults.map((result) => (
-                  <li
-                    key={`combat-round-${result.round}`}
-                    className="p-ui-xs border border-accent bg-subtle-background flex flex-col gap-ui-xs"
-                  >
-                    <div className="flex items-center justify-between gap-ui-xs">
-                      <span className="text-xs uppercase font-bold text-foreground">
-                        Round {result.round}
-                      </span>
-                      <span className="text-xxs uppercase text-muted-foreground">
-                        Action: {result.action}
-                      </span>
-                      <span
-                        className={cn(
-                          "text-xxs uppercase font-bold",
-                          getRoundOutcomeTone(result.outcome)
-                        )}
-                      >
-                        {result.outcome}
-                      </span>
-                    </div>
-                    <div className="text-xxs uppercase text-subtle-foreground truncate">
-                      Target: {result.target ?? "—"}
-                    </div>
-                    <div className="grid grid-cols-3 gap-ui-xs text-xxs uppercase">
-                      <div className="border border-accent bg-card p-1 text-center">
-                        <div className="text-muted-foreground">Hits on Target</div>
-                        <div className="font-bold text-foreground">{result.hits}</div>
-                      </div>
-                      <div className="border border-accent bg-card p-1 text-center">
-                        <div className="text-muted-foreground">Off Loss</div>
-                        <div className="font-bold text-warning">{result.offensiveLosses}</div>
-                      </div>
-                      <div className="border border-accent bg-card p-1 text-center">
-                        <div className="text-muted-foreground">Def Loss</div>
-                        <div className="font-bold text-warning">{result.defensiveLosses}</div>
-                      </div>
-                      <div className="border border-accent bg-card p-1 text-center">
-                        <div className="text-muted-foreground">Shield Loss</div>
-                        <div className="font-bold text-destructive">{result.shieldLoss}</div>
-                      </div>
-                      <div className="border border-accent bg-card p-1 text-center">
-                        <div className="text-muted-foreground">Fighters</div>
-                        <div className="font-bold text-foreground">
-                          {result.fightersRemaining ?? "—"}
-                        </div>
-                      </div>
-                      <div className="border border-accent bg-card p-1 text-center">
-                        <div className="text-muted-foreground">Shields</div>
-                        <div className="font-bold text-foreground">
-                          {result.shieldsRemaining ?? "—"}
-                        </div>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            }
-          </CardContent>
-        </Card>
+        <div className="gap-ui-sm h-full min-h-0">
+          {latestPersonalResult ?
+            <ScrollArea className="h-[300px]">
+              <CombatRoundResults round={latestPersonalResult} />
+            </ScrollArea>
+          : null}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-ui-sm">
+        <CombatActionOptions
+          round={activeCombatSession.round}
+          attackCommit={attackCommit}
+          selectedTargetKey={selectedTargetKey}
+          payTollAmount={payTollAmount ?? 0}
+          onSubmitAction={handleSubmitAction}
+          pendingReceipt={pendingReceipt ?? null}
+          attackTargets={attackTargets}
+          selectedAttackTarget={selectedAttackTarget}
+          maxAttackCommit={currentFighters}
+          canAttack={canAttack}
+          canBrace={canBrace}
+          canPayToll={canPayToll}
+          onAttackCommit={(commit) => setAttackCommit(commit)}
+          onSelectedTargetKey={(key) => setSelectedTargetKey(key)}
+          onSelectedAction={(action) => setSelectedAction(action)}
+          onPayToll={() => setSelectedAction("pay")}
+          receipt={pendingReceipt ?? null}
+          error={error}
+        />
       </section>
     </div>
   )
