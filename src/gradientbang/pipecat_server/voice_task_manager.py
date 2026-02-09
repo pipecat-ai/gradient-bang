@@ -1,53 +1,49 @@
 import asyncio
 import json
+import os
 import time
 import uuid
 from collections import deque
-from typing import Optional, Callable, Dict, Any, Mapping
+from typing import Any, Callable, Dict, Mapping, Optional
 
 from loguru import logger
-
-from pipecat.services.llm_service import FunctionCallParams
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
-from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
 from pipecat.frames.frames import FunctionCallResultProperties, LLMMessagesAppendFrame
+from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
+from pipecat.services.llm_service import FunctionCallParams
 
-import os
-
-from gradientbang.utils.supabase_client import AsyncGameClient
-from gradientbang.utils.prompt_loader import build_task_progress_prompt
-from gradientbang.utils.task_agent import TaskAgent
-from gradientbang.pipecat_server.chat_history import fetch_chat_history, emit_chat_history
+from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_chat_history
 from gradientbang.pipecat_server.frames import TaskActivityFrame
-from gradientbang.utils.supabase_client import RPCError
+from gradientbang.utils.prompt_loader import build_task_progress_prompt
+from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
+from gradientbang.utils.task_agent import TaskAgent
+from gradientbang.utils.tools_schema import (
+    CombatAction,
+    CombatInitiate,
+    CorporationInfo,
+    LeaderboardResources,
+    ListKnownPorts,
+    LoadGameInfo,
+    MyStatus,
+    PlotCourse,
+    QueryTaskProgress,
+    RenameShip,
+    SendMessage,
+    StartTask,
+    SteerTask,
+    StopTask,
+    _format_ship_holds,
+    _friendly_ship_type,
+    _short_id,
+    _shorten_embedded_ids,
+    _summarize_corporation_info,
+)
 from gradientbang.utils.weave_tracing import (
     init_weave,
-    traced,
-    trace_attributes,
-    voice_session_attributes,
     task_attributes,
-)
-from gradientbang.utils.tools_schema import (
-    MyStatus,
-    LeaderboardResources,
-    PlotCourse,
-    ListKnownPorts,
-    StartTask,
-    StopTask,
-    SendMessage,
-    CombatInitiate,
-    CombatAction,
-    CorporationInfo,
-    RenameShip,
-    QueryTaskProgress,
-    SteerTask,
-    LoadGameInfo,
-    UI_SHOW_PANEL_SCHEMA,
-    _summarize_corporation_info,
-    _shorten_embedded_ids,
-    _short_id,
-    _friendly_ship_type,
-    _format_ship_holds,
+    trace_attributes,
+    traced,
+    voice_session_attributes,
 )
 
 MAX_CORP_SHIP_TASKS = 3  # Maximum concurrent corp ship tasks per player
@@ -215,7 +211,7 @@ class VoiceTaskManager:
         self._ignored_ports_list_request_ids: set[str] = set()
 
         # Build generic tool dispatch map for common game tools
-        # Start/stop/ui_show_panel are handled inline in execute_tool_call
+        # Start/stop are handled inline in execute_tool_call
         # Note: Most game_client methods require character_id, but the LLM tools
         # don't expose it. We wrap methods to inject self.character_id automatically.
         self._tool_dispatch = {
@@ -1484,9 +1480,6 @@ class VoiceTaskManager:
             elif tool_name == "stop_task":
                 result = await self._handle_stop_task(params)
                 payload = {"result": result}
-            elif tool_name == "ui_show_panel":
-                result = await self._handle_ui_show_panel(params)
-                payload = {"result": result}
             elif tool_name == "query_task_progress":
                 result = await self._handle_query_task_progress(params)
                 payload = {"result": result}
@@ -2168,17 +2161,6 @@ class VoiceTaskManager:
             "task_id": resolved_task_id,
         }
 
-    async def _handle_ui_show_panel(self, params: FunctionCallParams):
-        try:
-            logger.info(f"show_panel: {params.arguments}")
-            await params.llm.push_frame(
-                RTVIServerMessageFrame({"ui-action": "show_panel", **params.arguments})
-            )
-            return {"success": True, "message": "Panel shown"}
-        except Exception as e:
-            logger.error(f"ui_show_panel failed: {e}")
-            return {"success": False, "error": str(e)}
-
     async def _handle_load_game_info(self, params: FunctionCallParams):
         """Load detailed game information for a specific topic."""
         topic = params.arguments.get("topic")
@@ -2211,6 +2193,5 @@ class VoiceTaskManager:
                 StartTask.schema(),
                 StopTask.schema(),
                 LoadGameInfo.schema(),
-                UI_SHOW_PANEL_SCHEMA,
             ]
         )

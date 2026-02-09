@@ -1704,15 +1704,3 @@ class LoadGameInfo(Tool):
 
 
 ##
-
-UI_SHOW_PANEL_SCHEMA = FunctionSchema(
-    name="ui_show_panel",
-    description="Switch to and highlight a panel in the client UI",
-    properties={
-        "panel": {
-            "type": "string",
-            "description": "Name of the panel to switch to. One of 'task_output', 'movement_history', 'ports_discovered' or 'trade'",
-        },
-    },
-    required=["panel"],
-)
