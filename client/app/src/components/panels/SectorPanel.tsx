@@ -24,7 +24,8 @@ import { Divider } from "../primitives/Divider"
 import { ChevronSM } from "../svg/ChevronSM"
 import { CombatAsidePanel } from "./CombatAsidePanel"
 import { SectorPlayerMovementPanel } from "./DataTablePanels"
-import { RHSPanelContent } from "./RHSPanelContainer"
+import { RHSPanelContent, RHSSubPanel } from "./RHSPanelContainer"
+import { SectorShipSubPanel } from "./SectorShipSubPanel"
 
 interface SectorInfoRowProps {
   label: string
@@ -93,140 +94,142 @@ export const SectorPanel = () => {
   const portCode = useMemo(() => getPortCode(sector?.port ?? null), [sector?.port])
 
   return (
-    <RHSPanelContent>
-      {uiState === "combat" && <CombatAsidePanel />}
+    <>
+      <RHSPanelContent>
+        {uiState === "combat" && <CombatAsidePanel />}
 
-      <Card
-        size="sm"
-        className={cn("border-0", uiState === "combat" ? "border-b border-t" : "border-b")}
-      >
-        <CardHeader className="gap-0">
-          <CardTitle>Sector {sector?.id}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-row gap-ui-sm pr-0">
-          <div className="text-xs uppercase flex flex-col gap-ui-xxs flex-1">
-            <SectorInfoRow label="Zone" value={sector?.region} empty="Unknown" Icon={GpsIcon} />
-            <SectorInfoRow
-              label="Hostility"
-              value={sector?.region === "Federation Space" ? "Safe" : "Dangerous"}
-              Icon={ShieldChevronIcon}
-              valueClassName="text-success-foreground"
-            />
-            <SectorInfoRow
-              label="Adjacent"
-              value={sector?.adjacent_sectors?.join(", ")}
-              Icon={FlowArrowIcon}
-            />
-            <SectorInfoRow label="Last visit" value={undefined} Icon={ClockCounterClockwiseIcon} />
-            <SectorInfoRow
-              label="Salvage"
-              count={sector?.salvage?.length ?? 0}
-              value={undefined}
-              Icon={SalvageIcon}
-              onClick={() => console.log("salvage")}
-            />
-          </div>
-        </CardContent>
-        <CardContent className="relative text-xs uppercase">
-          <Divider variant="dotted" className="h-[6px] mb-ui-sm text-accent-background" />
-          <Button
-            variant="ghost"
-            onClick={() => setActivePanel("trade")}
-            className={cn(
-              "w-full relative px-0 text-xs hover:bg-fuel-background/40 text-foreground",
-              sector?.port ?
-                "bg-fuel-background/60 text-fuel-foreground border border-fuel"
-              : "text-subtle-background after:content-[''] after:absolute after:inset-0 after:bg-stripes-sm after:bg-stripes-accent-background"
-            )}
-          >
-            <div className="flex-1 flex flex-row items-center justify-between p-ui-xs">
-              <div className="inline-flex items-center gap-0.5">
-                <ChevronSM className="size-3 text-fuel -rotate-90" />
-                <ChevronSM className="size-3 text-fuel -rotate-90 opacity-50" />
-                <ChevronSM className="size-3 text-fuel -rotate-90 opacity-20" />
-              </div>
-              <span
-                className={cn(
-                  sector?.port ? "text-fuel-foreground font-bold  z-10" : "text-subtle z-10"
-                )}
-              >
-                {sector?.port ? "View " + portCode + " port" : "No port in sector"}
-              </span>
-              <div className="inline-flex items-center gap-0.5">
-                <ChevronSM className="size-3 text-fuel rotate-90 opacity-20" />
-                <ChevronSM className="size-3 text-fuel rotate-90 opacity-50" />
-                <ChevronSM className="size-3 text-fuel rotate-90" />
-              </div>
+        <Card
+          size="sm"
+          className={cn("border-0", uiState === "combat" ? "border-b border-t" : "border-b")}
+        >
+          <CardHeader className="gap-0">
+            <CardTitle>Sector {sector?.id}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-row gap-ui-sm pr-0">
+            <div className="text-xs uppercase flex flex-col gap-ui-xxs flex-1">
+              <SectorInfoRow label="Zone" value={sector?.region} empty="Unknown" Icon={GpsIcon} />
+              <SectorInfoRow
+                label="Hostility"
+                value={sector?.region === "Federation Space" ? "Safe" : "Dangerous"}
+                Icon={ShieldChevronIcon}
+                valueClassName="text-success-foreground"
+              />
+              <SectorInfoRow
+                label="Adjacent"
+                value={sector?.adjacent_sectors?.join(", ")}
+                Icon={FlowArrowIcon}
+              />
+              <SectorInfoRow
+                label="Last visit"
+                value={undefined}
+                Icon={ClockCounterClockwiseIcon}
+              />
+              <SectorInfoRow
+                label="Salvage"
+                count={sector?.salvage?.length ?? 0}
+                value={undefined}
+                Icon={SalvageIcon}
+                onClick={() => console.log("salvage")}
+              />
             </div>
-          </Button>
-        </CardContent>
-      </Card>
-      <Card size="sm" className="border-x-0 border-y">
-        <CardHeader>
-          <CardTitle>Ships in sector</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-row gap-ui-sm pr-0">
-          <div className="text-xs uppercase flex flex-col gap-ui-xxs flex-1">
-            <SectorInfoRow
-              label="Humans"
-              value="view"
-              empty="Unknown"
-              Icon={UserIcon}
-              count={playerCount}
+          </CardContent>
+          <CardContent className="relative text-xs uppercase">
+            <Divider variant="dotted" className="h-[6px] mb-ui-sm text-accent-background" />
+            <Button
+              variant="ghost"
               onClick={() => setActivePanel("trade")}
-            />
-            <SectorInfoRow
-              label="Autonomous"
-              value="view"
-              empty="Unknown"
-              Icon={HeadCircuitIcon}
-              count={0}
-              onClick={() => setActivePanel("trade")}
-            />
-            <Divider
-              variant="dotted"
-              className="h-[6px] my-ui-xs text-accent-background shrink-0"
-            />
-            <SectorInfoRow
-              label="Unmanned"
-              value="view"
-              empty="Unknown"
-              Icon={EmptyIcon}
-              count={sector?.unowned_ships?.length ?? 0}
-              onClick={() => setActivePanel("trade")}
-            />
-            <Divider
-              variant="dotted"
-              className="h-[6px] my-ui-xs text-accent-background shrink-0"
-            />
-            <SectorPlayerMovementPanel className="max-h-[280px]" />
-          </div>
-        </CardContent>
-      </Card>
-      <Card size="sm" className="border-x-0 border-y">
-        <CardHeader>
-          <CardTitle>Garrisons</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <BlankSlateTile text="No garrisons in sector" />
-        </CardContent>
-      </Card>
-      <Card size="sm" className="border-x-0 border-y">
-        <CardHeader>
-          <CardTitle>Planets</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <BlankSlateTile text="No planets in sector" />
-        </CardContent>
-      </Card>
-    </RHSPanelContent>
+              className={cn(
+                "w-full relative px-0 text-xs hover:bg-fuel-background/40 text-foreground",
+                sector?.port ?
+                  "bg-fuel-background/60 text-fuel-foreground border border-fuel"
+                : "text-subtle-background after:content-[''] after:absolute after:inset-0 after:bg-stripes-sm after:bg-stripes-accent-background"
+              )}
+            >
+              <div className="flex-1 flex flex-row items-center justify-between p-ui-xs">
+                <div className="inline-flex items-center gap-0.5">
+                  <ChevronSM className="size-3 text-fuel -rotate-90" />
+                  <ChevronSM className="size-3 text-fuel -rotate-90 opacity-50" />
+                  <ChevronSM className="size-3 text-fuel -rotate-90 opacity-20" />
+                </div>
+                <span
+                  className={cn(
+                    sector?.port ? "text-fuel-foreground font-bold  z-10" : "text-subtle z-10"
+                  )}
+                >
+                  {sector?.port ? "View " + portCode + " port" : "No port in sector"}
+                </span>
+                <div className="inline-flex items-center gap-0.5">
+                  <ChevronSM className="size-3 text-fuel rotate-90 opacity-20" />
+                  <ChevronSM className="size-3 text-fuel rotate-90 opacity-50" />
+                  <ChevronSM className="size-3 text-fuel rotate-90" />
+                </div>
+              </div>
+            </Button>
+          </CardContent>
+        </Card>
+        <Card size="sm" className="border-x-0 border-y">
+          <CardHeader>
+            <CardTitle>Ships in sector</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-row gap-ui-sm pr-0">
+            <div className="text-xs uppercase flex flex-col gap-ui-xxs flex-1">
+              <SectorInfoRow
+                label="Humans"
+                value="view"
+                empty="Unknown"
+                Icon={UserIcon}
+                count={playerCount}
+                onClick={() => setActivePanel("trade")}
+              />
+              <SectorInfoRow
+                label="Autonomous"
+                value="view"
+                empty="Unknown"
+                Icon={HeadCircuitIcon}
+                count={0}
+                onClick={() => setActivePanel("trade")}
+              />
+              <Divider
+                variant="dotted"
+                className="h-[6px] my-ui-xs text-accent-background shrink-0"
+              />
+              <SectorInfoRow
+                label="Unmanned"
+                value="view"
+                empty="Unknown"
+                Icon={EmptyIcon}
+                count={sector?.unowned_ships?.length ?? 0}
+                onClick={() => setActivePanel("trade")}
+              />
+              <Divider
+                variant="dotted"
+                className="h-[6px] my-ui-xs text-accent-background shrink-0"
+              />
+              <SectorPlayerMovementPanel className="max-h-[280px]" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card size="sm" className="border-x-0 border-y">
+          <CardHeader>
+            <CardTitle>Garrisons</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BlankSlateTile text="No garrisons in sector" />
+          </CardContent>
+        </Card>
+        <Card size="sm" className="border-x-0 border-y">
+          <CardHeader>
+            <CardTitle>Planets</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BlankSlateTile text="No planets in sector" />
+          </CardContent>
+        </Card>
+      </RHSPanelContent>
+
+      <RHSSubPanel>
+        <SectorShipSubPanel />
+      </RHSSubPanel>
+    </>
   )
 }
-
-// - player count / ships in sector
-// - unowned ships
-// - salvage
-// - garrisons
-// - planets
-
-// - player list -> player sub panel

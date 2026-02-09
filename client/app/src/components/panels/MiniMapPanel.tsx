@@ -34,6 +34,7 @@ const MINIMAP_CONFIG: MapConfig = {
     },
   },
 }
+
 const MAX_DISTANCE = 4
 
 export const MiniMapPanel = ({ className }: { className?: string }) => {
