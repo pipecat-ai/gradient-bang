@@ -45,10 +45,6 @@ from gradientbang.utils.prompt_loader import build_voice_agent_prompt
 
 load_dotenv(dotenv_path=".env.bot")
 
-if os.getenv("BOT_USE_KRISP"):
-    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
-
-
 from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_chat_history
 from gradientbang.pipecat_server.context_compression import (
     ContextCompressionConsumer,
@@ -60,9 +56,13 @@ from gradientbang.pipecat_server.inference_gate import (
     PostLLMInferenceGate,
     PreLLMInferenceGate,
 )
+from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStrategy
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
+
+if os.getenv("BOT_USE_KRISP"):
+    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 # Configure loguru
 logger.remove()
@@ -203,7 +203,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
     context_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(filter_incomplete_user_turns=True),
+        user_params=LLMUserAggregatorParams(
+            filter_incomplete_user_turns=True,
+            user_mute_strategies=[TextInputBypassFirstBotMuteStrategy()],
+        ),
     )
     user_mute_state = {"muted": True}
     user_unmuted_event = asyncio.Event()
