@@ -19,7 +19,7 @@ export const defaultProfile: StarfieldConfig = {
   imageAssets: [],
   hyperspaceEnterTime: 1500,
   hyperspaceExitTime: 1500,
-  hyperspaceDuration: 2000,
+  hyperspaceDuration: 4000,
   shakeIntensity: 1,
   shakeRelaxTime: 1000,
   layerDimDuration: 5000,

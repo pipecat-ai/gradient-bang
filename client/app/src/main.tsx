@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client"
 import { PipecatClient } from "@pipecat-ai/client-js"
 import { PipecatClientProvider } from "@pipecat-ai/client-react"
 
+import { FullScreenLoader } from "@/components/FullScreenLoader"
 import { TempMobileBlock } from "@/components/TempMobileBlock"
 import { Error } from "@/components/views/Error"
 import { ViewContainer } from "@/components/views/ViewContainer"
@@ -12,9 +13,9 @@ import { GameProvider } from "@/GameContext"
 import usePipecatClientStore from "@/stores/client"
 import useGameStore from "@/stores/game"
 
-import { FullScreenLoader } from "./components/FullScreenLoader"
-
 import "./css/index.css"
+
+import "./sw-update"
 
 // Get settings from the initialized store (not from JSON directly)
 const Settings = useGameStore.getState().settings
