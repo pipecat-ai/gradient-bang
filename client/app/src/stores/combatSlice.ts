@@ -7,6 +7,8 @@ export interface CombatSlice {
   combatActionReceipts: CombatActionReceipt[]
   combatHistory: CombatEndedRound[]
   lastCombatEnded: CombatEndedRound | null
+  tookDamageThisRound: boolean
+  setTookDamageThisRound: (tookDamage: boolean) => void
 
   setActiveCombatSession: (combatSession: CombatSession | null) => void
   updateActiveCombatSession: (updates: Partial<CombatSession>) => void
@@ -32,14 +34,21 @@ export const createCombatSlice: StateCreator<CombatSlice> = (set) => ({
   combatActionReceipts: [],
   combatHistory: [],
   lastCombatEnded: null,
+  tookDamageThisRound: false,
+
+  setTookDamageThisRound: (tookDamage: boolean) =>
+    set(
+      produce((state: CombatSlice) => {
+        state.tookDamageThisRound = tookDamage
+      })
+    ),
 
   setActiveCombatSession: (combatSession: CombatSession | null) =>
     set(
       produce((state: CombatSlice) => {
         const previousCombatId = state.activeCombatSession?.combat_id
         const nextCombatId = combatSession?.combat_id
-        const isNewCombatSession =
-          !!nextCombatId && nextCombatId !== previousCombatId
+        const isNewCombatSession = !!nextCombatId && nextCombatId !== previousCombatId
 
         if (isNewCombatSession) {
           state.combatRounds = []
@@ -72,9 +81,7 @@ export const createCombatSlice: StateCreator<CombatSlice> = (set) => ({
     set(
       produce((state: CombatSlice) => {
         const idx = state.combatRounds.findIndex(
-          (entry) =>
-            entry.combat_id === combatRound.combat_id &&
-            entry.round === combatRound.round
+          (entry) => entry.combat_id === combatRound.combat_id && entry.round === combatRound.round
         )
 
         if (idx >= 0) {
@@ -136,9 +143,7 @@ export const createCombatSlice: StateCreator<CombatSlice> = (set) => ({
   addCombatHistory: (combat: CombatEndedRound) =>
     set(
       produce((state: CombatSlice) => {
-        const idx = state.combatHistory.findIndex(
-          (entry) => entry.combat_id === combat.combat_id
-        )
+        const idx = state.combatHistory.findIndex((entry) => entry.combat_id === combat.combat_id)
         if (idx >= 0) {
           state.combatHistory[idx] = combat
         } else {

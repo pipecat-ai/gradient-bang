@@ -11,9 +11,11 @@ import { useChatControls } from "./useChatControls"
 import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
 
+import { SHIP_DEFINITIONS } from "@/types/ships"
 import { INCOMING_CHAT_TOOL_CALL_MOCK } from "@/mocks/chat.mock"
 import { LEADERBOARD_DATA_MOCK } from "@/mocks/misc.mock"
 import {
+  createRandomCorporation,
   createRandomPlayer,
   createRandomUnownedShip,
   MEGA_PORT_MOCK,
@@ -41,6 +43,7 @@ export const LevaControls = ({
   const removeSectorPlayer = useGameStore.use.removeSectorPlayer()
   const addActivityLogEntry = useGameStore.use.addActivityLogEntry()
   const updateSector = useGameStore.use.updateSector()
+  const setCorporation = useGameStore.use.setCorporation()
 
   const isFirstRender = useRef(true)
 
@@ -135,6 +138,28 @@ export const LevaControls = ({
         ["Add Salvage Created Toast"]: button(() => addToast({ type: "salvage.created" })),
         ["Add Trade Executed Toast"]: button(() => addToast({ type: "trade.executed" })),
         ["Add Transfer Toast"]: button(() => addToast({ type: "transfer" })),
+        ["Add Ship Purchased Toast"]: button(() => {
+          const def = faker.helpers.arrayElement(SHIP_DEFINITIONS)
+          addToast({
+            type: "ship.purchased",
+            meta: {
+              ship: {
+                ship_id: faker.string.uuid(),
+                ship_name: def.display_name,
+                ship_type: def.ship_type,
+                fighters: def.fighters,
+                shields: def.shields,
+              },
+            },
+          })
+        }),
+        ["Add Corporation Created Toast"]: button(() => {
+          const corp = createRandomCorporation()
+          addToast({
+            type: "corporation.created",
+            meta: { corporation: corp },
+          })
+        }),
       },
       { collapsed: true, order: 1 }
     ),
@@ -240,6 +265,11 @@ export const LevaControls = ({
             id: sector.id,
             salvage: [...(sector.salvage ?? []), salvageItem],
           })
+        }),
+
+        ["Join Corporation"]: button(() => {
+          const corp = createRandomCorporation()
+          setCorporation(corp)
         }),
 
         ["Mock Player Arrive"]: button(() => {

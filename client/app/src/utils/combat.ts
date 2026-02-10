@@ -14,6 +14,16 @@ export const getShieldColor = (shieldIntegrity: number) => {
   return "text-success"
 }
 
+export const getStatusTone = (percent: number) => {
+  if (percent < 25) {
+    return "destructive"
+  }
+  if (percent < 50) {
+    return "warning"
+  }
+  return "terminal"
+}
+
 export const getRoundOutcome = (round: Pick<CombatRound, "round_result" | "result" | "end">) => {
   const outcomeRaw = round.round_result ?? round.result ?? round.end
   return outcomeRaw ? String(outcomeRaw).replace(/_/g, " ") : "continued"

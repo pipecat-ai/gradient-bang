@@ -7,6 +7,7 @@ import { PipecatClientAudio } from "@pipecat-ai/client-react"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
 import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
+import { CombatDamageVignette } from "@/components/panels/CombatDamageVignette"
 import { ConversationPanel } from "@/components/panels/ConversationPanel"
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
@@ -44,7 +45,7 @@ export const Game = () => {
   useEffect(() => {
     if (uiState === "combat") {
       console.debug("%c[GAME] Entering combat", "color: red; font-weight: bold")
-      useAudioStore.getState().playSound("enterCombat", { volume: 0.1, once: true, loop: false })
+      useAudioStore.getState().playSound("enterCombat", { volume: 0.1, loop: false })
       // Reset look mode and active screen
       const gameStore = useGameStore.getState()
       gameStore.setLookMode(false)
@@ -83,10 +84,8 @@ export const Game = () => {
         <Panel className="flex flex-col">
           <TopBar />
           <main className="relative flex-1 flex flex-col gap-0 @container/main">
-            {uiState === "combat" && (
-              <div className="inset-0 pointer-events-none animate-in fade-in-100 combat-vignette combat-border absolute!" />
-            )}
-            <div className="p-ui-xs flex-1">
+            {uiState === "combat" && <CombatDamageVignette />}
+            <div className="flex-1">
               {uiState === "combat" ?
                 <CombatActionPanel />
               : <TaskEnginesPanel />}

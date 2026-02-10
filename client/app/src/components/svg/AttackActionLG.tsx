@@ -8,7 +8,7 @@ export const AttackActionLG = ({ className = "" }: { className?: string }) => {
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
-      <g clip-path="url(#clip0_508_2001)">
+      <g clipPath="url(#clip0_508_2001)">
         <rect x="29.9487" width="4.10256" height="19.6923" fill="white" />
         <rect
           x="64"

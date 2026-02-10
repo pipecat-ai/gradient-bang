@@ -4,7 +4,7 @@ import { cn } from "@/utils/tailwind"
 
 import { Progress } from "./primitives/Progress"
 
-const DEFAULT_ROUND_MS = 15_000
+const DEFAULT_ROUND_MS = 30_000
 
 export const CombatRoundTimer = ({
   deadline,
@@ -30,9 +30,9 @@ export const CombatRoundTimer = ({
   const deadlineMs = deadline ? Date.parse(deadline) : NaN
   const currentMs = currentTime ? Date.parse(currentTime) : NaN
   const totalMs =
-    Number.isFinite(deadlineMs) && Number.isFinite(currentMs) && deadlineMs > currentMs
-      ? deadlineMs - currentMs
-      : DEFAULT_ROUND_MS
+    Number.isFinite(deadlineMs) && Number.isFinite(currentMs) && deadlineMs > currentMs ?
+      deadlineMs - currentMs
+    : DEFAULT_ROUND_MS
   const remainingMs = Number.isFinite(deadlineMs) ? Math.max(0, deadlineMs - tickNow) : 0
   const percent = deadline ? Math.max(0, Math.min(100, (remainingMs / totalMs) * 100)) : 0
   const timeRemaining = Math.ceil(remainingMs / 1000).toString()
@@ -62,7 +62,7 @@ export const CombatRoundTimer = ({
           : <span className="font-bold">Round Over</span>}
         </div>
       </div>
-      <Progress value={percent} color={timerColor} className="h-8" smooth />
+      <Progress value={percent} color={timerColor} className="h-7" smooth />
     </div>
   )
 }

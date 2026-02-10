@@ -24,7 +24,6 @@ export interface CombatActionOptionsProps {
   onSelectedTargetKey: (key: string) => void
   payTollAmount: number
   onPayToll: () => void
-  onSubmitAction: () => void
   maxAttackCommit: number
   pendingReceipt: CombatActionReceipt | null
   attackTargets: CombatAttackTargetOption[]
@@ -43,7 +42,7 @@ const activeActionButtonCX = "text-terminal-foreground scale-105"
 const inactiveActionButtonCX = "opacity-30 scale-95"
 
 const actionButtonHelperCX =
-  "text-xxs uppercase font-normal text-foreground bg-background/40 px-1 py-px"
+  "text-xxs uppercase font-normal text-subtle-foreground bg-background/40 px-1 py-px"
 const actionButtonLabelCX = "flex-1 flex flex-col gap-1 items-center"
 
 const actionCardCX =
@@ -123,7 +122,8 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
   }*/
 
   const handleSubmitAction = () => {
-    props.onSubmitAction()
+    if (!actionSelected) return
+    props.onSelectedAction(actionSelected)
 
     // Animate cards out
     setShowCards(false)
@@ -144,8 +144,8 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
     : inactiveActionButtonCX
 
   return (
-    <div className="flex flex-col gap-ui-xs p-ui-sm bg-linear-to-t from-background from-30% to-background/0">
-      <div className="flex flex-row gap-ui-sm h-34">
+    <div className="flex flex-col gap-ui-xs py-ui-sm bg-linear-to-t from-background from-30% to-background/0">
+      <div className="flex flex-row gap-ui-sm h-32 px-ui-sm">
         <div
           className={cn(
             "inline-flex items-center gap-0.5",
@@ -181,7 +181,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                     tabIndex={0}
                   >
                     <label className={actionButtonLabelCX}>
-                      <ShieldActionLG className="size-11" />
+                      <ShieldActionLG className="size-[46px]" />
                       Brace
                     </label>
                     <small className={actionButtonHelperCX}>Boost mitigation</small>
@@ -202,14 +202,17 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                         tabIndex={0}
                       >
                         <label className={actionButtonLabelCX}>
-                          <AttackActionLG className="size-11" />
+                          <AttackActionLG className="size-[44px]" />
                           Attack
                         </label>
-                        <small className={actionButtonHelperCX}>Commit fighters to target</small>
+                        <small className={actionButtonHelperCX}>Deploy fighters at target</small>
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent side="top" className="shadow-medium shadow-background/20 w-xs">
-                      Select target
+                    <PopoverContent
+                      side="top"
+                      className="shadow-lg shadow-background/20 w-sm border-white"
+                    >
+                      <small className="text-xs uppercase text-foreground">Target ship</small>
                       <Select
                         value={selectedAttackTarget?.key ?? ""}
                         onValueChange={(value) =>
@@ -229,12 +232,15 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                           ))}
                         </SelectContent>
                       </Select>
-                      Select Commit
+                      <small className="text-xs uppercase text-foreground">
+                        Number of fighters to commit
+                      </small>
                       <div className="flex flex-row gap-ui-xs">
                         <SliderControl
                           min={1}
                           max={props.maxAttackCommit}
                           step={1}
+                          size="lg"
                           defaultValue={[selectedAttackCommit as unknown as number]}
                           onValueChange={(value) => setSelectedAttackCommit(value[0].toString())}
                           className="flex-1"
@@ -245,7 +251,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                           max={props.maxAttackCommit}
                           value={selectedAttackCommit}
                           onChange={(event) => setSelectedAttackCommit(event.target.value)}
-                          className="w-20"
+                          className="w-20 text-center appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                         />
                       </div>
                       {attackCommitError ?
@@ -268,7 +274,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                     tabIndex={0}
                   >
                     <label className={actionButtonLabelCX}>
-                      <FleeActionLG className="size-11" />
+                      <FleeActionLG className="size-[44px]" />
                       Flee
                     </label>
                     <small className={actionButtonHelperCX}>Flee to adjacent sector</small>
@@ -287,7 +293,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                       tabIndex={0}
                     >
                       <label className={actionButtonLabelCX}>
-                        <ShieldActionLG className="size-11" />
+                        <ShieldActionLG className="size-[44px]" />
                         Pay {formatCurrency(props.payTollAmount)}
                       </label>
 

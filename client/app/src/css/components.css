@@ -173,7 +173,7 @@
     circle at center,
     transparent 0%,
     transparent 50%,
-    color-mix(in srgb, var(--color-destructive) 30%, transparent) 100%
+    color-mix(in srgb, var(--color-destructive) 60%, transparent) 100%
   );
 }
 

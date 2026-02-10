@@ -284,7 +284,7 @@ export const TaskEnginesPanel = () => {
   }, [corpShipTasks, assignTaskToCorpSlot, displayedCorpSlots])
 
   return (
-    <div className="grid grid-cols-2 auto-rows-[1fr] gap-ui-xs h-full @tall-md:*:max-h-72 @tall-lg:*:max-h-96 @tall-xl:*:max-h-120">
+    <div className="p-ui-xs grid grid-cols-2 auto-rows-[1fr] gap-ui-xs h-full @tall-md:*:max-h-72 @tall-lg:*:max-h-96 @tall-xl:*:max-h-120">
       <TaskEngine isLocal taskId={localTaskId} starfieldEnabled={starfieldEnabled} />
       {!ships.data ?
         <LockedTaskEngineSlot

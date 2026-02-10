@@ -14,7 +14,7 @@ const CORP_NAME_SUFFIXES = [
   "Trading Co.", "Enterprises", "Holdings", "Group", "Federation",
 ]
 
-function createRandomCorporation(): Corporation {
+export function createRandomCorporation(): Corporation {
   const prefix = faker.helpers.arrayElement(CORP_NAME_PREFIXES)
   const suffix = faker.helpers.arrayElement(CORP_NAME_SUFFIXES)
   return {

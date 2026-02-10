@@ -154,7 +154,11 @@ export function GameProvider({ children }: GameProviderProps) {
             console.warn(`[GAME EVENT] Missing player.id for ${eventName}`, payload)
           }
 
-          const logIgnored = (eventName: string, reason: string, payload: Msg.ServerMessagePayload) => {
+          const logIgnored = (
+            eventName: string,
+            reason: string,
+            payload: Msg.ServerMessagePayload
+          ) => {
             console.debug(
               `%c[GAME EVENT] Ignoring ${eventName} (${reason})`,
               "color: #000; background: #CCC",
@@ -470,6 +474,16 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Corporation created", e.payload)
               const data = e.payload as Msg.CorporationCreatedMessage
               gameStore.setCorporation(data)
+
+              gameStore.addToast({
+                type: "corporation.created",
+                meta: {
+                  corporation: {
+                    corp_id: data.corp_id,
+                    name: data.name,
+                  } as Corporation,
+                },
+              })
               break
             }
 
@@ -489,6 +503,16 @@ export function GameProvider({ children }: GameProviderProps) {
                 ship_type: data.ship_type,
                 owner_type: "corporation",
                 sector: data.sector,
+              })
+              gameStore.addToast({
+                type: "ship.purchased",
+                meta: {
+                  ship: {
+                    ship_id: data.ship_id,
+                    ship_name: data.ship_name,
+                    ship_type: data.ship_type,
+                  },
+                },
               })
               break
             }
