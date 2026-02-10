@@ -55,6 +55,7 @@ TASK_LOG_TTL_SECONDS = 15 * 60
 CORP_TASK_EVENT_VALIDATE_TIMEOUT_SECONDS = 10.0
 TASK_SCOPED_DIRECT_EVENT_ALLOWLIST = {
     "bank.transaction",
+    "chat.message",
     "movement.complete",
     "port.update",
     "task.start",
@@ -411,6 +412,30 @@ class VoiceTaskManager:
                 summary += " More available."
 
             return summary
+
+        if event_name == "chat.message":
+            # Preserve full message content for live DM readback. The default
+            # chat_message_summary truncates content for generic event streams.
+            if not isinstance(payload, Mapping):
+                return event.get("summary")
+
+            msg_type = payload.get("type", "unknown")
+            from_name = payload.get("from_name", payload.get("from", "unknown"))
+            from_name = _shorten_embedded_ids(str(from_name))
+            to_name = payload.get("to_name", payload.get("to", "unknown"))
+            to_name = _shorten_embedded_ids(str(to_name))
+
+            raw_content = payload.get("content", payload.get("message", ""))
+            if isinstance(raw_content, str):
+                content = _shorten_embedded_ids(raw_content.replace("\n", " ").strip())
+            else:
+                content = _shorten_embedded_ids(str(raw_content))
+
+            if msg_type == "broadcast":
+                return f"{from_name} (broadcast): {content}"
+            if msg_type == "direct":
+                return f"{from_name} → {to_name}: {content}"
+            return f"{from_name}: {content}"
 
         if event_name == "ships.list":
             # Summarize fleet information for voice context (one line per ship)
@@ -902,7 +927,7 @@ class VoiceTaskManager:
             is_direct_to_player = (
                 isinstance(scope, str)
                 and scope in {"direct", "self"}
-                and recipient_reason in {"direct", "task_owner"}
+                and recipient_reason in {"direct", "task_owner", "recipient"}
             )
             if is_direct_to_player:
                 if is_task_scoped_event:

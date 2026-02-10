@@ -1373,14 +1373,16 @@ class SendMessage(GameClientTool):
         self,
         content,
         msg_type="broadcast",
+        to_player=None,
         to_name=None,
         to_ship_id=None,
         to_ship_name=None,
     ):
+        recipient_name = to_player if isinstance(to_player, str) and to_player.strip() else to_name
         return self.game_client.send_message(
             content=content,
             msg_type=msg_type,
-            to_name=to_name,
+            to_name=recipient_name,
             to_ship_id=to_ship_id,
             to_ship_name=to_ship_name,
             character_id=self.game_client.character_id,
@@ -1407,9 +1409,12 @@ class SendMessage(GameClientTool):
                     "description": "Message type",
                     "default": "broadcast",
                 },
-                "to_name": {
+                "to_player": {
                     "type": "string",
-                    "description": "Recipient character name or ship name (required for direct unless using ship_id)",
+                    "description": (
+                        "Recipient character name or ship name (required for direct unless using ship_id). "
+                        "Use this field for direct messages."
+                    ),
                 },
                 "to_ship_id": {
                     "type": "string",

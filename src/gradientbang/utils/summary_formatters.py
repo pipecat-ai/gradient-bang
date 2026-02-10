@@ -1399,6 +1399,31 @@ def event_query_summary(
             short_task_id = task_id[:6] if len(task_id) >= 6 else task_id
             task_suffix = f" [task={short_task_id}]"
 
+        # For chat history queries, preserve full message content (do not use
+        # chat_message_summary, which truncates for general event streams).
+        if event_name == "chat.message" and isinstance(payload, dict):
+            msg_type = payload.get("type", "unknown")
+            from_name = payload.get("from_name", payload.get("from", "unknown"))
+            from_name = _shorten_embedded_ids(str(from_name))
+            to_name = payload.get("to_name", payload.get("to", "unknown"))
+            to_name = _shorten_embedded_ids(str(to_name))
+
+            raw_content = payload.get("content", payload.get("message", ""))
+            if isinstance(raw_content, str):
+                content = _shorten_embedded_ids(raw_content.replace("\n", " ").strip())
+            else:
+                content = str(raw_content)
+
+            if msg_type == "broadcast":
+                nested_summary = f"{from_name} (broadcast): {content}"
+            elif msg_type == "direct":
+                nested_summary = f"{from_name} → {to_name}: {content}"
+            else:
+                nested_summary = f"{from_name}: {content}"
+
+            lines.append(f"  [{time_str}] {event_name}{task_suffix}: {nested_summary}")
+            continue
+
         # Try to get a nested summary for the event payload
         nested_summary = None
         if isinstance(payload, dict):
