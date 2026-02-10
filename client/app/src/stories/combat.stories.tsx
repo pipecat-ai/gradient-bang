@@ -291,6 +291,7 @@ export const CombatFlowStory: Story = () => {
     const offensive_losses: Record<string, number> = {}
     const defensive_losses: Record<string, number> = {}
     const shield_loss: Record<string, number> = {}
+    const damage_mitigated: Record<string, number> = {}
     const fighters_remaining: Record<string, number> = {}
     const shields_remaining: Record<string, number> = {}
     const flee_results: Record<string, boolean> = {}
@@ -302,6 +303,7 @@ export const CombatFlowStory: Story = () => {
       offensive_losses[id] = 0
       defensive_losses[id] = 0
       shield_loss[id] = 0
+      damage_mitigated[id] = 0
       fighters_remaining[id] = prevFighters
       shields_remaining[id] = prevShields
       flee_results[id] = false
@@ -312,6 +314,7 @@ export const CombatFlowStory: Story = () => {
       offensive_losses[playerId] = profile.myOffLosses
       defensive_losses[playerId] = profile.myDefLosses
       shield_loss[playerId] = profile.myShieldLoss
+      damage_mitigated[playerId] = Math.max(0, Math.floor(profile.enemyHits * 0.2))
       fighters_remaining[playerId] = Math.max(
         0,
         (fighters_remaining[playerId] ?? 100) - profile.myOffLosses - profile.myDefLosses
@@ -328,6 +331,7 @@ export const CombatFlowStory: Story = () => {
       offensive_losses[opponent.id] = Math.max(1, Math.floor(profile.enemyHits / 2))
       defensive_losses[opponent.id] = Math.max(1, profile.myHits)
       shield_loss[opponent.id] = Math.max(0, Math.floor(profile.myHits / 2))
+      damage_mitigated[opponent.id] = Math.max(0, Math.floor(profile.myHits * 0.1))
       fighters_remaining[opponent.id] = Math.max(
         0,
         (fighters_remaining[opponent.id] ?? 100) -
@@ -379,6 +383,7 @@ export const CombatFlowStory: Story = () => {
       offensive_losses,
       defensive_losses,
       shield_loss,
+      damage_mitigated,
       fighters_remaining,
       shields_remaining,
       flee_results,
@@ -409,6 +414,7 @@ export const CombatFlowStory: Story = () => {
             offensive_losses,
             defensive_losses,
             shield_loss,
+            damage_mitigated,
             result: endResult,
             timestamp: new Date().toISOString(),
           },

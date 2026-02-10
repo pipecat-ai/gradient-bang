@@ -61,7 +61,59 @@ const applyCombatActionAccepted = (action: CombatActionType) => {
 
 const applyCombatRoundResolved = () => {
   const state = useGameStore.getState()
-  applyCombatRoundResolvedState(state, COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK)
+  const combatId =
+    state.activeCombatSession?.combat_id ?? COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK.combat_id
+  const round = state.activeCombatSession?.round ?? COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK.round
+
+  // Respect the committed receipt for the player's action
+  const committedReceipt = state.combatActionReceipts.findLast(
+    (receipt) => receipt.combat_id === combatId && receipt.round === round
+  )
+
+  const playerName = state.player?.name
+  let actions = COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK.actions
+  if (committedReceipt && playerName && actions?.[playerName]) {
+    const participants =
+      state.activeCombatSession?.participants ?? COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK.participants
+    actions = {
+      ...actions,
+      [playerName]: {
+        ...actions[playerName],
+        action: committedReceipt.action,
+        commit: committedReceipt.commit,
+        target:
+          committedReceipt.action === "attack" ?
+            (participants.find((p) => p.id === committedReceipt.target_id)?.name ??
+              actions[playerName].target)
+          : null,
+        target_id:
+          committedReceipt.action === "attack" ? (committedReceipt.target_id ?? null) : null,
+        destination_sector: committedReceipt.action === "flee" ? 43 : null,
+      },
+    }
+  }
+
+  const resolvedPayload = {
+    ...COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK,
+    combat_id: combatId,
+    round,
+    actions,
+  }
+
+  applyCombatRoundResolvedState(state, resolvedPayload)
+
+  // Advance to the next round waiting state (same as applyRandomCombatRoundResult)
+  if (state.activeCombatSession) {
+    const nextWaitingState: CombatSession = {
+      ...state.activeCombatSession,
+      participants: resolvedPayload.participants,
+      garrison: resolvedPayload.garrison,
+      round: round + 1,
+      current_time: new Date().toISOString(),
+      deadline: new Date(Date.now() + 15_000).toISOString(),
+    }
+    applyCombatRoundWaitingState(state, nextWaitingState)
+  }
 }
 
 const applyRandomCombatRoundResult = (forcedAction?: "attack" | "brace" | "flee") => {
@@ -89,10 +141,18 @@ const applyRandomCombatRoundResult = (forcedAction?: "attack" | "brace" | "flee"
       activeCombatSession.participants
     : COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK.participants
 
+  // Check if the player already committed an action for this round via receipts
+  const committedReceipt = refreshed.combatActionReceipts.findLast(
+    (receipt) =>
+      receipt.combat_id === combatId &&
+      receipt.round === activeCombatSession.round
+  )
+
   const hits: Record<string, number> = {}
   const offensive_losses: Record<string, number> = {}
   const defensive_losses: Record<string, number> = {}
   const shield_loss: Record<string, number> = {}
+  const damage_mitigated: Record<string, number> = {}
   const fighters_remaining: Record<string, number> = {}
   const shields_remaining: Record<string, number> = {}
   const flee_results: Record<string, boolean> = {}
@@ -106,8 +166,8 @@ const applyRandomCombatRoundResult = (forcedAction?: "attack" | "brace" | "flee"
     const targetPool = participants.filter((candidate) => candidate.id !== participant.id)
     const target = targetPool.length > 0 ? pickRandom(targetPool) : null
     const action =
-      forcedAction && isPlayerParticipant ?
-        forcedAction
+      forcedAction && isPlayerParticipant ? forcedAction
+      : isPlayerParticipant && committedReceipt ? committedReceipt.action
       : pickRandom<CombatActionType>(["attack", "brace", "flee", "pay"])
     const previousFighters =
       latestRound?.fighters_remaining?.[participantId] ?? randomInt(20, 80)
@@ -157,16 +217,25 @@ const applyRandomCombatRoundResult = (forcedAction?: "attack" | "brace" | "flee"
     offensive_losses[participantId] = offensiveLossValue
     defensive_losses[participantId] = defensiveLossValue
     shield_loss[participantId] = shieldLossValue
+    damage_mitigated[participantId] = action === "brace" ? randomInt(1, defensiveLossValue + shieldLossValue) : randomInt(0, 2)
     fighters_remaining[participantId] = nextFighters
     shields_remaining[participantId] = nextShields
     flee_results[participantId] = fled
+    const useReceipt = isPlayerParticipant && committedReceipt
     actions[participant.name] = {
       action,
-      commit: randomInt(1, 100),
+      commit: useReceipt ? committedReceipt.commit : randomInt(1, 100),
       timed_out: false,
       submitted_at: new Date().toISOString(),
-      target: action === "attack" ? (target?.name ?? null) : null,
-      target_id: action === "attack" ? (target?.id ?? null) : null,
+      target:
+        useReceipt && action === "attack" ?
+          (participants.find((p) => p.id === committedReceipt.target_id)?.name ?? target?.name ?? null)
+        : action === "attack" ? (target?.name ?? null)
+        : null,
+      target_id:
+        useReceipt && action === "attack" ? (committedReceipt.target_id ?? target?.id ?? null)
+        : action === "attack" ? (target?.id ?? null)
+        : null,
       destination_sector:
         action === "flee" ? randomInt(1, 200)
         : null,
@@ -191,6 +260,7 @@ const applyRandomCombatRoundResult = (forcedAction?: "attack" | "brace" | "flee"
     offensive_losses,
     defensive_losses,
     shield_loss,
+    damage_mitigated,
     fighters_remaining,
     shields_remaining,
     flee_results,

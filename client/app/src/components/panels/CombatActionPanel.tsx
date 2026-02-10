@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react"
 
 import { BlankSlateTile } from "@/components/BlankSlates"
+import { CombatActionTimeline } from "@/components/CombatActionTimeline"
 import { CombatRoundTimer } from "@/components/CombatRoundTimer"
 import { CombatActionOptions } from "@/components/panels/CombatActionOptions"
 import {
@@ -100,6 +101,11 @@ export const CombatActionPanel = () => {
   const activeGarrison = activeCombatSession?.garrison ?? null
   const canPayToll = Boolean(activeGarrison && activeGarrison.mode === "toll")
   const payTollAmount = canPayToll ? (activeGarrison?.toll_amount ?? null) : null
+  const previousRoundAction = latestPersonalResult?.action ?? null
+  const committedAction = pendingReceipt?.action ?? null
+
+  console.log("[COMBAT] previousRoundAction", previousRoundAction)
+  console.log("[COMBAT] committedAction", committedAction)
 
   // -- Callbacks (stable references) --
 
@@ -175,10 +181,20 @@ export const CombatActionPanel = () => {
   }
 
   return (
-    <div className="relative z-10 h-full flex flex-col justify-between">
-      <section className="flex flex-col gap-ui-xs flex-1 p-ui-xs">
+    <div className="relative h-full flex flex-col justify-between">
+      <header className="flex flex-row items-center gap-ui-sm px-ui-xs pt-ui-xs">
+        <CombatRoundTimer
+          deadline={activeCombatSession.deadline}
+          currentTime={activeCombatSession.current_time}
+          combatId={activeCombatSession.combat_id}
+          round={activeCombatSession.round}
+          noTimer={!activeCombatSession.deadline}
+        />
+      </header>
+
+      <section className="flex flex-col gap-ui-xs flex-1 p-ui-xs pb-0">
         <div className="relative flex-1 flex pt-11 h-full min-h-0 gap-ui-xxs">
-          <div className="animate-in zoom-in-50 fade-in-0 duration-1000 origin-center bg-background absolute z-10 left-1/2 -translate-x-1/2 top-0 bracket -bracket-offset-4 text-center p-ui-sm flex flex-col gap-ui-xs items-center justify-center">
+          <div className="animate-in zoom-in-50 fade-in-0 duration-1000 origin-center bg-background absolute z-1 left-1/2 -translate-x-1/2 top-0 bracket -bracket-offset-4 text-center p-ui-sm flex flex-col gap-ui-xs items-center justify-center">
             <img src={getShipLogoImage(ship.ship_type)} alt={ship.ship_name} className="size-12" />
             <div className="flex flex-col gap-ui-xs px-2">
               <span className="text-xs uppercase text-subtle-foreground">
@@ -190,14 +206,14 @@ export const CombatActionPanel = () => {
           <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             <CombatRoundFighterResults round={latestPersonalResult} />
           </section>
-          <div className="w-3 dashed-bg-vertical dashed-bg-white/50" />
+          <div className="w-2 dashed-bg-vertical dashed-bg-white/50" />
           <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             <CombatRoundShieldResults round={latestPersonalResult} />
           </section>
         </div>
       </section>
 
-      <section className="flex flex-col gap-ui-sm mt-ui-sm">
+      <section className="flex flex-col gap-ui-sm">
         <CombatActionOptions
           round={activeCombatSession.round}
           attackCommit={attackCommit}
@@ -219,15 +235,12 @@ export const CombatActionPanel = () => {
         />
       </section>
 
-      <header className="flex flex-row items-center gap-ui-sm px-ui-xs pb-ui-xs">
-        <CombatRoundTimer
-          deadline={activeCombatSession.deadline}
-          currentTime={activeCombatSession.current_time}
-          combatId={activeCombatSession.combat_id}
-          round={activeCombatSession.round}
-          noTimer={!activeCombatSession.deadline}
+      <section className="flex flex-col gap-ui-sm">
+        <CombatActionTimeline
+          round={latestPersonalResult?.round ?? null}
+          action={previousRoundAction}
         />
-      </header>
+      </section>
     </div>
   )
 }

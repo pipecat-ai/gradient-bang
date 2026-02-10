@@ -42,8 +42,9 @@ const activeActionButtonCX = "text-terminal-foreground scale-105"
 const inactiveActionButtonCX = "opacity-30 scale-95"
 
 const actionButtonHelperCX =
-  "text-xxs uppercase font-normal text-subtle-foreground bg-background/40 px-1 py-px"
-const actionButtonLabelCX = "flex-1 flex flex-col gap-1 items-center"
+  "text-xxs uppercase font-normal text-subtle-foreground bg-background/40 px-1 py-px hidden @6xl/main:block"
+const actionButtonLabelCX =
+  "flex-1 flex flex-col gap-1 items-center gap-2 @6xl/main:gap-0 justify-center @6xl/main:justify-start"
 
 const actionCardCX =
   "group select-none flex-1 flex relative origin-bottom transition-transform duration-500 focus-outline"
@@ -122,7 +123,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
 
   return (
     <div className="flex flex-col gap-ui-xs py-ui-sm bg-linear-to-t from-background from-30% to-background/0">
-      <div className="flex flex-row gap-ui-sm h-32 px-ui-sm">
+      <div className="flex flex-row gap-ui-sm h-24 @6xl/main:h-32 px-ui-sm">
         <div
           className={cn(
             "inline-flex items-center gap-0.5",
@@ -140,7 +141,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
             {showCards && (
               <motion.nav
                 key={props.round}
-                className="flex-1 flex flex-row z-20 w-fit gap-ui-xs"
+                className="flex-1 flex flex-row z-20 w-fit gap-ui-xxs"
                 initial="hidden"
                 animate="visible"
                 exit="exit"
@@ -158,7 +159,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                     tabIndex={0}
                   >
                     <label className={actionButtonLabelCX}>
-                      <ShieldActionLG className="size-[46px]" />
+                      <ShieldActionLG className="size-[36px] @6xl/main:size-[46px]" />
                       Brace
                     </label>
                     <small className={actionButtonHelperCX}>Boost mitigation</small>
@@ -179,7 +180,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                         tabIndex={0}
                       >
                         <label className={actionButtonLabelCX}>
-                          <AttackActionLG className="size-[44px]" />
+                          <AttackActionLG className="size-[36px] @6xl/main:size-[46px]" />
                           Attack
                         </label>
                         <small className={actionButtonHelperCX}>Deploy fighters at target</small>
@@ -254,7 +255,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                     tabIndex={0}
                   >
                     <label className={actionButtonLabelCX}>
-                      <FleeActionLG className="size-[44px]" />
+                      <FleeActionLG className="size-[36px] @6xl/main:size-[46px]" />
                       Flee
                     </label>
                     <small className={actionButtonHelperCX}>Flee to adjacent sector</small>
@@ -273,7 +274,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                       tabIndex={0}
                     >
                       <label className={actionButtonLabelCX}>
-                        <ShieldActionLG className="size-[44px]" />
+                        <ShieldActionLG className="size-[36px] @6xl/main:size-[46px]" />
                         Pay {formatCurrency(props.payTollAmount)}
                       </label>
 
@@ -299,11 +300,10 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
           <ChevronSM className="size-4 text-foreground rotate-90" />
         </div>
       </div>
-      <footer className="flex-1 flex items-center justify-center gap-ui-sm z-50 bg-background">
+      <footer className="flex-1 flex items-center justify-center gap-ui-sm bg-background z-40">
         <div className="flex-1 flex dashed-bg-vertical dashed-bg-accent h-full" />
         <Button
           onClick={handleSubmitAction}
-          size="lg"
           disabled={
             !actionSelected ||
             !showCards ||

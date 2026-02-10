@@ -129,6 +129,11 @@ export const COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK: CombatRoundResolvedMessage = {
     [OPPONENT_ID]: 23,
     [GARRISON_COMBATANT_ID]: 0,
   },
+  damage_mitigated: {
+    [PLAYER_ID]: 48,
+    [OPPONENT_ID]: 12,
+    [GARRISON_COMBATANT_ID]: 0,
+  },
   fighters_remaining: {
     [PLAYER_ID]: 3290,
     [OPPONENT_ID]: 1670,
@@ -250,6 +255,7 @@ export const COMBAT_ENDED_PAYLOAD_MOCK: CombatEndedMessage = {
       offensive_losses: { [PLAYER_ID]: 30, [OPPONENT_ID]: 0 },
       defensive_losses: { [PLAYER_ID]: 0, [OPPONENT_ID]: 350 },
       shield_loss: { [PLAYER_ID]: 0, [OPPONENT_ID]: 180 },
+      damage_mitigated: { [PLAYER_ID]: 9, [OPPONENT_ID]: 0 },
       result: "Rook AI_defeated",
       timestamp: "2026-02-06T22:15:01.400Z",
     },

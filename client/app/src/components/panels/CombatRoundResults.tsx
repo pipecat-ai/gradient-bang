@@ -75,10 +75,7 @@ function buildFighterStats(round: CombatPersonalRoundResult): StatItem[] {
       label: "Fighters Remaining",
       value: round.fightersRemaining ?? "—",
       help: "Your total fighters left after this round resolved",
-      tone:
-        round.fightersRemaining != null && round.fightersRemaining <= 10
-          ? "warning"
-          : "white",
+      tone: round.fightersRemaining != null && round.fightersRemaining <= 10 ? "warning" : "white",
     },
   ]
 }
@@ -86,7 +83,18 @@ function buildFighterStats(round: CombatPersonalRoundResult): StatItem[] {
 function buildShieldStats(round: CombatPersonalRoundResult): StatItem[] {
   const incomingPressure = round.defensiveLosses + round.shieldLoss
 
-  const stats: StatItem[] = [
+  const stats: StatItem[] = []
+
+  if (round.action === "FLEE") {
+    stats.push({
+      label: "Flee Attempt",
+      value: round.fleeSuccess ? "Success" : "Failed",
+      help: "Whether your flee attempt succeeded this round",
+      tone: round.fleeSuccess ? "terminal" : "warning",
+    })
+  }
+
+  stats.push(
     {
       label: "Incoming Pressure",
       value: incomingPressure,
@@ -100,30 +108,24 @@ function buildShieldStats(round: CombatPersonalRoundResult): StatItem[] {
       tone: round.shieldLoss > 0 ? "destructive" : "accent-foreground",
     },
     {
+      label: "Damage Mitigated",
+      value: round.damageMitigated,
+      help: "Damage prevented by shield mitigation and brace mitigation",
+      tone: round.damageMitigated > 0 ? "success" : "accent-foreground",
+    },
+    {
       label: "Shields Remaining",
       value: round.shieldsRemaining ?? "—",
       help: "Shield points left after this round resolved",
-      tone:
-        round.shieldsRemaining != null && round.shieldsRemaining <= 10
-          ? "warning"
-          : "white",
+      tone: round.shieldsRemaining != null && round.shieldsRemaining <= 10 ? "warning" : "white",
     },
     {
       label: "Attack Target",
       value: round.target ?? "None",
       help: "Participant you targeted for attack this round",
       tone: "accent-foreground",
-    },
-  ]
-
-  if (typeof round.fleeSuccess === "boolean") {
-    stats.push({
-      label: "Flee Attempt",
-      value: round.fleeSuccess ? "Success" : "Failed",
-      help: "Whether your flee attempt succeeded this round",
-      tone: round.fleeSuccess ? "terminal" : "warning",
-    })
-  }
+    }
+  )
 
   return stats
 }
@@ -146,18 +148,13 @@ const CombatStatTile = ({
   <div
     className={cn(
       "p-ui-sm border border-accent flex flex-row gap-ui-xs bg-subtle-background",
-      rtl ? "mr-ui-xs" : "ml-ui-xs",
+      rtl ? "mr-ui-xs" : "ml-ui-xs"
     )}
   >
     <div className={cn("pt-ui-xs", rtl ? "order-last" : "order-first")}>
       <Divider className="w-6 bg-subtle" />
     </div>
-    <div
-      className={cn(
-        "flex-1 flex flex-col gap-0.5",
-        rtl ? "text-right" : "text-left",
-      )}
-    >
+    <div className={cn("flex-1 flex flex-col gap-0.5", rtl ? "text-right" : "text-left")}>
       <div className="text-xs uppercase text-foreground font-bold">{label}</div>
       <div className={cn("text-md uppercase", toneClass[tone])}>{value}</div>
       <div className="text-xxs uppercase text-subtle-foreground">{help}</div>
@@ -189,30 +186,16 @@ type CombatRoundResultsPanelProps = {
   variant: "fighter" | "shield"
 }
 
-const CombatRoundResultsPanel = ({
-  round,
-  variant,
-}: CombatRoundResultsPanelProps) => {
+const CombatRoundResultsPanel = ({ round, variant }: CombatRoundResultsPanelProps) => {
   const { title, Icon, rtl, buildStats } = variantConfig[variant]
 
-  const stats = useMemo(
-    () => (round ? buildStats(round) : []),
-    [round, buildStats],
-  )
+  const stats = useMemo(() => (round ? buildStats(round) : []), [round, buildStats])
 
   const animateX = rtl ? 16 : -16
 
   return (
-    <Card
-      size="none"
-      className="relative border-0 min-h-0 h-full flex flex-row bg-transparent"
-    >
-      <div
-        className={cn(
-          "w-6 absolute z-20 inset-y-9 bottom-ui-sm",
-          rtl ? "right-0" : "left-0",
-        )}
-      >
+    <Card size="none" className="relative border-0 min-h-0 h-full flex flex-row bg-transparent">
+      <div className={cn("w-6 absolute z-20 inset-y-9 bottom-ui-sm", rtl ? "right-0" : "left-0")}>
         <Icon />
       </div>
 
@@ -220,14 +203,10 @@ const CombatRoundResultsPanel = ({
         className={cn(
           "combat-tile flex-1 flex flex-col gap-ui-xs",
           rtl ? "mr-2.5" : "ml-2.5",
-          round ? "bg-card" : "bg-card/30",
+          round ? "bg-card" : "bg-card/30"
         )}
       >
-        <DottedTitle
-          title={title}
-          textColor="text-foreground"
-          className="m-panel-gap mb-0"
-        />
+        <DottedTitle title={title} textColor="text-foreground" className="m-panel-gap mb-0" />
 
         <div className="relative h-full flex-1 min-h-0">
           <div className="absolute inset-0">
@@ -237,7 +216,7 @@ const CombatRoundResultsPanel = ({
                 <div className="flex flex-col gap-ui-xxs my-panel-gap mb-10">
                   {stats.map(({ label, value, help, tone }, i) => (
                     <motion.div
-                      key={label}
+                      key={`${round?.round ?? 0}-${label}`}
                       initial={{ opacity: 0, x: animateX }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{

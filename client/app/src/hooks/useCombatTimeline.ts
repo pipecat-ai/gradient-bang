@@ -93,6 +93,31 @@ export const useCombatTimeline = () => {
           ? (participantNameById.get(action.target) ?? action.target)
           : null
 
+      // Build incoming attacks: find all other participants whose attack
+      // targeted this player (by id or name).
+      const playerKeys = new Set(keyCandidates.filter(Boolean) as string[])
+      const incomingAttacks: CombatIncomingAttack[] = []
+
+      if (round.actions) {
+        for (const [attackerKey, otherAction] of Object.entries(round.actions)) {
+          // Skip our own action
+          if (playerKeys.has(attackerKey)) continue
+          if (otherAction.action?.toLowerCase() !== "attack") continue
+
+          // Check if their target matches us (by target_id or target name)
+          const targetsUs =
+            (otherAction.target_id && playerKeys.has(otherAction.target_id)) ||
+            (otherAction.target && playerKeys.has(otherAction.target))
+
+          if (targetsUs) {
+            incomingAttacks.push({
+              attackerName: participantNameById.get(attackerKey) ?? attackerKey,
+              fightersCommitted: otherAction.commit ?? 0,
+            })
+          }
+        }
+      }
+
       results.push({
         round: round.round,
         action: action.action.toUpperCase(),
@@ -102,9 +127,11 @@ export const useCombatTimeline = () => {
         offensiveLosses: readCombatValue(round.offensive_losses, keyCandidates) ?? 0,
         defensiveLosses: readCombatValue(round.defensive_losses, keyCandidates) ?? 0,
         shieldLoss: readCombatValue(round.shield_loss, keyCandidates) ?? 0,
+        damageMitigated: readCombatValue(round.damage_mitigated, keyCandidates) ?? 0,
         fightersRemaining: readCombatValue(round.fighters_remaining, keyCandidates) ?? null,
         shieldsRemaining: readCombatValue(round.shields_remaining, keyCandidates) ?? null,
         fleeSuccess: readCombatValue(round.flee_results, keyCandidates) ?? null,
+        incomingAttacks,
       })
     }
 

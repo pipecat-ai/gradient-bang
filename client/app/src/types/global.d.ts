@@ -302,6 +302,7 @@ declare global {
     offensive_losses: Record<string, number>
     defensive_losses: Record<string, number>
     shield_loss: Record<string, number>
+    damage_mitigated?: Record<string, number>
     result: string | null
     timestamp: string
   }
@@ -315,6 +316,7 @@ declare global {
     offensive_losses: Record<string, number> // player_id -> number of offensive losses
     defensive_losses: Record<string, number> // player_id -> number of defensive losses
     shield_loss: Record<string, number> // player_id -> number of shield losses
+    damage_mitigated: Record<string, number> // player_id -> mitigated damage from shield/brace mechanics
     fighters_remaining: Record<string, number>
     shields_remaining: Record<string, number>
     flee_results: Record<string, boolean> // player_id -> true if they fled successfully, false if they failed to flee
@@ -334,6 +336,11 @@ declare global {
     ship?: ShipSelf
   }
 
+  type CombatIncomingAttack = {
+    attackerName: string
+    fightersCommitted: number
+  }
+
   type CombatPersonalRoundResult = {
     round: number
     action: string
@@ -343,9 +350,11 @@ declare global {
     offensiveLosses: number
     defensiveLosses: number
     shieldLoss: number
+    damageMitigated: number
     fightersRemaining: number | null
     shieldsRemaining: number | null
     fleeSuccess: boolean | null
+    incomingAttacks: CombatIncomingAttack[]
   }
 
   type CombatAttackTargetOption = {

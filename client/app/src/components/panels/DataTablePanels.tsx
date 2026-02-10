@@ -139,6 +139,7 @@ const buildPendingCombatRound = (combatSession: CombatSession): CombatRound => (
   offensive_losses: {},
   defensive_losses: {},
   shield_loss: {},
+  damage_mitigated: {},
   fighters_remaining: {},
   shields_remaining: {},
   flee_results: {},

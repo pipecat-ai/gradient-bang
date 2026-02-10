@@ -32,7 +32,7 @@ export const CombatDamageVignette = () => {
         onAnimationComplete={() => {
           if (blinkPhase === "blink") setBlinkPhase("fade")
         }}
-        className="inset-0 pointer-events-none combat-border absolute!"
+        className="inset-0 pointer-events-none combat-border absolute! z-50"
       />
     </>
   )
