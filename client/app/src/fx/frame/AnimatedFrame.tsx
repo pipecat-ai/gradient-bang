@@ -160,17 +160,17 @@ const mergeDiamondConfig = deepmergeCustom({
  */
 export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const playSound = useAudioStore.use.playSound()
 
   useEffect(() => {
     const state = useGameStore.getState()
 
     if (!canvasRef.current || state.diamondFXInstance) return
 
-    console.debug("[GAME] AnimatedFrame initialized")
+    console.debug("%c[GAME] AnimatedFrame initialized", "color: purple; font-weight: bold")
     const fx = createDiamondFX(canvasRef.current)
 
     const handlePhaseComplete = (phase: string) => {
+      const playSound = useAudioStore.getState().playSound
       if (phase === "start" || phase === "exit-start") {
         playSound("chime6")
       }
@@ -183,14 +183,14 @@ export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
     state.setDiamondFXInstance(fx)
 
     return () => {
-      console.debug("[GAME] AnimatedFrame destroyed")
+      console.debug("%c[GAME] AnimatedFrame destroyed", "color: purple; font-weight: bold")
       fx.destroy()
       const cleanupState = useGameStore.getState()
       if (cleanupState.diamondFXInstance === fx) {
         cleanupState.setDiamondFXInstance(undefined)
       }
     }
-  }, [playSound])
+  }, [])
 
   useEffect(() => {
     const state = useGameStore.getState()
