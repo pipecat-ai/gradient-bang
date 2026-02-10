@@ -122,7 +122,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
     : inactiveActionButtonCX
 
   return (
-    <div className="flex flex-col gap-ui-xs py-ui-sm bg-linear-to-t from-background from-30% to-background/0">
+    <div className="flex flex-col gap-ui-xs py-ui-xs bg-linear-to-t from-background from-30% to-background/0">
       <div className="flex flex-row gap-ui-sm h-24 @6xl/main:h-32 px-ui-sm">
         <div
           className={cn(
@@ -301,7 +301,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
         </div>
       </div>
       <footer className="flex-1 flex items-center justify-center gap-ui-sm bg-background z-40">
-        <div className="flex-1 flex dashed-bg-vertical dashed-bg-accent h-full" />
+        <div className="flex-1 flex dashed-bg-vertical dashed-bg-accent h-full mask-[linear-gradient(to_right,black,transparent)]" />
         <Button
           onClick={handleSubmitAction}
           disabled={
@@ -323,7 +323,7 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
             : actionSelected}
           </span>
         </Button>
-        <div className="flex-1 flex dashed-bg-vertical dashed-bg-accent h-full" />
+        <div className="flex-1 flex dashed-bg-vertical dashed-bg-accent h-full mask-[linear-gradient(to_left,black,transparent)]" />
       </footer>
     </div>
   )
