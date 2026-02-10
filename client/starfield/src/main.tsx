@@ -37,8 +37,8 @@ export const App = () => {
     })
   }, [changeScene])
 
-  const onSceneChangeStart = useCallback(() => {
-    console.log("Scene change started")
+  const onSceneChangeStart = useCallback((isInitial = false) => {
+    console.log("Scene change started", { isInitial })
   }, [])
   const onSceneChangeEnd = useCallback(() => {
     console.log("Scene change ended")

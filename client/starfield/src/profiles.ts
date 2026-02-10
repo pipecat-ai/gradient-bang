@@ -19,7 +19,7 @@ export const defaultProfile: StarfieldConfig = {
   imageAssets: [],
   hyperspaceEnterTime: 1500,
   hyperspaceExitTime: 1500,
-  hyperspaceDuration: 100,
+  hyperspaceDuration: 4000,
   shakeIntensity: 1,
   shakeRelaxTime: 1000,
   layerDimDuration: 5000,
@@ -123,6 +123,10 @@ export const lowProfile: Partial<StarfieldConfig> = {
   },
 }
 
+export const extremeProfile: Partial<StarfieldConfig> = {
+  ...defaultProfile,
+}
+
 export const PROFILE_MAP: Record<
   PerformanceProfile,
   Partial<StarfieldConfig>
@@ -131,4 +135,5 @@ export const PROFILE_MAP: Record<
   mid: midProfile,
   auto: defaultProfile,
   high: defaultProfile,
+  extreme: extremeProfile,
 }

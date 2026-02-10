@@ -27,6 +27,10 @@ export const SalvageCreatedToast = ({
   onDismiss,
 }: SalvageCreatedToastProps) => {
   const { meta } = toast;
+  const salvage = meta?.salvage;
+  const cargo = salvage?.cargo;
+  const credits = salvage?.credits;
+  const scrap = salvage?.scrap;
 
   return (
     <ToastBase
@@ -46,9 +50,9 @@ export const SalvageCreatedToast = ({
           <div className="flex flex-row gap-1.5 w-full h-full">
             <ToastResourceTile
               color="warning"
-              active={!!meta?.salvage.cargo?.quantum_foam}
+              active={!!cargo?.quantum_foam}
               commodity={RESOURCE_SHORT_NAMES["quantum_foam"]}
-              units={meta?.salvage.cargo?.quantum_foam}
+              units={cargo?.quantum_foam}
             >
               <QuantumFoamIcon
                 size={24}
@@ -58,9 +62,9 @@ export const SalvageCreatedToast = ({
             </ToastResourceTile>
             <ToastResourceTile
               color="warning"
-              active={!!meta?.salvage.cargo?.retro_organics}
+              active={!!cargo?.retro_organics}
               commodity={RESOURCE_SHORT_NAMES["retro_organics"]}
-              units={meta?.salvage.cargo?.retro_organics}
+              units={cargo?.retro_organics}
             >
               <RetroOrganicsIcon
                 size={24}
@@ -70,9 +74,9 @@ export const SalvageCreatedToast = ({
             </ToastResourceTile>
             <ToastResourceTile
               color="warning"
-              active={!!meta?.salvage.cargo?.neuro_symbolics}
+              active={!!cargo?.neuro_symbolics}
               commodity={RESOURCE_SHORT_NAMES["neuro_symbolics"]}
-              units={meta?.salvage.cargo?.neuro_symbolics}
+              units={cargo?.neuro_symbolics}
             >
               <NeuroSymbolicsIcon
                 size={24}
@@ -83,9 +87,9 @@ export const SalvageCreatedToast = ({
             <Separator orientation="vertical" className="opacity-50 mx-1" />
             <ToastResourceTile
               color="warning"
-              active={!!meta?.salvage.credits}
+              active={!!credits}
               commodity="cr"
-              units={meta?.salvage.credits}
+              units={credits}
             >
               <CreditsIcon
                 size={24}
@@ -96,9 +100,9 @@ export const SalvageCreatedToast = ({
             <Separator orientation="vertical" className="opacity-50 mx-1" />
             <ToastResourceTile
               color="warning"
-              active={!!meta?.salvage.scrap}
+              active={!!scrap}
               commodity="Scrap"
-              units={meta?.salvage.scrap}
+              units={scrap}
             >
               <ScrapIcon
                 size={24}

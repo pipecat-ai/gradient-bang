@@ -170,7 +170,10 @@ export class PostProcessingManager {
     // Sync initial parameters
     this.syncParameters(initialConfig)
 
-    console.debug("[STARFIELD] PostProcessingManager - Pipeline built")
+    console.debug(
+      "%c[STARFIELD] PostProcessingManager - Pipeline built",
+      "color: orange; font-weight: bold;"
+    )
   }
 
   /**
@@ -308,7 +311,8 @@ export class PostProcessingManager {
         }
       )
       // Sync sequence ref so we don't trigger on effect recreation
-      this.lastShockwaveSequence = useAnimationStore.getState().shockwaveSequence
+      this.lastShockwaveSequence =
+        useAnimationStore.getState().shockwaveSequence
       orderedEffectPasses.push(new EffectPass(this.camera, this.shockwave))
     } else {
       this.shockwave = null
@@ -410,7 +414,8 @@ export class PostProcessingManager {
       this.currentStructure.sharpening_enabled !== config.sharpening_enabled ||
       this.currentStructure.dithering_enabled !== config.dithering_enabled ||
       this.currentStructure.grading_enabled !== config.grading_enabled ||
-      this.currentStructure.grading_tintEnabled !== config.grading_tintEnabled ||
+      this.currentStructure.grading_tintEnabled !==
+        config.grading_tintEnabled ||
       this.currentStructure.exposure_enabled !== config.exposure_enabled ||
       this.currentStructure.shockwave_enabled !== config.shockwave_enabled
     )
@@ -422,7 +427,8 @@ export class PostProcessingManager {
    */
   private handleStructuralChanges(config: PPConfig) {
     console.debug(
-      "[STARFIELD] PostProcessingManager - Structure changed, rebuilding pipeline"
+      "%c[STARFIELD] PostProcessingManager - Structure changed, rebuilding pipeline",
+      "color: orange; font-weight: bold;"
     )
 
     // Update structure state
@@ -451,10 +457,7 @@ export class PostProcessingManager {
    * Render the post-processing pipeline.
    * Call this in useFrame.
    */
-  render(
-    currentCamera: THREE.Camera,
-    shockwaveDistance: number
-  ) {
+  render(currentCamera: THREE.Camera, shockwaveDistance: number) {
     // Update layer dim mask texture if needed
     if (this.layerDim) {
       if (this.layerDim.maskTexture !== this.gameObjectsMask.texture) {

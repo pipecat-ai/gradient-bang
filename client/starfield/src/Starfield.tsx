@@ -78,7 +78,7 @@ export interface StarfieldProps extends StarfieldBaseProps {
   onCreated?: () => void
   onReady?: () => void
   onUnsupported?: () => void
-  onSceneChangeStart?: () => void
+  onSceneChangeStart?: (isInitial?: boolean) => void
   onSceneChangeEnd?: () => void
   onTargetRest?: (target: PositionedGameObject) => void
   onTargetClear?: () => void
@@ -261,7 +261,8 @@ export const Starfield = ({
       onCreated: () => getCallbacks().onCreated?.(),
       onReady: () => getCallbacks().onReady?.(),
       onUnsupported: () => getCallbacks().onUnsupported?.(),
-      onSceneChangeStart: () => getCallbacks().onSceneChangeStart?.(),
+      onSceneChangeStart: (isInitial = false) =>
+        getCallbacks().onSceneChangeStart?.(isInitial),
       onSceneChangeEnd: () => getCallbacks().onSceneChangeEnd?.(),
       onTargetRest: (target) => getCallbacks().onTargetRest?.(target),
       onTargetClear: () => getCallbacks().onTargetClear?.(),

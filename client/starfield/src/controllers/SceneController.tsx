@@ -13,15 +13,17 @@ import { useGameStore } from "@/useGameStore"
  * 2. Sets isSceneChanging flag (which AnimationController reads)
  * 3. Uses timing values from config to pace scene changes
  *
- * Flow:
- * - Scene arrives → add to queue → start processing if not already
- * - Processing: wait enterTime → apply → wait exitTime → process next
- * - isSceneChanging stays true until queue is empty
+ * Flow (debounced):
+ * - Scene arrives → enter hyperspace → hold for hyperspaceDuration
+ * - New scenes during hold → reset timer (intermediate scenes are skipped)
+ * - Timer elapses → apply LAST scene in queue → exit hyperspace
  */
 export function SceneController() {
   const isProcessingRef = useRef(false)
   const isFirstSceneRef = useRef(true) // First scene applies immediately
-  const processNextRef = useRef<() => void>(() => {})
+  const enterCompleteRef = useRef(false) // Whether enter animation phase has finished
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const setIsSceneChanging = useGameStore((state) => state.setIsSceneChanging)
 
   // Apply scene changes
@@ -48,46 +50,61 @@ export function SceneController() {
     state.setGameObjects(scene.gameObjects)
   }, [])
 
-  // Process one scene through full cycle: enter → apply → exit → next
-  const processNextScene = useCallback(() => {
-    const queuedScene = useGameStore.getState().removeSceneFromQueue()
+  // Apply the last scene in the queue and exit hyperspace
+  const applyLastSceneAndExit = useCallback(() => {
+    const state = useGameStore.getState()
+    const queue = state.sceneQueue
+    const lastQueued = queue[queue.length - 1]
 
-    if (!queuedScene) {
-      // Queue empty - done processing
+    if (!lastQueued) {
+      // Queue was emptied (shouldn't normally happen) - just exit
       console.debug(
-        "[SCENE CONTROLLER] Queue empty, setting isSceneChanging to false"
+        "[SCENE CONTROLLER] Hold timer fired but queue empty, exiting"
       )
       isProcessingRef.current = false
+      enterCompleteRef.current = false
+      holdTimerRef.current = null
       setIsSceneChanging(false)
       useCallbackStore.getState().onSceneChangeEnd()
       return
     }
 
-    console.debug("[SCENE CONTROLLER] Processing scene:", queuedScene.scene.id)
+    console.debug(
+      "[SCENE CONTROLLER] Hold complete, applying last scene:",
+      lastQueued.scene.id,
+      `(skipped ${queue.length - 1} intermediate scene(s))`
+    )
 
-    const { hyperspaceEnterTime = 1500, hyperspaceExitTime = 1500 } =
-      useGameStore.getState().starfieldConfig
+    // Clear the entire queue, then apply only the last scene
+    state.clearSceneQueue()
+    applyScene(lastQueued.scene)
 
-    // Wait for enter time, then apply scene
-    setTimeout(() => {
-      console.debug(
-        "[SCENE CONTROLLER] Enter time complete, applying scene:",
-        queuedScene.scene.id
-      )
-      applyScene(queuedScene.scene)
-
-      // Wait for exit time, then process next scene
-      setTimeout(() => {
-        console.debug("[SCENE CONTROLLER] Exit time complete, checking queue")
-        processNextRef.current()
-      }, hyperspaceExitTime)
-    }, hyperspaceEnterTime)
+    // Exit hyperspace
+    isProcessingRef.current = false
+    enterCompleteRef.current = false
+    holdTimerRef.current = null
+    setIsSceneChanging(false)
+    useCallbackStore.getState().onSceneChangeEnd()
   }, [applyScene, setIsSceneChanging])
 
-  // Keep ref updated for recursive calls (avoids circular useCallback deps)
-  useEffect(() => {
-    processNextRef.current = processNextScene
-  }, [processNextScene])
+  // Start (or restart) the hold timer
+  const startHoldTimer = useCallback(() => {
+    const { hyperspaceDuration = 2000 } =
+      useGameStore.getState().starfieldConfig
+
+    // Clear any existing hold timer
+    if (holdTimerRef.current !== null) {
+      console.debug("[SCENE CONTROLLER] Resetting hold timer")
+      clearTimeout(holdTimerRef.current)
+    }
+
+    console.debug(
+      "[SCENE CONTROLLER] Starting hold timer:",
+      hyperspaceDuration,
+      "ms"
+    )
+    holdTimerRef.current = setTimeout(applyLastSceneAndExit, hyperspaceDuration)
+  }, [applyLastSceneAndExit])
 
   // Enqueue a scene for processing
   const enqueueScene = useCallback(
@@ -124,6 +141,7 @@ export function SceneController() {
         )
         isFirstSceneRef.current = false
         setIsSceneChanging(true) // Trigger AnimationController
+        useCallbackStore.getState().onSceneChangeStart(true)
 
         applyScene(scene)
         // Single rAF is sufficient - AnimationController uses Zustand subscribe
@@ -139,25 +157,55 @@ export function SceneController() {
       console.debug("[SCENE CONTROLLER] Adding scene to queue:", scene.id)
       state.addSceneToQueue({ scene, options })
 
-      // Start processing if not already in progress
       if (!isProcessingRef.current) {
-        console.debug("[SCENE CONTROLLER] Starting queue processing")
+        // Not processing yet — enter hyperspace, then start the hold timer
+        console.debug("[SCENE CONTROLLER] Starting hyperspace enter")
         isProcessingRef.current = true
+        enterCompleteRef.current = false
         state.setLookAtTarget(undefined)
         setIsSceneChanging(true)
         useCallbackStore.getState().onSceneChangeStart()
-        processNextScene()
+
+        const { hyperspaceEnterTime = 1500 } = state.starfieldConfig
+
+        // Wait for enter animation to complete, then start hold timer
+        enterTimerRef.current = setTimeout(() => {
+          console.debug(
+            "[SCENE CONTROLLER] Enter complete, starting hold timer"
+          )
+          enterCompleteRef.current = true
+          enterTimerRef.current = null
+          startHoldTimer()
+        }, hyperspaceEnterTime)
+      } else if (enterCompleteRef.current) {
+        // Already in hyperspace and enter is done — reset the hold timer
+        console.debug(
+          "[SCENE CONTROLLER] New scene during hold, resetting timer"
+        )
+        startHoldTimer()
       } else {
-        console.debug("[SCENE CONTROLLER] Already processing, scene queued")
+        // Still in enter animation — scene is queued, timer will start
+        // after enter completes (no action needed)
+        console.debug(
+          "[SCENE CONTROLLER] New scene during enter, queued for hold"
+        )
       }
     },
-    [applyScene, processNextScene, setIsSceneChanging]
+    [applyScene, startHoldTimer, setIsSceneChanging]
   )
 
   // Expose enqueueScene via callback store for external use
   useEffect(() => {
     useCallbackStore.setState({ enqueueScene })
   }, [enqueueScene])
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current !== null) clearTimeout(holdTimerRef.current)
+      if (enterTimerRef.current !== null) clearTimeout(enterTimerRef.current)
+    }
+  }, [])
 
   return null
 }

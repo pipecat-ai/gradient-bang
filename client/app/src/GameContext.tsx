@@ -6,6 +6,13 @@ import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
 import { GameContext } from "@/hooks/useGameContext"
 import useGameStore, { GameInitStateMessage } from "@/stores/game"
 import {
+  applyCombatActionAcceptedState,
+  applyCombatEndedState,
+  applyCombatRoundResolvedState,
+  applyCombatRoundWaitingState,
+  applyShipDestroyedState,
+} from "@/utils/combat"
+import {
   hasDeviatedFromCoursePlot,
   salvageCollectedSummaryString,
   salvageCreatedSummaryString,
@@ -14,42 +21,7 @@ import {
 
 import { RESOURCE_SHORT_NAMES } from "./types/constants"
 
-import {
-  type BankTransactionMessage,
-  type CharacterMovedMessage,
-  type ChatHistoryMessage,
-  type CombatActionResponseMessage,
-  type CombatRoundResolvedMessage,
-  type CombatRoundWaitingMessage,
-  type CorporationCreatedMessage,
-  type CorporationShipPurchaseMessage,
-  type CoursePlotMessage,
-  type CreditsTransferMessage,
-  type ErrorMessage,
-  type EventQueryMessage,
-  type IncomingChatMessage,
-  type LLMTaskMessage,
-  type MapLocalMessage,
-  type MovementCompleteMessage,
-  type MovementStartMessage,
-  type PortUpdateMessage,
-  type SalvageCollectedMessage,
-  type SalvageCreatedMessage,
-  type SectorUpdateMessage,
-  type ServerMessage,
-  type ServerMessagePayload,
-  type ShipDestroyedMessage,
-  type ShipsListMessage,
-  type StatusMessage,
-  type TaskCompleteMessage,
-  type TaskFinishMessage,
-  type TaskHistoryMessage,
-  type TaskOutputMessage,
-  type TaskStartMessage,
-  type TradeExecutedMessage,
-  type WarpPurchaseMessage,
-  type WarpTransferMessage,
-} from "@/types/messages"
+import type * as Msg from "@/types/messages"
 
 interface GameProviderProps {
   children: ReactNode
@@ -166,23 +138,27 @@ export function GameProvider({ children }: GameProviderProps) {
   useRTVIClientEvent(
     RTVIEvent.ServerMessage,
     useCallback(
-      (e: ServerMessage) => {
+      (e: Msg.ServerMessage) => {
         if ("event" in e) {
           console.debug("[GAME EVENT] Server message received", e.event, e)
 
           // Helper functions
-          const getPayloadPlayerId = (payload: ServerMessagePayload): string | undefined => {
+          const getPayloadPlayerId = (payload: Msg.ServerMessagePayload): string | undefined => {
             if (payload.player && typeof payload.player.id === "string" && payload.player.id) {
               return payload.player.id
             }
             return undefined
           }
 
-          const logMissingPlayerId = (eventName: string, payload: ServerMessagePayload) => {
+          const logMissingPlayerId = (eventName: string, payload: Msg.ServerMessagePayload) => {
             console.warn(`[GAME EVENT] Missing player.id for ${eventName}`, payload)
           }
 
-          const logIgnored = (eventName: string, reason: string, payload: ServerMessagePayload) => {
+          const logIgnored = (
+            eventName: string,
+            reason: string,
+            payload: Msg.ServerMessagePayload
+          ) => {
             console.debug(
               `%c[GAME EVENT] Ignoring ${eventName} (${reason})`,
               "color: #000; background: #CCC",
@@ -192,7 +168,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
           const isPlayerSessionPayload = (
             eventName: string,
-            payload: ServerMessagePayload
+            payload: Msg.ServerMessagePayload
           ): boolean => {
             const eventPlayerId = getPayloadPlayerId(payload)
             if (!eventPlayerId) {
@@ -214,7 +190,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "status.update": {
               console.debug("[GAME EVENT] Status update", e.payload)
 
-              const status = e.payload as StatusMessage
+              const status = e.payload as Msg.StatusMessage
 
               if (e.event === "status.snapshot" && status.player.player_type === "human") {
                 if (!status.player.id) {
@@ -276,7 +252,7 @@ export function GameProvider({ children }: GameProviderProps) {
             // ----- CHARACTERS / NPCS
             case "character.moved": {
               console.debug("[GAME EVENT] Character moved", e.payload)
-              const data = e.payload as CharacterMovedMessage
+              const data = e.payload as Msg.CharacterMovedMessage
 
               const sectorId = typeof data.sector === "number" ? data.sector : data.sector?.id
               const currentSectorId = gameStore.sector?.id
@@ -294,6 +270,7 @@ export function GameProvider({ children }: GameProviderProps) {
                     message: `[${data.player.name}] arrived in sector`,
                     meta: {
                       player: data.player,
+                      ship: data.ship,
                       sector: data.sector,
                       direction: "arrive",
                       silent: true,
@@ -307,6 +284,7 @@ export function GameProvider({ children }: GameProviderProps) {
                     message: `[${data.player.name}] departed from sector`,
                     meta: {
                       player: data.player,
+                      ship: data.ship,
                       sector: data.sector,
                       direction: "depart",
                       silent: true,
@@ -335,7 +313,7 @@ export function GameProvider({ children }: GameProviderProps) {
             // ----- MOVEMENT
             case "movement.start": {
               console.debug("[GAME EVENT] Move started", e.payload)
-              const data = e.payload as MovementStartMessage
+              const data = e.payload as Msg.MovementStartMessage
               if (!isPlayerSessionPayload("movement.start", data)) {
                 break
               }
@@ -379,7 +357,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "movement.complete": {
               console.debug("[GAME EVENT] Move completed", e.payload)
-              const data = e.payload as MovementCompleteMessage
+              const data = e.payload as Msg.MovementCompleteMessage
               if (!isPlayerSessionPayload("movement.complete", data)) {
                 break
               }
@@ -443,7 +421,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "bank.transaction": {
               console.debug("[GAME EVENT] Deposit", e.payload)
-              const data = e.payload as BankTransactionMessage
+              const data = e.payload as Msg.BankTransactionMessage
               const payloadPlayerId = getPayloadPlayerId(data)
               const bankCharacterId = data.character_id
               const isPersonalBank =
@@ -494,8 +472,18 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "corporation.created": {
               console.debug("[GAME EVENT] Corporation created", e.payload)
-              const data = e.payload as CorporationCreatedMessage
+              const data = e.payload as Msg.CorporationCreatedMessage
               gameStore.setCorporation(data)
+
+              gameStore.addToast({
+                type: "corporation.created",
+                meta: {
+                  corporation: {
+                    corp_id: data.corp_id,
+                    name: data.name,
+                  } as Corporation,
+                },
+              })
               break
             }
 
@@ -508,13 +496,23 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "corporation.ship_purchased": {
               console.debug("[GAME EVENT] Ship purchased", e.payload)
-              const data = e.payload as CorporationShipPurchaseMessage
+              const data = e.payload as Msg.CorporationShipPurchaseMessage
               gameStore.addShip({
                 ship_id: data.ship_id,
                 ship_name: data.ship_name,
                 ship_type: data.ship_type,
                 owner_type: "corporation",
                 sector: data.sector,
+              })
+              gameStore.addToast({
+                type: "ship.purchased",
+                meta: {
+                  ship: {
+                    ship_id: data.ship_id,
+                    ship_name: data.ship_name,
+                    ship_type: data.ship_type,
+                  },
+                },
               })
               break
             }
@@ -523,7 +521,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "sector.update": {
               console.debug("[GAME EVENT] Sector update", e.payload)
-              const data = e.payload as SectorUpdateMessage
+              const data = e.payload as Msg.SectorUpdateMessage
 
               if (gameStore.sector?.id !== data.id) {
                 logIgnored("sector.update", "non-current sector", data)
@@ -543,7 +541,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "salvage.created": {
               console.debug("[GAME EVENT] Salvage created", e.payload)
-              const data = e.payload as SalvageCreatedMessage
+              const data = e.payload as Msg.SalvageCreatedMessage
               const salvagePlayerId = getPayloadPlayerId(data)
               if (salvagePlayerId) {
                 if (!isPlayerSessionPayload("salvage.created", data)) {
@@ -560,26 +558,46 @@ export function GameProvider({ children }: GameProviderProps) {
               // Note: we update sector contents in proceeding sector.update event
 
               // @TODO: status update is missing, so we may need to update player state here
+              const salvageDetails: Salvage | undefined =
+                data.salvage_details ??
+                (data.salvage_id ?
+                  {
+                    salvage_id: data.salvage_id,
+                    source:
+                      data.from_ship_name || data.from_ship_type ?
+                        {
+                          ship_name: data.from_ship_name ?? "Unknown",
+                          ship_type: data.from_ship_type ?? "unknown",
+                        }
+                      : undefined,
+                    cargo: data.cargo,
+                    scrap: data.scrap,
+                    credits: data.credits,
+                    created_at: data.timestamp,
+                  }
+                : undefined)
 
               gameStore.addActivityLogEntry({
                 type: "salvage.created",
                 message: `Salvage created in [sector ${
                   data.sector.id
-                }] ${salvageCreatedSummaryString(data.salvage_details)}`,
+                }] ${salvageCreatedSummaryString(salvageDetails ?? {})}`,
               })
 
-              gameStore.addToast({
-                type: "salvage.created",
-                meta: {
-                  salvage: data.salvage_details as Salvage,
-                },
-              })
+              if (salvageDetails) {
+                gameStore.addToast({
+                  type: "salvage.created",
+                  meta: {
+                    salvage: salvageDetails,
+                  },
+                })
+              }
               break
             }
 
             case "salvage.collected": {
               console.debug("[GAME EVENT] Salvage claimed", e.payload)
-              const data = e.payload as SalvageCollectedMessage
+              const data = e.payload as Msg.SalvageCollectedMessage
               if (!isPlayerSessionPayload("salvage.collected", data)) {
                 break
               }
@@ -603,7 +621,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "path.region":
             case "course.plot": {
               console.debug("[GAME EVENT] Course plot", e.payload)
-              const data = e.payload as CoursePlotMessage
+              const data = e.payload as Msg.CoursePlotMessage
               if (!isPlayerSessionPayload(e.event, data)) {
                 break
               }
@@ -614,27 +632,27 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "map.region": {
               console.debug("[GAME EVENT] Regional map data", e.payload)
-              if (!isPlayerSessionPayload("map.region", e.payload as ServerMessagePayload)) {
+              if (!isPlayerSessionPayload("map.region", e.payload as Msg.ServerMessagePayload)) {
                 break
               }
 
-              gameStore.setRegionalMapData((e.payload as MapLocalMessage).sectors)
+              gameStore.setRegionalMapData((e.payload as Msg.MapLocalMessage).sectors)
               break
             }
 
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", e.payload)
-              if (!isPlayerSessionPayload("map.local", e.payload as ServerMessagePayload)) {
+              if (!isPlayerSessionPayload("map.local", e.payload as Msg.ServerMessagePayload)) {
                 break
               }
 
-              gameStore.setLocalMapData((e.payload as MapLocalMessage).sectors)
+              gameStore.setLocalMapData((e.payload as Msg.MapLocalMessage).sectors)
               break
             }
 
             case "map.update": {
               console.debug("[GAME EVENT] Map update", e.payload)
-              const data = e.payload as MapLocalMessage
+              const data = e.payload as Msg.MapLocalMessage
               gameStore.updateMapSectors(data.sectors as MapSectorNode[])
               break
             }
@@ -643,7 +661,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "trade.executed": {
               console.debug("[GAME EVENT] Trade executed", e.payload)
-              const data = e.payload as TradeExecutedMessage
+              const data = e.payload as Msg.TradeExecutedMessage
               if (!isPlayerSessionPayload("trade.executed", data)) {
                 break
               }
@@ -669,7 +687,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "port.update": {
               console.debug("[GAME EVENT] Port update", e.payload)
-              const data = e.payload as PortUpdateMessage
+              const data = e.payload as Msg.PortUpdateMessage
 
               // If update is for current sector, update port payload
               gameStore.updateSector(data.sector)
@@ -687,7 +705,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "warp.purchase": {
               console.debug("[GAME EVENT] Warp purchase", e.payload)
-              const data = e.payload as WarpPurchaseMessage
+              const data = e.payload as Msg.WarpPurchaseMessage
               if (!isPlayerSessionPayload("warp.purchase", data)) {
                 break
               }
@@ -721,7 +739,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
               console.debug(`[GAME EVENT] ${transferType} transfer`, e.payload)
 
-              const data = e.payload as WarpTransferMessage | CreditsTransferMessage
+              const data = e.payload as Msg.WarpTransferMessage | Msg.CreditsTransferMessage
               const payloadPlayerId = getPayloadPlayerId(data)
               const fromId = data.from?.id
               const toId = data.to?.id
@@ -774,38 +792,26 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "combat.round_waiting": {
               console.debug("[GAME EVENT] Combat round waiting", e.payload)
-              const data = e.payload as CombatRoundWaitingMessage
+              const data = e.payload as Msg.CombatRoundWaitingMessage
               if (!playerSessionId) {
                 logIgnored("combat.round_waiting", "personalPlayerId not set", data)
                 break
               }
-              const isParticipant = data.participants?.some(
+              /*const isParticipant = data.participants?.some(
                 (participant) => participant.id === playerSessionId
               )
               if (!isParticipant) {
                 logIgnored("combat.round_waiting", "not a participant", data)
                 break
-              }
+              }*/
 
-              // Immediately set the UI state to be "combat" for user feedback
-              gameStore.setUIState("combat")
-
-              // Do we have an active combat session?
-              if (!gameStore.activeCombatSession) {
-                gameStore.setActiveCombatSession(data as CombatSession)
-                gameStore.addActivityLogEntry({
-                  type: "combat.session.started",
-                  message: `Combat session started with ${data.participants.length} participants`,
-                })
-                break
-              }
-              // Update combat session with new round details
+              applyCombatRoundWaitingState(gameStore, data as CombatSession)
               break
             }
 
             case "combat.round_resolved": {
               console.debug("[GAME EVENT] Combat round resolved", e.payload)
-              const data = e.payload as CombatRoundResolvedMessage
+              const data = e.payload as Msg.CombatRoundResolvedMessage
               const activeCombatId = gameStore.activeCombatSession?.combat_id
               const hasPersonalAction =
                 !!playerSessionId &&
@@ -815,17 +821,14 @@ export function GameProvider({ children }: GameProviderProps) {
                 logIgnored("combat.round_resolved", "not part of combat", data)
                 break
               }
-              gameStore.addCombatRound(data as CombatRound)
-              gameStore.addActivityLogEntry({
-                type: "combat.round.resolved",
-                message: `Combat round ${data.round} resolved in sector ${data.sector.id}`,
-              })
+              applyCombatRoundResolvedState(gameStore, data as CombatRound)
               break
             }
 
+            case "combat.action_accepted":
             case "combat.action_response": {
               console.debug("[GAME EVENT] Combat action response", e.payload)
-              const data = e.payload as CombatActionResponseMessage
+              const data = e.payload as Msg.CombatActionAcceptedMessage
               const payloadPlayerId = getPayloadPlayerId(data)
               const activeCombatId = gameStore.activeCombatSession?.combat_id
               const isPersonalAction =
@@ -841,18 +844,13 @@ export function GameProvider({ children }: GameProviderProps) {
                 break
               }
 
-              // @TODO: update store to log action round action
-
-              gameStore.addActivityLogEntry({
-                type: "combat.action.response",
-                message: `Combat action response for round ${data.round}: [${data.action}]`,
-              })
+              applyCombatActionAcceptedState(gameStore, data as CombatActionReceipt)
               break
             }
 
             case "combat.ended": {
               console.debug("[GAME EVENT] Combat ended", e.payload)
-              const data = e.payload as CombatRoundResolvedMessage
+              const data = e.payload as Msg.CombatEndedMessage
               const activeCombatId = gameStore.activeCombatSession?.combat_id
               const hasPersonalAction =
                 !!playerSessionId &&
@@ -863,34 +861,13 @@ export function GameProvider({ children }: GameProviderProps) {
                 break
               }
 
-              // Return to idle UI state
-              gameStore.setUIState("idle")
-
-              gameStore.endActiveCombatSession()
-
-              // Update activity log with combat session details
-              gameStore.addActivityLogEntry({
-                type: "combat.session.ended",
-                message: `Combat session ended with result: [${data.result}]`,
-              })
-
+              applyCombatEndedState(gameStore, data as CombatEndedRound)
               break
             }
 
             case "ship.destroyed": {
               console.debug("[GAME EVENT] Ship destroyed", e.payload)
-              const data = e.payload as ShipDestroyedMessage
-
-              const shipDescription =
-                data.player_type === "corporation_ship" ?
-                  `Corporation ship [${data.ship_name ?? data.ship_type}]`
-                : `[${data.player_name}]'s ship`
-
-              gameStore.addActivityLogEntry({
-                type: "ship.destroyed",
-                message: `${shipDescription} destroyed in [sector ${data.sector.id}]${data.salvage_created ? " - salvage created" : ""}`,
-              })
-
+              applyShipDestroyedState(gameStore, e.payload as Msg.ShipDestroyedMessage)
               break
             }
 
@@ -898,7 +875,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "task.start": {
               console.debug("[GAME EVENT] Task start", e.payload)
-              const data = e.payload as TaskStartMessage
+              const data = e.payload as Msg.TaskStartMessage
 
               if (data.task_id) {
                 // @TODO: this is to align task messages to task_output messages
@@ -922,7 +899,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "task.finish": {
               console.debug("[GAME EVENT] Task finish", e.payload)
-              const data = e.payload as TaskFinishMessage
+              const data = e.payload as Msg.TaskFinishMessage
 
               // Remove task from active task map
               if (data.task_id) {
@@ -942,7 +919,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "task_output": {
               console.debug("[GAME EVENT] Task output", e, e.payload)
-              const data = e.payload as TaskOutputMessage
+              const data = e.payload as Msg.TaskOutputMessage
               if (!e.task_id) {
                 console.warn("[GAME EVENT] Task output missing task_id", e.payload)
                 return
@@ -957,7 +934,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "task_complete": {
               console.debug("[GAME EVENT] Task complete", e.payload)
-              const data = e.payload as TaskCompleteMessage
+              const data = e.payload as Msg.TaskCompleteMessage
 
               gameStore.addActivityLogEntry({
                 type: "task.complete",
@@ -971,11 +948,70 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            // ----- COMBAT (SUPPLEMENTAL)
+
+            case "garrison.deployed": {
+              console.debug("[GAME EVENT] Garrison deployed", e.payload)
+              const data = e.payload as Msg.GarrisonDeployedMessage
+
+              gameStore.addActivityLogEntry({
+                type: "garrison.deployed",
+                message: `Garrison deployed in [sector ${data.sector.id}] with [${data.garrison.fighters}] fighters`,
+              })
+              break
+            }
+
+            case "garrison.collected": {
+              console.debug("[GAME EVENT] Garrison collected", e.payload)
+              const data = e.payload as Msg.GarrisonCollectedMessage
+
+              gameStore.addActivityLogEntry({
+                type: "garrison.collected",
+                message: `Collected fighters from [sector ${data.sector.id}] - ship now has [${data.fighters_on_ship}] fighters`,
+              })
+              break
+            }
+
+            case "garrison.mode_changed": {
+              console.debug("[GAME EVENT] Garrison mode changed", e.payload)
+              const data = e.payload as Msg.GarrisonModeChangedMessage
+
+              gameStore.addActivityLogEntry({
+                type: "garrison.mode_changed",
+                message: `Garrison mode changed to [${data.garrison.mode}] in [sector ${data.sector.id}]`,
+              })
+              break
+            }
+
+            case "garrison.character_moved": {
+              console.debug("[GAME EVENT] Garrison character moved", e.payload)
+              const data = e.payload as Msg.GarrisonCharacterMovedMessage
+              const sectorId = typeof data.sector === "number" ? data.sector : data.sector?.id
+              const isLocalSector =
+                typeof sectorId === "number" &&
+                typeof gameStore.sector?.id === "number" &&
+                sectorId === gameStore.sector.id
+
+              if (isLocalSector) {
+                if (data.movement === "depart") {
+                  gameStore.removeSectorPlayer(data.player)
+                } else if (data.movement === "arrive") {
+                  gameStore.addSectorPlayer(data.player)
+                }
+              }
+
+              gameStore.addActivityLogEntry({
+                type: "garrison.character_moved",
+                message: `[${data.player.name}] ${data.movement === "depart" ? "departed" : "arrived"} near garrison`,
+              })
+              break
+            }
+
             // ----- MISC
 
             case "chat.message": {
               console.debug("[GAME EVENT] Chat message", e.payload)
-              const data = e.payload as IncomingChatMessage
+              const data = e.payload as Msg.IncomingChatMessage
 
               gameStore.addMessage(data as ChatMessage)
 
@@ -1007,14 +1043,14 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "llm.function_call": {
               console.debug("[GAME EVENT] LLM task message", e.payload)
-              const data = e.payload as LLMTaskMessage
+              const data = e.payload as Msg.LLMTaskMessage
               gameStore.setLLMIsWorking(!!data.name)
               break
             }
 
             case "error": {
               console.debug("[GAME EVENT] Error", e.payload)
-              const data = e.payload as ErrorMessage
+              const data = e.payload as Msg.ErrorMessage
 
               // @TODO: keep tabs on errors in separate store
 
@@ -1034,21 +1070,21 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "task.history": {
               console.debug("[GAME EVENT] Task history", e.payload)
-              const data = e.payload as TaskHistoryMessage
+              const data = e.payload as Msg.TaskHistoryMessage
               gameStore.setTaskHistory(data.tasks)
               break
             }
 
             case "chat.history": {
               console.debug("[GAME EVENT] Chat history", e.payload)
-              const data = e.payload as ChatHistoryMessage
+              const data = e.payload as Msg.ChatHistoryMessage
               gameStore.setChatHistory(data.messages)
               break
             }
 
             case "ships.list": {
               console.debug("[GAME EVENT] Ships list", e.payload)
-              const data = e.payload as ShipsListMessage
+              const data = e.payload as Msg.ShipsListMessage
               gameStore.setShips(data.ships)
               gameStore.resolveFetchPromise("get-my-ships")
               break
@@ -1056,7 +1092,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "event.query": {
               console.debug("[GAME EVENT] Event query", e.payload)
-              const data = e.payload as EventQueryMessage
+              const data = e.payload as Msg.EventQueryMessage
               gameStore.setTaskEvents(data.events)
               break
             }
@@ -1068,7 +1104,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
           // ----- SUMMARY
           // Add any summary messages to task output
-          /*if ("summary" in (e.payload as ServerMessagePayload)) {
+          /*if ("summary" in (e.payload as Msg.ServerMessagePayload)) {
             console.debug(
               "[GAME] Adding task summary to store",
               e.payload.summary

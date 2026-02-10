@@ -1,6 +1,11 @@
 import { useMemo } from "react"
 
-import { ArrowRightIcon, ArrowUpLeftIcon, SphereIcon } from "@phosphor-icons/react"
+import {
+  ArrowRightIcon,
+  ArrowUpLeftIcon,
+  SphereIcon,
+  WarningDiamondIcon,
+} from "@phosphor-icons/react"
 
 import useGameStore from "@/stores/game"
 import { calculateHopsRemaining } from "@/utils/game"
@@ -29,9 +34,11 @@ const MINIMAP_CONFIG: MapConfig = {
     },
   },
 }
+
 const MAX_DISTANCE = 4
 
 export const MiniMapPanel = ({ className }: { className?: string }) => {
+  const uiState = useGameStore.use.uiState()
   const setActiveScreen = useGameStore.use.setActiveScreen?.()
   const sector = useGameStore((state) => state.sector)
   const localMapData = useGameStore((state) => state.local_map_data)
@@ -50,11 +57,21 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
   return (
     <div
       className={cn(
-        "group relative elbow elbow-foreground/0 hover:elbow-foreground/100 h-full",
-        className
+        "group relative elbow elbow-foreground/0 h-full",
+        className,
+        uiState === "combat" ? "pointer-events-none" : (
+          "pointer-events-auto hover:elbow-foreground/100"
+        )
       )}
     >
-      <div className="absolute inset-0 flex items-center justify-center opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-600 ease-in-out z-10">
+      <div
+        className={cn(
+          "absolute inset-0 flex items-center justify-center opacity-0 pointer-events-auto transition-opacity duration-600 ease-in-out z-10",
+          uiState === "combat" ?
+            "pointer-events-none group-hover:pointer-events-none group-hover:opacity-0 "
+          : "pointer-events-auto group-hover:opacity-100 group-hover:pointer-events-auto "
+        )}
+      >
         <div className="bg-background/60 p-4 flex flex-col gap-1 shrink-0">
           <Button
             variant="outline"
@@ -79,7 +96,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
         border="elbow"
         className="absolute top-ui-xs left-ui-xs -elbow-offset-2 px-0 py-0 bg-muted/30"
       ></Badge>
-      {coursePlot && (
+      {coursePlot && uiState !== "combat" && (
         <Card
           size="xxs"
           variant="stripes"
@@ -107,7 +124,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
           </CardContent>
         </Card>
       )}
-      <div className="w-full h-full z-1 pb-12">
+      <div className="relative w-full h-full z-1 pb-12">
         <SectorMap
           current_sector_id={sector?.id ?? 0}
           maxDistance={MAX_DISTANCE}
@@ -115,6 +132,18 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
           ships={shipSectors}
           map_data={localMapData ?? []}
         />
+        {uiState === "combat" && (
+          <div className="animate-in fade-in-0 duration-1000 absolute inset-x-0 top-0 bottom-14 z-2 cross-lines-subtle pointer-events-none text-destructive-foreground flex flex-col items-center justify-center">
+            <div className="relative z-10 bg-destructive-background/70 text-center px-ui-sm py-ui-xs">
+              <WarningDiamondIcon
+                size={32}
+                className="text-destructive mx-auto mb-1"
+                weight="duotone"
+              />
+              <span className="text-xs uppercase font-bold mx-auto">Combat engaged</span>
+            </div>
+          </div>
+        )}
       </div>
       <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 z-2">
         <div className="h-[6px] dashed-bg-horizontal dashed-bg-foreground/30 shrink-0" />

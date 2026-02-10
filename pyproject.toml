@@ -104,3 +104,6 @@ line-length = 100
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"src/gradientbang/pipecat_server/bot.py" = ["E402"]

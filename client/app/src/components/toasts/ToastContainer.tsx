@@ -6,10 +6,13 @@ import { BankTransactionToast } from "@/components/toasts/BankTransactionToast"
 import { FuelPurchasedToast } from "@/components/toasts/FuelPurchasedToast"
 import { SalvageCollectedToast } from "@/components/toasts/SalvageCollectedToast"
 import { SalvageCreatedToast } from "@/components/toasts/SalvageCreatedToast"
+import { ShipPurchasedToast } from "@/components/toasts/ShipPurchasedToast"
 import { TradeExecutedToast } from "@/components/toasts/TradeExecutedToast"
 import { TransferToast } from "@/components/toasts/TransferToast"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
+
+import { CorporationCreatedToast } from "./CorporationCreated"
 
 import type { Toast } from "@/types/toasts"
 
@@ -61,6 +64,10 @@ export const ToastContainer = () => {
     }
 
     switch (toast.type) {
+      case "corporation.created":
+        return <CorporationCreatedToast toast={toast} {...baseProps} />
+      case "ship.purchased":
+        return <ShipPurchasedToast toast={toast} {...baseProps} />
       case "warp.purchase":
         return <FuelPurchasedToast toast={toast} {...baseProps} />
       case "bank.transaction":

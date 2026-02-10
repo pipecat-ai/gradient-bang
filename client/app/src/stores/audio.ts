@@ -23,8 +23,8 @@ interface OnceSoundEntry {
 
 // Type metadata for each sound
 const soundTypes: Record<SoundName, SoundType> = {
-  warp: "fx",
-  start: "fx",
+  enter: "fx",
+  enterCombat: "fx",
   message: "fx",
   chime1: "fx",
   chime2: "fx",
@@ -33,9 +33,14 @@ const soundTypes: Record<SoundName, SoundType> = {
   chime5: "fx",
   chime6: "fx",
   chime7: "fx",
+  chime8: "fx",
   text: "fx",
   ambience: "ambience",
   currency: "fx",
+  impact1: "fx",
+  impact2: "fx",
+  impact3: "fx",
+  impact4: "fx",
 }
 
 interface AudioState {
@@ -127,10 +132,8 @@ const useAudioStoreBase = create<AudioState>()(
       }
       audio.volume = finalVolume
 
-      // Set loop if needed
-      if (options?.once || options?.loop) {
-        audio.loop = true
-      }
+      // Set loop — always assign explicitly so cached elements get reset
+      audio.loop = !!(options?.once || options?.loop)
 
       // Track once sounds
       if (options?.once) {

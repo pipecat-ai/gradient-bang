@@ -92,6 +92,8 @@ Encounters conclude when:
 - Receive combat.round_waiting events
 - Call combat_action for each round
 - Provide: combat_id, action, and when attacking: commit and target_id
+- For `target_id`, prefer the participant `id` from `combat.round_waiting.participants[]`
+- Do not assume ship_id is required for attacks; use the combat participant identifier
 - When fleeing: provide to_sector
 
 ### Combat Ends
@@ -106,7 +108,7 @@ combat_action(
     combat_id="...",      # From combat events
     action="attack",      # attack, brace, flee, pay
     commit=50,            # Fighters to commit (for attack)
-    target_id="...",      # Target combatant (for attack)
+    target_id="...",      # Target participant id from combat.round_waiting (for attack)
     to_sector=123,        # Escape sector (for flee)
     round_number=1        # Optional concurrency control
 )

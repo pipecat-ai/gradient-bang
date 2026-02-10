@@ -1,144 +1,15 @@
-import { useEffect, useMemo } from "react"
+import { useEffect } from "react"
 
 import { button, folder, useControls } from "leva"
 import { faker } from "@faker-js/faker"
 import type { Story } from "@ladle/react"
 
 import { CharacterSelect } from "@/components/CharacterSelect"
-import { CoursePlotPanel } from "@/components/CoursePlotPanel"
-import { Divider } from "@/components/primitives/Divider"
-import { SectorMap } from "@/components/SectorMap"
 import { SettingsPanel } from "@/components/SettingsPanel"
 import { Game } from "@/components/views/Game"
 import { Title } from "@/components/views/Title"
-import { WarpBadge } from "@/components/WarpBadge"
 import { AnimatedFrame } from "@/fx/frame"
-import { useNotificationSound } from "@/hooks/useNotificationSound"
 import useGameStore from "@/stores/game"
-
-export const Init: Story = () => {
-  const coursePlot = useGameStore.use.course_plot?.()
-  const player = useGameStore((state) => state.player)
-  const corporation = useGameStore((state) => state.corporation)
-  const ship = useGameStore((state) => state.ship)
-  const sector = useGameStore((state) => state.sector)
-  const localMapData = useGameStore((state) => state.local_map_data)
-  const messages = useGameStore.use.messages()
-  useNotificationSound()
-
-  // Filter in the component
-  const directMessages = useMemo(
-    () =>
-      messages
-        .filter((message) => message.type === "direct")
-        .sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
-    [messages]
-  )
-
-  // Memoize Map config to prevent unnecessary re-renders
-  const mapConfig = useMemo(() => ({ debug: true }), [])
-
-  return (
-    <>
-      <div className="story-card">
-        <div className="story-card">
-          <h3 className="story-heading">Player:</h3>
-          {player && (
-            <ul className="story-value-list">
-              {Object.entries(player).map(([key, value]) => (
-                <li key={key}>
-                  <span>{key}</span> <span>{value?.toString()}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="story-card">
-          <h3 className="story-heading">Corporation:</h3>
-          {corporation && (
-            <ul className="story-value-list">
-              {Object.entries(corporation).map(([key, value]) => (
-                <li key={key}>
-                  <span>{key}</span> <span>{value?.toString()}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="story-card">
-          <h3 className="story-heading">Ship:</h3>
-          {ship && (
-            <ul className="story-value-list">
-              {Object.entries(ship).map(([key, value]) => (
-                <li key={key}>
-                  <span className="flex-1">{key}</span>
-                  <span className="flex-1">
-                    {typeof value === "object" ? JSON.stringify(value) : value?.toString()}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <WarpBadge />
-
-        <h3 className="story-heading">Sector:</h3>
-        {sector && (
-          <ul className="story-value-list">
-            {Object.entries(sector).map(([key, value]) => (
-              <li key={key}>
-                <span className="flex-1">{key}</span>
-                <span className="flex-1">
-                  {typeof value === "object" ? JSON.stringify(value) : value?.toString()}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="story-card bg-card">
-          <h3 className="story-heading">Local Area Map:</h3>
-          <ul className="story-value-list">
-            <li>Sectors visited: {player?.sectors_visited}</li>
-            <li>Universe size: {player?.universe_size}</li>
-          </ul>
-          {sector && localMapData && (
-            <div className="w-[440px] h-[520px]">
-              <SectorMap
-                current_sector_id={sector.id}
-                map_data={localMapData}
-                width={440}
-                height={440}
-                maxDistance={2}
-                config={mapConfig}
-                coursePlot={coursePlot}
-              />
-            </div>
-          )}
-          <Divider />
-          <CoursePlotPanel />
-        </div>
-
-        <div className="story-card bg-card">
-          <h3 className="story-heading">Chat messages:</h3>
-          {directMessages.map((message) => (
-            <div key={message.id}>{JSON.stringify(message)}</div>
-          ))}
-        </div>
-      </div>
-    </>
-  )
-}
-
-Init.meta = {
-  connectOnMount: false,
-  enableMic: false,
-  disableAudioOutput: true,
-  useDevTools: true,
-}
 
 export const Settings: Story = () => {
   return (

@@ -569,3 +569,12 @@ Example with a looked-up character:
 set -a && source .env.supabase && set +a
 uv run npc-run $(uv run character-lookup "SpaceTrader") "Check my status and move to an adjacent sector"
 ```
+
+### Database reset that preserves user accounts
+
+```bash
+# local
+scripts/reset-world.sh --env .env.supabase 1000 42
+# live
+scripts/reset-world.sh --env .env.cloud 1000 42
+```

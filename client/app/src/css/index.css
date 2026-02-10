@@ -244,8 +244,8 @@
 @custom-variant @tall-lg (@media (min-height: 900px)); /* Laptops */
 @custom-variant @tall-xl (@media (min-height: 1080px)); /* Desktop monitors */
 
-@import "./components.css";
 @import "./utilities.css";
+@import "./components.css";
 
 html,
 body {

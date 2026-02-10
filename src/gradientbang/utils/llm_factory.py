@@ -24,7 +24,7 @@ Environment Variables:
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
@@ -101,8 +101,7 @@ def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
 
     if not api_key:
         raise ValueError(
-            f"{provider.value.capitalize()} API key required. "
-            f"Set {env_var} environment variable."
+            f"{provider.value.capitalize()} API key required. Set {env_var} environment variable."
         )
 
     return api_key
@@ -224,8 +223,7 @@ def _create_openai_service(
 
     if thinking and thinking.enabled:
         logger.warning(
-            "OpenAI does not support thinking mode. "
-            f"Proceeding without thinking for model {model}."
+            f"OpenAI does not support thinking mode. Proceeding without thinking for model {model}."
         )
 
     llm_kwargs = {}
@@ -254,9 +252,7 @@ def get_voice_llm_config() -> LLMServiceConfig:
     try:
         provider = LLMProvider(provider_str)
     except ValueError:
-        logger.warning(
-            f"Unknown VOICE_LLM_PROVIDER '{provider_str}', defaulting to google"
-        )
+        logger.warning(f"Unknown VOICE_LLM_PROVIDER '{provider_str}', defaulting to google")
         provider = LLMProvider.GOOGLE
 
     # Default models per provider
@@ -304,9 +300,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
     try:
         provider = LLMProvider(provider_str)
     except ValueError:
-        logger.warning(
-            f"Unknown TASK_LLM_PROVIDER '{provider_str}', defaulting to google"
-        )
+        logger.warning(f"Unknown TASK_LLM_PROVIDER '{provider_str}', defaulting to google")
         provider = LLMProvider.GOOGLE
 
     # Default models per provider (prefer preview/reasoning models)

@@ -5,8 +5,8 @@ import { Story } from "@ladle/react"
 
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { MapScreen } from "@/components/screens/MapScreen"
-import { DEFAULT_MAX_BOUNDS } from "@/utils/mapZoom"
 import useGameStore from "@/stores/game"
+import { DEFAULT_MAX_BOUNDS } from "@/utils/map"
 
 export const BigMapStory: Story = () => {
   const dispatchAction = useGameStore.use.dispatchAction?.()

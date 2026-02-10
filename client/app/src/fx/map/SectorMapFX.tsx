@@ -1,5 +1,5 @@
+import { DEFAULT_MAX_BOUNDS } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
-import { DEFAULT_MAX_BOUNDS } from "@/utils/mapZoom"
 
 import { MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
 
@@ -595,14 +595,17 @@ function calculateSectorBounds(
   return { minX, minY, maxX, maxY }
 }
 
-/** Calculate camera transform to optimally frame all sectors in data. */
+/** Calculate camera transform to optimally frame all sectors in data.
+ *  minZoom can be lowered for large maxDistance values so the map can
+ *  zoom out far enough to show all sectors without clipping. */
 function calculateCameraTransform(
   data: MapData,
   width: number,
   height: number,
   scale: number,
   hexSize: number,
-  framePadding = 0
+  framePadding = 0,
+  minZoom = 0.3
 ): { offsetX: number; offsetY: number; zoom: number } {
   const bounds = calculateSectorBounds(data, scale, hexSize)
   const boundsWidth = Math.max(bounds.maxX - bounds.minX, hexSize)
@@ -610,7 +613,7 @@ function calculateCameraTransform(
 
   const scaleX = (width - framePadding * 2) / boundsWidth
   const scaleY = (height - framePadding * 2) / boundsHeight
-  const zoom = Math.max(0.3, Math.min(scaleX, scaleY, 1.5))
+  const zoom = Math.max(minZoom, Math.min(scaleX, scaleY, 1.5))
 
   const centerX = (bounds.minX + bounds.maxX) / 2
   const centerY = (bounds.minY + bounds.maxY) / 2
@@ -1030,10 +1033,21 @@ function getNodeStyle(
     }
   } else if (coursePlotSectors && !isInPlot) {
     baseStyle = config.nodeStyles.muted
-  } else if (isCurrent) {
-    baseStyle = config.nodeStyles.current
   } else if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
+    // If this is also the current sector, carry over the offset frame indicator
+    if (isCurrent) {
+      const cs = config.nodeStyles.current
+      baseStyle = {
+        ...baseStyle,
+        offset: cs.offset,
+        offsetColor: cs.offsetColor,
+        offsetSize: cs.offsetSize,
+        offsetWeight: cs.offsetWeight,
+      }
+    }
+  } else if (isCurrent) {
+    baseStyle = config.nodeStyles.current
   } else if (isVisited) {
     if (node.source === "corp") {
       baseStyle = config.nodeStyles.visited_corp
@@ -1376,33 +1390,12 @@ function calculateCameraState(
     return null
   }
 
-  if (!coursePlot) {
-    const centerSector = data.find((sector) => sector.id === config.center_sector_id)
-    if (centerSector) {
-      const framePadding = config.frame_padding ?? 0
-      const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
-      const radius = Math.max(maxWorldDistance + hexSize, hexSize)
-      const availableWidth = Math.max(width - framePadding * 2, 1)
-      const availableHeight = Math.max(height - framePadding * 2, 1)
-      const referenceZoom = DEFAULT_MAX_BOUNDS
-      const minZoom = Math.max(
-        0.08,
-        0.3 * (referenceZoom / Math.max(maxDistance, referenceZoom))
-      )
-      const zoom = Math.max(
-        minZoom,
-        Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5)
-      )
-      const centerWorld = hexToWorld(centerSector.position[0], centerSector.position[1], scale)
-
-      return {
-        offsetX: -centerWorld.x,
-        offsetY: -centerWorld.y,
-        zoom,
-        filteredData,
-      }
-    }
-  }
+  // Dynamic min zoom: at small maxDistance (<=12) keep the default 0.3 floor;
+  // at larger values scale it down so the bounding-box fit can zoom out enough
+  const minZoom = Math.max(
+    0.08,
+    0.3 * (DEFAULT_MAX_BOUNDS / Math.max(maxDistance, DEFAULT_MAX_BOUNDS))
+  )
 
   const camera = calculateCameraTransform(
     framingData,
@@ -1410,7 +1403,8 @@ function calculateCameraState(
     height,
     scale,
     hexSize,
-    config.frame_padding ?? 0
+    config.frame_padding ?? 0,
+    minZoom
   )
 
   return {

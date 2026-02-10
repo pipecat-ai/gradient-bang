@@ -3,6 +3,7 @@ import * as React from "react"
 import {
   ChatCircleTextIcon,
   CheckSquareOffsetIcon,
+  CrosshairIcon,
   PersonIcon,
   PlanetIcon,
   SwapIcon,
@@ -20,11 +21,13 @@ export const RHSPanelNavItem = ({
   active = false,
   label,
   onClick,
+  disabled = false,
 }: {
   children: React.ReactNode
   active: boolean
   label: string
   onClick: () => void
+  disabled?: boolean
 }) => {
   return (
     <Button
@@ -36,6 +39,7 @@ export const RHSPanelNavItem = ({
       aria-controls="#panel-container"
       aria-label={label}
       onClick={onClick}
+      disabled={disabled}
       className="relative flex flex-col items-center justify-center gap-1 flex-1"
     >
       <span
@@ -57,9 +61,16 @@ export const RHSPanelNavItem = ({
 export const RHSPanelNav = () => {
   const activePanel = useGameStore.use.activePanel?.()
   const setActivePanel = useGameStore.use.setActivePanel?.()
+  const uiState = useGameStore.use.uiState?.()
 
   const tabs = [
-    { id: "sector", label: "Sector", icon: <PlanetIcon size={20} /> },
+    {
+      id: "sector",
+      label: "Sector",
+      disabledLabel: "Combat",
+      icon: <PlanetIcon size={20} />,
+      disabledIcon: <CrosshairIcon size={20} />,
+    },
     { id: "player", label: "Player", icon: <PersonIcon size={20} /> },
     { id: "trade", label: "Trade", icon: <SwapIcon size={20} /> },
     { id: "tasks", label: "Tasks", icon: <CheckSquareOffsetIcon size={20} /> },
@@ -75,6 +86,7 @@ export const RHSPanelNav = () => {
             key={tab.id}
             label={tab.label}
             active={activePanel === tab.id}
+            disabled={uiState === "combat" && tab.id !== "logs" && tab.id !== "sector"}
             onClick={() => {
               if (activePanel === tab.id) {
                 setActivePanel(undefined)
@@ -83,9 +95,11 @@ export const RHSPanelNav = () => {
               setActivePanel(tab.id as UIPanel)
             }}
           >
-            {tab.icon}
+            {uiState === "combat" ? (tab.disabledIcon ?? tab.icon) : tab.icon}
             {tab.id === "logs" && <NewMessageFloater />}
-            <span className="text-xxs truncate">{tab.label}</span>
+            <span className="text-xxs truncate">
+              {uiState === "combat" ? (tab.disabledLabel ?? tab.label) : tab.label}
+            </span>
           </RHSPanelNavItem>
         ))}
       </div>

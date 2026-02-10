@@ -92,7 +92,7 @@ export const PostProcessingController = () => {
   const scene = useThree((state) => state.scene)
   const camera = useThree((state) => state.camera)
   const size = useThree((state) => state.size)
-  const viewport = useThree((state) => state.viewport)
+  const currentDpr = useThree((state) => state.viewport.dpr)
 
   // Uniform store
   const registerUniform = useUniformStore((state) => state.registerUniform)
@@ -125,7 +125,9 @@ export const PostProcessingController = () => {
 
   // Map store configs to flattened structure for useControlSync
   const mappedSource = useMemo(() => {
-    const dprBasedGridSize = viewport.dpr >= 2 ? 2 : 1
+    // Increase grid size for higher DPR
+    // @NOTE: we scale grid size UP for lower DPRs
+    const dprBasedGridSize = currentDpr > 1 ? 2 : 3
 
     return {
       // Sharpening
@@ -166,7 +168,7 @@ export const PostProcessingController = () => {
     palette,
     defaultTintPrimary,
     defaultTintSecondary,
-    viewport.dpr,
+    currentDpr,
   ])
 
   // Leva controls - conditional based on debug mode

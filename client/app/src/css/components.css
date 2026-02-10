@@ -145,3 +145,101 @@
     background-size: 24px 24px;
   }
 }
+
+.combat-border {
+  @apply stripe-frame stripe-frame-size-3 stripe-frame-border-2 stripe-frame-destructive;
+}
+
+.combat-tile {
+  @apply corner-dots corner-dots-offset-8 outline outline-subtle -outline-offset-4 p-ui-sm;
+}
+
+.combat-action {
+  @apply corner-dots corner-dots-white corner-dots-offset-8 corner-dots-3 absolute transition-all outline-1 -outline-offset-4 outline-subtle inset-0;
+  @apply bg-card/70 mask-[linear-gradient(to_top,transparent_5%,black_70%)];
+  @apply group-hover:outline-white group-hover:bg-accent-background;
+}
+
+.combat-action-active .combat-action {
+  @apply outline-terminal outline-2 bg-terminal-background;
+}
+
+.combat-action-inactive .combat-action {
+  @apply bg-card/70;
+}
+
+.combat-vignette {
+  background: radial-gradient(
+    circle at center,
+    transparent 0%,
+    transparent 50%,
+    color-mix(in srgb, var(--color-destructive) 60%, transparent) 100%
+  );
+}
+
+.PopoverContent {
+  animation-duration: 400ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+.PopoverArrow {
+  fill: white;
+}
+
+.PopoverContent[data-state="open"][data-side="top"] {
+  animation-name: slideDownAndFade;
+}
+.PopoverContent[data-state="open"][data-side="right"] {
+  animation-name: slideLeftAndFade;
+}
+.PopoverContent[data-state="open"][data-side="bottom"] {
+  animation-name: slideUpAndFade;
+}
+.PopoverContent[data-state="open"][data-side="left"] {
+  animation-name: slideRightAndFade;
+}
+
+@keyframes slideUpAndFade {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideRightAndFade {
+  from {
+    opacity: 0;
+    transform: translateX(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideDownAndFade {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideLeftAndFade {
+  from {
+    opacity: 0;
+    transform: translateX(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

@@ -33,6 +33,7 @@ interface DataTableProps<TData> {
   fixedLayout?: boolean
   classNames?: DataTableClassNames
   getRowClassName?: (row: TData) => string | undefined
+  onRowClick?: (row: TData) => void
 }
 
 export function DataTable<TData>({
@@ -43,6 +44,7 @@ export function DataTable<TData>({
   fixedLayout = true,
   classNames = {},
   getRowClassName,
+  onRowClick,
 }: DataTableProps<TData>) {
   const table = useReactTable({
     data,
@@ -93,9 +95,11 @@ export function DataTable<TData>({
         {table.getRowModel().rows.map((row) => (
           <tr
             key={row.id}
+            onClick={onRowClick ? () => onRowClick(row.original) : undefined}
             className={cn(
               "text-muted-foreground transition-colors bg-accent-background",
               hoverable && "hover:bg-accent",
+              onRowClick && "cursor-pointer",
               striped && "even:bg-subtle-background",
               classNames.row,
               getRowClassName?.(row.original)

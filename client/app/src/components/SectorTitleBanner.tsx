@@ -24,6 +24,7 @@ export const SectorTitleBanner = () => {
   const playSound = useAudioStore.use.playSound()
   const activeTasks = useGameStore.use.activeTasks?.()
   const sector = useGameStore.use.sector?.()
+  const uiState = useGameStore.use.uiState?.()
 
   // UI state
   const [isShowing, setIsShowing] = useState(false)
@@ -47,7 +48,7 @@ export const SectorTitleBanner = () => {
     [activeTasks]
   )
 
-  const shouldDisplay = sector?.id !== undefined && !hasActiveTask
+  const shouldDisplay = sector?.id !== undefined && !hasActiveTask && uiState !== "combat"
   const sectorText = `SECTOR ${sector?.id ?? "unknown"}`
 
   // Timer management

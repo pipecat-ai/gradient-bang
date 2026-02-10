@@ -89,7 +89,7 @@ const PP_DITHERING = {
   pixelMultiplier: 6,
   anim: {
     enter: { delay: 0.4, easing: easings.easeInCubic },
-    exit: { offset: 0.25 },
+    exit: {},
   },
 }
 

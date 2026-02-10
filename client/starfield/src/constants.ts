@@ -22,13 +22,15 @@ export const PERFORMANCE_PROFILES: PerformanceProfile[] = [
   "low",
   "mid",
   "high",
+  "extreme",
 ] as const
 
 export const DEFAULT_DPR: Record<PerformanceProfile, number> = {
-  auto: 2,
-  low: 1,
-  mid: 1.5,
-  high: 2,
+  auto: 1,
+  low: 0.5,
+  mid: 1,
+  high: 1.5,
+  extreme: 1.5,
 }
 
 export const GAME_OBJECT_TYPES: GameObject["type"][] = [

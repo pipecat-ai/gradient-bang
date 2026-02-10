@@ -12,7 +12,7 @@ import { Separator } from "@/components/primitives/Separator"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS_PADDING } from "@/utils/mapZoom"
+import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS_PADDING } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 

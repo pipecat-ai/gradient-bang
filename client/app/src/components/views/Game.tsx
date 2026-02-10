@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
 import { ArrowLeftIcon } from "@phosphor-icons/react"
@@ -6,6 +6,8 @@ import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
+import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
+import { CombatDamageVignette } from "@/components/panels/CombatDamageVignette"
 import { ConversationPanel } from "@/components/panels/ConversationPanel"
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
@@ -19,6 +21,7 @@ import { Starfield } from "@/components/Starfield"
 import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { TopBar } from "@/components/TopBar"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
@@ -26,17 +29,32 @@ const disabledCx = "pointer-events-none opacity-0"
 const enabledCx = "pointer-events-auto opacity-100"
 
 export const Game = () => {
-  useNotificationSound()
+  const uiState = useGameStore.use.uiState()
   const asidePanelRef = usePanelRef()
   const lookMode = useGameStore.use.lookMode()
   const setLookMode = useGameStore.use.setLookMode?.()
   const [isCollapsed, setIsCollapsed] = useState(false)
+
+  useNotificationSound()
 
   const handleAsideResize = useCallback(() => {
     const collapsed = asidePanelRef.current?.isCollapsed?.() ?? false
     setIsCollapsed(collapsed)
   }, [asidePanelRef])
 
+  useEffect(() => {
+    if (uiState === "combat") {
+      console.debug("%c[GAME] Entering combat", "color: red; font-weight: bold")
+      useAudioStore.getState().playSound("enterCombat", { volume: 0.1, loop: false })
+      // Reset look mode and active screen
+      const gameStore = useGameStore.getState()
+      gameStore.setLookMode(false)
+      gameStore.setActiveScreen(undefined)
+      gameStore.setActivePanel("sector")
+    } else {
+      useAudioStore.getState().stopSound("enterCombat")
+    }
+  }, [uiState, setLookMode])
   return (
     <>
       {lookMode && (
@@ -65,9 +83,12 @@ export const Game = () => {
       >
         <Panel className="flex flex-col">
           <TopBar />
-          <main className="flex-1 flex flex-col gap-0 @container/main">
-            <div className="p-ui-xs flex-1">
-              <TaskEnginesPanel />
+          <main className="relative flex-1 flex flex-col gap-0 @container/main">
+            {uiState === "combat" && <CombatDamageVignette />}
+            <div className="flex-1">
+              {uiState === "combat" ?
+                <CombatActionPanel />
+              : <TaskEnginesPanel />}
             </div>
             <footer className="p-ui-xs pt-0 h-[330px] flex flex-row gap-ui-sm justify-between">
               <ConversationPanel className="flex-1 max-w-xl" />

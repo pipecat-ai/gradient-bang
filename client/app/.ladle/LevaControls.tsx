@@ -6,13 +6,18 @@ import { PipecatClient } from "@pipecat-ai/client-js"
 
 import useGameStore from "@/stores/game"
 
+import { useCombatControls } from "./combat/useCombatControls"
 import { useChatControls } from "./useChatControls"
 import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
 
+import { SHIP_DEFINITIONS } from "@/types/ships"
 import { INCOMING_CHAT_TOOL_CALL_MOCK } from "@/mocks/chat.mock"
 import { LEADERBOARD_DATA_MOCK } from "@/mocks/misc.mock"
 import {
+  createRandomCorporation,
+  createRandomPlayer,
+  createRandomUnownedShip,
   MEGA_PORT_MOCK,
   PLAYER_MOVEMENT_HISTORY_MOCK,
   PORT_MOCK,
@@ -37,6 +42,8 @@ export const LevaControls = ({
   const addSectorPlayer = useGameStore.use.addSectorPlayer()
   const removeSectorPlayer = useGameStore.use.removeSectorPlayer()
   const addActivityLogEntry = useGameStore.use.addActivityLogEntry()
+  const updateSector = useGameStore.use.updateSector()
+  const setCorporation = useGameStore.use.setCorporation()
 
   const isFirstRender = useRef(true)
 
@@ -75,60 +82,6 @@ export const LevaControls = ({
     ["Look Around"]: button(() => {
       const lookMode = useGameStore.getState().lookMode
       useGameStore.getState().setLookMode(!lookMode)
-    }),
-
-    ["Mock Player Arrive"]: button(() => {
-      const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
-      const name = faker.person.fullName()
-      const player = { id: mockData.player.id, name: name }
-      const ship = {
-        ship_id: faker.string.uuid(),
-        ship_name: faker.vehicle.vehicle(),
-        ship_type: faker.vehicle.type(),
-      }
-      addSectorPlayer({
-        id: mockData.player.id,
-        name: name,
-        ship: ship,
-      })
-      addActivityLogEntry({
-        type: "character.moved",
-        message: `[${name}] arrived in sector`,
-        meta: {
-          sector: mockData.sector,
-          direction: "arrive",
-          player,
-          ship,
-          silent: true,
-        },
-      })
-    }),
-
-    ["Mock Player Depart"]: button(() => {
-      const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
-      const name = faker.person.fullName()
-      const player = { id: mockData.player.id, name: name }
-      const ship = {
-        ship_id: faker.string.uuid(),
-        ship_name: faker.vehicle.vehicle(),
-        ship_type: faker.vehicle.type(),
-      }
-      removeSectorPlayer({
-        id: mockData.player.id,
-        name: player.name,
-        ship: ship,
-      })
-      addActivityLogEntry({
-        type: "character.moved",
-        message: `[${name}] departed from sector`,
-        meta: {
-          sector: mockData.sector,
-          direction: "depart",
-          player,
-          ship,
-          silent: true,
-        },
-      })
     }),
 
     Ships: folder(
@@ -185,12 +138,37 @@ export const LevaControls = ({
         ["Add Salvage Created Toast"]: button(() => addToast({ type: "salvage.created" })),
         ["Add Trade Executed Toast"]: button(() => addToast({ type: "trade.executed" })),
         ["Add Transfer Toast"]: button(() => addToast({ type: "transfer" })),
+        ["Add Ship Purchased Toast"]: button(() => {
+          const def = faker.helpers.arrayElement(SHIP_DEFINITIONS)
+          addToast({
+            type: "ship.purchased",
+            meta: {
+              ship: {
+                ship_id: faker.string.uuid(),
+                ship_name: def.display_name,
+                ship_type: def.ship_type,
+                fighters: def.fighters,
+                shields: def.shields,
+              },
+            },
+          })
+        }),
+        ["Add Corporation Created Toast"]: button(() => {
+          const corp = createRandomCorporation()
+          addToast({
+            type: "corporation.created",
+            meta: { corporation: corp },
+          })
+        }),
       },
       { collapsed: true, order: 1 }
     ),
 
     Player: folder(
       {
+        ["List known ports"]: button(() => {
+          dispatchAction({ type: "get-known-ports" })
+        }),
         ["Ship Mock"]: button(() => {
           const setShip = useGameStore.getState().setShip
           setShip({ ...SHIP_MOCK, owner_type: "corporation" })
@@ -235,6 +213,118 @@ export const LevaControls = ({
           const currentCredits = ship?.credits ?? 0
           setShip({ ...ship, credits: currentCredits - 1000 })
         }),
+        ["Add Random Player"]: button(() => {
+          const player = createRandomPlayer()
+          addSectorPlayer(player)
+          addActivityLogEntry({
+            type: "character.moved",
+            message: `[${player.name}] arrived in sector`,
+            meta: {
+              direction: "arrive",
+              player: { id: player.id, name: player.name },
+              ship: player.ship,
+              silent: true,
+            },
+          })
+        }),
+
+        ["Add Unowned Ship"]: button(() => {
+          const sector = useGameStore.getState().sector
+          if (!sector) return
+          const ship = createRandomUnownedShip()
+          updateSector({
+            id: sector.id,
+            unowned_ships: [...(sector.unowned_ships ?? []), ship],
+          })
+        }),
+
+        ["Add Mock Salvage"]: button(() => {
+          const sector = useGameStore.getState().sector
+          if (!sector) return
+          const resources: Resource[] = ["neuro_symbolics", "quantum_foam", "retro_organics"]
+          const cargo: Partial<Record<Resource, number>> = {}
+          // Pick 1-3 random resources with random amounts
+          const numResources = Math.floor(Math.random() * 3) + 1
+          const shuffled = [...resources].sort(() => Math.random() - 0.5)
+          for (let i = 0; i < numResources; i++) {
+            cargo[shuffled[i]] = Math.floor(Math.random() * 50) + 5
+          }
+          const salvageItem: Salvage = {
+            salvage_id: faker.string.uuid(),
+            source: {
+              ship_name: faker.vehicle.vehicle(),
+              ship_type: faker.vehicle.type(),
+            },
+            cargo: cargo as Record<Resource, number>,
+            credits: Math.random() > 0.5 ? Math.floor(Math.random() * 5000) + 100 : undefined,
+            scrap: Math.random() > 0.5 ? Math.floor(Math.random() * 20) + 1 : undefined,
+            claimed: false,
+            created_at: new Date().toISOString(),
+          }
+          updateSector({
+            id: sector.id,
+            salvage: [...(sector.salvage ?? []), salvageItem],
+          })
+        }),
+
+        ["Join Corporation"]: button(() => {
+          const corp = createRandomCorporation()
+          setCorporation(corp)
+        }),
+
+        ["Mock Player Arrive"]: button(() => {
+          const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
+          const name = faker.person.fullName()
+          const player = { id: mockData.player.id, name: name }
+          const ship = {
+            ship_id: faker.string.uuid(),
+            ship_name: faker.vehicle.vehicle(),
+            ship_type: faker.vehicle.type(),
+          }
+          addSectorPlayer({
+            id: mockData.player.id,
+            name: name,
+            ship: ship,
+          })
+          addActivityLogEntry({
+            type: "character.moved",
+            message: `[${name}] arrived in sector`,
+            meta: {
+              sector: mockData.sector,
+              direction: "arrive",
+              player,
+              ship,
+              silent: true,
+            },
+          })
+        }),
+
+        ["Mock Player Depart"]: button(() => {
+          const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
+          const name = faker.person.fullName()
+          const player = { id: mockData.player.id, name: name }
+          const ship = {
+            ship_id: faker.string.uuid(),
+            ship_name: faker.vehicle.vehicle(),
+            ship_type: faker.vehicle.type(),
+          }
+          removeSectorPlayer({
+            id: mockData.player.id,
+            name: player.name,
+            ship: ship,
+          })
+          addActivityLogEntry({
+            type: "character.moved",
+            message: `[${name}] departed from sector`,
+            meta: {
+              sector: mockData.sector,
+              direction: "depart",
+              player,
+              ship,
+              silent: true,
+            },
+          })
+        }),
       },
       { collapsed: true, order: 2 }
     ),
@@ -252,6 +342,7 @@ export const LevaControls = ({
   useTaskControls()
   useMapControls()
   useChatControls()
+  useCombatControls()
 
   return <Leva hidden={hidden} />
 }

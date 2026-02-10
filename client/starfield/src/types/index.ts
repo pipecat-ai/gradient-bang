@@ -83,7 +83,7 @@ export interface StarfieldConfig {
   lensFlare?: Partial<LensFlareConfig>
 }
 
-export type PerformanceProfile = "auto" | "low" | "mid" | "high"
+export type PerformanceProfile = "auto" | "low" | "mid" | "high" | "extreme"
 
 export type StarfieldState =
   | "idle"
