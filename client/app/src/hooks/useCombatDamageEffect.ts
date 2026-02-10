@@ -14,7 +14,7 @@ const IMPACT_SOUNDS = ["impact1", "impact2", "impact3", "impact4"] as const
 export const useCombatDamageEffect = (
   combatId: string | null,
   latestResult: CombatPersonalRoundResult | null,
-  isActive: boolean,
+  isActive: boolean
 ) => {
   const lastRoundKeyRef = useRef<string | null>(null)
 
@@ -26,9 +26,7 @@ export const useCombatDamageEffect = (
     lastRoundKeyRef.current = roundKey
 
     const damageTaken =
-      latestResult.offensiveLosses +
-      latestResult.defensiveLosses +
-      latestResult.shieldLoss
+      latestResult.offensiveLosses + latestResult.defensiveLosses + latestResult.shieldLoss
 
     if (damageTaken <= 0) return
 

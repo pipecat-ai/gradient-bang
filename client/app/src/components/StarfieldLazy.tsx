@@ -78,8 +78,8 @@ export default function StarfieldLazy(props: StarfieldProps) {
       (tookDamage) => {
         if (tookDamage) {
           animateImpact(0.015, 200, 1000, 100, 2000)
-          // Reset the flag so future damage can trigger again
-          useGameStore.getState().setTookDamageThisRound(false)
+          // Don't reset the flag here — CombatDamageVignette resets it
+          // after its fade-out animation completes.
         }
       }
     )
