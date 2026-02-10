@@ -318,7 +318,10 @@ export const CombatActionPanel = () => {
           canAttack={canAttack}
           canBrace={canBrace}
           canPayToll={canPayToll}
-          onAttackCommit={(commit) => setAttackCommit(commit)}
+          onAttackCommit={(commit) => {
+            console.debug("%c[GAME COMBAT] Attack commit", "color: red; font-weight: bold", commit)
+            setAttackCommit(commit)
+          }}
           onSelectedTargetKey={(key) => setSelectedTargetKey(key)}
           onSelectedAction={(action) => {
             console.debug(

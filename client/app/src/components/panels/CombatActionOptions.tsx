@@ -98,29 +98,6 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
     setActionSelected(null)
   }
 
-  /*
-  const handleAttackCommit = () => {
-    const commit = Number.parseInt(selectedAttackCommit, 10)
-    if (Number.isFinite(commit) && commit >= 1 && commit <= props.maxAttackCommit) {
-      props.onAttackCommit(commit.toString())
-    } else {
-      setAttackCommitError("Commit must be between 1 and " + props.maxAttackCommit.toString())
-    }
-    if (!selectedAttackTarget?.id) {
-      setAttackCommitError("No target selected")
-    }
-    if (attackCommitError) {
-      return
-    }
-
-    setAttackPopoverOpen(false)
-
-    props.onAttackCommit(commit.toString())
-    props.onSelectedTargetKey(selectedAttackTarget?.key ?? "")
-
-    setActionSelected("attack")
-  }*/
-
   const handleSubmitAction = () => {
     if (!actionSelected) return
     props.onSelectedAction(actionSelected)
@@ -242,7 +219,10 @@ export const CombatActionOptions = (props: CombatActionOptionsProps) => {
                           step={1}
                           size="lg"
                           defaultValue={[selectedAttackCommit as unknown as number]}
-                          onValueChange={(value) => setSelectedAttackCommit(value[0].toString())}
+                          onValueChange={(value) => {
+                            setSelectedAttackCommit(value[0].toString())
+                            props.onAttackCommit(value[0].toString())
+                          }}
                           className="flex-1"
                         />
                         <Input
