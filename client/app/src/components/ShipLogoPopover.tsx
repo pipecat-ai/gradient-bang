@@ -17,7 +17,7 @@ export const ShipLogoPopover = ({
   fled = false,
   paid = false,
 }: {
-  ship_type: string
+  ship_type?: string | null
   alt?: string
   className?: string
   width?: number
@@ -28,7 +28,24 @@ export const ShipLogoPopover = ({
 }) => {
   const [popoverOpen, setPopoverOpen] = useState(false)
   const isInactive = destroyed || fled || paid
-  const logoSrc = getShipLogoImage(ship_type)
+  const logoSrc = ship_type ? getShipLogoImage(ship_type) : null
+
+  const placeholder = (
+    <div
+      className={cn(
+        "not-[]:size-6 shrink-0 flex items-center justify-center rounded bg-muted text-muted-foreground text-[9px] font-bold uppercase leading-none opacity-30",
+        className
+      )}
+      style={{ width, height }}
+    >
+      ?
+    </div>
+  )
+
+  if (!ship_type) {
+    return placeholder
+  }
+
   return (
     <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
       <PopoverTrigger asChild>

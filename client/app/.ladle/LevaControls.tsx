@@ -286,6 +286,7 @@ export const LevaControls = ({
             name: name,
             ship: ship,
           })
+
           addActivityLogEntry({
             type: "character.moved",
             message: `[${name}] arrived in sector`,
