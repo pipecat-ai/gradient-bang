@@ -182,7 +182,7 @@ export const CombatActionPanel = () => {
 
   return (
     <div className="relative h-full flex flex-col justify-between">
-      <header className="flex flex-row items-center gap-ui-sm px-ui-xs pt-ui-xs">
+      <header className="flex flex-row items-center gap-ui-sm px-ui-xs pb-ui-xs">
         <CombatRoundTimer
           deadline={activeCombatSession.deadline}
           currentTime={activeCombatSession.current_time}
@@ -192,7 +192,7 @@ export const CombatActionPanel = () => {
         />
       </header>
 
-      <section className="flex flex-col gap-ui-xs flex-1 p-ui-xs pb-0">
+      <section className="flex flex-col gap-ui-xs flex-1 px-ui-xs py-0">
         <div className="relative flex-1 flex pt-11 h-full min-h-0 gap-ui-xxs">
           <div className="animate-in zoom-in-50 fade-in-0 duration-1000 origin-center bg-background absolute z-1 left-1/2 -translate-x-1/2 top-0 bracket -bracket-offset-4 text-center p-ui-sm flex flex-col gap-ui-xs items-center justify-center">
             <img src={getShipLogoImage(ship.ship_type)} alt={ship.ship_name} className="size-12" />

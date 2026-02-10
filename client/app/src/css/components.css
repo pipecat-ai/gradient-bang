@@ -154,6 +154,21 @@
   @apply corner-dots corner-dots-offset-8 outline outline-subtle -outline-offset-4 p-ui-sm;
 }
 
+.combat-timer {
+  @apply corner-dots corner-dots-offset-8 outline outline-subtle -outline-offset-4 p-ui-sm;
+  margin-top: -4px;
+
+  &:before {
+    background-image:
+      linear-gradient(var(--corner-dots-color), var(--corner-dots-color)),
+      linear-gradient(var(--corner-dots-color), var(--corner-dots-color));
+    background-size: var(--corner-dots-size) var(--corner-dots-size);
+    background-position:
+      left var(--corner-dots-offset) bottom var(--corner-dots-offset),
+      right var(--corner-dots-offset) bottom var(--corner-dots-offset);
+  }
+}
+
 .combat-action {
   @apply corner-dots corner-dots-white corner-dots-offset-8 corner-dots-3 absolute transition-all outline-1 -outline-offset-4 outline-subtle inset-0;
   @apply bg-card/70 mask-[linear-gradient(to_top,transparent_5%,black_70%)];
