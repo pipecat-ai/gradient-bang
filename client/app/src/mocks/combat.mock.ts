@@ -82,7 +82,7 @@ export const COMBAT_ROUND_WAITING_PAYLOAD_MOCK: CombatRoundWaitingMessage = {
   sector: { id: SECTOR_ID },
   round: 1,
   current_time: "2026-02-06T22:14:01.002Z",
-  deadline: "2026-02-06T22:14:16.002Z",
+  deadline: "2026-02-06T22:14:31.002Z",
   initiator: "Captain Vega",
   participants: COMBAT_PARTICIPANTS,
   garrison: COMBAT_GARRISON,
@@ -152,7 +152,7 @@ export const COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK: CombatRoundResolvedMessage = {
   end: null,
   result: null,
   round_result: null,
-  deadline: "2026-02-06T22:14:16.002Z",
+  deadline: "2026-02-06T22:14:31.002Z",
   participants: [
     {
       ...COMBAT_PARTICIPANTS[0],

@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 from dataclasses import replace
 from typing import Awaitable, Callable, Optional
@@ -46,6 +47,18 @@ class InferenceGateState:
         self._llm_idle_event = asyncio.Event()
         self._llm_idle_event.set()
 
+    @staticmethod
+    def _reason_priority(reason: Optional[str]) -> int:
+        if reason == "combat_event":
+            return 4
+        if reason == "event":
+            return 3
+        if reason == "tool_result":
+            return 2
+        if reason == "llm_run":
+            return 1
+        return 0
+
     def attach_emitter(
         self,
         emit_run: Callable[[], Awaitable[None]],
@@ -61,7 +74,11 @@ class InferenceGateState:
     async def request_inference(self, reason: str) -> None:
         async with self._lock:
             self._pending = True
-            self._pending_reason = reason
+            if self._pending_reason is None:
+                self._pending_reason = reason
+            else:
+                if self._reason_priority(reason) >= self._reason_priority(self._pending_reason):
+                    self._pending_reason = reason
             self._ensure_pending_task_locked()
 
     async def update_bot_speaking(self, speaking: bool) -> None:
@@ -153,7 +170,7 @@ class InferenceGateState:
                     await asyncio.sleep(grace_until - now)
                     continue
 
-            if cooldown_until is not None:
+            if cooldown_until is not None and pending_reason != "combat_event":
                 delay = cooldown_until - time.monotonic()
                 if delay > 0:
                     await asyncio.sleep(delay)
@@ -189,6 +206,8 @@ class PreLLMInferenceGate(FrameProcessor):
 
         self._state.attach_emitter(_emit_run, self.create_task)
 
+    _EVENT_NAME_PATTERN = re.compile(r'<event\s+name="([^"]+)"')
+
     async def process_frame(self, frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
@@ -210,9 +229,11 @@ class PreLLMInferenceGate(FrameProcessor):
 
         if isinstance(frame, LLMMessagesAppendFrame) and direction == FrameDirection.DOWNSTREAM:
             if frame.run_llm and self._is_event_message(frame):
+                event_name = self._extract_event_name(frame)
+                reason = "combat_event" if event_name and event_name.startswith("combat.") else "event"
                 if not await self._state.can_run_now():
                     frame.run_llm = False
-                    await self._state.request_inference("event")
+                    await self._state.request_inference(reason)
             await self.push_frame(frame, direction)
             return
 
@@ -235,6 +256,22 @@ class PreLLMInferenceGate(FrameProcessor):
         if not isinstance(content, str):
             return False
         return content.lstrip().startswith("<event")
+
+    @classmethod
+    def _extract_event_name(cls, frame: LLMMessagesAppendFrame) -> Optional[str]:
+        if not frame.messages:
+            return None
+        last = frame.messages[-1]
+        if not isinstance(last, dict):
+            return None
+        content = last.get("content")
+        if not isinstance(content, str):
+            return None
+        match = cls._EVENT_NAME_PATTERN.search(content)
+        if not match:
+            return None
+        event_name = match.group(1).strip()
+        return event_name or None
 
 
 class PostLLMInferenceGate(FrameProcessor):

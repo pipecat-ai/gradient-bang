@@ -173,10 +173,12 @@ export function resolveRound(
   const hits: Record<string, number> = {};
   const offensiveLosses: Record<string, number> = {};
   const defensiveLosses: Record<string, number> = {};
+  const damageMitigated: Record<string, number> = {};
   participantIds.forEach((pid) => {
     hits[pid] = 0;
     offensiveLosses[pid] = 0;
     defensiveLosses[pid] = 0;
+    damageMitigated[pid] = 0;
   });
 
   if (successfulFleers.length && !remainingAttackers.length) {
@@ -189,6 +191,7 @@ export function resolveRound(
       offensive_losses: { ...zero },
       defensive_losses: { ...zero },
       shield_loss: { ...zero },
+      damage_mitigated: { ...zero },
       fighters_remaining: { ...fightersStart },
       shields_remaining: { ...shieldsStart },
       flee_results: fleeResults,
@@ -209,6 +212,7 @@ export function resolveRound(
         offensive_losses: { ...zero },
         defensive_losses: { ...zero },
         shield_loss: { ...zero },
+        damage_mitigated: { ...zero },
         fighters_remaining: { ...fightersStart },
         shields_remaining: { ...shieldsStart },
         flee_results: fleeResults,
@@ -253,22 +257,32 @@ export function resolveRound(
       remainingCommits[pid] -= 1;
       progressed = true;
 
-      const attackState = encounter.participants[pid];
-      const defendState = encounter.participants[targetId];
+      const targetMitigation = mitigations[targetId] ?? 0;
+      const attackerMitigation = mitigations[pid] ?? 0;
       const probability = clamp(
         BASE_HIT
-          - (mitigations[targetId] ?? 0) * MITIGATE_HIT_FACTOR
-          + (mitigations[pid] ?? 0) * ATTACK_BONUS_FACTOR,
+          - targetMitigation * MITIGATE_HIT_FACTOR
+          + attackerMitigation * ATTACK_BONUS_FACTOR,
         MIN_HIT,
         MAX_HIT,
       );
-      if (rng() < probability) {
+      // Counterfactual baseline for this same shot with target mitigation removed.
+      const probabilityWithoutTargetMitigation = clamp(
+        BASE_HIT + attackerMitigation * ATTACK_BONUS_FACTOR,
+        MIN_HIT,
+        MAX_HIT,
+      );
+      const roll = rng();
+      if (roll < probability) {
         hits[pid] += 1;
         defensiveLosses[targetId] += 1;
         currentFighters[targetId] = Math.max(0, currentFighters[targetId] - 1);
       } else {
         offensiveLosses[pid] += 1;
         currentFighters[pid] = Math.max(0, currentFighters[pid] - 1);
+        if (roll < probabilityWithoutTargetMitigation) {
+          damageMitigated[targetId] += 1;
+        }
       }
     }
     if (!progressed) {
@@ -284,11 +298,14 @@ export function resolveRound(
     const state = encounter.participants[pid];
     const totalLosses = offensiveLosses[pid] + defensiveLosses[pid];
     fightersRemaining[pid] = Math.max(0, (state.fighters ?? 0) - totalLosses);
-    let loss = Math.ceil(defensiveLosses[pid] * SHIELD_ABLATION_FACTOR);
+    const unmitigatedShieldLoss = Math.ceil(defensiveLosses[pid] * SHIELD_ABLATION_FACTOR);
+    let loss = unmitigatedShieldLoss;
     if (effectiveActions[pid].action === 'brace') {
       loss = Math.ceil(loss * 0.8);
     }
     shieldLoss[pid] = loss;
+    // Bracing reduces shield ablation after incoming fighter losses are resolved.
+    damageMitigated[pid] += Math.max(0, unmitigatedShieldLoss - loss);
     shieldsRemaining[pid] = Math.max(0, (state.shields ?? 0) - loss);
   }
 
@@ -336,6 +353,7 @@ export function resolveRound(
     offensive_losses: offensiveLosses,
     defensive_losses: defensiveLosses,
     shield_loss: shieldLoss,
+    damage_mitigated: damageMitigated,
     fighters_remaining: fightersRemaining,
     shields_remaining: shieldsRemaining,
     flee_results: fleeResults,

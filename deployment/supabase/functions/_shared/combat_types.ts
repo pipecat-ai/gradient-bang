@@ -36,6 +36,7 @@ export interface CombatRoundOutcome {
   offensive_losses: Record<string, number>;
   defensive_losses: Record<string, number>;
   shield_loss: Record<string, number>;
+  damage_mitigated: Record<string, number>;
   fighters_remaining: Record<string, number>;
   shields_remaining: Record<string, number>;
   flee_results: Record<string, boolean>;
@@ -51,6 +52,7 @@ export interface CombatRoundLog {
   offensive_losses: Record<string, number>;
   defensive_losses: Record<string, number>;
   shield_loss: Record<string, number>;
+  damage_mitigated?: Record<string, number>;
   result: string | null;
   timestamp: string;
 }

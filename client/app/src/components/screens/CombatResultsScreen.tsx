@@ -6,9 +6,47 @@ import { Badge } from "@/components/primitives/Badge"
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent } from "@/components/primitives/Card"
 import useGameStore from "@/stores/game"
-import { getRoundOutcome, getRoundOutcomeTone, sumRecordValues } from "@/utils/combat"
+import { getRoundOutcomeTone, sumRecordValues } from "@/utils/combat"
 import { formatCurrency } from "@/utils/formatting"
 import { cn } from "@/utils/tailwind"
+
+/**
+ * Turns the raw engine end_state into a human-friendly label.
+ * Possible raw values: `{name}_fled`, `stalemate`, `mutual_defeat`,
+ * `{name}_defeated`, `victory`, or null/continued.
+ */
+function describeCombatOutcome(
+  summary: CombatEndedRound,
+  playerName: string | null,
+): string {
+  const raw = (summary.round_result ?? summary.result ?? summary.end ?? "").toLowerCase()
+
+  if (!raw || raw === "continued") return "Inconclusive"
+  if (raw === "stalemate") return "Stalemate"
+  if (raw === "mutual_defeat") return "Mutual Destruction"
+  if (raw === "victory") return "All Opponents Destroyed"
+
+  // "{name}_defeated" — check if it was us or someone else
+  if (raw.endsWith("_defeated")) {
+    const defeatedName = raw.replace(/_defeated$/, "").replace(/_/g, " ")
+    if (playerName && defeatedName.toLowerCase() === playerName.toLowerCase()) {
+      return "You Were Destroyed"
+    }
+    return `${defeatedName.replace(/\b\w/g, (c) => c.toUpperCase())} Destroyed`
+  }
+
+  // "{name}_fled"
+  if (raw.endsWith("_fled")) {
+    const fledName = raw.replace(/_fled$/, "").replace(/_/g, " ")
+    if (playerName && fledName.toLowerCase() === playerName.toLowerCase()) {
+      return "You Fled"
+    }
+    return `${fledName.replace(/\b\w/g, (c) => c.toUpperCase())} Fled`
+  }
+
+  // Fallback: humanise the raw string
+  return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
 const getStatusLabel = ({
   destroyed,
@@ -104,7 +142,7 @@ export const CombatResultsScreen = ({ combat }: { combat?: CombatEndedRound }) =
     )
   }
 
-  const outcome = getRoundOutcome(summary)
+  const outcome = describeCombatOutcome(summary, playerName)
 
   return (
     <div className="relative z-10 w-full h-full max-w-6xl mx-auto px-ui-sm py-ui-sm flex flex-col gap-ui-sm pointer-events-auto">
@@ -112,7 +150,9 @@ export const CombatResultsScreen = ({ combat }: { combat?: CombatEndedRound }) =
         <CardContent className="flex items-center justify-between gap-ui-sm">
           <div className="flex flex-col gap-1">
             <span className="text-xs uppercase text-muted-foreground">Combat Results</span>
-            <span className="text-xl uppercase font-semibold tracking-wide">{summary.combat_id}</span>
+            <span className="text-xl uppercase font-semibold tracking-wide">
+              {totalRounds} {totalRounds === 1 ? "Round" : "Rounds"}
+            </span>
           </div>
           <div className="flex items-center gap-ui-xs">
             <Badge
@@ -217,9 +257,8 @@ export const CombatResultsScreen = ({ combat }: { combat?: CombatEndedRound }) =
 
             <DottedTitle title="Result Summary" textColor="text-foreground" className="pt-ui-sm" />
             <div className="flex-1 min-h-0 overflow-y-auto p-ui-xs border border-accent bg-card text-xxs uppercase text-muted-foreground">
-              Combat session ended with outcome:{" "}
-              <span className={cn("font-bold", getRoundOutcomeTone(outcome))}>{outcome}</span>
-              {summary.result ? ` [${summary.result}]` : ""}.
+              Combat resolved after {totalRounds} {totalRounds === 1 ? "round" : "rounds"} —{" "}
+              <span className={cn("font-bold", getRoundOutcomeTone(outcome))}>{outcome}</span>.
             </div>
           </CardContent>
         </Card>

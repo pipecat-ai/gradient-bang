@@ -102,10 +102,7 @@ export const CombatActionPanel = () => {
   const canPayToll = Boolean(activeGarrison && activeGarrison.mode === "toll")
   const payTollAmount = canPayToll ? (activeGarrison?.toll_amount ?? null) : null
   const previousRoundAction = latestPersonalResult?.action ?? null
-  const committedAction = pendingReceipt?.action ?? null
-
-  console.log("[COMBAT] previousRoundAction", previousRoundAction)
-  console.log("[COMBAT] committedAction", committedAction)
+  //const committedAction = pendingReceipt?.action ?? null
 
   // -- Callbacks (stable references) --
 

@@ -29,7 +29,7 @@ const pickRandom = <T,>(values: T[]) => values[randomInt(0, values.length - 1)]
 const applyCombatRoundWaiting = () => {
   const state = useGameStore.getState()
   const nowIso = new Date().toISOString()
-  const deadlineIso = new Date(Date.now() + 15_000).toISOString()
+  const deadlineIso = new Date(Date.now() + 30_000).toISOString()
 
   // Seed local player/ship/sector state first so combat UI has a valid actor context.
   state.setPlayer(COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK.player)
@@ -110,7 +110,7 @@ const applyCombatRoundResolved = () => {
       garrison: resolvedPayload.garrison,
       round: round + 1,
       current_time: new Date().toISOString(),
-      deadline: new Date(Date.now() + 15_000).toISOString(),
+      deadline: new Date(Date.now() + 30_000).toISOString(),
     }
     applyCombatRoundWaitingState(state, nextWaitingState)
   }
@@ -284,7 +284,7 @@ const applyRandomCombatRoundResult = (forcedAction?: "attack" | "brace" | "flee"
     garrison: randomRound.garrison,
     round: nextRound + 1,
     current_time: new Date().toISOString(),
-    deadline: new Date(Date.now() + 15_000).toISOString(),
+    deadline: new Date(Date.now() + 30_000).toISOString(),
   }
   applyCombatRoundWaitingState(state, nextWaitingState)
 }

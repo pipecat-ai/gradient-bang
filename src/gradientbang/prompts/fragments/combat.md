@@ -11,47 +11,54 @@ Combat is disabled in Federation Space (fedspace).
 Each round, every participant declares one action:
 
 ### ATTACK
+
 - Commit a number of fighters and specify a valid target
 - Each committed fighter rolls once
 - Hits destroy one enemy fighter; misses cost the attacker a fighter
 - Invalid targets or zero commits degrade to BRACE
 
 ### BRACE
+
 - Defensive posture that commits no fighters
 - Increases shield mitigation by 20% (capped at 50%)
 - Reduces shield ablation by 20% for the round
 
 ### FLEE
+
 - Player-controlled ships (not garrisons or escape pods) pick an adjacent sector to escape toward
 - Success probability ranges from 20% to 90%
 - Improves when your turns_per_warp exceeds your opponent's
 - Successful fleers exit combat immediately
 
 ### PAY
+
 - Offer credits to toll garrisons
 - Successful payments mark the toll satisfied
 - If everyone braces afterward, the encounter concludes peacefully
 
 ## Round Timing
 
-- Rounds normally take 15 seconds
+- Rounds normally take 30 seconds
 - After you submit your action, wait for combat update events to arrive
 - If you miss the deadline, your action defaults to BRACE
 
 ## Damage, Shields, and Order
 
 ### Attack Order
+
 - Attack order favors combatants with more fighters
 - Then higher turns_per_warp
 - Larger commitments swing first
 
 ### Hit Chance
+
 - Base hit chance is roughly 50%
 - Enemy shields and BRACE reduce that chance
 - Your own shields add a small bonus
 - Final odds stay between 15% and 85%
 
 ### Defensive Losses
+
 - Defensive losses remove fighters immediately
 - Shields ablate by about half the incoming hits (less while bracing)
 - Lower shields weaken mitigation in future rounds
@@ -59,11 +66,13 @@ Each round, every participant declares one action:
 ## Ending the Fight
 
 Encounters conclude when:
+
 - Opponents are destroyed
 - One side flees
 - Combatants stand down (including toll payments)
 
 ### Possible End States
+
 - `victory` - You won
 - `<combatant>_defeated` - Specific combatant was destroyed
 - `mutual_defeat` - Both sides destroyed
@@ -84,11 +93,13 @@ Encounters conclude when:
 ## Combat Flow in Tasks
 
 ### Initiating Combat
+
 1. Use the combat_initiate tool
 2. Wait for one second exactly: wait_in_idle_state(seconds=1)
 3. Submit your first round action
 
 ### During Combat
+
 - Receive combat.round_waiting events
 - Call combat_action for each round
 - Provide: combat_id, action, and when attacking: commit and target_id
@@ -97,6 +108,7 @@ Encounters conclude when:
 - When fleeing: provide to_sector
 
 ### Combat Ends
+
 - Receive combat.ended event
 - Check the result in the event payload
 - Continue with the task if applicable

@@ -304,6 +304,7 @@ export const CombatAsidePanel = () => {
   const [selectedRound, setSelectedRound] = useState<CombatRound | null>(null)
   const latestCombatRound =
     combatRounds && combatRounds.length > 0 ? combatRounds[combatRounds.length - 1] : undefined
+
   const combatInitiator = activeCombatSession?.initiator
   const garrisonView = useMemo(() => {
     const sessionGarrison = activeCombatSession?.garrison ?? null
@@ -403,7 +404,7 @@ export const CombatAsidePanel = () => {
     return views
   }, [activeCombatSession?.participants, combatInitiator, latestCombatRound, localPlayer])
 
-  const { isFlashing } = useFlashAnimation(latestCombatRound?.round ?? 1)
+  const { isFlashing } = useFlashAnimation(activeCombatSession?.round ?? latestCombatRound?.round ?? 1)
   return (
     <>
       <Card size="sm" className="border-0 border-b">
@@ -423,7 +424,7 @@ export const CombatAsidePanel = () => {
                 isFlashing && "animate-blink"
               )}
             >
-              {latestCombatRound?.round ?? 1}
+              {activeCombatSession?.round ?? latestCombatRound?.round ?? 1}
             </span>
           </Badge>
           <DottedTitle title="Participants" textColor="text-foreground" />
