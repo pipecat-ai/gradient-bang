@@ -5,7 +5,6 @@ import { faker } from "@faker-js/faker"
 import type { Story } from "@ladle/react"
 
 import { CharacterSelect } from "@/components/CharacterSelect"
-import { CoursePlotPanel } from "@/components/CoursePlotPanel"
 import { Divider } from "@/components/primitives/Divider"
 import { SectorMap } from "@/components/SectorMap"
 import { SettingsPanel } from "@/components/SettingsPanel"
@@ -119,7 +118,6 @@ export const Init: Story = () => {
             </div>
           )}
           <Divider />
-          <CoursePlotPanel />
         </div>
 
         <div className="story-card bg-card">

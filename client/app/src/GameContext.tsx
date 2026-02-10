@@ -6,11 +6,17 @@ import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
 import { GameContext } from "@/hooks/useGameContext"
 import useGameStore, { GameInitStateMessage } from "@/stores/game"
 import {
-  hasDeviatedFromCoursePlot,
   salvageCollectedSummaryString,
   salvageCreatedSummaryString,
   transferSummaryString,
 } from "@/utils/game"
+import {
+  DEFAULT_MAX_BOUNDS,
+  MAX_BOUNDS,
+  MAX_BOUNDS_PADDING,
+  MIN_BOUNDS,
+  getNextZoomLevel,
+} from "@/utils/mapZoom"
 
 import { RESOURCE_SHORT_NAMES } from "./types/constants"
 
@@ -424,20 +430,6 @@ export function GameProvider({ children }: GameProviderProps) {
 
               gameStore.setUIState("idle")
 
-              // Cleanup
-
-              const newSectorId = gameStore.sectorBuffer?.id ?? 0
-              // Remove any course plot data if we've reached our intended destination or deviated
-              // @TODO: make this logic robust (plots should become stale after a certain time)
-              if (gameStore.course_plot?.to_sector === newSectorId) {
-                console.debug("[GAME EVENT] Reached intended destination, clearing course plot")
-                gameStore.clearCoursePlot()
-              }
-              // Remove active course plot if we've gone to a sector outside of the plot
-              if (hasDeviatedFromCoursePlot(gameStore.course_plot, newSectorId)) {
-                console.debug("[GAME EVENT] Went to a sector outside of the plot, clearing")
-                gameStore.clearCoursePlot()
-              }
               break
             }
 
@@ -618,7 +610,14 @@ export function GameProvider({ children }: GameProviderProps) {
                 break
               }
 
-              gameStore.setRegionalMapData((e.payload as MapLocalMessage).sectors)
+              const data = e.payload as MapLocalMessage
+              gameStore.setRegionalMapData(data.sectors)
+              if (Array.isArray(data.fit_sectors) && typeof data.bounds === "number") {
+                const clamped = Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, data.bounds))
+                gameStore.setMapCenterSector(data.center_sector)
+                gameStore.setMapZoomLevel(clamped)
+                gameStore.clearPendingMapFit()
+              }
               break
             }
 
@@ -1027,6 +1026,163 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "ui-action": {
               console.debug("[GAME EVENT] UI action", e.payload)
+              const payload = e.payload as Record<string, unknown>
+              if (payload?.["ui-action"] !== "control_ui") {
+                break
+              }
+
+              const mapCenter =
+                typeof payload.map_center_sector === "number" &&
+                Number.isFinite(payload.map_center_sector)
+                  ? (payload.map_center_sector as number)
+                  : undefined
+              const mapZoomRaw =
+                typeof payload.map_zoom_level === "number" &&
+                Number.isFinite(payload.map_zoom_level)
+                  ? (payload.map_zoom_level as number)
+                  : undefined
+              const mapZoom =
+                mapZoomRaw !== undefined ?
+                  Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, mapZoomRaw))
+                : undefined
+              const highlight = Array.isArray(payload.map_highlight_path) ?
+                (payload.map_highlight_path as number[]).filter((v) =>
+                  typeof v === "number" && Number.isFinite(v)
+                )
+              : undefined
+              const fit = Array.isArray(payload.map_fit_sectors) ?
+                (payload.map_fit_sectors as number[]).filter((v) =>
+                  typeof v === "number" && Number.isFinite(v)
+                )
+              : undefined
+              const clearPlot = payload.clear_course_plot === true
+              const showPanel =
+                payload.show_panel === "map" ? "map"
+                : payload.show_panel === "default" ? "default"
+                : undefined
+              const hasHighlight = Boolean(highlight && highlight.length > 0)
+              const hasFit = Boolean(fit && fit.length > 0)
+              const zoomOnly =
+                mapZoom !== undefined && mapCenter === undefined && !hasHighlight && !hasFit
+
+              const wantsMap =
+                mapCenter !== undefined ||
+                mapZoom !== undefined ||
+                hasHighlight ||
+                hasFit
+              if (wantsMap) {
+                gameStore.setActiveScreen("map")
+              }
+
+              if (showPanel === "map") {
+                gameStore.setActiveScreen("map")
+              } else if (showPanel === "default") {
+                gameStore.setActiveScreen(undefined)
+              }
+
+              if (mapZoom !== undefined) {
+                if (zoomOnly) {
+                  const currentZoom =
+                    useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+                  if (mapZoom !== currentZoom) {
+                    const direction = mapZoom < currentZoom ? "in" : "out"
+                    const nextZoom = getNextZoomLevel(currentZoom, direction)
+                    console.debug("[GAME UI] Zoom step", {
+                      currentZoom,
+                      requestedZoom: mapZoom,
+                      direction,
+                      nextZoom,
+                    })
+                    gameStore.setMapZoomLevel(nextZoom)
+                  }
+                } else {
+                  console.debug("[GAME UI] Zoom absolute", { mapZoom })
+                  gameStore.setMapZoomLevel(mapZoom)
+                }
+              }
+
+              if (mapCenter !== undefined) {
+                const state = useGameStore.getState()
+                const mapData: MapData = [
+                  ...(state.local_map_data ?? []),
+                  ...(state.regional_map_data ?? []),
+                ]
+                const discovered = mapData.filter(
+                  (node) => node.visited || node.source
+                )
+                const centerNode = mapData.find((node) => node.id === mapCenter)
+                const isDiscovered = Boolean(
+                  centerNode && (centerNode.visited || centerNode.source)
+                )
+                let centerToUse: number | undefined
+
+                if (isDiscovered) {
+                  centerToUse = mapCenter
+                } else {
+                  const candidates = discovered.length > 0 ? discovered : mapData
+                  const targetPos =
+                    centerNode?.position ??
+                    state.sector?.position ??
+                    (candidates[0]?.position ?? undefined)
+
+                  if (targetPos && candidates.length > 0) {
+                    let best = candidates[0]
+                    let bestDist = Infinity
+                    for (const node of candidates) {
+                      if (!node.position) continue
+                      const dx = node.position[0] - targetPos[0]
+                      const dy = node.position[1] - targetPos[1]
+                      const dist = dx * dx + dy * dy
+                      if (dist < bestDist) {
+                        best = node
+                        bestDist = dist
+                      }
+                    }
+                    centerToUse = best.id
+                  } else if (state.sector?.id) {
+                    centerToUse = state.sector.id
+                  } else if (candidates[0]) {
+                    centerToUse = candidates[0].id
+                  }
+                }
+
+                if (centerToUse !== undefined) {
+                  gameStore.setMapCenterSector(centerToUse)
+                  const bounds =
+                    (mapZoom ?? useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) +
+                    MAX_BOUNDS_PADDING
+                  gameStore.dispatchAction({
+                    type: "get-my-map",
+                    payload: {
+                      center_sector: centerToUse,
+                      bounds,
+                    },
+                  })
+                }
+              }
+
+              if (highlight && highlight.length > 0) {
+                console.debug("[GAME UI] Apply course plot", {
+                  pathLength: highlight.length,
+                  from: highlight[0],
+                  to: highlight[highlight.length - 1],
+                })
+                gameStore.setCoursePlot({
+                  path: highlight,
+                  from_sector: highlight[0],
+                  to_sector: highlight[highlight.length - 1],
+                  distance: Math.max(0, highlight.length - 1),
+                })
+              }
+
+              if (fit && fit.length > 0) {
+                console.debug("[GAME UI] Fit map to sectors", { count: fit.length })
+                gameStore.fitMapToSectors(fit)
+              }
+
+              if (clearPlot) {
+                gameStore.clearCoursePlot()
+              }
               break
             }
 

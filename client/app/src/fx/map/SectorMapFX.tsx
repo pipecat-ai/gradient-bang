@@ -699,13 +699,12 @@ function renderLane(
   const to = getHexEdgePoint(toCenter, fromCenter, hexSize)
 
   // Determine lane type priority
-  const isInPlot =
-    coursePlotLanes ? coursePlotLanes.has(getUndirectedLaneKey(fromNode.id, toNode.id)) : true
+  const isInPlot = coursePlotLanes
+    ? coursePlotLanes.has(getUndirectedLaneKey(fromNode.id, toNode.id))
+    : false
 
   let laneStyle: LaneStyle
-  if (coursePlotLanes && !isInPlot) {
-    laneStyle = config.laneStyles.muted
-  } else if (coursePlot && isInPlot) {
+  if (coursePlot && isInPlot) {
     laneStyle = config.laneStyles.coursePlot
   } else if (isBidirectional) {
     laneStyle = config.laneStyles.normal
@@ -713,8 +712,8 @@ function renderLane(
     laneStyle = config.laneStyles.oneWay
   }
 
-  // Apply region lane style overrides (only when no course plot is active)
-  if (!coursePlot && fromNode.region && config.regionLaneStyles) {
+  // Apply region lane style overrides when not highlighting
+  if ((!coursePlot || !isInPlot) && fromNode.region && config.regionLaneStyles) {
     const regionKey = slugifyRegion(fromNode.region)
     const regionOverride = config.regionLaneStyles[regionKey]
     if (regionOverride) {
@@ -815,16 +814,15 @@ function renderPartialLane(
   }
 
   // Determine which style to use
-  const isInPlot =
-    coursePlotLanes ? coursePlotLanes.has(getUndirectedLaneKey(fromNode.id, culledToNode.id)) : true
+  const isInPlot = coursePlotLanes
+    ? coursePlotLanes.has(getUndirectedLaneKey(fromNode.id, culledToNode.id))
+    : false
 
   let laneStyle =
-    coursePlotLanes && !isInPlot ? config.laneStyles.muted
-    : coursePlot && isInPlot ? config.laneStyles.coursePlot
-    : config.laneStyles.partial
+    coursePlot && isInPlot ? config.laneStyles.coursePlot : config.laneStyles.partial
 
-  // Apply region lane style overrides (only when no course plot is active)
-  if (!coursePlot && fromNode.region && config.regionLaneStyles) {
+  // Apply region lane style overrides when not highlighting
+  if ((!coursePlot || !isInPlot) && fromNode.region && config.regionLaneStyles) {
     const regionKey = slugifyRegion(fromNode.region)
     const regionOverride = config.regionLaneStyles[regionKey]
     if (regionOverride?.twoWayColor) {
@@ -993,8 +991,8 @@ function getNodeStyle(
   const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
   const isVisited = Boolean(node.visited) || isCurrent
   const isHovered = node.id === hoveredSectorId
-  const isCentered = node.id === config.center_sector_id && !isCurrent
-  const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true
+  // Removed: isCentered (was tracking camera center, not player location)
+  const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : false
   const isMegaPort = Boolean((node.port as Port | null)?.mega)
 
   let baseStyle: NodeStyle
@@ -1028,8 +1026,6 @@ function getNodeStyle(
     } else {
       baseStyle = config.nodeStyles.coursePlotMid
     }
-  } else if (coursePlotSectors && !isInPlot) {
-    baseStyle = config.nodeStyles.muted
   } else if (isCurrent) {
     baseStyle = config.nodeStyles.current
   } else if (isMegaPort) {
@@ -1044,8 +1040,8 @@ function getNodeStyle(
     baseStyle = config.nodeStyles.unvisited
   }
 
-  // Apply region overrides (only when no course plot is active)
-  if (!coursePlot && node.region && config.regionStyles) {
+  // Apply region overrides when not highlighting
+  if ((!coursePlot || !isInPlot) && node.region && config.regionStyles) {
     const regionKey = slugifyRegion(node.region)
     const regionOverride = config.regionStyles[regionKey]
     if (regionOverride) {
@@ -1054,11 +1050,11 @@ function getNodeStyle(
   }
 
   let nodeStyle: NodeStyle = baseStyle
-  if (isCentered) {
+  if (isCurrent) {
     nodeStyle = { ...baseStyle, ...config.nodeStyles.centered }
   }
-  // Don't apply hover overrides to the centered/selected node
-  if (isHovered && config.clickable && !isCentered) {
+  // Don't apply hover overrides to the player's current sector
+  if (isHovered && config.clickable && !isCurrent) {
     nodeStyle = { ...baseStyle, ...config.nodeStyles.hovered }
   }
 
@@ -1122,8 +1118,6 @@ function renderSector(
   const isAnimating = node.id === animatingSectorId
 
   const finalOpacity = opacity
-  const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true
-
   // Apply scale: current sector gets permanent scale, hover scale stacks on top
   const currentScale = isCurrent && config.current_sector_scale ? config.current_sector_scale : 1
   const effectiveHexSize =
@@ -1184,8 +1178,7 @@ function renderSector(
   ctx.setLineDash([])
   ctx.lineCap = "butt"
 
-  // Hide port icons when course plot is active
-  if (config.show_ports && node.port && !coursePlot) {
+  if (config.show_ports && node.port) {
     const isMegaPort = Boolean((node.port as Port | null)?.mega)
     const portStyle = isMegaPort ? config.portStyles.mega : config.portStyles.regular
 
@@ -1215,25 +1208,6 @@ function renderSector(
     ctx.restore()
   }
 
-  // Render hop number for sectors in course plot
-  if (coursePlot && isInPlot) {
-    const hopIndex = coursePlot.path.indexOf(node.id)
-    if (hopIndex !== -1) {
-      const hopNumber = hopIndex + 1
-      ctx.save()
-      // Scale font with animation
-      const effectiveFontSize = isAnimating ? effectiveHexSize * 0.8 : hexSize * 0.8
-      ctx.font = `bold ${effectiveFontSize}px ${getCanvasFontFamily(ctx)}`
-      ctx.textAlign = "center"
-      ctx.textBaseline = "middle"
-      ctx.fillStyle = applyAlpha("#ffffff", finalOpacity * 0.9)
-      ctx.strokeStyle = applyAlpha("#000000", finalOpacity * 0.8)
-      ctx.lineWidth = 3
-      ctx.strokeText(hopNumber.toString(), world.x, world.y)
-      ctx.fillText(hopNumber.toString(), world.x, world.y)
-      ctx.restore()
-    }
-  }
 }
 
 /** Render hex grid background covering viewport */
@@ -1332,80 +1306,48 @@ function calculateCameraState(
   height: number,
   scale: number,
   hexSize: number,
-  maxDistance: number,
-  coursePlot?: CoursePlot | null
+  maxDistance: number
 ): CameraState | null {
   // Filter by spatial distance (hex grid units) instead of BFS hops
-  let filteredData = filterSectorsBySpatialDistance(
+  const filteredData = filterSectorsBySpatialDistance(
     data,
     config.center_sector_id,
     maxDistance,
     scale
   )
 
-  // If course plot exists, include all sectors from the path
-  let framingData = filteredData // Data used for camera framing
-  if (coursePlot) {
-    const coursePlotSectorIds = new Set(coursePlot.path)
-    const sectorIndex = createSectorIndex(data)
-    const coursePlotSectors: MapData = []
-    const additionalSectors: MapData = []
-
-    coursePlotSectorIds.forEach((sectorId) => {
-      const sector = sectorIndex.get(sectorId)
-      if (sector) {
-        coursePlotSectors.push(sector)
-        // Only add to filtered if not already there
-        if (!filteredData.some((s) => s.id === sectorId)) {
-          additionalSectors.push(sector)
-        }
-      }
-    })
-
-    if (additionalSectors.length > 0) {
-      filteredData = [...filteredData, ...additionalSectors]
-    }
-
-    // Frame around only the course plot sectors
-    if (coursePlotSectors.length > 0) {
-      framingData = coursePlotSectors
-    }
-  }
-
   if (filteredData.length === 0) {
     return null
   }
 
-  if (!coursePlot) {
-    const centerSector = data.find((sector) => sector.id === config.center_sector_id)
-    if (centerSector) {
-      const framePadding = config.frame_padding ?? 0
-      const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
-      const radius = Math.max(maxWorldDistance + hexSize, hexSize)
-      const availableWidth = Math.max(width - framePadding * 2, 1)
-      const availableHeight = Math.max(height - framePadding * 2, 1)
-      const referenceZoom = DEFAULT_MAX_BOUNDS
-      const minZoom = Math.max(
-        0.08,
-        0.3 * (referenceZoom / Math.max(maxDistance, referenceZoom))
-      )
-      const zoom = Math.max(
-        minZoom,
-        Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5)
-      )
-      const centerWorld = hexToWorld(centerSector.position[0], centerSector.position[1], scale)
+  const centerSector = data.find((sector) => sector.id === config.center_sector_id)
+  if (centerSector) {
+    const framePadding = config.frame_padding ?? 0
+    const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
+    const radius = Math.max(maxWorldDistance + hexSize, hexSize)
+    const availableWidth = Math.max(width - framePadding * 2, 1)
+    const availableHeight = Math.max(height - framePadding * 2, 1)
+    const referenceZoom = DEFAULT_MAX_BOUNDS
+    const minZoom = Math.max(
+      0.08,
+      0.3 * (referenceZoom / Math.max(maxDistance, referenceZoom))
+    )
+    const zoom = Math.max(
+      minZoom,
+      Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5)
+    )
+    const centerWorld = hexToWorld(centerSector.position[0], centerSector.position[1], scale)
 
-      return {
-        offsetX: -centerWorld.x,
-        offsetY: -centerWorld.y,
-        zoom,
-        filteredData,
-      }
+    return {
+      offsetX: -centerWorld.x,
+      offsetY: -centerWorld.y,
+      zoom,
+      filteredData,
     }
   }
 
   const camera = calculateCameraTransform(
-    framingData,
+    filteredData,
     width,
     height,
     scale,
@@ -1495,12 +1437,8 @@ function renderSectorLabels(
   height: number,
   cameraState: CameraState,
   config: SectorMapConfigBase,
-  coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-  // Hide all labels when course plot is active
-  if (coursePlotSectors) return
-
   // Return early if neither show_sector_ids nor show_sector_ids_hover is enabled
   if (!config.show_sector_ids && !config.show_sector_ids_hover) return
 
@@ -1516,16 +1454,13 @@ function renderSectorLabels(
   ctx.font = `${labelStyle.fontWeight} ${labelStyle.fontSize}px ${getCanvasFontFamily(ctx)}`
 
   data.forEach((node) => {
-    // Skip labels for current sector (player's location)
-    if (config.current_sector_id !== undefined && node.id === config.current_sector_id) return
-
     const isHovered = node.id === hoveredSectorId
-    const isCentered = node.id === config.center_sector_id
+    const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
 
     // If show_sector_ids is false but show_sector_ids_hover is true,
-    // only show labels for hovered or centered sectors
+    // only show labels for hovered or player's current sector
     if (!config.show_sector_ids && config.show_sector_ids_hover) {
-      if (!isCentered && !isHovered) return
+      if (!isCurrent && !isHovered) return
     }
 
     const hoverScale = isHovered ? labelStyle.hoveredFontSize / labelStyle.fontSize : 1
@@ -1548,7 +1483,6 @@ function renderSectorLabels(
     const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0
     const textHeight = ascent + descent
 
-    // Labels are hidden during course plot (early return above), so always full opacity here
     const labelOpacity = 1
 
     ctx.save()
@@ -1576,12 +1510,8 @@ function renderPortLabels(
   height: number,
   cameraState: CameraState,
   config: SectorMapConfigBase,
-  coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-  // Hide all labels when course plot is active
-  if (coursePlotSectors) return
-
   if (!config.show_port_labels) return
 
   const labelStyle = config.labelStyles.portCode
@@ -1598,15 +1528,13 @@ function renderPortLabels(
   data.forEach((node) => {
     const portCode = getPortCode(node.port ?? null)
     if (!portCode) return
-    // Skip labels for current sector (player's location)
-    if (config.current_sector_id !== undefined && node.id === config.current_sector_id) return
 
     // Only show port label if:
-    // 1. This is the centered (selected) sector, OR
+    // 1. This is the player's current sector, OR
     // 2. This sector is currently hovered
-    const isCentered = node.id === config.center_sector_id
+    const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
     const isHovered = node.id === hoveredSectorId
-    if (!isCentered && !isHovered) return
+    if (!isCurrent && !isHovered) return
 
     const hoverScale = isHovered ? labelStyle.hoveredFontSize / labelStyle.fontSize : 1
 
@@ -1628,7 +1556,6 @@ function renderPortLabels(
     const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0
     const textHeight = ascent + descent
 
-    // Labels are hidden during course plot (early return above), so always full opacity here
     const labelOpacity = 1
 
     ctx.save()
@@ -1657,12 +1584,8 @@ function renderShipLabels(
   cameraState: CameraState,
   config: SectorMapConfigBase,
   ships: Map<number, number> | undefined,
-  coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-  // Hide all labels when course plot is active
-  if (coursePlotSectors) return
-
   if (!ships || ships.size === 0) return
 
   const labelStyle = config.labelStyles.shipCount
@@ -1692,7 +1615,6 @@ function renderShipLabels(
 
     const screenPos = worldToScreen(edgeWorldX, edgeWorldY, width, height, cameraState)
 
-    // Labels are hidden during course plot (early return above), so always full opacity here
     const labelOpacity = 1
 
     // Calculate text metrics
@@ -1860,7 +1782,6 @@ function renderWithCameraState(
     cameraState,
     config,
     ships,
-    coursePlotSectors,
     null
   )
   renderPortLabels(
@@ -1872,7 +1793,6 @@ function renderWithCameraState(
     height,
     cameraState,
     config,
-    coursePlotSectors,
     null
   )
   renderSectorLabels(
@@ -1884,72 +1804,8 @@ function renderWithCameraState(
     height,
     cameraState,
     config,
-    coursePlotSectors,
     null
   )
-}
-
-/** Render animated arrows on course plot lanes only */
-function renderCoursePlotAnimation(
-  canvas: HTMLCanvasElement,
-  props: SectorMapProps,
-  cameraState: CameraState,
-  animationOffset: number
-) {
-  const { width, height, config, coursePlot } = props
-  if (!coursePlot) return
-
-  const ctx = canvas.getContext("2d")
-  if (!ctx) return
-
-  const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
-  const hexSize = config.hex_size ?? gridSpacing * 0.85
-  const scale = gridSpacing
-
-  const sectorIndex = createSectorIndex(cameraState.filteredData)
-
-  const animStyle = config.laneStyles.coursePlotAnimation
-
-  ctx.save()
-  ctx.translate(width / 2, height / 2)
-  ctx.scale(cameraState.zoom, cameraState.zoom)
-  ctx.translate(cameraState.offsetX, cameraState.offsetY)
-
-  // Draw animated dashes on course plot lanes
-  if (animStyle.shadowBlur > 0 && animStyle.shadowColor !== "none") {
-    ctx.shadowBlur = animStyle.shadowBlur
-    ctx.shadowColor = animStyle.shadowColor
-  }
-  ctx.strokeStyle = animStyle.color
-  ctx.lineWidth = animStyle.width
-  ctx.lineCap = animStyle.lineCap
-  if (animStyle.dashPattern !== "none") {
-    ctx.setLineDash(animStyle.dashPattern.split(",").map((n) => parseFloat(n)))
-  }
-  ctx.lineDashOffset = -animationOffset
-
-  for (let i = 0; i < coursePlot.path.length - 1; i++) {
-    const fromId = coursePlot.path[i]
-    const toId = coursePlot.path[i + 1]
-
-    const fromNode = sectorIndex.get(fromId)
-    const toNode = sectorIndex.get(toId)
-
-    if (!fromNode || !toNode) continue
-
-    const fromCenter = hexToWorld(fromNode.position[0], fromNode.position[1], scale)
-    const toCenter = hexToWorld(toNode.position[0], toNode.position[1], scale)
-
-    const from = getHexEdgePoint(fromCenter, toCenter, hexSize)
-    const to = getHexEdgePoint(toCenter, fromCenter, hexSize)
-
-    ctx.beginPath()
-    ctx.moveTo(from.x, from.y)
-    ctx.lineTo(to.x, to.y)
-    ctx.stroke()
-  }
-
-  ctx.restore()
 }
 
 /** Core rendering with explicit camera state and interaction state */
@@ -2103,7 +1959,6 @@ function renderWithCameraStateAndInteraction(
     cameraState,
     config,
     ships,
-    coursePlotSectors,
     hoveredSectorId
   )
   renderPortLabels(
@@ -2115,7 +1970,6 @@ function renderWithCameraStateAndInteraction(
     height,
     cameraState,
     config,
-    coursePlotSectors,
     hoveredSectorId
   )
   renderSectorLabels(
@@ -2127,7 +1981,6 @@ function renderWithCameraStateAndInteraction(
     height,
     cameraState,
     config,
-    coursePlotSectors,
     hoveredSectorId
   )
 }
@@ -2137,8 +1990,6 @@ export interface SectorMapController {
   moveToSector: (newSectorId: number, newMapData?: MapData) => void
   getCurrentState: () => CameraState | null
   updateProps: (newProps: Partial<SectorMapProps>) => void
-  startCourseAnimation: () => void
-  stopCourseAnimation: () => void
   setOnNodeClick: (callback: ((node: MapSectorNode | null) => void) | null) => void
   setOnNodeEnter: (callback: ((node: MapSectorNode) => void) | null) => void
   setOnNodeExit: (callback: ((node: MapSectorNode) => void) | null) => void
@@ -2154,8 +2005,6 @@ export function createSectorMapController(
   let currentProps = { ...props }
   let animationCleanup: (() => void) | null = null
   let animationCompletionTimeout: number | null = null
-  let courseAnimationFrameId: number | null = null
-  let courseAnimationOffset = 0
 
   // Click interaction state
   let hoveredSectorId: number | null = null
@@ -2303,8 +2152,8 @@ export function createSectorMapController(
 
   // Mouse event handlers
   const handleMouseMove = (event: MouseEvent) => {
-    // Disable hover when not hoverable, course plot is active, or moving to sector
-    if (!currentProps.config.hoverable || currentProps.coursePlot || isMovingToSector) return
+    // Disable hover when not hoverable or moving to sector
+    if (!currentProps.config.hoverable || isMovingToSector) return
 
     const pos = getCanvasMousePosition(event)
     const sector = findSectorAtMouse(pos.x, pos.y)
@@ -2344,8 +2193,8 @@ export function createSectorMapController(
   }
 
   const handleMouseClick = (event: MouseEvent) => {
-    // Disable click when not clickable, course plot is active, or moving to sector
-    if (!currentProps.config.clickable || currentProps.coursePlot || isMovingToSector) return
+    // Disable click when not clickable or moving to sector
+    if (!currentProps.config.clickable || isMovingToSector) return
 
     const pos = getCanvasMousePosition(event)
     const sector = findSectorAtMouse(pos.x, pos.y)
@@ -2358,8 +2207,8 @@ export function createSectorMapController(
   }
 
   const handleMouseLeave = () => {
-    // Disable interaction when not hoverable, course plot is active, or moving to sector
-    if (!currentProps.config.hoverable || currentProps.coursePlot || isMovingToSector) return
+    // Disable interaction when not hoverable or moving to sector
+    if (!currentProps.config.hoverable || isMovingToSector) return
 
     if (hoveredSectorId !== null) {
       const previousHoveredId = hoveredSectorId
@@ -2412,7 +2261,7 @@ export function createSectorMapController(
   }
 
   const render = () => {
-    const { width, height, data, config, maxDistance = 3, coursePlot } = currentProps
+    const { width, height, data, config, maxDistance = 3 } = currentProps
     const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
     const hexSize = config.hex_size ?? gridSpacing * 0.85
     const scale = gridSpacing
@@ -2424,8 +2273,7 @@ export function createSectorMapController(
       height,
       scale,
       hexSize,
-      maxDistance,
-      coursePlot
+      maxDistance
     )
 
     if (!cameraState) {
@@ -2473,7 +2321,7 @@ export function createSectorMapController(
     currentCameraState = cameraState
   }
 
-  // Animate camera reframe (e.g., when entering/exiting course plot mode)
+  // Animate camera reframe when map bounds or center change
   const animateCameraReframe = (onComplete?: () => void) => {
     if (animationCleanup) {
       animationCleanup()
@@ -2484,7 +2332,7 @@ export function createSectorMapController(
       animationCompletionTimeout = null
     }
 
-    const { width, height, data, config, maxDistance = 3, coursePlot } = currentProps
+    const { width, height, data, config, maxDistance = 3 } = currentProps
     const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
     const hexSize = config.hex_size ?? gridSpacing * 0.85
     const scale = gridSpacing
@@ -2496,8 +2344,7 @@ export function createSectorMapController(
       height,
       scale,
       hexSize,
-      maxDistance,
-      coursePlot
+      maxDistance
     )
 
     if (!targetCameraState || !currentCameraState || config.bypass_animation) {
@@ -2554,12 +2401,6 @@ export function createSectorMapController(
 
       renderWithCameraState(canvas, currentProps, interpolatedCamera)
 
-      // Also render course plot animation during reframe if course plot is active
-      if (currentProps.coursePlot) {
-        courseAnimationOffset = (courseAnimationOffset + 0.5) % 20
-        renderCoursePlotAnimation(canvas, currentProps, interpolatedCamera, courseAnimationOffset)
-      }
-
       if (fadeProgress < 1) {
         animationState.animationFrameId = requestAnimationFrame(animate)
       } else {
@@ -2603,12 +2444,6 @@ export function createSectorMapController(
     }
     canvas.style.cursor = "default"
 
-    // Temporarily stop course animation during transition
-    const wasAnimating = courseAnimationFrameId !== null
-    if (wasAnimating) {
-      stopCourseAnimation()
-    }
-
     const updatedProps = {
       ...currentProps,
       data: newMapData ?? currentProps.data,
@@ -2629,70 +2464,22 @@ export function createSectorMapController(
         animationCleanup = null
         animationCompletionTimeout = null
         isMovingToSector = false
-        // Start course animation if course plot is active
-        if (updatedProps.coursePlot) {
-          startCourseAnimation()
-        }
       }, animDuration)
     } else {
       render()
       isMovingToSector = false
-      // Start course animation immediately if course plot is active
-      if (updatedProps.coursePlot) {
-        startCourseAnimation()
-      }
     }
   }
 
   const getCurrentState = () => currentCameraState
 
   const updateProps = (newProps: Partial<SectorMapProps>) => {
-    const hadCoursePlot = currentProps.coursePlot !== undefined && currentProps.coursePlot !== null
     const wasClickable = currentProps.config.clickable
     const wasHoverable = currentProps.config.hoverable
 
     Object.assign(currentProps, newProps)
     if (newProps.config) {
       Object.assign(currentProps.config, newProps.config)
-    }
-
-    // Check course plot AFTER merging props (to handle partial updates that don't include coursePlot)
-    const hasCoursePlot = currentProps.coursePlot !== undefined && currentProps.coursePlot !== null
-
-    // Start or stop animation based on coursePlot presence
-    if (hasCoursePlot && !hadCoursePlot) {
-      // Clear hover state when course plot becomes active
-      if (hoveredSectorId !== null) {
-        hoveredSectorId = null
-        animatingSectorId = null
-        hoverAnimationProgress = 0
-        hoverAnimationTarget = 0
-        stopHoverAnimation()
-        canvas.style.cursor = "default"
-      }
-      // Recenter to current sector when course plot becomes active (course plot takes precedence)
-      if (
-        currentProps.config.current_sector_id !== undefined &&
-        currentProps.config.center_sector_id !== currentProps.config.current_sector_id
-      ) {
-        // Update center and animate to current sector, then start course animation
-        moveToSector(currentProps.config.current_sector_id)
-      } else {
-        // Animate camera reframe to course plot framing, then start animation
-        animateCameraReframe(() => {
-          startCourseAnimation()
-        })
-      }
-    } else if (!hasCoursePlot && hadCoursePlot) {
-      stopCourseAnimation()
-      // Animate camera reframe back to normal view
-      animateCameraReframe()
-    } else if (hasCoursePlot && hadCoursePlot) {
-      // Course plot already active - ensure animation is running (may have been stopped by panel close/reopen)
-      if (courseAnimationFrameId === null) {
-        render()
-        startCourseAnimation()
-      }
     }
 
     // Handle clickable/hoverable config changes
@@ -2705,41 +2492,6 @@ export function createSectorMapController(
       hoveredSectorId = null
       hoverAnimationProgress = 0
       hoverAnimationTarget = 0
-    }
-  }
-
-  const startCourseAnimation = () => {
-    if (courseAnimationFrameId !== null) return // Already running
-    if (!currentProps.coursePlot) return
-
-    // If camera state is missing, try to render first to establish it
-    if (!currentCameraState) {
-      render()
-      // If still no camera state after render, we can't animate
-      if (!currentCameraState) return
-    }
-
-    const animate = () => {
-      courseAnimationOffset = (courseAnimationOffset + 0.5) % 20 // Cycle through dash pattern smoothly
-
-      if (currentCameraState && currentProps.coursePlot) {
-        // Re-render the base map first to clear previous animation frame
-        render()
-        // Then draw animated dashes on top
-        renderCoursePlotAnimation(canvas, currentProps, currentCameraState, courseAnimationOffset)
-      }
-
-      courseAnimationFrameId = requestAnimationFrame(animate)
-    }
-
-    courseAnimationFrameId = requestAnimationFrame(animate)
-  }
-
-  const stopCourseAnimation = () => {
-    if (courseAnimationFrameId !== null) {
-      cancelAnimationFrame(courseAnimationFrameId)
-      courseAnimationFrameId = null
-      courseAnimationOffset = 0
     }
   }
 
@@ -2759,7 +2511,6 @@ export function createSectorMapController(
   const cleanup = () => {
     detachEventListeners()
     stopHoverAnimation()
-    stopCourseAnimation()
     if (animationCleanup) {
       animationCleanup()
     }
@@ -2769,14 +2520,6 @@ export function createSectorMapController(
   }
 
   render()
-
-  // Start animation if coursePlot is already active
-  // Use requestAnimationFrame to ensure the initial render is complete
-  if (props.coursePlot) {
-    requestAnimationFrame(() => {
-      startCourseAnimation()
-    })
-  }
 
   // Attach event listeners if clickable or hoverable
   if (props.config.clickable || props.config.hoverable) {
@@ -2788,8 +2531,6 @@ export function createSectorMapController(
     moveToSector,
     getCurrentState,
     updateProps,
-    startCourseAnimation,
-    stopCourseAnimation,
     setOnNodeClick,
     setOnNodeEnter,
     setOnNodeExit,
@@ -2799,7 +2540,7 @@ export function createSectorMapController(
 
 /** Render minimap canvas (stateless) */
 export function renderSectorMapCanvas(canvas: HTMLCanvasElement, props: SectorMapProps) {
-  const { width, height, data, config, maxDistance = 3, coursePlot } = props
+  const { width, height, data, config, maxDistance = 3 } = props
 
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
   const hexSize = config.hex_size ?? gridSpacing * 0.85
@@ -2812,8 +2553,7 @@ export function renderSectorMapCanvas(canvas: HTMLCanvasElement, props: SectorMa
     height,
     scale,
     hexSize,
-    maxDistance,
-    coursePlot
+    maxDistance
   )
 
   if (!cameraState) {
@@ -2862,11 +2602,11 @@ export function renderSectorMapCanvas(canvas: HTMLCanvasElement, props: SectorMa
 
 /** Get current camera state for tracking between renders */
 export function getCurrentCameraState(props: SectorMapProps): CameraState | null {
-  const { width, height, data, config, maxDistance = 3, coursePlot } = props
+  const { width, height, data, config, maxDistance = 3 } = props
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
   const hexSize = config.hex_size ?? gridSpacing * 0.85
   const scale = gridSpacing
-  return calculateCameraState(data, config, width, height, scale, hexSize, maxDistance, coursePlot)
+  return calculateCameraState(data, config, width, height, scale, hexSize, maxDistance)
 }
 
 /** Animate transition to new sector */
@@ -2876,7 +2616,7 @@ export function updateCurrentSector(
   newSectorId: number,
   currentCameraState: CameraState | null
 ): () => void {
-  const { width, height, data, config, maxDistance = 3, coursePlot } = props
+  const { width, height, data, config, maxDistance = 3 } = props
 
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
   const hexSize = config.hex_size ?? gridSpacing * 0.85
@@ -2891,8 +2631,7 @@ export function updateCurrentSector(
     height,
     scale,
     hexSize,
-    maxDistance,
-    coursePlot
+    maxDistance
   )
 
   if (!targetCameraState) {

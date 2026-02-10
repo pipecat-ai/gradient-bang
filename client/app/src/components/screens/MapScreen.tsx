@@ -4,10 +4,10 @@ import { deepmerge } from "deepmerge-ts"
 import { XIcon } from "@phosphor-icons/react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
-import { CoursePlotPanel } from "@/components/CoursePlotPanel"
 import { MapLegend } from "@/components/MapLegends"
 import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
 import { Badge } from "@/components/primitives/Badge"
+import { Button } from "@/components/primitives/Button"
 import { Separator } from "@/components/primitives/Separator"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
@@ -135,8 +135,10 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
+  const clearCoursePlot = useGameStore.use.clearCoursePlot?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
-  const [centerSector, setCenterSector] = useState<number | undefined>(undefined)
+  const mapCenterSector = useGameStore.use.mapCenterSector?.()
+  const setMapCenterSector = useGameStore.use.setMapCenterSector?.()
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
 
   const [isFetching, setIsFetching] = useState(false)
@@ -156,7 +158,8 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
   useEffect(() => {
     if (initialFetchRef.current) return
 
-    if (sector !== undefined && sector.id !== undefined) {
+    const initialCenter = mapCenterSector ?? sector?.id
+    if (initialCenter !== undefined) {
       initialFetchRef.current = true
 
       // Get the initial zoom level inline to avoid a re-trigger loop
@@ -171,19 +174,19 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
       dispatchAction({
         type: "get-my-map",
         payload: {
-          center_sector: sector.id,
+          center_sector: initialCenter,
           bounds: initBounds,
         },
       } as GetMapRegionAction)
     }
-  }, [sector, dispatchAction, mapZoomLevel])
+  }, [mapCenterSector, sector, dispatchAction, mapZoomLevel])
 
   const updateCenterSector = useCallback(
     (node: MapSectorNode | null) => {
       // Click on empty space deselects (resets to current sector)
-      setCenterSector(node?.id ?? sector?.id)
+      setMapCenterSector?.(node?.id ?? sector?.id)
     },
-    [setCenterSector, sector?.id]
+    [setMapCenterSector, sector?.id]
   )
 
   // Handles fetching map data when the center sector we select
@@ -224,16 +227,24 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
         <MapNodeDetails node={hoveredNode} />
         <header className="absolute top-0 right-0 flex flex-col gap-ui-xs p-ui-md w-72">
           <MapZoomControls />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!coursePlot}
+            onClick={() => clearCoursePlot?.()}
+          >
+            Clear Highlight
+          </Button>
           <Divider color="secondary" />
-          {centerSector !== undefined && centerSector !== sector?.id && (
+          {sector?.id !== undefined && (
             <Badge
               variant="secondary"
               border="bracket"
               size="sm"
               className="w-full -bracket-offset-0"
             >
-              Selected Sector:
-              <span className="font-extrabold">{centerSector}</span>
+              Current Sector:
+              <span className="font-extrabold">{sector.id}</span>
             </Badge>
           )}
         </header>
@@ -246,7 +257,7 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
 
         {mapData ?
           <SectorMap
-            center_sector_id={centerSector}
+            center_sector_id={mapCenterSector}
             current_sector_id={sector ? sector.id : undefined}
             config={mapConfig}
             map_data={mapData ?? []}
@@ -313,7 +324,6 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
             {((player?.sectors_visited / player?.universe_size) * 100).toFixed(2)}%
           </Badge>
         </CardContent>
-        <CoursePlotPanel />
         <MovementHistoryPanel className="flex-1 min-h-0" />
       </aside>
     </div>

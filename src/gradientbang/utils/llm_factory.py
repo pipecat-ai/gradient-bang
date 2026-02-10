@@ -15,6 +15,11 @@ Environment Variables:
     TASK_LLM_THINKING_BUDGET: Token budget for thinking (default: 2048)
     TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
+    # UI Agent LLM (UI agent branch - lightweight, no thinking by default)
+    UI_AGENT_LLM_PROVIDER: google, anthropic, openai (default: google)
+    UI_AGENT_LLM_MODEL: Model name (default: gemini-2.5-flash)
+    UI_AGENT_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
+
     # API keys (used based on provider)
     GOOGLE_API_KEY
     ANTHROPIC_API_KEY
@@ -65,6 +70,8 @@ class LLMServiceConfig:
         api_key: Optional API key override (defaults to environment variable).
         thinking: Optional thinking configuration for task agents.
         function_call_timeout_secs: Optional tool call timeout override.
+        run_in_parallel: Optional override for LLMService._run_in_parallel.
+            When False, function calls are dispatched sequentially.
     """
 
     provider: LLMProvider
@@ -72,6 +79,7 @@ class LLMServiceConfig:
     api_key: Optional[str] = None
     thinking: Optional[UnifiedThinkingConfig] = None
     function_call_timeout_secs: Optional[float] = None
+    run_in_parallel: Optional[bool] = None
 
 
 def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
@@ -123,21 +131,21 @@ def create_llm_service(config: LLMServiceConfig) -> LLMService:
     api_key = _get_api_key(config.provider, config.api_key)
 
     if config.provider == LLMProvider.GOOGLE:
-        return _create_google_service(
+        service = _create_google_service(
             api_key,
             config.model,
             config.thinking,
             config.function_call_timeout_secs,
         )
     elif config.provider == LLMProvider.ANTHROPIC:
-        return _create_anthropic_service(
+        service = _create_anthropic_service(
             api_key,
             config.model,
             config.thinking,
             config.function_call_timeout_secs,
         )
     elif config.provider == LLMProvider.OPENAI:
-        return _create_openai_service(
+        service = _create_openai_service(
             api_key,
             config.model,
             config.thinking,
@@ -145,6 +153,11 @@ def create_llm_service(config: LLMServiceConfig) -> LLMService:
         )
     else:
         raise ValueError(f"Unsupported provider: {config.provider}")
+
+    if config.run_in_parallel is not None:
+        service._run_in_parallel = config.run_in_parallel
+
+    return service
 
 
 def _create_google_service(
@@ -354,4 +367,61 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         model=model,
         thinking=thinking,
         function_call_timeout_secs=function_call_timeout_secs,
+    )
+
+
+def get_ui_agent_llm_config() -> LLMServiceConfig:
+    """Read UI_AGENT_LLM_* environment variables and return config.
+
+    Environment Variables:
+        UI_AGENT_LLM_PROVIDER: google, anthropic, openai (default: google)
+        UI_AGENT_LLM_MODEL: Model name (default: gemini-2.5-flash)
+        UI_AGENT_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
+
+    Returns:
+        LLMServiceConfig for UI agent (thinking disabled by default).
+    """
+    provider_str = os.getenv("UI_AGENT_LLM_PROVIDER", "google").lower()
+    try:
+        provider = LLMProvider(provider_str)
+    except ValueError:
+        logger.warning(
+            f"Unknown UI_AGENT_LLM_PROVIDER '{provider_str}', defaulting to google"
+        )
+        provider = LLMProvider.GOOGLE
+
+    default_models = {
+        LLMProvider.GOOGLE: "gemini-2.5-flash",
+        LLMProvider.ANTHROPIC: "claude-haiku-4-5-20251001",
+        LLMProvider.OPENAI: "gpt-4.1",
+    }
+    model = os.getenv("UI_AGENT_LLM_MODEL", default_models[provider])
+
+    thinking_budget_str = os.getenv("UI_AGENT_LLM_THINKING_BUDGET", "0")
+    try:
+        thinking_budget = int(thinking_budget_str)
+    except ValueError:
+        logger.warning(
+            f"Invalid UI_AGENT_LLM_THINKING_BUDGET '{thinking_budget_str}', using default 0"
+        )
+        thinking_budget = 0
+
+    thinking = None
+    if thinking_budget > 0:
+        thinking = UnifiedThinkingConfig(
+            enabled=True,
+            budget_tokens=thinking_budget,
+            include_thoughts=False,
+        )
+
+    logger.info(
+        f"UI agent LLM config: provider={provider.value}, model={model}, "
+        f"thinking_budget={thinking_budget}"
+    )
+
+    return LLMServiceConfig(
+        provider=provider,
+        model=model,
+        thinking=thinking,
+        run_in_parallel=False,
     )

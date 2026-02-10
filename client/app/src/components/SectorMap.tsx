@@ -86,7 +86,11 @@ const courseplotsEqual = (
 ): boolean => {
   if (a === b) return true
   if (!a || !b) return false
-  return a.from_sector === b.from_sector && a.to_sector === b.to_sector
+  if (a.path.length !== b.path.length) return false
+  for (let i = 0; i < a.path.length; i += 1) {
+    if (a.path[i] !== b.path[i]) return false
+  }
+  return true
 }
 
 /**
@@ -369,7 +373,7 @@ const MapComponent = ({
 
     let skipReframe = false
 
-    if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
+    if (centerSectorChanged || maxDistanceChanged || topologyChanged) {
       const hasEnough = hasEnoughMapData(normalizedMapData, center_sector_id, maxDistance)
       const prevMax = maxZoomFetchedRef.current.get(center_sector_id) ?? 0
       const needsFetchByZoom = maxDistance > prevMax
@@ -414,7 +418,7 @@ const MapComponent = ({
       }
 
       prevCenterSectorIdRef.current = center_sector_id
-    } else if (needsConfigUpdate || shipsChanged) {
+    } else if (needsConfigUpdate || shipsChanged || coursePlotChanged) {
       // Config/ships changed but topology and camera stay the same - just re-render
       console.debug("[GAME SECTOR MAP] Rendering SectorMap (config/ships changed)")
       controller.render()

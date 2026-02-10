@@ -42,7 +42,6 @@ from gradientbang.utils.tools_schema import (
     QueryTaskProgress,
     SteerTask,
     LoadGameInfo,
-    UI_SHOW_PANEL_SCHEMA,
     _summarize_corporation_info,
     _shorten_embedded_ids,
     _short_id,
@@ -199,6 +198,7 @@ class VoiceTaskManager:
         self._voice_agent_request_queue: deque[tuple[str, float]] = deque()
         self._tool_call_inflight = 0
         self._deferred_llm_events: deque[tuple[str, bool]] = deque()
+        self._warned_request_id_fallback_tools: set[str] = set()
         # Track task IDs that have finished but whose task.finish event hasn't arrived yet
         self._finished_task_ids: Dict[str, float] = {}
         self._finished_task_queue: deque[tuple[str, float]] = deque()
@@ -215,7 +215,7 @@ class VoiceTaskManager:
         self._ignored_ports_list_request_ids: set[str] = set()
 
         # Build generic tool dispatch map for common game tools
-        # Start/stop/ui_show_panel are handled inline in execute_tool_call
+        # Start/stop are handled inline in execute_tool_call
         # Note: Most game_client methods require character_id, but the LLM tools
         # don't expose it. We wrap methods to inject self.character_id automatically.
         self._tool_dispatch = {
@@ -223,8 +223,10 @@ class VoiceTaskManager:
             "leaderboard_resources": lambda **kwargs: self.game_client.leaderboard_resources(
                 character_id=self.character_id, **kwargs
             ),
-            "plot_course": lambda to_sector: self.game_client.plot_course(
-                to_sector=to_sector, character_id=self.character_id
+            "plot_course": lambda to_sector, from_sector=None: self.game_client.plot_course(
+                to_sector=to_sector,
+                character_id=self.character_id,
+                from_sector=from_sector,
             ),
             "list_known_ports": lambda **kwargs: self.game_client.list_known_ports(
                 character_id=self.character_id, **kwargs
@@ -1484,9 +1486,6 @@ class VoiceTaskManager:
             elif tool_name == "stop_task":
                 result = await self._handle_stop_task(params)
                 payload = {"result": result}
-            elif tool_name == "ui_show_panel":
-                result = await self._handle_ui_show_panel(params)
-                payload = {"result": result}
             elif tool_name == "query_task_progress":
                 result = await self._handle_query_task_progress(params)
                 payload = {"result": result}
@@ -1508,10 +1507,25 @@ class VoiceTaskManager:
                 # Track request ID for voice agent inference triggering
                 # Extract from result (preferred) or fall back to last_request_id
                 req_id = None
+                fallback_used = False
                 if isinstance(result, dict):
                     req_id = result.get("request_id")
                 if not req_id and hasattr(self.game_client, "last_request_id"):
                     req_id = self.game_client.last_request_id
+                    fallback_used = True
+                if (
+                    fallback_used
+                    and tool_name in event_generating_tools
+                    and tool_name not in self._warned_request_id_fallback_tools
+                ):
+                    logger.warning(
+                        "Tool %s did not return request_id; falling back to last_request_id=%s. "
+                        "For Supabase transport this may not match the event request_id. "
+                        "Consider returning request_id from the RPC result.",
+                        tool_name,
+                        req_id,
+                    )
+                    self._warned_request_id_fallback_tools.add(tool_name)
                 if req_id:
                     self._track_request_id(req_id)
                     logger.debug(f"Tool {tool_name} tracking request_id={req_id}")
@@ -2168,17 +2182,6 @@ class VoiceTaskManager:
             "task_id": resolved_task_id,
         }
 
-    async def _handle_ui_show_panel(self, params: FunctionCallParams):
-        try:
-            logger.info(f"show_panel: {params.arguments}")
-            await params.llm.push_frame(
-                RTVIServerMessageFrame({"ui-action": "show_panel", **params.arguments})
-            )
-            return {"success": True, "message": "Panel shown"}
-        except Exception as e:
-            logger.error(f"ui_show_panel failed: {e}")
-            return {"success": False, "error": str(e)}
-
     async def _handle_load_game_info(self, params: FunctionCallParams):
         """Load detailed game information for a specific topic."""
         topic = params.arguments.get("topic")
@@ -2211,6 +2214,5 @@ class VoiceTaskManager:
                 StartTask.schema(),
                 StopTask.schema(),
                 LoadGameInfo.schema(),
-                UI_SHOW_PANEL_SCHEMA,
             ]
         )

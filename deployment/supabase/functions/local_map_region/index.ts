@@ -16,6 +16,7 @@ import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
   buildLocalMapRegion,
   buildLocalMapRegionByBounds,
+  computeMapFitBySectors,
   loadMapKnowledge,
 } from "../_shared/map.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
@@ -158,7 +159,42 @@ async function handleLocalMapRegion(
   });
   const knowledge = await loadMapKnowledge(supabase, characterId);
 
-  let centerSector = optionalNumber(payload, "center_sector");
+  let fitSectors: number[] | null = null;
+  const fitRaw = payload["fit_sectors"];
+  if (fitRaw !== undefined) {
+    if (!Array.isArray(fitRaw)) {
+      throw new LocalMapRegionError("fit_sectors must be an array", 400);
+    }
+    fitSectors = fitRaw
+      .map((entry) =>
+        typeof entry === "number" ? entry : Number(String(entry)),
+      )
+      .filter((entry) => Number.isFinite(entry));
+    if (fitSectors.length === 0) {
+      throw new LocalMapRegionError(
+        "fit_sectors must include at least one sector",
+        400,
+      );
+    }
+  }
+
+  let fitResult: Awaited<ReturnType<typeof computeMapFitBySectors>> | null =
+    null;
+  if (fitSectors) {
+    try {
+      fitResult = await computeMapFitBySectors(supabase, {
+        sectorIds: fitSectors,
+        mapKnowledge: knowledge,
+        maxBounds: 100,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "invalid fit_sectors";
+      throw new LocalMapRegionError(message, 400);
+    }
+  }
+
+  let centerSector = fitResult?.center_sector ??
+    optionalNumber(payload, "center_sector");
   if (centerSector === null) {
     centerSector = ship.current_sector ?? knowledge.current_sector ?? 0;
   }
@@ -173,9 +209,13 @@ async function handleLocalMapRegion(
     );
   }
 
-  const bounds = optionalNumber(payload, "bounds");
-  const maxHopsRaw = optionalNumber(payload, "max_hops");
-  const maxSectorsRaw = optionalNumber(payload, "max_sectors");
+  let bounds = fitResult?.bounds ?? optionalNumber(payload, "bounds");
+  let maxHopsRaw = optionalNumber(payload, "max_hops");
+  let maxSectorsRaw = optionalNumber(payload, "max_sectors");
+  if (fitResult) {
+    maxHopsRaw = null;
+    maxSectorsRaw = null;
+  }
   const useBoundsOnly = bounds !== null && maxHopsRaw === null &&
     maxSectorsRaw === null;
 
@@ -225,6 +265,11 @@ async function handleLocalMapRegion(
     });
   }
   mapRegion["source"] = source;
+  if (fitResult) {
+    mapRegion["fit_sectors"] = fitResult.fit_sectors;
+    mapRegion["missing_sectors"] = fitResult.missing_sectors;
+    mapRegion["bounds"] = fitResult.bounds;
+  }
 
   await emitCharacterEvent({
     supabase,

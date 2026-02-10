@@ -4,6 +4,7 @@ import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
 import usePipecatClientStore from "@/stores/client"
+import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MAX_BOUNDS_PADDING, MIN_BOUNDS } from "@/utils/mapZoom"
 
 import { type ChatSlice, createChatSlice } from "./chatSlice"
 import { type CombatSlice, createCombatSlice } from "./combatSlice"
@@ -115,6 +116,8 @@ export interface GameState {
   local_map_data?: MapData
   regional_map_data?: MapData
   course_plot?: CoursePlot
+  pendingMapFitSectors?: number[]
+  pendingMapFitMissingCount?: number
   messages: ChatMessage[] | null
   messageFilters: "all" | "direct" | "broadcast" | "corporation"
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
@@ -161,8 +164,10 @@ export interface GameSlice extends GameState {
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
   updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) => void
+  clearPendingMapFit: () => void
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
+  fitMapToSectors: (sectorIds: number[]) => void
   setStarfieldReady: (starfieldReady: boolean) => void
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) => void
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
@@ -180,7 +185,37 @@ const createGameSlice: StateCreator<
   [],
   [],
   GameSlice
-> = (set, get) => ({
+> = (set, get) => {
+  /** Retry a pending fitMapToSectors only when new data reduces the missing count. */
+  const _maybeRetryMapFit = () => {
+    const state = get()
+    const pending = state.pendingMapFitSectors
+    const prevMissing = state.pendingMapFitMissingCount
+    if (!pending || pending.length === 0 || prevMissing == null) return
+
+    const combinedMap = [
+      ...(state.regional_map_data ?? []),
+      ...(state.local_map_data ?? []),
+    ]
+    const knownIds = new Set(combinedMap.map((n) => n.id))
+    const stillMissing = pending.filter((id) => !knownIds.has(id)).length
+
+    if (stillMissing >= prevMissing) return // no progress — don't retry
+
+    if (stillMissing === 0) {
+      set(
+        produce((draft) => {
+          draft.pendingMapFitSectors = undefined
+          draft.pendingMapFitMissingCount = undefined
+        })
+      )
+      return
+    }
+
+    get().fitMapToSectors(pending)
+  }
+
+  return {
   playerSessionId: null,
   setPlayerSessionId: (playerSessionId: string | null) => set({ playerSessionId }),
 
@@ -195,6 +230,8 @@ const createGameSlice: StateCreator<
   local_map_data: undefined, // @TODO: move to map slice
   regional_map_data: undefined, // @TODO: move to map slice
   course_plot: undefined, // @TODO: move to map slice
+  pendingMapFitSectors: undefined,
+  pendingMapFitMissingCount: undefined,
   messages: null, // @TODO: move to chat slice
   messageFilters: "all",
   leaderboard_data: undefined,
@@ -412,14 +449,16 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  setLocalMapData: (localMapData: MapData) =>
+  setLocalMapData: (localMapData: MapData) => {
     set(
       produce((state) => {
         state.local_map_data = normalizeMapData(localMapData)
       })
-    ),
+    )
+    _maybeRetryMapFit()
+  },
 
-  setRegionalMapData: (regionalMapData: MapData) =>
+  setRegionalMapData: (regionalMapData: MapData) => {
     set(
       produce((state) => {
         const normalizedMapData = normalizeMapData(regionalMapData)
@@ -439,7 +478,9 @@ const createGameSlice: StateCreator<
 
         state.regional_map_data = Array.from(existingById.values())
       })
-    ),
+    )
+    _maybeRetryMapFit()
+  },
 
   updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) =>
     set(
@@ -496,6 +537,14 @@ const createGameSlice: StateCreator<
       })
     ),
 
+  clearPendingMapFit: () =>
+    set(
+      produce((state) => {
+        state.pendingMapFitSectors = undefined
+        state.pendingMapFitMissingCount = undefined
+      })
+    ),
+
   setShip: (ship: Partial<Ship>) =>
     set(
       produce((state) => {
@@ -527,6 +576,154 @@ const createGameSlice: StateCreator<
         state.course_plot = undefined
       })
     ),
+  fitMapToSectors: (sectorIds: number[]) => {
+    const cleaned = Array.from(
+      new Set(sectorIds.filter((id) => typeof id === "number" && Number.isFinite(id)))
+    )
+    if (cleaned.length === 0) return
+    console.debug("[GAME MAP] fitMapToSectors", { count: cleaned.length })
+
+    const state = get()
+    const combinedMap = [
+      ...(state.regional_map_data ?? []),
+      ...(state.local_map_data ?? []),
+    ]
+    const byId = new Map<number, MapSectorNode>()
+    combinedMap.forEach((node) => {
+      if (!byId.has(node.id)) {
+        byId.set(node.id, node)
+      }
+    })
+
+    const nodes = cleaned
+      .map((id) => byId.get(id))
+      .filter((node): node is MapSectorNode => node !== undefined)
+    const missing = cleaned.filter((id) => !byId.has(id))
+    const discovered = Array.from(byId.values()).filter(
+      (node) => node.visited || node.source
+    )
+
+    if (missing.length > 0) {
+      console.debug("[GAME MAP] fitMapToSectors missing", {
+        missingCount: missing.length,
+        totalRequested: cleaned.length,
+      })
+      set(
+        produce((draft) => {
+          draft.pendingMapFitSectors = cleaned
+          draft.pendingMapFitMissingCount = undefined
+        })
+      )
+      state.dispatchAction({
+        type: "get-my-map",
+        payload: {
+          fit_sectors: cleaned,
+        },
+      })
+      return
+    }
+
+    let centroid: [number, number] | null = null
+    const positions = nodes
+      .map((node) => node.position)
+      .filter((pos): pos is [number, number] => Array.isArray(pos) && pos.length === 2)
+    if (positions.length > 0) {
+      const sum = positions.reduce(
+        (acc, pos) => [acc[0] + pos[0], acc[1] + pos[1]],
+        [0, 0] as [number, number]
+      )
+      centroid = [sum[0] / positions.length, sum[1] / positions.length]
+    }
+
+    let centerNode: MapSectorNode | undefined
+    const candidates = discovered.length > 0 ? discovered : nodes
+    if (centroid && candidates.length > 0) {
+      let best = candidates[0]
+      let bestDist = Number.POSITIVE_INFINITY
+      for (const node of candidates) {
+        if (!node.position) continue
+        const dx = node.position[0] - centroid[0]
+        const dy = node.position[1] - centroid[1]
+        const dist = dx * dx + dy * dy
+        if (dist < bestDist) {
+          bestDist = dist
+          best = node
+        }
+      }
+      centerNode = best
+    }
+
+    if (!centerNode) {
+      if (state.sector?.id && state.sector.position) {
+        const fallback = byId.get(state.sector.id)
+        if (fallback) {
+          centerNode = fallback
+        } else {
+          centerNode = {
+            id: state.sector.id,
+            position: state.sector.position,
+            lanes: [],
+          } as MapSectorNode
+        }
+      } else if (candidates[0]) {
+        centerNode = candidates[0]
+      }
+    }
+
+    if (!centerNode) return
+
+    let targetZoom = DEFAULT_MAX_BOUNDS
+    if (centroid && centerNode.position && positions.length > 0) {
+      // Compute distance in world space (scale=1) to handle the non-isotropic
+      // hex-to-world transform and odd-q column offsets correctly, then convert
+      // back to the hex-distance-units the renderer expects.
+      const SQRT3 = Math.sqrt(3)
+      const cx = 1.5 * centerNode.position[0]
+      const cy = SQRT3 * (centerNode.position[1] + 0.5 * (centerNode.position[0] & 1))
+      let maxHexDist = 0
+      for (const pos of positions) {
+        const wx = 1.5 * pos[0]
+        const wy = SQRT3 * (pos[1] + 0.5 * (pos[0] & 1))
+        const dx = wx - cx
+        const dy = wy - cy
+        const hexDist = Math.sqrt(dx * dx + dy * dy) / SQRT3
+        if (hexDist > maxHexDist) {
+          maxHexDist = hexDist
+        }
+      }
+      targetZoom = Math.max(MIN_BOUNDS, Math.ceil(maxHexDist) + 1)
+    }
+
+    const clampedZoom = Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, targetZoom))
+    console.debug("[GAME MAP] fitMapToSectors resolved", {
+      centerSector: centerNode?.id,
+      zoom: clampedZoom,
+      sectorCount: cleaned.length,
+    })
+
+    set(
+      produce((draft) => {
+        draft.mapCenterSector = centerNode?.id
+        draft.mapZoomLevel = clampedZoom
+        if (missing.length > 0) {
+          draft.pendingMapFitSectors = cleaned
+          draft.pendingMapFitMissingCount = missing.length
+        } else {
+          draft.pendingMapFitSectors = undefined
+          draft.pendingMapFitMissingCount = undefined
+        }
+      })
+    )
+
+    const bounds = clampedZoom + MAX_BOUNDS_PADDING
+    state.dispatchAction({
+      type: "get-my-map",
+      payload: {
+        center_sector: centerNode.id,
+        bounds,
+      },
+    })
+  },
 
   setStarfieldReady: (starfieldReady: boolean) => set({ starfieldReady }),
 
@@ -550,7 +747,7 @@ const createGameSlice: StateCreator<
     ),
 
   setGameState: (gameState: GameInitState) => set({ gameState }),
-})
+}}
 
 // Selectors
 export const selectIncomingMessageCount = (state: GameSlice) =>

@@ -11,7 +11,12 @@ from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     BotSpeakingFrame,
     InterruptionFrame,
+    LLMContextFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     LLMRunFrame,
+    LLMTextFrame,
+    OutputTransportMessageUrgentFrame,
     StartFrame,
     StopFrame,
     TranscriptionFrame,
@@ -27,8 +32,10 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
+    RTVIObserver,
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
@@ -40,7 +47,11 @@ from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.utils.time import time_now_iso8601
 
-from gradientbang.utils.llm_factory import create_llm_service, get_voice_llm_config
+from gradientbang.utils.llm_factory import (
+    create_llm_service,
+    get_voice_llm_config,
+    get_ui_agent_llm_config,
+)
 from gradientbang.utils.prompt_loader import build_voice_agent_prompt
 
 load_dotenv(dotenv_path=".env.bot")
@@ -60,9 +71,29 @@ from gradientbang.pipecat_server.inference_gate import (
     PostLLMInferenceGate,
     PreLLMInferenceGate,
 )
+from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStrategy
+from gradientbang.pipecat_server.ui_agent import (
+    UIAgentContext,
+    UIAgentResponseCollector,
+)
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
+
+
+class DebugFrameTap(FrameProcessor):
+    def __init__(self, label: str) -> None:
+        super().__init__()
+        self._label = label
+
+    async def process_frame(self, frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, OutputTransportMessageUrgentFrame):
+            logger.debug(
+                f"[{self._label}] saw OutputTransportMessageUrgentFrame: {getattr(frame, 'message', None)}"
+            )
+        await self.push_frame(frame, direction)
+
 
 # Configure loguru
 logger.remove()
@@ -203,7 +234,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
     context_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(filter_incomplete_user_turns=True),
+        user_params=LLMUserAggregatorParams(
+            filter_incomplete_user_turns=True,
+            user_mute_strategies=[
+                TextInputBypassFirstBotMuteStrategy(),
+            ],
+        ),
     )
     user_mute_state = {"muted": True}
     user_unmuted_event = asyncio.Event()
@@ -235,7 +271,52 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     )
     compression_consumer = ContextCompressionConsumer(producer=compression_producer)
 
-    # Create pipeline with parallel compression branch
+    # Create UI agent branch components (3-processor design)
+    ui_agent_config = get_ui_agent_llm_config()
+    ui_agent_context = UIAgentContext(
+        config=ui_agent_config,
+        rtvi=rtvi,
+        game_client=task_manager.game_client,
+    )
+    ui_llm = create_llm_service(ui_agent_config)
+    ui_llm.register_function("control_ui", ui_agent_context.handle_control_ui)
+    ui_llm.register_function("queue_ui_intent", ui_agent_context.handle_queue_ui_intent)
+    ui_llm.register_function("corporation_info", ui_agent_context.handle_corporation_info)
+    ui_llm.register_function("my_status", ui_agent_context.handle_my_status)
+    ui_response_collector = UIAgentResponseCollector(context=ui_agent_context)
+
+    ui_branch: list[FrameProcessor] = [ui_agent_context, ui_llm, ui_response_collector]
+    ui_branch_sources = set(ui_branch)
+
+    # Create pipeline with parallel compression + UI branches
+    output_transport = transport.output()
+
+    # Debug: log RTVI bot-ready + outbound transport messages
+    @rtvi.event_handler("on_before_push_frame")
+    async def _rtvi_before_push(rtvi, frame):
+        if isinstance(frame, OutputTransportMessageUrgentFrame):
+            logger.debug(
+                f"RTVI pushing OutputTransportMessageUrgentFrame: {getattr(frame, 'message', None)}"
+            )
+
+    # Debug: wrap output transport send_message to surface drops
+    _orig_send_message = output_transport.send_message
+
+    async def _send_message_with_log(frame):
+        client = getattr(output_transport, "_client", None)
+        connected = getattr(client, "is_connected", None)
+        closing = getattr(client, "is_closing", None)
+        if callable(connected):
+            connected = connected()
+        if callable(closing):
+            closing = closing()
+        logger.debug(
+            f"OutputTransport.send_message: frame={type(frame).__name__} connected={connected} "
+            f"closing={closing} payload={getattr(frame, 'message', None)}"
+        )
+        await _orig_send_message(frame)
+
+    output_transport.send_message = _send_message_with_log
     logger.info("Create pipeline…")
     pipeline = Pipeline(
         [
@@ -244,19 +325,24 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             # rtvi,  # Add RTVI processor for transcription events
             pre_llm_gate,
             context_aggregator.user(),
+            # DebugFrameTap("pre-parallel"),
             ParallelPipeline(
                 # Main branch
                 [
+                    # DebugFrameTap("main-branch:before-llm"),
                     llm,
+                    # DebugFrameTap("main-branch:after-llm"),
                     post_llm_gate,
                     token_usage_metrics,
                     tts,
                     context_aggregator.assistant(),
-                    transport.output(),
+                    output_transport,
                     compression_consumer,  # Receives compression results
                 ],
                 # Compression monitoring branch (sink)
                 [compression_producer],
+                # UI agent branch
+                ui_branch,
             ),
         ]
     )
@@ -276,8 +362,45 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         idle_timeout_frames=(BotSpeakingFrame, UserStartedSpeakingFrame, TaskActivityFrame),
     )
 
+    # Patch RTVI observer to ignore LLM frames from UI branch sources.
+    # This prevents UI agent inference from leaking bot-llm-text, user-llm-text,
+    # bot-llm-started, bot-llm-stopped RTVI messages to the client.
+    # Note: Uses a closure (not default kwargs) so inspect.signature sees exactly
+    # 1 parameter — matching the expected on_push_frame(data) convention that
+    # TaskObserver._proxy_task_handler checks.
+    _LLM_FRAME_TYPES = (
+        LLMTextFrame,
+        LLMContextFrame,
+        LLMFullResponseStartFrame,
+        LLMFullResponseEndFrame,
+    )
+    for obs in task._observer._observers:
+        if isinstance(obs, RTVIObserver):
+            _orig_rtvi_on_push = obs.on_push_frame
+
+            async def _filtered_rtvi_on_push(data):
+                if data.source in ui_branch_sources and isinstance(data.frame, _LLM_FRAME_TYPES):
+                    return
+                await _orig_rtvi_on_push(data)
+
+            obs.on_push_frame = _filtered_rtvi_on_push
+            logger.info("Installed source-based LLM frame filter on RTVI observer")
+            break
+
     @rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
+        transport_client = getattr(output_transport, "_client", None)
+        transport_connected = getattr(transport_client, "is_connected", None)
+        transport_closing = getattr(transport_client, "is_closing", None)
+        if callable(transport_connected):
+            transport_connected = transport_connected()
+        if callable(transport_closing):
+            transport_closing = transport_closing()
+        logger.info(
+            f"RTVI on_client_ready: scheduling join + sending bot-ready "
+            f"(transport connected={transport_connected} closing={transport_closing})"
+        )
+
         async def _join():
             await asyncio.sleep(2)
             await task_manager.game_client.pause_event_delivery()
@@ -285,7 +408,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await task_manager.game_client.resume_event_delivery()
 
         asyncio.create_task(_join())
+        logger.info("RTVI on_client_ready: calling set_bot_ready()")
         await rtvi.set_bot_ready()
+        logger.info("RTVI on_client_ready: set_bot_ready() complete")
 
     @rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
@@ -540,10 +665,22 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 if not isinstance(msg_data, dict):
                     raise ValueError("Message data must be an object")
 
-                center_sector = msg_data.get("center_sector")
-                if center_sector is None:
-                    raise ValueError("Missing required field 'center_sector'")
-                center_sector = int(center_sector)
+                fit_sectors = msg_data.get("fit_sectors")
+                if fit_sectors is not None:
+                    if not isinstance(fit_sectors, list):
+                        raise ValueError("fit_sectors must be a list of sector IDs")
+                    fit_sectors = [
+                        int(sector)
+                        for sector in fit_sectors
+                        if isinstance(sector, (int, float, str)) and str(sector).strip() != ""
+                    ]
+                    if not fit_sectors:
+                        raise ValueError("fit_sectors must include at least one sector")
+                else:
+                    center_sector = msg_data.get("center_sector")
+                    if center_sector is None:
+                        raise ValueError("Missing required field 'center_sector'")
+                    center_sector = int(center_sector)
 
                 bounds_raw = msg_data.get("bounds")
                 max_sectors_raw = msg_data.get("max_sectors")
@@ -576,10 +713,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 # Use local_map_region endpoint
                 await task_manager.game_client.local_map_region(
                     character_id=task_manager.character_id,
-                    center_sector=center_sector,
+                    center_sector=center_sector if fit_sectors is None else None,
                     bounds=bounds,
                     max_hops=max_hops,
                     max_sectors=max_sectors,
+                    fit_sectors=fit_sectors,
                     source="get-my-map",
                 )
 

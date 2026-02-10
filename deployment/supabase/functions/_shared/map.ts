@@ -228,6 +228,112 @@ function hexDistance(a: [number, number], b: [number, number]): number {
   return Math.floor((dx + dy + dz) / 2);
 }
 
+export interface MapFitResult {
+  center_sector: number;
+  bounds: number;
+  fit_sectors: number[];
+  missing_sectors: number[];
+}
+
+export async function computeMapFitBySectors(
+  supabase: SupabaseClient,
+  params: {
+    sectorIds: number[];
+    mapKnowledge: MapKnowledge;
+    maxBounds?: number;
+  },
+): Promise<MapFitResult> {
+  const uniqueIds = Array.from(
+    new Set(
+      params.sectorIds
+        .map((id) => (typeof id === "number" ? id : Number(id)))
+        .filter((id) => Number.isFinite(id)),
+    ),
+  );
+  if (uniqueIds.length === 0) {
+    throw new Error("fit_sectors must include at least one sector");
+  }
+
+  const knownSet = new Set<number>(
+    Object.keys(params.mapKnowledge.sectors_visited).map((key) => Number(key)),
+  );
+  const knownIds = uniqueIds.filter((id) => knownSet.has(id));
+  const missingFromKnowledge = uniqueIds.filter((id) => !knownSet.has(id));
+  if (knownIds.length === 0) {
+    throw new Error("fit_sectors are not in map knowledge");
+  }
+
+  const universeRows = await fetchUniverseRows(supabase, knownIds);
+  const positions: Array<{ id: number; position: [number, number] }> = [];
+  const missingFromUniverse: number[] = [];
+
+  for (const id of knownIds) {
+    const row = universeRows.get(id);
+    if (!row) {
+      missingFromUniverse.push(id);
+      continue;
+    }
+    positions.push({ id, position: row.position });
+  }
+
+  if (positions.length === 0) {
+    throw new Error("fit_sectors did not resolve to known sector positions");
+  }
+
+  let centroid: [number, number] | null = null;
+  if (positions.length > 0) {
+    const sum = positions.reduce(
+      (acc, pos) => [acc[0] + pos.position[0], acc[1] + pos.position[1]],
+      [0, 0] as [number, number],
+    );
+    centroid = [sum[0] / positions.length, sum[1] / positions.length];
+  }
+
+  let center = positions[0];
+  if (centroid) {
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (const candidate of positions) {
+      const dx = candidate.position[0] - centroid[0];
+      const dy = candidate.position[1] - centroid[1];
+      const dist = dx * dx + dy * dy;
+      if (dist < bestDist) {
+        bestDist = dist;
+        center = candidate;
+      }
+    }
+  }
+
+  const centerWorld = hexToWorldPosition(
+    center.position[0],
+    center.position[1],
+  );
+  let maxHexDist = 0;
+  for (const pos of positions) {
+    const world = hexToWorldPosition(pos.position[0], pos.position[1]);
+    const dx = world.x - centerWorld.x;
+    const dy = world.y - centerWorld.y;
+    const hexDist = Math.sqrt(dx * dx + dy * dy) / SQRT3;
+    if (hexDist > maxHexDist) {
+      maxHexDist = hexDist;
+    }
+  }
+
+  const rawBounds = Math.ceil(maxHexDist) + 1;
+  const maxBounds = params.maxBounds ?? 100;
+  const bounds = Math.max(0, Math.min(maxBounds, rawBounds));
+
+  const missing = new Set<number>();
+  for (const id of missingFromKnowledge) missing.add(id);
+  for (const id of missingFromUniverse) missing.add(id);
+
+  return {
+    center_sector: center.id,
+    bounds,
+    fit_sectors: uniqueIds,
+    missing_sectors: Array.from(missing),
+  };
+}
+
 /**
  * Merge two map knowledge objects. Used to combine personal and corp knowledge.
  * For sectors that appear in both, the one with the newer last_visited timestamp wins.

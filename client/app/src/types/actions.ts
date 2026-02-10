@@ -28,10 +28,11 @@ export interface GetTaskHistoryAction {
 export interface GetMapRegionAction {
   type: "get-my-map"
   payload: {
-    center_sector: number
+    center_sector?: number
     bounds?: number
     max_hops?: number // @DEPRECATED: Use bounds instead
     max_sectors?: number // @DEPRECATED: Use bounds instead
+    fit_sectors?: number[]
   }
 }
 

@@ -35,6 +35,8 @@ export interface UISlice {
   setActivePanel: (panel?: UIPanel) => void
   setActiveSubPanel: (subPanel?: string) => void
 
+  mapCenterSector: number | undefined
+  setMapCenterSector: (sector: number | undefined) => void
   mapZoomLevel: number | undefined
   setMapZoomLevel: (zoomLevel: number) => void
 
@@ -50,6 +52,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   activeModal: undefined,
   activePanel: "logs",
   activeSubPanel: undefined,
+  mapCenterSector: undefined,
   mapZoomLevel: undefined,
   notifications: {
     newChatMessage: false,
@@ -171,6 +174,13 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.activeSubPanel = subPanel
+      })
+    )
+  },
+  setMapCenterSector: (sector: number | undefined) => {
+    set(
+      produce((state) => {
+        state.mapCenterSector = sector
       })
     )
   },

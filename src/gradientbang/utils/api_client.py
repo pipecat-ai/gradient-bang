@@ -1395,6 +1395,7 @@ class AsyncGameClient:
         max_hops: Optional[int] = None,
         max_sectors: Optional[int] = None,
         bounds: Optional[int] = None,
+        fit_sectors: Optional[list[int]] = None,
         source: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get all known sectors around current location for local navigation.
@@ -1405,6 +1406,7 @@ class AsyncGameClient:
             max_hops: Maximum BFS depth (default 3, max 10). Ignored if bounds-only.
             max_sectors: Maximum sectors to return (default 100). Ignored if bounds-only.
             bounds: Optional spatial bounds radius (hex distance) for map view.
+            fit_sectors: Optional list of sector IDs to fit; server computes center/bounds.
 
         Returns:
             Minimal RPC acknowledgment (map data arrives via ``map.region``)
@@ -1424,6 +1426,8 @@ class AsyncGameClient:
             payload["center_sector"] = int(center_sector)
         if bounds is not None:
             payload["bounds"] = int(bounds)
+        if fit_sectors is not None:
+            payload["fit_sectors"] = [int(sector) for sector in fit_sectors]
         if bounds is None:
             payload["max_hops"] = int(3 if max_hops is None else max_hops)
             payload["max_sectors"] = int(100 if max_sectors is None else max_sectors)
