@@ -49,7 +49,7 @@ export const Starfield = () => {
 
   // Stable callback reference - setStarfieldReady is from zustand so it's stable
   const handleCreated = useCallback(() => {
-    console.debug("%c[STARFIELD] Starfield created", "color: purple; font-weight: bold")
+    console.debug("%c[STARFIELD] Starfield created", "color: blue; font-weight: bold")
     setStarfieldReady(true)
   }, [setStarfieldReady])
 

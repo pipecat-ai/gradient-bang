@@ -1,6 +1,7 @@
 import { useCallback } from "react"
 
 import { useAnimationStore } from "@/useAnimationStore"
+import { useGameStore } from "@/useGameStore"
 
 export function useStarfieldEvent() {
   const animateImpact = useCallback(
@@ -11,6 +12,8 @@ export function useStarfieldEvent() {
       rampUpTime: number = 50,
       settleTime: number = 200
     ) => {
+      if (!useGameStore.getState().isReady) return
+
       useAnimationStore.getState().animations.shake?.start({
         duration: duration,
         strength: strength,

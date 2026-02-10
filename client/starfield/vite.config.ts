@@ -44,27 +44,12 @@ export default defineConfig({
     // Don't copy public folder to dist
     copyPublicDir: false,
     rollupOptions: {
-      // Externalize deps - let the consuming app bundle them
-      // This allows dynamic imports of starfield to naturally include its deps
       external: (id) => {
-        // Always externalize React and leva
         if (
           id === "react" ||
           id === "react-dom" ||
           id.startsWith("react/") ||
           id === "leva"
-        ) {
-          return true
-        }
-        // Externalize all three.js related packages
-        if (
-          id === "three" ||
-          id.startsWith("three/") ||
-          id.startsWith("@react-three/") ||
-          id.startsWith("@react-spring/") ||
-          id === "postprocessing" ||
-          id.startsWith("postprocessing/") ||
-          id.startsWith("three-")
         ) {
           return true
         }
