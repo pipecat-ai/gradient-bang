@@ -68,6 +68,25 @@ export default function StarfieldLazy(props: StarfieldProps) {
     return unsub
   }, [renderStarfield, animateImpact])
 
+  // React to combat damage — the app sets tookDamageThisRound in the store,
+  // and we trigger the screen-shake here inside the lazy boundary.
+  useEffect(() => {
+    if (!renderStarfield) return
+
+    const unsub = useGameStore.subscribe(
+      (state) => state.tookDamageThisRound,
+      (tookDamage) => {
+        if (tookDamage) {
+          animateImpact(0.015, 200, 1000, 100, 2000)
+          // Reset the flag so future damage can trigger again
+          useGameStore.getState().setTookDamageThisRound(false)
+        }
+      }
+    )
+
+    return unsub
+  }, [renderStarfield, animateImpact])
+
   useEffect(() => {
     if (!renderStarfield) return
 
