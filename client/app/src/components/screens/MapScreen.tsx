@@ -12,7 +12,7 @@ import { Separator } from "@/components/primitives/Separator"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS_PADDING } from "@/utils/mapZoom"
+import { DEFAULT_MAX_BOUNDS, getFetchBounds } from "@/utils/mapZoom"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -150,11 +150,15 @@ export const MapScreen = ({
   const mapFitBoundsWorld = useGameStore.use.mapFitBoundsWorld?.()
   const setMapFitBoundsWorld = useGameStore.use.setMapFitBoundsWorld?.()
   const mapFitEpoch = useGameStore((state) => state.mapFitEpoch)
+  const pendingMapFitSectors = useGameStore((state) => state.pendingMapFitSectors)
+  const fitMapToSectors = useGameStore.use.fitMapToSectors?.()
+  const requestMapAutoRecenter = useGameStore.use.requestMapAutoRecenter?.()
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
 
   const [isFetching, setIsFetching] = useState(false)
 
   const initialFetchRef = useRef(false)
+  const autoFitRef = useRef(false)
 
   const mapConfig = useMemo(() => {
     if (!config) return MAP_CONFIG
@@ -174,13 +178,16 @@ export const MapScreen = ({
       initialFetchRef.current = true
 
       // Get the initial zoom level inline to avoid a re-trigger loop
-      const initBounds =
-        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
+      const initBounds = getFetchBounds(
+        useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+      )
 
       console.debug(
         `%c[GAME MAP SCREEN] Initial fetch for current sector ${sector?.id} with bounds ${initBounds}`,
         "font-weight: bold; color: #4CAF50;"
       )
+
+      requestMapAutoRecenter?.("map-screen-initial")
 
       dispatchAction({
         type: "get-my-map",
@@ -190,16 +197,62 @@ export const MapScreen = ({
         },
       } as GetMapRegionAction)
     }
-  }, [mapCenterSector, sector, dispatchAction, mapZoomLevel])
+  }, [mapCenterSector, sector, dispatchAction, mapZoomLevel, requestMapAutoRecenter])
 
   const updateCenterSector = useCallback(
     (node: MapSectorNode | null) => {
       // Click on empty space deselects (resets to current sector)
       setMapCenterWorld?.(undefined)
       setMapFitBoundsWorld?.(undefined)
-      setMapCenterSector?.(node?.id ?? sector?.id)
+      if (!node) {
+        setMapCenterSector?.(sector?.id)
+        return
+      }
+
+      const isDiscovered = Boolean(node.visited || node.source)
+      if (isDiscovered) {
+        setMapCenterSector?.(node.id)
+        return
+      }
+
+      const candidates = (mapData ?? []).filter(
+        (entry) => entry.visited || entry.source
+      )
+      if (candidates.length === 0) {
+        setMapCenterSector?.(sector?.id ?? node.id)
+        return
+      }
+
+      const SQRT3 = Math.sqrt(3)
+      const toWorld = (pos: [number, number]) => ({
+        x: 1.5 * pos[0],
+        y: SQRT3 * (pos[1] + 0.5 * (pos[0] & 1)),
+      })
+      const targetWorld = toWorld(node.position)
+      let best = candidates[0]
+      let bestDist = Infinity
+      for (const candidate of candidates) {
+        if (!candidate.position) continue
+        const world = toWorld(candidate.position)
+        const dx = world.x - targetWorld.x
+        const dy = world.y - targetWorld.y
+        const dist = dx * dx + dy * dy
+        if (dist < bestDist) {
+          best = candidate
+          bestDist = dist
+        }
+      }
+
+      if (best.id !== node.id) {
+        console.debug("[GAME MAP SCREEN] Click fallback to discovered sector", {
+          requested: node.id,
+          fallback: best.id,
+        })
+      }
+
+      setMapCenterSector?.(best.id ?? sector?.id ?? node.id)
     },
-    [setMapCenterSector, setMapCenterWorld, setMapFitBoundsWorld, sector?.id]
+    [setMapCenterSector, setMapCenterWorld, setMapFitBoundsWorld, sector?.id, mapData]
   )
 
   // Handles fetching map data when the center sector we select
@@ -215,8 +268,9 @@ export const MapScreen = ({
       )
 
       setIsFetching(true)
-      const bounds =
-        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
+      const bounds = getFetchBounds(
+        useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+      )
 
       dispatchAction({
         type: "get-my-map",
@@ -233,6 +287,33 @@ export const MapScreen = ({
   useEffect(() => {
     queueMicrotask(() => setIsFetching(false))
   }, [mapData])
+
+  // Auto-fit on first map load if no explicit zoom/fit is set yet.
+  useEffect(() => {
+    if (autoFitRef.current) return
+    if (!mapData || mapData.length === 0) return
+    if (pendingMapFitSectors && pendingMapFitSectors.length > 0) return
+    if (mapZoomLevel !== undefined) return
+    if (mapFitBoundsWorld !== undefined || mapFitEpoch !== undefined) return
+
+    const sectorIds = mapData
+      .map((sector) => sector.id)
+      .filter((id): id is number => typeof id === "number" && Number.isFinite(id))
+    if (sectorIds.length === 0) return
+
+    autoFitRef.current = true
+    console.debug("[GAME MAP SCREEN] Auto-fitting to initial map data", {
+      count: sectorIds.length,
+    })
+    fitMapToSectors?.(sectorIds)
+  }, [
+    mapData,
+    mapZoomLevel,
+    mapFitBoundsWorld,
+    mapFitEpoch,
+    pendingMapFitSectors,
+    fitMapToSectors,
+  ])
 
   const isEmbedded = variant === "embedded"
 

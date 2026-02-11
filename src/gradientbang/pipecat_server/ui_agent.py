@@ -61,6 +61,11 @@ CONTROL_UI_SCHEMA = FunctionSchema(
             "type": "integer",
             "description": "Zoom level: 4 (closest) to 50 (widest)",
         },
+        "map_zoom_direction": {
+            "type": "string",
+            "enum": ["in", "out"],
+            "description": "Relative zoom: 'in' or 'out' (use when the user requests a general zoom).",
+        },
         "map_highlight_path": {
             "type": "array",
             "items": {"type": "integer"},
@@ -825,12 +830,9 @@ class UIAgentContext(FrameProcessor):
         to_sector: int | None,
     ) -> dict | None:
         self._prune_course_plot_cache()
-        if isinstance(from_sector, int) and isinstance(to_sector, int):
-            return self._course_plot_cache.get((from_sector, to_sector))
-        if not self._course_plot_cache_seen_at:
+        if not (isinstance(from_sector, int) and isinstance(to_sector, int)):
             return None
-        latest_signature = max(self._course_plot_cache_seen_at.items(), key=lambda item: item[1])[0]
-        return self._course_plot_cache.get(latest_signature)
+        return self._course_plot_cache.get((from_sector, to_sector))
 
     async def _delayed_ports_list_request(self, intent_id: int, filters: dict) -> None:
         try:
@@ -952,15 +954,13 @@ class UIAgentContext(FrameProcessor):
 
         pending = self._pending_course_plot_intent
         if not pending:
-            # No queued intent — auto-fit map to the path so the client's
-            # automatic path rendering is visible at the right zoom level.
-            await self._auto_fit_course_plot(payload)
+            logger.debug("UI agent course.plot received with no pending intent; cached only")
             return
 
         expires_at = pending.get("expires_at")
         if isinstance(expires_at, (int, float)) and time.time() > expires_at:
             self._clear_pending_course_plot_intent()
-            await self._auto_fit_course_plot(payload)
+            logger.debug("UI agent course.plot arrived after intent expiration; cached only")
             return
 
         expected_player_id = getattr(self._game_client, "character_id", None)
@@ -973,10 +973,11 @@ class UIAgentContext(FrameProcessor):
         to_sector = pending.get("to_sector")
         if isinstance(from_sector, int) and isinstance(to_sector, int):
             if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
-                # Pending intent is for a different route — clear it and auto-fit
-                # this event's path instead.
-                self._clear_pending_course_plot_intent()
-                await self._auto_fit_course_plot(payload)
+                # Pending intent is for a different route — keep waiting for the
+                # expected route and do not auto-fit this event.
+                logger.debug(
+                    "UI agent course.plot mismatch with pending intent; cached only"
+                )
                 return
 
         if self._course_plot_timeout_task and not self._course_plot_timeout_task.done():
@@ -1455,9 +1456,14 @@ class UIAgentContext(FrameProcessor):
                     expires_in_secs=expires_override,
                     replace_existing=replace_existing,
                 )
-                cached_event = self._get_cached_course_plot_event(from_sector, to_sector)
-                if cached_event is not None:
-                    await self._on_course_plot(cached_event)
+                if isinstance(from_sector, int) and isinstance(to_sector, int):
+                    cached_event = self._get_cached_course_plot_event(from_sector, to_sector)
+                    if cached_event is not None:
+                        await self._on_course_plot(cached_event)
+                else:
+                    logger.debug(
+                        "UI agent course.plot cache skipped; missing from/to sector"
+                    )
 
             result = {"success": True, "intent_type": intent_type, "intent_id": intent_id}
         except Exception as exc:  # noqa: BLE001
@@ -1818,13 +1824,14 @@ class UIAgentContext(FrameProcessor):
         show_panel = arguments.get("show_panel")
         map_center = arguments.get("map_center_sector")
         map_zoom = arguments.get("map_zoom_level")
+        map_zoom_direction = arguments.get("map_zoom_direction")
         highlight_path = self._normalize_int_list(arguments.get("map_highlight_path"))
         fit_sectors = self._normalize_int_list(arguments.get("map_fit_sectors"))
         clear_plot = arguments.get("clear_course_plot") is True
 
         wants_map = any(
             value is not None
-            for value in (map_center, map_zoom, highlight_path, fit_sectors)
+            for value in (map_center, map_zoom, map_zoom_direction, highlight_path, fit_sectors)
         )
         effective_show_panel = show_panel if isinstance(show_panel, str) else None
         if wants_map and effective_show_panel is None:
@@ -1842,6 +1849,9 @@ class UIAgentContext(FrameProcessor):
         if isinstance(map_zoom, int) and map_zoom != self._last_map_zoom_level:
             changed = True
             self._last_map_zoom_level = map_zoom
+        elif map_zoom_direction in {"in", "out"}:
+            # Relative zoom should always be sent (no dedupe), since each call advances a step.
+            changed = True
 
         if highlight_path is not None:
             highlight_tuple = tuple(highlight_path)

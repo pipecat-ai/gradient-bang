@@ -17,6 +17,8 @@ import { SliderControl } from "./primitives/SliderControl"
 export const MapZoomControls = () => {
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
+  const setMapFitBoundsWorld = useGameStore.use.setMapFitBoundsWorld?.()
+  const requestMapAutoRecenter = useGameStore.use.requestMapAutoRecenter?.()
   const resolvedZoomLevel = mapZoomLevel ?? DEFAULT_MAX_BOUNDS
   const currentIndex = useMemo(
     () => getClosestZoomIndex(resolvedZoomLevel),
@@ -38,7 +40,9 @@ export const MapZoomControls = () => {
   const debouncedTrailing = useDebouncedCallback(
     (value) => {
       const index = clampZoomIndex(value)
+      setMapFitBoundsWorld?.(undefined)
       setMapZoomLevel?.(ZOOM_LEVELS[index])
+      requestMapAutoRecenter?.("ui-zoom")
     },
     500,
     { trailing: true }
@@ -52,7 +56,9 @@ export const MapZoomControls = () => {
         onClick={() => {
           const nextIndex = clampZoomIndex(currentIndex - 1)
           setSliderIndex(nextIndex)
+          setMapFitBoundsWorld?.(undefined)
           setMapZoomLevel?.(ZOOM_LEVELS[nextIndex])
+          requestMapAutoRecenter?.("ui-zoom")
         }}
         className="shrink-0"
       >
@@ -76,7 +82,9 @@ export const MapZoomControls = () => {
         onClick={() => {
           const nextIndex = clampZoomIndex(currentIndex + 1)
           setSliderIndex(nextIndex)
+          setMapFitBoundsWorld?.(undefined)
           setMapZoomLevel?.(ZOOM_LEVELS[nextIndex])
+          requestMapAutoRecenter?.("ui-zoom")
         }}
         className="shrink-0"
       >

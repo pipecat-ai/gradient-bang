@@ -168,6 +168,7 @@ export interface GameSlice extends GameState {
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
   fitMapToSectors: (sectorIds: number[]) => void
+  requestMapAutoRecenter: (reason: string) => void
   setStarfieldReady: (starfieldReady: boolean) => void
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) => void
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
@@ -203,6 +204,105 @@ const createGameSlice: StateCreator<
     if (stillMissing >= prevMissing) return // no progress — don't retry
 
     get().fitMapToSectors(pending)
+  }
+
+  let autoRecenterRequested = false
+  const _maybeAutoRecenter = (reason: string) => {
+    if (!autoRecenterRequested) return
+
+    const state = get()
+    if (state.mapFitBoundsWorld) {
+      autoRecenterRequested = false
+      return
+    }
+    if (state.pendingMapFitSectors && state.pendingMapFitSectors.length > 0) {
+      return
+    }
+
+    const combinedMap = [
+      ...(state.regional_map_data ?? []),
+      ...(state.local_map_data ?? []),
+    ]
+    if (combinedMap.length === 0) return
+
+    const byId = new Map<number, MapSectorNode>()
+    combinedMap.forEach((node) => {
+      if (!byId.has(node.id)) {
+        byId.set(node.id, node)
+      }
+    })
+    const nodes = Array.from(byId.values()).filter((node) => node.position)
+    if (nodes.length === 0) return
+
+    const SQRT3 = Math.sqrt(3)
+    const toWorld = (pos: [number, number]) => ({
+      x: 1.5 * pos[0],
+      y: SQRT3 * (pos[1] + 0.5 * (pos[0] & 1)),
+    })
+
+    let centerWorld = state.mapCenterWorld
+    if (!centerWorld) {
+      const centerId = state.mapCenterSector ?? state.sector?.id
+      const centerNode =
+        centerId !== undefined ? nodes.find((node) => node.id === centerId) : undefined
+      if (centerNode?.position) {
+        const world = toWorld(centerNode.position)
+        centerWorld = [world.x, world.y]
+      } else {
+        const fallback = nodes.find((node) => node.position)
+        if (fallback?.position) {
+          const world = toWorld(fallback.position)
+          centerWorld = [world.x, world.y]
+        }
+      }
+    }
+    if (!centerWorld) return
+
+    const zoomLevel = state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+    const maxWorldDistance = zoomLevel * SQRT3
+    const visibleNodes = nodes.filter((node) => {
+      const world = toWorld(node.position as [number, number])
+      const dx = world.x - centerWorld![0]
+      const dy = world.y - centerWorld![1]
+      return Math.sqrt(dx * dx + dy * dy) <= maxWorldDistance
+    })
+    if (visibleNodes.length === 0) return
+
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+    for (const node of visibleNodes) {
+      const world = toWorld(node.position as [number, number])
+      minX = Math.min(minX, world.x)
+      maxX = Math.max(maxX, world.x)
+      minY = Math.min(minY, world.y)
+      maxY = Math.max(maxY, world.y)
+    }
+
+    const nextCenterWorld: [number, number] = [(minX + maxX) / 2, (minY + maxY) / 2]
+    const prevCenterWorld = state.mapCenterWorld ?? centerWorld
+    const dx = nextCenterWorld[0] - prevCenterWorld[0]
+    const dy = nextCenterWorld[1] - prevCenterWorld[1]
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
+      autoRecenterRequested = false
+      return
+    }
+
+    console.debug("[GAME MAP] Auto-recenter", {
+      reason,
+      zoom: zoomLevel,
+      visibleCount: visibleNodes.length,
+      from: prevCenterWorld,
+      to: nextCenterWorld,
+    })
+    set(
+      produce((draft) => {
+        draft.mapCenterWorld = nextCenterWorld
+        draft.mapFitBoundsWorld = undefined
+      })
+    )
+    autoRecenterRequested = false
   }
 
   return {
@@ -442,10 +542,25 @@ const createGameSlice: StateCreator<
   setLocalMapData: (localMapData: MapData) => {
     set(
       produce((state) => {
-        state.local_map_data = normalizeMapData(localMapData)
+        const normalizedMapData = normalizeMapData(localMapData)
+        if (!state.local_map_data) {
+          state.local_map_data = normalizedMapData
+          return
+        }
+
+        const existingById = new Map(
+          state.local_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
+        )
+
+        for (const sector of normalizedMapData) {
+          existingById.set(sector.id, sector)
+        }
+
+        state.local_map_data = Array.from(existingById.values())
       })
     )
     _maybeRetryMapFit()
+    _maybeAutoRecenter("map.local")
   },
 
   setRegionalMapData: (regionalMapData: MapData) => {
@@ -470,6 +585,7 @@ const createGameSlice: StateCreator<
       })
     )
     _maybeRetryMapFit()
+    _maybeAutoRecenter("map.region")
   },
 
   updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) =>
@@ -752,6 +868,11 @@ const createGameSlice: StateCreator<
         }
       })
     )
+  },
+
+  requestMapAutoRecenter: (reason: string) => {
+    autoRecenterRequested = true
+    _maybeAutoRecenter(reason)
   },
 
   setStarfieldReady: (starfieldReady: boolean) => set({ starfieldReady }),

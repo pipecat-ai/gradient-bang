@@ -1,5 +1,7 @@
 export const DEFAULT_MAX_BOUNDS = 12
 export const MAX_BOUNDS_PADDING = 2
+export const MAX_FETCH_BOUNDS = 100
+export const FETCH_BOUNDS_MULTIPLIER = 2
 export const MIN_BOUNDS = 4
 export const MAX_BOUNDS = 50
 
@@ -35,4 +37,9 @@ export const getNextZoomLevel = (currentZoom: number, direction: "in" | "out") =
     direction === "in" ? currentIndex - 1 : currentIndex + 1
   )
   return ZOOM_LEVELS[nextIndex]
+}
+
+export const getFetchBounds = (zoomLevel: number) => {
+  const requested = Math.ceil(zoomLevel * FETCH_BOUNDS_MULTIPLIER + MAX_BOUNDS_PADDING)
+  return Math.max(0, Math.min(MAX_FETCH_BOUNDS, requested))
 }

@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback } from "react"
+import { type ReactNode, useCallback, useRef } from "react"
 
 import { RTVIEvent } from "@pipecat-ai/client-js"
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
@@ -13,8 +13,8 @@ import {
 import {
   DEFAULT_MAX_BOUNDS,
   MAX_BOUNDS,
-  MAX_BOUNDS_PADDING,
   MIN_BOUNDS,
+  getFetchBounds,
   getNextZoomLevel,
 } from "@/utils/mapZoom"
 
@@ -66,6 +66,11 @@ export function GameProvider({ children }: GameProviderProps) {
   const client = usePipecatClient()
   const playerSessionId = useGameStore((state) => state.playerSessionId)
   const dispatchAction = useGameStore((state) => state.dispatchAction)
+  const pendingMapCenterRequestRef = useRef<{
+    centerSector: number
+    bounds: number
+    requestedAt: number
+  } | null>(null)
 
   /**
    * Send user text input to server
@@ -613,7 +618,17 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as MapLocalMessage
               gameStore.setRegionalMapData(data.sectors)
               if (Array.isArray(data.fit_sectors) && data.fit_sectors.length > 0) {
-                gameStore.fitMapToSectors(data.fit_sectors)
+                const fitSectors = data.fit_sectors.filter(
+                  (id): id is number => typeof id === "number" && Number.isFinite(id)
+                )
+                const pending = useGameStore.getState().pendingMapFitSectors
+                const samePending =
+                  Array.isArray(pending) &&
+                  pending.length === fitSectors.length &&
+                  pending.every((id, idx) => id === fitSectors[idx])
+                if (!samePending) {
+                  gameStore.fitMapToSectors(fitSectors)
+                }
               }
               break
             }
@@ -1011,6 +1026,71 @@ export function GameProvider({ children }: GameProviderProps) {
             case "error": {
               console.debug("[GAME EVENT] Error", e.payload)
               const data = e.payload as ErrorMessage
+              const errorText = typeof data.error === "string" ? data.error : ""
+              if (
+                data.endpoint === "local_map_region" &&
+                errorText.includes("Center sector") &&
+                errorText.includes("visited")
+              ) {
+                const pending = pendingMapCenterRequestRef.current
+                pendingMapCenterRequestRef.current = null
+                if (pending && Date.now() - pending.requestedAt < 10000) {
+                  const state = useGameStore.getState()
+                  const mapData: MapData = [
+                    ...(state.local_map_data ?? []),
+                    ...(state.regional_map_data ?? []),
+                  ]
+                  const discovered = mapData.filter((node) => node.visited || node.source)
+                  let fallbackId = state.sector?.id
+                  const targetNode = mapData.find((node) => node.id === pending.centerSector)
+                  if (!fallbackId && discovered.length > 0) {
+                    if (targetNode?.position) {
+                      const SQRT3 = Math.sqrt(3)
+                      const toWorld = (pos: [number, number]) => ({
+                        x: 1.5 * pos[0],
+                        y: SQRT3 * (pos[1] + 0.5 * (pos[0] & 1)),
+                      })
+                      const targetWorld = toWorld(targetNode.position)
+                      let best = discovered[0]
+                      let bestDist = Infinity
+                      for (const node of discovered) {
+                        if (!node.position) continue
+                        const world = toWorld(node.position)
+                        const dx = world.x - targetWorld.x
+                        const dy = world.y - targetWorld.y
+                        const dist = dx * dx + dy * dy
+                        if (dist < bestDist) {
+                          best = node
+                          bestDist = dist
+                        }
+                      }
+                      fallbackId = best.id
+                    } else {
+                      fallbackId = discovered[0].id
+                    }
+                  }
+
+                  if (
+                    fallbackId !== undefined &&
+                    fallbackId !== pending.centerSector
+                  ) {
+                    console.debug("[GAME UI] Map center fallback", {
+                      requested: pending.centerSector,
+                      fallback: fallbackId,
+                    })
+                    gameStore.setMapCenterWorld?.(undefined)
+                    gameStore.setMapFitBoundsWorld?.(undefined)
+                    gameStore.setMapCenterSector(fallbackId)
+                    gameStore.dispatchAction({
+                      type: "get-my-map",
+                      payload: {
+                        center_sector: fallbackId,
+                        bounds: pending.bounds,
+                      },
+                    })
+                  }
+                }
+              }
 
               // @TODO: keep tabs on errors in separate store
 
@@ -1038,6 +1118,10 @@ export function GameProvider({ children }: GameProviderProps) {
                 Number.isFinite(payload.map_zoom_level)
                   ? (payload.map_zoom_level as number)
                   : undefined
+              const mapZoomDirection =
+                payload.map_zoom_direction === "in" ? "in"
+                : payload.map_zoom_direction === "out" ? "out"
+                : undefined
               const mapZoom =
                 mapZoomRaw !== undefined ?
                   Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, mapZoomRaw))
@@ -1061,10 +1145,18 @@ export function GameProvider({ children }: GameProviderProps) {
               const hasFit = Boolean(fit && fit.length > 0)
               const zoomOnly =
                 mapZoom !== undefined && mapCenter === undefined && !hasHighlight && !hasFit
+              const shouldAutoRecenter =
+                showPanel === "map" &&
+                mapCenter === undefined &&
+                mapZoom === undefined &&
+                mapZoomDirection === undefined &&
+                !hasHighlight &&
+                !hasFit
 
               const wantsMap =
                 mapCenter !== undefined ||
                 mapZoom !== undefined ||
+                mapZoomDirection !== undefined ||
                 hasHighlight ||
                 hasFit
               if (wantsMap) {
@@ -1075,6 +1167,9 @@ export function GameProvider({ children }: GameProviderProps) {
                 gameStore.setActiveScreen("map")
               } else if (showPanel === "default") {
                 gameStore.setActiveScreen(undefined)
+              }
+              if (shouldAutoRecenter) {
+                gameStore.requestMapAutoRecenter?.("show-panel")
               }
 
               if (mapZoom !== undefined) {
@@ -1090,74 +1185,49 @@ export function GameProvider({ children }: GameProviderProps) {
                       direction,
                       nextZoom,
                     })
+                    gameStore.setMapFitBoundsWorld?.(undefined)
                     gameStore.setMapZoomLevel(nextZoom)
+                    gameStore.requestMapAutoRecenter?.("zoom")
                   }
                 } else {
                   console.debug("[GAME UI] Zoom absolute", { mapZoom })
+                  gameStore.setMapFitBoundsWorld?.(undefined)
                   gameStore.setMapZoomLevel(mapZoom)
+                  gameStore.requestMapAutoRecenter?.("zoom")
                 }
+              } else if (mapZoomDirection) {
+                const currentZoom = useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+                const nextZoom = getNextZoomLevel(currentZoom, mapZoomDirection)
+                console.debug("[GAME UI] Zoom relative", {
+                  currentZoom,
+                  direction: mapZoomDirection,
+                  nextZoom,
+                })
+                gameStore.setMapFitBoundsWorld?.(undefined)
+                gameStore.setMapZoomLevel(nextZoom)
+                gameStore.requestMapAutoRecenter?.("zoom")
               }
 
               if (mapCenter !== undefined) {
                 gameStore.setMapCenterWorld?.(undefined)
                 gameStore.setMapFitBoundsWorld?.(undefined)
-                const state = useGameStore.getState()
-                const mapData: MapData = [
-                  ...(state.local_map_data ?? []),
-                  ...(state.regional_map_data ?? []),
-                ]
-                const discovered = mapData.filter(
-                  (node) => node.visited || node.source
+                const centerToUse = mapCenter
+                gameStore.setMapCenterSector(centerToUse)
+                const bounds = getFetchBounds(
+                  mapZoom ?? useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
                 )
-                const centerNode = mapData.find((node) => node.id === mapCenter)
-                const isDiscovered = Boolean(
-                  centerNode && (centerNode.visited || centerNode.source)
-                )
-                let centerToUse: number | undefined
-
-                if (isDiscovered) {
-                  centerToUse = mapCenter
-                } else {
-                  const candidates = discovered.length > 0 ? discovered : mapData
-                  const targetPos =
-                    centerNode?.position ??
-                    state.sector?.position ??
-                    (candidates[0]?.position ?? undefined)
-
-                  if (targetPos && candidates.length > 0) {
-                    let best = candidates[0]
-                    let bestDist = Infinity
-                    for (const node of candidates) {
-                      if (!node.position) continue
-                      const dx = node.position[0] - targetPos[0]
-                      const dy = node.position[1] - targetPos[1]
-                      const dist = dx * dx + dy * dy
-                      if (dist < bestDist) {
-                        best = node
-                        bestDist = dist
-                      }
-                    }
-                    centerToUse = best.id
-                  } else if (state.sector?.id) {
-                    centerToUse = state.sector.id
-                  } else if (candidates[0]) {
-                    centerToUse = candidates[0].id
-                  }
+                pendingMapCenterRequestRef.current = {
+                  centerSector: centerToUse,
+                  bounds,
+                  requestedAt: Date.now(),
                 }
-
-                if (centerToUse !== undefined) {
-                  gameStore.setMapCenterSector(centerToUse)
-                  const bounds =
-                    (mapZoom ?? useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) +
-                    MAX_BOUNDS_PADDING
-                  gameStore.dispatchAction({
-                    type: "get-my-map",
-                    payload: {
-                      center_sector: centerToUse,
-                      bounds,
-                    },
-                  })
-                }
+                gameStore.dispatchAction({
+                  type: "get-my-map",
+                  payload: {
+                    center_sector: centerToUse,
+                    bounds,
+                  },
+                })
               }
 
               if (highlight && highlight.length > 0) {
