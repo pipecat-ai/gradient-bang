@@ -556,7 +556,9 @@ function filterSectorsBySpatialDistance(
   currentSectorId: number,
   maxDistanceHexes: number,
   scale: number,
-  centerWorld?: [number, number]
+  centerWorld?: [number, number],
+  viewportWidth?: number,
+  viewportHeight?: number
 ): MapData {
   let centerWorldPos: { x: number; y: number } | null = null
   if (centerWorld && centerWorld.length === 2) {
@@ -570,12 +572,24 @@ function filterSectorsBySpatialDistance(
 
   const maxWorldDistance = maxDistanceHexes * scale * Math.sqrt(3)
 
+  // Use rectangular filtering scaled by viewport aspect ratio so sectors
+  // fill the wider dimension instead of leaving dead space around a circle.
+  let maxDistX = maxWorldDistance
+  let maxDistY = maxWorldDistance
+  if (viewportWidth && viewportHeight && viewportWidth > 0 && viewportHeight > 0) {
+    const aspect = viewportWidth / viewportHeight
+    if (aspect > 1) {
+      maxDistX = maxWorldDistance * aspect
+    } else {
+      maxDistY = maxWorldDistance / aspect
+    }
+  }
+
   const filtered = data.filter((node) => {
     const world = hexToWorld(node.position[0], node.position[1], scale)
-    const dx = world.x - centerWorldPos.x
-    const dy = world.y - centerWorldPos.y
-    const distance = Math.sqrt(dx * dx + dy * dy)
-    return distance <= maxWorldDistance
+    const dx = Math.abs(world.x - centerWorldPos.x)
+    const dy = Math.abs(world.y - centerWorldPos.y)
+    return dx <= maxDistX && dy <= maxDistY
   })
 
   // Ensure at least current sector is included
@@ -1325,7 +1339,9 @@ function calculateCameraState(
     config.center_sector_id,
     maxDistance,
     scale,
-    config.center_world
+    config.center_world,
+    width,
+    height
   )
 
   if (filteredData.length === 0) {

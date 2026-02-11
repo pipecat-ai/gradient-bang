@@ -128,7 +128,13 @@ export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
     </div>
   )
 }
-export const MapScreen = ({ config }: { config?: MapConfig }) => {
+export const MapScreen = ({
+  config,
+  variant = "full",
+}: {
+  config?: MapConfig
+  variant?: "full" | "embedded"
+}) => {
   const player = useGameStore((state) => state.player)
   const sector = useGameStore.use.sector?.()
   const mapData = useGameStore.use.regional_map_data?.()
@@ -228,33 +234,44 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
     queueMicrotask(() => setIsFetching(false))
   }, [mapData])
 
+  const isEmbedded = variant === "embedded"
+
+  const mapContainerClass = isEmbedded ? "w-full h-full relative" : "flex-1 relative"
+
   return (
-    <div className="flex flex-row gap-3 w-full h-full relative">
-      <div className="flex-1 relative">
-        <MapNodeDetails node={hoveredNode} />
-        <header className="absolute top-0 right-0 flex flex-col gap-ui-xs p-ui-md w-72">
-          <MapZoomControls />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!coursePlot}
-            onClick={() => clearCoursePlot?.()}
-          >
-            Clear Highlight
-          </Button>
-          <Divider color="secondary" />
-          {sector?.id !== undefined && (
-            <Badge
-              variant="secondary"
-              border="bracket"
+    <div
+      className={cn(
+        "w-full h-full relative",
+        !isEmbedded ? "flex flex-row gap-3" : ""
+      )}
+    >
+      <div className={mapContainerClass}>
+        {!isEmbedded && <MapNodeDetails node={hoveredNode} />}
+        {!isEmbedded && (
+          <header className="absolute top-0 right-0 flex flex-col gap-ui-xs p-ui-md w-72">
+            <MapZoomControls />
+            <Button
+              variant="outline"
               size="sm"
-              className="w-full -bracket-offset-0"
+              disabled={!coursePlot}
+              onClick={() => clearCoursePlot?.()}
             >
-              Current Sector:
-              <span className="font-extrabold">{sector.id}</span>
-            </Badge>
-          )}
-        </header>
+              Clear Highlight
+            </Button>
+            <Divider color="secondary" />
+            {sector?.id !== undefined && (
+              <Badge
+                variant="secondary"
+                border="bracket"
+                size="sm"
+                className="w-full -bracket-offset-0"
+              >
+                Current Sector:
+                <span className="font-extrabold">{sector.id}</span>
+              </Badge>
+            )}
+          </header>
+        )}
 
         <footer className="absolute bottom-0 left-0 w-full h-fit p-ui-md">
           <MapLegend />
@@ -305,37 +322,39 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
         }
       </div>
 
-      <aside className="flex flex-col gap-6 w-md min-h-0">
-        <CardContent className="flex flex-col gap-3">
-          <Badge border="bracket" className="w-full -bracket-offset-3">
-            Current Sector:
-            <span
-              className={sector?.id !== undefined ? "opacity-100 font-extrabold" : "opacity-40"}
-            >
-              {sector?.id ?? "unknown"}
-            </span>
-          </Badge>
-          <Separator variant="dotted" className="w-full text-white/20 h-[12px]" />
-          <div className="flex flex-row gap-3">
-            <Badge variant="secondary" className="flex-1">
-              Discovered:
-              <span className="font-extrabold">{player?.sectors_visited}</span>
+      {!isEmbedded && (
+        <aside className="flex flex-col gap-6 w-md min-h-0">
+          <CardContent className="flex flex-col gap-3">
+            <Badge border="bracket" className="w-full -bracket-offset-3">
+              Current Sector:
+              <span
+                className={sector?.id !== undefined ? "opacity-100 font-extrabold" : "opacity-40"}
+              >
+                {sector?.id ?? "unknown"}
+              </span>
             </Badge>
-            <Badge variant="secondary" className="flex-1">
-              Total:
-              <span className="font-extrabold">{player?.universe_size}</span>
+            <Separator variant="dotted" className="w-full text-white/20 h-[12px]" />
+            <div className="flex flex-row gap-3">
+              <Badge variant="secondary" className="flex-1">
+                Discovered:
+                <span className="font-extrabold">{player?.sectors_visited}</span>
+              </Badge>
+              <Badge variant="secondary" className="flex-1">
+                Total:
+                <span className="font-extrabold">{player?.universe_size}</span>
+              </Badge>
+            </div>
+            <Badge border="elbow" className="text-xs w-full -elbow-offset-3 gap-3">
+              <Progress
+                value={(player?.sectors_visited / player?.universe_size) * 100}
+                className="h-[12px] w-full"
+              />
+              {((player?.sectors_visited / player?.universe_size) * 100).toFixed(2)}%
             </Badge>
-          </div>
-          <Badge border="elbow" className="text-xs w-full -elbow-offset-3 gap-3">
-            <Progress
-              value={(player?.sectors_visited / player?.universe_size) * 100}
-              className="h-[12px] w-full"
-            />
-            {((player?.sectors_visited / player?.universe_size) * 100).toFixed(2)}%
-          </Badge>
-        </CardContent>
-        <MovementHistoryPanel className="flex-1 min-h-0" />
-      </aside>
+          </CardContent>
+          <MovementHistoryPanel className="flex-1 min-h-0" />
+        </aside>
+      )}
     </div>
   )
 }

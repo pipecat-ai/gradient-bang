@@ -40,7 +40,7 @@ const MapScreenFallback = ({
   )
 }
 
-export const MapScreenBoundary = () => {
+export const MapScreenBoundary = ({ variant }: { variant?: "full" | "embedded" }) => {
   const [resetKey, setResetKey] = useState(0)
 
   const handleRetry = useCallback(() => {
@@ -68,8 +68,7 @@ export const MapScreenBoundary = () => {
         console.error("[MAP SCREEN] Render error", error, info.componentStack)
       }
     >
-      <MapScreen key={resetKey} />
+      <MapScreen key={resetKey} variant={variant} />
     </ErrorBoundary>
   )
 }
-

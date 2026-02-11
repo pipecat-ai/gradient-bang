@@ -7,12 +7,14 @@ import { PipecatClientAudio } from "@pipecat-ai/client-react"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
 import { ConversationPanel } from "@/components/panels/ConversationPanel"
+import { MapControlsPanel } from "@/components/panels/MapControlsPanel"
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { RHSPanelContainer } from "@/components/panels/RHSPanelContainer"
 import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
 import { Button } from "@/components/primitives/Button"
+import { MapScreenBoundary } from "@/components/screens/MapScreenBoundary"
 import { ScreenContainer } from "@/components/screens/ScreenContainer"
 import { SectorTitleBanner } from "@/components/SectorTitleBanner"
 import { Starfield } from "@/components/Starfield"
@@ -30,7 +32,9 @@ export const Game = () => {
   const asidePanelRef = usePanelRef()
   const lookMode = useGameStore.use.lookMode()
   const setLookMode = useGameStore.use.setLookMode?.()
+  const activeScreen = useGameStore.use.activeScreen?.()
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const isMapOpen = activeScreen?.screen === "map"
 
   const handleAsideResize = useCallback(() => {
     const collapsed = asidePanelRef.current?.isCollapsed?.() ?? false
@@ -66,12 +70,16 @@ export const Game = () => {
         <Panel className="flex flex-col">
           <TopBar />
           <main className="flex-1 flex flex-col gap-0 @container/main">
-            <div className="p-ui-xs flex-1">
-              <TaskEnginesPanel />
+            <div className="p-ui-xs flex-1 min-h-0">
+              {isMapOpen ? <MapScreenBoundary variant="embedded" /> : <TaskEnginesPanel />}
             </div>
             <footer className="p-ui-xs pt-0 h-[330px] flex flex-row gap-ui-sm justify-between">
               <ConversationPanel className="flex-1 max-w-xl" />
-              <MiniMapPanel className="max-w-[330px]" />
+              {isMapOpen ?
+                <div className="flex-1 max-w-[330px] h-full flex items-center justify-center">
+                  <MapControlsPanel className="max-w-[260px]" />
+                </div>
+              : <MiniMapPanel className="max-w-[330px]" />}
             </footer>
           </main>
         </Panel>

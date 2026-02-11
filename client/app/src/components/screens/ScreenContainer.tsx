@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "motion/react"
 import { Dialog } from "radix-ui"
 import { XIcon } from "@phosphor-icons/react"
 
-import { MapScreenBoundary } from "@/components/screens/MapScreenBoundary"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
@@ -32,7 +31,10 @@ export const ScreenBase = ({ children, full }: { children: React.ReactNode; full
 
 export const ScreenContainer = () => {
   const activeScreen = useGameStore.use.activeScreen?.()
-  const prevActiveScreenRef = useRef<{ screen: UIScreen; data?: unknown } | undefined>(activeScreen)
+  const overlayScreen = activeScreen?.screen === "map" ? undefined : activeScreen
+  const prevActiveScreenRef = useRef<{ screen: UIScreen; data?: unknown } | undefined>(
+    overlayScreen
+  )
   const diamondFXInstance = useGameStore.use.diamondFXInstance?.()
   const setActiveScreen = useGameStore.use.setActiveScreen?.()
 
@@ -41,25 +43,26 @@ export const ScreenContainer = () => {
   >(undefined)
 
   const isClosing = closingScreen !== undefined
-  const displayedScreen = closingScreen ?? activeScreen
+  const displayedScreen = closingScreen ?? overlayScreen
 
   useEffect(() => {
     // Screen closed
-    if (prevActiveScreenRef.current?.screen && !activeScreen?.screen) {
+    if (prevActiveScreenRef.current?.screen && !overlayScreen?.screen) {
       diamondFXInstance?.clear(true)
     }
     // Screen opened (or changed)
-    if (activeScreen?.screen && prevActiveScreenRef.current?.screen !== activeScreen.screen) {
+    if (overlayScreen?.screen && prevActiveScreenRef.current?.screen !== overlayScreen.screen) {
       // Fire your handler here
       diamondFXInstance?.start("screen-container", false, true, {
         half: true,
       })
     }
-    prevActiveScreenRef.current = activeScreen
-  }, [activeScreen, diamondFXInstance])
+    prevActiveScreenRef.current = overlayScreen
+  }, [overlayScreen, diamondFXInstance])
 
   const handleClose = () => {
-    setClosingScreen(activeScreen)
+    if (!overlayScreen) return
+    setClosingScreen(overlayScreen)
     setActiveScreen(undefined)
   }
 
@@ -67,7 +70,7 @@ export const ScreenContainer = () => {
     setClosingScreen(undefined)
   }
 
-  const isOpen = activeScreen?.screen !== undefined || isClosing
+  const isOpen = overlayScreen?.screen !== undefined || isClosing
 
   const dottedCX =
     "DialogOverlay bg-muted/40 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle dialog-dots"
@@ -85,7 +88,7 @@ export const ScreenContainer = () => {
     >
       <Dialog.Portal>
         <Dialog.Overlay
-          className={cn("z-20", activeScreen?.screen === "map" ? noDottedCX : dottedCX)}
+          className={cn("z-20", overlayScreen?.screen === "map" ? noDottedCX : dottedCX)}
         ></Dialog.Overlay>
         <Dialog.Content
           aria-describedby={undefined}
@@ -109,7 +112,7 @@ export const ScreenContainer = () => {
             </Button>
           </Dialog.Close>
           <div className="hidden">
-            <Dialog.Title>{activeScreen?.screen}</Dialog.Title>
+            <Dialog.Title>{overlayScreen?.screen}</Dialog.Title>
           </div>
           <AnimatePresence mode="wait" onExitComplete={handleExitComplete}>
             {!isClosing && displayedScreen?.screen && (
@@ -121,11 +124,6 @@ export const ScreenContainer = () => {
                 exit="exit"
                 className={displayedScreen.screen === "map" ? "w-full h-full" : ""}
               >
-                {displayedScreen.screen === "map" && (
-                  <ScreenBase full>
-                    <MapScreenBoundary />
-                  </ScreenBase>
-                )}
                 {displayedScreen.screen === "ship-details" && (
                   <ScreenBase>
                     <ShipDetails ship={displayedScreen.data as ShipDefinition} />
