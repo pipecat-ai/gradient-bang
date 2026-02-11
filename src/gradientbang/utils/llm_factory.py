@@ -72,6 +72,9 @@ class LLMServiceConfig:
         function_call_timeout_secs: Optional tool call timeout override.
         run_in_parallel: Optional override for LLMService._run_in_parallel.
             When False, function calls are dispatched sequentially.
+        cache_system_prompt: When True (Anthropic only), add cache_control to
+            the system parameter. Useful for agents that rebuild contexts fresh
+            each call but keep the same system prompt.
     """
 
     provider: LLMProvider
@@ -80,6 +83,7 @@ class LLMServiceConfig:
     thinking: Optional[UnifiedThinkingConfig] = None
     function_call_timeout_secs: Optional[float] = None
     run_in_parallel: Optional[bool] = None
+    cache_system_prompt: bool = False
 
 
 def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
@@ -143,6 +147,7 @@ def create_llm_service(config: LLMServiceConfig) -> LLMService:
             config.model,
             config.thinking,
             config.function_call_timeout_secs,
+            cache_system_prompt=config.cache_system_prompt,
         )
     elif config.provider == LLMProvider.OPENAI:
         service = _create_openai_service(
@@ -195,34 +200,69 @@ def _create_anthropic_service(
     model: str,
     thinking: Optional[UnifiedThinkingConfig],
     function_call_timeout_secs: Optional[float] = None,
+    *,
+    cache_system_prompt: bool = False,
 ) -> LLMService:
     """Create Anthropic (Claude) LLM service."""
     from pipecat.services.anthropic.llm import AnthropicLLMService
 
-    thinking_config = None
+    params_kwargs: dict = {"enable_prompt_caching": True}
     if thinking and thinking.enabled:
         # Anthropic requires minimum 1024 tokens for thinking budget
         budget = max(1024, thinking.budget_tokens)
-        thinking_config = AnthropicLLMService.ThinkingConfig(
+        params_kwargs["thinking"] = AnthropicLLMService.ThinkingConfig(
             type="enabled",
             budget_tokens=budget,
         )
 
-    params = AnthropicLLMService.InputParams(
-        enable_prompt_caching=True,
-        thinking=thinking_config,
-    )
+    params = AnthropicLLMService.InputParams(**params_kwargs)
 
     llm_kwargs = {}
     if function_call_timeout_secs is not None:
         llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
 
-    return AnthropicLLMService(
+    service_cls = AnthropicLLMService
+    if cache_system_prompt:
+        service_cls = _get_system_cached_anthropic_cls()
+
+    return service_cls(
         api_key=api_key,
         model=model,
         params=params,
         **llm_kwargs,
     )
+
+
+def _get_system_cached_anthropic_cls():
+    """Return an AnthropicLLMService subclass that caches the system prompt.
+
+    The base adapter only adds cache_control markers to user messages, which
+    doesn't help when contexts are rebuilt fresh each call (like the UI agent).
+    This subclass adds a cache_control marker to the system parameter so the
+    stable system prompt is cached across calls.
+    """
+    import copy
+
+    from anthropic import NOT_GIVEN
+    from pipecat.services.anthropic.llm import AnthropicLLMService
+
+    class _SystemCachedAnthropicLLMService(AnthropicLLMService):
+        def _get_llm_invocation_params(self, context):
+            params = super()._get_llm_invocation_params(context)
+            system = params.get("system")
+            if system is NOT_GIVEN or not system:
+                return params
+            if isinstance(system, str):
+                params["system"] = [
+                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+                ]
+            elif isinstance(system, list):
+                system = copy.deepcopy(system)
+                system[-1]["cache_control"] = {"type": "ephemeral"}
+                params["system"] = system
+            return params
+
+    return _SystemCachedAnthropicLLMService
 
 
 def _create_openai_service(
@@ -427,4 +467,5 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
         model=model,
         thinking=thinking,
         run_in_parallel=False,
+        cache_system_prompt=True,
     )

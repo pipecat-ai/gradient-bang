@@ -81,10 +81,7 @@ CONTROL_UI_SCHEMA = FunctionSchema(
 
 QUEUE_UI_INTENT_SCHEMA = FunctionSchema(
     name="queue_ui_intent",
-    description=(
-        "Queue a pending UI intent that will be fulfilled when a matching server event arrives. "
-        "Does not change the UI immediately."
-    ),
+    description="Queue a UI intent fulfilled when a server event arrives. Does not change the UI immediately.",
     properties={
         "intent_type": {
             "type": "string",
@@ -93,60 +90,44 @@ QUEUE_UI_INTENT_SCHEMA = FunctionSchema(
         },
         "mega": {
             "type": "boolean",
-            "description": "For ports.list intents: filter by mega-port status.",
+            "description": "ports.list: filter mega-ports.",
         },
         "port_type": {
             "type": "string",
-            "description": "For ports.list intents: filter by port code (e.g., 'BBB', 'SSS').",
+            "description": "ports.list: port code filter (e.g., 'BBB', 'SSS').",
         },
         "commodity": {
             "type": "string",
             "enum": ["quantum_foam", "retro_organics", "neuro_symbolics"],
-            "description": "For ports.list intents: commodity filter.",
+            "description": "ports.list: commodity filter.",
         },
         "trade_type": {
             "type": "string",
             "enum": ["buy", "sell"],
-            "description": "For ports.list intents: trade direction filter.",
+            "description": "ports.list: trade direction.",
         },
         "from_sector": {
             "type": "integer",
-            "description": (
-                "For ports.list intents: origin sector to measure hops from. "
-                "For course.plot intents: origin sector for the plotted route."
-            ),
+            "description": "Origin sector (ports.list: hops from; course.plot: route start).",
         },
         "to_sector": {
             "type": "integer",
-            "description": "For course.plot intents: destination sector for the plotted route.",
+            "description": "course.plot: route destination.",
         },
         "max_hops": {
             "type": "integer",
             "minimum": 1,
             "maximum": 100,
-            "description": "For ports.list intents: maximum hop distance to search.",
+            "description": "ports.list: max hop distance.",
         },
         "ship_scope": {
             "type": "string",
             "enum": ["corporation", "personal", "all"],
-            "description": "For ships.list intents: which ships to include.",
+            "description": "ships.list: which ships to include.",
         },
         "include_player_sector": {
             "type": "boolean",
-            "description": "Include the player's current sector in map_fit_sectors when the user wants it visible.",
-        },
-        "show_panel": {
-            "type": "boolean",
-            "description": "For course.plot intents: open the map when fulfilling.",
-        },
-        "expires_in_secs": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Override the default intent timeout.",
-        },
-        "clear_existing": {
-            "type": "boolean",
-            "description": "Replace any existing pending intent of the same type.",
+            "description": "Include player's sector in map_fit_sectors.",
         },
     },
     required=["intent_type"],
@@ -971,11 +952,15 @@ class UIAgentContext(FrameProcessor):
 
         pending = self._pending_course_plot_intent
         if not pending:
+            # No queued intent — auto-fit map to the path so the client's
+            # automatic path rendering is visible at the right zoom level.
+            await self._auto_fit_course_plot(payload)
             return
 
         expires_at = pending.get("expires_at")
         if isinstance(expires_at, (int, float)) and time.time() > expires_at:
             self._clear_pending_course_plot_intent()
+            await self._auto_fit_course_plot(payload)
             return
 
         expected_player_id = getattr(self._game_client, "character_id", None)
@@ -988,6 +973,10 @@ class UIAgentContext(FrameProcessor):
         to_sector = pending.get("to_sector")
         if isinstance(from_sector, int) and isinstance(to_sector, int):
             if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
+                # Pending intent is for a different route — clear it and auto-fit
+                # this event's path instead.
+                self._clear_pending_course_plot_intent()
+                await self._auto_fit_course_plot(payload)
                 return
 
         if self._course_plot_timeout_task and not self._course_plot_timeout_task.done():
@@ -996,6 +985,37 @@ class UIAgentContext(FrameProcessor):
 
         self._set_intent_event(pending, "course.plot", event_message)
         await self._maybe_trigger_pending_intent_inference()
+
+    async def _auto_fit_course_plot(self, payload: dict) -> None:
+        """Auto-fit map to a course.plot path when no intent was queued.
+
+        The client draws the path from the raw RTVI event, so we need to
+        zoom/fit the map to make the full route visible.
+        """
+        path = payload.get("path")
+        if not isinstance(path, list) or len(path) < 2:
+            return
+        int_path = [s for s in path if isinstance(s, int)]
+        if len(int_path) < 2:
+            return
+
+        arguments = {
+            "show_panel": "map",
+            "map_highlight_path": int_path,
+            "map_fit_sectors": int_path,
+        }
+        should_send = self._apply_control_ui_dedupe(arguments)
+        if should_send:
+            logger.debug(f"UI agent auto-fit course.plot path ({len(int_path)} sectors)")
+            await self._rtvi.push_frame(
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": "ui-action",
+                        "payload": {"ui-action": "control_ui", **arguments},
+                    }
+                )
+            )
 
     # ── Message helpers ───────────────────────────────────────────────
 
@@ -1253,6 +1273,9 @@ class UIAgentContext(FrameProcessor):
             lines.append(f"[{role}] {content}")
         return "\n".join(lines)
 
+    # Fields relevant for UI agent decisions (name, location, ownership)
+    _SHIPS_SUMMARY_KEYS = ("ship_name", "sector", "owner_type")
+
     def _format_ships_block(self) -> str:
         if not self._ships_cache_is_fresh():
             age = self._ships_cache_age()
@@ -1269,10 +1292,14 @@ class UIAgentContext(FrameProcessor):
         if age is not None:
             metadata.append(f"age: {age:.1f}s")
         meta_line = f"({', '.join(metadata)})" if metadata else ""
+        summary = [
+            {k: ship[k] for k in self._SHIPS_SUMMARY_KEYS if k in ship}
+            for ship in self._cached_ships
+        ]
         try:
-            ships_json = json.dumps(self._cached_ships, ensure_ascii=True, indent=2)
+            ships_json = json.dumps(summary, ensure_ascii=True, indent=2)
         except Exception:
-            ships_json = str(self._cached_ships)
+            ships_json = str(summary)
         return f"Recent ships list {meta_line}:\n{ships_json}"
 
     def _format_pending_intents_block(self) -> str:
@@ -1827,6 +1854,9 @@ class UIAgentContext(FrameProcessor):
             if fit_tuple != self._last_map_fit_sectors:
                 changed = True
                 self._last_map_fit_sectors = fit_tuple
+                # fit_sectors changes the client zoom to an unknown level,
+                # so invalidate the tracked zoom to prevent false dedup.
+                self._last_map_zoom_level = None
 
         if clear_plot:
             if self._last_map_highlight_path not in {None, tuple()}:

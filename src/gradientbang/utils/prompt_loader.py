@@ -128,7 +128,7 @@ def build_ui_agent_prompt() -> str:
         Complete system prompt for UI agent
     """
     parts = [
-        load_prompt("base/game_overview.md"),
+        load_prompt("base/game_overview_ui.md"),
         load_prompt("agents/ui_agent.md"),
     ]
     return "\n\n".join(parts)
