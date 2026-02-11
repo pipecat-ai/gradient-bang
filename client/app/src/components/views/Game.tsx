@@ -85,6 +85,7 @@ export const Game = () => {
           "relative z-(--z-ui) transition-opacity duration-500",
           lookMode ? disabledCx : enabledCx
         )}
+        {...(lookMode ? { inert: true } : {})}
       >
         <Panel className="flex flex-col">
           <TopBar />

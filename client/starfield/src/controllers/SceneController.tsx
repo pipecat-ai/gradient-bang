@@ -46,8 +46,10 @@ export function SceneController() {
     ) as StarfieldConfig
     state.setStarfieldConfig(mergedConfig)
 
-    // Load new game objects from scene
-    state.setGameObjects(scene.gameObjects)
+    // Load new game objects from scene, stamping them as initial
+    state.setGameObjects(
+      scene.gameObjects.map((obj) => ({ ...obj, initial: true }))
+    )
   }, [])
 
   // Apply the last scene in the queue and exit hyperspace

@@ -1,10 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo } from "react"
 
 import { motion } from "motion/react"
-import type { PerformanceProfile } from "@gradient-bang/starfield"
+import type { PerformanceProfile, PositionedGameObject } from "@gradient-bang/starfield"
 
 import { portImages, skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
+import { StarfieldPlayerCard } from "@/components/StarfieldPlayerCard"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
@@ -45,6 +46,11 @@ export const Starfield = () => {
     } else {
       useGameStore.getState().setLookAtTarget(undefined)
     }
+  }, [])
+
+  const handleTargetRest = useCallback((target: PositionedGameObject) => {
+    useGameStore.getState().setPlayerTargetId(target.id)
+    useGameStore.getState().setLookAtTarget(target.id)
   }, [])
 
   // Stable callback reference - setStarfieldReady is from zustand so it's stable
@@ -93,6 +99,7 @@ export const Starfield = () => {
     return <StarfieldFallback />
   }
 
+  console.log("lookAtTarget", lookAtTarget)
   return (
     <Suspense fallback={null}>
       <motion.div
@@ -113,8 +120,11 @@ export const Starfield = () => {
           onCreated={handleCreated}
           onSceneChangeEnd={handleSceneChangeEnd}
           onSceneChangeStart={handleSceneChangeStart}
+          onTargetRest={handleTargetRest}
         />
       </motion.div>
+
+      <StarfieldPlayerCard />
     </Suspense>
   )
 }

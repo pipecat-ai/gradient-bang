@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 
 import Starfield, {
   type GameObject,
@@ -22,6 +22,56 @@ const generateGameObjects = (sector: Sector) => {
         } as GameObject,
       ]
     : []
+}
+
+const PlayerMovement = () => {
+  const activityLog = useGameStore((state) => state.activity_log)
+  const sector = useGameStore((state) => state.sector)
+  const renderStarfield = useGameStore((state) => state.settings.renderStarfield)
+  const starfieldReady = useGameStore.use.starfieldReady()
+  const { addGameObject, removeGameObject } = useStarfieldEvent()
+
+  const addPlayer = useCallback(
+    (player: Player) => {
+      console.log("addPlayer", player)
+      addGameObject({
+        id: player.id,
+        type: "ship",
+        label: player.name,
+      })
+    },
+    [addGameObject]
+  )
+
+  const removePlayer = useCallback(
+    (player: Player) => {
+      removeGameObject(player.id)
+    },
+    [removeGameObject]
+  )
+
+  const moves = useMemo(
+    () =>
+      activityLog
+        .filter((entry) => entry.type === "character.moved" && entry.meta?.sector === sector?.id)
+        .reverse(),
+    [activityLog, sector?.id]
+  )
+
+  useEffect(() => {
+    if (moves.length <= 0 || !renderStarfield || !starfieldReady) return
+
+    moves.forEach((move) => {
+      console.log("move", move)
+      if (move.meta?.direction === "arrive") {
+        addPlayer(move.meta?.player as Player)
+      } else if (move.meta?.direction === "depart") {
+        removePlayer(move.meta?.player as Player)
+      }
+    })
+  }, [moves, renderStarfield, starfieldReady, addPlayer, removePlayer])
+
+  return null
 }
 
 /**
@@ -111,5 +161,10 @@ export default function StarfieldLazy(props: StarfieldProps) {
     return unsub
   }, [renderStarfield, changeScene])
 
-  return <Starfield {...props} onReady={onReady} />
+  return (
+    <>
+      <Starfield {...props} onReady={onReady} />
+      <PlayerMovement />
+    </>
+  )
 }

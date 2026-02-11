@@ -1,8 +1,12 @@
-import { Suspense } from "react"
+import { memo } from "react"
 
 import { useGameStore } from "@/useGameStore"
 
+import { BaseGameObject } from "./BaseGameObject"
+import { Label } from "./Label"
 import { Port } from "./Port"
+import { Ship } from "./Ship"
+import { useObjectsInFrustum } from "./useInFrustum"
 
 /*
 import { useFrame, useThree } from "@react-three/fiber"
@@ -48,37 +52,34 @@ const SelectionIndicator = ({
   )
 }
 */
-export const GameObjects = () => {
+export const GameObjects = memo(function GameObjects() {
   const positionedGameObjects = useGameStore(
     (state) => state.positionedGameObjects
   )
-  /*
-  const lookAtTarget = useGameStore((state) => state.lookAtTarget)
 
-  // Find the targeted object
-  const targetedObject = lookAtTarget
-    ? positionedGameObjects.find((obj) => obj.id === lookAtTarget)
-    : null
-    {targetedObject && (
-      <SelectionIndicator
-        position={targetedObject.position}
-        scale={targetedObject.scale}
-      />
-    )}
-  */
+  // IDs of game objects currently within the inner frustum bounds
+  const inFrustumIds = useObjectsInFrustum(positionedGameObjects)
+
+  if (!positionedGameObjects.length) {
+    return null
+  }
+
   return (
     <group name="game-objects">
       {positionedGameObjects.map((obj) => {
         switch (obj.type) {
           case "port":
             return (
-              <Suspense key={obj.id} fallback={null}>
+              <BaseGameObject key={obj.id} {...obj} fadeIn={!obj.initial}>
                 <Port {...obj} />
-              </Suspense>
+              </BaseGameObject>
             )
-          // TODO: Add other object types as they're implemented
-          // case "ship":
-          //   return <Ship key={obj.id} {...obj} />
+          case "ship":
+            return (
+              <BaseGameObject key={obj.id} {...obj} fadeIn={!obj.initial}>
+                <Ship {...obj} />
+              </BaseGameObject>
+            )
           // case "garrison":
           //   return <Garrison key={obj.id} {...obj} />
           // case "salvage":
@@ -87,6 +88,13 @@ export const GameObjects = () => {
             return null
         }
       })}
+
+      {/* Labels for game objects in the inner frustum */}
+      {positionedGameObjects
+        .filter((obj) => inFrustumIds.has(obj.id) && obj.label)
+        .map((obj) => (
+          <Label key={`label-${obj.id}`} {...obj} />
+        ))}
     </group>
   )
-}
+})

@@ -1,5 +1,10 @@
 import type { GameObject, PerformanceProfile } from "./types"
 
+export const MAX_SHIPS = 5
+
+/** NDC bounds for useObjectsInFrustum — inner 15% of the view on each axis */
+export const FRUSTUM_INNER_BOUNDS = 0.25
+
 export const LAYERS = {
   DEFAULT: 0, // Main scene objects
   SKYBOX: 1, // Nebula
