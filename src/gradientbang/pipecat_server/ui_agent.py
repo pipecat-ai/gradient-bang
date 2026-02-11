@@ -111,7 +111,14 @@ QUEUE_UI_INTENT_SCHEMA = FunctionSchema(
         },
         "from_sector": {
             "type": "integer",
-            "description": "For ports.list intents: origin sector to measure hops from.",
+            "description": (
+                "For ports.list intents: origin sector to measure hops from. "
+                "For course.plot intents: origin sector for the plotted route."
+            ),
+        },
+        "to_sector": {
+            "type": "integer",
+            "description": "For course.plot intents: destination sector for the plotted route.",
         },
         "max_hops": {
             "type": "integer",
@@ -126,7 +133,7 @@ QUEUE_UI_INTENT_SCHEMA = FunctionSchema(
         },
         "include_player_sector": {
             "type": "boolean",
-            "description": "Include the player's current sector in map_fit_sectors.",
+            "description": "Include the player's current sector in map_fit_sectors when the user wants it visible.",
         },
         "show_panel": {
             "type": "boolean",
@@ -155,7 +162,6 @@ UI_AGENT_TOOLS = ToolsSchema(
 )
 
 _CONTEXT_SUMMARY_RE = re.compile(r"<context_summary>(.*?)</context_summary>", re.DOTALL)
-_EVENT_NAME_RE = re.compile(r"<event\s+name=(?:\"([^\"]+)\"|([^\s>]+))")
 
 DEFAULT_SHIPS_CACHE_TTL_SECS = 60
 DEFAULT_STATUS_TIMEOUT_SECS = 10
@@ -163,6 +169,7 @@ DEFAULT_PORTS_LIST_TIMEOUT_SECS = 15
 DEFAULT_SHIPS_LIST_TIMEOUT_SECS = 15
 DEFAULT_COURSE_PLOT_TIMEOUT_SECS = 25
 DEFAULT_PORTS_LIST_STALE_SECS = 60
+DEFAULT_COURSE_PLOT_CACHE_TTL_SECS = 300
 DEFAULT_UI_INTENT_REQUEST_DELAY_SECS = 2.0
 DEFAULT_PORTS_LIST_MAX_HOPS = 100
 
@@ -180,6 +187,7 @@ class UIAgentContext(FrameProcessor):
         self._cached_ships_at: float | None = None
         self._cached_ships_source_ts: str | None = None
         self._cached_ships_source_epoch: float | None = None
+        self._cached_ships_event_message: dict | None = None
         self._last_run_message_count = 0
         self._pending_rerun = False
         self._inference_lock = asyncio.Lock()
@@ -242,12 +250,37 @@ class UIAgentContext(FrameProcessor):
         self._pending_intent_id = 0
         self._ports_list_cache: dict[tuple, dict] = {}
         self._ports_list_cache_seen_at: dict[tuple, float] = {}
+        self._course_plot_cache: dict[tuple[int, int], dict] = {}
+        self._course_plot_cache_seen_at: dict[tuple[int, int], float] = {}
+        self._course_plot_cache_ttl_secs = DEFAULT_COURSE_PLOT_CACHE_TTL_SECS
+        self._missing_user_warning_at: float | None = None
+        self._pending_intent_inference_requested = False
 
         # Register event listener for status.snapshot
         self._game_client.on("ships.list")(self._on_ships_list)
         self._game_client.add_event_handler("status.snapshot", self._on_status_snapshot)
         self._game_client.add_event_handler("ports.list", self._on_ports_list)
         self._game_client.add_event_handler("course.plot", self._on_course_plot)
+
+    def _safe_create_task(
+        self,
+        coroutine: "asyncio.coroutines.CoroWrapper | asyncio.Future | asyncio.Task | Any",
+        *,
+        name: str | None = None,
+    ) -> Optional[asyncio.Task]:
+        task: Optional[asyncio.Task] = None
+        try:
+            task = self.create_task(coroutine, name=name)
+        except RuntimeError as exc:
+            logger.warning(f"UI agent could not schedule task {name or ''}: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"UI agent could not schedule task {name or ''}: {exc}")
+        if task is None:
+            try:
+                coroutine.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return task
 
     # ── Ships cache ───────────────────────────────────────────────────
 
@@ -273,6 +306,7 @@ class UIAgentContext(FrameProcessor):
             self._cached_ships_at = time.time()
             self._cached_ships_source_ts = None
             self._cached_ships_source_epoch = None
+            self._cached_ships_event_message = event_message
 
             source = payload.get("source")
             if isinstance(source, dict):
@@ -283,7 +317,7 @@ class UIAgentContext(FrameProcessor):
                         self._cached_ships_source_ts = timestamp
                         self._cached_ships_source_epoch = parsed_epoch
 
-        await self._handle_ships_list_intent(payload)
+        await self._handle_ships_list_intent(event_message)
 
     @staticmethod
     def _parse_timestamp(value: str) -> float | None:
@@ -340,11 +374,12 @@ class UIAgentContext(FrameProcessor):
             return
 
         if self._is_event_message(last_message):
-            event_name = self._extract_event_name(content)
-            if event_name != "course.plot":
-                return
+            return
         elif self._is_structured_message(content):
             return
+
+        if self._has_pending_intents():
+            self._clear_all_pending_intents()
 
         # Cancel any in-progress inference (stale tool results, etc.)
         self._cancel_pending_inference()
@@ -359,7 +394,7 @@ class UIAgentContext(FrameProcessor):
                 self._pending_rerun = True
                 return
             self._inference_inflight = True
-        self.create_task(self._run_inference())
+        self._safe_create_task(self._run_inference(), name="ui_agent_run_inference")
 
     async def _run_inference(self) -> None:
         try:
@@ -367,14 +402,25 @@ class UIAgentContext(FrameProcessor):
                 await self._abort_inference()
                 return
 
-            messages = self._context.messages
-            latest_user = self._find_latest_message(messages, "user")
+            messages = list(self._context.messages)
+            if self._pending_intent_inference_requested:
+                if self._pending_intents_ready():
+                    intent_events = self._take_pending_intent_events()
+                    if intent_events:
+                        messages.extend(intent_events)
+                else:
+                    self._pending_intent_inference_requested = False
+            recent_messages, latest_assistant = self._select_recent_messages(messages)
+            latest_user = self._find_latest_user_input(recent_messages)
             if not latest_user:
-                await self._abort_inference()
-                return
+                self._warn_missing_user_input()
+                latest_user = self._find_latest_message(messages, "user") or ""
 
-            latest_assistant = self._find_latest_message(messages, "assistant")
-            user_payload = self._build_user_payload(latest_user, latest_assistant)
+            user_payload = self._build_user_payload(
+                latest_user=latest_user,
+                latest_assistant=latest_assistant,
+                recent_messages=recent_messages,
+            )
 
             prompt = build_ui_agent_prompt()
 
@@ -401,7 +447,7 @@ class UIAgentContext(FrameProcessor):
                 LLMContextFrame(context=context),
                 FrameDirection.DOWNSTREAM,
             )
-            self._last_run_message_count = len(messages)
+            self._last_run_message_count = len(self._context.messages)
         except Exception as exc:  # noqa: BLE001
             logger.exception(f"UI agent inference failed: {exc}")
             await self._abort_inference()
@@ -441,6 +487,87 @@ class UIAgentContext(FrameProcessor):
             self._status_timeout_task.cancel()
             self._status_timeout_task = None
 
+    def _has_pending_intents(self) -> bool:
+        return any(
+            intent is not None
+            for intent in (
+                self._pending_ports_list_intent,
+                self._pending_ships_list_intent,
+                self._pending_course_plot_intent,
+            )
+        )
+
+    def _clear_all_pending_intents(self) -> None:
+        if not self._has_pending_intents():
+            return
+        logger.debug("UI agent clearing pending intents due to new user input")
+        self._clear_pending_ports_list_intent()
+        self._clear_pending_ships_list_intent()
+        self._clear_pending_course_plot_intent()
+        self._pending_intent_inference_requested = False
+
+    def _pending_intents_ready(self) -> bool:
+        active: list[dict] = []
+        for intent in (
+            self._pending_ports_list_intent,
+            self._pending_ships_list_intent,
+            self._pending_course_plot_intent,
+        ):
+            if intent:
+                active.append(intent)
+        if not active:
+            return False
+        return all(intent.get("event_xml") for intent in active)
+
+    def _format_event_xml(self, event_name: str, event_message: dict) -> str:
+        summary = event_message.get("summary")
+        if not isinstance(summary, str) or not summary.strip():
+            payload = event_message.get("payload", event_message)
+            try:
+                summary = json.dumps(payload, ensure_ascii=True, indent=2)
+            except Exception:
+                summary = str(payload)
+        return f'<event name="{event_name}">\n{summary}\n</event>'
+
+    def _set_intent_event(self, pending: dict, event_name: str, event_message: dict) -> None:
+        pending["event_xml"] = self._format_event_xml(event_name, event_message)
+        pending["event_received_at"] = time.time()
+
+    def _take_pending_intent_events(self) -> list[dict]:
+        events: list[tuple[float, str]] = []
+        for intent in (
+            self._pending_ports_list_intent,
+            self._pending_ships_list_intent,
+            self._pending_course_plot_intent,
+        ):
+            if not intent:
+                continue
+            event_xml = intent.get("event_xml")
+            if isinstance(event_xml, str) and event_xml:
+                received_at = intent.get("event_received_at")
+                timestamp = received_at if isinstance(received_at, (int, float)) else 0.0
+                events.append((timestamp, event_xml))
+
+        events.sort(key=lambda item: item[0])
+
+        self._clear_pending_ports_list_intent()
+        self._clear_pending_ships_list_intent()
+        self._clear_pending_course_plot_intent()
+        self._pending_intent_inference_requested = False
+
+        return [
+            {"role": "user", "content": event_xml, "_ui_intent_event": True}
+            for _, event_xml in events
+        ]
+
+    async def _maybe_trigger_pending_intent_inference(self) -> None:
+        if not self._pending_intents_ready():
+            return
+        if self._pending_intent_inference_requested:
+            return
+        self._pending_intent_inference_requested = True
+        await self._schedule_inference()
+
     def _next_intent_id(self) -> int:
         self._pending_intent_id += 1
         return self._pending_intent_id
@@ -467,12 +594,15 @@ class UIAgentContext(FrameProcessor):
             "include_player_sector": include_player_sector,
             "show_panel": show_panel,
             "expires_at": expires_at,
+            "event_xml": None,
+            "event_received_at": None,
         }
 
         if self._ports_list_timeout_task and not self._ports_list_timeout_task.done():
             self._ports_list_timeout_task.cancel()
-        self._ports_list_timeout_task = self.create_task(
-            self._ports_list_intent_timeout(intent_id, expires_at)
+        self._ports_list_timeout_task = self._safe_create_task(
+            self._ports_list_intent_timeout(intent_id, expires_at),
+            name="ports_list_intent_timeout",
         )
         return intent_id
 
@@ -498,18 +628,23 @@ class UIAgentContext(FrameProcessor):
             "include_player_sector": include_player_sector,
             "show_panel": show_panel,
             "expires_at": expires_at,
+            "event_xml": None,
+            "event_received_at": None,
         }
 
         if self._ships_list_timeout_task and not self._ships_list_timeout_task.done():
             self._ships_list_timeout_task.cancel()
-        self._ships_list_timeout_task = self.create_task(
-            self._ships_list_intent_timeout(intent_id, expires_at)
+        self._ships_list_timeout_task = self._safe_create_task(
+            self._ships_list_intent_timeout(intent_id, expires_at),
+            name="ships_list_intent_timeout",
         )
         return intent_id
 
     def _set_pending_course_plot_intent(
         self,
         *,
+        from_sector: int | None,
+        to_sector: int | None,
         include_player_sector: bool,
         show_panel: bool,
         expires_in_secs: float | None,
@@ -524,15 +659,20 @@ class UIAgentContext(FrameProcessor):
         expires_at = time.time() + timeout_secs
         self._pending_course_plot_intent = {
             "id": intent_id,
+            "from_sector": from_sector,
+            "to_sector": to_sector,
             "include_player_sector": include_player_sector,
             "show_panel": show_panel,
             "expires_at": expires_at,
+            "event_xml": None,
+            "event_received_at": None,
         }
 
         if self._course_plot_timeout_task and not self._course_plot_timeout_task.done():
             self._course_plot_timeout_task.cancel()
-        self._course_plot_timeout_task = self.create_task(
-            self._course_plot_intent_timeout(intent_id, expires_at)
+        self._course_plot_timeout_task = self._safe_create_task(
+            self._course_plot_intent_timeout(intent_id, expires_at),
+            name="course_plot_intent_timeout",
         )
         return intent_id
 
@@ -544,6 +684,7 @@ class UIAgentContext(FrameProcessor):
         if self._ports_list_request_task and not self._ports_list_request_task.done():
             self._ports_list_request_task.cancel()
             self._ports_list_request_task = None
+        self._pending_intent_inference_requested = False
 
     def _clear_pending_ships_list_intent(self) -> None:
         self._pending_ships_list_intent = None
@@ -553,12 +694,14 @@ class UIAgentContext(FrameProcessor):
         if self._ships_list_request_task and not self._ships_list_request_task.done():
             self._ships_list_request_task.cancel()
             self._ships_list_request_task = None
+        self._pending_intent_inference_requested = False
 
     def _clear_pending_course_plot_intent(self) -> None:
         self._pending_course_plot_intent = None
         if self._course_plot_timeout_task and not self._course_plot_timeout_task.done():
             self._course_plot_timeout_task.cancel()
             self._course_plot_timeout_task = None
+        self._pending_intent_inference_requested = False
 
     async def _ports_list_intent_timeout(self, intent_id: int, expires_at: float) -> None:
         try:
@@ -572,7 +715,13 @@ class UIAgentContext(FrameProcessor):
         if not pending or pending.get("id") != intent_id:
             return
         self._pending_ports_list_intent = None
+        if self._ports_list_request_task and not self._ports_list_request_task.done():
+            self._ports_list_request_task.cancel()
+            self._ports_list_request_task = None
+        self._ports_list_timeout_task = None
+        self._pending_intent_inference_requested = False
         logger.debug("UI agent ports.list intent expired before event arrival")
+        await self._maybe_trigger_pending_intent_inference()
 
     async def _ships_list_intent_timeout(self, intent_id: int, expires_at: float) -> None:
         try:
@@ -586,7 +735,13 @@ class UIAgentContext(FrameProcessor):
         if not pending or pending.get("id") != intent_id:
             return
         self._pending_ships_list_intent = None
+        if self._ships_list_request_task and not self._ships_list_request_task.done():
+            self._ships_list_request_task.cancel()
+            self._ships_list_request_task = None
+        self._ships_list_timeout_task = None
+        self._pending_intent_inference_requested = False
         logger.debug("UI agent ships.list intent expired before event arrival")
+        await self._maybe_trigger_pending_intent_inference()
 
     async def _course_plot_intent_timeout(self, intent_id: int, expires_at: float) -> None:
         try:
@@ -600,7 +755,10 @@ class UIAgentContext(FrameProcessor):
         if not pending or pending.get("id") != intent_id:
             return
         self._pending_course_plot_intent = None
+        self._course_plot_timeout_task = None
+        self._pending_intent_inference_requested = False
         logger.debug("UI agent course.plot intent expired before event arrival")
+        await self._maybe_trigger_pending_intent_inference()
 
     @staticmethod
     def _ports_list_filters_match(payload: dict, filters: dict) -> bool:
@@ -623,10 +781,13 @@ class UIAgentContext(FrameProcessor):
             filters.get("max_hops"),
         )
 
-    def _cache_ports_list_payload(self, payload: dict) -> None:
+    def _cache_ports_list_event(self, event_message: dict) -> None:
+        payload = event_message.get("payload", event_message)
+        if not isinstance(payload, dict):
+            return
         self._prune_ports_list_cache()
         signature = self._ports_list_signature(payload)
-        self._ports_list_cache[signature] = payload
+        self._ports_list_cache[signature] = event_message
         self._ports_list_cache_seen_at[signature] = time.time()
 
     def _prune_ports_list_cache(self, now: float | None = None) -> None:
@@ -641,7 +802,7 @@ class UIAgentContext(FrameProcessor):
                 self._ports_list_cache_seen_at.pop(signature, None)
                 self._ports_list_cache.pop(signature, None)
 
-    def _get_cached_ports_list(self, filters: dict) -> dict | None:
+    def _get_cached_ports_list_event(self, filters: dict) -> dict | None:
         self._prune_ports_list_cache()
         signature = self._ports_list_signature(filters)
         seen_at = self._ports_list_cache_seen_at.get(signature)
@@ -652,13 +813,51 @@ class UIAgentContext(FrameProcessor):
             return None
         return self._ports_list_cache.get(signature)
 
+    def _prune_course_plot_cache(self, now: float | None = None) -> None:
+        if self._course_plot_cache_ttl_secs <= 0:
+            self._course_plot_cache.clear()
+            self._course_plot_cache_seen_at.clear()
+            return
+        now = time.time() if now is None else now
+        cutoff = now - self._course_plot_cache_ttl_secs
+        for signature, seen_at in list(self._course_plot_cache_seen_at.items()):
+            if seen_at < cutoff:
+                self._course_plot_cache_seen_at.pop(signature, None)
+                self._course_plot_cache.pop(signature, None)
+
+    def _cache_course_plot_event(self, event_message: dict) -> None:
+        payload = event_message.get("payload", event_message)
+        if not isinstance(payload, dict):
+            return
+        from_sector = payload.get("from_sector")
+        to_sector = payload.get("to_sector")
+        if not isinstance(from_sector, int) or not isinstance(to_sector, int):
+            return
+        signature = (from_sector, to_sector)
+        self._prune_course_plot_cache()
+        self._course_plot_cache[signature] = event_message
+        self._course_plot_cache_seen_at[signature] = time.time()
+
+    def _get_cached_course_plot_event(
+        self,
+        from_sector: int | None,
+        to_sector: int | None,
+    ) -> dict | None:
+        self._prune_course_plot_cache()
+        if isinstance(from_sector, int) and isinstance(to_sector, int):
+            return self._course_plot_cache.get((from_sector, to_sector))
+        if not self._course_plot_cache_seen_at:
+            return None
+        latest_signature = max(self._course_plot_cache_seen_at.items(), key=lambda item: item[1])[0]
+        return self._course_plot_cache.get(latest_signature)
+
     async def _delayed_ports_list_request(self, intent_id: int, filters: dict) -> None:
         try:
             await asyncio.sleep(self._intent_request_delay_secs)
             pending = self._pending_ports_list_intent
             if not pending or pending.get("id") != intent_id:
                 return
-            if self._get_cached_ports_list(filters) is not None:
+            if self._get_cached_ports_list_event(filters) is not None:
                 return
             await self._game_client.list_known_ports(
                 character_id=self._game_client.character_id,
@@ -701,6 +900,8 @@ class UIAgentContext(FrameProcessor):
         if not isinstance(payload, dict):
             return
 
+        self._cache_ports_list_event(event_message)
+
         pending = self._pending_ports_list_intent
         if not pending:
             return
@@ -720,58 +921,22 @@ class UIAgentContext(FrameProcessor):
         if expected_player_id and payload_player_id and expected_player_id != payload_player_id:
             return
 
-        ports = payload.get("ports")
-        if not isinstance(ports, list):
-            self._clear_pending_ports_list_intent()
-            return
-
-        self._cache_ports_list_payload(payload)
         if self._ports_list_request_task and not self._ports_list_request_task.done():
             self._ports_list_request_task.cancel()
             self._ports_list_request_task = None
 
-        sector_ids: list[int] = []
-        for port_info in ports:
-            if not isinstance(port_info, dict):
-                continue
-            sector = port_info.get("sector")
-            if not isinstance(sector, dict):
-                continue
-            sector_id = sector.get("id")
-            if isinstance(sector_id, int):
-                sector_ids.append(sector_id)
+        if self._ports_list_timeout_task and not self._ports_list_timeout_task.done():
+            self._ports_list_timeout_task.cancel()
+            self._ports_list_timeout_task = None
 
-        include_player_sector = pending.get("include_player_sector", True)
-        if include_player_sector:
-            player_sector = getattr(self._game_client, "_current_sector", None)
-            if isinstance(player_sector, int) and player_sector not in sector_ids:
-                sector_ids.append(player_sector)
+        self._set_intent_event(pending, "ports.list", event_message)
+        await self._maybe_trigger_pending_intent_inference()
 
-        if not sector_ids:
-            self._clear_pending_ports_list_intent()
+    async def _handle_ships_list_intent(self, event_message: dict) -> None:
+        payload = event_message.get("payload", event_message)
+        if not isinstance(payload, dict):
             return
 
-        unique_sectors = list(dict.fromkeys(sector_ids))
-        arguments = {"map_fit_sectors": unique_sectors}
-        if pending.get("show_panel", True):
-            arguments["show_panel"] = "map"
-        should_send = self._apply_control_ui_dedupe(arguments)
-        if should_send:
-            await self._rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {
-                        "frame_type": "event",
-                        "event": "ui-action",
-                        "payload": {"ui-action": "control_ui", **arguments},
-                    }
-                )
-            )
-        else:
-            logger.debug("UI agent skipped no-op control_ui action (ports.list)")
-
-        self._clear_pending_ports_list_intent()
-
-    async def _handle_ships_list_intent(self, payload: dict) -> None:
         pending = self._pending_ships_list_intent
         if not pending:
             return
@@ -787,63 +952,22 @@ class UIAgentContext(FrameProcessor):
         if expected_player_id and payload_player_id and expected_player_id != payload_player_id:
             return
 
-        ships = payload.get("ships")
-        if not isinstance(ships, list):
-            self._clear_pending_ships_list_intent()
-            return
-
         if self._ships_list_request_task and not self._ships_list_request_task.done():
             self._ships_list_request_task.cancel()
             self._ships_list_request_task = None
 
-        ship_scope = pending.get("ship_scope") or "all"
-        sector_ids: list[int] = []
-        for ship in ships:
-            if not isinstance(ship, dict):
-                continue
-            owner_type = ship.get("owner_type")
-            if ship_scope == "corporation" and owner_type != "corporation":
-                continue
-            if ship_scope == "personal" and owner_type != "personal":
-                continue
-            sector = ship.get("sector")
-            if isinstance(sector, int):
-                sector_ids.append(sector)
+        if self._ships_list_timeout_task and not self._ships_list_timeout_task.done():
+            self._ships_list_timeout_task.cancel()
+            self._ships_list_timeout_task = None
 
-        include_player_sector = pending.get("include_player_sector", True)
-        if include_player_sector:
-            player_sector = getattr(self._game_client, "_current_sector", None)
-            if isinstance(player_sector, int) and player_sector not in sector_ids:
-                sector_ids.append(player_sector)
-
-        if not sector_ids:
-            self._clear_pending_ships_list_intent()
-            return
-
-        unique_sectors = list(dict.fromkeys(sector_ids))
-        arguments = {"map_fit_sectors": unique_sectors}
-        if pending.get("show_panel", True):
-            arguments["show_panel"] = "map"
-        should_send = self._apply_control_ui_dedupe(arguments)
-        if should_send:
-            await self._rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {
-                        "frame_type": "event",
-                        "event": "ui-action",
-                        "payload": {"ui-action": "control_ui", **arguments},
-                    }
-                )
-            )
-        else:
-            logger.debug("UI agent skipped no-op control_ui action (ships.list)")
-
-        self._clear_pending_ships_list_intent()
+        self._set_intent_event(pending, "ships.list", event_message)
+        await self._maybe_trigger_pending_intent_inference()
 
     async def _on_course_plot(self, event_message: dict) -> None:
         payload = event_message.get("payload", event_message)
         if not isinstance(payload, dict):
             return
+        self._cache_course_plot_event(event_message)
 
         pending = self._pending_course_plot_intent
         if not pending:
@@ -860,44 +984,18 @@ class UIAgentContext(FrameProcessor):
         if expected_player_id and payload_player_id and expected_player_id != payload_player_id:
             return
 
-        path = payload.get("path")
-        if not isinstance(path, list):
-            self._clear_pending_course_plot_intent()
-            return
+        from_sector = pending.get("from_sector")
+        to_sector = pending.get("to_sector")
+        if isinstance(from_sector, int) and isinstance(to_sector, int):
+            if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
+                return
 
-        path_ids = [sector for sector in path if isinstance(sector, int)]
-        include_player_sector = pending.get("include_player_sector", True)
-        fit_sectors = list(dict.fromkeys(path_ids))
-        if include_player_sector:
-            player_sector = getattr(self._game_client, "_current_sector", None)
-            if isinstance(player_sector, int) and player_sector not in fit_sectors:
-                fit_sectors.append(player_sector)
+        if self._course_plot_timeout_task and not self._course_plot_timeout_task.done():
+            self._course_plot_timeout_task.cancel()
+            self._course_plot_timeout_task = None
 
-        if not fit_sectors:
-            self._clear_pending_course_plot_intent()
-            return
-
-        arguments = {
-            "map_highlight_path": path_ids,
-            "map_fit_sectors": fit_sectors,
-        }
-        if pending.get("show_panel", True):
-            arguments["show_panel"] = "map"
-        should_send = self._apply_control_ui_dedupe(arguments)
-        if should_send:
-            await self._rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {
-                        "frame_type": "event",
-                        "event": "ui-action",
-                        "payload": {"ui-action": "control_ui", **arguments},
-                    }
-                )
-            )
-        else:
-            logger.debug("UI agent skipped no-op control_ui action (course.plot)")
-
-        self._clear_pending_course_plot_intent()
+        self._set_intent_event(pending, "course.plot", event_message)
+        await self._maybe_trigger_pending_intent_inference()
 
     # ── Message helpers ───────────────────────────────────────────────
 
@@ -907,16 +1005,18 @@ class UIAgentContext(FrameProcessor):
         return stripped.startswith("<task_progress") or stripped.startswith("<start_of_session")
 
     @staticmethod
+    def _is_non_conversational_text(content: str) -> bool:
+        stripped = content.lstrip()
+        return (
+            stripped.startswith("<event")
+            or stripped.startswith("<task_progress")
+            or stripped.startswith("<start_of_session")
+        )
+
+    @staticmethod
     def _is_event_message(last_message: dict) -> bool:
         frame = LLMMessagesAppendFrame(messages=[last_message])
         return PreLLMInferenceGate._is_event_message(frame)
-
-    @staticmethod
-    def _extract_event_name(content: str) -> str | None:
-        match = _EVENT_NAME_RE.search(content)
-        if not match:
-            return None
-        return match.group(1) or match.group(2)
 
     @staticmethod
     def _normalize_message_content(value: Any) -> str:
@@ -927,6 +1027,82 @@ class UIAgentContext(FrameProcessor):
         except Exception:
             return str(value)
 
+    @classmethod
+    def _content_text_parts(cls, content: Any) -> list[str]:
+        parts: list[str] = []
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, dict):
+            text = content.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+        elif isinstance(content, list):
+            for item in content:
+                parts.extend(cls._content_text_parts(item))
+        return parts
+
+    @classmethod
+    def _message_text_parts(cls, msg: dict) -> list[str]:
+        if not isinstance(msg, dict):
+            return []
+        parts: list[str] = []
+        if "content" in msg:
+            parts.extend(cls._content_text_parts(msg.get("content")))
+        if "parts" in msg:
+            parts.extend(cls._content_text_parts(msg.get("parts")))
+        return parts
+
+    @classmethod
+    def _message_text(cls, msg: dict) -> str | None:
+        parts = [part.strip() for part in cls._message_text_parts(msg) if isinstance(part, str)]
+        parts = [part for part in parts if part]
+        if not parts:
+            return None
+        return "\n".join(parts)
+
+    @staticmethod
+    def _is_assistant_role(role: str | None) -> bool:
+        return role in ("assistant", "model")
+
+    def _is_textual_assistant_message(self, msg: dict) -> bool:
+        if not isinstance(msg, dict):
+            return False
+        if not self._is_assistant_role(msg.get("role")):
+            return False
+        parts = self._message_text_parts(msg)
+        return any(part.strip() for part in parts if isinstance(part, str))
+
+    def _is_real_user_message(self, msg: dict) -> bool:
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            return False
+        if self._is_event_message(msg):
+            return False
+        parts = self._message_text_parts(msg)
+        if not parts:
+            return False
+        for part in parts:
+            if isinstance(part, str) and not self._is_non_conversational_text(part):
+                return True
+        return False
+
+    def _is_event_or_structured_message(self, msg: dict) -> bool:
+        parts = self._message_text_parts(msg)
+        if not parts:
+            return True
+        return all(
+            isinstance(part, str) and self._is_non_conversational_text(part) for part in parts
+        )
+
+    def _warn_missing_user_input(self) -> None:
+        now = time.time()
+        last = self._missing_user_warning_at
+        if last is None or (now - last) > 60:
+            logger.warning("UI agent missing real user input in recent messages.")
+            self._missing_user_warning_at = now
+
+    def _reset_missing_user_warning(self) -> None:
+        self._missing_user_warning_at = None
+
     @staticmethod
     def _find_latest_message(messages: list[dict], role: str) -> str | None:
         for msg in reversed(messages):
@@ -934,9 +1110,18 @@ class UIAgentContext(FrameProcessor):
                 return UIAgentContext._normalize_message_content(msg.get("content"))
         return None
 
-    def _build_user_payload(self, latest_user: str, latest_assistant: str | None) -> str:
+    def _build_user_payload(
+        self,
+        *,
+        latest_user: str,
+        latest_assistant: str | None,
+        recent_messages: list[dict],
+    ) -> str:
         summary = self._context_summary.strip() or "(no prior UI summary)"
         ships_block = self._format_ships_block()
+        recent_block = self._format_recent_messages(recent_messages)
+        pending_intents_block = self._format_pending_intents_block()
+        pending_events_block = self._format_pending_intent_events_block()
 
         parts = [
             "Latest user message:",
@@ -945,12 +1130,128 @@ class UIAgentContext(FrameProcessor):
             "Latest assistant message:",
             (latest_assistant or "(none)").strip(),
             "",
+            recent_block,
+            "",
+            pending_intents_block,
+            "",
+            pending_events_block,
+            "",
             "Current UI context summary:",
             f"<context_summary>\n{summary}\n</context_summary>",
             "",
             ships_block,
         ]
         return "\n".join(parts).strip()
+
+    def _select_recent_messages(self, messages: list[dict]) -> tuple[list[dict], str | None]:
+        max_messages = 20
+        last_assistant_index: int | None = None
+        latest_assistant: str | None = None
+        for idx in range(len(messages) - 1, -1, -1):
+            msg = messages[idx]
+            if self._is_textual_assistant_message(msg):
+                last_assistant_index = idx
+                latest_assistant = self._message_text(msg)
+                if not latest_assistant:
+                    content = msg.get("content") if isinstance(msg, dict) else None
+                    if content is not None:
+                        latest_assistant = self._normalize_message_content(content)
+                break
+
+        if last_assistant_index is None:
+            start_index = max(0, len(messages) - max_messages)
+        else:
+            start_index = last_assistant_index
+
+        recent_messages = messages[start_index:]
+
+        if not any(self._is_real_user_message(msg) for msg in recent_messages):
+            user_index = None
+            for idx in range(start_index - 1, -1, -1):
+                if self._is_real_user_message(messages[idx]):
+                    user_index = idx
+                    break
+            if user_index is not None:
+                start_index = user_index
+                recent_messages = messages[start_index:]
+                self._reset_missing_user_warning()
+            else:
+                self._warn_missing_user_input()
+
+        if not any(self._is_textual_assistant_message(msg) for msg in recent_messages):
+            assistant_index = None
+            for idx in range(start_index - 1, -1, -1):
+                if self._is_textual_assistant_message(messages[idx]):
+                    assistant_index = idx
+                    break
+            if assistant_index is not None:
+                start_index = assistant_index
+                recent_messages = messages[start_index:]
+
+        required_indices: set[int] = set()
+        for idx in range(len(recent_messages) - 1, -1, -1):
+            if self._is_real_user_message(recent_messages[idx]):
+                required_indices.add(idx)
+                break
+        for idx in range(len(recent_messages) - 1, -1, -1):
+            if self._is_textual_assistant_message(recent_messages[idx]):
+                required_indices.add(idx)
+                break
+        for idx, msg in enumerate(recent_messages):
+            if isinstance(msg, dict) and msg.get("_ui_intent_event"):
+                required_indices.add(idx)
+
+        if len(recent_messages) > max_messages:
+            drop_order: list[int] = []
+            for idx, msg in enumerate(recent_messages):
+                if idx in required_indices:
+                    continue
+                if self._is_event_or_structured_message(msg):
+                    drop_order.append(idx)
+            for idx in range(len(recent_messages)):
+                if idx in required_indices or idx in drop_order:
+                    continue
+                drop_order.append(idx)
+            to_drop = len(recent_messages) - max_messages
+            keep = [True] * len(recent_messages)
+            for idx in drop_order:
+                if to_drop <= 0:
+                    break
+                keep[idx] = False
+                to_drop -= 1
+            recent_messages = [
+                msg for idx, msg in enumerate(recent_messages) if keep[idx]
+            ]
+
+        return recent_messages, latest_assistant
+
+    def _find_latest_user_input(self, messages: list[dict]) -> str | None:
+        for msg in reversed(messages):
+            if not self._is_real_user_message(msg):
+                continue
+            message_text = self._message_text(msg)
+            if message_text:
+                self._reset_missing_user_warning()
+                return message_text
+            content = msg.get("content") if isinstance(msg, dict) else None
+            if content is not None:
+                self._reset_missing_user_warning()
+                return self._normalize_message_content(content)
+        return None
+
+    def _format_recent_messages(self, messages: list[dict]) -> str:
+        if not messages:
+            return "Recent conversation messages: (none)"
+        lines = ["Recent conversation messages (from last assistant):"]
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role") or "unknown"
+            content = self._message_text(msg)
+            if not content:
+                continue
+            lines.append(f"[{role}] {content}")
+        return "\n".join(lines)
 
     def _format_ships_block(self) -> str:
         if not self._ships_cache_is_fresh():
@@ -973,6 +1274,39 @@ class UIAgentContext(FrameProcessor):
         except Exception:
             ships_json = str(self._cached_ships)
         return f"Recent ships list {meta_line}:\n{ships_json}"
+
+    def _format_pending_intents_block(self) -> str:
+        names: list[str] = []
+        if self._pending_ports_list_intent:
+            names.append("ports.list")
+        if self._pending_ships_list_intent:
+            names.append("ships.list")
+        if self._pending_course_plot_intent:
+            names.append("course.plot")
+        if not names:
+            return "Pending UI intents: (none)"
+        lines = ["Pending UI intents:"]
+        for name in names:
+            lines.append(f"- {name}")
+        return "\n".join(lines)
+
+    def _format_pending_intent_events_block(self) -> str:
+        events: list[str] = []
+        for intent in (
+            self._pending_ports_list_intent,
+            self._pending_ships_list_intent,
+            self._pending_course_plot_intent,
+        ):
+            if not intent:
+                continue
+            event_xml = intent.get("event_xml")
+            if isinstance(event_xml, str) and event_xml.strip():
+                events.append(event_xml.strip())
+        if not events:
+            return "Pending intent events: (none)"
+        lines = ["Pending intent events:"]
+        lines.extend(events)
+        return "\n".join(lines)
 
     # ── Tool call handlers ────────────────────────────────────────────
 
@@ -1000,7 +1334,7 @@ class UIAgentContext(FrameProcessor):
         clear_existing = arguments.get("clear_existing")
         replace_existing = True if clear_existing is None else bool(clear_existing)
         include_player_sector = arguments.get("include_player_sector")
-        include_player_sector = True if include_player_sector is None else bool(include_player_sector)
+        include_player_sector = False if include_player_sector is None else bool(include_player_sector)
         show_panel = arguments.get("show_panel")
         show_panel = True if show_panel is None else bool(show_panel)
         expires_in_secs = arguments.get("expires_in_secs")
@@ -1039,15 +1373,16 @@ class UIAgentContext(FrameProcessor):
                     expires_in_secs=expires_override,
                     replace_existing=replace_existing,
                 )
-                cached_payload = self._get_cached_ports_list(filters)
-                if cached_payload is not None:
-                    await self._on_ports_list({"payload": cached_payload})
+                cached_event = self._get_cached_ports_list_event(filters)
+                if cached_event is not None:
+                    await self._on_ports_list(cached_event)
                 pending = self._pending_ports_list_intent
-                if pending and pending.get("id") == intent_id:
+                if pending and pending.get("id") == intent_id and not pending.get("event_xml"):
                     if self._ports_list_request_task and not self._ports_list_request_task.done():
                         self._ports_list_request_task.cancel()
-                    self._ports_list_request_task = self.create_task(
-                        self._delayed_ports_list_request(intent_id, filters)
+                    self._ports_list_request_task = self._safe_create_task(
+                        self._delayed_ports_list_request(intent_id, filters),
+                        name="ports_list_request",
                     )
             elif intent_type == "ships.list":
                 ship_scope = arguments.get("ship_scope") or "all"
@@ -1061,25 +1396,41 @@ class UIAgentContext(FrameProcessor):
                     replace_existing=replace_existing,
                 )
                 if self._ships_cache_is_fresh():
-                    payload = {"ships": list(self._cached_ships)}
-                    expected_player_id = getattr(self._game_client, "character_id", None)
-                    if expected_player_id:
-                        payload["player"] = {"id": expected_player_id}
-                    await self._handle_ships_list_intent(payload)
+                    cached_event = self._cached_ships_event_message
+                    if cached_event is None:
+                        payload = {"ships": list(self._cached_ships)}
+                        expected_player_id = getattr(self._game_client, "character_id", None)
+                        if expected_player_id:
+                            payload["player"] = {"id": expected_player_id}
+                        cached_event = {"event_name": "ships.list", "payload": payload}
+                    await self._handle_ships_list_intent(cached_event)
                 pending = self._pending_ships_list_intent
-                if pending and pending.get("id") == intent_id:
+                if pending and pending.get("id") == intent_id and not pending.get("event_xml"):
                     if self._ships_list_request_task and not self._ships_list_request_task.done():
                         self._ships_list_request_task.cancel()
-                    self._ships_list_request_task = self.create_task(
-                        self._delayed_ships_list_request(intent_id)
+                    self._ships_list_request_task = self._safe_create_task(
+                        self._delayed_ships_list_request(intent_id),
+                        name="ships_list_request",
                     )
             else:
+                from_sector = arguments.get("from_sector")
+                if from_sector is not None and not isinstance(from_sector, int):
+                    from_sector = int(from_sector)
+                to_sector = arguments.get("to_sector")
+                if to_sector is not None and not isinstance(to_sector, int):
+                    to_sector = int(to_sector)
+
                 intent_id = self._set_pending_course_plot_intent(
+                    from_sector=from_sector,
+                    to_sector=to_sector,
                     include_player_sector=include_player_sector,
                     show_panel=show_panel,
                     expires_in_secs=expires_override,
                     replace_existing=replace_existing,
                 )
+                cached_event = self._get_cached_course_plot_event(from_sector, to_sector)
+                if cached_event is not None:
+                    await self._on_course_plot(cached_event)
 
             result = {"success": True, "intent_type": intent_type, "intent_id": intent_id}
         except Exception as exc:  # noqa: BLE001
@@ -1098,13 +1449,6 @@ class UIAgentContext(FrameProcessor):
 
     async def handle_control_ui(self, params: FunctionCallParams) -> None:
         arguments = params.arguments if isinstance(params.arguments, dict) else {}
-
-        # Ensure the player's current sector is included in map_fit_sectors
-        fit_sectors = arguments.get("map_fit_sectors")
-        if isinstance(fit_sectors, list):
-            player_sector = getattr(self._game_client, "_current_sector", None)
-            if isinstance(player_sector, int) and player_sector not in fit_sectors:
-                arguments["map_fit_sectors"] = [*fit_sectors, player_sector]
 
         logger.debug(f"UI agent control_ui args: {arguments}")
 
@@ -1183,7 +1527,7 @@ class UIAgentContext(FrameProcessor):
                 logger.error(f"UI agent corporation_info failed: {exc}")
                 self._record_tool_result(tool_call_id, {"error": str(exc)})
 
-        self.create_task(_fetch())
+        self._safe_create_task(_fetch(), name="corp_info_fetch")
 
         await params.result_callback(
             {"status": "pending"},
@@ -1254,7 +1598,10 @@ class UIAgentContext(FrameProcessor):
             except asyncio.CancelledError:
                 pass
 
-        self._status_timeout_task = self.create_task(_timeout())
+        self._status_timeout_task = self._safe_create_task(
+            _timeout(),
+            name="status_snapshot_timeout",
+        )
 
         await params.result_callback(
             {"status": "pending"},
@@ -1376,12 +1723,15 @@ class UIAgentContext(FrameProcessor):
             return  # async tool results still pending
 
         if self._had_tool_calls:
-            self.create_task(self._push_rerun_inference())
+            self._safe_create_task(self._push_rerun_inference(), name="ui_agent_rerun")
             return
 
         # Text-only response (or only control_ui which doesn't set _had_tool_calls)
         summary = self._extract_summary(self._response_text)
-        self.create_task(self._async_on_inference_complete(summary))
+        self._safe_create_task(
+            self._async_on_inference_complete(summary),
+            name="ui_agent_inference_complete",
+        )
 
     async def _async_on_inference_complete(self, summary: str | None) -> None:
         await self.on_inference_complete(summary)
@@ -1405,11 +1755,23 @@ class UIAgentContext(FrameProcessor):
                 should_rerun = True
                 self._pending_rerun = False
             elif self._context and isinstance(self._context.messages, list):
-                if len(self._context.messages) != self._last_run_message_count:
+                if self._has_new_real_user_message(
+                    self._context.messages, self._last_run_message_count
+                ):
                     should_rerun = True
 
         if should_rerun:
             await self._schedule_inference()
+
+    def _has_new_real_user_message(self, messages: list[dict], since_index: int) -> bool:
+        if since_index < 0:
+            since_index = 0
+        if since_index >= len(messages):
+            return False
+        for msg in messages[since_index:]:
+            if self._is_real_user_message(msg):
+                return True
+        return False
 
     @staticmethod
     def _extract_summary(text: str) -> str | None:

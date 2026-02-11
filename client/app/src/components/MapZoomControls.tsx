@@ -29,9 +29,9 @@ export const MapZoomControls = () => {
   }, [currentIndex])
 
   useEffect(() => {
-    const targetZoom = ZOOM_LEVELS[currentIndex]
-    if (mapZoomLevel === undefined || mapZoomLevel !== targetZoom) {
-      setMapZoomLevel?.(targetZoom)
+    if (mapZoomLevel === undefined) {
+      // Initialize once without snapping programmatic zooms to discrete levels.
+      setMapZoomLevel?.(ZOOM_LEVELS[currentIndex])
     }
   }, [currentIndex, mapZoomLevel, setMapZoomLevel])
 

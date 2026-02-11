@@ -612,11 +612,8 @@ export function GameProvider({ children }: GameProviderProps) {
 
               const data = e.payload as MapLocalMessage
               gameStore.setRegionalMapData(data.sectors)
-              if (Array.isArray(data.fit_sectors) && typeof data.bounds === "number") {
-                const clamped = Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, data.bounds))
-                gameStore.setMapCenterSector(data.center_sector)
-                gameStore.setMapZoomLevel(clamped)
-                gameStore.clearPendingMapFit()
+              if (Array.isArray(data.fit_sectors) && data.fit_sectors.length > 0) {
+                gameStore.fitMapToSectors(data.fit_sectors)
               }
               break
             }
@@ -1102,6 +1099,8 @@ export function GameProvider({ children }: GameProviderProps) {
               }
 
               if (mapCenter !== undefined) {
+                gameStore.setMapCenterWorld?.(undefined)
+                gameStore.setMapFitBoundsWorld?.(undefined)
                 const state = useGameStore.getState()
                 const mapData: MapData = [
                   ...(state.local_map_data ?? []),

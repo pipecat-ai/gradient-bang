@@ -139,6 +139,11 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
   const dispatchAction = useGameStore.use.dispatchAction?.()
   const mapCenterSector = useGameStore.use.mapCenterSector?.()
   const setMapCenterSector = useGameStore.use.setMapCenterSector?.()
+  const mapCenterWorld = useGameStore.use.mapCenterWorld?.()
+  const setMapCenterWorld = useGameStore.use.setMapCenterWorld?.()
+  const mapFitBoundsWorld = useGameStore.use.mapFitBoundsWorld?.()
+  const setMapFitBoundsWorld = useGameStore.use.setMapFitBoundsWorld?.()
+  const mapFitEpoch = useGameStore((state) => state.mapFitEpoch)
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
 
   const [isFetching, setIsFetching] = useState(false)
@@ -184,9 +189,11 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
   const updateCenterSector = useCallback(
     (node: MapSectorNode | null) => {
       // Click on empty space deselects (resets to current sector)
+      setMapCenterWorld?.(undefined)
+      setMapFitBoundsWorld?.(undefined)
       setMapCenterSector?.(node?.id ?? sector?.id)
     },
-    [setMapCenterSector, sector?.id]
+    [setMapCenterSector, setMapCenterWorld, setMapFitBoundsWorld, sector?.id]
   )
 
   // Handles fetching map data when the center sector we select
@@ -258,6 +265,9 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
         {mapData ?
           <SectorMap
             center_sector_id={mapCenterSector}
+            centerWorld={mapCenterWorld}
+            fitBoundsWorld={mapFitBoundsWorld}
+            mapFitEpoch={mapFitEpoch}
             current_sector_id={sector ? sector.id : undefined}
             config={mapConfig}
             map_data={mapData ?? []}

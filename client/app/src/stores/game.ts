@@ -4,7 +4,7 @@ import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
 import usePipecatClientStore from "@/stores/client"
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MAX_BOUNDS_PADDING, MIN_BOUNDS } from "@/utils/mapZoom"
+import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/utils/mapZoom"
 
 import { type ChatSlice, createChatSlice } from "./chatSlice"
 import { type CombatSlice, createCombatSlice } from "./combatSlice"
@@ -201,16 +201,6 @@ const createGameSlice: StateCreator<
     const stillMissing = pending.filter((id) => !knownIds.has(id)).length
 
     if (stillMissing >= prevMissing) return // no progress — don't retry
-
-    if (stillMissing === 0) {
-      set(
-        produce((draft) => {
-          draft.pendingMapFitSectors = undefined
-          draft.pendingMapFitMissingCount = undefined
-        })
-      )
-      return
-    }
 
     get().fitMapToSectors(pending)
   }
@@ -599,11 +589,21 @@ const createGameSlice: StateCreator<
       .map((id) => byId.get(id))
       .filter((node): node is MapSectorNode => node !== undefined)
     const missing = cleaned.filter((id) => !byId.has(id))
-    const discovered = Array.from(byId.values()).filter(
-      (node) => node.visited || node.source
-    )
 
     if (missing.length > 0) {
+      const pending = state.pendingMapFitSectors
+      const pendingMissing = state.pendingMapFitMissingCount
+      const samePending =
+        Array.isArray(pending) &&
+        pending.length === cleaned.length &&
+        pending.every((id, idx) => id === cleaned[idx])
+      if (samePending && pendingMissing !== undefined && missing.length >= pendingMissing) {
+        console.debug("[GAME MAP] fitMapToSectors skipping re-request", {
+          missingCount: missing.length,
+          totalRequested: cleaned.length,
+        })
+        return
+      }
       console.debug("[GAME MAP] fitMapToSectors missing", {
         missingCount: missing.length,
         totalRequested: cleaned.length,
@@ -611,7 +611,7 @@ const createGameSlice: StateCreator<
       set(
         produce((draft) => {
           draft.pendingMapFitSectors = cleaned
-          draft.pendingMapFitMissingCount = undefined
+          draft.pendingMapFitMissingCount = missing.length
         })
       )
       state.dispatchAction({
@@ -623,27 +623,50 @@ const createGameSlice: StateCreator<
       return
     }
 
-    let centroid: [number, number] | null = null
     const positions = nodes
       .map((node) => node.position)
       .filter((pos): pos is [number, number] => Array.isArray(pos) && pos.length === 2)
-    if (positions.length > 0) {
-      const sum = positions.reduce(
-        (acc, pos) => [acc[0] + pos[0], acc[1] + pos[1]],
-        [0, 0] as [number, number]
-      )
-      centroid = [sum[0] / positions.length, sum[1] / positions.length]
+    const SQRT3 = Math.sqrt(3)
+    const toWorld = (pos: [number, number]) => ({
+      x: 1.5 * pos[0],
+      y: SQRT3 * (pos[1] + 0.5 * (pos[0] & 1)),
+    })
+    const worldPositions = positions.map((pos) => toWorld(pos))
+
+    let centerWorld: [number, number] | null = null
+    let fitBoundsWorld: [number, number, number, number] | null = null
+    if (worldPositions.length > 0) {
+      let minX = Number.POSITIVE_INFINITY
+      let maxX = Number.NEGATIVE_INFINITY
+      let minY = Number.POSITIVE_INFINITY
+      let maxY = Number.NEGATIVE_INFINITY
+
+      for (const pos of worldPositions) {
+        minX = Math.min(minX, pos.x)
+        maxX = Math.max(maxX, pos.x)
+        minY = Math.min(minY, pos.y)
+        maxY = Math.max(maxY, pos.y)
+      }
+
+      centerWorld = [(minX + maxX) / 2, (minY + maxY) / 2]
+      fitBoundsWorld = [minX, maxX, minY, maxY]
     }
 
+    const discovered = combinedMap.filter(
+      (node) => node.position && (node.visited || node.source)
+    )
+    const candidates =
+      discovered.length > 0 ? discovered : combinedMap.filter((node) => node.position)
+
     let centerNode: MapSectorNode | undefined
-    const candidates = discovered.length > 0 ? discovered : nodes
-    if (centroid && candidates.length > 0) {
+    if (centerWorld && candidates.length > 0) {
       let best = candidates[0]
       let bestDist = Number.POSITIVE_INFINITY
       for (const node of candidates) {
         if (!node.position) continue
-        const dx = node.position[0] - centroid[0]
-        const dy = node.position[1] - centroid[1]
+        const world = toWorld(node.position)
+        const dx = world.x - centerWorld[0]
+        const dy = world.y - centerWorld[1]
         const dist = dx * dx + dy * dy
         if (dist < bestDist) {
           bestDist = dist
@@ -654,7 +677,12 @@ const createGameSlice: StateCreator<
     }
 
     if (!centerNode) {
-      if (state.sector?.id && state.sector.position) {
+      const withPosition = nodes.find((node) => node.position)
+      if (withPosition) {
+        centerNode = withPosition
+      } else if (nodes[0]) {
+        centerNode = nodes[0]
+      } else if (state.sector?.id && state.sector.position) {
         const fallback = byId.get(state.sector.id)
         if (fallback) {
           centerNode = fallback
@@ -665,27 +693,25 @@ const createGameSlice: StateCreator<
             lanes: [],
           } as MapSectorNode
         }
-      } else if (candidates[0]) {
-        centerNode = candidates[0]
       }
     }
 
     if (!centerNode) return
 
     let targetZoom = DEFAULT_MAX_BOUNDS
-    if (centroid && centerNode.position && positions.length > 0) {
-      // Compute distance in world space (scale=1) to handle the non-isotropic
-      // hex-to-world transform and odd-q column offsets correctly, then convert
-      // back to the hex-distance-units the renderer expects.
-      const SQRT3 = Math.sqrt(3)
-      const cx = 1.5 * centerNode.position[0]
-      const cy = SQRT3 * (centerNode.position[1] + 0.5 * (centerNode.position[0] & 1))
+    if (centerWorld && worldPositions.length > 0 && fitBoundsWorld) {
+      const halfWidth = Math.max(0, (fitBoundsWorld[1] - fitBoundsWorld[0]) / 2)
+      const halfHeight = Math.max(0, (fitBoundsWorld[3] - fitBoundsWorld[2]) / 2)
+      const maxWorldDist = Math.sqrt(halfWidth * halfWidth + halfHeight * halfHeight)
+      const maxHexDist = maxWorldDist / SQRT3
+      targetZoom = Math.max(MIN_BOUNDS, Math.ceil(maxHexDist) + 1)
+    } else if (centerNode.position && positions.length > 0) {
+      const centerPos = toWorld(centerNode.position)
       let maxHexDist = 0
       for (const pos of positions) {
-        const wx = 1.5 * pos[0]
-        const wy = SQRT3 * (pos[1] + 0.5 * (pos[0] & 1))
-        const dx = wx - cx
-        const dy = wy - cy
+        const world = toWorld(pos)
+        const dx = world.x - centerPos.x
+        const dy = world.y - centerPos.y
         const hexDist = Math.sqrt(dx * dx + dy * dy) / SQRT3
         if (hexDist > maxHexDist) {
           maxHexDist = hexDist
@@ -697,14 +723,26 @@ const createGameSlice: StateCreator<
     const clampedZoom = Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, targetZoom))
     console.debug("[GAME MAP] fitMapToSectors resolved", {
       centerSector: centerNode?.id,
+      centerSectorPos: centerNode?.position,
+      centerWorld,
+      fitBoundsWorld,
       zoom: clampedZoom,
+      targetZoom,
+      maxHexDist: centerWorld && worldPositions.length > 0
+        ? Math.max(...worldPositions.map((w) => Math.sqrt((w.x - centerWorld![0]) ** 2 + (w.y - centerWorld![1]) ** 2) / SQRT3))
+        : undefined,
       sectorCount: cleaned.length,
+      sectorIds: cleaned,
+      sectorPositions: nodes.map((n) => [n.id, n.position]),
     })
 
     set(
       produce((draft) => {
         draft.mapCenterSector = centerNode?.id
+        draft.mapCenterWorld = centerWorld ?? undefined
+        draft.mapFitBoundsWorld = fitBoundsWorld ?? undefined
         draft.mapZoomLevel = clampedZoom
+        draft.mapFitEpoch = (draft.mapFitEpoch ?? 0) + 1
         if (missing.length > 0) {
           draft.pendingMapFitSectors = cleaned
           draft.pendingMapFitMissingCount = missing.length
@@ -714,15 +752,6 @@ const createGameSlice: StateCreator<
         }
       })
     )
-
-    const bounds = clampedZoom + MAX_BOUNDS_PADDING
-    state.dispatchAction({
-      type: "get-my-map",
-      payload: {
-        center_sector: centerNode.id,
-        bounds,
-      },
-    })
   },
 
   setStarfieldReady: (starfieldReady: boolean) => set({ starfieldReady }),

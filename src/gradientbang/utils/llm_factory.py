@@ -199,16 +199,19 @@ def _create_anthropic_service(
     """Create Anthropic (Claude) LLM service."""
     from pipecat.services.anthropic.llm import AnthropicLLMService
 
-    params = None
+    thinking_config = None
     if thinking and thinking.enabled:
         # Anthropic requires minimum 1024 tokens for thinking budget
         budget = max(1024, thinking.budget_tokens)
-        params = AnthropicLLMService.InputParams(
-            thinking=AnthropicLLMService.ThinkingConfig(
-                type="enabled",
-                budget_tokens=budget,
-            )
+        thinking_config = AnthropicLLMService.ThinkingConfig(
+            type="enabled",
+            budget_tokens=budget,
         )
+
+    params = AnthropicLLMService.InputParams(
+        enable_prompt_caching=True,
+        thinking=thinking_config,
+    )
 
     llm_kwargs = {}
     if function_call_timeout_secs is not None:

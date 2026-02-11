@@ -16,6 +16,8 @@ const MIN_LANE_LENGTH_FOR_ARROWS = 30
 
 export interface SectorMapConfigBase {
   center_sector_id: number
+  center_world?: [number, number]
+  fit_bounds_world?: [number, number, number, number]
   current_sector_id?: number
   grid_spacing: number
   hex_size: number
@@ -553,24 +555,33 @@ function filterSectorsBySpatialDistance(
   data: MapData,
   currentSectorId: number,
   maxDistanceHexes: number,
-  scale: number
+  scale: number,
+  centerWorld?: [number, number]
 ): MapData {
-  const currentSector = data.find((s) => s.id === currentSectorId)
-  if (!currentSector) return data
+  let centerWorldPos: { x: number; y: number } | null = null
+  if (centerWorld && centerWorld.length === 2) {
+    centerWorldPos = { x: centerWorld[0] * scale, y: centerWorld[1] * scale }
+  } else {
+    const currentSector = data.find((s) => s.id === currentSectorId)
+    if (!currentSector) return data
+    centerWorldPos = hexToWorld(currentSector.position[0], currentSector.position[1], scale)
+  }
+  if (!centerWorldPos) return data
 
   const maxWorldDistance = maxDistanceHexes * scale * Math.sqrt(3)
-  const currentWorld = hexToWorld(currentSector.position[0], currentSector.position[1], scale)
 
   const filtered = data.filter((node) => {
     const world = hexToWorld(node.position[0], node.position[1], scale)
-    const dx = world.x - currentWorld.x
-    const dy = world.y - currentWorld.y
+    const dx = world.x - centerWorldPos.x
+    const dy = world.y - centerWorldPos.y
     const distance = Math.sqrt(dx * dx + dy * dy)
     return distance <= maxWorldDistance
   })
 
   // Ensure at least current sector is included
-  return filtered.length > 0 ? filtered : [currentSector]
+  if (filtered.length > 0) return filtered
+  const currentSector = data.find((s) => s.id === currentSectorId)
+  return currentSector ? [currentSector] : data
 }
 
 /** Calculate bounding box of all sectors */
@@ -1313,18 +1324,38 @@ function calculateCameraState(
     data,
     config.center_sector_id,
     maxDistance,
-    scale
+    scale,
+    config.center_world
   )
 
   if (filteredData.length === 0) {
     return null
   }
 
+  const boundsOverride =
+    config.fit_bounds_world && config.fit_bounds_world.length === 4 ?
+      {
+        minX: config.fit_bounds_world[0],
+        maxX: config.fit_bounds_world[1],
+        minY: config.fit_bounds_world[2],
+        maxY: config.fit_bounds_world[3],
+      }
+    : null
+  const centerWorldOverride =
+    config.center_world && config.center_world.length === 2
+      ? { x: config.center_world[0] * scale, y: config.center_world[1] * scale }
+      : null
   const centerSector = data.find((sector) => sector.id === config.center_sector_id)
-  if (centerSector) {
+  const centerWorld =
+    boundsOverride ?
+      {
+        x: ((boundsOverride.minX + boundsOverride.maxX) / 2) * scale,
+        y: ((boundsOverride.minY + boundsOverride.maxY) / 2) * scale,
+      }
+    : centerWorldOverride ??
+      (centerSector ? hexToWorld(centerSector.position[0], centerSector.position[1], scale) : null)
+  if (centerWorld) {
     const framePadding = config.frame_padding ?? 0
-    const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
-    const radius = Math.max(maxWorldDistance + hexSize, hexSize)
     const availableWidth = Math.max(width - framePadding * 2, 1)
     const availableHeight = Math.max(height - framePadding * 2, 1)
     const referenceZoom = DEFAULT_MAX_BOUNDS
@@ -1332,12 +1363,32 @@ function calculateCameraState(
       0.08,
       0.3 * (referenceZoom / Math.max(maxDistance, referenceZoom))
     )
-    const zoom = Math.max(
-      minZoom,
-      Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5)
-    )
-    const centerWorld = hexToWorld(centerSector.position[0], centerSector.position[1], scale)
-
+    let zoom = 1
+    if (boundsOverride) {
+      const paddedMinX = boundsOverride.minX * scale - hexSize
+      const paddedMaxX = boundsOverride.maxX * scale + hexSize
+      const paddedMinY = boundsOverride.minY * scale - hexSize
+      const paddedMaxY = boundsOverride.maxY * scale + hexSize
+      const boundsWidth = Math.max(paddedMaxX - paddedMinX, hexSize * 2)
+      const boundsHeight = Math.max(paddedMaxY - paddedMinY, hexSize * 2)
+      const baseZoom = Math.max(
+        minZoom,
+        Math.min(availableWidth / boundsWidth, availableHeight / boundsHeight, 1.5)
+      )
+      const halfWidth = boundsWidth / 2
+      const halfHeight = boundsHeight / 2
+      const boundsRadius = Math.sqrt(halfWidth * halfWidth + halfHeight * halfHeight)
+      const boundsHexDist = boundsRadius / (scale * Math.sqrt(3))
+      const zoomFactor = maxDistance > 0 ? boundsHexDist / maxDistance : 1
+      zoom = Math.max(minZoom, Math.min(baseZoom * zoomFactor, 1.5))
+    } else {
+      const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
+      const radius = Math.max(maxWorldDistance + hexSize, hexSize)
+      zoom = Math.max(
+        minZoom,
+        Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5)
+      )
+    }
     return {
       offsetX: -centerWorld.x,
       offsetY: -centerWorld.y,
