@@ -1,3 +1,4 @@
+import { hexToWorld } from "@/utils/hexMath"
 import { getPortCode } from "@/utils/port"
 import { DEFAULT_MAX_BOUNDS } from "@/utils/mapZoom"
 
@@ -525,12 +526,6 @@ function interpolateCameraState(
     fadingInData: start.fadingInData,
     fadeProgress,
   }
-}
-
-function hexToWorld(hexX: number, hexY: number, scale: number): { x: number; y: number } {
-  const x = scale * 1.5 * hexX
-  const y = scale * Math.sqrt(3) * (hexY + 0.5 * (hexX & 1))
-  return { x, y }
 }
 
 function drawHex(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, fill = false) {

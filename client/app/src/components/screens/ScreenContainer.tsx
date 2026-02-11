@@ -74,8 +74,6 @@ export const ScreenContainer = () => {
 
   const dottedCX =
     "DialogOverlay bg-muted/40 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle dialog-dots"
-  const noDottedCX =
-    "DialogOverlay motion-safe:bg-muted/40 motion-safe:backdrop-blur-xs text-subtle"
 
   return (
     <Dialog.Root
@@ -88,7 +86,7 @@ export const ScreenContainer = () => {
     >
       <Dialog.Portal>
         <Dialog.Overlay
-          className={cn("z-20", overlayScreen?.screen === "map" ? noDottedCX : dottedCX)}
+          className={cn("z-20", dottedCX)}
         ></Dialog.Overlay>
         <Dialog.Content
           aria-describedby={undefined}

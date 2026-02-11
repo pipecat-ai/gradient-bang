@@ -24,6 +24,12 @@ If the event path is already visible in the pending events block, use `control_u
 - Zoom level scale: 4 = most zoomed in, 50 = most zoomed out. Use `map_zoom_level` only for explicit numeric zooms or when targeting a specific level.
 - Zoom level guidance: use `map_zoom_level=6` for a close look at a sector; use `map_zoom_level=10` for the area around a sector.
 
+Exploration map example — user wants their location + closest unexplored region:
+User: "Show our location and the closest unexplored region."
+If a recent `map.region` event lists nearest unvisited sectors, treat this as a UI request and call:
+→ `control_ui(show_panel="map", map_fit_sectors=[<player_sector>, <nearest_unvisited_1>, <nearest_unvisited_2>])`
+Include the player sector because the user said "our location."
+
 Route display example — when a `course.plot` event arrives with path `[220, 2472, …, 172]`:
 → `control_ui(map_highlight_path=[220, 2472, …, 172], map_fit_sectors=[220, 2472, …, 172])`
 NOT just `control_ui(map_center_sector=172)` — that only centers on the destination without showing or highlighting the route.

@@ -23,6 +23,7 @@ import type {
   UIStyles,
 } from "@/fx/map/SectorMapFX"
 import { createSectorMapController, DEFAULT_SECTORMAP_CONFIG } from "@/fx/map/SectorMapFX"
+import { hexToWorld } from "@/utils/hexMath"
 
 export type MapConfig = Partial<
   Omit<
@@ -112,10 +113,6 @@ const hasEnoughMapData = (
   const sectorMap = new Map(mapData.map((s) => [s.id, s]))
 
   const SQRT3 = Math.sqrt(3)
-  const toWorld = (pos: [number, number]) => ({
-    x: 1.5 * pos[0],
-    y: SQRT3 * (pos[1] + 0.5 * (pos[0] & 1)),
-  })
 
   let centerWorldPos: { x: number; y: number } | null = null
   if (centerWorld && centerWorld.length === 2) {
@@ -124,14 +121,14 @@ const hasEnoughMapData = (
     // Center must exist in our data
     const centerSector = sectorMap.get(centerSectorId)
     if (!centerSector) return false
-    centerWorldPos = toWorld(centerSector.position)
+    centerWorldPos = hexToWorld(centerSector.position[0], centerSector.position[1])
   }
   if (!centerWorldPos) return false
 
   // Find all sectors within spatial bounds of center (using position vector)
   const maxWorldDistance = maxDistance * SQRT3
   const visibleSectors = mapData.filter((sector) => {
-    const world = toWorld(sector.position)
+    const world = hexToWorld(sector.position[0], sector.position[1])
     const dx = world.x - centerWorldPos.x
     const dy = world.y - centerWorldPos.y
     const distance = Math.sqrt(dx * dx + dy * dy)
@@ -146,7 +143,7 @@ const hasEnoughMapData = (
   // If it doesn't exist but the SOURCE sector is well inside our bounds
   // (not at the edge), then we're missing interior data.
   for (const sector of visibleSectors) {
-    const world = toWorld(sector.position)
+    const world = hexToWorld(sector.position[0], sector.position[1])
     const sectorDx = world.x - centerWorldPos.x
     const sectorDy = world.y - centerWorldPos.y
     const worldDistance = Math.sqrt(sectorDx * sectorDx + sectorDy * sectorDy)

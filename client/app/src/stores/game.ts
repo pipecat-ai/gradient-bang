@@ -4,6 +4,7 @@ import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
 import usePipecatClientStore from "@/stores/client"
+import { hexToWorld } from "@/utils/hexMath"
 import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/utils/mapZoom"
 
 import { type ChatSlice, createChatSlice } from "./chatSlice"
@@ -188,11 +189,20 @@ const createGameSlice: StateCreator<
   GameSlice
 > = (set, get) => {
   /** Retry a pending fitMapToSectors only when new data reduces the missing count. */
+  const MAX_MAP_FIT_RETRIES = 5
+  let _mapFitRetryCount = 0
   const _maybeRetryMapFit = () => {
     const state = get()
     const pending = state.pendingMapFitSectors
     const prevMissing = state.pendingMapFitMissingCount
     if (!pending || pending.length === 0 || prevMissing == null) return
+
+    if (_mapFitRetryCount >= MAX_MAP_FIT_RETRIES) {
+      console.debug("[GAME MAP] fitMapToSectors retry limit reached, giving up")
+      get().clearPendingMapFit()
+      _mapFitRetryCount = 0
+      return
+    }
 
     const combinedMap = [
       ...(state.regional_map_data ?? []),
@@ -203,6 +213,7 @@ const createGameSlice: StateCreator<
 
     if (stillMissing >= prevMissing) return // no progress — don't retry
 
+    _mapFitRetryCount++
     get().fitMapToSectors(pending)
   }
 
@@ -235,10 +246,6 @@ const createGameSlice: StateCreator<
     if (nodes.length === 0) return
 
     const SQRT3 = Math.sqrt(3)
-    const toWorld = (pos: [number, number]) => ({
-      x: 1.5 * pos[0],
-      y: SQRT3 * (pos[1] + 0.5 * (pos[0] & 1)),
-    })
 
     let centerWorld = state.mapCenterWorld
     if (!centerWorld) {
@@ -246,12 +253,12 @@ const createGameSlice: StateCreator<
       const centerNode =
         centerId !== undefined ? nodes.find((node) => node.id === centerId) : undefined
       if (centerNode?.position) {
-        const world = toWorld(centerNode.position)
+        const world = hexToWorld(centerNode.position[0], centerNode.position[1])
         centerWorld = [world.x, world.y]
       } else {
         const fallback = nodes.find((node) => node.position)
         if (fallback?.position) {
-          const world = toWorld(fallback.position)
+          const world = hexToWorld(fallback.position[0], fallback.position[1])
           centerWorld = [world.x, world.y]
         }
       }
@@ -261,7 +268,7 @@ const createGameSlice: StateCreator<
     const zoomLevel = state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
     const maxWorldDistance = zoomLevel * SQRT3
     const visibleNodes = nodes.filter((node) => {
-      const world = toWorld(node.position as [number, number])
+      const world = hexToWorld(node.position[0], node.position[1])
       const dx = world.x - centerWorld![0]
       const dy = world.y - centerWorld![1]
       return Math.sqrt(dx * dx + dy * dy) <= maxWorldDistance
@@ -273,7 +280,7 @@ const createGameSlice: StateCreator<
     let minY = Number.POSITIVE_INFINITY
     let maxY = Number.NEGATIVE_INFINITY
     for (const node of visibleNodes) {
-      const world = toWorld(node.position as [number, number])
+      const world = hexToWorld(node.position[0], node.position[1])
       minX = Math.min(minX, world.x)
       maxX = Math.max(maxX, world.x)
       minY = Math.min(minY, world.y)
@@ -743,11 +750,7 @@ const createGameSlice: StateCreator<
       .map((node) => node.position)
       .filter((pos): pos is [number, number] => Array.isArray(pos) && pos.length === 2)
     const SQRT3 = Math.sqrt(3)
-    const toWorld = (pos: [number, number]) => ({
-      x: 1.5 * pos[0],
-      y: SQRT3 * (pos[1] + 0.5 * (pos[0] & 1)),
-    })
-    const worldPositions = positions.map((pos) => toWorld(pos))
+    const worldPositions = positions.map((pos) => hexToWorld(pos[0], pos[1]))
 
     let centerWorld: [number, number] | null = null
     let fitBoundsWorld: [number, number, number, number] | null = null
@@ -780,7 +783,7 @@ const createGameSlice: StateCreator<
       let bestDist = Number.POSITIVE_INFINITY
       for (const node of candidates) {
         if (!node.position) continue
-        const world = toWorld(node.position)
+        const world = hexToWorld(node.position[0], node.position[1])
         const dx = world.x - centerWorld[0]
         const dy = world.y - centerWorld[1]
         const dist = dx * dx + dy * dy
@@ -822,10 +825,10 @@ const createGameSlice: StateCreator<
       const maxHexDist = maxWorldDist / SQRT3
       targetZoom = Math.max(MIN_BOUNDS, Math.ceil(maxHexDist) + 1)
     } else if (centerNode.position && positions.length > 0) {
-      const centerPos = toWorld(centerNode.position)
+      const centerPos = hexToWorld(centerNode.position[0], centerNode.position[1])
       let maxHexDist = 0
       for (const pos of positions) {
-        const world = toWorld(pos)
+        const world = hexToWorld(pos[0], pos[1])
         const dx = world.x - centerPos.x
         const dy = world.y - centerPos.y
         const hexDist = Math.sqrt(dx * dx + dy * dy) / SQRT3
@@ -868,6 +871,9 @@ const createGameSlice: StateCreator<
         }
       })
     )
+    if (missing.length === 0) {
+      _mapFitRetryCount = 0
+    }
   },
 
   requestMapAutoRecenter: (reason: string) => {

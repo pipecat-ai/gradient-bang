@@ -260,7 +260,7 @@ class UIAgentContext(FrameProcessor):
         except RuntimeError as exc:
             logger.warning(f"UI agent could not schedule task {name or ''}: {exc}")
         except Exception as exc:  # noqa: BLE001
-            logger.warning(f"UI agent could not schedule task {name or ''}: {exc}")
+            logger.error(f"UI agent could not schedule task {name or ''}: {exc}")
         if task is None:
             try:
                 coroutine.close()
