@@ -39,7 +39,7 @@ const MAX_DISTANCE = 4
 
 export const MiniMapPanel = ({ className }: { className?: string }) => {
   const uiState = useGameStore.use.uiState()
-  const setActiveScreen = useGameStore.use.setActiveScreen?.()
+  const setUIMode = useGameStore.use.setUIMode?.()
   const sector = useGameStore((state) => state.sector)
   const localMapData = useGameStore((state) => state.local_map_data)
   const ships = useGameStore.use.ships?.()
@@ -76,7 +76,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
           <Button
             variant="outline"
             className="shrink-0 bg-background hover:bg-accent-background"
-            onClick={() => setActiveScreen("map")}
+            onClick={() => setUIMode("map")}
           >
             <ArrowUpLeftIcon size={20} className="size-5" />
             <span className="flex-1 text-xs px-4">View map</span>

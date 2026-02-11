@@ -54,6 +54,9 @@
   /** UI **/
   --separator: 3px;
 
+  --height-ui-bottom: 330px;
+  --width-ui-minimap: 330px;
+
   --grid-opacity: 0.25;
   --screen-bg-feather: 20px;
 
@@ -147,7 +150,9 @@
   --spacing-screen-border-x: calc(var(--spacing) * 4);
 
   --height-toast: 160px;
+  --height-ui-bottom: var(--height-ui-bottom);
   --width-toast: 620px;
+  --width-ui-minimap: var(--width-ui-minimap);
 
   --shadow-glow-sm: 0 0 10px 1px var(--color-primary);
 

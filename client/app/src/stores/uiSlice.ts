@@ -15,7 +15,10 @@ export interface UISlice {
   activeScreen?: { screen: UIScreen; data?: unknown }
   activeModal?: UIModal
   activePanel?: UIPanel
+  activePanelData?: unknown
   activeSubPanel?: string
+  uiMode: UIMode
+  setUIMode: (mode: UIMode) => void
 
   notifications: Notifications
   setNotifications: (notifications: Partial<Notifications>) => void
@@ -32,7 +35,7 @@ export interface UISlice {
   setUIState: (newState: UIState) => void
   setActiveScreen: (screen?: UIScreen, data?: unknown) => void
   setActiveModal: (modal: UIModal) => void
-  setActivePanel: (panel?: UIPanel) => void
+  setActivePanel: (panel?: UIPanel, data?: unknown) => void
   setActiveSubPanel: (subPanel?: string) => void
 
   mapZoomLevel: number | undefined
@@ -46,9 +49,11 @@ export interface UISlice {
 
 export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   uiState: "idle",
+  uiMode: "tasks",
   activeScreen: undefined,
   activeModal: undefined,
   activePanel: "logs",
+  activePanelData: undefined,
   activeSubPanel: undefined,
   mapZoomLevel: undefined,
   notifications: {
@@ -60,6 +65,14 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   lookMode: false,
   lookAtTarget: undefined,
   llmIsWorking: false,
+
+  setUIMode: (mode: UIMode) => {
+    set(
+      produce((state) => {
+        state.uiMode = mode
+      })
+    )
+  },
   setToasts: (toasts: Toast[]) => {
     set(
       produce((state) => {
@@ -159,9 +172,10 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
       })
     )
   },
-  setActivePanel: (panel?: UIPanel) => {
+  setActivePanel: (panel?: UIPanel, data?: unknown) => {
     set(
       produce((state) => {
+        state.activePanelData = data ?? undefined
         state.activePanel = panel
         state.activeSubPanel = undefined
       })

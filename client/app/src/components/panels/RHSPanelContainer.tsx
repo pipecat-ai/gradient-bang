@@ -7,6 +7,7 @@ import { LogsPanel } from "@/components/panels/LogsPanel"
 import { PlayerPanel } from "@/components/panels/PlayerPanel"
 import { SectorPanel } from "@/components/panels/SectorPanel"
 import { TaskPanel } from "@/components/panels/TaskPanel"
+import { TaskStreamPanel } from "@/components/panels/TaskStreamPanel"
 import { TradePanel } from "@/components/panels/TradePanel"
 import { Button } from "@/components/primitives/Button"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
@@ -78,7 +79,9 @@ export const RHSPanelContainer = () => {
       className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/40 border-t border-l"
       id="panel-container"
     >
-      <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert pointer-events-none" />
+      {activePanel !== "task_stream" && (
+        <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert pointer-events-none" />
+      )}
 
       <ScrollArea
         disabled={activeSubPanel !== undefined || activePanel === "logs"}
@@ -93,6 +96,7 @@ export const RHSPanelContainer = () => {
         {activePanel === "trade" && <TradePanel />}
         {activePanel === "tasks" && <TaskPanel />}
         {activePanel === "corp" && <div className=""></div>}
+        {activePanel === "task_stream" && <TaskStreamPanel />}
       </ScrollArea>
       <div
         className={cn("absolute inset-0 bg-background/50 z-8", activeSubPanel ? "block" : "hidden")}

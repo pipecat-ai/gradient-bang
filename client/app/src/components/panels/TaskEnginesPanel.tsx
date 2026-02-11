@@ -16,6 +16,21 @@ import useGameStore from "@/stores/game"
 
 import { TaskOutputStream } from "../TaskOutputStream"
 
+export const TaskDescription = ({ description }: { description?: string | null }) => {
+  if (!description) return null
+
+  return (
+    <div className="mx-ui-xs z-20 relative text-xxs flex flex-row gap-1 items-center text-subtle-foreground">
+      <div className="aspect-square bg-muted p-1 flex items-center justify-center border box-border">
+        <CaretRightIcon weight="bold" size={12} className="text-foreground" />
+      </div>
+      <div className="truncate px-ui-xs bg-subtle/20 flex-1 self-stretch flex items-center">
+        <span className="truncate">{description}</span>
+      </div>
+    </div>
+  )
+}
+
 export type TaskEngineState =
   | "idle"
   | "active"
@@ -192,16 +207,7 @@ export const TaskEngine = ({
         </CardContent>
 
         <div className="relative h-full">
-          {task?.task_description && (
-            <div className="mx-ui-xs z-20 relative text-xxs flex flex-row gap-1 items-center text-subtle-foreground">
-              <div className="aspect-square bg-muted p-1 flex items-center justify-center border box-border">
-                <CaretRightIcon weight="bold" size={12} className="text-foreground" />
-              </div>
-              <div className="truncate px-ui-xs bg-subtle/20 flex-1 self-stretch flex items-center">
-                <span className="truncate">{task?.task_description}</span>
-              </div>
-            </div>
-          )}
+          <TaskDescription description={task?.task_description} />
           <TaskOutputStream taskId={taskId} />
         </div>
 
@@ -242,6 +248,7 @@ export const TaskEnginesPanel = () => {
   const localTaskId = useGameStore.use.localTaskId?.()
   const setLocalTaskId = useGameStore.use.setLocalTaskId?.()
   const settings = useGameStore.use.settings?.()
+
   const starfieldEnabled = settings?.renderStarfield ?? false
 
   // Count corporation ships to determine number of corp slots

@@ -78,9 +78,11 @@ const TaskRow = memo(
 export const TaskOutputStreamComponent = ({
   tasks,
   onResetAutoScroll,
+  className,
 }: {
   tasks: TaskOutput[]
   onResetAutoScroll?: (reset: () => void) => void
+  className?: string
 }) => {
   const {
     AutoScrollAnchor,
@@ -88,12 +90,19 @@ export const TaskOutputStreamComponent = ({
     resetAutoScroll,
     scrollToBottom,
     isAutoScrollEnabledRef,
-  } = useAutoScroll()
+  } = useAutoScroll({ behavior: "instant" })
   const prevTasksLengthRef = useRef(tasks.length)
 
-  // Track scroll lock transitions via event handlers only (no effects needed)
+  // Ref shadow + state: ref is read in the stable scroll handler, state drives rendering
+  const isScrollLockedRef = useRef(false)
   const [isScrollLocked, setIsScrollLocked] = useState(false)
   const [lockedAtLength, setLockedAtLength] = useState(0)
+
+  // Keep a ref to tasks.length so the scroll handler doesn't need it as a dependency
+  const tasksLengthRef = useRef(tasks.length)
+  useEffect(() => {
+    tasksLengthRef.current = tasks.length
+  }, [tasks.length])
 
   useEffect(() => {
     onResetAutoScroll?.(resetAutoScroll)
@@ -109,19 +118,23 @@ export const TaskOutputStreamComponent = ({
   const wrappedHandleScroll = useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
       handleScroll(event)
-      // Read ref in event handler (safe — not during render)
       const isAtBottom = isAutoScrollEnabledRef.current
       if (isAtBottom) {
-        if (isScrollLocked) setIsScrollLocked(false)
-      } else if (!isScrollLocked) {
+        if (isScrollLockedRef.current) {
+          isScrollLockedRef.current = false
+          setIsScrollLocked(false)
+        }
+      } else if (!isScrollLockedRef.current) {
+        isScrollLockedRef.current = true
         setIsScrollLocked(true)
-        setLockedAtLength(tasks.length)
+        setLockedAtLength(tasksLengthRef.current)
       }
     },
-    [handleScroll, isAutoScrollEnabledRef, isScrollLocked, tasks.length]
+    [handleScroll, isAutoScrollEnabledRef]
   )
 
   const handleNewMessageClick = useCallback(() => {
+    isScrollLockedRef.current = false
     setIsScrollLocked(false)
     resetAutoScroll()
   }, [resetAutoScroll])
@@ -133,7 +146,10 @@ export const TaskOutputStreamComponent = ({
 
   return (
     <Card
-      className="absolute inset-0 flex w-full bg-transparent border-none h-full min-h-0 select-none pointer-events-none mt-auto"
+      className={cn(
+        "absolute inset-0 flex w-full bg-transparent border-none h-full min-h-0 select-none pointer-events-none mt-auto",
+        className
+      )}
       size="none"
     >
       <CardContent className="relative flex flex-col gap-2 h-full justify-end mask-[linear-gradient(to_bottom,transparent_0px,black_80px)]">
@@ -162,7 +178,13 @@ export const TaskOutputStreamComponent = ({
 
 const EMPTY_OUTPUTS: TaskOutput[] = []
 
-export const TaskOutputStream = ({ taskId }: { taskId?: string | null }) => {
+export const TaskOutputStream = ({
+  taskId,
+  className,
+}: {
+  taskId?: string | null
+  className?: string
+}) => {
   const [cachedOutputs, setCachedOutputs] = useState<TaskOutput[]>([])
   const resetAutoScrollRef = useRef<(() => void) | null>(null)
 
@@ -215,6 +237,10 @@ export const TaskOutputStream = ({ taskId }: { taskId?: string | null }) => {
   }
 
   return (
-    <TaskOutputStreamComponent tasks={displayTasks} onResetAutoScroll={handleResetAutoScroll} />
+    <TaskOutputStreamComponent
+      tasks={displayTasks}
+      onResetAutoScroll={handleResetAutoScroll}
+      className={className}
+    />
   )
 }
