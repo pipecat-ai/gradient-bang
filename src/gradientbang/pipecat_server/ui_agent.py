@@ -14,8 +14,9 @@ import json
 import os
 import re
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Coroutine, Optional
 
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
@@ -160,6 +161,21 @@ DEFAULT_UI_INTENT_REQUEST_DELAY_SECS = 2.0
 DEFAULT_PORTS_LIST_MAX_HOPS = 100
 
 
+@dataclass
+class PendingIntent:
+    id: int
+    intent_type: str
+    include_player_sector: bool
+    show_panel: bool
+    expires_at: float
+    match_fn: Callable[[dict], bool]
+    type_fields: dict[str, Any] = field(default_factory=dict)
+    event_xml: str | None = None
+    event_received_at: float | None = None
+    timeout_task: asyncio.Task | None = None
+    request_task: asyncio.Task | None = None
+
+
 class UIAgentContext(FrameProcessor):
     """Catches LLMContextFrame from main pipeline, builds fresh context, pushes to LLM."""
 
@@ -200,11 +216,6 @@ class UIAgentContext(FrameProcessor):
         self._response_text: str = ""
         self._pending_tools: dict[str, dict] = {}  # correlation key → {tool_call_id, function_name}
         self._status_timeout_task: Optional[asyncio.Task] = None
-        self._ports_list_timeout_task: Optional[asyncio.Task] = None
-        self._ships_list_timeout_task: Optional[asyncio.Task] = None
-        self._course_plot_timeout_task: Optional[asyncio.Task] = None
-        self._ports_list_request_task: Optional[asyncio.Task] = None
-        self._ships_list_request_task: Optional[asyncio.Task] = None
         # Function call completion tracking (solves race between LLMFullResponseEndFrame
         # and background function call handlers in pipecat's LLM service)
         self._expected_fc_count: int = 0
@@ -230,9 +241,7 @@ class UIAgentContext(FrameProcessor):
                 str(DEFAULT_UI_INTENT_REQUEST_DELAY_SECS),
             )
         )
-        self._pending_ports_list_intent: dict | None = None
-        self._pending_ships_list_intent: dict | None = None
-        self._pending_course_plot_intent: dict | None = None
+        self._pending_intents: dict[str, PendingIntent] = {}
         self._pending_intent_id = 0
         self._ports_list_cache: dict[tuple, dict] = {}
         self._ports_list_cache_seen_at: dict[tuple, float] = {}
@@ -474,36 +483,20 @@ class UIAgentContext(FrameProcessor):
             self._status_timeout_task = None
 
     def _has_pending_intents(self) -> bool:
-        return any(
-            intent is not None
-            for intent in (
-                self._pending_ports_list_intent,
-                self._pending_ships_list_intent,
-                self._pending_course_plot_intent,
-            )
-        )
+        return bool(self._pending_intents)
 
     def _clear_all_pending_intents(self) -> None:
-        if not self._has_pending_intents():
+        if not self._pending_intents:
             return
         logger.debug("UI agent clearing pending intents due to new user input")
-        self._clear_pending_ports_list_intent()
-        self._clear_pending_ships_list_intent()
-        self._clear_pending_course_plot_intent()
+        for intent_type in list(self._pending_intents):
+            self._clear_pending_intent(intent_type)
         self._pending_intent_inference_requested = False
 
     def _pending_intents_ready(self) -> bool:
-        active: list[dict] = []
-        for intent in (
-            self._pending_ports_list_intent,
-            self._pending_ships_list_intent,
-            self._pending_course_plot_intent,
-        ):
-            if intent:
-                active.append(intent)
-        if not active:
+        if not self._pending_intents:
             return False
-        return all(intent.get("event_xml") for intent in active)
+        return all(intent.event_xml for intent in self._pending_intents.values())
 
     def _format_event_xml(self, event_name: str, event_message: dict) -> str:
         summary = event_message.get("summary")
@@ -515,30 +508,22 @@ class UIAgentContext(FrameProcessor):
                 summary = str(payload)
         return f'<event name="{event_name}">\n{summary}\n</event>'
 
-    def _set_intent_event(self, pending: dict, event_name: str, event_message: dict) -> None:
-        pending["event_xml"] = self._format_event_xml(event_name, event_message)
-        pending["event_received_at"] = time.time()
+    def _set_intent_event(self, pending: PendingIntent, event_name: str, event_message: dict) -> None:
+        pending.event_xml = self._format_event_xml(event_name, event_message)
+        pending.event_received_at = time.time()
 
     def _take_pending_intent_events(self) -> list[dict]:
         events: list[tuple[float, str]] = []
-        for intent in (
-            self._pending_ports_list_intent,
-            self._pending_ships_list_intent,
-            self._pending_course_plot_intent,
-        ):
-            if not intent:
-                continue
-            event_xml = intent.get("event_xml")
+        for intent in self._pending_intents.values():
+            event_xml = intent.event_xml
             if isinstance(event_xml, str) and event_xml:
-                received_at = intent.get("event_received_at")
-                timestamp = received_at if isinstance(received_at, (int, float)) else 0.0
+                timestamp = intent.event_received_at if isinstance(intent.event_received_at, (int, float)) else 0.0
                 events.append((timestamp, event_xml))
 
         events.sort(key=lambda item: item[0])
 
-        self._clear_pending_ports_list_intent()
-        self._clear_pending_ships_list_intent()
-        self._clear_pending_course_plot_intent()
+        for intent_type in list(self._pending_intents):
+            self._clear_pending_intent(intent_type)
         self._pending_intent_inference_requested = False
 
         return [
@@ -558,138 +543,82 @@ class UIAgentContext(FrameProcessor):
         self._pending_intent_id += 1
         return self._pending_intent_id
 
-    def _set_pending_ports_list_intent(
+    # ── Generic intent lifecycle ─────────────────────────────────────
+
+    def _set_pending_intent(
         self,
+        intent_type: str,
         *,
-        filters: dict,
+        match_fn: Callable[[dict], bool],
+        type_fields: dict[str, Any],
         include_player_sector: bool,
         show_panel: bool,
+        default_timeout_secs: float,
         expires_in_secs: float | None,
         replace_existing: bool,
+        request_factory: Callable[[int], Coroutine[Any, Any, None]] | None = None,
     ) -> int:
-        if replace_existing:
-            self._clear_pending_ports_list_intent()
+        existing = self._pending_intents.get(intent_type)
+        if existing is not None:
+            if replace_existing:
+                self._clear_pending_intent(intent_type)
+            else:
+                if existing.timeout_task and not existing.timeout_task.done():
+                    existing.timeout_task.cancel()
+                if existing.request_task and not existing.request_task.done():
+                    existing.request_task.cancel()
         intent_id = self._next_intent_id()
-        timeout_secs = self._ports_list_timeout_secs if expires_in_secs is None else max(
+        timeout_secs = default_timeout_secs if expires_in_secs is None else max(
             1.0, float(expires_in_secs)
         )
         expires_at = time.time() + timeout_secs
-        self._pending_ports_list_intent = {
-            "id": intent_id,
-            "filters": filters,
-            "include_player_sector": include_player_sector,
-            "show_panel": show_panel,
-            "expires_at": expires_at,
-            "event_xml": None,
-            "event_received_at": None,
-        }
-
-        if self._ports_list_timeout_task and not self._ports_list_timeout_task.done():
-            self._ports_list_timeout_task.cancel()
-        self._ports_list_timeout_task = self._safe_create_task(
-            self._ports_list_intent_timeout(intent_id, expires_at),
-            name="ports_list_intent_timeout",
+        intent = PendingIntent(
+            id=intent_id,
+            intent_type=intent_type,
+            include_player_sector=include_player_sector,
+            show_panel=show_panel,
+            expires_at=expires_at,
+            match_fn=match_fn,
+            type_fields=type_fields,
         )
+        self._pending_intents[intent_type] = intent
+
+        intent.timeout_task = self._safe_create_task(
+            self._intent_timeout(intent_type, intent_id, expires_at),
+            name=f"{intent_type}_intent_timeout",
+        )
+
+        if request_factory is not None:
+            intent.request_task = self._safe_create_task(
+                request_factory(intent_id),
+                name=f"{intent_type}_request",
+            )
+
         return intent_id
 
-    def _set_pending_ships_list_intent(
-        self,
-        *,
-        ship_scope: str,
-        include_player_sector: bool,
-        show_panel: bool,
-        expires_in_secs: float | None,
-        replace_existing: bool,
-    ) -> int:
-        if replace_existing:
-            self._clear_pending_ships_list_intent()
-        intent_id = self._next_intent_id()
-        timeout_secs = self._ships_list_timeout_secs if expires_in_secs is None else max(
-            1.0, float(expires_in_secs)
-        )
-        expires_at = time.time() + timeout_secs
-        self._pending_ships_list_intent = {
-            "id": intent_id,
-            "ship_scope": ship_scope,
-            "include_player_sector": include_player_sector,
-            "show_panel": show_panel,
-            "expires_at": expires_at,
-            "event_xml": None,
-            "event_received_at": None,
-        }
-
-        if self._ships_list_timeout_task and not self._ships_list_timeout_task.done():
-            self._ships_list_timeout_task.cancel()
-        self._ships_list_timeout_task = self._safe_create_task(
-            self._ships_list_intent_timeout(intent_id, expires_at),
-            name="ships_list_intent_timeout",
-        )
-        return intent_id
-
-    def _set_pending_course_plot_intent(
-        self,
-        *,
-        from_sector: int | None,
-        to_sector: int | None,
-        include_player_sector: bool,
-        show_panel: bool,
-        expires_in_secs: float | None,
-        replace_existing: bool,
-    ) -> int:
-        if replace_existing:
-            self._clear_pending_course_plot_intent()
-        intent_id = self._next_intent_id()
-        timeout_secs = self._course_plot_timeout_secs if expires_in_secs is None else max(
-            1.0, float(expires_in_secs)
-        )
-        expires_at = time.time() + timeout_secs
-        self._pending_course_plot_intent = {
-            "id": intent_id,
-            "from_sector": from_sector,
-            "to_sector": to_sector,
-            "include_player_sector": include_player_sector,
-            "show_panel": show_panel,
-            "expires_at": expires_at,
-            "event_xml": None,
-            "event_received_at": None,
-        }
-
-        if self._course_plot_timeout_task and not self._course_plot_timeout_task.done():
-            self._course_plot_timeout_task.cancel()
-        self._course_plot_timeout_task = self._safe_create_task(
-            self._course_plot_intent_timeout(intent_id, expires_at),
-            name="course_plot_intent_timeout",
-        )
-        return intent_id
-
-    def _clear_pending_ports_list_intent(self) -> None:
-        self._pending_ports_list_intent = None
-        if self._ports_list_timeout_task and not self._ports_list_timeout_task.done():
-            self._ports_list_timeout_task.cancel()
-            self._ports_list_timeout_task = None
-        if self._ports_list_request_task and not self._ports_list_request_task.done():
-            self._ports_list_request_task.cancel()
-            self._ports_list_request_task = None
+    def _clear_pending_intent(self, intent_type: str) -> None:
+        intent = self._pending_intents.pop(intent_type, None)
+        if intent is None:
+            return
+        try:
+            current_task = asyncio.current_task()
+        except RuntimeError:
+            current_task = None
+        if (
+            intent.timeout_task
+            and not intent.timeout_task.done()
+            and intent.timeout_task is not current_task
+        ):
+            intent.timeout_task.cancel()
+        if (
+            intent.request_task
+            and not intent.request_task.done()
+            and intent.request_task is not current_task
+        ):
+            intent.request_task.cancel()
         self._pending_intent_inference_requested = False
 
-    def _clear_pending_ships_list_intent(self) -> None:
-        self._pending_ships_list_intent = None
-        if self._ships_list_timeout_task and not self._ships_list_timeout_task.done():
-            self._ships_list_timeout_task.cancel()
-            self._ships_list_timeout_task = None
-        if self._ships_list_request_task and not self._ships_list_request_task.done():
-            self._ships_list_request_task.cancel()
-            self._ships_list_request_task = None
-        self._pending_intent_inference_requested = False
-
-    def _clear_pending_course_plot_intent(self) -> None:
-        self._pending_course_plot_intent = None
-        if self._course_plot_timeout_task and not self._course_plot_timeout_task.done():
-            self._course_plot_timeout_task.cancel()
-            self._course_plot_timeout_task = None
-        self._pending_intent_inference_requested = False
-
-    async def _ports_list_intent_timeout(self, intent_id: int, expires_at: float) -> None:
+    async def _intent_timeout(self, intent_type: str, intent_id: int, expires_at: float) -> None:
         try:
             delay = max(0.0, expires_at - time.time())
             if delay:
@@ -697,54 +626,20 @@ class UIAgentContext(FrameProcessor):
         except asyncio.CancelledError:
             return
 
-        pending = self._pending_ports_list_intent
-        if not pending or pending.get("id") != intent_id:
+        intent = self._pending_intents.get(intent_type)
+        if not intent or intent.id != intent_id:
             return
-        self._pending_ports_list_intent = None
-        if self._ports_list_request_task and not self._ports_list_request_task.done():
-            self._ports_list_request_task.cancel()
-            self._ports_list_request_task = None
-        self._ports_list_timeout_task = None
-        self._pending_intent_inference_requested = False
-        logger.debug("UI agent ports.list intent expired before event arrival")
+        self._clear_pending_intent(intent_type)
+        logger.debug(f"UI agent {intent_type} intent expired before event arrival")
         await self._maybe_trigger_pending_intent_inference()
 
-    async def _ships_list_intent_timeout(self, intent_id: int, expires_at: float) -> None:
-        try:
-            delay = max(0.0, expires_at - time.time())
-            if delay:
-                await asyncio.sleep(delay)
-        except asyncio.CancelledError:
-            return
-
-        pending = self._pending_ships_list_intent
-        if not pending or pending.get("id") != intent_id:
-            return
-        self._pending_ships_list_intent = None
-        if self._ships_list_request_task and not self._ships_list_request_task.done():
-            self._ships_list_request_task.cancel()
-            self._ships_list_request_task = None
-        self._ships_list_timeout_task = None
-        self._pending_intent_inference_requested = False
-        logger.debug("UI agent ships.list intent expired before event arrival")
-        await self._maybe_trigger_pending_intent_inference()
-
-    async def _course_plot_intent_timeout(self, intent_id: int, expires_at: float) -> None:
-        try:
-            delay = max(0.0, expires_at - time.time())
-            if delay:
-                await asyncio.sleep(delay)
-        except asyncio.CancelledError:
-            return
-
-        pending = self._pending_course_plot_intent
-        if not pending or pending.get("id") != intent_id:
-            return
-        self._pending_course_plot_intent = None
-        self._course_plot_timeout_task = None
-        self._pending_intent_inference_requested = False
-        logger.debug("UI agent course.plot intent expired before event arrival")
-        await self._maybe_trigger_pending_intent_inference()
+    def _payload_matches_player(self, payload: dict) -> bool:
+        expected_player_id = getattr(self._game_client, "character_id", None)
+        payload_player = payload.get("player")
+        payload_player_id = payload_player.get("id") if isinstance(payload_player, dict) else None
+        if expected_player_id and payload_player_id and expected_player_id != payload_player_id:
+            return False
+        return True
 
     @staticmethod
     def _ports_list_filters_match(payload: dict, filters: dict) -> bool:
@@ -837,8 +732,8 @@ class UIAgentContext(FrameProcessor):
     async def _delayed_ports_list_request(self, intent_id: int, filters: dict) -> None:
         try:
             await asyncio.sleep(self._intent_request_delay_secs)
-            pending = self._pending_ports_list_intent
-            if not pending or pending.get("id") != intent_id:
+            intent = self._pending_intents.get("ports.list")
+            if not intent or intent.id != intent_id:
                 return
             if self._get_cached_ports_list_event(filters) is not None:
                 return
@@ -856,14 +751,15 @@ class UIAgentContext(FrameProcessor):
         except Exception as exc:  # noqa: BLE001
             logger.error(f"UI agent list_known_ports failed: {exc}")
         finally:
-            if self._ports_list_request_task and self._ports_list_request_task.done():
-                self._ports_list_request_task = None
+            intent = self._pending_intents.get("ports.list")
+            if intent and intent.id == intent_id and intent.request_task and intent.request_task.done():
+                intent.request_task = None
 
     async def _delayed_ships_list_request(self, intent_id: int) -> None:
         try:
             await asyncio.sleep(self._intent_request_delay_secs)
-            pending = self._pending_ships_list_intent
-            if not pending or pending.get("id") != intent_id:
+            intent = self._pending_intents.get("ships.list")
+            if not intent or intent.id != intent_id:
                 return
             if self._ships_cache_is_fresh():
                 return
@@ -875,8 +771,9 @@ class UIAgentContext(FrameProcessor):
         except Exception as exc:  # noqa: BLE001
             logger.error(f"UI agent list_user_ships failed: {exc}")
         finally:
-            if self._ships_list_request_task and self._ships_list_request_task.done():
-                self._ships_list_request_task = None
+            intent = self._pending_intents.get("ships.list")
+            if intent and intent.id == intent_id and intent.request_task and intent.request_task.done():
+                intent.request_task = None
 
     async def _on_ports_list(self, event_message: dict) -> None:
         payload = event_message.get("payload", event_message)
@@ -885,34 +782,29 @@ class UIAgentContext(FrameProcessor):
 
         self._cache_ports_list_event(event_message)
 
-        pending = self._pending_ports_list_intent
-        if not pending:
+        intent = self._pending_intents.get("ports.list")
+        if not intent:
             return
 
-        expires_at = pending.get("expires_at")
-        if isinstance(expires_at, (int, float)) and time.time() > expires_at:
-            self._clear_pending_ports_list_intent()
+        if time.time() > intent.expires_at:
+            self._clear_pending_intent("ports.list")
             return
 
-        filters = pending.get("filters") or {}
-        if not self._ports_list_filters_match(payload, filters):
+        if not intent.match_fn(payload):
             return
 
-        expected_player_id = getattr(self._game_client, "character_id", None)
-        payload_player = payload.get("player")
-        payload_player_id = payload_player.get("id") if isinstance(payload_player, dict) else None
-        if expected_player_id and payload_player_id and expected_player_id != payload_player_id:
+        if not self._payload_matches_player(payload):
             return
 
-        if self._ports_list_request_task and not self._ports_list_request_task.done():
-            self._ports_list_request_task.cancel()
-            self._ports_list_request_task = None
+        if intent.request_task and not intent.request_task.done():
+            intent.request_task.cancel()
+            intent.request_task = None
 
-        if self._ports_list_timeout_task and not self._ports_list_timeout_task.done():
-            self._ports_list_timeout_task.cancel()
-            self._ports_list_timeout_task = None
+        if intent.timeout_task and not intent.timeout_task.done():
+            intent.timeout_task.cancel()
+            intent.timeout_task = None
 
-        self._set_intent_event(pending, "ports.list", event_message)
+        self._set_intent_event(intent, "ports.list", event_message)
         await self._maybe_trigger_pending_intent_inference()
 
     async def _handle_ships_list_intent(self, event_message: dict) -> None:
@@ -920,30 +812,26 @@ class UIAgentContext(FrameProcessor):
         if not isinstance(payload, dict):
             return
 
-        pending = self._pending_ships_list_intent
-        if not pending:
+        intent = self._pending_intents.get("ships.list")
+        if not intent:
             return
 
-        expires_at = pending.get("expires_at")
-        if isinstance(expires_at, (int, float)) and time.time() > expires_at:
-            self._clear_pending_ships_list_intent()
+        if time.time() > intent.expires_at:
+            self._clear_pending_intent("ships.list")
             return
 
-        expected_player_id = getattr(self._game_client, "character_id", None)
-        payload_player = payload.get("player")
-        payload_player_id = payload_player.get("id") if isinstance(payload_player, dict) else None
-        if expected_player_id and payload_player_id and expected_player_id != payload_player_id:
+        if not self._payload_matches_player(payload):
             return
 
-        if self._ships_list_request_task and not self._ships_list_request_task.done():
-            self._ships_list_request_task.cancel()
-            self._ships_list_request_task = None
+        if intent.request_task and not intent.request_task.done():
+            intent.request_task.cancel()
+            intent.request_task = None
 
-        if self._ships_list_timeout_task and not self._ships_list_timeout_task.done():
-            self._ships_list_timeout_task.cancel()
-            self._ships_list_timeout_task = None
+        if intent.timeout_task and not intent.timeout_task.done():
+            intent.timeout_task.cancel()
+            intent.timeout_task = None
 
-        self._set_intent_event(pending, "ships.list", event_message)
+        self._set_intent_event(intent, "ships.list", event_message)
         await self._maybe_trigger_pending_intent_inference()
 
     async def _on_course_plot(self, event_message: dict) -> None:
@@ -952,39 +840,27 @@ class UIAgentContext(FrameProcessor):
             return
         self._cache_course_plot_event(event_message)
 
-        pending = self._pending_course_plot_intent
-        if not pending:
+        intent = self._pending_intents.get("course.plot")
+        if not intent:
             logger.debug("UI agent course.plot received with no pending intent; cached only")
             return
 
-        expires_at = pending.get("expires_at")
-        if isinstance(expires_at, (int, float)) and time.time() > expires_at:
-            self._clear_pending_course_plot_intent()
+        if time.time() > intent.expires_at:
+            self._clear_pending_intent("course.plot")
             logger.debug("UI agent course.plot arrived after intent expiration; cached only")
             return
 
-        expected_player_id = getattr(self._game_client, "character_id", None)
-        payload_player = payload.get("player")
-        payload_player_id = payload_player.get("id") if isinstance(payload_player, dict) else None
-        if expected_player_id and payload_player_id and expected_player_id != payload_player_id:
+        if not self._payload_matches_player(payload):
             return
 
-        from_sector = pending.get("from_sector")
-        to_sector = pending.get("to_sector")
-        if isinstance(from_sector, int) and isinstance(to_sector, int):
-            if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
-                # Pending intent is for a different route — keep waiting for the
-                # expected route and do not auto-fit this event.
-                logger.debug(
-                    "UI agent course.plot mismatch with pending intent; cached only"
-                )
-                return
+        if not intent.match_fn(payload):
+            return
 
-        if self._course_plot_timeout_task and not self._course_plot_timeout_task.done():
-            self._course_plot_timeout_task.cancel()
-            self._course_plot_timeout_task = None
+        if intent.timeout_task and not intent.timeout_task.done():
+            intent.timeout_task.cancel()
+            intent.timeout_task = None
 
-        self._set_intent_event(pending, "course.plot", event_message)
+        self._set_intent_event(intent, "course.plot", event_message)
         await self._maybe_trigger_pending_intent_inference()
 
     async def _auto_fit_course_plot(self, payload: dict) -> None:
@@ -1304,30 +1180,17 @@ class UIAgentContext(FrameProcessor):
         return f"Recent ships list {meta_line}:\n{ships_json}"
 
     def _format_pending_intents_block(self) -> str:
-        names: list[str] = []
-        if self._pending_ports_list_intent:
-            names.append("ports.list")
-        if self._pending_ships_list_intent:
-            names.append("ships.list")
-        if self._pending_course_plot_intent:
-            names.append("course.plot")
-        if not names:
+        if not self._pending_intents:
             return "Pending UI intents: (none)"
         lines = ["Pending UI intents:"]
-        for name in names:
-            lines.append(f"- {name}")
+        for intent_type in self._pending_intents:
+            lines.append(f"- {intent_type}")
         return "\n".join(lines)
 
     def _format_pending_intent_events_block(self) -> str:
         events: list[str] = []
-        for intent in (
-            self._pending_ports_list_intent,
-            self._pending_ships_list_intent,
-            self._pending_course_plot_intent,
-        ):
-            if not intent:
-                continue
-            event_xml = intent.get("event_xml")
+        for intent in self._pending_intents.values():
+            event_xml = intent.event_xml
             if isinstance(event_xml, str) and event_xml.strip():
                 events.append(event_xml.strip())
         if not events:
@@ -1394,34 +1257,49 @@ class UIAgentContext(FrameProcessor):
                     "from_sector": from_sector,
                     "max_hops": max_hops,
                 }
-                intent_id = self._set_pending_ports_list_intent(
-                    filters=filters,
+
+                def _ports_match_fn(payload: dict) -> bool:
+                    return self._ports_list_filters_match(payload, filters)
+
+                async def _ports_request_factory(iid: int) -> None:
+                    await self._delayed_ports_list_request(iid, filters)
+
+                intent_id = self._set_pending_intent(
+                    "ports.list",
+                    match_fn=_ports_match_fn,
+                    type_fields={"filters": filters},
                     include_player_sector=include_player_sector,
                     show_panel=show_panel,
+                    default_timeout_secs=self._ports_list_timeout_secs,
                     expires_in_secs=expires_override,
                     replace_existing=replace_existing,
+                    request_factory=_ports_request_factory,
                 )
                 cached_event = self._get_cached_ports_list_event(filters)
                 if cached_event is not None:
                     await self._on_ports_list(cached_event)
-                pending = self._pending_ports_list_intent
-                if pending and pending.get("id") == intent_id and not pending.get("event_xml"):
-                    if self._ports_list_request_task and not self._ports_list_request_task.done():
-                        self._ports_list_request_task.cancel()
-                    self._ports_list_request_task = self._safe_create_task(
-                        self._delayed_ports_list_request(intent_id, filters),
-                        name="ports_list_request",
-                    )
+
             elif intent_type == "ships.list":
                 ship_scope = arguments.get("ship_scope") or "all"
                 if ship_scope not in ("corporation", "personal", "all"):
                     raise ValueError(f"Invalid ship_scope '{ship_scope}'")
-                intent_id = self._set_pending_ships_list_intent(
-                    ship_scope=ship_scope,
+
+                def _ships_match_fn(payload: dict) -> bool:
+                    return True
+
+                async def _ships_request_factory(iid: int) -> None:
+                    await self._delayed_ships_list_request(iid)
+
+                intent_id = self._set_pending_intent(
+                    "ships.list",
+                    match_fn=_ships_match_fn,
+                    type_fields={"ship_scope": ship_scope},
                     include_player_sector=include_player_sector,
                     show_panel=show_panel,
+                    default_timeout_secs=self._ships_list_timeout_secs,
                     expires_in_secs=expires_override,
                     replace_existing=replace_existing,
+                    request_factory=_ships_request_factory,
                 )
                 if self._ships_cache_is_fresh():
                     cached_event = self._cached_ships_event_message
@@ -1432,14 +1310,7 @@ class UIAgentContext(FrameProcessor):
                             payload["player"] = {"id": expected_player_id}
                         cached_event = {"event_name": "ships.list", "payload": payload}
                     await self._handle_ships_list_intent(cached_event)
-                pending = self._pending_ships_list_intent
-                if pending and pending.get("id") == intent_id and not pending.get("event_xml"):
-                    if self._ships_list_request_task and not self._ships_list_request_task.done():
-                        self._ships_list_request_task.cancel()
-                    self._ships_list_request_task = self._safe_create_task(
-                        self._delayed_ships_list_request(intent_id),
-                        name="ships_list_request",
-                    )
+
             else:
                 from_sector = arguments.get("from_sector")
                 if from_sector is not None and not isinstance(from_sector, int):
@@ -1448,11 +1319,22 @@ class UIAgentContext(FrameProcessor):
                 if to_sector is not None and not isinstance(to_sector, int):
                     to_sector = int(to_sector)
 
-                intent_id = self._set_pending_course_plot_intent(
-                    from_sector=from_sector,
-                    to_sector=to_sector,
+                def _course_match_fn(payload: dict) -> bool:
+                    if isinstance(from_sector, int) and isinstance(to_sector, int):
+                        if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
+                            logger.debug(
+                                "UI agent course.plot mismatch with pending intent; cached only"
+                            )
+                            return False
+                    return True
+
+                intent_id = self._set_pending_intent(
+                    "course.plot",
+                    match_fn=_course_match_fn,
+                    type_fields={"from_sector": from_sector, "to_sector": to_sector},
                     include_player_sector=include_player_sector,
                     show_panel=show_panel,
+                    default_timeout_secs=self._course_plot_timeout_secs,
                     expires_in_secs=expires_override,
                     replace_existing=replace_existing,
                 )
