@@ -30,7 +30,9 @@ export const TaskEngineSummaryText = ({
     setOverflow(Math.max(0, textEl.scrollWidth - containerEl.clientWidth))
   }, [text])
 
-  const duration = overflow > 0 ? overflow / 25 : 0
+  const maskWidth = 24
+  const scrollDistance = overflow + maskWidth
+  const duration = overflow > 0 ? scrollDistance / 25 : 0
 
   return (
     <div className={cn("relative text-xxs flex flex-row gap-1 items-center uppercase", className)}>
@@ -63,7 +65,7 @@ export const TaskEngineSummaryText = ({
           style={{
             ...(overflow > 0 &&
               ({
-                "--marquee-offset": `-${overflow}px`,
+                "--marquee-offset": `-${scrollDistance}px`,
                 "--marquee-duration": `${duration}s`,
               } as React.CSSProperties)),
           }}

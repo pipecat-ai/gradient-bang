@@ -11,7 +11,7 @@ export const TaskStreamPanel = () => {
   }
 
   return (
-    <RHSPanelContent>
+    <RHSPanelContent noScroll className="bg-background/30">
       <TaskOutputStream taskId={taskId} className="px-ui-sm pb-ui-sm" />
     </RHSPanelContent>
   )

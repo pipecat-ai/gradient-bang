@@ -194,7 +194,10 @@ export const TaskEngine = ({
             showArrow
             className="mx-ui-xs z-20 gap-ui-xs"
           />
-          <TaskOutputStream taskId={taskId} />
+          <TaskOutputStream
+            taskId={taskId}
+            className="absolute inset-0 pointer-events-none [&_*[data-slot^=scroll-area]]:pointer-events-auto px-ui-xs"
+          />
         </div>
 
         <CardContent className="flex flex-col gap-2">

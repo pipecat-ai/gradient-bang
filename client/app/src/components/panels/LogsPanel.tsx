@@ -11,6 +11,7 @@ import { cn } from "@/utils/tailwind"
 import { Button } from "../primitives/Button"
 import { ButtonGroup } from "../primitives/ButtonGroup"
 import { ScrollArea } from "../primitives/ScrollArea"
+import { RHSPanelContent } from "./RHSPanelContainer"
 
 const ACTIVITY_DURATION_MS = 5000
 
@@ -192,80 +193,84 @@ export const LogsPanel = () => {
   }, [])
 
   return (
-    <div
-      data-active={hasRecentActivity || undefined}
-      className={cn(
-        "group absolute inset-0 flex flex-col transition-colors hover:bg-background/60 data-active:bg-background/60",
-        FADE_TRANSITION.out,
-        FADE_TRANSITION.inSelf,
-        FADE_TRANSITION.messageBase,
-        FADE_TRANSITION.messageActive
-      )}
-    >
-      <div className="shrink-0 p-ui-xs border-b flex flex-row justify-between items-center">
-        <ButtonGroup className="bg-background/60">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setMessageFilters("all")}
-            className={messageFilters === "all" ? "bg-background text-accent-foreground" : ""}
-          >
-            All
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setMessageFilters("direct")}
-            className={messageFilters === "direct" ? "bg-background text-accent-foreground" : ""}
-          >
-            Direct
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setMessageFilters("broadcast")}
-            className={messageFilters === "broadcast" ? "bg-background text-accent-foreground" : ""}
-          >
-            Broadcast
-          </Button>
-        </ButtonGroup>
+    <RHSPanelContent noScroll className="bg-red-500">
+      <div
+        data-active={hasRecentActivity || undefined}
+        className={cn(
+          "group absolute inset-0 flex flex-col transition-colors hover:bg-background/60 data-active:bg-background/60",
+          FADE_TRANSITION.out,
+          FADE_TRANSITION.inSelf,
+          FADE_TRANSITION.messageBase,
+          FADE_TRANSITION.messageActive
+        )}
+      >
+        <div className="shrink-0 p-ui-xs border-b flex flex-row justify-between items-center">
+          <ButtonGroup className="bg-background/60">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMessageFilters("all")}
+              className={messageFilters === "all" ? "bg-background text-accent-foreground" : ""}
+            >
+              All
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMessageFilters("direct")}
+              className={messageFilters === "direct" ? "bg-background text-accent-foreground" : ""}
+            >
+              Direct
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMessageFilters("broadcast")}
+              className={
+                messageFilters === "broadcast" ? "bg-background text-accent-foreground" : ""
+              }
+            >
+              Broadcast
+            </Button>
+          </ButtonGroup>
 
-        <div className="flex flex-row items-center gap-2">
-          <span className="text-xs text-muted-foreground">Mute broadcast</span>
-          <ToggleControl
-            id="mute-broadcast"
-            size="sm"
-            checked={muteBroadcastActivity}
-            onCheckedChange={setMuteBroadcastActivity}
-            className="bg-background/60"
-          />
+          <div className="flex flex-row items-center gap-2">
+            <span className="text-xs text-muted-foreground">Mute broadcast</span>
+            <ToggleControl
+              id="mute-broadcast"
+              size="sm"
+              checked={muteBroadcastActivity}
+              onCheckedChange={setMuteBroadcastActivity}
+              className="bg-background/60"
+            />
+          </div>
+        </div>
+        <div className="relative flex-1 flex flex-col overflow-hidden min-h-0">
+          <ScrollArea
+            className="relative w-full flex-1 overflow-hidden"
+            viewportRef={scrollRef}
+            bottomAlign
+          >
+            <div ref={contentRef} className="mt-auto flex flex-col gap-ui-md p-ui-sm pb-10">
+              {filteredMessages && player.name ?
+                filteredMessages.map((message) => (
+                  <MessageRow
+                    key={message.id}
+                    message={message}
+                    local={player.name === message.from_name}
+                  />
+                ))
+              : <div className="w-full h-full flex items-center justify-center z-50 bg-blue-500">
+                  <span className="text-xs text-muted-foreground animate-pulse uppercase">
+                    Awaiting wave history
+                  </span>
+                </div>
+              }
+            </div>
+          </ScrollArea>
+          {hasNewMessages && <ScrollNewItemsButton onClick={dismissLock} />}
         </div>
       </div>
-      <div className="relative flex-1 flex flex-col overflow-hidden min-h-0">
-        <ScrollArea
-          className="relative w-full flex-1 overflow-hidden"
-          viewportRef={scrollRef}
-          fullHeight
-        >
-          <div ref={contentRef} className="flex flex-col gap-ui-md justify-end min-h-full p-ui-sm pb-10">
-            {filteredMessages && player.name ?
-              filteredMessages.map((message) => (
-                <MessageRow
-                  key={message.id}
-                  message={message}
-                  local={player.name === message.from_name}
-                />
-              ))
-            : <div className="w-full h-full flex items-center justify-center">
-                <span className="text-xs text-muted-foreground animate-pulse uppercase">
-                  Awaiting wave history
-                </span>
-              </div>
-            }
-          </div>
-        </ScrollArea>
-        {hasNewMessages && <ScrollNewItemsButton onClick={dismissLock} />}
-      </div>
-    </div>
+    </RHSPanelContent>
   )
 }

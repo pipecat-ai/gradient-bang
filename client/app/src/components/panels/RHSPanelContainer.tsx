@@ -62,11 +62,24 @@ export const RHSSubPanel = ({
 export const RHSPanelContent = ({
   children,
   className,
+  noScroll = false,
 }: {
   children: React.ReactNode
   className?: string
+  /** When true, fills the container without wrapping in a ScrollArea. Use for panels that manage their own scrolling. */
+  noScroll?: boolean
 }) => {
-  return <div className={cn("flex flex-col gap-ui-sm w-full pb-12", className)}>{children}</div>
+  if (noScroll) {
+    return (
+      <div className={cn("flex flex-col w-full h-full min-h-0", className)}>{children}</div>
+    )
+  }
+
+  return (
+    <ScrollArea className="w-full h-full">
+      <div className={cn("flex flex-col gap-ui-sm w-full pb-12", className)}>{children}</div>
+    </ScrollArea>
+  )
 }
 
 export const RHSPanelContainer = () => {
@@ -83,11 +96,10 @@ export const RHSPanelContainer = () => {
         <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert pointer-events-none" />
       )}
 
-      <ScrollArea
-        disabled={activeSubPanel !== undefined || activePanel === "logs"}
+      <div
         className={cn(
-          "w-full h-full pointer-events-auto text-foreground",
-          activeSubPanel && "pointer-events-none overflow-hidden [&>div]:overflow-hidden!"
+          "w-full h-full pointer-events-auto text-foreground overflow-hidden",
+          activeSubPanel && "pointer-events-none"
         )}
       >
         {activePanel === "logs" && <LogsPanel />}
@@ -97,7 +109,7 @@ export const RHSPanelContainer = () => {
         {activePanel === "tasks" && <TaskPanel />}
         {activePanel === "corp" && <div className=""></div>}
         {activePanel === "task_stream" && <TaskStreamPanel />}
-      </ScrollArea>
+      </div>
       <div
         className={cn("absolute inset-0 bg-background/50 z-8", activeSubPanel ? "block" : "hidden")}
         onClick={() => setActiveSubPanel(undefined)}

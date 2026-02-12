@@ -57,11 +57,9 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
   return (
     <div
       className={cn(
-        "group relative elbow elbow-foreground/0 h-full",
+        "group relative h-full",
         className,
-        uiState === "combat" ? "pointer-events-none" : (
-          "pointer-events-auto hover:elbow-foreground/100"
-        )
+        uiState === "combat" ? "pointer-events-none" : "pointer-events-auto"
       )}
     >
       <div

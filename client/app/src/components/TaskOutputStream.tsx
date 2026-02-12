@@ -96,28 +96,21 @@ export const TaskOutputStreamComponent = ({
   const visibleTasks = tasks.slice(-MAX_TASK_SUMMARY_LENGTH)
 
   return (
-    <div
-      className={cn(
-        "absolute inset-0 flex flex-col w-full bg-transparent h-full min-h-0 select-none pointer-events-none",
-        className
-      )}
-    >
-      <div className="relative flex flex-col h-full justify-end mask-[linear-gradient(to_bottom,transparent_0px,black_80px)]">
+    <div className={cn("flex flex-col w-full h-full min-h-0 select-none", className)}>
+      <div className="relative flex flex-col flex-1 min-h-0 mask-[linear-gradient(to_bottom,transparent_0px,black_80px)]">
         <ScrollArea
-          className="w-full h-full overflow-hidden pointer-events-auto"
+          className="w-full h-full overflow-hidden"
           viewportRef={scrollRef}
-          fullHeight
+          bottomAlign
           classNames={{ scrollbar: "*:first:bg-white/30" }}
         >
-          <div ref={contentRef} className="flex flex-col justify-end min-h-full pt-10">
+          <div ref={contentRef} className="mt-auto pt-10 pb-1">
             {visibleTasks.map((task, index) => {
               return <TaskRow key={`${task.task_id}-${index}`} task={task} />
             })}
           </div>
         </ScrollArea>
-        {hasNewItems && (
-          <ScrollNewItemsButton onClick={dismissLock} className="bottom-1" />
-        )}
+        {hasNewItems && <ScrollNewItemsButton onClick={dismissLock} className="bottom-1" />}
       </div>
     </div>
   )
