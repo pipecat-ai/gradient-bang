@@ -65,6 +65,9 @@ class LLMServiceConfig:
         api_key: Optional API key override (defaults to environment variable).
         thinking: Optional thinking configuration for task agents.
         function_call_timeout_secs: Optional tool call timeout override.
+        cache_system_prompt: When True (Anthropic only), add cache_control to
+            the system parameter. Useful for agents that rebuild contexts fresh
+            each call but keep the same system prompt.
     """
 
     provider: LLMProvider
@@ -72,6 +75,7 @@ class LLMServiceConfig:
     api_key: Optional[str] = None
     thinking: Optional[UnifiedThinkingConfig] = None
     function_call_timeout_secs: Optional[float] = None
+    cache_system_prompt: bool = False
 
 
 def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
@@ -123,21 +127,22 @@ def create_llm_service(config: LLMServiceConfig) -> LLMService:
     api_key = _get_api_key(config.provider, config.api_key)
 
     if config.provider == LLMProvider.GOOGLE:
-        return _create_google_service(
+        service = _create_google_service(
             api_key,
             config.model,
             config.thinking,
             config.function_call_timeout_secs,
         )
     elif config.provider == LLMProvider.ANTHROPIC:
-        return _create_anthropic_service(
+        service = _create_anthropic_service(
             api_key,
             config.model,
             config.thinking,
             config.function_call_timeout_secs,
+            cache_system_prompt=config.cache_system_prompt,
         )
     elif config.provider == LLMProvider.OPENAI:
-        return _create_openai_service(
+        service = _create_openai_service(
             api_key,
             config.model,
             config.thinking,
@@ -145,6 +150,8 @@ def create_llm_service(config: LLMServiceConfig) -> LLMService:
         )
     else:
         raise ValueError(f"Unsupported provider: {config.provider}")
+
+    return service
 
 
 def _create_google_service(
@@ -182,31 +189,69 @@ def _create_anthropic_service(
     model: str,
     thinking: Optional[UnifiedThinkingConfig],
     function_call_timeout_secs: Optional[float] = None,
+    *,
+    cache_system_prompt: bool = False,
 ) -> LLMService:
     """Create Anthropic (Claude) LLM service."""
     from pipecat.services.anthropic.llm import AnthropicLLMService
 
-    params = None
+    params_kwargs: dict = {"enable_prompt_caching": True}
     if thinking and thinking.enabled:
         # Anthropic requires minimum 1024 tokens for thinking budget
         budget = max(1024, thinking.budget_tokens)
-        params = AnthropicLLMService.InputParams(
-            thinking=AnthropicLLMService.ThinkingConfig(
-                type="enabled",
-                budget_tokens=budget,
-            )
+        params_kwargs["thinking"] = AnthropicLLMService.ThinkingConfig(
+            type="enabled",
+            budget_tokens=budget,
         )
+
+    params = AnthropicLLMService.InputParams(**params_kwargs)
 
     llm_kwargs = {}
     if function_call_timeout_secs is not None:
         llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
 
-    return AnthropicLLMService(
+    service_cls = AnthropicLLMService
+    if cache_system_prompt:
+        service_cls = _get_system_cached_anthropic_cls()
+
+    return service_cls(
         api_key=api_key,
         model=model,
         params=params,
         **llm_kwargs,
     )
+
+
+def _get_system_cached_anthropic_cls():
+    """Return an AnthropicLLMService subclass that caches the system prompt.
+
+    The base adapter only adds cache_control markers to user messages, which
+    doesn't help when contexts are rebuilt fresh each call (like the UI agent).
+    This subclass adds a cache_control marker to the system parameter so the
+    stable system prompt is cached across calls.
+    """
+    import copy
+
+    from anthropic import NOT_GIVEN
+    from pipecat.services.anthropic.llm import AnthropicLLMService
+
+    class _SystemCachedAnthropicLLMService(AnthropicLLMService):
+        def _get_llm_invocation_params(self, context):
+            params = super()._get_llm_invocation_params(context)
+            system = params.get("system")
+            if system is NOT_GIVEN or not system:
+                return params
+            if isinstance(system, str):
+                params["system"] = [
+                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+                ]
+            elif isinstance(system, list):
+                system = copy.deepcopy(system)
+                system[-1]["cache_control"] = {"type": "ephemeral"}
+                params["system"] = system
+            return params
+
+    return _SystemCachedAnthropicLLMService
 
 
 def _create_openai_service(
@@ -355,3 +400,4 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         thinking=thinking,
         function_call_timeout_secs=function_call_timeout_secs,
     )
+
