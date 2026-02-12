@@ -117,6 +117,23 @@ def build_task_agent_prompt() -> str:
     return "\n\n".join(parts)
 
 
+def build_ui_agent_prompt() -> str:
+    """Build the complete system prompt for the UI agent.
+
+    Combines:
+    1. base/game_overview.md - Concise game basics
+    2. agents/ui_agent.md - UI agent instructions
+
+    Returns:
+        Complete system prompt for UI agent
+    """
+    parts = [
+        load_prompt("base/game_overview_ui.md"),
+        load_prompt("agents/ui_agent.md"),
+    ]
+    return "\n\n".join(parts)
+
+
 def build_task_progress_prompt(log_lines: Optional[list[str]] = None) -> str:
     """Build the system prompt for task progress queries.
 
