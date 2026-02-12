@@ -35,8 +35,16 @@ export interface UISlice {
   setActivePanel: (panel?: UIPanel) => void
   setActiveSubPanel: (subPanel?: string) => void
 
+  mapCenterSector: number | undefined
+  setMapCenterSector: (sector: number | undefined) => void
+  mapCenterWorld: [number, number] | undefined
+  setMapCenterWorld: (center: [number, number] | undefined) => void
+  mapFitBoundsWorld: [number, number, number, number] | undefined
+  setMapFitBoundsWorld: (bounds: [number, number, number, number] | undefined) => void
   mapZoomLevel: number | undefined
   setMapZoomLevel: (zoomLevel: number) => void
+  mapFitEpoch: number
+  setMapFitEpoch: (epoch: number) => void
 
   lookMode: boolean
   setLookMode: (lookMode: boolean) => void
@@ -50,7 +58,11 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   activeModal: undefined,
   activePanel: "logs",
   activeSubPanel: undefined,
+  mapCenterSector: undefined,
+  mapCenterWorld: undefined,
+  mapFitBoundsWorld: undefined,
   mapZoomLevel: undefined,
+  mapFitEpoch: 0,
   notifications: {
     newChatMessage: false,
   },
@@ -174,10 +186,39 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
       })
     )
   },
+  setMapCenterSector: (sector: number | undefined) => {
+    set(
+      produce((state) => {
+        state.mapCenterSector = sector
+        state.mapFitBoundsWorld = undefined
+      })
+    )
+  },
+  setMapCenterWorld: (center: [number, number] | undefined) => {
+    set(
+      produce((state) => {
+        state.mapCenterWorld = center
+      })
+    )
+  },
+  setMapFitBoundsWorld: (bounds: [number, number, number, number] | undefined) => {
+    set(
+      produce((state) => {
+        state.mapFitBoundsWorld = bounds
+      })
+    )
+  },
   setMapZoomLevel: (zoomLevel: number) => {
     set(
       produce((state) => {
         state.mapZoomLevel = zoomLevel
+      })
+    )
+  },
+  setMapFitEpoch: (epoch: number) => {
+    set(
+      produce((state) => {
+        state.mapFitEpoch = epoch
       })
     )
   },

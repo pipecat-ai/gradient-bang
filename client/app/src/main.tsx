@@ -24,30 +24,37 @@ const queryParams = new URLSearchParams(window.location.search)
 const transport =
   queryParams.get("transport") || import.meta.env.VITE_PIPECAT_TRANSPORT || "smallwebrtc"
 
-const endpoint =
-  (queryParams.get("server") || Settings.bypassTitle ?
+const serverOverride = queryParams.get("server")
+const rawBaseServerUrl =
+  serverOverride ||
+  (Settings.bypassTitle ?
     import.meta.env.VITE_BOT_URL || "http://localhost:7860"
-  : import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1") + "/start"
+  : import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1")
+
+const baseServerUrl = rawBaseServerUrl.replace(/\/+$/, "")
+const startEndpoint = baseServerUrl.endsWith("/start") ? baseServerUrl : `${baseServerUrl}/start`
+const offerBaseUrl = baseServerUrl.endsWith("/start") ? baseServerUrl.slice(0, -6) : baseServerUrl
+const isSupabaseGateway =
+  offerBaseUrl.includes("/functions/v1") || startEndpoint.includes("/functions/v1")
+const offerUrlTemplate = isSupabaseGateway ?
+  `${startEndpoint}/:sessionId/api/offer`
+: `${offerBaseUrl}/sessions/:sessionId/api/offer`
 
 useGameStore.getState().setBotConfig(
   {
-    endpoint,
+    endpoint: startEndpoint,
   },
   transport as "smallwebrtc" | "daily"
 )
 
-console.debug("[MAIN] Pipecat Configuration:", endpoint, transport)
+console.debug("[MAIN] Pipecat Configuration:", startEndpoint, transport)
 
 const App = lazy(async () => {
   const createTransport =
     transport === "smallwebrtc" ?
       async () => {
         const { SmallWebRTCTransport } = await import("@pipecat-ai/small-webrtc-transport")
-        return new SmallWebRTCTransport({
-          offerUrlTemplate: `${
-            import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1"
-          }/start/:sessionId/api/offer`,
-        })
+        return new SmallWebRTCTransport({ offerUrlTemplate })
       }
     : async () => {
         const { DailyTransport } = await import("@pipecat-ai/daily-transport")

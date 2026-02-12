@@ -4,15 +4,15 @@ import { deepmerge } from "deepmerge-ts"
 import { XIcon } from "@phosphor-icons/react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
-import { CoursePlotPanel } from "@/components/CoursePlotPanel"
 import { MapLegend } from "@/components/MapLegends"
 import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
 import { Badge } from "@/components/primitives/Badge"
+import { Button } from "@/components/primitives/Button"
 import { Separator } from "@/components/primitives/Separator"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS_PADDING } from "@/utils/mapZoom"
+import { DEFAULT_MAX_BOUNDS, getFetchBounds } from "@/utils/mapZoom"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -128,20 +128,37 @@ export const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
     </div>
   )
 }
-export const MapScreen = ({ config }: { config?: MapConfig }) => {
+export const MapScreen = ({
+  config,
+  variant = "full",
+}: {
+  config?: MapConfig
+  variant?: "full" | "embedded"
+}) => {
   const player = useGameStore((state) => state.player)
   const sector = useGameStore.use.sector?.()
   const mapData = useGameStore.use.regional_map_data?.()
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
+  const clearCoursePlot = useGameStore.use.clearCoursePlot?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
-  const [centerSector, setCenterSector] = useState<number | undefined>(undefined)
+  const mapCenterSector = useGameStore.use.mapCenterSector?.()
+  const setMapCenterSector = useGameStore.use.setMapCenterSector?.()
+  const mapCenterWorld = useGameStore.use.mapCenterWorld?.()
+  const setMapCenterWorld = useGameStore.use.setMapCenterWorld?.()
+  const mapFitBoundsWorld = useGameStore.use.mapFitBoundsWorld?.()
+  const setMapFitBoundsWorld = useGameStore.use.setMapFitBoundsWorld?.()
+  const mapFitEpoch = useGameStore((state) => state.mapFitEpoch)
+  const pendingMapFitSectors = useGameStore((state) => state.pendingMapFitSectors)
+  const fitMapToSectors = useGameStore.use.fitMapToSectors?.()
+  const requestMapAutoRecenter = useGameStore.use.requestMapAutoRecenter?.()
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
 
   const [isFetching, setIsFetching] = useState(false)
 
   const initialFetchRef = useRef(false)
+  const autoFitRef = useRef(false)
 
   const mapConfig = useMemo(() => {
     if (!config) return MAP_CONFIG
@@ -156,34 +173,86 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
   useEffect(() => {
     if (initialFetchRef.current) return
 
-    if (sector !== undefined && sector.id !== undefined) {
+    const initialCenter = mapCenterSector ?? sector?.id
+    if (initialCenter !== undefined) {
       initialFetchRef.current = true
 
       // Get the initial zoom level inline to avoid a re-trigger loop
-      const initBounds =
-        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
+      const initBounds = getFetchBounds(
+        useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+      )
 
       console.debug(
         `%c[GAME MAP SCREEN] Initial fetch for current sector ${sector?.id} with bounds ${initBounds}`,
         "font-weight: bold; color: #4CAF50;"
       )
 
+      requestMapAutoRecenter?.("map-screen-initial")
+
       dispatchAction({
         type: "get-my-map",
         payload: {
-          center_sector: sector.id,
+          center_sector: initialCenter,
           bounds: initBounds,
         },
       } as GetMapRegionAction)
     }
-  }, [sector, dispatchAction, mapZoomLevel])
+  }, [mapCenterSector, sector, dispatchAction, mapZoomLevel, requestMapAutoRecenter])
 
   const updateCenterSector = useCallback(
     (node: MapSectorNode | null) => {
       // Click on empty space deselects (resets to current sector)
-      setCenterSector(node?.id ?? sector?.id)
+      setMapCenterWorld?.(undefined)
+      setMapFitBoundsWorld?.(undefined)
+      if (!node) {
+        setMapCenterSector?.(sector?.id)
+        return
+      }
+
+      const isDiscovered = Boolean(node.visited || node.source)
+      if (isDiscovered) {
+        setMapCenterSector?.(node.id)
+        return
+      }
+
+      const candidates = (mapData ?? []).filter(
+        (entry) => entry.visited || entry.source
+      )
+      if (candidates.length === 0) {
+        setMapCenterSector?.(sector?.id ?? node.id)
+        return
+      }
+
+      const SQRT3 = Math.sqrt(3)
+      const toWorld = (pos: [number, number]) => ({
+        x: 1.5 * pos[0],
+        y: SQRT3 * (pos[1] + 0.5 * (pos[0] & 1)),
+      })
+      const targetWorld = toWorld(node.position)
+      let best = candidates[0]
+      let bestDist = Infinity
+      for (const candidate of candidates) {
+        if (!candidate.position) continue
+        const world = toWorld(candidate.position)
+        const dx = world.x - targetWorld.x
+        const dy = world.y - targetWorld.y
+        const dist = dx * dx + dy * dy
+        if (dist < bestDist) {
+          best = candidate
+          bestDist = dist
+        }
+      }
+
+      if (best.id !== node.id) {
+        console.debug("[GAME MAP SCREEN] Click fallback to discovered sector", {
+          requested: node.id,
+          fallback: best.id,
+        })
+      }
+
+      setMapCenterSector?.(best.id ?? sector?.id ?? node.id)
     },
-    [setCenterSector, sector?.id]
+    [setMapCenterSector, setMapCenterWorld, setMapFitBoundsWorld, sector?.id, mapData]
   )
 
   // Handles fetching map data when the center sector we select
@@ -199,8 +268,9 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
       )
 
       setIsFetching(true)
-      const bounds =
-        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
+      const bounds = getFetchBounds(
+        useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+      )
 
       dispatchAction({
         type: "get-my-map",
@@ -218,25 +288,71 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
     queueMicrotask(() => setIsFetching(false))
   }, [mapData])
 
+  // Auto-fit on first map load if no explicit zoom/fit is set yet.
+  useEffect(() => {
+    if (autoFitRef.current) return
+    if (!mapData || mapData.length === 0) return
+    if (pendingMapFitSectors && pendingMapFitSectors.length > 0) return
+    if (mapZoomLevel !== undefined) return
+    if (mapFitBoundsWorld !== undefined || mapFitEpoch !== undefined) return
+
+    const sectorIds = mapData
+      .map((sector) => sector.id)
+      .filter((id): id is number => typeof id === "number" && Number.isFinite(id))
+    if (sectorIds.length === 0) return
+
+    autoFitRef.current = true
+    console.debug("[GAME MAP SCREEN] Auto-fitting to initial map data", {
+      count: sectorIds.length,
+    })
+    fitMapToSectors?.(sectorIds)
+  }, [
+    mapData,
+    mapZoomLevel,
+    mapFitBoundsWorld,
+    mapFitEpoch,
+    pendingMapFitSectors,
+    fitMapToSectors,
+  ])
+
+  const isEmbedded = variant === "embedded"
+
+  const mapContainerClass = isEmbedded ? "w-full h-full relative" : "flex-1 relative"
+
   return (
-    <div className="flex flex-row gap-3 w-full h-full relative">
-      <div className="flex-1 relative">
-        <MapNodeDetails node={hoveredNode} />
-        <header className="absolute top-0 right-0 flex flex-col gap-ui-xs p-ui-md w-72">
-          <MapZoomControls />
-          <Divider color="secondary" />
-          {centerSector !== undefined && centerSector !== sector?.id && (
-            <Badge
-              variant="secondary"
-              border="bracket"
+    <div
+      className={cn(
+        "w-full h-full relative",
+        !isEmbedded ? "flex flex-row gap-3" : ""
+      )}
+    >
+      <div className={mapContainerClass}>
+        {!isEmbedded && <MapNodeDetails node={hoveredNode} />}
+        {!isEmbedded && (
+          <header className="absolute top-0 right-0 flex flex-col gap-ui-xs p-ui-md w-72">
+            <MapZoomControls />
+            <Button
+              variant="outline"
               size="sm"
-              className="w-full -bracket-offset-0"
+              disabled={!coursePlot}
+              onClick={() => clearCoursePlot?.()}
             >
-              Selected Sector:
-              <span className="font-extrabold">{centerSector}</span>
-            </Badge>
-          )}
-        </header>
+              Clear Highlight
+            </Button>
+            <Divider color="secondary" />
+            {sector?.id !== undefined && (
+              <Badge
+                variant="secondary"
+                border="bracket"
+                size="sm"
+                className="w-full -bracket-offset-0"
+              >
+                Current Sector:
+                <span className="font-extrabold">{sector.id}</span>
+              </Badge>
+            )}
+          </header>
+        )}
 
         <footer className="absolute bottom-0 left-0 w-full h-fit p-ui-md">
           <MapLegend />
@@ -246,7 +362,10 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
 
         {mapData ?
           <SectorMap
-            center_sector_id={centerSector}
+            center_sector_id={mapCenterSector}
+            centerWorld={mapCenterWorld}
+            fitBoundsWorld={mapFitBoundsWorld}
+            mapFitEpoch={mapFitEpoch}
             current_sector_id={sector ? sector.id : undefined}
             config={mapConfig}
             map_data={mapData ?? []}
@@ -284,38 +403,39 @@ export const MapScreen = ({ config }: { config?: MapConfig }) => {
         }
       </div>
 
-      <aside className="flex flex-col gap-6 w-md min-h-0">
-        <CardContent className="flex flex-col gap-3">
-          <Badge border="bracket" className="w-full -bracket-offset-3">
-            Current Sector:
-            <span
-              className={sector?.id !== undefined ? "opacity-100 font-extrabold" : "opacity-40"}
-            >
-              {sector?.id ?? "unknown"}
-            </span>
-          </Badge>
-          <Separator variant="dotted" className="w-full text-white/20 h-[12px]" />
-          <div className="flex flex-row gap-3">
-            <Badge variant="secondary" className="flex-1">
-              Discovered:
-              <span className="font-extrabold">{player?.sectors_visited}</span>
+      {!isEmbedded && (
+        <aside className="flex flex-col gap-6 w-md min-h-0">
+          <CardContent className="flex flex-col gap-3">
+            <Badge border="bracket" className="w-full -bracket-offset-3">
+              Current Sector:
+              <span
+                className={sector?.id !== undefined ? "opacity-100 font-extrabold" : "opacity-40"}
+              >
+                {sector?.id ?? "unknown"}
+              </span>
             </Badge>
-            <Badge variant="secondary" className="flex-1">
-              Total:
-              <span className="font-extrabold">{player?.universe_size}</span>
+            <Separator variant="dotted" className="w-full text-white/20 h-[12px]" />
+            <div className="flex flex-row gap-3">
+              <Badge variant="secondary" className="flex-1">
+                Discovered:
+                <span className="font-extrabold">{player?.sectors_visited}</span>
+              </Badge>
+              <Badge variant="secondary" className="flex-1">
+                Total:
+                <span className="font-extrabold">{player?.universe_size}</span>
+              </Badge>
+            </div>
+            <Badge border="elbow" className="text-xs w-full -elbow-offset-3 gap-3">
+              <Progress
+                value={(player?.sectors_visited / player?.universe_size) * 100}
+                className="h-[12px] w-full"
+              />
+              {((player?.sectors_visited / player?.universe_size) * 100).toFixed(2)}%
             </Badge>
-          </div>
-          <Badge border="elbow" className="text-xs w-full -elbow-offset-3 gap-3">
-            <Progress
-              value={(player?.sectors_visited / player?.universe_size) * 100}
-              className="h-[12px] w-full"
-            />
-            {((player?.sectors_visited / player?.universe_size) * 100).toFixed(2)}%
-          </Badge>
-        </CardContent>
-        <CoursePlotPanel />
-        <MovementHistoryPanel className="flex-1 min-h-0" />
-      </aside>
+          </CardContent>
+          <MovementHistoryPanel className="flex-1 min-h-0" />
+        </aside>
+      )}
     </div>
   )
 }

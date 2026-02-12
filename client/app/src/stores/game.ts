@@ -4,6 +4,8 @@ import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
 import usePipecatClientStore from "@/stores/client"
+import { hexToWorld } from "@/utils/hexMath"
+import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/utils/mapZoom"
 
 import { type ChatSlice, createChatSlice } from "./chatSlice"
 import { type CombatSlice, createCombatSlice } from "./combatSlice"
@@ -115,6 +117,8 @@ export interface GameState {
   local_map_data?: MapData
   regional_map_data?: MapData
   course_plot?: CoursePlot
+  pendingMapFitSectors?: number[]
+  pendingMapFitMissingCount?: number
   messages: ChatMessage[] | null
   messageFilters: "all" | "direct" | "broadcast" | "corporation"
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
@@ -161,8 +165,11 @@ export interface GameSlice extends GameState {
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
   updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) => void
+  clearPendingMapFit: () => void
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
+  fitMapToSectors: (sectorIds: number[]) => void
+  requestMapAutoRecenter: (reason: string) => void
   setStarfieldReady: (starfieldReady: boolean) => void
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) => void
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
@@ -180,7 +187,153 @@ const createGameSlice: StateCreator<
   [],
   [],
   GameSlice
-> = (set, get) => ({
+> = (set, get) => {
+  /** Stop retrying only after repeated map updates with no reduction in missing sectors. */
+  const MAX_MAP_FIT_STALE_UPDATES = 5
+  const _getMapFitRequestKey = (sectorIds: number[]): string => sectorIds.join(",")
+  const _resetMapFitRetryState = () => {
+    _mapFitRetryCount = 0
+    _mapFitStaleUpdateCount = 0
+    _mapFitTrackedRequestKey = undefined
+  }
+  let _mapFitRetryCount = 0
+  let _mapFitStaleUpdateCount = 0
+  let _mapFitTrackedRequestKey: string | undefined
+  const _maybeRetryMapFit = () => {
+    const state = get()
+    const pending = state.pendingMapFitSectors
+    const prevMissing = state.pendingMapFitMissingCount
+    if (!pending || pending.length === 0 || prevMissing == null) return
+
+    const requestKey = _getMapFitRequestKey(pending)
+    if (_mapFitTrackedRequestKey !== requestKey) {
+      _mapFitTrackedRequestKey = requestKey
+      _mapFitRetryCount = 0
+      _mapFitStaleUpdateCount = 0
+    }
+
+    const combinedMap = [
+      ...(state.regional_map_data ?? []),
+      ...(state.local_map_data ?? []),
+    ]
+    const knownIds = new Set(combinedMap.map((n) => n.id))
+    const stillMissing = pending.filter((id) => !knownIds.has(id)).length
+
+    if (stillMissing >= prevMissing) {
+      _mapFitStaleUpdateCount += 1
+      if (_mapFitStaleUpdateCount >= MAX_MAP_FIT_STALE_UPDATES) {
+        console.debug("[GAME MAP] fitMapToSectors stale update limit reached, giving up", {
+          staleUpdates: _mapFitStaleUpdateCount,
+          retries: _mapFitRetryCount,
+          missingCount: stillMissing,
+          requestedCount: pending.length,
+        })
+        get().clearPendingMapFit()
+      }
+      return
+    }
+
+    _mapFitStaleUpdateCount = 0
+    _mapFitRetryCount++
+    get().fitMapToSectors(pending)
+  }
+
+  let autoRecenterRequested = false
+  const _maybeAutoRecenter = (reason: string) => {
+    if (!autoRecenterRequested) return
+
+    const state = get()
+    if (state.mapFitBoundsWorld) {
+      autoRecenterRequested = false
+      return
+    }
+    if (state.pendingMapFitSectors && state.pendingMapFitSectors.length > 0) {
+      return
+    }
+
+    const combinedMap = [
+      ...(state.regional_map_data ?? []),
+      ...(state.local_map_data ?? []),
+    ]
+    if (combinedMap.length === 0) return
+
+    const byId = new Map<number, MapSectorNode>()
+    combinedMap.forEach((node) => {
+      if (!byId.has(node.id)) {
+        byId.set(node.id, node)
+      }
+    })
+    const nodes = Array.from(byId.values()).filter((node) => node.position)
+    if (nodes.length === 0) return
+
+    const SQRT3 = Math.sqrt(3)
+
+    let centerWorld = state.mapCenterWorld
+    if (!centerWorld) {
+      const centerId = state.mapCenterSector ?? state.sector?.id
+      const centerNode =
+        centerId !== undefined ? nodes.find((node) => node.id === centerId) : undefined
+      if (centerNode?.position) {
+        const world = hexToWorld(centerNode.position[0], centerNode.position[1])
+        centerWorld = [world.x, world.y]
+      } else {
+        const fallback = nodes.find((node) => node.position)
+        if (fallback?.position) {
+          const world = hexToWorld(fallback.position[0], fallback.position[1])
+          centerWorld = [world.x, world.y]
+        }
+      }
+    }
+    if (!centerWorld) return
+
+    const zoomLevel = state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+    const maxWorldDistance = zoomLevel * SQRT3
+    const visibleNodes = nodes.filter((node) => {
+      const world = hexToWorld(node.position[0], node.position[1])
+      const dx = world.x - centerWorld![0]
+      const dy = world.y - centerWorld![1]
+      return Math.sqrt(dx * dx + dy * dy) <= maxWorldDistance
+    })
+    if (visibleNodes.length === 0) return
+
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+    for (const node of visibleNodes) {
+      const world = hexToWorld(node.position[0], node.position[1])
+      minX = Math.min(minX, world.x)
+      maxX = Math.max(maxX, world.x)
+      minY = Math.min(minY, world.y)
+      maxY = Math.max(maxY, world.y)
+    }
+
+    const nextCenterWorld: [number, number] = [(minX + maxX) / 2, (minY + maxY) / 2]
+    const prevCenterWorld = state.mapCenterWorld ?? centerWorld
+    const dx = nextCenterWorld[0] - prevCenterWorld[0]
+    const dy = nextCenterWorld[1] - prevCenterWorld[1]
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
+      autoRecenterRequested = false
+      return
+    }
+
+    console.debug("[GAME MAP] Auto-recenter", {
+      reason,
+      zoom: zoomLevel,
+      visibleCount: visibleNodes.length,
+      from: prevCenterWorld,
+      to: nextCenterWorld,
+    })
+    set(
+      produce((draft) => {
+        draft.mapCenterWorld = nextCenterWorld
+        draft.mapFitBoundsWorld = undefined
+      })
+    )
+    autoRecenterRequested = false
+  }
+
+  return {
   playerSessionId: null,
   setPlayerSessionId: (playerSessionId: string | null) => set({ playerSessionId }),
 
@@ -195,6 +348,8 @@ const createGameSlice: StateCreator<
   local_map_data: undefined, // @TODO: move to map slice
   regional_map_data: undefined, // @TODO: move to map slice
   course_plot: undefined, // @TODO: move to map slice
+  pendingMapFitSectors: undefined,
+  pendingMapFitMissingCount: undefined,
   messages: null, // @TODO: move to chat slice
   messageFilters: "all",
   leaderboard_data: undefined,
@@ -412,14 +567,31 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  setLocalMapData: (localMapData: MapData) =>
+  setLocalMapData: (localMapData: MapData) => {
     set(
       produce((state) => {
-        state.local_map_data = normalizeMapData(localMapData)
-      })
-    ),
+        const normalizedMapData = normalizeMapData(localMapData)
+        if (!state.local_map_data) {
+          state.local_map_data = normalizedMapData
+          return
+        }
 
-  setRegionalMapData: (regionalMapData: MapData) =>
+        const existingById = new Map(
+          state.local_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
+        )
+
+        for (const sector of normalizedMapData) {
+          existingById.set(sector.id, sector)
+        }
+
+        state.local_map_data = Array.from(existingById.values())
+      })
+    )
+    _maybeRetryMapFit()
+    _maybeAutoRecenter("map.local")
+  },
+
+  setRegionalMapData: (regionalMapData: MapData) => {
     set(
       produce((state) => {
         const normalizedMapData = normalizeMapData(regionalMapData)
@@ -439,7 +611,10 @@ const createGameSlice: StateCreator<
 
         state.regional_map_data = Array.from(existingById.values())
       })
-    ),
+    )
+    _maybeRetryMapFit()
+    _maybeAutoRecenter("map.region")
+  },
 
   updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) =>
     set(
@@ -496,6 +671,16 @@ const createGameSlice: StateCreator<
       })
     ),
 
+  clearPendingMapFit: () => {
+    _resetMapFitRetryState()
+    set(
+      produce((state) => {
+        state.pendingMapFitSectors = undefined
+        state.pendingMapFitMissingCount = undefined
+      })
+    )
+  },
+
   setShip: (ship: Partial<Ship>) =>
     set(
       produce((state) => {
@@ -527,6 +712,203 @@ const createGameSlice: StateCreator<
         state.course_plot = undefined
       })
     ),
+  fitMapToSectors: (sectorIds: number[]) => {
+    const cleaned = Array.from(
+      new Set(sectorIds.filter((id) => typeof id === "number" && Number.isFinite(id)))
+    )
+    if (cleaned.length === 0) return
+    console.debug("[GAME MAP] fitMapToSectors", { count: cleaned.length })
+
+    const state = get()
+    const combinedMap = [
+      ...(state.regional_map_data ?? []),
+      ...(state.local_map_data ?? []),
+    ]
+    const byId = new Map<number, MapSectorNode>()
+    combinedMap.forEach((node) => {
+      if (!byId.has(node.id)) {
+        byId.set(node.id, node)
+      }
+    })
+
+    const nodes = cleaned
+      .map((id) => byId.get(id))
+      .filter((node): node is MapSectorNode => node !== undefined)
+    const missing = cleaned.filter((id) => !byId.has(id))
+
+    if (missing.length > 0) {
+      const pending = state.pendingMapFitSectors
+      const pendingMissing = state.pendingMapFitMissingCount
+      const requestKey = _getMapFitRequestKey(cleaned)
+      const samePending =
+        Array.isArray(pending) &&
+        pending.length === cleaned.length &&
+        pending.every((id, idx) => id === cleaned[idx])
+      if (!samePending || _mapFitTrackedRequestKey !== requestKey) {
+        _mapFitTrackedRequestKey = requestKey
+        _mapFitRetryCount = 0
+        _mapFitStaleUpdateCount = 0
+      }
+      if (samePending && pendingMissing !== undefined && missing.length >= pendingMissing) {
+        console.debug("[GAME MAP] fitMapToSectors skipping re-request", {
+          missingCount: missing.length,
+          totalRequested: cleaned.length,
+        })
+        return
+      }
+      console.debug("[GAME MAP] fitMapToSectors missing", {
+        missingCount: missing.length,
+        totalRequested: cleaned.length,
+      })
+      set(
+        produce((draft) => {
+          draft.pendingMapFitSectors = cleaned
+          draft.pendingMapFitMissingCount = missing.length
+        })
+      )
+      state.dispatchAction({
+        type: "get-my-map",
+        payload: {
+          fit_sectors: cleaned,
+        },
+      })
+      return
+    }
+
+    const positions = nodes
+      .map((node) => node.position)
+      .filter((pos): pos is [number, number] => Array.isArray(pos) && pos.length === 2)
+    const SQRT3 = Math.sqrt(3)
+    const worldPositions = positions.map((pos) => hexToWorld(pos[0], pos[1]))
+
+    let centerWorld: [number, number] | null = null
+    let fitBoundsWorld: [number, number, number, number] | null = null
+    if (worldPositions.length > 0) {
+      let minX = Number.POSITIVE_INFINITY
+      let maxX = Number.NEGATIVE_INFINITY
+      let minY = Number.POSITIVE_INFINITY
+      let maxY = Number.NEGATIVE_INFINITY
+
+      for (const pos of worldPositions) {
+        minX = Math.min(minX, pos.x)
+        maxX = Math.max(maxX, pos.x)
+        minY = Math.min(minY, pos.y)
+        maxY = Math.max(maxY, pos.y)
+      }
+
+      centerWorld = [(minX + maxX) / 2, (minY + maxY) / 2]
+      fitBoundsWorld = [minX, maxX, minY, maxY]
+    }
+
+    const discovered = combinedMap.filter(
+      (node) => node.position && (node.visited || node.source)
+    )
+    const candidates =
+      discovered.length > 0 ? discovered : combinedMap.filter((node) => node.position)
+
+    let centerNode: MapSectorNode | undefined
+    if (centerWorld && candidates.length > 0) {
+      let best = candidates[0]
+      let bestDist = Number.POSITIVE_INFINITY
+      for (const node of candidates) {
+        if (!node.position) continue
+        const world = hexToWorld(node.position[0], node.position[1])
+        const dx = world.x - centerWorld[0]
+        const dy = world.y - centerWorld[1]
+        const dist = dx * dx + dy * dy
+        if (dist < bestDist) {
+          bestDist = dist
+          best = node
+        }
+      }
+      centerNode = best
+    }
+
+    if (!centerNode) {
+      const withPosition = nodes.find((node) => node.position)
+      if (withPosition) {
+        centerNode = withPosition
+      } else if (nodes[0]) {
+        centerNode = nodes[0]
+      } else if (state.sector?.id && state.sector.position) {
+        const fallback = byId.get(state.sector.id)
+        if (fallback) {
+          centerNode = fallback
+        } else {
+          centerNode = {
+            id: state.sector.id,
+            position: state.sector.position,
+            lanes: [],
+          } as MapSectorNode
+        }
+      }
+    }
+
+    if (!centerNode) return
+
+    let targetZoom = DEFAULT_MAX_BOUNDS
+    if (centerWorld && worldPositions.length > 0 && fitBoundsWorld) {
+      const halfWidth = Math.max(0, (fitBoundsWorld[1] - fitBoundsWorld[0]) / 2)
+      const halfHeight = Math.max(0, (fitBoundsWorld[3] - fitBoundsWorld[2]) / 2)
+      const maxWorldDist = Math.sqrt(halfWidth * halfWidth + halfHeight * halfHeight)
+      const maxHexDist = maxWorldDist / SQRT3
+      targetZoom = Math.max(MIN_BOUNDS, Math.ceil(maxHexDist) + 1)
+    } else if (centerNode.position && positions.length > 0) {
+      const centerPos = hexToWorld(centerNode.position[0], centerNode.position[1])
+      let maxHexDist = 0
+      for (const pos of positions) {
+        const world = hexToWorld(pos[0], pos[1])
+        const dx = world.x - centerPos.x
+        const dy = world.y - centerPos.y
+        const hexDist = Math.sqrt(dx * dx + dy * dy) / SQRT3
+        if (hexDist > maxHexDist) {
+          maxHexDist = hexDist
+        }
+      }
+      targetZoom = Math.max(MIN_BOUNDS, Math.ceil(maxHexDist) + 1)
+    }
+
+    const clampedZoom = Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, targetZoom))
+    console.debug("[GAME MAP] fitMapToSectors resolved", {
+      centerSector: centerNode?.id,
+      centerSectorPos: centerNode?.position,
+      centerWorld,
+      fitBoundsWorld,
+      zoom: clampedZoom,
+      targetZoom,
+      maxHexDist: centerWorld && worldPositions.length > 0
+        ? Math.max(...worldPositions.map((w) => Math.sqrt((w.x - centerWorld![0]) ** 2 + (w.y - centerWorld![1]) ** 2) / SQRT3))
+        : undefined,
+      sectorCount: cleaned.length,
+      sectorIds: cleaned,
+      sectorPositions: nodes.map((n) => [n.id, n.position]),
+    })
+
+    set(
+      produce((draft) => {
+        draft.mapCenterSector = centerNode?.id
+        draft.mapCenterWorld = centerWorld ?? undefined
+        draft.mapFitBoundsWorld = fitBoundsWorld ?? undefined
+        draft.mapZoomLevel = clampedZoom
+        draft.mapFitEpoch = (draft.mapFitEpoch ?? 0) + 1
+        if (missing.length > 0) {
+          draft.pendingMapFitSectors = cleaned
+          draft.pendingMapFitMissingCount = missing.length
+        } else {
+          draft.pendingMapFitSectors = undefined
+          draft.pendingMapFitMissingCount = undefined
+        }
+      })
+    )
+    if (missing.length === 0) {
+      _resetMapFitRetryState()
+    }
+  },
+
+  requestMapAutoRecenter: (reason: string) => {
+    autoRecenterRequested = true
+    _maybeAutoRecenter(reason)
+  },
 
   setStarfieldReady: (starfieldReady: boolean) => set({ starfieldReady }),
 
@@ -550,7 +932,7 @@ const createGameSlice: StateCreator<
     ),
 
   setGameState: (gameState: GameInitState) => set({ gameState }),
-})
+}}
 
 // Selectors
 export const selectIncomingMessageCount = (state: GameSlice) =>

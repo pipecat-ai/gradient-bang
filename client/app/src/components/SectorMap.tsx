@@ -23,6 +23,7 @@ import type {
   UIStyles,
 } from "@/fx/map/SectorMapFX"
 import { createSectorMapController, DEFAULT_SECTORMAP_CONFIG } from "@/fx/map/SectorMapFX"
+import { hexToWorld } from "@/utils/hexMath"
 
 export type MapConfig = Partial<
   Omit<
@@ -47,6 +48,9 @@ export type MapConfig = Partial<
 
 interface MapProps {
   center_sector_id?: number
+  centerWorld?: [number, number]
+  fitBoundsWorld?: [number, number, number, number]
+  mapFitEpoch?: number
   current_sector_id?: number
   config?: MapConfig
   map_data: MapData
@@ -86,7 +90,11 @@ const courseplotsEqual = (
 ): boolean => {
   if (a === b) return true
   if (!a || !b) return false
-  return a.from_sector === b.from_sector && a.to_sector === b.to_sector
+  if (a.path.length !== b.path.length) return false
+  for (let i = 0; i < a.path.length; i += 1) {
+    if (a.path[i] !== b.path[i]) return false
+  }
+  return true
 }
 
 /**
@@ -98,23 +106,33 @@ const courseplotsEqual = (
 const hasEnoughMapData = (
   mapData: MapData,
   centerSectorId: number,
-  maxDistance: number
+  maxDistance: number,
+  centerWorld?: [number, number]
 ): boolean => {
   const sectorIds = new Set(mapData.map((s) => s.id))
   const sectorMap = new Map(mapData.map((s) => [s.id, s]))
 
-  // Center must exist in our data
-  const centerSector = sectorMap.get(centerSectorId)
-  if (!centerSector) return false
+  const SQRT3 = Math.sqrt(3)
 
-  const centerPos = centerSector.position
+  let centerWorldPos: { x: number; y: number } | null = null
+  if (centerWorld && centerWorld.length === 2) {
+    centerWorldPos = { x: centerWorld[0], y: centerWorld[1] }
+  } else {
+    // Center must exist in our data
+    const centerSector = sectorMap.get(centerSectorId)
+    if (!centerSector) return false
+    centerWorldPos = hexToWorld(centerSector.position[0], centerSector.position[1])
+  }
+  if (!centerWorldPos) return false
 
   // Find all sectors within spatial bounds of center (using position vector)
+  const maxWorldDistance = maxDistance * SQRT3
   const visibleSectors = mapData.filter((sector) => {
-    const dx = sector.position[0] - centerPos[0]
-    const dy = sector.position[1] - centerPos[1]
+    const world = hexToWorld(sector.position[0], sector.position[1])
+    const dx = world.x - centerWorldPos.x
+    const dy = world.y - centerWorldPos.y
     const distance = Math.sqrt(dx * dx + dy * dy)
-    return distance <= maxDistance
+    return distance <= maxWorldDistance
   })
 
   // Check if any visible sector has lanes to sectors that:
@@ -125,9 +143,11 @@ const hasEnoughMapData = (
   // If it doesn't exist but the SOURCE sector is well inside our bounds
   // (not at the edge), then we're missing interior data.
   for (const sector of visibleSectors) {
-    const sectorDx = sector.position[0] - centerPos[0]
-    const sectorDy = sector.position[1] - centerPos[1]
-    const sectorDistance = Math.sqrt(sectorDx * sectorDx + sectorDy * sectorDy)
+    const world = hexToWorld(sector.position[0], sector.position[1])
+    const sectorDx = world.x - centerWorldPos.x
+    const sectorDy = world.y - centerWorldPos.y
+    const worldDistance = Math.sqrt(sectorDx * sectorDx + sectorDy * sectorDy)
+    const sectorDistance = worldDistance / SQRT3
 
     // Only check lanes from "inner" sectors (not at the edge of our bounds)
     // Edge sectors are expected to have lanes pointing outside
@@ -148,6 +168,9 @@ const hasEnoughMapData = (
 
 const MapComponent = ({
   center_sector_id: center_sector_id_prop,
+  centerWorld,
+  fitBoundsWorld,
+  mapFitEpoch,
   current_sector_id,
   config,
   map_data,
@@ -192,6 +215,11 @@ const MapComponent = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const controllerRef = useRef<SectorMapController | null>(null)
   const prevCenterSectorIdRef = useRef<number>(center_sector_id)
+  const prevCenterWorldRef = useRef<[number, number] | undefined>(centerWorld)
+  const prevFitBoundsWorldRef = useRef<[number, number, number, number] | undefined>(
+    fitBoundsWorld
+  )
+  const prevMapFitEpochRef = useRef<number | undefined>(mapFitEpoch)
   const prevCurrentSectorIdRef = useRef<number | undefined>(current_sector_id)
   const previousMapRef = useRef<MapData | null>(null)
   const lastMaxDistanceRef = useRef<number | undefined>(maxDistance)
@@ -305,13 +333,21 @@ const MapComponent = ({
         width: lastDimensionsRef.current.width,
         height: lastDimensionsRef.current.height,
         data: normalizedMapData,
-        config: { ...baseConfig, center_sector_id, current_sector_id },
+        config: {
+          ...baseConfig,
+          center_sector_id,
+          current_sector_id,
+          center_world: centerWorld,
+          fit_bounds_world: fitBoundsWorld,
+        },
         maxDistance,
         coursePlot,
         ships: shipsMap,
       })
       controllerRef.current = controller
       prevCenterSectorIdRef.current = center_sector_id
+      prevCenterWorldRef.current = centerWorld
+      prevFitBoundsWorldRef.current = fitBoundsWorld
       prevCurrentSectorIdRef.current = current_sector_id
       previousMapRef.current = normalizedMapData
       lastMaxDistanceRef.current = maxDistance
@@ -325,21 +361,33 @@ const MapComponent = ({
     // Compute changes BEFORE logging to enable early exit
     const topologyChanged = mapTopologyChanged(previousMapRef.current, normalizedMapData)
     const centerSectorChanged = center_sector_id !== prevCenterSectorIdRef.current
+    const centerWorldChanged =
+      (centerWorld?.[0] ?? null) !== (prevCenterWorldRef.current?.[0] ?? null) ||
+      (centerWorld?.[1] ?? null) !== (prevCenterWorldRef.current?.[1] ?? null)
+    const fitBoundsChanged =
+      (fitBoundsWorld?.[0] ?? null) !== (prevFitBoundsWorldRef.current?.[0] ?? null) ||
+      (fitBoundsWorld?.[1] ?? null) !== (prevFitBoundsWorldRef.current?.[1] ?? null) ||
+      (fitBoundsWorld?.[2] ?? null) !== (prevFitBoundsWorldRef.current?.[2] ?? null) ||
+      (fitBoundsWorld?.[3] ?? null) !== (prevFitBoundsWorldRef.current?.[3] ?? null)
     const currentSectorChanged = current_sector_id !== prevCurrentSectorIdRef.current
     const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance
     const configChanged = lastConfigRef.current !== baseConfig
     const coursePlotChanged = !courseplotsEqual(lastCoursePlotRef.current, coursePlot)
     const shipsChanged = lastShipsKeyRef.current !== shipsKey
+    const mapFitChanged = mapFitEpoch !== prevMapFitEpochRef.current
 
     // Early exit if nothing has actually changed
     if (
       !topologyChanged &&
       !centerSectorChanged &&
+      !centerWorldChanged &&
+      !fitBoundsChanged &&
       !currentSectorChanged &&
       !maxDistanceChanged &&
       !configChanged &&
       !coursePlotChanged &&
-      !shipsChanged
+      !shipsChanged &&
+      !mapFitChanged
     ) {
       return
     }
@@ -347,21 +395,41 @@ const MapComponent = ({
     console.debug("[GAME SECTOR MAP] Updating SectorMap", {
       topologyChanged,
       centerSectorChanged,
+      centerWorldChanged,
+      fitBoundsChanged,
       currentSectorChanged,
       maxDistanceChanged,
       configChanged,
       coursePlotChanged,
       shipsChanged,
-      "old map": previousMapRef.current,
-      "new map": normalizedMapData,
+      mapFitChanged,
+      maxDistance,
+      center_sector_id,
+      centerWorld,
+      current_sector_id,
+      prevMapCount: previousMapRef.current?.length ?? 0,
+      nextMapCount: normalizedMapData.length,
     })
 
     // Update config when config, center_sector_id, or current_sector_id changes
-    const needsConfigUpdate = configChanged || centerSectorChanged || currentSectorChanged
+    const needsConfigUpdate =
+      configChanged ||
+      centerSectorChanged ||
+      centerWorldChanged ||
+      fitBoundsChanged ||
+      currentSectorChanged
 
     controller.updateProps({
       maxDistance,
-      ...(needsConfigUpdate && { config: { ...baseConfig, center_sector_id, current_sector_id } }),
+      ...(needsConfigUpdate && {
+        config: {
+          ...baseConfig,
+          center_sector_id,
+          current_sector_id,
+          center_world: centerWorld,
+          fit_bounds_world: fitBoundsWorld,
+        },
+      }),
       data: normalizedMapData,
       coursePlot,
       ships: shipsMap,
@@ -369,8 +437,21 @@ const MapComponent = ({
 
     let skipReframe = false
 
-    if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
-      const hasEnough = hasEnoughMapData(normalizedMapData, center_sector_id, maxDistance)
+    const reframeRequested =
+      centerSectorChanged ||
+      centerWorldChanged ||
+      fitBoundsChanged ||
+      maxDistanceChanged ||
+      topologyChanged ||
+      mapFitChanged
+
+    if (reframeRequested) {
+      const hasEnough = hasEnoughMapData(
+        normalizedMapData,
+        center_sector_id,
+        maxDistance,
+        centerWorld
+      )
       const prevMax = maxZoomFetchedRef.current.get(center_sector_id) ?? 0
       const needsFetchByZoom = maxDistance > prevMax
       const needsFetchByTopology = !hasEnough
@@ -378,7 +459,7 @@ const MapComponent = ({
       // Trigger fetch when USER changes center OR zoom level (not on topology updates)
       // This prevents recursion: action → fetch → topology changes → fetch → ...
       if (
-        (centerSectorChanged || maxDistanceChanged) &&
+        (centerSectorChanged || centerWorldChanged || maxDistanceChanged) &&
         (needsFetchByZoom || needsFetchByTopology)
       ) {
         const targetSector = normalizedMapData.find((s) => s.id === center_sector_id)
@@ -413,8 +494,7 @@ const MapComponent = ({
         controller.moveToSector(center_sector_id, normalizedMapData)
       }
 
-      prevCenterSectorIdRef.current = center_sector_id
-    } else if (needsConfigUpdate || shipsChanged) {
+    } else if (needsConfigUpdate || shipsChanged || coursePlotChanged) {
       // Config/ships changed but topology and camera stay the same - just re-render
       console.debug("[GAME SECTOR MAP] Rendering SectorMap (config/ships changed)")
       controller.render()
@@ -422,12 +502,19 @@ const MapComponent = ({
 
     previousMapRef.current = normalizedMapData
     prevCurrentSectorIdRef.current = current_sector_id
+    prevCenterWorldRef.current = centerWorld
+    prevFitBoundsWorldRef.current = fitBoundsWorld
+    prevCenterSectorIdRef.current = center_sector_id
+    prevMapFitEpochRef.current = mapFitEpoch
     lastMaxDistanceRef.current = maxDistance
     lastConfigRef.current = baseConfig
     lastCoursePlotRef.current = coursePlot
     lastShipsKeyRef.current = shipsKey
   }, [
     center_sector_id,
+    centerWorld,
+    fitBoundsWorld,
+    mapFitEpoch,
     current_sector_id,
     normalizedMapData,
     maxDistance,
@@ -499,6 +586,21 @@ const MapComponent = ({
 const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => {
   // Check cheap primitives FIRST - if any differ, skip other checks entirely
   if (prevProps.center_sector_id !== nextProps.center_sector_id) return false
+  if (
+    (prevProps.centerWorld?.[0] ?? null) !== (nextProps.centerWorld?.[0] ?? null) ||
+    (prevProps.centerWorld?.[1] ?? null) !== (nextProps.centerWorld?.[1] ?? null)
+  ) {
+    return false
+  }
+  if (
+    (prevProps.fitBoundsWorld?.[0] ?? null) !== (nextProps.fitBoundsWorld?.[0] ?? null) ||
+    (prevProps.fitBoundsWorld?.[1] ?? null) !== (nextProps.fitBoundsWorld?.[1] ?? null) ||
+    (prevProps.fitBoundsWorld?.[2] ?? null) !== (nextProps.fitBoundsWorld?.[2] ?? null) ||
+    (prevProps.fitBoundsWorld?.[3] ?? null) !== (nextProps.fitBoundsWorld?.[3] ?? null)
+  ) {
+    return false
+  }
+  if (prevProps.mapFitEpoch !== nextProps.mapFitEpoch) return false
   if (prevProps.current_sector_id !== nextProps.current_sector_id) return false
   if (prevProps.width !== nextProps.width) return false
   if (prevProps.height !== nextProps.height) return false
