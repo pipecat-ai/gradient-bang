@@ -16,7 +16,6 @@ from pipecat.frames.frames import (
     LLMFullResponseStartFrame,
     LLMRunFrame,
     LLMTextFrame,
-    OutputTransportMessageUrgentFrame,
     StartFrame,
     StopFrame,
     TranscriptionFrame,
@@ -32,7 +31,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
     RTVIObserver,
@@ -79,20 +78,6 @@ from gradientbang.pipecat_server.ui_agent import (
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
-
-
-class DebugFrameTap(FrameProcessor):
-    def __init__(self, label: str) -> None:
-        super().__init__()
-        self._label = label
-
-    async def process_frame(self, frame, direction: FrameDirection):
-        await super().process_frame(frame, direction)
-        if isinstance(frame, OutputTransportMessageUrgentFrame):
-            logger.debug(
-                f"[{self._label}] saw OutputTransportMessageUrgentFrame: {getattr(frame, 'message', None)}"
-            )
-        await self.push_frame(frame, direction)
 
 
 # Configure loguru
@@ -291,32 +276,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     # Create pipeline with parallel compression + UI branches
     output_transport = transport.output()
 
-    # Debug: log RTVI bot-ready + outbound transport messages
-    @rtvi.event_handler("on_before_push_frame")
-    async def _rtvi_before_push(rtvi, frame):
-        if isinstance(frame, OutputTransportMessageUrgentFrame):
-            logger.debug(
-                f"RTVI pushing OutputTransportMessageUrgentFrame: {getattr(frame, 'message', None)}"
-            )
-
-    # Debug: wrap output transport send_message to surface drops
-    _orig_send_message = output_transport.send_message
-
-    async def _send_message_with_log(frame):
-        client = getattr(output_transport, "_client", None)
-        connected = getattr(client, "is_connected", None)
-        closing = getattr(client, "is_closing", None)
-        if callable(connected):
-            connected = connected()
-        if callable(closing):
-            closing = closing()
-        logger.debug(
-            f"OutputTransport.send_message: frame={type(frame).__name__} connected={connected} "
-            f"closing={closing} payload={getattr(frame, 'message', None)}"
-        )
-        await _orig_send_message(frame)
-
-    output_transport.send_message = _send_message_with_log
     logger.info("Create pipeline…")
     pipeline = Pipeline(
         [
@@ -325,13 +284,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             # rtvi,  # Add RTVI processor for transcription events
             pre_llm_gate,
             context_aggregator.user(),
-            # DebugFrameTap("pre-parallel"),
             ParallelPipeline(
                 # Main branch
                 [
-                    # DebugFrameTap("main-branch:before-llm"),
                     llm,
-                    # DebugFrameTap("main-branch:after-llm"),
                     post_llm_gate,
                     token_usage_metrics,
                     tts,
@@ -389,18 +345,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     @rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
-        transport_client = getattr(output_transport, "_client", None)
-        transport_connected = getattr(transport_client, "is_connected", None)
-        transport_closing = getattr(transport_client, "is_closing", None)
-        if callable(transport_connected):
-            transport_connected = transport_connected()
-        if callable(transport_closing):
-            transport_closing = transport_closing()
-        logger.info(
-            f"RTVI on_client_ready: scheduling join + sending bot-ready "
-            f"(transport connected={transport_connected} closing={transport_closing})"
-        )
-
         async def _join():
             await asyncio.sleep(2)
             await task_manager.game_client.pause_event_delivery()
@@ -408,9 +352,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await task_manager.game_client.resume_event_delivery()
 
         asyncio.create_task(_join())
-        logger.info("RTVI on_client_ready: calling set_bot_ready()")
         await rtvi.set_bot_ready()
-        logger.info("RTVI on_client_ready: set_bot_ready() complete")
 
     @rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):

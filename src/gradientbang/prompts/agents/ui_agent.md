@@ -44,8 +44,15 @@ Some UI requests depend on data that arrives later via server events. Call `queu
 If the user asks for a route/plot between sectors (including "nearest mega port"), queue a `course.plot` intent. Do NOT use `ports.list` intents for route plotting.
 
 Course plot guidance:
-- Only include `from_sector`/`to_sector` when the user explicitly names them.
+- Prefer including BOTH `from_sector` and `to_sector` when you can infer them (e.g., current player sector + requested destination).
+- Only omit `from_sector`/`to_sector` when the user is vague (e.g., "plot to nearest mega port") or the origin is unknown.
 - If the user says "plot to nearest mega port" or "plot a course", omit both — the voice agent resolves the route and you'll receive a `course.plot` event with the path.
+Example — user requests a specific course display:
+User: "Show the course to sector 172."
+If the player's current sector is known (e.g., 3876):
+→ `queue_ui_intent(intent_type="course.plot", from_sector=3876, to_sector=172)`
+If the player's sector is unknown:
+→ `queue_ui_intent(intent_type="course.plot", to_sector=172)`
 
 Port filter guidance:
 - "mega ports" → `mega=true`

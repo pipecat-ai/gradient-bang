@@ -188,20 +188,28 @@ const createGameSlice: StateCreator<
   [],
   GameSlice
 > = (set, get) => {
-  /** Retry a pending fitMapToSectors only when new data reduces the missing count. */
-  const MAX_MAP_FIT_RETRIES = 5
+  /** Stop retrying only after repeated map updates with no reduction in missing sectors. */
+  const MAX_MAP_FIT_STALE_UPDATES = 5
+  const _getMapFitRequestKey = (sectorIds: number[]): string => sectorIds.join(",")
+  const _resetMapFitRetryState = () => {
+    _mapFitRetryCount = 0
+    _mapFitStaleUpdateCount = 0
+    _mapFitTrackedRequestKey = undefined
+  }
   let _mapFitRetryCount = 0
+  let _mapFitStaleUpdateCount = 0
+  let _mapFitTrackedRequestKey: string | undefined
   const _maybeRetryMapFit = () => {
     const state = get()
     const pending = state.pendingMapFitSectors
     const prevMissing = state.pendingMapFitMissingCount
     if (!pending || pending.length === 0 || prevMissing == null) return
 
-    if (_mapFitRetryCount >= MAX_MAP_FIT_RETRIES) {
-      console.debug("[GAME MAP] fitMapToSectors retry limit reached, giving up")
-      get().clearPendingMapFit()
+    const requestKey = _getMapFitRequestKey(pending)
+    if (_mapFitTrackedRequestKey !== requestKey) {
+      _mapFitTrackedRequestKey = requestKey
       _mapFitRetryCount = 0
-      return
+      _mapFitStaleUpdateCount = 0
     }
 
     const combinedMap = [
@@ -211,8 +219,21 @@ const createGameSlice: StateCreator<
     const knownIds = new Set(combinedMap.map((n) => n.id))
     const stillMissing = pending.filter((id) => !knownIds.has(id)).length
 
-    if (stillMissing >= prevMissing) return // no progress — don't retry
+    if (stillMissing >= prevMissing) {
+      _mapFitStaleUpdateCount += 1
+      if (_mapFitStaleUpdateCount >= MAX_MAP_FIT_STALE_UPDATES) {
+        console.debug("[GAME MAP] fitMapToSectors stale update limit reached, giving up", {
+          staleUpdates: _mapFitStaleUpdateCount,
+          retries: _mapFitRetryCount,
+          missingCount: stillMissing,
+          requestedCount: pending.length,
+        })
+        get().clearPendingMapFit()
+      }
+      return
+    }
 
+    _mapFitStaleUpdateCount = 0
     _mapFitRetryCount++
     get().fitMapToSectors(pending)
   }
@@ -650,13 +671,15 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  clearPendingMapFit: () =>
+  clearPendingMapFit: () => {
+    _resetMapFitRetryState()
     set(
       produce((state) => {
         state.pendingMapFitSectors = undefined
         state.pendingMapFitMissingCount = undefined
       })
-    ),
+    )
+  },
 
   setShip: (ship: Partial<Ship>) =>
     set(
@@ -716,10 +739,16 @@ const createGameSlice: StateCreator<
     if (missing.length > 0) {
       const pending = state.pendingMapFitSectors
       const pendingMissing = state.pendingMapFitMissingCount
+      const requestKey = _getMapFitRequestKey(cleaned)
       const samePending =
         Array.isArray(pending) &&
         pending.length === cleaned.length &&
         pending.every((id, idx) => id === cleaned[idx])
+      if (!samePending || _mapFitTrackedRequestKey !== requestKey) {
+        _mapFitTrackedRequestKey = requestKey
+        _mapFitRetryCount = 0
+        _mapFitStaleUpdateCount = 0
+      }
       if (samePending && pendingMissing !== undefined && missing.length >= pendingMissing) {
         console.debug("[GAME MAP] fitMapToSectors skipping re-request", {
           missingCount: missing.length,
@@ -872,7 +901,7 @@ const createGameSlice: StateCreator<
       })
     )
     if (missing.length === 0) {
-      _mapFitRetryCount = 0
+      _resetMapFitRetryState()
     }
   },
 
