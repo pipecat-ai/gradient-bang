@@ -59,28 +59,11 @@ export function useAutoScroll(options: UseAutoScrollOptions = {}): UseAutoScroll
 
   const animation = behavior === "instant" ? "instant" : behavior
 
-  const { scrollRef, contentRef, scrollToBottom: stickyScrollToBottom, stopScroll, isAtBottom } =
+  const { scrollRef, contentRef, scrollToBottom: stickyScrollToBottom, isAtBottom } =
     useStickToBottom({
       resize: animation,
       initial: animation,
     })
-
-  // Force-stop the animation on upward scroll. The library's built-in
-  // wheel escape relies on getComputedStyle(element).overflow matching
-  // "scroll" or "auto" exactly, which fails with Radix ScrollArea
-  // (overflow-x: hidden + overflow-y: scroll produces "hidden scroll").
-  // This listener bypasses that check entirely.
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-
-    const handleWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0) stopScroll()
-    }
-
-    el.addEventListener("wheel", handleWheel, { passive: true })
-    return () => el.removeEventListener("wheel", handleWheel)
-  }, [scrollRef, stopScroll])
 
   // Scroll-lock state for "new items" badge
   const [lockState, setLockState] = useState<{ locked: boolean; lockedAt: number }>({
@@ -95,9 +78,7 @@ export function useAutoScroll(options: UseAutoScrollOptions = {}): UseAutoScroll
       if (isAtBottom) {
         setLockState((prev) => (prev.locked ? { locked: false, lockedAt: 0 } : prev))
       } else {
-        setLockState((prev) =>
-          prev.locked ? prev : { locked: true, lockedAt: latestCount }
-        )
+        setLockState((prev) => (prev.locked ? prev : { locked: true, lockedAt: latestCount }))
       }
     })
   }, [isAtBottom, latestCount])

@@ -246,26 +246,25 @@ export const LogsPanel = () => {
           </div>
         </div>
         <div className="relative flex-1 flex flex-col overflow-hidden min-h-0">
-          <ScrollArea
-            className="relative w-full flex-1 overflow-hidden"
-            viewportRef={scrollRef}
-            bottomAlign
-          >
-            <div ref={contentRef} className="mt-auto flex flex-col gap-ui-md p-ui-sm pb-10">
-              {filteredMessages && player.name ?
-                filteredMessages.map((message) => (
-                  <MessageRow
-                    key={message.id}
-                    message={message}
-                    local={player.name === message.from_name}
-                  />
-                ))
-              : <div className="w-full h-full flex items-center justify-center z-50 bg-blue-500">
-                  <span className="text-xs text-muted-foreground animate-pulse uppercase">
-                    Awaiting wave history
-                  </span>
-                </div>
-              }
+          <ScrollArea className="relative w-full flex-1 min-h-0" viewportRef={scrollRef}>
+            <div className="flex flex-col min-h-full">
+              <div className="flex-1" aria-hidden="true" />
+              <div ref={contentRef} className="flex flex-col gap-ui-md p-ui-sm pb-10">
+                {filteredMessages && player.name ?
+                  filteredMessages.map((message) => (
+                    <MessageRow
+                      key={message.id}
+                      message={message}
+                      local={player.name === message.from_name}
+                    />
+                  ))
+                : <div className="w-full h-full flex items-center justify-center">
+                    <span className="text-xs text-muted-foreground animate-pulse uppercase">
+                      Awaiting wave history
+                    </span>
+                  </div>
+                }
+              </div>
             </div>
           </ScrollArea>
           {hasNewMessages && <ScrollNewItemsButton onClick={dismissLock} />}
