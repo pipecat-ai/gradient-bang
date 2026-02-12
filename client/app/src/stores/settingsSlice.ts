@@ -26,6 +26,7 @@ export interface SettingsSlice {
     showMobileWarning: boolean
     bypassAssetCache: boolean
     bypassTitle: boolean
+    defaultUIMode: UIMode
   }
   setSettings: (settings: SettingsSlice["settings"]) => void
 
@@ -33,10 +34,7 @@ export interface SettingsSlice {
     startBotParams: APIRequest
     transportType: "smallwebrtc" | "daily"
   }
-  setBotConfig: (
-    startBotParams: APIRequest,
-    transportType: "smallwebrtc" | "daily"
-  ) => void
+  setBotConfig: (startBotParams: APIRequest, transportType: "smallwebrtc" | "daily") => void
   getBotStartParams: (characterId?: string, accessToken?: string) => APIRequest
 }
 
@@ -60,6 +58,7 @@ const defaultSettings = {
   showMobileWarning: true,
   bypassAssetCache: false,
   bypassTitle: false,
+  defaultUIMode: "tasks",
 }
 
 export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
@@ -82,10 +81,7 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
     },
     transportType: "smallwebrtc",
   },
-  setBotConfig: (
-    startBotParams: APIRequest,
-    transportType: "smallwebrtc" | "daily"
-  ) => {
+  setBotConfig: (startBotParams: APIRequest, transportType: "smallwebrtc" | "daily") => {
     set(
       produce((state) => {
         state.botConfig = {
@@ -95,25 +91,22 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
       })
     )
   },
-  getBotStartParams: (
-    characterId?: string,
-    accessToken?: string
-  ): APIRequest => {
+  getBotStartParams: (characterId?: string, accessToken?: string): APIRequest => {
     const params = get().botConfig.startBotParams
     const transportType = get().botConfig.transportType
     const requestData = {
-      ...(transportType === "daily"
-        ? {
-            createDailyRoom: true,
-            dailyRoomProperties: {
-              start_video_off: true,
-              eject_at_room_exp: true,
-            },
-          }
-        : {
-            createDailyRoom: false,
-            enableDefaultIceServers: true,
-          }),
+      ...(transportType === "daily" ?
+        {
+          createDailyRoom: true,
+          dailyRoomProperties: {
+            start_video_off: true,
+            eject_at_room_exp: true,
+          },
+        }
+      : {
+          createDailyRoom: false,
+          enableDefaultIceServers: true,
+        }),
       ...(characterId && { body: { character_id: characterId } }),
     }
 

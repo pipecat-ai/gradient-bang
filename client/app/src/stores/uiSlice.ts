@@ -2,6 +2,8 @@ import { produce } from "immer"
 import { nanoid } from "nanoid"
 import type { StateCreator } from "zustand"
 
+import { getLocalSettings, updateLocalSettings } from "@/utils/settings"
+
 import type { Toast, ToastInput } from "@/types/toasts"
 
 interface Notifications {
@@ -51,7 +53,7 @@ export interface UISlice {
 
 export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   uiState: "idle",
-  uiMode: "tasks",
+  uiMode: getLocalSettings()?.defaultUIMode ?? "tasks",
   activeScreen: undefined,
   activeModal: undefined,
   activePanel: "logs",
@@ -75,6 +77,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
         state.uiMode = mode
       })
     )
+    updateLocalSettings({ defaultUIMode: mode })
   },
   setToasts: (toasts: Toast[]) => {
     set(

@@ -99,7 +99,6 @@ export const Starfield = () => {
     return <StarfieldFallback />
   }
 
-  console.log("lookAtTarget", lookAtTarget)
   return (
     <Suspense fallback={null}>
       <motion.div

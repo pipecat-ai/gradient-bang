@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { format, parseISO } from "date-fns"
 import { ArrowDownRightIcon, ArrowRightIcon } from "@phosphor-icons/react"
 
+import { useTaskState } from "@/hooks/useTaskState"
 import useGameStore from "@/stores/game"
 import { formatDuration } from "@/utils/date"
 import { cn } from "@/utils/tailwind"
@@ -106,17 +107,12 @@ export const TaskInProgressRow = ({
 }
 
 export const TaskPanel = () => {
-  const activeTasks = useGameStore.use.activeTasks?.()
-  const ships = useGameStore.use.ships?.()
-  const taskHistory = useGameStore.use.task_history?.()
-  const dispatchAction = useGameStore.use.dispatchAction?.()
+  const { activeTasks, taskHistory, dispatchAction, numTaskEngines, numActiveTasks } =
+    useTaskState()
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
 
   const [selectedTask, setSelectedTask] = useState<TaskHistoryEntry | ActiveTask | null>(null)
-
-  const numTaskEngines = Math.min(Math.max((ships.data?.length ?? 0) - 1, 0), 4)
-  const numActiveTasks = Object.keys(activeTasks ?? {}).length
 
   useEffect(() => {
     if (!taskHistory) {

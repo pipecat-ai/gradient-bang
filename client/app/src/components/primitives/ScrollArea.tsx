@@ -13,12 +13,14 @@ function ScrollArea({
   fullHeight = false,
   classNames,
   onScroll,
+  viewportRef,
   ...props
 }: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
   fullHeight?: boolean
   disabled?: boolean
   classNames?: { scrollbar?: string }
   onScroll?: React.UIEventHandler<HTMLDivElement>
+  viewportRef?: React.Ref<HTMLDivElement>
 }) {
   return (
     <ScrollAreaPrimitive.Root
@@ -27,6 +29,7 @@ function ScrollArea({
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
+        ref={viewportRef}
         data-slot="scroll-area-viewport"
         className={cn(
           "focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1",

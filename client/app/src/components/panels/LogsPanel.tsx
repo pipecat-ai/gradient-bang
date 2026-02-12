@@ -93,13 +93,17 @@ export const LogsPanel = () => {
   const messages = useGameStore.use.messages()
   const player = useGameStore.use.player()
   const prevMessagesLengthRef = useRef(messages?.length ?? 0)
-  const { AutoScrollAnchor, handleScroll, resetAutoScroll, scrollToBottom, isAutoScrollEnabledRef } =
-    useAutoScroll()
+  const {
+    scrollRef,
+    contentRef,
+    resetAutoScroll,
+    hasNewItems: hasNewMessages,
+    dismissLock,
+    trackItems,
+  } = useAutoScroll()
   const messageFilters = useGameStore.use.messageFilters()
   const setMessageFilters = useGameStore.use.setMessageFilters()
   const [hasRecentActivity, setHasRecentActivity] = useState(false)
-  const [isScrollLocked, setIsScrollLocked] = useState(false)
-  const [lockedAtLength, setLockedAtLength] = useState(0)
   const [muteBroadcastActivity, setMuteBroadcastActivity] = useState(false)
   const activityTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevMessagesRef = useRef(messages)
@@ -145,25 +149,20 @@ export const LogsPanel = () => {
     })
   }, [messages, messageFilters])
 
-  const visibleMessagesLength = filteredMessages?.length ?? 0
-
   // Scroll to bottom when filter changes
   useEffect(() => {
     resetAutoScroll()
-    queueMicrotask(() => {
-      setIsScrollLocked(false)
-      setLockedAtLength(0)
-    })
   }, [messageFilters, resetAutoScroll])
 
-  // Scroll and track activity when messages change
+  // Track items for the new-messages badge and detect activity
   useEffect(() => {
     if (!filteredMessages?.length) return
+
+    trackItems(filteredMessages.length)
 
     if (filteredMessages.length !== prevMessagesLengthRef.current) {
       const isNewMessage = filteredMessages.length > prevMessagesLengthRef.current
       prevMessagesLengthRef.current = filteredMessages.length
-      scrollToBottom()
 
       if (isNewMessage) {
         // Find new messages by comparing with previous
@@ -181,28 +180,7 @@ export const LogsPanel = () => {
       }
     }
     prevMessagesRef.current = messages
-  }, [filteredMessages?.length, scrollToBottom, messages, muteBroadcastActivity, triggerActivity])
-
-  const wrappedHandleScroll = useCallback(
-    (event: React.UIEvent<HTMLDivElement>) => {
-      handleScroll(event)
-      const isAtBottom = isAutoScrollEnabledRef.current
-      if (isAtBottom) {
-        if (isScrollLocked) setIsScrollLocked(false)
-      } else if (!isScrollLocked) {
-        setIsScrollLocked(true)
-        setLockedAtLength(visibleMessagesLength)
-      }
-    },
-    [handleScroll, isAutoScrollEnabledRef, isScrollLocked, visibleMessagesLength]
-  )
-
-  const handleNewMessageClick = useCallback(() => {
-    setIsScrollLocked(false)
-    resetAutoScroll()
-  }, [resetAutoScroll])
-
-  const hasNewMessages = isScrollLocked && visibleMessagesLength > lockedAtLength
+  }, [filteredMessages?.length, trackItems, messages, muteBroadcastActivity, triggerActivity])
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -266,30 +244,27 @@ export const LogsPanel = () => {
       <div className="relative flex-1 flex flex-col overflow-hidden min-h-0">
         <ScrollArea
           className="relative w-full flex-1 overflow-hidden"
+          viewportRef={scrollRef}
           fullHeight
-          onScroll={wrappedHandleScroll}
         >
-          <div className="table-cell align-bottom h-full p-ui-sm">
-            <div className="flex flex-col gap-ui-md pb-10">
-              {filteredMessages && player.name ?
-                filteredMessages.map((message) => (
-                  <MessageRow
-                    key={message.id}
-                    message={message}
-                    local={player.name === message.from_name}
-                  />
-                ))
-              : <div className="w-full h-full flex items-center justify-center">
-                  <span className="text-xs text-muted-foreground animate-pulse uppercase">
-                    Awaiting wave history
-                  </span>
-                </div>
-              }
-              <AutoScrollAnchor />
-            </div>
+          <div ref={contentRef} className="flex flex-col gap-ui-md justify-end min-h-full p-ui-sm pb-10">
+            {filteredMessages && player.name ?
+              filteredMessages.map((message) => (
+                <MessageRow
+                  key={message.id}
+                  message={message}
+                  local={player.name === message.from_name}
+                />
+              ))
+            : <div className="w-full h-full flex items-center justify-center">
+                <span className="text-xs text-muted-foreground animate-pulse uppercase">
+                  Awaiting wave history
+                </span>
+              </div>
+            }
           </div>
         </ScrollArea>
-        {hasNewMessages && <ScrollNewItemsButton onClick={handleNewMessageClick} />}
+        {hasNewMessages && <ScrollNewItemsButton onClick={dismissLock} />}
       </div>
     </div>
   )

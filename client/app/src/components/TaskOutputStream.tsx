@@ -6,8 +6,6 @@ import { useAutoScroll } from "@/hooks/useAutoScroll"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
-import { Card, CardContent } from "./primitives/Card"
-
 const MAX_TASK_SUMMARY_LENGTH = 100
 
 const TaskTypeBadge = ({ type }: { type: Task["type"] }) => {
@@ -84,95 +82,44 @@ export const TaskOutputStreamComponent = ({
   onResetAutoScroll?: (reset: () => void) => void
   className?: string
 }) => {
-  const {
-    AutoScrollAnchor,
-    handleScroll,
-    resetAutoScroll,
-    scrollToBottom,
-    isAutoScrollEnabledRef,
-  } = useAutoScroll({ behavior: "instant" })
-  const prevTasksLengthRef = useRef(tasks.length)
-
-  // Ref shadow + state: ref is read in the stable scroll handler, state drives rendering
-  const isScrollLockedRef = useRef(false)
-  const [isScrollLocked, setIsScrollLocked] = useState(false)
-  const [lockedAtLength, setLockedAtLength] = useState(0)
-
-  // Keep a ref to tasks.length so the scroll handler doesn't need it as a dependency
-  const tasksLengthRef = useRef(tasks.length)
-  useEffect(() => {
-    tasksLengthRef.current = tasks.length
-  }, [tasks.length])
+  const { scrollRef, contentRef, hasNewItems, dismissLock, resetAutoScroll, trackItems } =
+    useAutoScroll({ behavior: "instant" })
 
   useEffect(() => {
     onResetAutoScroll?.(resetAutoScroll)
   }, [onResetAutoScroll, resetAutoScroll])
 
   useEffect(() => {
-    if (tasks.length !== prevTasksLengthRef.current) {
-      prevTasksLengthRef.current = tasks.length
-      scrollToBottom()
-    }
-  }, [tasks.length, scrollToBottom])
-
-  const wrappedHandleScroll = useCallback(
-    (event: React.UIEvent<HTMLDivElement>) => {
-      handleScroll(event)
-      const isAtBottom = isAutoScrollEnabledRef.current
-      if (isAtBottom) {
-        if (isScrollLockedRef.current) {
-          isScrollLockedRef.current = false
-          setIsScrollLocked(false)
-        }
-      } else if (!isScrollLockedRef.current) {
-        isScrollLockedRef.current = true
-        setIsScrollLocked(true)
-        setLockedAtLength(tasksLengthRef.current)
-      }
-    },
-    [handleScroll, isAutoScrollEnabledRef]
-  )
-
-  const handleNewMessageClick = useCallback(() => {
-    isScrollLockedRef.current = false
-    setIsScrollLocked(false)
-    resetAutoScroll()
-  }, [resetAutoScroll])
-
-  // Derived: show badge when scroll-locked and new messages arrived since locking
-  const hasNewMessages = isScrollLocked && tasks.length > lockedAtLength
+    trackItems(tasks.length)
+  }, [tasks.length, trackItems])
 
   const visibleTasks = tasks.slice(-MAX_TASK_SUMMARY_LENGTH)
 
   return (
-    <Card
+    <div
       className={cn(
-        "absolute inset-0 flex w-full bg-transparent border-none h-full min-h-0 select-none pointer-events-none mt-auto",
+        "absolute inset-0 flex flex-col w-full bg-transparent h-full min-h-0 select-none pointer-events-none",
         className
       )}
-      size="none"
     >
-      <CardContent className="relative flex flex-col gap-2 h-full justify-end mask-[linear-gradient(to_bottom,transparent_0px,black_80px)]">
+      <div className="relative flex flex-col h-full justify-end mask-[linear-gradient(to_bottom,transparent_0px,black_80px)]">
         <ScrollArea
           className="w-full h-full overflow-hidden pointer-events-auto"
-          fullHeight={true}
+          viewportRef={scrollRef}
+          fullHeight
           classNames={{ scrollbar: "*:first:bg-white/30" }}
-          onScroll={wrappedHandleScroll}
         >
-          <div className="table-cell align-bottom h-full">
-            <div className="h-full flex flex-col justify-end hover:opacity-100 select-none pt-10">
-              {visibleTasks.map((task, index) => {
-                return <TaskRow key={`${task.task_id}-${index}`} task={task} />
-              })}
-            </div>
-            <AutoScrollAnchor />
+          <div ref={contentRef} className="flex flex-col justify-end min-h-full pt-10">
+            {visibleTasks.map((task, index) => {
+              return <TaskRow key={`${task.task_id}-${index}`} task={task} />
+            })}
           </div>
         </ScrollArea>
-        {hasNewMessages && (
-          <ScrollNewItemsButton onClick={handleNewMessageClick} className="bottom-1" />
+        {hasNewItems && (
+          <ScrollNewItemsButton onClick={dismissLock} className="bottom-1" />
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }
 
@@ -230,11 +177,6 @@ export const TaskOutputStream = ({
 
   // Use live outputs if available, otherwise fall back to cached outputs
   const displayTasks = tasks.length > 0 ? tasks : cachedOutputs
-
-  // Only render if we have something to show (either live or cached)
-  if (!taskId && cachedOutputs.length === 0) {
-    return null
-  }
 
   return (
     <TaskOutputStreamComponent

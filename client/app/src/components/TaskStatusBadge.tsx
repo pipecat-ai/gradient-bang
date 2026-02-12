@@ -1,7 +1,10 @@
+import { useEffect, useRef, useState } from "react"
+
 import { cva } from "class-variance-authority"
 
 import { Badge } from "@/components/primitives/Badge"
 import { TracingBorder } from "@/fx/TracingBorder"
+import { cn } from "@/utils/tailwind"
 
 import type { TaskEngineState } from "./panels/TaskEnginesPanel"
 
@@ -42,14 +45,39 @@ const labelStyles = cva("font-extrabold uppercase", {
 })
 
 export const TaskStatusBadge = ({ state, label }: { state: TaskEngineState; label: string }) => {
+  const mountedRef = useRef(true)
+  const changeCountRef = useRef(0)
+  const [animationKey, setAnimationKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (mountedRef.current) {
+      mountedRef.current = false
+      return
+    }
+    if (state !== "active") {
+      changeCountRef.current += 1
+      setAnimationKey(`${state}-${changeCountRef.current}`)
+    }
+  }, [state])
+
   return (
-    <TracingBorder active={state === "active"}>
-      <div className="flex flex-col gap-2">
-        <Badge className={stateStyles({ state })}>
-          <span>Engine status:</span>
-          <span className={labelStyles({ state })}>{label}</span>
-        </Badge>
-      </div>
-    </TracingBorder>
+    <div
+      key={animationKey}
+      className={cn(
+        animationKey &&
+          state !== "active" &&
+          state !== "cancelling" &&
+          "animate-blink repeat-3"
+      )}
+    >
+      <TracingBorder active={state === "active"}>
+        <div className="flex flex-col gap-2">
+          <Badge className={stateStyles({ state })}>
+            <span>Engine status:</span>
+            <span className={labelStyles({ state })}>{label}</span>
+          </Badge>
+        </div>
+      </TracingBorder>
+    </div>
   )
 }
