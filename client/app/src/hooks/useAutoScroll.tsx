@@ -59,52 +59,28 @@ export function useAutoScroll(options: UseAutoScrollOptions = {}): UseAutoScroll
 
   const animation = behavior === "instant" ? "instant" : behavior
 
-  const {
-    scrollRef: stickyScrollRef,
-    contentRef,
-    scrollToBottom: stickyScrollToBottom,
-    stopScroll,
-    isAtBottom,
-  } = useStickToBottom({
-    resize: animation,
-    initial: animation,
-  })
+  const { scrollRef, contentRef, scrollToBottom: stickyScrollToBottom, stopScroll, isAtBottom } =
+    useStickToBottom({
+      resize: animation,
+      initial: animation,
+    })
 
-  // Wrap scrollRef to also attach our own wheel listener that force-stops
-  // the animation on upward scroll. The library's built-in detection relies
-  // on getComputedStyle(element).overflow matching "scroll" or "auto" exactly,
-  // which fails with Radix ScrollArea (overflow-x: hidden, overflow-y: scroll
-  // produces "hidden scroll"). Our listener bypasses that check entirely.
-  const scrollRef = useCallback(
-    (node: HTMLElement | null) => {
-      // Detach from previous node
-      const prev = stickyScrollRef.current
-      if (prev) {
-        prev.removeEventListener("wheel", handleWheelEscape)
-      }
-      // Forward to the library
-      stickyScrollRef(node)
-      // Attach our escape listener
-      if (node) {
-        node.addEventListener("wheel", handleWheelEscape, { passive: true })
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  ) as React.RefCallback<HTMLElement> & React.MutableRefObject<HTMLElement | null>
-  // Mirror the .current property so it works as a MutableRefObject too
-  Object.defineProperty(scrollRef, "current", {
-    get: () => stickyScrollRef.current,
-    set: (v) => {
-      stickyScrollRef.current = v
-    },
-  })
+  // Force-stop the animation on upward scroll. The library's built-in
+  // wheel escape relies on getComputedStyle(element).overflow matching
+  // "scroll" or "auto" exactly, which fails with Radix ScrollArea
+  // (overflow-x: hidden + overflow-y: scroll produces "hidden scroll").
+  // This listener bypasses that check entirely.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
 
-  function handleWheelEscape(e: WheelEvent) {
-    if (e.deltaY < 0) {
-      stopScroll()
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) stopScroll()
     }
-  }
+
+    el.addEventListener("wheel", handleWheel, { passive: true })
+    return () => el.removeEventListener("wheel", handleWheel)
+  }, [scrollRef, stopScroll])
 
   // Scroll-lock state for "new items" badge
   const [lockState, setLockState] = useState<{ locked: boolean; lockedAt: number }>({
