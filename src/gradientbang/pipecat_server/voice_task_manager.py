@@ -869,6 +869,8 @@ class VoiceTaskManager:
         event_context = self._extract_event_context(payload)
         is_task_lifecycle_event = event_name in {"task.start", "task.finish"}
         is_task_scoped_event = payload_task_id is not None
+        # Compute once so request_id-based routing can be used during early append filtering.
+        is_voice_agent_event = self._is_recent_request_id(event_request_id)
 
         event_sector_id: Optional[int] = None
         if event_name in {"character.moved", "garrison.character_moved"}:
@@ -906,7 +908,14 @@ class VoiceTaskManager:
             )
             if is_direct_to_player:
                 if is_task_scoped_event:
-                    should_append = event_name in TASK_SCOPED_DIRECT_EVENT_ALLOWLIST
+                    # Task-scoped direct events are usually task-agent internals.
+                    # Keep allowlist behavior, but also permit events that match a
+                    # recent voice-agent request_id (e.g., voice plot_course while a
+                    # player task is active on the shared client).
+                    should_append = (
+                        event_name in TASK_SCOPED_DIRECT_EVENT_ALLOWLIST
+                        or is_voice_agent_event
+                    )
                 else:
                     should_append = True
             elif is_local_sector_movement:
@@ -944,9 +953,6 @@ class VoiceTaskManager:
             "combat.ended",  # Combat finished
             "ship.renamed",  # Corp ship renamed (want to know about all corp activity)
         }
-
-        # Check if event came from voice agent's tool call
-        is_voice_agent_event = self._is_recent_request_id(event_request_id)
 
         # Debug logging for request ID tracking
         logger.debug(f"Event arrived: {event_name}")
