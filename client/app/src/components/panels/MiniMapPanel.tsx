@@ -31,7 +31,7 @@ const MINIMAP_CONFIG: MapConfig = {
   },
 }
 
-const MAX_DISTANCE = 4
+const MAX_DISTANCE = 3
 
 export const MiniMapPanel = ({ className }: { className?: string }) => {
   const uiState = useGameStore.use.uiState()
@@ -58,10 +58,10 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
     >
       <div
         className={cn(
-          "absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-600 ease-in-out z-10",
+          "absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-600 ease-in-out z-10 pointer-events-none",
           uiState === "combat" ?
-            "pointer-events-none group-hover:pointer-events-none group-hover:opacity-0 "
-          : "pointer-events-auto group-hover:opacity-100 group-hover:pointer-events-auto "
+            "group-hover:opacity-0"
+          : "group-hover:opacity-100"
         )}
       ></div>
       <Badge

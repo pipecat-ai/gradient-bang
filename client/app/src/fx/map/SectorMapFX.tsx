@@ -1102,7 +1102,7 @@ function getNodeStyle(
     nodeStyle = { ...baseStyle, ...config.nodeStyles.centered }
   }
   // Don't apply hover overrides to the centered/selected node
-  if (isHovered && config.clickable && !isCentered) {
+  if (isHovered && (config.clickable || config.hoverable) && !isCentered) {
     nodeStyle = { ...baseStyle, ...config.nodeStyles.hovered }
   }
 

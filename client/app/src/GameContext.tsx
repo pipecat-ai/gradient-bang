@@ -1073,25 +1073,26 @@ export function GameProvider({ children }: GameProviderProps) {
             case "ui-action": {
               const uiPayload = e.payload as Record<string, unknown>
               if (uiPayload?.["ui-action"] === "control_ui") {
+                console.debug("[GAME EVENT] UI action control_ui", uiPayload)
                 // Panel toggling is UI-level, handle in UISlice
-                const showPanel =
-                  uiPayload.show_panel === "map" ? "map"
-                  : uiPayload.show_panel === "default" ? "default"
-                  : undefined
-                if (showPanel) {
-                  gameStore.setUIModeFromAgent(showPanel)
+                if (typeof uiPayload.show_panel === "string") {
+                  gameStore.setUIModeFromAgent(uiPayload.show_panel as UIMode | "default")
                 }
 
                 // Everything else is map-domain
                 gameStore.handleMapUIAction({
                   mapCenterSector:
-                    typeof uiPayload.map_center_sector === "number" &&
-                    Number.isFinite(uiPayload.map_center_sector) ?
+                    (
+                      typeof uiPayload.map_center_sector === "number" &&
+                      Number.isFinite(uiPayload.map_center_sector)
+                    ) ?
                       uiPayload.map_center_sector
                     : undefined,
                   mapZoomLevel:
-                    typeof uiPayload.map_zoom_level === "number" &&
-                    Number.isFinite(uiPayload.map_zoom_level) ?
+                    (
+                      typeof uiPayload.map_zoom_level === "number" &&
+                      Number.isFinite(uiPayload.map_zoom_level)
+                    ) ?
                       uiPayload.map_zoom_level
                     : undefined,
                   mapZoomDirection:
@@ -1113,6 +1114,22 @@ export function GameProvider({ children }: GameProviderProps) {
                   clearCoursePlot: uiPayload.clear_course_plot === true,
                 })
               }
+              break
+            }
+
+            case "ui-agent-context-summary": {
+              console.debug("[GAME EVENT] UI agent context summary", e.payload)
+              const data = e.payload as Msg.UIAgentContextSummaryMessage
+              gameStore.injectMessage({
+                role: "system",
+                parts: [
+                  {
+                    text: data.context_summary,
+                    final: true,
+                    createdAt: new Date().toISOString(),
+                  },
+                ],
+              })
               break
             }
 

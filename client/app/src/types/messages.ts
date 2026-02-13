@@ -466,3 +466,7 @@ export interface CorporationShipPurchaseMessage extends ServerMessagePayload {
 export interface LLMTaskMessage extends ServerMessagePayload {
   name: string
 }
+
+export interface UIAgentContextSummaryMessage extends ServerMessagePayload {
+  context_summary: string
+}

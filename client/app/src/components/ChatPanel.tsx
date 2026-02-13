@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useMemo } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 import { PlugsIcon, WrenchIcon } from "@phosphor-icons/react"
 
+import { ToggleControl } from "@/components/primitives/ToggleControl"
 import { useChat } from "@/hooks/useChat"
 import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
 import useAudioStore from "@/stores/audio"
@@ -80,6 +81,12 @@ export const ChatPanel = () => {
   const playSound = useAudioStore.use.playSound()
   const { messages } = useChat({ textMode: "llm" })
   const llmIsWorking = useGameStore.use.llmIsWorking()
+  const [showSystem, setShowSystem] = useState(true)
+
+  const filteredMessages = useMemo(
+    () => (showSystem ? messages : messages?.filter((m) => m.role !== "system")),
+    [messages, showSystem]
+  )
 
   useEffect(() => {
     if (llmIsWorking) {
@@ -87,8 +94,9 @@ export const ChatPanel = () => {
     }
   }, [llmIsWorking, playSound])
 
-  const clxConnected = "flex-1 h-full bg-card/60 relative border-0 border-b border-b-foreground/30"
-  const clxDisconnected = "flex-1 h-full opacity-50 stripe-frame-white/30"
+  const clxConnected =
+    "relative flex-1 h-full bg-card/60 relative border-0 border-b border-b-foreground/30"
+  const clxDisconnected = "relative flex-1 h-full opacity-50 stripe-frame-white/30"
 
   const panelActive = isConnected || (messages?.length ?? 0) > 0
 
@@ -105,6 +113,12 @@ export const ChatPanel = () => {
           </div>
         </CardContent>
       )}
+      <div className="absolute right-ui-sm bottom-ui-sm w-fit h-fit bg-background-500/20 inline-flex items-center gap-ui-xs px-ui-xxs py-ui-xxs z-20">
+        <span className="text-xxs uppercase text-foreground bg-background/60 px-ui-xxs">
+          Show system
+        </span>
+        <ToggleControl size="sm" checked={showSystem} onCheckedChange={setShowSystem} />
+      </div>
       <div className="relative flex-1 mb-0 text-foreground">
         <div className="absolute bottom-0 inset-x-0 h-[60px] z-10 pointer-events-none pl-ui-xs">
           <div className="relative inline-block">
@@ -147,7 +161,7 @@ export const ChatPanel = () => {
         <CardContent className="absolute inset-0 min-h-0  mask-[linear-gradient(to_bottom,black_60%,transparent_100%)]">
           <ScrollArea className="relative w-full h-full pointer-events-auto">
             <div className="flex flex-col gap-2">
-              {messages
+              {filteredMessages
                 ?.toReversed()
                 .map((message) =>
                   message.role === "tool" ?
