@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useState } from "react"
 
 import { useStickToBottom } from "use-stick-to-bottom"
 
 interface UseAutoScrollOptions {
-  /** Scroll behavior: "smooth" uses spring animation, "instant" jumps immediately (default: "smooth") */
+  /** Scroll behavior for new content: "smooth" uses spring animation, "instant" jumps immediately (default: "smooth") */
   behavior?: ScrollBehavior
+  /** Start at the bottom without any visible scroll on mount (default: false) */
+  startAtBottom?: boolean
 }
 
 interface UseAutoScrollReturn {
@@ -55,15 +57,24 @@ interface UseAutoScrollReturn {
  * ```
  */
 export function useAutoScroll(options: UseAutoScrollOptions = {}): UseAutoScrollReturn {
-  const { behavior = "smooth" } = options
+  const { behavior = "smooth", startAtBottom = false } = options
 
   const animation = behavior === "instant" ? "instant" : behavior
 
   const { scrollRef, contentRef, scrollToBottom: stickyScrollToBottom, isAtBottom } =
     useStickToBottom({
       resize: animation,
-      initial: animation,
+      // When startAtBottom is true, we handle the initial scroll ourselves
+      // via useLayoutEffect (before paint) to avoid any visible flash
+      initial: startAtBottom ? false : animation,
     })
+
+  // Synchronously scroll to bottom before first paint to avoid flash
+  useLayoutEffect(() => {
+    if (startAtBottom && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [startAtBottom, scrollRef])
 
   // Scroll-lock state for "new items" badge
   const [lockState, setLockState] = useState<{ locked: boolean; lockedAt: number }>({

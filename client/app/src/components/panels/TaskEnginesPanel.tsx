@@ -31,7 +31,7 @@ const stateLabels: Record<TaskEngineState, string> = {
 }
 
 const cx = cva(
-  "relative elbow elbow-offset-1 elbow-size-10 elbow-2 transition-opacity duration-1000 select-none h-full bg-card/80",
+  "relative elbow elbow-offset-1 elbow-size-10 elbow-1 transition-opacity duration-1000 select-none h-full bg-card/80",
   {
     variants: {
       state: {
@@ -237,7 +237,7 @@ export const TaskEnginesPanel = () => {
   const starfieldEnabled = settings?.renderStarfield ?? false
 
   return (
-    <div className="p-ui-xs grid grid-cols-2 auto-rows-[1fr] gap-ui-xs h-full @tall-md:*:max-h-72 @tall-lg:*:max-h-96 @tall-xl:*:max-h-120">
+    <div className="p-ui-xs grid grid-cols-2 auto-rows-[1fr] gap-ui-xxs h-full @tall-md:*:max-h-72 @tall-lg:*:max-h-96 @tall-xl:*:max-h-120">
       <TaskEngine isLocal taskId={localTaskId} starfieldEnabled={starfieldEnabled} />
       {!ships.data ?
         <LockedTaskEngineSlot

@@ -79,6 +79,14 @@ export const LevaControls = ({
       },
     },
 
+    ["Mock Player Self"]: button(() => {
+      const state = useGameStore.getState()
+      state.setPlayer({
+        name: faker.person.fullName(),
+        id: faker.string.uuid(),
+      })
+    }),
+
     ["Look Around"]: button(() => {
       const lookMode = useGameStore.getState().lookMode
       useGameStore.getState().setLookMode(!lookMode)

@@ -20,33 +20,36 @@ const stateLabels: Record<TaskEngineState, string> = {
   failed: "Failed",
 }
 
-const cx = cva("group w-full flex flex-col gap-ui-sm shrink-0 p-ui-xs select-none", {
-  variants: {
-    state: {
-      idle: "",
-      completed: "",
-      cancelling: "",
-      cancelled: "",
-      failed: "",
-      active: "",
+const cx = cva(
+  "group relative w-full flex flex-col justify-center gap-ui-sm px-ui-sm pl-ui-md h-[82px] select-none",
+  {
+    variants: {
+      state: {
+        idle: "",
+        completed: "",
+        cancelling: "",
+        cancelled: "",
+        failed: "",
+        active: "",
+      },
+      subtle: {
+        true: "bg-background/60 hover:bg-background",
+        false: "bg-background hover:bg-background",
+      },
     },
-    subtle: {
-      true: "bg-background/80 hover:bg-background",
-      false: "bg-background hover:bg-background",
-    },
-  },
 
-  defaultVariants: {
-    state: "idle",
-    subtle: false,
-  },
-})
+    defaultVariants: {
+      state: "idle",
+      subtle: false,
+    },
+  }
+)
 
 const MiniEnginePlaceholder = ({ label }: { label: string }) => {
   return (
-    <div className="w-full flex flex-col gap-ui-xs">
+    <div className="w-full flex flex-col gap-ui-xs pl-ui-xs pt-ui-xxs pb-ui-xs mt-auto">
       <Divider variant="dashed" className="h-[6px] dashed-bg-foreground/30" />
-      <div className="flex flex-row gap-2 items-center justify-center p-ui-xs bg-background/80">
+      <div className="flex flex-row gap-2 items-center justify-center p-ui-sm bg-background/60">
         <LockSimpleIcon weight="bold" size={14} />
         <span className="text-xs text-subtle-foreground uppercase">{label}</span>
       </div>
@@ -66,7 +69,15 @@ const MiniEngineBase = ({
   return <div className={cx({ state, subtle })}>{children}</div>
 }
 
-const MiniEngine = ({ taskId, isLocal }: { taskId: string; isLocal?: boolean }) => {
+const MiniEngine = ({
+  taskId,
+  isLocal,
+  showDivider = true,
+}: {
+  taskId: string
+  isLocal?: boolean
+  showDivider?: boolean
+}) => {
   const getTaskByTaskId = useGameStore.use.getTaskByTaskId?.()
   const getTaskSummaryByTaskId = useGameStore.use.getTaskSummaryByTaskId?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
@@ -102,6 +113,7 @@ const MiniEngine = ({ taskId, isLocal }: { taskId: string; isLocal?: boolean }) 
 
   return (
     <div
+      className="relative flex-1 flex flex-col"
       onClick={() => {
         if (!taskId) return
         setActivePanel("task_stream", taskId)
@@ -134,6 +146,7 @@ const MiniEngine = ({ taskId, isLocal }: { taskId: string; isLocal?: boolean }) 
           <TaskStatusBadge state={state} label={stateLabels[state]} />
         </div>
       </MiniEngineBase>
+      {showDivider && <div className="absolute bottom-0 left-0 h-px w-3 bg-input" />}
     </div>
   )
 }
@@ -143,11 +156,17 @@ export const MiniTaskEngines = () => {
     useTaskState()
 
   return (
-    <div className="h-full w-full flex flex-col justify-end gap-ui-xs">
-      <MiniEngine taskId={localTaskId ?? ""} isLocal />
-      {Array.from({ length: displayedCorpSlots }, (_, index) => (
-        <MiniEngine key={index} taskId={corpSlotAssignments?.[index] ?? ""} />
-      ))}
+    <div className="h-full w-full flex flex-col">
+      <div className="flex flex-col">
+        <MiniEngine taskId={localTaskId ?? ""} isLocal />
+        {Array.from({ length: displayedCorpSlots }, (_, index) => (
+          <MiniEngine
+            key={index}
+            taskId={corpSlotAssignments?.[index] ?? ""}
+            showDivider={index < 2}
+          />
+        ))}
+      </div>
       {showLockedPlaceholder && (
         <MiniEnginePlaceholder
           label={

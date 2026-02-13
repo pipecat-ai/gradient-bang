@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
-import { ArrowLeftIcon } from "@phosphor-icons/react"
+import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
@@ -89,7 +89,7 @@ export const Game = () => {
       >
         <Panel className="flex flex-col">
           <TopBar />
-          <main className=" @container/main relative flex-1 flex flex-col gap-0 sgap-y-ui-md">
+          <main className=" @container/main relative flex-1 flex flex-col gap-0 gap-y-ui-sm">
             {uiState === "combat" && <CombatDamageVignette />}
             <div className="flex-1">
               {uiState === "combat" ?
@@ -120,9 +120,10 @@ export const Game = () => {
                 </>
               }
             </div>
-            <footer className="p-ui-xs pt-0 h-ui-bottom grid grid-cols-[1fr_auto] gap-ui-sm">
-              <ConversationPanel className="min-w-0 max-w-2xl" />
-              <div className="relative w-ui-minimap h-ui-bottom">
+            <footer className="p-ui-xs py-0 mb-ui-xs h-ui-bottom grid grid-cols-[1fr_auto_auto]">
+              <ConversationPanel className="min-w-0 max-w-2xl mr-ui-xs" />
+              <UIModeToggle />
+              <div className="relative w-ui-minimap h-ui-bottom bracket-left bracket-offset-0 bracket-1 bracket-input">
                 <AnimatePresence mode="wait">
                   {uiMode === "tasks" ?
                     <motion.div
@@ -145,7 +146,18 @@ export const Game = () => {
                     </motion.div>
                   }
                 </AnimatePresence>
-                <UIModeToggle />
+                {uiState === "combat" && (
+                  <div className="animate-in fade-in-0 duration-1000 absolute inset-px z-2 bg-background/60 cross-lines-subtle text-destructive-foreground flex flex-col items-center justify-center">
+                    <div className="relative z-10 bg-destructive-background/70 text-center px-ui-sm py-ui-xs">
+                      <WarningDiamondIcon
+                        size={32}
+                        className="text-destructive mx-auto mb-1"
+                        weight="duotone"
+                      />
+                      <span className="text-xs uppercase font-bold mx-auto">Combat engaged</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </footer>
           </main>

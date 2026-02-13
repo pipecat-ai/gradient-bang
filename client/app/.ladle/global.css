@@ -7,6 +7,11 @@
   --story-spacing: calc(var(--spacing) * 4);
 }
 
+#ladle-root {
+  height: 100dvh;
+  width: 100dvw;
+}
+
 .ladle-main {
   display: flex;
   flex-direction: column;

@@ -101,7 +101,7 @@ export const LogsPanel = () => {
     hasNewItems: hasNewMessages,
     dismissLock,
     trackItems,
-  } = useAutoScroll()
+  } = useAutoScroll({ startAtBottom: true })
   const messageFilters = useGameStore.use.messageFilters()
   const setMessageFilters = useGameStore.use.setMessageFilters()
   const [hasRecentActivity, setHasRecentActivity] = useState(false)
@@ -193,7 +193,7 @@ export const LogsPanel = () => {
   }, [])
 
   return (
-    <RHSPanelContent noScroll className="bg-red-500">
+    <RHSPanelContent noScroll>
       <div
         data-active={hasRecentActivity || undefined}
         className={cn(
@@ -249,7 +249,7 @@ export const LogsPanel = () => {
           <ScrollArea className="relative w-full flex-1 min-h-0" viewportRef={scrollRef}>
             <div className="flex flex-col min-h-full">
               <div className="flex-1" aria-hidden="true" />
-              <div ref={contentRef} className="flex flex-col gap-ui-md p-ui-sm pb-10">
+              <div ref={contentRef} className="flex flex-col gap-ui-md p-ui-sm pb-16">
                 {filteredMessages && player.name ?
                   filteredMessages.map((message) => (
                     <MessageRow
