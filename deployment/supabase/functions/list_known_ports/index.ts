@@ -318,9 +318,14 @@ async function handleListKnownPorts(
     );
   }
 
+  const megaFilter = optionalBoolean(payload, "mega");
+  const maxHopsProvided = Object.prototype.hasOwnProperty.call(
+    payload,
+    "max_hops",
+  );
   let maxHopsValue = optionalNumber(payload, "max_hops");
-  if (maxHopsValue === null) {
-    maxHopsValue = MAX_HOPS_DEFAULT;
+  if (!maxHopsProvided || maxHopsValue === null) {
+    maxHopsValue = megaFilter === true ? MAX_HOPS_LIMIT : MAX_HOPS_DEFAULT;
   }
   if (!Number.isFinite(maxHopsValue)) {
     throw new ListKnownPortsError(
@@ -348,7 +353,6 @@ async function handleListKnownPorts(
   const tradeTypeFilter = tradeTypeFilterRaw
     ? tradeTypeFilterRaw.toLowerCase()
     : null;
-  const megaFilter = optionalBoolean(payload, "mega");
 
   if (
     (commodityFilter && !tradeTypeFilter) ||

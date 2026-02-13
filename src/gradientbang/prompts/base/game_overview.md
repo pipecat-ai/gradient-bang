@@ -31,7 +31,3 @@ You are controlling a ship in Gradient Bang, a space trading and exploration gam
 - Each round: ATTACK, BRACE, FLEE, or PAY (for tolls)
 - Rounds are 15 seconds; missing a deadline defaults to BRACE
 
-## Your Capabilities
-You have tools to: check status, plot courses, move, view map knowledge, find ports, trade, recharge warp, transfer warp/credits, combat actions, and more.
-
-For detailed mechanics on any topic, use the `load_game_info` tool.

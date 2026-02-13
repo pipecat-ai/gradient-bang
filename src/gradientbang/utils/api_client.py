@@ -1446,7 +1446,7 @@ class AsyncGameClient:
         self,
         character_id: str,
         from_sector: Optional[int] = None,
-        max_hops: int = 5,
+        max_hops: Optional[int] = None,
         port_type: Optional[str] = None,
         commodity: Optional[str] = None,
         trade_type: Optional[str] = None,
@@ -1457,7 +1457,7 @@ class AsyncGameClient:
         Args:
             character_id: Character to query (must match bound ID)
             from_sector: Optional starting sector; defaults to current sector
-            max_hops: Maximum distance (default 5, max 100)
+            max_hops: Optional maximum distance override (0-100). If omitted, server defaults are used.
             port_type: Optional filter by port code (e.g., "BBB")
             commodity: Optional filter ports that trade this commodity
             trade_type: Optional "buy" or "sell" (requires commodity)
@@ -1479,7 +1479,8 @@ class AsyncGameClient:
         payload: Dict[str, Any] = {"character_id": character_id}
         if from_sector is not None:
             payload["from_sector"] = int(from_sector)
-        payload["max_hops"] = int(max_hops)
+        if max_hops is not None:
+            payload["max_hops"] = int(max_hops)
         if port_type is not None:
             payload["port_type"] = port_type
         if commodity is not None:
