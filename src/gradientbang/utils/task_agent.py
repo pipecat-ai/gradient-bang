@@ -929,9 +929,8 @@ class TaskAgent:
             pipeline,
             params=PipelineParams(
                 allow_interruptions=False,
-                # todo: add metrics
-                enable_metrics=False,
-                enable_usage_metrics=False,
+                enable_metrics=True,
+                enable_usage_metrics=True,
             ),
             # Reset idle timeout on LLM activity frames, not speech frames (default).
             # This prevents false idle detection in text-based task agents.
