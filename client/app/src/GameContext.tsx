@@ -1073,6 +1073,16 @@ export function GameProvider({ children }: GameProviderProps) {
             case "ui-action": {
               const uiPayload = e.payload as Record<string, unknown>
               if (uiPayload?.["ui-action"] === "control_ui") {
+                // Panel toggling is UI-level, handle in UISlice
+                const showPanel =
+                  uiPayload.show_panel === "map" ? "map"
+                  : uiPayload.show_panel === "default" ? "default"
+                  : undefined
+                if (showPanel) {
+                  gameStore.setUIModeFromAgent(showPanel)
+                }
+
+                // Everything else is map-domain
                 gameStore.handleMapUIAction({
                   mapCenterSector:
                     typeof uiPayload.map_center_sector === "number" &&
@@ -1101,10 +1111,6 @@ export function GameProvider({ children }: GameProviderProps) {
                       )
                     : undefined,
                   clearCoursePlot: uiPayload.clear_course_plot === true,
-                  showPanel:
-                    uiPayload.show_panel === "map" ? "map"
-                    : uiPayload.show_panel === "default" ? "default"
-                    : undefined,
                 })
               }
               break

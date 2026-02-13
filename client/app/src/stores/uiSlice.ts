@@ -21,6 +21,7 @@ export interface UISlice {
   activeSubPanel?: string
   uiMode: UIMode
   setUIMode: (mode: UIMode) => void
+  setUIModeFromAgent: (panel: UIMode | "default") => void
 
   notifications: Notifications
   setNotifications: (notifications: Partial<Notifications>) => void
@@ -68,6 +69,15 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   llmIsWorking: false,
 
   setUIMode: (mode: UIMode) => {
+    set(
+      produce((state) => {
+        state.uiMode = mode
+      })
+    )
+    updateLocalSettings({ defaultUIMode: mode })
+  },
+  setUIModeFromAgent: (panel: UIMode | "default") => {
+    const mode = panel === "default" ? "tasks" : panel
     set(
       produce((state) => {
         state.uiMode = mode

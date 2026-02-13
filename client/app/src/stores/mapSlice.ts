@@ -34,7 +34,6 @@ export interface MapUIActionPayload {
   highlightPath?: number[]
   fitSectors?: number[]
   clearCoursePlot?: boolean
-  showPanel?: "map" | "default"
 }
 
 export interface MapSlice {
@@ -512,7 +511,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         highlightPath,
         fitSectors,
         clearCoursePlot: shouldClearPlot,
-        showPanel,
       } = payload
 
       const mapZoom =
@@ -520,33 +518,8 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
 
       const hasHighlight = Boolean(highlightPath && highlightPath.length > 0)
       const hasFit = Boolean(fitSectors && fitSectors.length > 0)
-      const wantsMap =
-        mapCenterSector !== undefined ||
-        mapZoom !== undefined ||
-        mapZoomDirection !== undefined ||
-        hasHighlight ||
-        hasFit
       const zoomOnly =
         mapZoom !== undefined && mapCenterSector === undefined && !hasHighlight && !hasFit
-      const shouldAutoRecenter =
-        showPanel === "map" &&
-        mapCenterSector === undefined &&
-        mapZoom === undefined &&
-        mapZoomDirection === undefined &&
-        !hasHighlight &&
-        !hasFit
-
-      // --- Screen switching ---
-      if (wantsMap || showPanel === "map") {
-        state.setActiveScreen("map")
-      } else if (showPanel === "default") {
-        state.setActiveScreen(undefined)
-      }
-
-      if (shouldAutoRecenter) {
-        autoRecenterRequested = true
-        _maybeAutoRecenter("show-panel")
-      }
 
       // --- Zoom ---
       if (mapZoom !== undefined) {
