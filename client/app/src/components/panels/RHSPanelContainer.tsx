@@ -70,9 +70,7 @@ export const RHSPanelContent = ({
   noScroll?: boolean
 }) => {
   if (noScroll) {
-    return (
-      <div className={cn("flex flex-col w-full h-full min-h-0", className)}>{children}</div>
-    )
+    return <div className={cn("flex flex-col w-full h-full min-h-0", className)}>{children}</div>
   }
 
   return (
@@ -106,7 +104,7 @@ export const RHSPanelContainer = () => {
         {activePanel === "sector" && <SectorPanel />}
         {activePanel === "player" && <PlayerPanel />}
         {activePanel === "trade" && <TradePanel />}
-        {activePanel === "tasks" && <TaskPanel />}
+        {activePanel === "task_history" && <TaskPanel />}
         {activePanel === "corp" && <div className=""></div>}
         {activePanel === "task_stream" && <TaskStreamPanel />}
       </div>

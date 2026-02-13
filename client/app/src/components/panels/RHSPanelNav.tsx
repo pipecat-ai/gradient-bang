@@ -17,12 +17,14 @@ import { cn } from "@/utils/tailwind"
 import { NewMessageFloater } from "../NewMessageFloater"
 
 export const RHSPanelNavItem = ({
+  id,
   children,
   active = false,
   label,
   onClick,
   disabled = false,
 }: {
+  id: string
   children: React.ReactNode
   active: boolean
   label: string
@@ -31,6 +33,7 @@ export const RHSPanelNavItem = ({
 }) => {
   return (
     <Button
+      id={id}
       variant="tab"
       size="tab"
       active={active}
@@ -73,7 +76,7 @@ export const RHSPanelNav = () => {
     },
     { id: "player", label: "Player", icon: <PersonIcon size={20} /> },
     { id: "trade", label: "Trade", icon: <SwapIcon size={20} /> },
-    { id: "tasks", label: "Tasks", icon: <CheckSquareOffsetIcon size={20} /> },
+    { id: "task_history", label: "Tasks", icon: <CheckSquareOffsetIcon size={20} /> },
     { id: "corp", label: "Corp", icon: <UsersFourIcon size={20} /> },
     { id: "logs", label: "Waves", icon: <ChatCircleTextIcon size={20} /> },
   ]
@@ -83,6 +86,7 @@ export const RHSPanelNav = () => {
       <div className="relative flex flex-row gap-panel-gap w-full px-panel-gap">
         {tabs.map((tab) => (
           <RHSPanelNavItem
+            id={tab.id}
             key={tab.id}
             label={tab.label}
             active={activePanel === tab.id}

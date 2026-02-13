@@ -3,41 +3,19 @@ import { useEffect, useMemo, useState } from "react"
 import { useDebouncedCallback } from "use-debounce"
 import { MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon } from "@phosphor-icons/react"
 
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/utils/map"
 import useGameStore from "@/stores/game"
+import { clampZoomIndex, getClosestZoomIndex, zoomLevels } from "@/utils/map"
 
 import { Button } from "./primitives/Button"
 import { SliderControl } from "./primitives/SliderControl"
 
-const ZOOM_LEVELS = (() => {
-  const levels = Array.from({ length: 5 }, (_, index) =>
-    Math.round(MIN_BOUNDS + ((MAX_BOUNDS - MIN_BOUNDS) * index) / 4)
-  )
-  if (!levels.includes(DEFAULT_MAX_BOUNDS)) {
-    levels[1] = DEFAULT_MAX_BOUNDS
-  }
-  return Array.from(new Set(levels)).sort((a, b) => a - b)
-})()
+import { DEFAULT_MAX_BOUNDS } from "@/types/constants"
 
-const clampIndex = (index: number) => Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index))
-
-const getClosestZoomIndex = (zoomLevel: number) => {
-  let closestIndex = 0
-  let closestDistance = Infinity
-  ZOOM_LEVELS.forEach((level, index) => {
-    const distance = Math.abs(level - zoomLevel)
-    if (distance < closestDistance) {
-      closestDistance = distance
-      closestIndex = index
-    }
-  })
-  return closestIndex
-}
-
-export const MapZoomControls = () => {
+export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
-  const coursePlot = useGameStore.use.course_plot?.()
+  const setMapFitBoundsWorld = useGameStore.use.setMapFitBoundsWorld?.()
+  const requestMapAutoRecenter = useGameStore.use.requestMapAutoRecenter?.()
   const resolvedZoomLevel = mapZoomLevel ?? DEFAULT_MAX_BOUNDS
   const currentIndex = useMemo(() => getClosestZoomIndex(resolvedZoomLevel), [resolvedZoomLevel])
   const [sliderIndex, setSliderIndex] = useState(currentIndex)
@@ -47,61 +25,68 @@ export const MapZoomControls = () => {
   }, [currentIndex])
 
   useEffect(() => {
-    const targetZoom = ZOOM_LEVELS[currentIndex]
-    if (mapZoomLevel === undefined || mapZoomLevel !== targetZoom) {
-      setMapZoomLevel?.(targetZoom)
+    if (mapZoomLevel === undefined) {
+      // Initialize once without snapping programmatic zooms to discrete levels.
+      setMapZoomLevel?.(zoomLevels[currentIndex])
     }
   }, [currentIndex, mapZoomLevel, setMapZoomLevel])
 
   const debouncedTrailing = useDebouncedCallback(
     (value) => {
-      const index = clampIndex(value)
-      setMapZoomLevel?.(ZOOM_LEVELS[index])
+      const index = clampZoomIndex(value)
+      setMapFitBoundsWorld?.(undefined)
+      setMapZoomLevel?.(zoomLevels[index])
+      requestMapAutoRecenter?.("ui-zoom")
     },
     500,
     { trailing: true }
   )
 
   return (
-    <div className="flex flex-row gap-ui-xs w-full">
+    <div className="flex flex-col gap-ui-xxs w-full bg-background border outline-2 outline-background h-62 @6xl/main:h-80">
       <Button
-        variant="outline"
         size="icon-sm"
-        disabled={coursePlot !== undefined}
+        variant="bland"
+        disabled={disabled}
         onClick={() => {
-          const nextIndex = clampIndex(currentIndex - 1)
+          const nextIndex = clampZoomIndex(currentIndex + 1)
           setSliderIndex(nextIndex)
-          setMapZoomLevel?.(ZOOM_LEVELS[nextIndex])
+          setMapFitBoundsWorld?.(undefined)
+          setMapZoomLevel?.(zoomLevels[nextIndex])
+          requestMapAutoRecenter?.("ui-zoom")
         }}
-        className="shrink-0"
+        className="shrink-0 hover:bg-accent-background border-b"
       >
-        <MagnifyingGlassPlusIcon weight="bold" />
+        <MagnifyingGlassMinusIcon weight="bold" />
       </Button>
       <SliderControl
+        orientation="vertical"
+        disabled={disabled}
         value={[sliderIndex]}
         min={0}
-        max={ZOOM_LEVELS.length - 1}
-        disabled={coursePlot !== undefined}
+        max={zoomLevels.length - 1}
         step={1}
         onValueChange={(value) => {
-          const index = clampIndex(value[0])
+          const index = clampZoomIndex(value[0])
           setSliderIndex(index)
           debouncedTrailing(index)
         }}
-        className="flex-1 shrink-0"
+        className="flex-1 min-h-0 h-full"
       />
       <Button
+        variant="bland"
         size="icon-sm"
-        variant="outline"
-        disabled={coursePlot !== undefined}
+        disabled={disabled}
         onClick={() => {
-          const nextIndex = clampIndex(currentIndex + 1)
+          const nextIndex = clampZoomIndex(currentIndex - 1)
           setSliderIndex(nextIndex)
-          setMapZoomLevel?.(ZOOM_LEVELS[nextIndex])
+          setMapFitBoundsWorld?.(undefined)
+          setMapZoomLevel?.(zoomLevels[nextIndex])
+          requestMapAutoRecenter?.("ui-zoom")
         }}
-        className="shrink-0"
+        className="shrink-0 hover:bg-accent-background border-t"
       >
-        <MagnifyingGlassMinusIcon weight="bold" />
+        <MagnifyingGlassPlusIcon weight="bold" />
       </Button>
     </div>
   )

@@ -7,6 +7,7 @@ import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
+import { HighlightOverlay } from "@/components/HighlightOverlay"
 import { BigMapPanel } from "@/components/panels/BigMapPanel"
 import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
 import { CombatDamageVignette } from "@/components/panels/CombatDamageVignette"
@@ -60,6 +61,16 @@ export const Game = () => {
       useAudioStore.getState().stopSound("enterCombat")
     }
   }, [uiState, setLookMode])
+
+  useEffect(() => {
+    const unsub = useGameStore.subscribe((state, prevState) => {
+      if (state.uiMode !== prevState.uiMode) {
+        useAudioStore.getState().playSound("chime4")
+      }
+    })
+    return unsub
+  }, [])
+
   return (
     <>
       {lookMode && (
@@ -126,10 +137,7 @@ export const Game = () => {
               <div className="relative w-ui-minimap h-ui-bottom bracket-left bracket-offset-0 bracket-1 bracket-input">
                 <motion.div
                   className="absolute inset-0 h-full w-ui-minimap"
-                  animate={uiMode === "tasks"
-                    ? { opacity: 1, y: 0 }
-                    : { opacity: 0, y: -100 }
-                  }
+                  animate={uiMode === "tasks" ? { opacity: 1, y: 0 } : { opacity: 0, y: -100 }}
                   initial={false}
                   style={{
                     pointerEvents: uiMode === "tasks" ? "auto" : "none",
@@ -141,10 +149,7 @@ export const Game = () => {
                 </motion.div>
                 <motion.div
                   className="absolute inset-0 h-full w-ui-minimap"
-                  animate={uiMode !== "tasks"
-                    ? { opacity: 1, y: 0 }
-                    : { opacity: 0, y: 100 }
-                  }
+                  animate={uiMode !== "tasks" ? { opacity: 1, y: 0 } : { opacity: 0, y: 100 }}
                   initial={false}
                   style={{
                     pointerEvents: uiMode !== "tasks" ? "auto" : "none",
@@ -216,6 +221,7 @@ export const Game = () => {
       <Starfield />
       <SectorTitleBanner />
       <ToastContainer />
+      <HighlightOverlay />
       <PipecatClientAudio />
     </>
   )

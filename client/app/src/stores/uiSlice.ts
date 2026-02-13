@@ -21,6 +21,7 @@ export interface UISlice {
   activeSubPanel?: string
   uiMode: UIMode
   setUIMode: (mode: UIMode) => void
+  setUIModeFromAgent: (panel: string) => void
 
   notifications: Notifications
   setNotifications: (notifications: Partial<Notifications>) => void
@@ -40,8 +41,8 @@ export interface UISlice {
   setActivePanel: (panel?: UIPanel, data?: unknown) => void
   setActiveSubPanel: (subPanel?: string) => void
 
-  mapZoomLevel: number | undefined
-  setMapZoomLevel: (zoomLevel: number) => void
+  highlightElement: string | null
+  setHighlightElement: (elementId: string | null) => void
 
   lookMode: boolean
   setLookMode: (lookMode: boolean) => void
@@ -59,13 +60,14 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   activePanel: "logs",
   activePanelData: undefined,
   activeSubPanel: undefined,
-  mapZoomLevel: undefined,
   notifications: {
     newChatMessage: false,
   },
 
   toasts: [],
   displayingToastId: null,
+  highlightElement: null,
+
   lookMode: false,
   lookAtTarget: undefined,
   playerTargetId: undefined,
@@ -78,6 +80,33 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
       })
     )
     updateLocalSettings({ defaultUIMode: mode })
+  },
+  setUIModeFromAgent: (panel: string) => {
+    const validModes: UIMode[] = ["tasks", "map"]
+    const validPanels: UIPanel[] = [
+      "sector",
+      "player",
+      "trade",
+      "task_history",
+      "corp",
+      "logs",
+      "task_stream",
+    ]
+    const resolved = panel === "default" ? "tasks" : panel
+
+    if (validModes.includes(resolved as UIMode)) {
+      set(
+        produce((state) => {
+          state.uiMode = resolved as UIMode
+        })
+      )
+      updateLocalSettings({ defaultUIMode: resolved as UIMode })
+    } else if (validPanels.includes(resolved as UIPanel)) {
+      get().setActivePanel(resolved as UIPanel)
+      get().setHighlightElement(resolved)
+    } else {
+      console.warn(`[UI] setUIModeFromAgent: unknown panel "${panel}"`)
+    }
   },
   setToasts: (toasts: Toast[]) => {
     set(
@@ -194,10 +223,10 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
       })
     )
   },
-  setMapZoomLevel: (zoomLevel: number) => {
+  setHighlightElement: (elementId: string | null) => {
     set(
       produce((state) => {
-        state.mapZoomLevel = zoomLevel
+        state.highlightElement = elementId
       })
     )
   },

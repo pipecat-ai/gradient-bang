@@ -1,6 +1,5 @@
 import { ArrowsDownUpIcon, SphereIcon } from "@phosphor-icons/react"
 
-import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
 import { Button } from "./primitives/Button"
@@ -11,10 +10,7 @@ export const UIModeToggle = () => {
   const setUIMode = useGameStore.use.setUIMode()
   const setLookMode = useGameStore.use.setLookMode?.()
 
-  const playSound = useAudioStore.use.playSound()
-
   const handleClick = () => {
-    playSound("chime4")
     setUIMode(uiMode === "tasks" ? "map" : "tasks")
   }
 

@@ -31,7 +31,7 @@ const MINIMAP_CONFIG: MapConfig = {
   },
 }
 
-const MAX_DISTANCE = 4
+const MAX_DISTANCE = 3
 
 export const MiniMapPanel = ({ className }: { className?: string }) => {
   const uiState = useGameStore.use.uiState()
@@ -43,11 +43,11 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
     ?.filter((s: ShipSelf) => s.owner_type !== "personal")
     .map((s: ShipSelf) => s.sector ?? 0)
 
+  const hasRouteHighlight = Boolean(coursePlot?.path && coursePlot.path.length > 1)
   const hopsRemaining = useMemo(
-    () => calculateHopsRemaining(sector, coursePlot),
-    [sector, coursePlot]
+    () => (hasRouteHighlight ? calculateHopsRemaining(sector, coursePlot) : 0),
+    [sector, coursePlot, hasRouteHighlight]
   )
-
   return (
     <div
       className={cn(
@@ -58,10 +58,10 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
     >
       <div
         className={cn(
-          "absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-600 ease-in-out z-10",
+          "absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-600 ease-in-out z-10 pointer-events-none",
           uiState === "combat" ?
-            "pointer-events-none group-hover:pointer-events-none group-hover:opacity-0 "
-          : "pointer-events-auto group-hover:opacity-100 group-hover:pointer-events-auto "
+            "group-hover:opacity-0"
+          : "group-hover:opacity-100"
         )}
       ></div>
       <Badge
@@ -78,7 +78,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
           <CardContent className="flex flex-row justify-between">
             <div className="flex flex-col gap-1 justify-between">
               <header className="font-extrabold uppercase text-fuel-foreground animate-pulse">
-                Autopilot Active
+                Route Highlighted
               </header>
               <div className="flex flex-row text-xxs gap-2 items-center">
                 <span className="uppercase">{coursePlot.from_sector}</span>
@@ -86,14 +86,16 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
                 <span className="uppercase">{coursePlot.to_sector}</span>
               </div>
             </div>
-            <Badge
-              size="sm"
-              className="flex flex-col text-xxs elbow-offset-0 elbow-fuel border-0 bg-fuel-background leading-3"
-              border="elbow"
-            >
-              <span className="font-bold">{hopsRemaining}</span>
-              <span className="opacity-60">Hops Remain</span>
-            </Badge>
+            {typeof hopsRemaining === "number" && (
+              <Badge
+                size="sm"
+                className="flex flex-col text-xxs elbow-offset-0 elbow-fuel border-0 bg-fuel-background leading-3"
+                border="elbow"
+              >
+                <span className="font-bold">{hopsRemaining}</span>
+                <span className="opacity-60">Hops Remain</span>
+              </Badge>
+            )}
           </CardContent>
         </Card>
       )}

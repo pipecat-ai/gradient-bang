@@ -113,6 +113,9 @@ export interface MapLocalMessage extends ServerMessagePayload {
   total_sectors: number
   total_unvisited: number
   total_visited: number
+  bounds?: number
+  fit_sectors?: number[]
+  missing_sectors?: number[]
 }
 
 export interface CoursePlotMessage extends ServerMessagePayload {
@@ -462,4 +465,8 @@ export interface CorporationShipPurchaseMessage extends ServerMessagePayload {
 
 export interface LLMTaskMessage extends ServerMessagePayload {
   name: string
+}
+
+export interface UIAgentContextSummaryMessage extends ServerMessagePayload {
+  context_summary: string
 }

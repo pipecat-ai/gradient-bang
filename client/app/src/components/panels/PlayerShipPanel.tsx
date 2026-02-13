@@ -182,7 +182,7 @@ const PlayerShip = () => {
         </div>
         <div className="flex-1 h-3 dashed-bg-horizontal dashed-bg-accent"></div>
       </div>
-      <div className="flex flex-row items-center select-none divide-x divide-transparent">
+      <div className="flex flex-row items-center select-none gap-1">
         <div className="flex-1">
           <PlayerShipFuelBadge className="w-full" />
         </div>
