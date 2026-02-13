@@ -303,7 +303,7 @@ class ListKnownPorts(GameClientTool):
     def __call__(
         self,
         from_sector=None,
-        max_hops=5,
+        max_hops=None,
         port_type=None,
         commodity=None,
         trade_type=None,
@@ -332,10 +332,9 @@ class ListKnownPorts(GameClientTool):
                 },
                 "max_hops": {
                     "type": "integer",
-                    "description": "Maximum distance (default 5, max 100)",
-                    "minimum": 1,
+                    "description": "Optional maximum distance (max 100). If omitted, server defaults are used (5 normally, 100 when mega=true).",
+                    "minimum": 0,
                     "maximum": 100,
-                    "default": 5,
                 },
                 "port_type": {
                     "type": "string",
