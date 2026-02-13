@@ -124,28 +124,36 @@ export const Game = () => {
               <ConversationPanel className="min-w-0 max-w-2xl mr-ui-xs" />
               <UIModeToggle />
               <div className="relative w-ui-minimap h-ui-bottom bracket-left bracket-offset-0 bracket-1 bracket-input">
-                <AnimatePresence mode="wait">
-                  {uiMode === "tasks" ?
-                    <motion.div
-                      key="minimap"
-                      className="h-full w-ui-minimap"
-                      initial={{ opacity: 0, y: 100 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -100 }}
-                    >
-                      <MiniMapPanel className="w-ui-minimap" />
-                    </motion.div>
-                  : <motion.div
-                      key="mini-task-engines"
-                      className="h-full w-ui-minimap"
-                      initial={{ opacity: 0, y: 100 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -100 }}
-                    >
-                      <MiniTaskEngines />
-                    </motion.div>
+                <motion.div
+                  className="absolute inset-0 h-full w-ui-minimap"
+                  animate={uiMode === "tasks"
+                    ? { opacity: 1, y: 0 }
+                    : { opacity: 0, y: -100 }
                   }
-                </AnimatePresence>
+                  initial={false}
+                  style={{
+                    pointerEvents: uiMode === "tasks" ? "auto" : "none",
+                    contentVisibility: uiMode === "tasks" ? "visible" : "hidden",
+                  }}
+                  {...(uiMode !== "tasks" ? { inert: true } : {})}
+                >
+                  <MiniMapPanel className="w-ui-minimap" />
+                </motion.div>
+                <motion.div
+                  className="absolute inset-0 h-full w-ui-minimap"
+                  animate={uiMode !== "tasks"
+                    ? { opacity: 1, y: 0 }
+                    : { opacity: 0, y: 100 }
+                  }
+                  initial={false}
+                  style={{
+                    pointerEvents: uiMode !== "tasks" ? "auto" : "none",
+                    contentVisibility: uiMode !== "tasks" ? "visible" : "hidden",
+                  }}
+                  {...(uiMode === "tasks" ? { inert: true } : {})}
+                >
+                  <MiniTaskEngines />
+                </motion.div>
                 {uiState === "combat" && (
                   <div className="animate-in fade-in-0 duration-1000 absolute inset-px z-2 bg-background/60 cross-lines-subtle text-destructive-foreground flex flex-col items-center justify-center">
                     <div className="relative z-10 bg-destructive-background/70 text-center px-ui-sm py-ui-xs">
