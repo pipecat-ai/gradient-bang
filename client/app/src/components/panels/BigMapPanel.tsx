@@ -9,7 +9,6 @@ import { Badge } from "@/components/primitives/Badge"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS_PADDING } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -20,6 +19,7 @@ import { Divider } from "../primitives/Divider"
 import SectorMap, { type MapConfig } from "../SectorMap"
 
 import type { GetMapRegionAction } from "@/types/actions"
+import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS_PADDING } from "@/types/constants"
 
 const MAP_CONFIG: MapConfig = {
   debug: false,
@@ -118,6 +118,9 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
+  const mapCenterWorld = useGameStore((state) => state.mapCenterWorld)
+  const mapFitBoundsWorld = useGameStore((state) => state.mapFitBoundsWorld)
+  const mapFitEpoch = useGameStore((state) => state.mapFitEpoch)
   const dispatchAction = useGameStore.use.dispatchAction?.()
   const [centerSector, setCenterSector] = useState<number | undefined>(undefined)
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
@@ -245,6 +248,9 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
             onMapFetch={handleMapFetch}
             coursePlot={coursePlot ?? null}
             ships={shipSectors}
+            center_world={mapCenterWorld}
+            fit_bounds_world={mapFitBoundsWorld}
+            mapFitEpoch={mapFitEpoch}
           />
         : <div className="relative w-full h-full flex items-center justify-center cross-lines-white/50 cross-lines-offset-12">
             <div className="elbow relative z-99 flex flex-col gap-3 bg-black border border-border p-6 animate-in fade-in-0 duration-300">

@@ -1,7 +1,8 @@
-import { DEFAULT_MAX_BOUNDS } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 
 import { MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
+
+import { DEFAULT_MAX_BOUNDS } from "@/types/constants"
 
 // Create Path2D once at module level for performance
 const portPath = new Path2D(PORT_ICON)
@@ -17,6 +18,10 @@ const MIN_LANE_LENGTH_FOR_ARROWS = 30
 export interface SectorMapConfigBase {
   center_sector_id: number
   current_sector_id?: number
+  /** Optional world-coordinate center override (zoomMode). When set, camera centers here instead of on center_sector_id. */
+  center_world?: [number, number]
+  /** Optional world-coordinate bounding box override (zoomMode). When set, camera zooms to fit these bounds. */
+  fit_bounds_world?: [number, number, number, number]
   grid_spacing: number
   hex_size: number
   sector_label_offset: number
@@ -548,29 +553,57 @@ function drawHex(ctx: CanvasRenderingContext2D, x: number, y: number, size: numb
   ctx.stroke()
 }
 
-/** Filter sectors by spatial distance from current sector (in hex grid units) */
+/** Filter sectors by spatial distance from a center point (in hex grid units).
+ *  All coordinate inputs must be in scaled world space (same as hexToWorld output).
+ *  When viewportWidth/Height are provided, uses rectangular filtering scaled by
+ *  aspect ratio so sectors fill the wider axis without dead space. */
 function filterSectorsBySpatialDistance(
   data: MapData,
   currentSectorId: number,
   maxDistanceHexes: number,
-  scale: number
+  scale: number,
+  centerWorldScaled?: { x: number; y: number },
+  viewportWidth?: number,
+  viewportHeight?: number
 ): MapData {
-  const currentSector = data.find((s) => s.id === currentSectorId)
-  if (!currentSector) return data
+  // Resolve center: explicit override or look up current sector
+  let center: { x: number; y: number } | null = centerWorldScaled ?? null
+  if (!center) {
+    const currentSector = data.find((s) => s.id === currentSectorId)
+    if (!currentSector) return data
+    center = hexToWorld(currentSector.position[0], currentSector.position[1], scale)
+  }
 
   const maxWorldDistance = maxDistanceHexes * scale * Math.sqrt(3)
-  const currentWorld = hexToWorld(currentSector.position[0], currentSector.position[1], scale)
 
+  // When viewport dimensions are provided, use rectangular filtering
+  // scaled by aspect ratio so the wider axis gets more coverage
+  if (viewportWidth && viewportHeight && viewportWidth > 0 && viewportHeight > 0) {
+    const aspect = viewportWidth / viewportHeight
+    const maxDistX = maxWorldDistance * Math.max(1, aspect)
+    const maxDistY = maxWorldDistance * Math.max(1, 1 / aspect)
+
+    const filtered = data.filter((node) => {
+      const world = hexToWorld(node.position[0], node.position[1], scale)
+      return Math.abs(world.x - center.x) <= maxDistX && Math.abs(world.y - center.y) <= maxDistY
+    })
+
+    if (filtered.length > 0) return filtered
+    const fallback = data.find((s) => s.id === currentSectorId)
+    return fallback ? [fallback] : data
+  }
+
+  // Circular fallback (boundMode / no viewport info)
   const filtered = data.filter((node) => {
     const world = hexToWorld(node.position[0], node.position[1], scale)
-    const dx = world.x - currentWorld.x
-    const dy = world.y - currentWorld.y
-    const distance = Math.sqrt(dx * dx + dy * dy)
-    return distance <= maxWorldDistance
+    const dx = world.x - center.x
+    const dy = world.y - center.y
+    return Math.sqrt(dx * dx + dy * dy) <= maxWorldDistance
   })
 
-  // Ensure at least current sector is included
-  return filtered.length > 0 ? filtered : [currentSector]
+  if (filtered.length > 0) return filtered
+  const fallback = data.find((s) => s.id === currentSectorId)
+  return fallback ? [fallback] : data
 }
 
 /** Calculate bounding box of all sectors */
@@ -595,17 +628,14 @@ function calculateSectorBounds(
   return { minX, minY, maxX, maxY }
 }
 
-/** Calculate camera transform to optimally frame all sectors in data.
- *  minZoom can be lowered for large maxDistance values so the map can
- *  zoom out far enough to show all sectors without clipping. */
+/** Calculate camera transform to optimally frame all sectors in data. */
 function calculateCameraTransform(
   data: MapData,
   width: number,
   height: number,
   scale: number,
   hexSize: number,
-  framePadding = 0,
-  minZoom = 0.3
+  framePadding = 0
 ): { offsetX: number; offsetY: number; zoom: number } {
   const bounds = calculateSectorBounds(data, scale, hexSize)
   const boundsWidth = Math.max(bounds.maxX - bounds.minX, hexSize)
@@ -613,7 +643,7 @@ function calculateCameraTransform(
 
   const scaleX = (width - framePadding * 2) / boundsWidth
   const scaleY = (height - framePadding * 2) / boundsHeight
-  const zoom = Math.max(minZoom, Math.min(scaleX, scaleY, 1.5))
+  const zoom = Math.max(0.3, Math.min(scaleX, scaleY, 1.5))
 
   const centerX = (bounds.minX + bounds.maxX) / 2
   const centerY = (bounds.minY + bounds.maxY) / 2
@@ -1338,7 +1368,11 @@ function applyRectangularFeatherMask(
   ctx.restore()
 }
 
-/** Calculate complete camera state for given props */
+/** Calculate complete camera state for given props.
+ *
+ *  Camera center priority:  fit_bounds_world center > center_world > center_sector_id hex position
+ *  Camera zoom priority:    fit_bounds_world extent > maxDistance radius > auto-fit (calculateCameraTransform)
+ */
 function calculateCameraState(
   data: MapData,
   config: SectorMapConfigBase,
@@ -1349,16 +1383,25 @@ function calculateCameraState(
   maxDistance: number,
   coursePlot?: CoursePlot | null
 ): CameraState | null {
-  // Filter by spatial distance (hex grid units) instead of BFS hops
+  // Resolve scaled center for spatial filtering
+  const centerWorldScaled =
+    config.center_world ?
+      { x: config.center_world[0] * scale, y: config.center_world[1] * scale }
+    : undefined
+
+  // Filter by spatial distance, using center override and viewport when available
   let filteredData = filterSectorsBySpatialDistance(
     data,
     config.center_sector_id,
     maxDistance,
-    scale
+    scale,
+    centerWorldScaled,
+    config.center_world ? width : undefined,
+    config.center_world ? height : undefined
   )
 
   // If course plot exists, include all sectors from the path
-  let framingData = filteredData // Data used for camera framing
+  let framingData = filteredData
   if (coursePlot) {
     const coursePlotSectorIds = new Set(coursePlot.path)
     const sectorIndex = createSectorIndex(data)
@@ -1369,7 +1412,6 @@ function calculateCameraState(
       const sector = sectorIndex.get(sectorId)
       if (sector) {
         coursePlotSectors.push(sector)
-        // Only add to filtered if not already there
         if (!filteredData.some((s) => s.id === sectorId)) {
           additionalSectors.push(sector)
         }
@@ -1380,7 +1422,6 @@ function calculateCameraState(
       filteredData = [...filteredData, ...additionalSectors]
     }
 
-    // Frame around only the course plot sectors
     if (coursePlotSectors.length > 0) {
       framingData = coursePlotSectors
     }
@@ -1390,27 +1431,69 @@ function calculateCameraState(
     return null
   }
 
-  // Dynamic min zoom: at small maxDistance (<=12) keep the default 0.3 floor;
-  // at larger values scale it down so the bounding-box fit can zoom out enough
+  // Dynamic min zoom floor -- scales down for larger maxDistance values
   const minZoom = Math.max(
     0.08,
     0.3 * (DEFAULT_MAX_BOUNDS / Math.max(maxDistance, DEFAULT_MAX_BOUNDS))
   )
 
+  const framePadding = config.frame_padding ?? 0
+  const availableWidth = Math.max(width - framePadding * 2, 1)
+  const availableHeight = Math.max(height - framePadding * 2, 1)
+
+  // --- Override path: fit_bounds_world ---
+  if (config.fit_bounds_world && config.fit_bounds_world.length === 4) {
+    const [bMinX, bMaxX, bMinY, bMaxY] = config.fit_bounds_world
+    const paddedMinX = bMinX * scale - hexSize
+    const paddedMaxX = bMaxX * scale + hexSize
+    const paddedMinY = bMinY * scale - hexSize
+    const paddedMaxY = bMaxY * scale + hexSize
+    const boundsWidth = Math.max(paddedMaxX - paddedMinX, hexSize * 2)
+    const boundsHeight = Math.max(paddedMaxY - paddedMinY, hexSize * 2)
+
+    const centerX = (paddedMinX + paddedMaxX) / 2
+    const centerY = (paddedMinY + paddedMaxY) / 2
+    const zoom = Math.max(minZoom, Math.min(availableWidth / boundsWidth, availableHeight / boundsHeight, 1.5))
+
+    return {
+      offsetX: -centerX,
+      offsetY: -centerY,
+      zoom,
+      filteredData,
+    }
+  }
+
+  // --- Override path: center_world (no fit bounds) ---
+  if (centerWorldScaled) {
+    const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
+    const radius = Math.max(maxWorldDistance + hexSize, hexSize)
+    const zoom = Math.max(minZoom, Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5))
+
+    return {
+      offsetX: -centerWorldScaled.x,
+      offsetY: -centerWorldScaled.y,
+      zoom,
+      filteredData,
+    }
+  }
+
+  // --- Default path: auto-fit to framing data (boundMode) ---
   const camera = calculateCameraTransform(
     framingData,
     width,
     height,
     scale,
     hexSize,
-    config.frame_padding ?? 0,
-    minZoom
+    framePadding
   )
+
+  // Apply dynamic minZoom floor (calculateCameraTransform uses hardcoded 0.3)
+  const zoom = Math.max(minZoom, camera.zoom)
 
   return {
     offsetX: camera.offsetX,
     offsetY: camera.offsetY,
-    zoom: camera.zoom,
+    zoom,
     filteredData,
   }
 }

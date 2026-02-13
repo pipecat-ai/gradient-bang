@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "motion/react"
 import { Dialog } from "radix-ui"
 import { XIcon } from "@phosphor-icons/react"
 
-import { MapScreenBoundary } from "@/components/screens/MapScreenBoundary"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
@@ -72,8 +71,6 @@ export const ScreenContainer = () => {
 
   const dottedCX =
     "DialogOverlay bg-muted/40 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle dialog-dots"
-  const noDottedCX =
-    "DialogOverlay motion-safe:bg-muted/40 motion-safe:backdrop-blur-xs text-subtle"
 
   return (
     <Dialog.Root
@@ -85,9 +82,7 @@ export const ScreenContainer = () => {
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay
-          className={cn("z-20", activeScreen?.screen === "map" ? noDottedCX : dottedCX)}
-        ></Dialog.Overlay>
+        <Dialog.Overlay className={cn("z-20", dottedCX)}></Dialog.Overlay>
         <Dialog.Content
           aria-describedby={undefined}
           onClick={(e) => {
@@ -120,13 +115,8 @@ export const ScreenContainer = () => {
                 initial="exit"
                 animate="enter"
                 exit="exit"
-                className={displayedScreen.screen === "map" ? "w-full h-full" : ""}
+                className="w-full h-full"
               >
-                {displayedScreen.screen === "map" && (
-                  <ScreenBase full>
-                    <MapScreenBoundary />
-                  </ScreenBase>
-                )}
                 {displayedScreen.screen === "ship-details" && (
                   <ScreenBase>
                     <ShipDetails ship={displayedScreen.data as ShipDefinition} />
@@ -134,7 +124,9 @@ export const ScreenContainer = () => {
                 )}
                 {displayedScreen.screen === "combat-results" && (
                   <ScreenBase>
-                    <CombatResultsScreen combat={displayedScreen.data as CombatEndedRound | undefined} />
+                    <CombatResultsScreen
+                      combat={displayedScreen.data as CombatEndedRound | undefined}
+                    />
                   </ScreenBase>
                 )}
               </motion.div>

@@ -12,6 +12,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react"
 
 import { deepmerge } from "deepmerge-ts"
+import { ErrorBoundary } from "react-error-boundary"
 
 import type {
   LabelStyles,
@@ -23,6 +24,8 @@ import type {
   UIStyles,
 } from "@/fx/map/SectorMapFX"
 import { createSectorMapController, DEFAULT_SECTORMAP_CONFIG } from "@/fx/map/SectorMapFX"
+
+import { Button } from "./primitives/Button"
 
 export type MapConfig = Partial<
   Omit<
@@ -60,6 +63,22 @@ interface MapProps {
   onNodeEnter?: (node: MapSectorNode) => void
   onNodeExit?: (node: MapSectorNode) => void
   onMapFetch?: (centerSectorId: number) => void
+  /** World-coordinate center override (zoomMode). Undefined for boundMode. */
+  center_world?: [number, number]
+  /** World-coordinate bounding box override (zoomMode). Undefined for boundMode. */
+  fit_bounds_world?: [number, number, number, number]
+  /** Monotonic counter from fitMapToSectors to force re-render on fit resolution. */
+  mapFitEpoch?: number
+}
+
+/** Element-wise comparison for short numeric tuples. */
+const tuplesEqual = (a?: number[], b?: number[]): boolean => {
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
 }
 
 const RESIZE_DELAY = 300
@@ -160,6 +179,9 @@ const MapComponent = ({
   onNodeEnter,
   onNodeExit,
   onMapFetch,
+  center_world,
+  fit_bounds_world,
+  mapFitEpoch,
 }: MapProps) => {
   // Normalize map_data to always be an array (memoized to avoid dependency changes)
   const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
@@ -198,6 +220,11 @@ const MapComponent = ({
   const lastConfigRef = useRef<Omit<SectorMapConfigBase, "center_sector_id"> | null>(null)
   const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot)
   const lastShipsKeyRef = useRef<string>(shipsKey)
+  const lastCenterWorldRef = useRef<[number, number] | undefined>(center_world)
+  const lastFitBoundsWorldRef = useRef<[number, number, number, number] | undefined>(
+    fit_bounds_world
+  )
+  const lastMapFitEpochRef = useRef<number | undefined>(mapFitEpoch)
   const maxZoomFetchedRef = useRef<Map<number, number>>(new Map())
 
   const [measuredSize, setMeasuredSize] = useState<{
@@ -299,13 +326,23 @@ const MapComponent = ({
     let controller = controllerRef.current
 
     if (!controller) {
-      console.debug("[GAME SECTOR MAP] Initializing SectorMap")
+      console.debug(
+        "%c[SectorMap] Init",
+        "color: red; font-weight: bold",
+        { center_sector_id, maxDistance, center_world, fit_bounds_world }
+      )
 
       controller = createSectorMapController(canvas, {
         width: lastDimensionsRef.current.width,
         height: lastDimensionsRef.current.height,
         data: normalizedMapData,
-        config: { ...baseConfig, center_sector_id, current_sector_id },
+        config: {
+          ...baseConfig,
+          center_sector_id,
+          current_sector_id,
+          center_world,
+          fit_bounds_world,
+        },
         maxDistance,
         coursePlot,
         ships: shipsMap,
@@ -318,6 +355,9 @@ const MapComponent = ({
       lastConfigRef.current = baseConfig
       lastCoursePlotRef.current = coursePlot
       lastShipsKeyRef.current = shipsKey
+      lastCenterWorldRef.current = center_world
+      lastFitBoundsWorldRef.current = fit_bounds_world
+      lastMapFitEpochRef.current = mapFitEpoch
       maxZoomFetchedRef.current.set(center_sector_id, maxDistance)
       return
     }
@@ -330,6 +370,9 @@ const MapComponent = ({
     const configChanged = lastConfigRef.current !== baseConfig
     const coursePlotChanged = !courseplotsEqual(lastCoursePlotRef.current, coursePlot)
     const shipsChanged = lastShipsKeyRef.current !== shipsKey
+    const centerWorldChanged = !tuplesEqual(lastCenterWorldRef.current, center_world)
+    const fitBoundsWorldChanged = !tuplesEqual(lastFitBoundsWorldRef.current, fit_bounds_world)
+    const mapFitEpochChanged = lastMapFitEpochRef.current !== mapFitEpoch
 
     // Early exit if nothing has actually changed
     if (
@@ -339,37 +382,52 @@ const MapComponent = ({
       !maxDistanceChanged &&
       !configChanged &&
       !coursePlotChanged &&
-      !shipsChanged
+      !shipsChanged &&
+      !centerWorldChanged &&
+      !fitBoundsWorldChanged &&
+      !mapFitEpochChanged
     ) {
       return
     }
 
-    console.debug("[GAME SECTOR MAP] Updating SectorMap", {
-      topologyChanged,
-      centerSectorChanged,
-      currentSectorChanged,
-      maxDistanceChanged,
-      configChanged,
-      coursePlotChanged,
-      shipsChanged,
-      "old map": previousMapRef.current,
-      "new map": normalizedMapData,
-    })
+    // Build full config with overrides
+    const fullConfig = {
+      ...baseConfig,
+      center_sector_id,
+      current_sector_id,
+      center_world,
+      fit_bounds_world,
+    }
 
-    // Update config when config, center_sector_id, or current_sector_id changes
-    const needsConfigUpdate = configChanged || centerSectorChanged || currentSectorChanged
+    // Update config when config, center_sector_id, current_sector_id, or world overrides change
+    const needsConfigUpdate =
+      configChanged ||
+      centerSectorChanged ||
+      currentSectorChanged ||
+      centerWorldChanged ||
+      fitBoundsWorldChanged
 
     controller.updateProps({
       maxDistance,
-      ...(needsConfigUpdate && { config: { ...baseConfig, center_sector_id, current_sector_id } }),
+      ...(needsConfigUpdate && { config: fullConfig }),
       data: normalizedMapData,
       coursePlot,
       ships: shipsMap,
     })
 
-    let skipReframe = false
-
-    if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
+    // World-coordinate overrides changed (zoomMode) -- animate camera reframe
+    if (centerWorldChanged || fitBoundsWorldChanged || mapFitEpochChanged) {
+      console.debug(
+        "%c[SectorMap] Zoom reframe",
+        "color: red; font-weight: bold",
+        { center_world, fit_bounds_world, mapFitEpoch }
+      )
+      if (needsConfigUpdate) {
+        controller.updateProps({ config: fullConfig })
+      }
+      controller.moveToSector(center_sector_id, normalizedMapData)
+    } else if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
+      let skipReframe = false
       const hasEnough = hasEnoughMapData(normalizedMapData, center_sector_id, maxDistance)
       const prevMax = maxZoomFetchedRef.current.get(center_sector_id) ?? 0
       const needsFetchByZoom = maxDistance > prevMax
@@ -385,21 +443,14 @@ const MapComponent = ({
         const canFetch = targetSector?.visited === true
 
         if (canFetch) {
-          // Need more data and can fetch - trigger fetch
+          console.debug(
+            "%c[SectorMap] Fetch map data",
+            "color: red; font-weight: bold",
+            { sector: center_sector_id, maxDistance, needsFetchByZoom, needsFetchByTopology }
+          )
           if (maxDistance > prevMax) {
             maxZoomFetchedRef.current.set(center_sector_id, maxDistance)
           }
-          const fetchReasons: string[] = []
-          if (needsFetchByTopology) fetchReasons.push("topology")
-          if (needsFetchByZoom) fetchReasons.push("zoom")
-          console.debug(
-            "[GAME SECTOR MAP] Requesting fetch for sector",
-            center_sector_id,
-            "with bounds",
-            maxDistance,
-            "- reasons:",
-            fetchReasons.length > 0 ? fetchReasons.join(", ") : "unknown"
-          )
           onMapFetch?.(center_sector_id)
           if (needsFetchByTopology) {
             skipReframe = true
@@ -408,15 +459,21 @@ const MapComponent = ({
       }
 
       if (!skipReframe) {
-        // Reframe with available data
-        console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
+        console.debug(
+          "%c[SectorMap] Move to sector",
+          "color: red; font-weight: bold",
+          { sector: center_sector_id, maxDistance, topologyChanged, coursePlotChanged }
+        )
         controller.moveToSector(center_sector_id, normalizedMapData)
       }
 
       prevCenterSectorIdRef.current = center_sector_id
     } else if (needsConfigUpdate || shipsChanged) {
-      // Config/ships changed but topology and camera stay the same - just re-render
-      console.debug("[GAME SECTOR MAP] Rendering SectorMap (config/ships changed)")
+      console.debug(
+        "%c[SectorMap] Re-render",
+        "color: red; font-weight: bold",
+        { configChanged, shipsChanged }
+      )
       controller.render()
     }
 
@@ -426,6 +483,9 @@ const MapComponent = ({
     lastConfigRef.current = baseConfig
     lastCoursePlotRef.current = coursePlot
     lastShipsKeyRef.current = shipsKey
+    lastCenterWorldRef.current = center_world
+    lastFitBoundsWorldRef.current = fit_bounds_world
+    lastMapFitEpochRef.current = mapFitEpoch
   }, [
     center_sector_id,
     current_sector_id,
@@ -436,6 +496,9 @@ const MapComponent = ({
     shipsKey,
     shipsMap,
     onMapFetch,
+    center_world,
+    fit_bounds_world,
+    mapFitEpoch,
   ])
 
   // Update click callback when it changes
@@ -467,29 +530,47 @@ const MapComponent = ({
   }, [])
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        display: "grid",
-        gap: 8,
-        overflow: "hidden",
-        ...(isAutoSizing && { width: "100%", height: "100%" }),
-      }}
+    <ErrorBoundary
+      onError={(error, info) =>
+        console.error("[SectorMap] Render error", error, info.componentStack)
+      }
+      fallbackRender={({ error, resetErrorBoundary }) => (
+        <div className="flex h-full w-full items-center justify-center">
+          <div className="flex flex-col items-center gap-2 text-xs text-muted-foreground">
+            <p>Map failed to render</p>
+            <p className="text-xxs opacity-60">
+              {error instanceof Error ? error.message : String(error)}
+            </p>
+            <Button variant="secondary" size="sm" onClick={resetErrorBoundary}>
+              Retry
+            </Button>
+          </div>
+        </div>
+      )}
     >
-      <canvas
-        ref={canvasRef}
+      <div
+        ref={containerRef}
         style={{
-          width: `${effectiveWidth}px`,
-          height: `${effectiveHeight}px`,
-          maxWidth: "100%",
-          maxHeight: "100%",
-          display: "block",
-          objectFit: "contain",
-          // Hide until size is measured to prevent visual jump
-          ...(isWaitingForMeasurement && { visibility: "hidden" }),
+          display: "grid",
+          gap: 8,
+          overflow: "hidden",
+          ...(isAutoSizing && { width: "100%", height: "100%" }),
         }}
-      />
-    </div>
+      >
+        <canvas
+          ref={canvasRef}
+          style={{
+            width: `${effectiveWidth}px`,
+            height: `${effectiveHeight}px`,
+            maxWidth: "100%",
+            maxHeight: "100%",
+            display: "block",
+            objectFit: "contain",
+            ...(isWaitingForMeasurement && { visibility: "hidden" }),
+          }}
+        />
+      </div>
+    </ErrorBoundary>
   )
 }
 
@@ -524,6 +605,11 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
       return false
     }
   }
+
+  // World-coordinate overrides (zoomMode)
+  if (!tuplesEqual(prevProps.center_world, nextProps.center_world)) return false
+  if (!tuplesEqual(prevProps.fit_bounds_world, nextProps.fit_bounds_world)) return false
+  if (prevProps.mapFitEpoch !== nextProps.mapFitEpoch) return false
 
   return true
 }

@@ -231,7 +231,7 @@ declare global {
 
   type UIState = "idle" | "moving" | "combat" | "paused"
   type UIMode = "tasks" | "map"
-  type UIScreen = "map" | "ship-details" | "combat-results"
+  type UIScreen = "ship-details" | "combat-results"
   type UIPanel = "sector" | "player" | "trade" | "tasks" | "corp" | "logs" | "task_stream"
   type UIModal = "settings" | "leaderboard" | "signup" | "character_select" | undefined
 
