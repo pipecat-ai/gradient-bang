@@ -17,6 +17,7 @@ import {
   findShortestPath,
   PathNotFoundError,
   fetchSectorRow,
+  loadMapKnowledge,
 } from "../_shared/map.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
@@ -177,10 +178,14 @@ async function handlePlotCourse(
   toSector = Math.floor(toSector);
 
   if (!adminOverride && fromSector !== ship.current_sector) {
-    throw new PlotCourseError(
-      "from_sector must match your current sector",
-      403,
-    );
+    const knowledge = await loadMapKnowledge(supabase, characterId);
+    const isDiscovered = Boolean(knowledge.sectors_visited[String(fromSector)]);
+    if (!isDiscovered) {
+      throw new PlotCourseError(
+        "from_sector must be a sector you or your corporation have discovered",
+        403,
+      );
+    }
   }
 
   const destinationRow = await fetchSectorRow(supabase, toSector);

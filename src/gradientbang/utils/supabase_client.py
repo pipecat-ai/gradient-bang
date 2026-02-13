@@ -181,6 +181,8 @@ class AsyncGameClient(BaseAsyncGameClient):
         req_id = str(uuid.uuid4())
         self.last_request_id = req_id  # Track for voice agent request correlation
         enriched = self._inject_character_ids(payload)
+        if "request_id" not in enriched:
+            enriched["request_id"] = req_id
 
         edge_endpoint = endpoint.replace('.', '_')
 

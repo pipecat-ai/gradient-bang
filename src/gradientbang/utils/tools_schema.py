@@ -230,20 +230,30 @@ class MyMap(GameClientTool):
 
 
 class PlotCourse(GameClientTool):
-    def __call__(self, to_sector):
+    def __call__(self, to_sector, from_sector=None):
         return self.game_client.plot_course(
-            to_sector=to_sector, character_id=self.game_client.character_id
+            to_sector=to_sector,
+            character_id=self.game_client.character_id,
+            from_sector=from_sector,
         )
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
             name="plot_course",
-            description="Calculate shortest path from your current sector to the destination",
+            description="Calculate shortest path from your current sector (or an optional from_sector) to the destination",
             properties={
                 "to_sector": {
                     "type": "integer",
                     "description": "Destination sector ID",
+                    "minimum": 0,
+                },
+                "from_sector": {
+                    "type": "integer",
+                    "description": (
+                        "Starting sector ID (defaults to your current sector). "
+                        "Must be a sector you or your corporation have discovered."
+                    ),
                     "minimum": 0,
                 },
             },

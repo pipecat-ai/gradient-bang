@@ -36,6 +36,10 @@ Most important code in this repo:
 
 - `pipecat-core-source/` is READ ONLY reference code. It is NOT loaded as a dependency. NEVER modify files in this directory. Use it only to understand pipecat internals.
 
+## Critical: Read-only directories
+
+- `pipecat-core-source/` is READ ONLY reference code. It is NOT loaded as a dependency. NEVER modify files in this directory. Use it only to understand pipecat internals.
+
 ## Important notes
 
 - Legacy game_server code has been removed. Supabase edge functions are the only backend.

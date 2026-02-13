@@ -16,7 +16,7 @@ from google import genai
 from google.genai.types import Content, GenerateContentConfig, Part
 from loguru import logger
 from pipecat.adapters.services.gemini_adapter import GeminiLLMAdapter
-from pipecat.frames.frames import Frame, LLMContextFrame, SystemFrame
+from pipecat.frames.frames import CancelFrame, EndFrame, Frame, LLMContextFrame, StartFrame, SystemFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.consumer_processor import ConsumerProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -135,9 +135,11 @@ class ContextCompressionProducer(ProducerProcessor):
         # default produce/passthrough logic
         await FrameProcessor.process_frame(self, frame, direction)
 
-        # System frames (StartFrame, EndFrame, etc.) must pass through for pipeline to work
+        # Only forward lifecycle system frames so side branches don't short-circuit
+        # transport-bound messages (e.g., bot-ready) in the ParallelPipeline.
         if isinstance(frame, SystemFrame):
-            await self.push_frame(frame, direction)
+            if isinstance(frame, (StartFrame, EndFrame, CancelFrame)):
+                await self.push_frame(frame, direction)
             return
 
         # Only process LLMContextFrames, sink all other data frames

@@ -207,6 +207,7 @@ class VoiceTaskManager:
         self._combat_priority_combat_id: Optional[str] = None
         self._last_combat_waiting_signature: Optional[str] = None
         self._last_combat_waiting_seen_at = 0.0
+        self._warned_request_id_fallback_tools: set[str] = set()
         # Track task IDs that have finished but whose task.finish event hasn't arrived yet
         self._finished_task_ids: Dict[str, float] = {}
         self._finished_task_queue: deque[tuple[str, float]] = deque()
@@ -231,8 +232,10 @@ class VoiceTaskManager:
             "leaderboard_resources": lambda **kwargs: self.game_client.leaderboard_resources(
                 character_id=self.character_id, **kwargs
             ),
-            "plot_course": lambda to_sector: self.game_client.plot_course(
-                to_sector=to_sector, character_id=self.character_id
+            "plot_course": lambda to_sector, from_sector=None: self.game_client.plot_course(
+                to_sector=to_sector,
+                character_id=self.character_id,
+                from_sector=from_sector,
             ),
             "list_known_ports": lambda **kwargs: self.game_client.list_known_ports(
                 character_id=self.character_id, **kwargs
@@ -1070,8 +1073,8 @@ class VoiceTaskManager:
             if combat_event_for_player:
                 waiting_signature = self._build_combat_waiting_signature(clean_payload)
                 duplicate_combat_waiting = self._is_duplicate_combat_waiting(waiting_signature)
-            combat_start_announcement_required = combat_event_for_player and self._should_interrupt_for_combat_waiting(
-                combat_id
+            combat_start_announcement_required = (
+                combat_event_for_player and self._should_interrupt_for_combat_waiting(combat_id)
             )
             if combat_start_announcement_required:
                 await self._interrupt_active_turn_for_combat(combat_id)
@@ -1299,9 +1302,7 @@ class VoiceTaskManager:
         else:
             scope = event_context.get("scope")
             is_direct_to_player = (
-                isinstance(scope, str)
-                and scope in {"direct", "self"}
-                and direct_recipient_event
+                isinstance(scope, str) and scope in {"direct", "self"} and direct_recipient_event
             )
             if is_direct_to_player:
                 if is_task_scoped_event:
@@ -1310,8 +1311,7 @@ class VoiceTaskManager:
                     # recent voice-agent request_id (e.g., voice plot_course while a
                     # player task is active on the shared client).
                     should_append = (
-                        event_name in TASK_SCOPED_DIRECT_EVENT_ALLOWLIST
-                        or is_voice_agent_event
+                        event_name in TASK_SCOPED_DIRECT_EVENT_ALLOWLIST or is_voice_agent_event
                     )
                 else:
                     should_append = True
@@ -1928,10 +1928,25 @@ class VoiceTaskManager:
                 # Track request ID for voice agent inference triggering
                 # Extract from result (preferred) or fall back to last_request_id
                 req_id = None
+                fallback_used = False
                 if isinstance(result, dict):
                     req_id = result.get("request_id")
                 if not req_id and hasattr(self.game_client, "last_request_id"):
                     req_id = self.game_client.last_request_id
+                    fallback_used = True
+                if (
+                    fallback_used
+                    and tool_name in event_generating_tools
+                    and tool_name not in self._warned_request_id_fallback_tools
+                ):
+                    logger.warning(
+                        "Tool %s did not return request_id; falling back to last_request_id=%s. "
+                        "For Supabase transport this may not match the event request_id. "
+                        "Consider returning request_id from the RPC result.",
+                        tool_name,
+                        req_id,
+                    )
+                    self._warned_request_id_fallback_tools.add(tool_name)
                 if req_id:
                     self._track_request_id(req_id)
                     logger.debug(f"Tool {tool_name} tracking request_id={req_id}")
