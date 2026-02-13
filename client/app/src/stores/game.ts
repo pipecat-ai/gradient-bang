@@ -4,11 +4,12 @@ import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
 import usePipecatClientStore from "@/stores/client"
-import { normalizeMapData, normalizePort, normalizeSector } from "@/utils/map"
+import { normalizePort, normalizeSector } from "@/utils/map"
 
 import { type ChatSlice, createChatSlice } from "./chatSlice"
 import { type CombatSlice, createCombatSlice } from "./combatSlice"
 import { createHistorySlice, type HistorySlice } from "./historySlice"
+import { createMapSlice, type MapSlice } from "./mapSlice"
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice"
 import { createTaskSlice, type TaskSlice } from "./taskSlice"
 import { createUISlice, type UISlice } from "./uiSlice"
@@ -52,7 +53,6 @@ interface ActiveProperty<T> {
 export interface GameState {
   playerSessionId: string | null
   setPlayerSessionId: (playerSessionId: string | null) => void
-
   characters: CharacterSelectResponse[]
   player: PlayerSelf
   corporation?: Corporation
@@ -61,9 +61,6 @@ export interface GameState {
   ship: ShipSelf
   ships: ActiveProperty<ShipSelf[]>
   sector?: Sector
-  local_map_data?: MapData
-  regional_map_data?: MapData
-  course_plot?: CoursePlot
   messages: ChatMessage[] | null
   messageFilters: "all" | "direct" | "broadcast" | "corporation"
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
@@ -107,11 +104,7 @@ export interface GameSlice extends GameState {
   addSectorPlayer: (player: Player) => void
   removeSectorPlayer: (player: Player) => void
   setSectorBuffer: (sector: Sector) => void
-  setLocalMapData: (localMapData: MapData) => void
-  setRegionalMapData: (regionalMapData: MapData) => void
-  updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) => void
-  setCoursePlot: (coursePlot: CoursePlot) => void
-  clearCoursePlot: () => void
+
   setStarfieldReady: (starfieldReady: boolean) => void
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) => void
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
@@ -124,12 +117,7 @@ export interface GameSlice extends GameState {
   rejectFetchPromise: (actionType: ActionType, error?: unknown) => void
 }
 
-const createGameSlice: StateCreator<
-  GameSlice & ChatSlice & CombatSlice & HistorySlice & TaskSlice & UISlice & SettingsSlice,
-  [],
-  [],
-  GameSlice
-> = (set, get) => ({
+const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, get) => ({
   playerSessionId: null,
   setPlayerSessionId: (playerSessionId: string | null) => set({ playerSessionId }),
 
@@ -141,9 +129,6 @@ const createGameSlice: StateCreator<
   ship: {} as ShipSelf,
   ships: { data: undefined, last_updated: null },
   sector: undefined,
-  local_map_data: undefined, // @TODO: move to map slice
-  regional_map_data: undefined, // @TODO: move to map slice
-  course_plot: undefined, // @TODO: move to map slice
   messages: null, // @TODO: move to chat slice
   messageFilters: "all",
   leaderboard_data: undefined,
@@ -361,90 +346,6 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  setLocalMapData: (localMapData: MapData) =>
-    set(
-      produce((state) => {
-        state.local_map_data = normalizeMapData(localMapData)
-      })
-    ),
-
-  setRegionalMapData: (regionalMapData: MapData) =>
-    set(
-      produce((state) => {
-        const normalizedMapData = normalizeMapData(regionalMapData)
-        if (!state.regional_map_data) {
-          state.regional_map_data = normalizedMapData
-          return
-        }
-
-        // Cache by sector ID - replace existing sectors with newer data
-        const existingById = new Map(
-          state.regional_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
-        )
-
-        for (const sector of normalizedMapData) {
-          existingById.set(sector.id, sector)
-        }
-
-        state.regional_map_data = Array.from(existingById.values())
-      })
-    ),
-
-  updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) =>
-    set(
-      produce((state) => {
-        // Helper to process updates for a given map
-        const processMapUpdates = (
-          mapData: MapSectorNode[] | undefined,
-          ignoreLocal: boolean = false
-        ): void => {
-          if (!mapData) return
-
-          // Filter out player-sourced sectors if ignoreLocal is true
-          // If this update was triggered by a player move, we'll wait for map.local to
-          // prevent a double render
-          const updates =
-            ignoreLocal ?
-              sectorUpdates.filter((s) => (s as MapSectorNode).source !== "player")
-            : sectorUpdates
-
-          if (updates.length === 0) return
-
-          // Build index of existing sectors
-          const existingIndex = new Map<number, number>()
-          mapData.forEach((s: MapSectorNode, idx: number) => existingIndex.set(s.id, idx))
-
-          // Check if any of the update sectors exist in this map
-          const hasMatch = updates.some((s) => existingIndex.has(s.id))
-          if (!hasMatch) return
-
-          for (const sectorUpdate of updates) {
-            const existingIdx = existingIndex.get(sectorUpdate.id)
-            if (existingIdx !== undefined) {
-              // Update existing sector
-              Object.assign(mapData[existingIdx], sectorUpdate)
-              if (sectorUpdate.port !== undefined) {
-                const normalizedPort = normalizePort(
-                  (sectorUpdate as MapSectorNode).port as PortLike
-                )
-                mapData[existingIdx].port = normalizedPort as MapSectorNode["port"]
-              }
-            } else {
-              // Add new sector
-              const newSector = {
-                ...sectorUpdate,
-                port: normalizePort((sectorUpdate as MapSectorNode).port as PortLike),
-              } as MapSectorNode
-              mapData.push(newSector)
-            }
-          }
-        }
-
-        processMapUpdates(state.local_map_data, true)
-        processMapUpdates(state.regional_map_data)
-      })
-    ),
-
   setShip: (ship: Partial<Ship>) =>
     set(
       produce((state) => {
@@ -460,20 +361,6 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         state.corporation = corporation
-      })
-    ),
-
-  setCoursePlot: (coursePlot: CoursePlot) =>
-    set(
-      produce((state) => {
-        state.course_plot = coursePlot
-      })
-    ),
-
-  clearCoursePlot: () =>
-    set(
-      produce((state) => {
-        state.course_plot = undefined
       })
     ),
 
@@ -513,7 +400,8 @@ export type GameStoreState = GameSlice &
   HistorySlice &
   TaskSlice &
   SettingsSlice &
-  UISlice
+  UISlice &
+  MapSlice
 
 const useGameStoreBase = create<GameStoreState>()(
   subscribeWithSelector((...a) => ({
@@ -524,6 +412,7 @@ const useGameStoreBase = create<GameStoreState>()(
     ...createTaskSlice(...a),
     ...createSettingsSlice(...a),
     ...createUISlice(...a),
+    ...createMapSlice(...a),
   }))
 )
 

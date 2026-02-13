@@ -13,7 +13,6 @@ import {
   applyShipDestroyedState,
 } from "@/utils/combat"
 import {
-  hasDeviatedFromCoursePlot,
   salvageCollectedSummaryString,
   salvageCreatedSummaryString,
   transferSummaryString,
@@ -409,21 +408,6 @@ export function GameProvider({ children }: GameProviderProps) {
               }
 
               gameStore.setUIState("idle")
-
-              // Cleanup
-
-              const newSectorId = gameStore.sectorBuffer?.id ?? 0
-              // Remove any course plot data if we've reached our intended destination or deviated
-              // @TODO: make this logic robust (plots should become stale after a certain time)
-              if (gameStore.course_plot?.to_sector === newSectorId) {
-                console.debug("[GAME EVENT] Reached intended destination, clearing course plot")
-                gameStore.clearCoursePlot()
-              }
-              // Remove active course plot if we've gone to a sector outside of the plot
-              if (hasDeviatedFromCoursePlot(gameStore.course_plot, newSectorId)) {
-                console.debug("[GAME EVENT] Went to a sector outside of the plot, clearing")
-                gameStore.clearCoursePlot()
-              }
               break
             }
 
@@ -644,7 +628,18 @@ export function GameProvider({ children }: GameProviderProps) {
                 break
               }
 
-              gameStore.setRegionalMapData((e.payload as Msg.MapLocalMessage).sectors)
+              const regionData = e.payload as Msg.MapLocalMessage
+              gameStore.setRegionalMapData(regionData.sectors)
+
+              // If the server included fit_sectors, trigger fit (unless already pending)
+              if (Array.isArray(regionData.fit_sectors) && regionData.fit_sectors.length > 0) {
+                const fitSectors = regionData.fit_sectors.filter(
+                  (id): id is number => typeof id === "number" && Number.isFinite(id)
+                )
+                if (fitSectors.length > 0) {
+                  gameStore.fitMapToSectors(fitSectors)
+                }
+              }
               break
             }
 
@@ -1060,7 +1055,13 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Error", e.payload)
               const data = e.payload as Msg.ErrorMessage
 
-              // @TODO: keep tabs on errors in separate store
+              // Handle map center fallback (e.g. center sector not visited)
+              if (data.endpoint === "local_map_region") {
+                const errorText = typeof data.error === "string" ? data.error : ""
+                if (errorText.includes("Center sector") && errorText.includes("visited")) {
+                  gameStore.handleMapCenterFallback()
+                }
+              }
 
               gameStore.addActivityLogEntry({
                 type: "error",
@@ -1070,7 +1071,42 @@ export function GameProvider({ children }: GameProviderProps) {
             }
 
             case "ui-action": {
-              console.debug("[GAME EVENT] UI action", e.payload)
+              const uiPayload = e.payload as Record<string, unknown>
+              if (uiPayload?.["ui-action"] === "control_ui") {
+                gameStore.handleMapUIAction({
+                  mapCenterSector:
+                    typeof uiPayload.map_center_sector === "number" &&
+                    Number.isFinite(uiPayload.map_center_sector) ?
+                      uiPayload.map_center_sector
+                    : undefined,
+                  mapZoomLevel:
+                    typeof uiPayload.map_zoom_level === "number" &&
+                    Number.isFinite(uiPayload.map_zoom_level) ?
+                      uiPayload.map_zoom_level
+                    : undefined,
+                  mapZoomDirection:
+                    uiPayload.map_zoom_direction === "in" ? "in"
+                    : uiPayload.map_zoom_direction === "out" ? "out"
+                    : undefined,
+                  highlightPath:
+                    Array.isArray(uiPayload.map_highlight_path) ?
+                      (uiPayload.map_highlight_path as number[]).filter(
+                        (v) => typeof v === "number" && Number.isFinite(v)
+                      )
+                    : undefined,
+                  fitSectors:
+                    Array.isArray(uiPayload.map_fit_sectors) ?
+                      (uiPayload.map_fit_sectors as number[]).filter(
+                        (v) => typeof v === "number" && Number.isFinite(v)
+                      )
+                    : undefined,
+                  clearCoursePlot: uiPayload.clear_course_plot === true,
+                  showPanel:
+                    uiPayload.show_panel === "map" ? "map"
+                    : uiPayload.show_panel === "default" ? "default"
+                    : undefined,
+                })
+              }
               break
             }
 

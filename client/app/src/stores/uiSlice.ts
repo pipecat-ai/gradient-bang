@@ -40,9 +40,6 @@ export interface UISlice {
   setActivePanel: (panel?: UIPanel, data?: unknown) => void
   setActiveSubPanel: (subPanel?: string) => void
 
-  mapZoomLevel: number | undefined
-  setMapZoomLevel: (zoomLevel: number) => void
-
   lookMode: boolean
   setLookMode: (lookMode: boolean) => void
   lookAtTarget: string | undefined
@@ -59,7 +56,6 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   activePanel: "logs",
   activePanelData: undefined,
   activeSubPanel: undefined,
-  mapZoomLevel: undefined,
   notifications: {
     newChatMessage: false,
   },
@@ -191,13 +187,6 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.activeSubPanel = subPanel
-      })
-    )
-  },
-  setMapZoomLevel: (zoomLevel: number) => {
-    set(
-      produce((state) => {
-        state.mapZoomLevel = zoomLevel
       })
     )
   },

@@ -3,41 +3,19 @@ import { useEffect, useMemo, useState } from "react"
 import { useDebouncedCallback } from "use-debounce"
 import { MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon } from "@phosphor-icons/react"
 
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/utils/map"
 import useGameStore from "@/stores/game"
+import { clampZoomIndex, getClosestZoomIndex, zoomLevels } from "@/utils/map"
 
 import { Button } from "./primitives/Button"
 import { SliderControl } from "./primitives/SliderControl"
 
-const ZOOM_LEVELS = (() => {
-  const levels = Array.from({ length: 5 }, (_, index) =>
-    Math.round(MIN_BOUNDS + ((MAX_BOUNDS - MIN_BOUNDS) * index) / 4)
-  )
-  if (!levels.includes(DEFAULT_MAX_BOUNDS)) {
-    levels[1] = DEFAULT_MAX_BOUNDS
-  }
-  return Array.from(new Set(levels)).sort((a, b) => a - b)
-})()
-
-const clampIndex = (index: number) => Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index))
-
-const getClosestZoomIndex = (zoomLevel: number) => {
-  let closestIndex = 0
-  let closestDistance = Infinity
-  ZOOM_LEVELS.forEach((level, index) => {
-    const distance = Math.abs(level - zoomLevel)
-    if (distance < closestDistance) {
-      closestDistance = distance
-      closestIndex = index
-    }
-  })
-  return closestIndex
-}
+import { DEFAULT_MAX_BOUNDS } from "@/types/constants"
 
 export const MapZoomControls = () => {
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
-  const coursePlot = useGameStore.use.course_plot?.()
+  const setMapFitBoundsWorld = useGameStore.use.setMapFitBoundsWorld?.()
+  const requestMapAutoRecenter = useGameStore.use.requestMapAutoRecenter?.()
   const resolvedZoomLevel = mapZoomLevel ?? DEFAULT_MAX_BOUNDS
   const currentIndex = useMemo(() => getClosestZoomIndex(resolvedZoomLevel), [resolvedZoomLevel])
   const [sliderIndex, setSliderIndex] = useState(currentIndex)
@@ -47,16 +25,18 @@ export const MapZoomControls = () => {
   }, [currentIndex])
 
   useEffect(() => {
-    const targetZoom = ZOOM_LEVELS[currentIndex]
-    if (mapZoomLevel === undefined || mapZoomLevel !== targetZoom) {
-      setMapZoomLevel?.(targetZoom)
+    if (mapZoomLevel === undefined) {
+      // Initialize once without snapping programmatic zooms to discrete levels.
+      setMapZoomLevel?.(zoomLevels[currentIndex])
     }
   }, [currentIndex, mapZoomLevel, setMapZoomLevel])
 
   const debouncedTrailing = useDebouncedCallback(
     (value) => {
-      const index = clampIndex(value)
-      setMapZoomLevel?.(ZOOM_LEVELS[index])
+      const index = clampZoomIndex(value)
+      setMapFitBoundsWorld?.(undefined)
+      setMapZoomLevel?.(zoomLevels[index])
+      requestMapAutoRecenter?.("ui-zoom")
     },
     500,
     { trailing: true }
@@ -67,11 +47,12 @@ export const MapZoomControls = () => {
       <Button
         variant="outline"
         size="icon-sm"
-        disabled={coursePlot !== undefined}
         onClick={() => {
-          const nextIndex = clampIndex(currentIndex - 1)
+          const nextIndex = clampZoomIndex(currentIndex - 1)
           setSliderIndex(nextIndex)
-          setMapZoomLevel?.(ZOOM_LEVELS[nextIndex])
+          setMapFitBoundsWorld?.(undefined)
+          setMapZoomLevel?.(zoomLevels[nextIndex])
+          requestMapAutoRecenter?.("ui-zoom")
         }}
         className="shrink-0"
       >
@@ -80,11 +61,10 @@ export const MapZoomControls = () => {
       <SliderControl
         value={[sliderIndex]}
         min={0}
-        max={ZOOM_LEVELS.length - 1}
-        disabled={coursePlot !== undefined}
+        max={zoomLevels.length - 1}
         step={1}
         onValueChange={(value) => {
-          const index = clampIndex(value[0])
+          const index = clampZoomIndex(value[0])
           setSliderIndex(index)
           debouncedTrailing(index)
         }}
@@ -93,11 +73,12 @@ export const MapZoomControls = () => {
       <Button
         size="icon-sm"
         variant="outline"
-        disabled={coursePlot !== undefined}
         onClick={() => {
-          const nextIndex = clampIndex(currentIndex + 1)
+          const nextIndex = clampZoomIndex(currentIndex + 1)
           setSliderIndex(nextIndex)
-          setMapZoomLevel?.(ZOOM_LEVELS[nextIndex])
+          setMapFitBoundsWorld?.(undefined)
+          setMapZoomLevel?.(zoomLevels[nextIndex])
+          requestMapAutoRecenter?.("ui-zoom")
         }}
         className="shrink-0"
       >
