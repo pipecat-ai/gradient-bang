@@ -11,7 +11,7 @@ import { SliderControl } from "./primitives/SliderControl"
 
 import { DEFAULT_MAX_BOUNDS } from "@/types/constants"
 
-export const MapZoomControls = () => {
+export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
   const setMapFitBoundsWorld = useGameStore.use.setMapFitBoundsWorld?.()
@@ -43,22 +43,25 @@ export const MapZoomControls = () => {
   )
 
   return (
-    <div className="flex flex-row gap-ui-xs w-full">
+    <div className="flex flex-col gap-ui-xxs w-full bg-background border outline-2 outline-background h-62 @6xl/main:h-80">
       <Button
-        variant="outline"
         size="icon-sm"
+        variant="bland"
+        disabled={disabled}
         onClick={() => {
-          const nextIndex = clampZoomIndex(currentIndex - 1)
+          const nextIndex = clampZoomIndex(currentIndex + 1)
           setSliderIndex(nextIndex)
           setMapFitBoundsWorld?.(undefined)
           setMapZoomLevel?.(zoomLevels[nextIndex])
           requestMapAutoRecenter?.("ui-zoom")
         }}
-        className="shrink-0"
+        className="shrink-0 hover:bg-accent-background border-b"
       >
-        <MagnifyingGlassPlusIcon weight="bold" />
+        <MagnifyingGlassMinusIcon weight="bold" />
       </Button>
       <SliderControl
+        orientation="vertical"
+        disabled={disabled}
         value={[sliderIndex]}
         min={0}
         max={zoomLevels.length - 1}
@@ -68,21 +71,22 @@ export const MapZoomControls = () => {
           setSliderIndex(index)
           debouncedTrailing(index)
         }}
-        className="flex-1 shrink-0"
+        className="flex-1 min-h-0 h-full"
       />
       <Button
+        variant="bland"
         size="icon-sm"
-        variant="outline"
+        disabled={disabled}
         onClick={() => {
-          const nextIndex = clampZoomIndex(currentIndex + 1)
+          const nextIndex = clampZoomIndex(currentIndex - 1)
           setSliderIndex(nextIndex)
           setMapFitBoundsWorld?.(undefined)
           setMapZoomLevel?.(zoomLevels[nextIndex])
           requestMapAutoRecenter?.("ui-zoom")
         }}
-        className="shrink-0"
+        className="shrink-0 hover:bg-accent-background border-t"
       >
-        <MagnifyingGlassMinusIcon weight="bold" />
+        <MagnifyingGlassPlusIcon weight="bold" />
       </Button>
     </div>
   )

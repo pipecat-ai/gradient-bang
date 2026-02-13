@@ -232,6 +232,11 @@ const MapComponent = ({
     height: number
   } | null>(null)
 
+  // Track whether the controller has completed its first render with data.
+  // Uses a ref (not state) to avoid cascading renders and effect destabilization.
+  // The canvas opacity is set imperatively via the DOM when this flips to true.
+  const hasRenderedRef = useRef(false)
+
   const isAutoSizing = width === undefined && height === undefined
   const isWaitingForMeasurement = isAutoSizing && measuredSize === null
 
@@ -326,11 +331,12 @@ const MapComponent = ({
     let controller = controllerRef.current
 
     if (!controller) {
-      console.debug(
-        "%c[SectorMap] Init",
-        "color: red; font-weight: bold",
-        { center_sector_id, maxDistance, center_world, fit_bounds_world }
-      )
+      console.debug("%c[SectorMap] Init", "color: red; font-weight: bold", {
+        center_sector_id,
+        maxDistance,
+        center_world,
+        fit_bounds_world,
+      })
 
       controller = createSectorMapController(canvas, {
         width: lastDimensionsRef.current.width,
@@ -359,6 +365,12 @@ const MapComponent = ({
       lastFitBoundsWorldRef.current = fit_bounds_world
       lastMapFitEpochRef.current = mapFitEpoch
       maxZoomFetchedRef.current.set(center_sector_id, maxDistance)
+
+      // Trigger CSS fade-in once the first render with data completes
+      if (!hasRenderedRef.current && normalizedMapData.length > 0) {
+        hasRenderedRef.current = true
+        canvas.style.opacity = "1"
+      }
       return
     }
 
@@ -417,11 +429,11 @@ const MapComponent = ({
 
     // World-coordinate overrides changed (zoomMode) -- animate camera reframe
     if (centerWorldChanged || fitBoundsWorldChanged || mapFitEpochChanged) {
-      console.debug(
-        "%c[SectorMap] Zoom reframe",
-        "color: red; font-weight: bold",
-        { center_world, fit_bounds_world, mapFitEpoch }
-      )
+      console.debug("%c[SectorMap] Zoom reframe", "color: red; font-weight: bold", {
+        center_world,
+        fit_bounds_world,
+        mapFitEpoch,
+      })
       if (needsConfigUpdate) {
         controller.updateProps({ config: fullConfig })
       }
@@ -443,11 +455,12 @@ const MapComponent = ({
         const canFetch = targetSector?.visited === true
 
         if (canFetch) {
-          console.debug(
-            "%c[SectorMap] Fetch map data",
-            "color: red; font-weight: bold",
-            { sector: center_sector_id, maxDistance, needsFetchByZoom, needsFetchByTopology }
-          )
+          console.debug("%c[SectorMap] Fetch map data", "color: red; font-weight: bold", {
+            sector: center_sector_id,
+            maxDistance,
+            needsFetchByZoom,
+            needsFetchByTopology,
+          })
           if (maxDistance > prevMax) {
             maxZoomFetchedRef.current.set(center_sector_id, maxDistance)
           }
@@ -459,22 +472,28 @@ const MapComponent = ({
       }
 
       if (!skipReframe) {
-        console.debug(
-          "%c[SectorMap] Move to sector",
-          "color: red; font-weight: bold",
-          { sector: center_sector_id, maxDistance, topologyChanged, coursePlotChanged }
-        )
+        console.debug("%c[SectorMap] Move to sector", "color: red; font-weight: bold", {
+          sector: center_sector_id,
+          maxDistance,
+          topologyChanged,
+          coursePlotChanged,
+        })
         controller.moveToSector(center_sector_id, normalizedMapData)
       }
 
       prevCenterSectorIdRef.current = center_sector_id
     } else if (needsConfigUpdate || shipsChanged) {
-      console.debug(
-        "%c[SectorMap] Re-render",
-        "color: red; font-weight: bold",
-        { configChanged, shipsChanged }
-      )
+      console.debug("%c[SectorMap] Re-render", "color: red; font-weight: bold", {
+        configChanged,
+        shipsChanged,
+      })
       controller.render()
+    }
+
+    // If data arrived after initial empty render, trigger fade-in
+    if (!hasRenderedRef.current && normalizedMapData.length > 0 && canvasRef.current) {
+      hasRenderedRef.current = true
+      canvasRef.current.style.opacity = "1"
     }
 
     previousMapRef.current = normalizedMapData
@@ -566,6 +585,8 @@ const MapComponent = ({
             maxHeight: "100%",
             display: "block",
             objectFit: "contain",
+            opacity: 0,
+            transition: "opacity 0.4s ease-in",
             ...(isWaitingForMeasurement && { visibility: "hidden" }),
           }}
         />

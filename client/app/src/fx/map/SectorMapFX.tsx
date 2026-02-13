@@ -15,6 +15,9 @@ const SHIP_ICON_VIEWBOX = 256
 // Short lanes look cluttered with arrows
 const MIN_LANE_LENGTH_FOR_ARROWS = 30
 
+// Opacity multiplier for nodes not in the active course plot path
+const COURSE_PLOT_INACTIVE_NODE_OPACITY = 0.6
+
 export interface SectorMapConfigBase {
   center_sector_id: number
   current_sector_id?: number
@@ -305,10 +308,10 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     lineCap: "butt",
   },
   muted: {
-    color: "rgba(80,80,80,0.4)",
+    color: "rgba(255,255,255,0.5)",
     width: 1.5,
     dashPattern: "none",
-    arrowColor: "rgba(80,80,80,0.4)",
+    arrowColor: "rgba(255,255,255,0.5)",
     arrowSize: 8,
     shadowBlur: 0,
     shadowColor: "none",
@@ -1019,51 +1022,17 @@ function getCanvasFontFamily(ctx: CanvasRenderingContext2D): string {
 function getNodeStyle(
   node: MapSectorNode,
   config: SectorMapConfigBase,
-  coursePlotSectors: Set<number> | null = null,
-  coursePlot: CoursePlot | null = null,
   hoveredSectorId: number | null = null
 ): NodeStyle {
   const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
   const isVisited = Boolean(node.visited) || isCurrent
   const isHovered = node.id === hoveredSectorId
   const isCentered = node.id === config.center_sector_id && !isCurrent
-  const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true
   const isMegaPort = Boolean((node.port as Port | null)?.mega)
 
   let baseStyle: NodeStyle
 
-  if (coursePlot && isInPlot) {
-    const currentIndex =
-      config.current_sector_id !== undefined ?
-        coursePlot.path.indexOf(config.current_sector_id)
-      : -1
-    const nodeIndex = coursePlot.path.indexOf(node.id)
-
-    if (
-      config.current_sector_id !== undefined &&
-      node.id === config.current_sector_id &&
-      nodeIndex !== -1
-    ) {
-      // Current sector in the course plot
-      baseStyle = config.nodeStyles.coursePlotCurrent
-    } else if (node.id === coursePlot.to_sector) {
-      // Final destination
-      baseStyle = config.nodeStyles.coursePlotEnd
-    } else if (nodeIndex !== -1 && currentIndex !== -1 && nodeIndex < currentIndex) {
-      // Node is behind current position in course
-      baseStyle = config.nodeStyles.coursePlotPassed
-    } else if (nodeIndex === 0) {
-      // First sector in the course (start point, not yet reached)
-      baseStyle = config.nodeStyles.coursePlotStart
-    } else if (nodeIndex !== -1) {
-      // Node is ahead in course
-      baseStyle = config.nodeStyles.coursePlotMid
-    } else {
-      baseStyle = config.nodeStyles.coursePlotMid
-    }
-  } else if (coursePlotSectors && !isInPlot) {
-    baseStyle = config.nodeStyles.muted
-  } else if (isMegaPort) {
+  if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
     // If this is also the current sector, carry over the offset frame indicator
     if (isCurrent) {
@@ -1088,8 +1057,8 @@ function getNodeStyle(
     baseStyle = config.nodeStyles.unvisited
   }
 
-  // Apply region overrides (only when no course plot is active)
-  if (!coursePlot && node.region && config.regionStyles) {
+  // Apply region overrides
+  if (node.region && config.regionStyles) {
     const regionKey = slugifyRegion(node.region)
     const regionOverride = config.regionStyles[regionKey]
     if (regionOverride) {
@@ -1117,14 +1086,18 @@ function renderSectorGlows(
   config: SectorMapConfigBase,
   opacity = 1,
   coursePlotSectors: Set<number> | null = null,
-  coursePlot: CoursePlot | null = null,
   hoveredSectorId: number | null = null
 ) {
   data.forEach((node) => {
-    const nodeStyle = getNodeStyle(node, config, coursePlotSectors, coursePlot, hoveredSectorId)
+    const nodeStyle = getNodeStyle(node, config, hoveredSectorId)
 
     if (nodeStyle.glow && nodeStyle.glowRadius && nodeStyle.glowColor) {
       const world = hexToWorld(node.position[0], node.position[1], scale)
+      // Reduce glow opacity for nodes not in the active course plot
+      const nodeOpacity =
+        coursePlotSectors && !coursePlotSectors.has(node.id) ?
+          opacity * COURSE_PLOT_INACTIVE_NODE_OPACITY
+        : opacity
       ctx.save()
       const falloff = nodeStyle.glowFalloff ?? 0.3
       const gradient = ctx.createRadialGradient(
@@ -1135,8 +1108,8 @@ function renderSectorGlows(
         world.y,
         nodeStyle.glowRadius
       )
-      gradient.addColorStop(0, applyAlpha(nodeStyle.glowColor, opacity))
-      gradient.addColorStop(falloff, applyAlpha(nodeStyle.glowColor, opacity))
+      gradient.addColorStop(0, applyAlpha(nodeStyle.glowColor, nodeOpacity))
+      gradient.addColorStop(falloff, applyAlpha(nodeStyle.glowColor, nodeOpacity))
       gradient.addColorStop(1, applyAlpha(nodeStyle.glowColor, 0))
       ctx.fillStyle = gradient
       ctx.beginPath()
@@ -1165,8 +1138,10 @@ function renderSector(
   const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
   const isAnimating = node.id === animatingSectorId
 
-  const finalOpacity = opacity
   const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true
+  // Reduce opacity for nodes not in the active course plot
+  const finalOpacity =
+    coursePlotSectors && !isInPlot ? opacity * COURSE_PLOT_INACTIVE_NODE_OPACITY : opacity
 
   // Apply scale: current sector gets permanent scale, hover scale stacks on top
   const currentScale = isCurrent && config.current_sector_scale ? config.current_sector_scale : 1
@@ -1174,7 +1149,7 @@ function renderSector(
     isAnimating ? hexSize * currentScale * hoverScale : hexSize * currentScale
 
   // Get computed node style
-  const nodeStyle = getNodeStyle(node, config, coursePlotSectors, coursePlot, hoveredSectorId)
+  const nodeStyle = getNodeStyle(node, config, hoveredSectorId)
 
   // NOTE: Glow is rendered separately in renderSectorGlows() so it can be feathered
 
@@ -1453,7 +1428,10 @@ function calculateCameraState(
 
     const centerX = (paddedMinX + paddedMaxX) / 2
     const centerY = (paddedMinY + paddedMaxY) / 2
-    const zoom = Math.max(minZoom, Math.min(availableWidth / boundsWidth, availableHeight / boundsHeight, 1.5))
+    const zoom = Math.max(
+      minZoom,
+      Math.min(availableWidth / boundsWidth, availableHeight / boundsHeight, 1.5)
+    )
 
     return {
       offsetX: -centerX,
@@ -1467,7 +1445,10 @@ function calculateCameraState(
   if (centerWorldScaled) {
     const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
     const radius = Math.max(maxWorldDistance + hexSize, hexSize)
-    const zoom = Math.max(minZoom, Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5))
+    const zoom = Math.max(
+      minZoom,
+      Math.min(availableWidth / (radius * 2), availableHeight / (radius * 2), 1.5)
+    )
 
     return {
       offsetX: -centerWorldScaled.x,
@@ -1478,14 +1459,7 @@ function calculateCameraState(
   }
 
   // --- Default path: auto-fit to framing data (boundMode) ---
-  const camera = calculateCameraTransform(
-    framingData,
-    width,
-    height,
-    scale,
-    hexSize,
-    framePadding
-  )
+  const camera = calculateCameraTransform(framingData, width, height, scale, hexSize, framePadding)
 
   // Apply dynamic minZoom floor (calculateCameraTransform uses hardcoded 0.3)
   const zoom = Math.max(minZoom, camera.zoom)
@@ -1877,7 +1851,7 @@ function renderWithCameraState(
   }
 
   // Render glows before feather mask so they fade at edges
-  renderSectorGlows(ctx, cameraState.filteredData, scale, config, 1, coursePlotSectors, coursePlot)
+  renderSectorGlows(ctx, cameraState.filteredData, scale, config, 1, coursePlotSectors)
 
   ctx.restore()
 
@@ -2094,7 +2068,6 @@ function renderWithCameraStateAndInteraction(
     config,
     1,
     coursePlotSectors,
-    coursePlot,
     hoveredSectorId
   )
 

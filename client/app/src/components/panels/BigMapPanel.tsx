@@ -5,7 +5,6 @@ import { XIcon } from "@phosphor-icons/react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
 import { MapLegend } from "@/components/MapLegends"
-import { Badge } from "@/components/primitives/Badge"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
@@ -72,42 +71,51 @@ const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
   const ns_state = portCode[2] === "B" ? "buy" : "sell"
 
   return (
-    <aside className="absolute top-ui-sm left-0 w-70 h-fit bg-background border border-border border-l-0 p-ui-sm flex flex-col gap-2 shadow-long shadow-black/25">
-      <DottedTitle title={`Sector ${node.id.toString()}`} textColor="text-white" />
-      <dl className="flex flex-col gap-2 uppercase text-xxs text-foreground">
-        <div className="flex flex-row justify-between gap-2">
-          <dt className="font-bold">Region</dt>
-          <dd className="text-muted-foreground">{node.region}</dd>
-        </div>
-        <div className="flex flex-row justify-between gap-2">
-          <dt className="font-bold">Visited</dt>
-          <dd className="text-muted-foreground">
-            {node.visited ? node.source : <XIcon size={16} className="text-accent-foreground" />}
-          </dd>
-        </div>
-        <div className="flex flex-row justify-between gap-2">
-          <dt className="font-bold">Adjacent sectors</dt>
-          <dd className="text-muted-foreground">{node.lanes?.map((lane) => lane.to).join(",")}</dd>
-        </div>
-        <div className="flex flex-row justify-between gap-2">
-          <dt className="font-bold">Hops from center</dt>
-          <dd className="text-muted-foreground">{node.hops_from_center?.toString()}</dd>
-        </div>
-        <div className="flex flex-row justify-between gap-2">
-          <dt className="font-bold">Last visited</dt>
-          <dd className="text-muted-foreground">
-            {node.last_visited ? formatTimeAgoOrDate(node.last_visited) : "Never"}
-          </dd>
-        </div>
-      </dl>
-      {portCode && (
-        <dl className="flex flex-col gap-2">
-          <DottedTitle title={`Port ${portCode.toUpperCase()}`} textColor="text-white" />
-          <CommodityRow icon={<QuantumFoamIcon size={16} />} label="QF" state={qf_state} />
-          <CommodityRow icon={<RetroOrganicsIcon size={16} />} label="RO" state={ro_state} />
-          <CommodityRow icon={<NeuroSymbolicsIcon size={16} />} label="NS" state={ns_state} />
+    <aside className="z-90 absolute top-ui-sm left-0 w-70 h-fit flex flex-row gap-4 bg-background border border-border border-l-0 p-ui-sm shadow-long shadow-black/25">
+      <Divider
+        orientation="vertical"
+        variant="dashed"
+        className="h-auto w-3 self-stretch text-accent"
+      />
+      <div className="flex flex-col gap-2 flex-1">
+        <DottedTitle title={`Sector ${node.id.toString()}`} textColor="text-foreground" />
+        <dl className="flex flex-col gap-2 uppercase text-xxs text-foreground">
+          <div className="flex flex-row justify-between gap-2">
+            <dt className="font-bold">Region</dt>
+            <dd className="text-muted-foreground">{node.region}</dd>
+          </div>
+          <div className="flex flex-row justify-between gap-2">
+            <dt className="font-bold">Visited</dt>
+            <dd className="text-muted-foreground">
+              {node.visited ? node.source : <XIcon size={16} className="text-accent-foreground" />}
+            </dd>
+          </div>
+          <div className="flex flex-row justify-between gap-2">
+            <dt className="font-bold">Adjacent sectors</dt>
+            <dd className="text-muted-foreground">
+              {node.lanes?.map((lane) => lane.to).join(",")}
+            </dd>
+          </div>
+          <div className="flex flex-row justify-between gap-2">
+            <dt className="font-bold">Hops from center</dt>
+            <dd className="text-muted-foreground">{node.hops_from_center?.toString()}</dd>
+          </div>
+          <div className="flex flex-row justify-between gap-2">
+            <dt className="font-bold">Last visited</dt>
+            <dd className="text-muted-foreground">
+              {node.last_visited ? formatTimeAgoOrDate(node.last_visited) : "Never"}
+            </dd>
+          </div>
         </dl>
-      )}
+        {portCode && (
+          <dl className="flex flex-col gap-2">
+            <DottedTitle title={`Port ${portCode.toUpperCase()}`} textColor="text-white" />
+            <CommodityRow icon={<QuantumFoamIcon size={16} />} label="QF" state={qf_state} />
+            <CommodityRow icon={<RetroOrganicsIcon size={16} />} label="RO" state={ro_state} />
+            <CommodityRow icon={<NeuroSymbolicsIcon size={16} />} label="NS" state={ns_state} />
+          </dl>
+        )}
+      </div>
     </aside>
   )
 }
@@ -201,27 +209,19 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
 
   // When map data mutates after a fetch, set loading to false
   useEffect(() => {
-    queueMicrotask(() => setIsFetching(false))
+    if (mapData !== undefined) {
+      queueMicrotask(() => setIsFetching(false))
+    }
   }, [mapData])
+
+  console.log("isFetching", isFetching)
 
   return (
     <div className="group relative flex flex-row gap-3 w-full h-full">
       <div className="flex-1 relative">
         <MapNodeDetails node={hoveredNode} />
-        <header className="absolute top-0 right-0 flex flex-col gap-ui-xs p-ui-sm w-72">
-          <MapZoomControls />
-          <Divider color="secondary" />
-          {centerSector !== undefined && centerSector !== sector?.id && (
-            <Badge
-              variant="secondary"
-              border="bracket"
-              size="sm"
-              className="w-full -bracket-offset-0"
-            >
-              Selected Sector:
-              <span className="font-extrabold">{centerSector}</span>
-            </Badge>
-          )}
+        <header className="absolute top-ui-sm right-ui-sm flex flex-col gap-ui-xs w-fit h-fit">
+          <MapZoomControls disabled={isFetching || !mapData} />
         </header>
 
         <footer className="absolute bottom-ui-xs left-ui-xs w-full h-fit z-20">

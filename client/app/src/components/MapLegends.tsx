@@ -1,4 +1,10 @@
-import { StarIcon, SwapIcon } from "@phosphor-icons/react"
+import { useState } from "react"
+
+import { AnimatePresence, motion } from "motion/react"
+import { CaretRightIcon, StarIcon, SwapIcon } from "@phosphor-icons/react"
+
+import { Button } from "@/components/primitives/Button"
+import { cn } from "@/utils/tailwind"
 
 import { DotDivider } from "./primitives/DotDivider"
 
@@ -48,45 +54,74 @@ export const MapLegendLane = ({ oneway = false, className }: MapLegendLaneProps)
 }
 
 export const MapLegend = () => {
+  const [showLegend, setShowLegend] = useState(false)
   return (
-    <div className="text-muted-foreground flex flex-row items-center gap-2 text-xs uppercase border bg-card/60 w-fit py-ui-xxs px-ui-xs">
-      <div className="inline-flex items-center gap-1">
-        <MapLegendNode fillColor="#042f2e" borderColor="#5eead4" /> Federation Space
-      </div>
-      <div className="inline-flex items-center gap-1">
-        <MapLegendNode fillColor="#1e1b4b" borderColor="#818cf8" />
-        Neutral
-      </div>
-      <div className="inline-flex items-center gap-1">
-        <MapLegendNode fillColor="#000000" borderColor="rgba(180,180,180,1)" />
-        Unvisited
-      </div>
-      <div className="inline-flex items-center gap-1">
-        <MapLegendNode
-          fillColor="rgba(0,0,0,0.35)"
-          borderColor="rgba(180,180,180,1)"
-          borderStyle="dashed"
+    <div className="text-muted-foreground flex flex-row items-center text-xs uppercase border bg-card/60 w-fit overflow-hidden">
+      <Button
+        variant="bland"
+        size="sm"
+        onClick={() => setShowLegend(!showLegend)}
+        className={cn(
+          "bg-background/60 hover:bg-accent-background",
+          showLegend && "bg-accent-background"
+        )}
+      >
+        {showLegend ? "Hide legend" : "Show legend"}
+        <CaretRightIcon
+          size={12}
+          weight="bold"
+          className={cn("size-3", showLegend ? "-scale-x-100" : "scale-x-100")}
         />
-        Corp visited
-      </div>
-      <DotDivider />
-      <div className="inline-flex items-center gap-1">
-        <SwapIcon size={16} weight="bold" className="text-white" />
-        Port
-      </div>
-      <div className="inline-flex items-center gap-1">
-        <StarIcon size={16} weight="fill" className="text-white" />
-        Mega Port
-      </div>
-      <DotDivider />
-      <div className="inline-flex items-center gap-1">
-        <MapLegendLane oneway={true} className="text-white" />
-        One-way
-      </div>
-      <div className="inline-flex items-center gap-1">
-        <MapLegendLane oneway={false} className="text-white" />
-        Two-way
-      </div>
+      </Button>
+      <AnimatePresence>
+        {showLegend && (
+          <motion.div
+            className="flex flex-row items-center gap-2 px-ui-xs "
+            initial={{ opacity: 0, x: -20, width: 0 }}
+            animate={{ opacity: 1, x: 0, width: "auto" }}
+            exit={{ opacity: 0, x: -20, width: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+          >
+            <div className="inline-flex items-center gap-1 whitespace-nowrap">
+              <MapLegendNode fillColor="#042f2e" borderColor="#5eead4" /> Federation Space
+            </div>
+            <div className="inline-flex items-center gap-1 whitespace-nowrap">
+              <MapLegendNode fillColor="#1e1b4b" borderColor="#818cf8" />
+              Neutral
+            </div>
+            <div className="inline-flex items-center gap-1 whitespace-nowrap">
+              <MapLegendNode fillColor="#000000" borderColor="rgba(180,180,180,1)" />
+              Unvisited
+            </div>
+            <div className="inline-flex items-center gap-1 whitespace-nowrap">
+              <MapLegendNode
+                fillColor="rgba(0,0,0,0.35)"
+                borderColor="rgba(180,180,180,1)"
+                borderStyle="dashed"
+              />
+              Corp visited
+            </div>
+            <DotDivider />
+            <div className="inline-flex items-center gap-1 whitespace-nowrap">
+              <SwapIcon size={16} weight="bold" className="text-white" />
+              Port
+            </div>
+            <div className="inline-flex items-center gap-1 whitespace-nowrap">
+              <StarIcon size={16} weight="fill" className="text-white" />
+              Mega Port
+            </div>
+            <DotDivider />
+            <div className="inline-flex items-center gap-1 whitespace-nowrap">
+              <MapLegendLane oneway={true} className="text-white" />
+              One-way
+            </div>
+            <div className="inline-flex items-center gap-1 whitespace-nowrap">
+              <MapLegendLane oneway={false} className="text-white" />
+              Two-way
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

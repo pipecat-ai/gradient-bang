@@ -337,6 +337,29 @@ export const LevaControls = ({
       },
       { collapsed: true, order: 2 }
     ),
+    Highlight: folder(
+      {
+        ["Target"]: {
+          value: "sector",
+          options: {
+            Sector: "sector",
+            Player: "player",
+            Trade: "trade",
+            Tasks: "task_history",
+            Corp: "corp",
+            Waves: "logs",
+          },
+        },
+        ["Highlight Target"]: button((get) => {
+          const target = get("Highlight.Target")
+          useGameStore.getState().setHighlightElement(target)
+        }),
+        ["Clear Highlight"]: button(() => {
+          useGameStore.getState().setHighlightElement(null)
+        }),
+      },
+      { collapsed: true, order: 3 }
+    ),
     Leaderboard: folder(
       {
         ["Set Leaderboard Data"]: button(() => {
@@ -344,7 +367,7 @@ export const LevaControls = ({
           setLeaderboardData(LEADERBOARD_DATA_MOCK)
         }),
       },
-      { collapsed: true, order: 3 }
+      { collapsed: true, order: 4 }
     ),
   }))
 

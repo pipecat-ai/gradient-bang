@@ -41,6 +41,9 @@ export interface UISlice {
   setActivePanel: (panel?: UIPanel, data?: unknown) => void
   setActiveSubPanel: (subPanel?: string) => void
 
+  highlightElement: string | null
+  setHighlightElement: (elementId: string | null) => void
+
   lookMode: boolean
   setLookMode: (lookMode: boolean) => void
   lookAtTarget: string | undefined
@@ -63,6 +66,8 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
 
   toasts: [],
   displayingToastId: null,
+  highlightElement: null,
+
   lookMode: false,
   lookAtTarget: undefined,
   playerTargetId: undefined,
@@ -78,13 +83,30 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   },
   setUIModeFromAgent: (panel: string) => {
     const validModes: UIMode[] = ["tasks", "map"]
-    const mode: UIMode = panel === "default" ? "tasks" : validModes.includes(panel as UIMode) ? (panel as UIMode) : "tasks"
-    set(
-      produce((state) => {
-        state.uiMode = mode
-      })
-    )
-    updateLocalSettings({ defaultUIMode: mode })
+    const validPanels: UIPanel[] = [
+      "sector",
+      "player",
+      "trade",
+      "task_history",
+      "corp",
+      "logs",
+      "task_stream",
+    ]
+    const resolved = panel === "default" ? "tasks" : panel
+
+    if (validModes.includes(resolved as UIMode)) {
+      set(
+        produce((state) => {
+          state.uiMode = resolved as UIMode
+        })
+      )
+      updateLocalSettings({ defaultUIMode: resolved as UIMode })
+    } else if (validPanels.includes(resolved as UIPanel)) {
+      get().setActivePanel(resolved as UIPanel)
+      get().setHighlightElement(resolved)
+    } else {
+      console.warn(`[UI] setUIModeFromAgent: unknown panel "${panel}"`)
+    }
   },
   setToasts: (toasts: Toast[]) => {
     set(
@@ -198,6 +220,13 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.activeSubPanel = subPanel
+      })
+    )
+  },
+  setHighlightElement: (elementId: string | null) => {
+    set(
+      produce((state) => {
+        state.highlightElement = elementId
       })
     )
   },

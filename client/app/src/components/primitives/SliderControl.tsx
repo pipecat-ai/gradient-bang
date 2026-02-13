@@ -8,12 +8,12 @@ import * as SliderPrimitive from "@radix-ui/react-slider"
 import { cn } from "@/utils/tailwind"
 
 const sliderVariants = cva(
-  "relative flex w-full touch-none items-center select-none data-[disabled]:opacity-50 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-44 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col",
+  "relative flex w-full touch-none items-center select-none data-[disabled]:opacity-50 data-[orientation=vertical]:min-h-44 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col data-[orientation=vertical]:py-[3px] data-[orientation=horizontal]:px-[3px]",
   {
     variants: {
       size: {
         default:
-          "after:content-[''] after:absolute after:left-2 after:right-2 after:top-1/2 after:-translate-y-1/2 after:h-px after:bg-white/20 after:pointer-events-none",
+          "after:content-[''] after:absolute after:bg-white/20 after:pointer-events-none data-[orientation=horizontal]:after:left-2 data-[orientation=horizontal]:after:right-2 data-[orientation=horizontal]:after:top-1/2 data-[orientation=horizontal]:after:-translate-y-1/2 data-[orientation=horizontal]:after:h-px data-[orientation=vertical]:after:top-2 data-[orientation=vertical]:after:bottom-2 data-[orientation=vertical]:after:left-1/2 data-[orientation=vertical]:after:-translate-x-1/2 data-[orientation=vertical]:after:w-px",
         lg: "",
       },
     },
@@ -29,8 +29,8 @@ const sliderTrackVariants = cva(
     variants: {
       size: {
         default:
-          "bg-background border border-input data-[orientation=horizontal]:h-[25px] data-[orientation=vertical]:w-1.5 data-[orientation=horizontal]:-mr-[3px] data-[orientation=horizontal]:-ml-[3px]",
-        lg: "data-[orientation=horizontal]:h-[36px] data-[orientation=vertical]:w-1.5 -mx-[4px]",
+          "bg-background border border-input data-[orientation=horizontal]:h-[25px] data-[orientation=horizontal]:-ml-[3px] data-[orientation=horizontal]:-mr-[3px] data-[orientation=horizontal]:-mt-[3px] data-[orientation=horizontal]:-mb-[3px] data-[orientation=vertical]:w-[25px] data-[orientation=vertical]:-mt-[3px] data-[orientation=vertical]:-mb-[3px] data-[orientation=vertical]:-ml-[3px] data-[orientation=vertical]:-mr-[3px]",
+        lg: "data-[orientation=horizontal]:h-[36px] data-[orientation=horizontal]:-mx-[4px] data-[orientation=vertical]:w-1.5 data-[orientation=vertical]:-my-[4px]",
       },
     },
     defaultVariants: {
@@ -61,6 +61,7 @@ function SliderControl({
   min = 0,
   max = 100,
   size,
+  disabled,
   ...props
 }: React.ComponentProps<typeof SliderPrimitive.Root> & VariantProps<typeof sliderVariants>) {
   const _values = React.useMemo(
@@ -78,6 +79,7 @@ function SliderControl({
       value={value}
       min={min}
       max={max}
+      disabled={disabled}
       className={cn(sliderVariants({ size }), size !== "lg" && className)}
       {...props}
     >
@@ -103,6 +105,7 @@ function SliderControl({
         className={cn(
           "relative w-full bg-background border border-input",
           "after:content-[''] after:absolute after:left-2 after:right-2 after:top-1/2 after:-translate-y-1/2 after:h-px after:bg-white/20 after:pointer-events-none",
+          disabled && "opacity-50 pointer-events-none",
           className
         )}
       >

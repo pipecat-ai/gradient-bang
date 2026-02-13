@@ -7,6 +7,7 @@ import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
+import { HighlightOverlay } from "@/components/HighlightOverlay"
 import { BigMapPanel } from "@/components/panels/BigMapPanel"
 import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
 import { CombatDamageVignette } from "@/components/panels/CombatDamageVignette"
@@ -220,6 +221,7 @@ export const Game = () => {
       <Starfield />
       <SectorTitleBanner />
       <ToastContainer />
+      <HighlightOverlay />
       <PipecatClientAudio />
     </>
   )

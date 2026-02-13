@@ -18,7 +18,7 @@ export const PLAYER_TYPE_NAMES = {
 
 // Map bounds & zoom
 export const DEFAULT_MAX_BOUNDS = 12
-export const MAX_BOUNDS_PADDING = 2
+export const MAX_BOUNDS_PADDING = 0
 export const MIN_BOUNDS = 4
 export const MAX_BOUNDS = 50
 export const MAX_FETCH_BOUNDS = 100
