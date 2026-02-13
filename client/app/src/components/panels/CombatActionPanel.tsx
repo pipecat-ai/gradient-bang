@@ -203,7 +203,7 @@ export const CombatActionPanel = () => {
           <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             <CombatRoundFighterResults round={latestPersonalResult} />
           </section>
-          <div className="w-2 dashed-bg-vertical dashed-bg-white/50" />
+          <div className="w-2 dashed-bg-vertical dashed-bg-white/50 mask-[linear-gradient(to_bottom,transparent,black_25%,black_75%,transparent)]" />
           <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             <CombatRoundShieldResults round={latestPersonalResult} />
           </section>

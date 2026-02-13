@@ -13,7 +13,9 @@ import { SectorBadge } from "../SectorBadge"
 import SectorMap, { type MapConfig } from "../SectorMap"
 
 const MINIMAP_CONFIG: MapConfig = {
-  hoverable: false,
+  hoverable: true,
+  show_sector_ids: false,
+  show_sector_ids_hover: true,
   uiStyles: {
     edgeFeather: {
       size: 90,
@@ -56,7 +58,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
     >
       <div
         className={cn(
-          "absolute inset-0 flex items-center justify-center opacity-0 pointer-events-auto transition-opacity duration-600 ease-in-out z-10",
+          "absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-600 ease-in-out z-10",
           uiState === "combat" ?
             "pointer-events-none group-hover:pointer-events-none group-hover:opacity-0 "
           : "pointer-events-auto group-hover:opacity-100 group-hover:pointer-events-auto "

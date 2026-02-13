@@ -72,30 +72,32 @@ const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
   const ns_state = portCode[2] === "B" ? "buy" : "sell"
 
   return (
-    <aside className="absolute top-ui-sm left-ui-sm w-70 h-fit bg-background border border-border p-ui-sm flex flex-col gap-2 shadow-long">
+    <aside className="absolute top-ui-sm left-0 w-70 h-fit bg-background border border-border border-l-0 p-ui-sm flex flex-col gap-2 shadow-long shadow-black/25">
       <DottedTitle title={`Sector ${node.id.toString()}`} textColor="text-white" />
       <dl className="flex flex-col gap-2 uppercase text-xxs text-foreground">
         <div className="flex flex-row justify-between gap-2">
           <dt className="font-bold">Region</dt>
-          <dd>{node.region}</dd>
+          <dd className="text-muted-foreground">{node.region}</dd>
         </div>
         <div className="flex flex-row justify-between gap-2">
           <dt className="font-bold">Visited</dt>
-          <dd>
+          <dd className="text-muted-foreground">
             {node.visited ? node.source : <XIcon size={16} className="text-accent-foreground" />}
           </dd>
         </div>
         <div className="flex flex-row justify-between gap-2">
           <dt className="font-bold">Adjacent sectors</dt>
-          <dd>{node.lanes?.map((lane) => lane.to).join(",")}</dd>
+          <dd className="text-muted-foreground">{node.lanes?.map((lane) => lane.to).join(",")}</dd>
         </div>
         <div className="flex flex-row justify-between gap-2">
           <dt className="font-bold">Hops from center</dt>
-          <dd>{node.hops_from_center?.toString()}</dd>
+          <dd className="text-muted-foreground">{node.hops_from_center?.toString()}</dd>
         </div>
         <div className="flex flex-row justify-between gap-2">
           <dt className="font-bold">Last visited</dt>
-          <dd>{node.last_visited ? formatTimeAgoOrDate(node.last_visited) : "Never"}</dd>
+          <dd className="text-muted-foreground">
+            {node.last_visited ? formatTimeAgoOrDate(node.last_visited) : "Never"}
+          </dd>
         </div>
       </dl>
       {portCode && (
@@ -219,7 +221,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
           )}
         </header>
 
-        <footer className="absolute bottom-0 left-0 w-full h-fit hidden group-hover:block">
+        <footer className="absolute bottom-ui-xs left-ui-xs w-full h-fit z-20">
           <MapLegend />
         </footer>
 
@@ -244,7 +246,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
             coursePlot={coursePlot ?? null}
             ships={shipSectors}
           />
-        : <div className="relative w-full h-full flex items-center justify-center cross-lines-white/50 cross-lines-offset-50">
+        : <div className="relative w-full h-full flex items-center justify-center cross-lines-white/50 cross-lines-offset-12">
             <div className="elbow relative z-99 flex flex-col gap-3 bg-black border border-border p-6 animate-in fade-in-0 duration-300">
               <video
                 src={PlanetLoader}
@@ -258,7 +260,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
               />
 
               <span className="text-muted-foreground text-sm uppercase animate-pulse">
-                Fetching region data...
+                Fetching map data...
               </span>
             </div>
           </div>

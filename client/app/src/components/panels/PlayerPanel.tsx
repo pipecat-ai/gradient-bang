@@ -23,7 +23,7 @@ export const PlayerPanel = () => {
 
   return (
     <RHSPanelContent>
-      <header className="flex flex-col items-center justify-center py-ui-sm">
+      <header className="flex flex-col items-center justify-center pt-ui-sm">
         <figure className="z-10 relative size-21 bg-background p-1 elbow -elbow-offset-4 elbow-size-8 elbow-1 elbow-subtle border border-terminal">
           <div className="h-full flex flex-col items-center justify-center bg-accent shrink-0 text-subtle-background dither-mask-md">
             <UserIcon weight="duotone" className="size-7 text-foreground relative z-10" />
