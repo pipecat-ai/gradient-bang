@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from "react"
 
+import { AnimatePresence, motion } from "motion/react"
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
-import { ArrowLeftIcon } from "@phosphor-icons/react"
+import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
+import { BigMapPanel } from "@/components/panels/BigMapPanel"
 import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
 import { CombatDamageVignette } from "@/components/panels/CombatDamageVignette"
 import { ConversationPanel } from "@/components/panels/ConversationPanel"
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
+import { MiniTaskEngines } from "@/components/panels/MiniTaskEngines"
 import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { RHSPanelContainer } from "@/components/panels/RHSPanelContainer"
 import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
@@ -20,6 +23,7 @@ import { SectorTitleBanner } from "@/components/SectorTitleBanner"
 import { Starfield } from "@/components/Starfield"
 import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { TopBar } from "@/components/TopBar"
+import { UIModeToggle } from "@/components/UIModeToggle"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
@@ -30,6 +34,7 @@ const enabledCx = "pointer-events-auto opacity-100"
 
 export const Game = () => {
   const uiState = useGameStore.use.uiState()
+  const uiMode = useGameStore.use.uiMode()
   const asidePanelRef = usePanelRef()
   const lookMode = useGameStore.use.lookMode()
   const setLookMode = useGameStore.use.setLookMode?.()
@@ -80,19 +85,88 @@ export const Game = () => {
           "relative z-(--z-ui) transition-opacity duration-500",
           lookMode ? disabledCx : enabledCx
         )}
+        {...(lookMode ? { inert: true } : {})}
       >
         <Panel className="flex flex-col">
           <TopBar />
-          <main className="relative flex-1 flex flex-col gap-0 @container/main">
+          <main className=" @container/main relative flex-1 flex flex-col gap-0 gap-y-ui-sm">
             {uiState === "combat" && <CombatDamageVignette />}
             <div className="flex-1">
               {uiState === "combat" ?
                 <CombatActionPanel />
-              : <TaskEnginesPanel />}
+              : <>
+                  <AnimatePresence mode="wait">
+                    {uiMode === "tasks" ?
+                      <motion.div
+                        key="task-engines"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="h-full flex-1"
+                      >
+                        <TaskEnginesPanel />
+                      </motion.div>
+                    : <motion.div
+                        key="mini-task-engines"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="h-full flex-1"
+                      >
+                        <BigMapPanel />
+                      </motion.div>
+                    }
+                  </AnimatePresence>
+                </>
+              }
             </div>
-            <footer className="p-ui-xs pt-0 h-[330px] flex flex-row gap-ui-sm justify-between">
-              <ConversationPanel className="flex-1 max-w-xl" />
-              <MiniMapPanel className="max-w-[330px]" />
+            <footer className="p-ui-xs py-0 mb-ui-xs h-ui-bottom grid grid-cols-[1fr_auto_auto]">
+              <ConversationPanel className="min-w-0 max-w-2xl mr-ui-xs" />
+              <UIModeToggle />
+              <div className="relative w-ui-minimap h-ui-bottom bracket-left bracket-offset-0 bracket-1 bracket-input">
+                <motion.div
+                  className="absolute inset-0 h-full w-ui-minimap"
+                  animate={uiMode === "tasks"
+                    ? { opacity: 1, y: 0 }
+                    : { opacity: 0, y: -100 }
+                  }
+                  initial={false}
+                  style={{
+                    pointerEvents: uiMode === "tasks" ? "auto" : "none",
+                    contentVisibility: uiMode === "tasks" ? "visible" : "hidden",
+                  }}
+                  {...(uiMode !== "tasks" ? { inert: true } : {})}
+                >
+                  <MiniMapPanel className="w-ui-minimap" />
+                </motion.div>
+                <motion.div
+                  className="absolute inset-0 h-full w-ui-minimap"
+                  animate={uiMode !== "tasks"
+                    ? { opacity: 1, y: 0 }
+                    : { opacity: 0, y: 100 }
+                  }
+                  initial={false}
+                  style={{
+                    pointerEvents: uiMode !== "tasks" ? "auto" : "none",
+                    contentVisibility: uiMode !== "tasks" ? "visible" : "hidden",
+                  }}
+                  {...(uiMode === "tasks" ? { inert: true } : {})}
+                >
+                  <MiniTaskEngines />
+                </motion.div>
+                {uiState === "combat" && (
+                  <div className="animate-in fade-in-0 duration-1000 absolute inset-px z-2 bg-background/60 cross-lines-subtle text-destructive-foreground flex flex-col items-center justify-center">
+                    <div className="relative z-10 bg-destructive-background/70 text-center px-ui-sm py-ui-xs">
+                      <WarningDiamondIcon
+                        size={32}
+                        className="text-destructive mx-auto mb-1"
+                        weight="duotone"
+                      />
+                      <span className="text-xs uppercase font-bold mx-auto">Combat engaged</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </footer>
           </main>
         </Panel>

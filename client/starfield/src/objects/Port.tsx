@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import * as THREE from "three"
 
-import { useGameObjectAnimation } from "@/animations/gameObjectFadeAnim"
 import { getPalette } from "@/colors"
 import { LAYERS } from "@/constants"
 import {
@@ -12,6 +11,8 @@ import {
 import type { PositionedGameObject } from "@/types"
 import { useGameStore } from "@/useGameStore"
 import { useTextureCache } from "@/utils/textureCache"
+
+import { useGameObjectFade } from "./useGameObjectFade"
 
 const SHADOW_MIN_DISTANCE = 8
 const SHADOW_MAX_DISTANCE = 15
@@ -33,18 +34,13 @@ export interface PortProps extends PositionedGameObject {
   billboard?: boolean
   // Camera offset position (only used in billboard mode)
   cameraOffset?: { x: number; y: number }
-  // Fade-in animation
-  fadeIn?: boolean
-  fadeInDuration?: number
-  fadeInDelay?: number
 }
 
-export const Port = ({
+export const Port = memo(function Port({
   id,
   position,
   scale = 2,
   opacity = 0.8,
-  enabled = true,
   // Image props
   imageUrl,
   tintColor,
@@ -58,22 +54,14 @@ export const Port = ({
   // Billboard mode
   billboard = false,
   cameraOffset,
-  // Fade-in animation
-  fadeIn = true,
-  fadeInDuration = 2000,
-  fadeInDelay = 300,
-}: PortProps) => {
+}: PortProps) {
   const meshRef = useRef<THREE.Mesh>(null)
   const groupRef = useRef<THREE.Group>(null)
   const imageMaterialRef = useRef<THREE.MeshBasicMaterial>(null)
   const { camera } = useThree()
 
-  // Fade-in animation
-  const updateFade = useGameObjectAnimation({
-    duration: fadeInDuration,
-    delay: fadeInDelay,
-    enabled: fadeIn,
-  })
+  // Fade value (0–1) provided by BaseGameObject parent
+  const fadeRef = useGameObjectFade()
 
   // Get palette and image assets from store (separate selectors to avoid infinite loop)
   const paletteKey = useGameStore((state) => state.starfieldConfig.palette)
@@ -173,8 +161,8 @@ export const Port = ({
   // Image mode: always face camera, optionally follow camera position (billboard)
   // Also update shadow opacity based on distance to camera and fade progress
   useFrame(() => {
-    // Update and get fade progress (0 to 1)
-    const fade = updateFade()
+    // Read fade progress (0 to 1) from BaseGameObject parent
+    const fade = fadeRef.current
 
     if (!groupRef.current || !hasTexture) return
 
@@ -221,8 +209,6 @@ export const Port = ({
       shadowMaterialRef.current.uniforms.uOpacity.value = dynamicOpacity * fade
     }
   })
-
-  if (!enabled) return null
 
   // Render image mode (when imageUrl is provided)
   if (hasTexture) {
@@ -289,5 +275,35 @@ export const Port = ({
         opacity={opacity}
       />
     </mesh>
+  )
+}, portPropsAreEqual)
+
+function portPropsAreEqual(prev: PortProps, next: PortProps): boolean {
+  // Compare position array elements
+  if (
+    prev.position[0] !== next.position[0] ||
+    prev.position[1] !== next.position[1] ||
+    prev.position[2] !== next.position[2]
+  ) {
+    return false
+  }
+
+  // Compare rendering-relevant props only.
+  // Lifecycle props (enabled, removing, fade*) are handled by BaseGameObject.
+  return (
+    prev.id === next.id &&
+    prev.scale === next.scale &&
+    prev.opacity === next.opacity &&
+    prev.imageUrl === next.imageUrl &&
+    prev.tintColor === next.tintColor &&
+    prev.tintIntensity === next.tintIntensity &&
+    prev.shadowEnabled === next.shadowEnabled &&
+    prev.shadowRadius === next.shadowRadius &&
+    prev.shadowOpacity === next.shadowOpacity &&
+    prev.shadowFalloff === next.shadowFalloff &&
+    prev.shadowColor === next.shadowColor &&
+    prev.billboard === next.billboard &&
+    prev.meta === next.meta &&
+    prev.cameraOffset === next.cameraOffset
   )
 }

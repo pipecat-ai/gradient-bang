@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback } from "react"
+import { type ReactNode, useCallback, useEffect } from "react"
 
 import { RTVIEvent } from "@pipecat-ai/client-js"
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
@@ -32,6 +32,14 @@ export function GameProvider({ children }: GameProviderProps) {
   const client = usePipecatClient()
   const playerSessionId = useGameStore((state) => state.playerSessionId)
   const dispatchAction = useGameStore((state) => state.dispatchAction)
+
+  useEffect(() => {
+    console.debug(
+      "%c[GAME INIT] Settings",
+      "background-color: #000000; color: #ffffff; font-weight: bold",
+      useGameStore.getState().settings
+    )
+  }, [])
 
   /**
    * Send user text input to server

@@ -1,10 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo } from "react"
 
 import { motion } from "motion/react"
-import type { PerformanceProfile } from "@gradient-bang/starfield"
+import type { PerformanceProfile, PositionedGameObject } from "@gradient-bang/starfield"
 
 import { portImages, skyboxImages } from "@/assets"
 import Splash from "@/assets/images/splash-1.png"
+import { StarfieldPlayerCard } from "@/components/StarfieldPlayerCard"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
@@ -35,34 +36,6 @@ export const Starfield = () => {
   const lookAtTarget = useGameStore.use.lookAtTarget()
   const activePanel = useGameStore.use.activePanel?.()
 
-  useEffect(() => {
-    if (!useGameStore.getState().starfieldReady) return
-
-    if (activePanel === "trade") {
-      const sector = useGameStore.getState().sector
-      if (sector?.port) {
-        useGameStore.getState().setLookAtTarget("port-" + sector?.id.toString())
-      }
-    } else {
-      useGameStore.getState().setLookAtTarget(undefined)
-    }
-  }, [activePanel])
-
-  const starfieldConfig = useMemo(() => {
-    return {
-      imageAssets: [
-        ...skyboxImageList.map((url) => ({ type: "skybox" as const, url })),
-        ...portImageList.map((url) => ({ type: "port" as const, url })),
-      ],
-    }
-  }, [])
-
-  // Stable callback reference - setStarfieldReady is from zustand so it's stable
-  const handleCreated = useCallback(() => {
-    console.debug("[STARFIELD] Starfield created")
-    setStarfieldReady(true)
-  }, [setStarfieldReady])
-
   const handleSceneChangeEnd = useCallback(() => {
     const ap = useGameStore.getState().activePanel
     if (ap === "trade") {
@@ -75,11 +48,44 @@ export const Starfield = () => {
     }
   }, [])
 
+  const handleTargetRest = useCallback((target: PositionedGameObject) => {
+    useGameStore.getState().setPlayerTargetId(target.id)
+    useGameStore.getState().setLookAtTarget(target.id)
+  }, [])
+
+  // Stable callback reference - setStarfieldReady is from zustand so it's stable
+  const handleCreated = useCallback(() => {
+    console.debug("%c[STARFIELD] Starfield created", "color: blue; font-weight: bold")
+    setStarfieldReady(true)
+  }, [setStarfieldReady])
+
   const handleSceneChangeStart = useCallback((isInitial = false) => {
     if (isInitial) {
       useAudioStore.getState().playSound("enter", { volume: 0.2 })
     }
   }, [])
+
+  const starfieldConfig = useMemo(() => {
+    return {
+      imageAssets: [
+        ...skyboxImageList.map((url) => ({ type: "skybox" as const, url })),
+        ...portImageList.map((url) => ({ type: "port" as const, url })),
+      ],
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!useGameStore.getState().starfieldReady) return
+
+    if (activePanel === "trade") {
+      const sector = useGameStore.getState().sector
+      if (sector?.port) {
+        useGameStore.getState().setLookAtTarget("port-" + sector?.id.toString())
+      }
+    } else {
+      useGameStore.getState().setLookAtTarget(undefined)
+    }
+  }, [activePanel])
 
   // Blur any focused element when lookMode becomes active
   // This prevents needing to click twice to interact with the starfield
@@ -113,8 +119,11 @@ export const Starfield = () => {
           onCreated={handleCreated}
           onSceneChangeEnd={handleSceneChangeEnd}
           onSceneChangeStart={handleSceneChangeStart}
+          onTargetRest={handleTargetRest}
         />
       </motion.div>
+
+      <StarfieldPlayerCard />
     </Suspense>
   )
 }

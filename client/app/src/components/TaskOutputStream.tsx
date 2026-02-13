@@ -6,8 +6,6 @@ import { useAutoScroll } from "@/hooks/useAutoScroll"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
-import { Card, CardContent } from "./primitives/Card"
-
 const MAX_TASK_SUMMARY_LENGTH = 100
 
 const TaskTypeBadge = ({ type }: { type: Task["type"] }) => {
@@ -78,91 +76,53 @@ const TaskRow = memo(
 export const TaskOutputStreamComponent = ({
   tasks,
   onResetAutoScroll,
+  className,
 }: {
   tasks: TaskOutput[]
   onResetAutoScroll?: (reset: () => void) => void
+  className?: string
 }) => {
-  const {
-    AutoScrollAnchor,
-    handleScroll,
-    resetAutoScroll,
-    scrollToBottom,
-    isAutoScrollEnabledRef,
-  } = useAutoScroll()
-  const prevTasksLengthRef = useRef(tasks.length)
-
-  // Track scroll lock transitions via event handlers only (no effects needed)
-  const [isScrollLocked, setIsScrollLocked] = useState(false)
-  const [lockedAtLength, setLockedAtLength] = useState(0)
+  const { scrollRef, contentRef, hasNewItems, dismissLock, resetAutoScroll, trackItems } =
+    useAutoScroll({ behavior: "instant" })
 
   useEffect(() => {
     onResetAutoScroll?.(resetAutoScroll)
   }, [onResetAutoScroll, resetAutoScroll])
 
   useEffect(() => {
-    if (tasks.length !== prevTasksLengthRef.current) {
-      prevTasksLengthRef.current = tasks.length
-      scrollToBottom()
-    }
-  }, [tasks.length, scrollToBottom])
-
-  const wrappedHandleScroll = useCallback(
-    (event: React.UIEvent<HTMLDivElement>) => {
-      handleScroll(event)
-      // Read ref in event handler (safe — not during render)
-      const isAtBottom = isAutoScrollEnabledRef.current
-      if (isAtBottom) {
-        if (isScrollLocked) setIsScrollLocked(false)
-      } else if (!isScrollLocked) {
-        setIsScrollLocked(true)
-        setLockedAtLength(tasks.length)
-      }
-    },
-    [handleScroll, isAutoScrollEnabledRef, isScrollLocked, tasks.length]
-  )
-
-  const handleNewMessageClick = useCallback(() => {
-    setIsScrollLocked(false)
-    resetAutoScroll()
-  }, [resetAutoScroll])
-
-  // Derived: show badge when scroll-locked and new messages arrived since locking
-  const hasNewMessages = isScrollLocked && tasks.length > lockedAtLength
+    trackItems(tasks.length)
+  }, [tasks.length, trackItems])
 
   const visibleTasks = tasks.slice(-MAX_TASK_SUMMARY_LENGTH)
 
   return (
-    <Card
-      className="absolute inset-0 flex w-full bg-transparent border-none h-full min-h-0 select-none pointer-events-none mt-auto"
-      size="none"
-    >
-      <CardContent className="relative flex flex-col gap-2 h-full justify-end mask-[linear-gradient(to_bottom,transparent_0px,black_80px)]">
-        <ScrollArea
-          className="w-full h-full overflow-hidden pointer-events-auto"
-          fullHeight={true}
-          classNames={{ scrollbar: "*:first:bg-white/30" }}
-          onScroll={wrappedHandleScroll}
-        >
-          <div className="table-cell align-bottom h-full">
-            <div className="h-full flex flex-col justify-end hover:opacity-100 select-none pt-10">
+    <div className={cn("flex flex-col w-full h-full min-h-0 select-none", className)}>
+      <div className="relative flex flex-col flex-1 min-h-0 mask-[linear-gradient(to_bottom,transparent_0px,black_80px)]">
+        <ScrollArea className="w-full flex-1 min-h-0" viewportRef={scrollRef}>
+          <div className="flex flex-col min-h-full">
+            <div className="flex-1" aria-hidden="true" />
+            <div ref={contentRef} className="pt-10 pb-1">
               {visibleTasks.map((task, index) => {
                 return <TaskRow key={`${task.task_id}-${index}`} task={task} />
               })}
             </div>
-            <AutoScrollAnchor />
           </div>
         </ScrollArea>
-        {hasNewMessages && (
-          <ScrollNewItemsButton onClick={handleNewMessageClick} className="bottom-1" />
-        )}
-      </CardContent>
-    </Card>
+        {hasNewItems && <ScrollNewItemsButton onClick={dismissLock} className="bottom-1" />}
+      </div>
+    </div>
   )
 }
 
 const EMPTY_OUTPUTS: TaskOutput[] = []
 
-export const TaskOutputStream = ({ taskId }: { taskId?: string | null }) => {
+export const TaskOutputStream = ({
+  taskId,
+  className,
+}: {
+  taskId?: string | null
+  className?: string
+}) => {
   const [cachedOutputs, setCachedOutputs] = useState<TaskOutput[]>([])
   const resetAutoScrollRef = useRef<(() => void) | null>(null)
 
@@ -209,12 +169,11 @@ export const TaskOutputStream = ({ taskId }: { taskId?: string | null }) => {
   // Use live outputs if available, otherwise fall back to cached outputs
   const displayTasks = tasks.length > 0 ? tasks : cachedOutputs
 
-  // Only render if we have something to show (either live or cached)
-  if (!taskId && cachedOutputs.length === 0) {
-    return null
-  }
-
   return (
-    <TaskOutputStreamComponent tasks={displayTasks} onResetAutoScroll={handleResetAutoScroll} />
+    <TaskOutputStreamComponent
+      tasks={displayTasks}
+      onResetAutoScroll={handleResetAutoScroll}
+      className={className}
+    />
   )
 }

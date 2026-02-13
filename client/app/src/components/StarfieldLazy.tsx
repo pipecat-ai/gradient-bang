@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 
 import Starfield, {
   type GameObject,
@@ -22,6 +22,56 @@ const generateGameObjects = (sector: Sector) => {
         } as GameObject,
       ]
     : []
+}
+
+const PlayerMovement = () => {
+  const activityLog = useGameStore((state) => state.activity_log)
+  const sector = useGameStore((state) => state.sector)
+  const renderStarfield = useGameStore((state) => state.settings.renderStarfield)
+  const starfieldReady = useGameStore.use.starfieldReady()
+  const { addGameObject, removeGameObject } = useStarfieldEvent()
+
+  const addPlayer = useCallback(
+    (player: Player) => {
+      console.log("addPlayer", player)
+      addGameObject({
+        id: player.id,
+        type: "ship",
+        label: player.name,
+      })
+    },
+    [addGameObject]
+  )
+
+  const removePlayer = useCallback(
+    (player: Player) => {
+      removeGameObject(player.id)
+    },
+    [removeGameObject]
+  )
+
+  const moves = useMemo(
+    () =>
+      activityLog
+        .filter((entry) => entry.type === "character.moved" && entry.meta?.sector === sector?.id)
+        .reverse(),
+    [activityLog, sector?.id]
+  )
+
+  useEffect(() => {
+    if (moves.length <= 0 || !renderStarfield || !starfieldReady) return
+
+    moves.forEach((move) => {
+      console.log("move", move)
+      if (move.meta?.direction === "arrive") {
+        addPlayer(move.meta?.player as Player)
+      } else if (move.meta?.direction === "depart") {
+        removePlayer(move.meta?.player as Player)
+      }
+    })
+  }, [moves, renderStarfield, starfieldReady, addPlayer, removePlayer])
+
+  return null
 }
 
 /**
@@ -68,6 +118,23 @@ export default function StarfieldLazy(props: StarfieldProps) {
     return unsub
   }, [renderStarfield, animateImpact])
 
+  // React to combat damage — the app sets tookDamageThisRound in the store,
+  // and we trigger the screen-shake here inside the lazy boundary.
+  useEffect(() => {
+    if (!renderStarfield) return
+
+    const unsub = useGameStore.subscribe(
+      (state) => state.tookDamageThisRound,
+      (tookDamage) => {
+        if (tookDamage) {
+          animateImpact(0.015, 200, 1000, 100, 2000)
+        }
+      }
+    )
+
+    return unsub
+  }, [renderStarfield, animateImpact])
+
   useEffect(() => {
     if (!renderStarfield) return
 
@@ -94,5 +161,10 @@ export default function StarfieldLazy(props: StarfieldProps) {
     return unsub
   }, [renderStarfield, changeScene])
 
-  return <Starfield {...props} onReady={onReady} />
+  return (
+    <>
+      <Starfield {...props} onReady={onReady} />
+      <PlayerMovement />
+    </>
+  )
 }

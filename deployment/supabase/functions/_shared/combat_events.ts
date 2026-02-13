@@ -157,6 +157,7 @@ export function buildRoundResolvedPayload(
     offensive_losses: outcome.offensive_losses,
     defensive_losses: outcome.defensive_losses,
     shield_loss: outcome.shield_loss,
+    damage_mitigated: outcome.damage_mitigated,
     fighters_remaining: outcome.fighters_remaining,
     shields_remaining: outcome.shields_remaining,
     flee_results: outcome.flee_results,

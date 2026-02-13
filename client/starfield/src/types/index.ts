@@ -104,10 +104,14 @@ export interface GameObject {
   enabled?: boolean
   label?: string
   meta?: Record<string, unknown>
+  /** When true, this object was part of the scene config (not added at runtime) */
+  initial?: boolean
 }
 
 export interface PositionedGameObject extends GameObject {
   position: [number, number, number]
+  /** When true, the object is being removed and should play its exit animation */
+  removing?: boolean
 }
 
 /**

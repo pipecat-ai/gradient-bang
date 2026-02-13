@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useLayoutEffect, useRef } from "react"
-import { PerformanceMonitor, Preload } from "@react-three/drei"
+import { Preload } from "@react-three/drei"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
 import { Leva } from "leva"
@@ -176,17 +176,6 @@ export function StarfieldComponent({
         }}
         className={className}
       >
-        <PerformanceMonitor
-          onIncline={() => {
-            //setPerformance({ dpr: 2 })
-            //console.log("[STARFIELD] Performance Profile: high")
-          }}
-          onDecline={() => {
-            //setPerformance({ dpr: 1 })
-            //console.log("[STARFIELD] Performance Profile: low")
-          }}
-        />
-
         {debug && <DebugOverlay />}
         <Suspense fallback={null}>
           <AssetPreloader />

@@ -78,6 +78,7 @@ export async function resolveEncounterRound(options: {
     offensive_losses: outcome.offensive_losses,
     defensive_losses: outcome.defensive_losses,
     shield_loss: outcome.shield_loss,
+    damage_mitigated: outcome.damage_mitigated,
     result: outcome.end_state ?? null,
     timestamp: new Date().toISOString(),
   });

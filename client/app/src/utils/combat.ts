@@ -124,6 +124,7 @@ export const applyCombatRoundWaitingState = (
     return
   }
 
+  gameStore.setTookDamageThisRound(false)
   gameStore.updateActiveCombatSession({
     participants: combatSession.participants,
     garrison: combatSession.garrison ?? null,

@@ -11,6 +11,7 @@ import { cn } from "@/utils/tailwind"
 import { Button } from "../primitives/Button"
 import { ButtonGroup } from "../primitives/ButtonGroup"
 import { ScrollArea } from "../primitives/ScrollArea"
+import { RHSPanelContent } from "./RHSPanelContainer"
 
 const ACTIVITY_DURATION_MS = 5000
 
@@ -93,13 +94,17 @@ export const LogsPanel = () => {
   const messages = useGameStore.use.messages()
   const player = useGameStore.use.player()
   const prevMessagesLengthRef = useRef(messages?.length ?? 0)
-  const { AutoScrollAnchor, handleScroll, resetAutoScroll, scrollToBottom, isAutoScrollEnabledRef } =
-    useAutoScroll()
+  const {
+    scrollRef,
+    contentRef,
+    resetAutoScroll,
+    hasNewItems: hasNewMessages,
+    dismissLock,
+    trackItems,
+  } = useAutoScroll({ startAtBottom: true })
   const messageFilters = useGameStore.use.messageFilters()
   const setMessageFilters = useGameStore.use.setMessageFilters()
   const [hasRecentActivity, setHasRecentActivity] = useState(false)
-  const [isScrollLocked, setIsScrollLocked] = useState(false)
-  const [lockedAtLength, setLockedAtLength] = useState(0)
   const [muteBroadcastActivity, setMuteBroadcastActivity] = useState(false)
   const activityTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevMessagesRef = useRef(messages)
@@ -145,25 +150,20 @@ export const LogsPanel = () => {
     })
   }, [messages, messageFilters])
 
-  const visibleMessagesLength = filteredMessages?.length ?? 0
-
   // Scroll to bottom when filter changes
   useEffect(() => {
     resetAutoScroll()
-    queueMicrotask(() => {
-      setIsScrollLocked(false)
-      setLockedAtLength(0)
-    })
   }, [messageFilters, resetAutoScroll])
 
-  // Scroll and track activity when messages change
+  // Track items for the new-messages badge and detect activity
   useEffect(() => {
     if (!filteredMessages?.length) return
+
+    trackItems(filteredMessages.length)
 
     if (filteredMessages.length !== prevMessagesLengthRef.current) {
       const isNewMessage = filteredMessages.length > prevMessagesLengthRef.current
       prevMessagesLengthRef.current = filteredMessages.length
-      scrollToBottom()
 
       if (isNewMessage) {
         // Find new messages by comparing with previous
@@ -181,28 +181,7 @@ export const LogsPanel = () => {
       }
     }
     prevMessagesRef.current = messages
-  }, [filteredMessages?.length, scrollToBottom, messages, muteBroadcastActivity, triggerActivity])
-
-  const wrappedHandleScroll = useCallback(
-    (event: React.UIEvent<HTMLDivElement>) => {
-      handleScroll(event)
-      const isAtBottom = isAutoScrollEnabledRef.current
-      if (isAtBottom) {
-        if (isScrollLocked) setIsScrollLocked(false)
-      } else if (!isScrollLocked) {
-        setIsScrollLocked(true)
-        setLockedAtLength(visibleMessagesLength)
-      }
-    },
-    [handleScroll, isAutoScrollEnabledRef, isScrollLocked, visibleMessagesLength]
-  )
-
-  const handleNewMessageClick = useCallback(() => {
-    setIsScrollLocked(false)
-    resetAutoScroll()
-  }, [resetAutoScroll])
-
-  const hasNewMessages = isScrollLocked && visibleMessagesLength > lockedAtLength
+  }, [filteredMessages?.length, trackItems, messages, muteBroadcastActivity, triggerActivity])
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -214,83 +193,83 @@ export const LogsPanel = () => {
   }, [])
 
   return (
-    <div
-      data-active={hasRecentActivity || undefined}
-      className={cn(
-        "group absolute inset-0 flex flex-col transition-colors hover:bg-background/60 data-active:bg-background/60",
-        FADE_TRANSITION.out,
-        FADE_TRANSITION.inSelf,
-        FADE_TRANSITION.messageBase,
-        FADE_TRANSITION.messageActive
-      )}
-    >
-      <div className="shrink-0 p-ui-xs border-b flex flex-row justify-between items-center">
-        <ButtonGroup className="bg-background/60">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setMessageFilters("all")}
-            className={messageFilters === "all" ? "bg-background text-accent-foreground" : ""}
-          >
-            All
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setMessageFilters("direct")}
-            className={messageFilters === "direct" ? "bg-background text-accent-foreground" : ""}
-          >
-            Direct
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setMessageFilters("broadcast")}
-            className={messageFilters === "broadcast" ? "bg-background text-accent-foreground" : ""}
-          >
-            Broadcast
-          </Button>
-        </ButtonGroup>
+    <RHSPanelContent noScroll>
+      <div
+        data-active={hasRecentActivity || undefined}
+        className={cn(
+          "group absolute inset-0 flex flex-col transition-colors hover:bg-background/60 data-active:bg-background/60",
+          FADE_TRANSITION.out,
+          FADE_TRANSITION.inSelf,
+          FADE_TRANSITION.messageBase,
+          FADE_TRANSITION.messageActive
+        )}
+      >
+        <div className="shrink-0 p-ui-xs border-b flex flex-row justify-between items-center">
+          <ButtonGroup className="bg-background/60">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMessageFilters("all")}
+              className={messageFilters === "all" ? "bg-background text-accent-foreground" : ""}
+            >
+              All
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMessageFilters("direct")}
+              className={messageFilters === "direct" ? "bg-background text-accent-foreground" : ""}
+            >
+              Direct
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMessageFilters("broadcast")}
+              className={
+                messageFilters === "broadcast" ? "bg-background text-accent-foreground" : ""
+              }
+            >
+              Broadcast
+            </Button>
+          </ButtonGroup>
 
-        <div className="flex flex-row items-center gap-2">
-          <span className="text-xs text-muted-foreground">Mute broadcast</span>
-          <ToggleControl
-            id="mute-broadcast"
-            size="sm"
-            checked={muteBroadcastActivity}
-            onCheckedChange={setMuteBroadcastActivity}
-            className="bg-background/60"
-          />
+          <div className="flex flex-row items-center gap-2">
+            <span className="text-xs text-muted-foreground">Mute broadcast</span>
+            <ToggleControl
+              id="mute-broadcast"
+              size="sm"
+              checked={muteBroadcastActivity}
+              onCheckedChange={setMuteBroadcastActivity}
+              className="bg-background/60"
+            />
+          </div>
+        </div>
+        <div className="relative flex-1 flex flex-col overflow-hidden min-h-0">
+          <ScrollArea className="relative w-full flex-1 min-h-0" viewportRef={scrollRef}>
+            <div className="flex flex-col min-h-full">
+              <div className="flex-1" aria-hidden="true" />
+              <div ref={contentRef} className="flex flex-col gap-ui-md p-ui-sm pb-16">
+                {filteredMessages && player.name ?
+                  filteredMessages.map((message) => (
+                    <MessageRow
+                      key={message.id}
+                      message={message}
+                      local={player.name === message.from_name}
+                    />
+                  ))
+                : <div className="w-full h-full flex items-center justify-center">
+                    <span className="text-xs text-muted-foreground animate-pulse uppercase">
+                      Awaiting wave history
+                    </span>
+                  </div>
+                }
+              </div>
+            </div>
+          </ScrollArea>
+          {hasNewMessages && <ScrollNewItemsButton onClick={dismissLock} />}
         </div>
       </div>
-      <div className="relative flex-1 flex flex-col overflow-hidden min-h-0">
-        <ScrollArea
-          className="relative w-full flex-1 overflow-hidden"
-          fullHeight
-          onScroll={wrappedHandleScroll}
-        >
-          <div className="table-cell align-bottom h-full p-ui-sm">
-            <div className="flex flex-col gap-ui-md pb-10">
-              {filteredMessages && player.name ?
-                filteredMessages.map((message) => (
-                  <MessageRow
-                    key={message.id}
-                    message={message}
-                    local={player.name === message.from_name}
-                  />
-                ))
-              : <div className="w-full h-full flex items-center justify-center">
-                  <span className="text-xs text-muted-foreground animate-pulse uppercase">
-                    Awaiting wave history
-                  </span>
-                </div>
-              }
-              <AutoScrollAnchor />
-            </div>
-          </div>
-        </ScrollArea>
-        {hasNewMessages && <ScrollNewItemsButton onClick={handleNewMessageClick} />}
-      </div>
-    </div>
+    </RHSPanelContent>
   )
 }

@@ -4,9 +4,9 @@ set -euo pipefail
 # =============================================================================
 # Reset World Data
 #
-# Truncates all game data tables (preserving auth.users and static config),
-# generates a fresh universe, loads it into Supabase, and re-seeds runtime
-# config.
+# Truncates all game data tables (preserving auth.users, app_runtime_config,
+# and static config),
+# generates a fresh universe, and loads it into Supabase.
 #
 # Usage:
 #   scripts/reset-world.sh                        # local, 5000 sectors, random seed
@@ -52,7 +52,6 @@ done
 
 WORKDIR="${WORKDIR:-deployment}"
 DB_CONTAINER="supabase_db_gb-world-server"
-INTERNAL_URL_DEFAULT="http://host.docker.internal:54321"
 
 # ---------------------------------------------------------------------------
 # Detect local vs cloud mode
@@ -110,10 +109,6 @@ else
   echo "[reset-world] Local mode detected (container: $DB_CONTAINER)"
 fi
 
-SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54321}"
-EDGE_API_TOKEN="${EDGE_API_TOKEN:-local-dev-token}"
-SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}"
-
 echo ""
 echo "============================================================"
 echo "[reset-world] World Reset"
@@ -122,7 +117,6 @@ echo "  Mode         : $(if [[ "$IS_CLOUD" == true ]]; then echo "CLOUD"; else e
 echo "  Env file     : $ENV_FILE"
 echo "  Sector count : $SECTOR_COUNT"
 echo "  Seed         : ${SEED:-<random>}"
-echo "  Supabase URL : $SUPABASE_URL"
 echo "============================================================"
 echo ""
 
@@ -140,7 +134,7 @@ fi
 # Step 1: Truncate all game data tables
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 1/4 -- Truncating game data tables ..."
+echo "[reset-world] Step 1/3 -- Truncating game data tables ..."
 
 run_sql "
   TRUNCATE TABLE
@@ -173,7 +167,7 @@ echo ""
 # Step 2: Generate new universe
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 2/4 -- Generating universe ($SECTOR_COUNT sectors) ..."
+echo "[reset-world] Step 2/3 -- Generating universe ($SECTOR_COUNT sectors) ..."
 
 BANG_ARGS=("$SECTOR_COUNT")
 if [[ -n "$SEED" ]]; then
@@ -190,33 +184,12 @@ echo ""
 # Step 3: Load universe into Supabase
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 3/4 -- Loading universe into Supabase ..."
+echo "[reset-world] Step 3/3 -- Loading universe into Supabase ..."
 
 uv run -m gradientbang.scripts.load_universe_to_supabase \
   --from-json world-data/ --force
 
 echo "[reset-world] Universe loaded."
-echo ""
-
-# ---------------------------------------------------------------------------
-# Step 4: Re-seed combat cron runtime config
-# ---------------------------------------------------------------------------
-
-echo "[reset-world] Step 4/4 -- Seeding combat cron runtime config ..."
-
-SUPABASE_URL_ESCAPED=${SUPABASE_URL//\'/\'\'}
-EDGE_API_TOKEN_ESCAPED=${EDGE_API_TOKEN//\'/\'\'}
-SUPABASE_ANON_KEY_ESCAPED=${SUPABASE_ANON_KEY//\'/\'\'}
-
-run_sql "
-  INSERT INTO app_runtime_config (key, value, description) VALUES
-    ('supabase_url',     '${SUPABASE_URL_ESCAPED}',     'Base Supabase URL reachable from the DB'),
-    ('edge_api_token',   '${EDGE_API_TOKEN_ESCAPED}',   'Edge token for combat_tick auth'),
-    ('supabase_anon_key','${SUPABASE_ANON_KEY_ESCAPED}', 'Anon key for Supabase auth headers')
-  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
-"
-
-echo "[reset-world] Runtime config seeded."
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -226,3 +199,8 @@ echo ""
 echo "============================================================"
 echo "[reset-world] Complete!"
 echo "============================================================"
+echo ""
+printf '\033[31m[reset-world] Runtime combat cron config was not modified.\033[0m\n'
+printf '\033[31m[reset-world] If combat rounds stop auto-resolving, run:\033[0m\n'
+printf '\033[31m  - local: scripts/supabase-reset-with-cron.sh\033[0m\n'
+printf '\033[31m  - cloud: scripts/setup-production-combat-tick.sh\033[0m\n'

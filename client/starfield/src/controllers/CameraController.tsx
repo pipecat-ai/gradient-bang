@@ -170,6 +170,7 @@ export function CameraController({
     if (cam) {
       // Reset camera when target is cleared (was something, now null)
       if (lookAtTarget === undefined && prevTarget !== null) {
+        setIsCameraTransitioning(true)
         cam.setLookAt(0, 0, config.lookAtDistance, 0, 0, 0, true)
         prevLookAtTargetRef.current = null
         pendingTargetRef.current = null

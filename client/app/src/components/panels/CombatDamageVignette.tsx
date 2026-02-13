@@ -6,7 +6,6 @@ import useGameStore from "@/stores/game"
 
 export const CombatDamageVignette = () => {
   const tookDamageThisRound = useGameStore((state) => state.tookDamageThisRound)
-  const setTookDamageThisRound = useGameStore((state) => state.setTookDamageThisRound)
   const [blinkPhase, setBlinkPhase] = useState<"blink" | "fade">("blink")
 
   return (
@@ -18,7 +17,6 @@ export const CombatDamageVignette = () => {
             initial={{ opacity: 1 }}
             animate={{ opacity: 0 }}
             transition={{ duration: 4, ease: "easeOut" }}
-            onAnimationComplete={() => setTookDamageThisRound(false)}
             className="inset-0 pointer-events-none combat-vignette absolute!"
           />
         )}
@@ -34,7 +32,7 @@ export const CombatDamageVignette = () => {
         onAnimationComplete={() => {
           if (blinkPhase === "blink") setBlinkPhase("fade")
         }}
-        className="inset-0 pointer-events-none combat-border absolute!"
+        className="inset-0 pointer-events-none combat-border absolute! z-50"
       />
     </>
   )

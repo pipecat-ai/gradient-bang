@@ -1,17 +1,14 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 
 import { cva } from "class-variance-authority"
 import { motion } from "motion/react"
-import {
-  CaretRightIcon,
-  CircleNotchIcon,
-  LockSimpleIcon,
-  ProhibitIcon,
-} from "@phosphor-icons/react"
+import { CircleNotchIcon, LockSimpleIcon, ProhibitIcon } from "@phosphor-icons/react"
 
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent } from "@/components/primitives/Card"
+import { TaskEngineSummaryText } from "@/components/TaskEngineSummaryText"
 import { TaskStatusBadge } from "@/components/TaskStatusBadge"
+import { useTaskState } from "@/hooks/useTaskState"
 import useGameStore from "@/stores/game"
 
 import { TaskOutputStream } from "../TaskOutputStream"
@@ -34,7 +31,7 @@ const stateLabels: Record<TaskEngineState, string> = {
 }
 
 const cx = cva(
-  "relative elbow elbow-offset-1 elbow-size-10 elbow-2 transition-opacity duration-1000 select-none h-full bg-card/80",
+  "relative elbow elbow-offset-1 elbow-size-10 elbow-1 transition-opacity duration-1000 select-none h-full bg-card/80",
   {
     variants: {
       state: {
@@ -191,18 +188,16 @@ export const TaskEngine = ({
           />
         </CardContent>
 
-        <div className="relative h-full">
-          {task?.task_description && (
-            <div className="mx-ui-xs z-20 relative text-xxs flex flex-row gap-1 items-center text-subtle-foreground">
-              <div className="aspect-square bg-muted p-1 flex items-center justify-center border box-border">
-                <CaretRightIcon weight="bold" size={12} className="text-foreground" />
-              </div>
-              <div className="truncate px-ui-xs bg-subtle/20 flex-1 self-stretch flex items-center">
-                <span className="truncate">{task?.task_description}</span>
-              </div>
-            </div>
-          )}
-          <TaskOutputStream taskId={taskId} />
+        <div className="relative flex-1 min-h-0 overflow-hidden">
+          <TaskEngineSummaryText
+            description={displayTask?.task_description}
+            showArrow
+            className="mx-ui-xs z-20 gap-ui-xs"
+          />
+          <TaskOutputStream
+            taskId={taskId}
+            className="absolute inset-0 pointer-events-none [&_*[data-slot^=scroll-area]]:pointer-events-auto px-ui-xs"
+          />
         </div>
 
         <CardContent className="flex flex-col gap-2">
@@ -235,56 +230,14 @@ export const TaskEngine = ({
 }
 
 export const TaskEnginesPanel = () => {
-  const activeTasks = useGameStore.use.activeTasks?.()
-  const ships = useGameStore.use.ships?.()
-  const corpSlotAssignments = useGameStore.use.corpSlotAssignments?.()
-  const assignTaskToCorpSlot = useGameStore.use.assignTaskToCorpSlot?.()
-  const localTaskId = useGameStore.use.localTaskId?.()
-  const setLocalTaskId = useGameStore.use.setLocalTaskId?.()
+  const { ships, localTaskId, corpSlotAssignments, displayedCorpSlots, showLockedPlaceholder } =
+    useTaskState()
   const settings = useGameStore.use.settings?.()
+
   const starfieldEnabled = settings?.renderStarfield ?? false
 
-  // Count corporation ships to determine number of corp slots
-  const corpShipCount = useMemo(() => {
-    return ships.data?.filter((ship) => ship.owner_type === "corporation").length ?? 0
-  }, [ships.data])
-
-  // Get active local player task
-  const activeLocalTask = useMemo(() => {
-    const playerTasks = Object.values(activeTasks ?? {}).filter(
-      (task) => task?.task_scope === "player_ship"
-    )
-    return playerTasks[0] ?? null
-  }, [activeTasks])
-
-  // Get corp ship tasks
-  const corpShipTasks = useMemo(() => {
-    return Object.values(activeTasks ?? {}).filter((task) => task?.task_scope === "corp_ship") ?? []
-  }, [activeTasks])
-
-  // Update local task ID when a new local task starts
-  useEffect(() => {
-    if (activeLocalTask && setLocalTaskId) {
-      setLocalTaskId(activeLocalTask.task_id)
-    }
-  }, [activeLocalTask, setLocalTaskId])
-
-  const MAX_CORP_SLOTS = 3
-  const displayedCorpSlots = Math.min(corpShipCount, MAX_CORP_SLOTS)
-  const showLockedPlaceholder = corpShipCount < MAX_CORP_SLOTS
-
-  // Assign corp tasks to slots when they appear
-  useEffect(() => {
-    if (!assignTaskToCorpSlot) return
-
-    // Assign each corp task to a slot, limited by unlocked slots
-    for (const task of corpShipTasks) {
-      assignTaskToCorpSlot(task.task_id, displayedCorpSlots)
-    }
-  }, [corpShipTasks, assignTaskToCorpSlot, displayedCorpSlots])
-
   return (
-    <div className="p-ui-xs grid grid-cols-2 auto-rows-[1fr] gap-ui-xs h-full @tall-md:*:max-h-72 @tall-lg:*:max-h-96 @tall-xl:*:max-h-120">
+    <div className="p-ui-xs grid grid-cols-2 auto-rows-[1fr] gap-ui-xxs h-full @tall-md:*:max-h-72 @tall-lg:*:max-h-96 @tall-xl:*:max-h-120">
       <TaskEngine isLocal taskId={localTaskId} starfieldEnabled={starfieldEnabled} />
       {!ships.data ?
         <LockedTaskEngineSlot

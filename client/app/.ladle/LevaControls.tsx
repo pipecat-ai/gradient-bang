@@ -79,6 +79,14 @@ export const LevaControls = ({
       },
     },
 
+    ["Mock Player Self"]: button(() => {
+      const state = useGameStore.getState()
+      state.setPlayer({
+        name: faker.person.fullName(),
+        id: faker.string.uuid(),
+      })
+    }),
+
     ["Look Around"]: button(() => {
       const lookMode = useGameStore.getState().lookMode
       useGameStore.getState().setLookMode(!lookMode)
@@ -275,17 +283,18 @@ export const LevaControls = ({
         ["Mock Player Arrive"]: button(() => {
           const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
           const name = faker.person.fullName()
-          const player = { id: mockData.player.id, name: name }
+          const player = { id: faker.string.uuid(), name: name }
           const ship = {
             ship_id: faker.string.uuid(),
             ship_name: faker.vehicle.vehicle(),
-            ship_type: faker.vehicle.type(),
+            ship_type: "kestrel_courier",
           }
           addSectorPlayer({
-            id: mockData.player.id,
+            id: player.id,
             name: name,
             ship: ship,
           })
+
           addActivityLogEntry({
             type: "character.moved",
             message: `[${name}] arrived in sector`,
@@ -302,14 +311,14 @@ export const LevaControls = ({
         ["Mock Player Depart"]: button(() => {
           const mockData = PLAYER_MOVEMENT_HISTORY_MOCK
           const name = faker.person.fullName()
-          const player = { id: mockData.player.id, name: name }
+          const player = { id: faker.string.uuid(), name: name }
           const ship = {
             ship_id: faker.string.uuid(),
             ship_name: faker.vehicle.vehicle(),
-            ship_type: faker.vehicle.type(),
+            ship_type: "kestrel_courier",
           }
           removeSectorPlayer({
-            id: mockData.player.id,
+            id: player.id,
             name: player.name,
             ship: ship,
           })

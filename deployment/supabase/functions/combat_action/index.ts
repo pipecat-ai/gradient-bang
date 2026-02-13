@@ -221,6 +221,7 @@ async function handleCombatAction(params: {
   });
   encounter.pending_actions[characterId] = validated;
   encounter.awaiting_resolution = true;
+  const submittedRound = encounter.round;
 
   const ready = isRoundReady(encounter);
   const now = Date.now();
@@ -248,7 +249,9 @@ async function handleCombatAction(params: {
     ),
   });
 
-  if (ready || deadlineReached) {
+  const resolvedRound = ready || deadlineReached;
+
+  if (resolvedRound) {
     console.log("combat_action.resolving_round", {
       combat_id: encounter.combat_id,
       round: encounter.round,
@@ -270,10 +273,11 @@ async function handleCombatAction(params: {
     eventType: "combat.action_accepted",
     payload: {
       combat_id: encounter.combat_id,
-      round: encounter.round,
+      round: submittedRound,
       action: actionRaw,
       commit,
       target_id: targetId,
+      round_resolved: resolvedRound,
       source: buildEventSource("combat.action", requestId),
     },
     sectorId: encounter.sector_id,

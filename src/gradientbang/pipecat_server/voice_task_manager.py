@@ -53,8 +53,10 @@ FINISHED_TASK_ID_CACHE_TTL_SECONDS = 15 * 60
 FINISHED_TASK_ID_CACHE_MAX_SIZE = 5000
 TASK_LOG_TTL_SECONDS = 15 * 60
 CORP_TASK_EVENT_VALIDATE_TIMEOUT_SECONDS = 10.0
+COMBAT_WAITING_DUPLICATE_WINDOW_SECONDS = 3.0
 TASK_SCOPED_DIRECT_EVENT_ALLOWLIST = {
     "bank.transaction",
+    "chat.message",
     "movement.complete",
     "port.update",
     "task.start",
@@ -63,6 +65,12 @@ TASK_SCOPED_DIRECT_EVENT_ALLOWLIST = {
     "warp.purchase",
     "status.update",
     "map.local",
+}
+COMBAT_EVENT_ALLOWLIST = {
+    "combat.round_waiting",
+    "combat.round_resolved",
+    "combat.ended",
+    "combat.action_accepted",
 }
 
 
@@ -195,6 +203,10 @@ class VoiceTaskManager:
         self._voice_agent_request_queue: deque[tuple[str, float]] = deque()
         self._tool_call_inflight = 0
         self._deferred_llm_events: deque[tuple[str, bool]] = deque()
+        self._combat_priority_active = False
+        self._combat_priority_combat_id: Optional[str] = None
+        self._last_combat_waiting_signature: Optional[str] = None
+        self._last_combat_waiting_seen_at = 0.0
         # Track task IDs that have finished but whose task.finish event hasn't arrived yet
         self._finished_task_ids: Dict[str, float] = {}
         self._finished_task_queue: deque[tuple[str, float]] = deque()
@@ -412,6 +424,30 @@ class VoiceTaskManager:
 
             return summary
 
+        if event_name == "chat.message":
+            # Preserve full message content for live DM readback. The default
+            # chat_message_summary truncates content for generic event streams.
+            if not isinstance(payload, Mapping):
+                return event.get("summary")
+
+            msg_type = payload.get("type", "unknown")
+            from_name = payload.get("from_name", payload.get("from", "unknown"))
+            from_name = _shorten_embedded_ids(str(from_name))
+            to_name = payload.get("to_name", payload.get("to", "unknown"))
+            to_name = _shorten_embedded_ids(str(to_name))
+
+            raw_content = payload.get("content", payload.get("message", ""))
+            if isinstance(raw_content, str):
+                content = _shorten_embedded_ids(raw_content.replace("\n", " ").strip())
+            else:
+                content = _shorten_embedded_ids(str(raw_content))
+
+            if msg_type == "broadcast":
+                return f"{from_name} (broadcast): {content}"
+            if msg_type == "direct":
+                return f"{from_name} → {to_name}: {content}"
+            return f"{from_name}: {content}"
+
         if event_name == "ships.list":
             # Summarize fleet information for voice context (one line per ship)
             ships = payload.get("ships", [])
@@ -436,6 +472,75 @@ class VoiceTaskManager:
                     lines.append(self._format_ship_line(ship, include_id=True))
 
             return "\n".join(lines)
+
+        if event_name == "combat.action_accepted":
+            if not isinstance(payload, Mapping):
+                return event.get("summary")
+
+            round_value = payload.get("round")
+            round_display = str(round_value) if isinstance(round_value, int) else "?"
+            action = payload.get("action")
+            action_display = str(action).lower() if isinstance(action, str) else "unknown"
+            commit = payload.get("commit")
+            commit_display = (
+                f" commit {int(commit)}"
+                if isinstance(commit, (int, float)) and int(commit) > 0
+                else ""
+            )
+            target = payload.get("target_id")
+            target_display = (
+                f", target {_short_id(target) or target}"
+                if isinstance(target, str) and target.strip()
+                else ""
+            )
+            return (
+                f"Action accepted for round {round_display}: {action_display}{commit_display}{target_display}. "
+                f"Keep this acknowledgement brief."
+            )
+
+        if event_name == "combat.round_resolved":
+            if not isinstance(payload, Mapping):
+                return event.get("summary")
+
+            round_value = payload.get("round")
+            round_display = str(round_value) if isinstance(round_value, int) else "?"
+            result = payload.get("result") or payload.get("end") or "in_progress"
+            result_display = str(result)
+
+            own_fighter_loss = 0
+            own_shield_damage: float = 0.0
+            participants = payload.get("participants")
+            if isinstance(participants, list):
+                for participant in participants:
+                    if not isinstance(participant, Mapping):
+                        continue
+                    participant_id = participant.get("id")
+                    if participant_id != self.character_id:
+                        continue
+                    ship = participant.get("ship")
+                    if isinstance(ship, Mapping):
+                        fighter_loss = ship.get("fighter_loss")
+                        shield_damage = ship.get("shield_damage")
+                        if isinstance(fighter_loss, (int, float)):
+                            own_fighter_loss = max(0, int(fighter_loss))
+                        if isinstance(shield_damage, (int, float)):
+                            own_shield_damage = max(0.0, float(shield_damage))
+                    break
+
+            outcome_parts = []
+            if own_fighter_loss > 0:
+                outcome_parts.append(f"fighters lost {own_fighter_loss}")
+            else:
+                outcome_parts.append("no fighter losses")
+            if own_shield_damage > 0:
+                outcome_parts.append(f"shield damage {own_shield_damage:.1f}%")
+            else:
+                outcome_parts.append("no shield damage")
+
+            return (
+                f"Round {round_display} resolved: {result_display}; {', '.join(outcome_parts)}. "
+                "Focus on outcome and next choice; do not repeat prior action acknowledgement."
+            )
 
         # Fall back to standard summary
         return event.get("summary")
@@ -513,6 +618,251 @@ class VoiceTaskManager:
         if isinstance(ctx, Mapping):
             return ctx
         return None
+
+    def _is_character_in_combat_payload(self, payload: Any) -> bool:
+        if not isinstance(payload, Mapping):
+            return False
+        participants = payload.get("participants")
+        if isinstance(participants, list):
+            for participant in participants:
+                if not isinstance(participant, Mapping):
+                    continue
+                participant_id = participant.get("id")
+                if isinstance(participant_id, str) and participant_id == self.character_id:
+                    return True
+        return False
+
+    def _annotate_summary_with_combat_state(
+        self,
+        event_name: Optional[str],
+        summary: Any,
+        payload: Any,
+        combat_event_for_player: bool,
+        combat_start_announcement_required: bool = False,
+    ) -> Any:
+        if not event_name or event_name not in COMBAT_EVENT_ALLOWLIST:
+            return summary
+
+        combat_id = self._extract_combat_id(payload) or self._combat_priority_combat_id
+        round_number: Optional[int] = None
+        deadline: Optional[str] = None
+        if isinstance(payload, Mapping):
+            round_value = payload.get("round")
+            if isinstance(round_value, int):
+                round_number = round_value
+            deadline_value = payload.get("deadline")
+            if isinstance(deadline_value, str):
+                cleaned_deadline = deadline_value.strip()
+                if cleaned_deadline:
+                    deadline = cleaned_deadline
+
+        if event_name == "combat.ended":
+            state_line = (
+                "Combat state: your combat has ended."
+                if combat_event_for_player
+                else "Combat state: observed combat ended."
+            )
+        elif combat_event_for_player:
+            state_line = "Combat state: you are currently in active combat."
+        else:
+            state_line = "Combat state: this combat event is not your fight."
+
+        details: list[str] = []
+        if round_number is not None:
+            details.append(f"round {round_number}")
+        if combat_id:
+            details.append(f"combat_id {combat_id}")
+        if deadline and event_name == "combat.round_waiting":
+            details.append(f"deadline {deadline}")
+        if details:
+            state_line = f"{state_line} ({', '.join(details)})"
+
+        if event_name == "combat.round_waiting" and combat_event_for_player:
+            state_line += " Submit a combat action now."
+
+        announcement_line: Optional[str] = None
+        if event_name == "combat.round_waiting" and combat_start_announcement_required:
+            announcement_line = (
+                "Combat start directive: Start your next reply with one short sentence "
+                "announcing that combat has begun for the pilot."
+            )
+
+        prefix_lines = []
+        if announcement_line:
+            prefix_lines.append(announcement_line)
+        prefix_lines.append(state_line)
+        prefix = "\n".join(prefix_lines)
+
+        if isinstance(summary, str):
+            body = summary.strip()
+            return f"{prefix}\n{body}" if body else prefix
+        if isinstance(summary, Mapping):
+            return f"{prefix}\n{json.dumps(summary, ensure_ascii=False)}"
+        return f"{prefix}\n{summary}"
+
+    @staticmethod
+    def _extract_combat_id(payload: Any) -> Optional[str]:
+        if not isinstance(payload, Mapping):
+            return None
+        combat_id = payload.get("combat_id")
+        if isinstance(combat_id, str):
+            cleaned = combat_id.strip()
+            if cleaned:
+                return cleaned
+        return None
+
+    @staticmethod
+    def _extract_round_from_payload(payload: Any) -> Optional[int]:
+        if not isinstance(payload, Mapping):
+            return None
+        round_value = payload.get("round")
+        if isinstance(round_value, int):
+            return round_value
+        if isinstance(round_value, str) and round_value.strip().isdigit():
+            try:
+                return int(round_value.strip())
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _extract_deadline_from_payload(payload: Any) -> Optional[str]:
+        if not isinstance(payload, Mapping):
+            return None
+        deadline = payload.get("deadline")
+        if isinstance(deadline, str):
+            cleaned = deadline.strip()
+            return cleaned or None
+        return None
+
+    def _build_combat_waiting_signature(self, payload: Any) -> Optional[str]:
+        combat_id = self._extract_combat_id(payload)
+        round_number = self._extract_round_from_payload(payload)
+        deadline = self._extract_deadline_from_payload(payload)
+        if not combat_id or round_number is None:
+            return None
+        deadline_part = deadline or "none"
+        return f"{combat_id}:{round_number}:{deadline_part}"
+
+    def _is_duplicate_combat_waiting(self, signature: Optional[str]) -> bool:
+        if not signature:
+            return False
+        if self._last_combat_waiting_signature != signature:
+            self._last_combat_waiting_signature = signature
+            self._last_combat_waiting_seen_at = time.monotonic()
+            return False
+        now = time.monotonic()
+        if now - self._last_combat_waiting_seen_at <= COMBAT_WAITING_DUPLICATE_WINDOW_SECONDS:
+            self._last_combat_waiting_seen_at = now
+            return True
+        self._last_combat_waiting_seen_at = now
+        return False
+
+    @staticmethod
+    def _is_combat_event_xml(event_xml: str) -> bool:
+        return '<event name="combat.' in event_xml
+
+    def _should_interrupt_for_combat_waiting(self, combat_id: Optional[str]) -> bool:
+        if not self._combat_priority_active:
+            return True
+        if (
+            combat_id
+            and self._combat_priority_combat_id
+            and combat_id != self._combat_priority_combat_id
+        ):
+            return True
+        return False
+
+    async def _interrupt_active_turn_for_combat(self, combat_id: Optional[str]) -> None:
+        try:
+            await self.rtvi_processor.interrupt_bot()
+            logger.info(
+                "Combat start interrupt requested combat_id={}",
+                combat_id or "unknown",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to request combat start interruption combat_id={}",
+                combat_id or "unknown",
+            )
+
+    def _is_direct_recipient_event(self, ctx: Optional[Mapping[str, Any]]) -> bool:
+        recipient_reason = self._resolve_recipient_reason(ctx, self.character_id)
+        return recipient_reason in {"direct", "task_owner", "recipient"}
+
+    def _cancel_active_tasks_for_combat(self) -> list[str]:
+        cancelled_task_ids: list[str] = []
+        for task_id, task_info in self._active_tasks.items():
+            asyncio_task = task_info.get("asyncio_task")
+            task_agent = task_info.get("task_agent")
+            if not asyncio_task or asyncio_task.done() or not task_agent:
+                continue
+            if getattr(task_agent, "cancelled", False):
+                continue
+            task_agent.cancel()
+            cancelled_task_ids.append(task_id)
+        return cancelled_task_ids
+
+    def _prune_deferred_events_for_combat(self) -> int:
+        if not self._deferred_llm_events:
+            return 0
+        retained: deque[tuple[str, bool]] = deque()
+        dropped = 0
+        for event_xml, should_run_llm in self._deferred_llm_events:
+            if self._is_combat_event_xml(event_xml):
+                retained.append((event_xml, should_run_llm))
+            else:
+                dropped += 1
+        self._deferred_llm_events = retained
+        return dropped
+
+    def _activate_combat_priority(self, combat_id: Optional[str]) -> None:
+        if (
+            self._combat_priority_active
+            and self._combat_priority_combat_id
+            and combat_id
+            and self._combat_priority_combat_id != combat_id
+        ):
+            logger.info(
+                "Combat priority switched from {} to {}",
+                self._combat_priority_combat_id,
+                combat_id,
+            )
+        elif not self._combat_priority_active:
+            logger.info("Combat priority enabled combat_id={}", combat_id or "unknown")
+
+        self._combat_priority_active = True
+        if combat_id:
+            self._combat_priority_combat_id = combat_id
+
+        cancelled_tasks = self._cancel_active_tasks_for_combat()
+        dropped_deferred_events = self._prune_deferred_events_for_combat()
+        if cancelled_tasks:
+            logger.info(
+                "Combat priority cancelled tasks: {}",
+                ", ".join(cancelled_tasks),
+            )
+        if dropped_deferred_events:
+            logger.info(
+                "Combat priority dropped {} deferred non-combat events",
+                dropped_deferred_events,
+            )
+
+    def _deactivate_combat_priority(self, combat_id: Optional[str]) -> None:
+        if not self._combat_priority_active:
+            return
+        if (
+            combat_id
+            and self._combat_priority_combat_id
+            and combat_id != self._combat_priority_combat_id
+        ):
+            return
+        logger.info(
+            "Combat priority disabled combat_id={}",
+            self._combat_priority_combat_id or combat_id or "unknown",
+        )
+        self._combat_priority_active = False
+        self._combat_priority_combat_id = None
 
     @staticmethod
     def _resolve_recipient_reason(
@@ -706,6 +1056,33 @@ class VoiceTaskManager:
         payload = event.get("payload")
         event_request_id = event.get("request_id")
         clean_payload = self._strip_internal_event_metadata(payload)
+        combat_id = self._extract_combat_id(clean_payload)
+        event_context = self._extract_event_context(payload)
+        direct_recipient_event = self._is_direct_recipient_event(event_context)
+        combat_participant_payload = self._is_character_in_combat_payload(clean_payload)
+        combat_event_for_player = (
+            direct_recipient_event or combat_participant_payload or event_context is None
+        )
+        combat_start_announcement_required = False
+        duplicate_combat_waiting = False
+
+        if event_name == "combat.round_waiting":
+            if combat_event_for_player:
+                waiting_signature = self._build_combat_waiting_signature(clean_payload)
+                duplicate_combat_waiting = self._is_duplicate_combat_waiting(waiting_signature)
+            combat_start_announcement_required = combat_event_for_player and self._should_interrupt_for_combat_waiting(
+                combat_id
+            )
+            if combat_start_announcement_required:
+                await self._interrupt_active_turn_for_combat(combat_id)
+            if combat_event_for_player:
+                self._activate_combat_priority(combat_id)
+        elif event_name == "combat.round_resolved":
+            if combat_event_for_player:
+                self._activate_combat_priority(combat_id)
+        elif event_name == "combat.ended":
+            if combat_event_for_player:
+                self._deactivate_combat_priority(combat_id)
 
         # Onboarding: drop late mega-port check results
         if (
@@ -849,6 +1226,14 @@ class VoiceTaskManager:
             if sector_id is not None:
                 self._current_sector_id = sector_id
 
+        if duplicate_combat_waiting:
+            logger.debug(
+                "Skipping duplicate combat.round_waiting for LLM append event_name={} request_id={}",
+                event_name,
+                event_request_id,
+            )
+            return
+
         # Use voice-specific condensed summary for verbose events
         if event_name:
             event_for_summary = dict(event)
@@ -856,6 +1241,13 @@ class VoiceTaskManager:
             summary = self._get_voice_summary(str(event_name), event_for_summary) or clean_payload
         else:
             summary = clean_payload
+        summary = self._annotate_summary_with_combat_state(
+            event_name,
+            summary,
+            clean_payload,
+            combat_event_for_player,
+            combat_start_announcement_required,
+        )
 
         if not task_id:
             task_id = self._get_task_id_for_character(self.character_id)
@@ -866,7 +1258,6 @@ class VoiceTaskManager:
                 f"resolved_task_id={task_id} is_our_task={is_our_task}"
             )
 
-        event_context = self._extract_event_context(payload)
         is_task_lifecycle_event = event_name in {"task.start", "task.finish"}
         is_task_scoped_event = payload_task_id is not None
 
@@ -883,6 +1274,16 @@ class VoiceTaskManager:
         should_append = False
         if event_name == "map.update":
             should_append = False
+        elif event_name in COMBAT_EVENT_ALLOWLIST:
+            if event_context is None:
+                logger.warning(
+                    "voice.event_context.missing allowing critical combat event event_name={} request_id={}",
+                    event_name,
+                    event_request_id,
+                )
+                should_append = True
+            else:
+                should_append = combat_event_for_player
         elif is_task_lifecycle_event and is_our_task:
             should_append = True
         elif event_context is None:
@@ -895,14 +1296,10 @@ class VoiceTaskManager:
             return
         else:
             scope = event_context.get("scope")
-            recipient_reason = self._resolve_recipient_reason(
-                event_context,
-                self.character_id,
-            )
             is_direct_to_player = (
                 isinstance(scope, str)
                 and scope in {"direct", "self"}
-                and recipient_reason in {"direct", "task_owner"}
+                and direct_recipient_event
             )
             if is_direct_to_player:
                 if is_task_scoped_event:
@@ -916,10 +1313,12 @@ class VoiceTaskManager:
             return
 
         # Build event XML with optional task_id
+        event_attrs = [f'name="{event_name}"']
         if task_id:
-            event_xml = f'<event name="{event_name}" task_id="{task_id}">\n{summary}\n</event>'
-        else:
-            event_xml = f'<event name="{event_name}">\n{summary}\n</event>'
+            event_attrs.append(f'task_id="{task_id}"')
+        if event_name in COMBAT_EVENT_ALLOWLIST and combat_id:
+            event_attrs.append(f'combat_id="{combat_id}"')
+        event_xml = f"<event {' '.join(event_attrs)}>\n{summary}\n</event>"
 
         # Determine if this event should trigger LLM inference
         # Most events only trigger inference when they came from voice agent's own tool calls
@@ -929,7 +1328,7 @@ class VoiceTaskManager:
             "ports.list",  # list_known_ports results
             "course.plot",  # plot_course results
             "chat.message",  # Direct messages to bot
-            "combat.round_waiting",  # Need to submit combat action
+            "combat.action_accepted",  # Confirm submitted action
             "combat.round_resolved",  # Combat updates
             "combat.ended",  # Combat finished
             "error",  # Error messages
@@ -939,7 +1338,7 @@ class VoiceTaskManager:
         # These are external events the voice agent must respond to
         always_trigger_events = {
             "chat.message",  # Incoming messages from other players
-            "combat.round_waiting",  # Combat system waiting for action
+            "combat.action_accepted",  # Your action was accepted
             "combat.round_resolved",  # Combat round completed
             "combat.ended",  # Combat finished
             "ship.renamed",  # Corp ship renamed (want to know about all corp activity)
@@ -962,6 +1361,28 @@ class VoiceTaskManager:
             or ((event_name in inference_triggering_events) and is_voice_agent_event)
             or (event_name == "task.finish" and is_our_task)
         )
+
+        # Keep between-round prompts quiet; only announce when combat first starts.
+        # Subsequent spoken combat updates should come from action_accepted + round_resolved.
+        if event_name == "combat.round_waiting":
+            should_run_llm = combat_start_announcement_required
+
+        if (
+            should_run_llm
+            and self._combat_priority_active
+            and event_name
+            not in {
+                "combat.round_waiting",
+                "combat.action_accepted",
+                "combat.round_resolved",
+                "combat.ended",
+            }
+        ):
+            logger.debug(
+                "Suppressing non-combat run_llm while combat priority is active event={}",
+                event_name,
+            )
+            should_run_llm = False
         logger.debug(f"  should_run_llm: {should_run_llm}")
 
         # Onboarding: suppress initial inference, let _maybe_complete_onboarding trigger it

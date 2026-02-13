@@ -35,7 +35,7 @@ const columns: ColumnDef<MovementHistory>[] = [
     meta: { align: "center", width: "25%" },
     cell: ({ getValue }) => {
       const value = getValue() as string | null
-      return value ? formatTimeAgoOrDate(value) : "Discovered"
+      return <span className="uppercase">{value ? formatTimeAgoOrDate(value) : "Discovered"}</span>
     },
   },
 ]
@@ -44,14 +44,19 @@ export const MovementHistoryPanel = ({ className }: { className?: string }) => {
   const movementHistory = useGameStore((state) => state.movement_history)
   const reversedMovementHistory = useMemo(() => [...movementHistory].reverse(), [movementHistory])
 
+  if (reversedMovementHistory.length <= 0) {
+    return <BlankSlateTile text="No movement history" />
+  }
+
   return (
     <Card className={cn("flex h-full bg-background", className)} size="none">
-      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative">
+      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative px-0!">
         <DataTableScrollArea
           data={reversedMovementHistory}
           columns={columns}
           striped
-          className="text-background dither-mask-sm dither-mask-invert h-full"
+          className="text-background h-full"
+          classNames={{ table: "text-xxs" }}
         />
       </CardContent>
     </Card>
@@ -139,6 +144,7 @@ const buildPendingCombatRound = (combatSession: CombatSession): CombatRound => (
   offensive_losses: {},
   defensive_losses: {},
   shield_loss: {},
+  damage_mitigated: {},
   fighters_remaining: {},
   shields_remaining: {},
   flee_results: {},

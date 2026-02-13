@@ -13,12 +13,12 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
+from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.config import get_repo_root
 from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
-from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.task_agent import TaskAgent
 
-DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
+DEFAULT_MODEL = os.getenv("TASK_LLM_MODEL", "gemini-2.5-flash-preview-09-2025")
 
 logger.enable("pipecat")
 _log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
@@ -107,7 +107,7 @@ def _log_join_error(
     if "actor_character_id is required" in lower_detail:
         logger.info(
             "Provide a corporation member with --ship-id. "
-            "Example: uv run npc/run_npc.py corp-member --ship-id {} \"<task>\"",
+            'Example: uv run npc/run_npc.py corp-member --ship-id {} "<task>"',
             target_id,
         )
     elif "not authorized" in lower_detail:

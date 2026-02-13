@@ -1,6 +1,8 @@
 import { useCallback } from "react"
 
+import type { GameObject } from "@/types"
 import { useAnimationStore } from "@/useAnimationStore"
+import { useGameStore } from "@/useGameStore"
 
 export function useStarfieldEvent() {
   const animateImpact = useCallback(
@@ -11,6 +13,8 @@ export function useStarfieldEvent() {
       rampUpTime: number = 50,
       settleTime: number = 200
     ) => {
+      if (!useGameStore.getState().isReady) return
+
       useAnimationStore.getState().animations.shake?.start({
         duration: duration,
         strength: strength,
@@ -22,5 +26,15 @@ export function useStarfieldEvent() {
     []
   )
 
-  return { animateImpact }
+  const addGameObject = useCallback((gameObject: GameObject) => {
+    if (!useGameStore.getState().isReady) return
+    useGameStore.getState().addGameObject(gameObject)
+  }, [])
+
+  const removeGameObject = useCallback((id: string) => {
+    if (!useGameStore.getState().isReady) return
+    useGameStore.getState().removeGameObject(id)
+  }, [])
+
+  return { animateImpact, addGameObject, removeGameObject }
 }

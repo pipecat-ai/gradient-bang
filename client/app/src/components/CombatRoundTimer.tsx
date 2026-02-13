@@ -46,8 +46,8 @@ export const CombatRoundTimer = ({
   const shouldPulse = percent < 33 && percent > 0
 
   return (
-    <div className="relative flex-1 bg-background/80 combat-tile select-none">
-      <div className="absolute inset-y-0 flex flex-row items-center leading-none left-1/2 -translate-x-1/2 z-10 uppercase text-xs">
+    <div className="relative flex-1 bg-background/80 combat-timer select-none">
+      <div className="absolute inset-y-0 flex flex-row items-center leading-none left-1/2 -translate-x-1/2 z-50 uppercase text-xs">
         <div
           className={cn(
             "bg-background/20 inline-flex gap-1 py-0.5 px-1",

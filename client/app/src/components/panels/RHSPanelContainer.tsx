@@ -7,6 +7,7 @@ import { LogsPanel } from "@/components/panels/LogsPanel"
 import { PlayerPanel } from "@/components/panels/PlayerPanel"
 import { SectorPanel } from "@/components/panels/SectorPanel"
 import { TaskPanel } from "@/components/panels/TaskPanel"
+import { TaskStreamPanel } from "@/components/panels/TaskStreamPanel"
 import { TradePanel } from "@/components/panels/TradePanel"
 import { Button } from "@/components/primitives/Button"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
@@ -61,11 +62,24 @@ export const RHSSubPanel = ({
 export const RHSPanelContent = ({
   children,
   className,
+  noScroll = false,
 }: {
   children: React.ReactNode
   className?: string
+  /** When true, fills the container without wrapping in a ScrollArea. Use for panels that manage their own scrolling. */
+  noScroll?: boolean
 }) => {
-  return <div className={cn("flex flex-col gap-ui-sm w-full pb-12", className)}>{children}</div>
+  if (noScroll) {
+    return (
+      <div className={cn("flex flex-col w-full h-full min-h-0", className)}>{children}</div>
+    )
+  }
+
+  return (
+    <ScrollArea className="w-full h-full">
+      <div className={cn("flex flex-col gap-ui-sm w-full pb-12", className)}>{children}</div>
+    </ScrollArea>
+  )
 }
 
 export const RHSPanelContainer = () => {
@@ -78,13 +92,14 @@ export const RHSPanelContainer = () => {
       className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/40 border-t border-l"
       id="panel-container"
     >
-      <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert pointer-events-none" />
+      {activePanel !== "task_stream" && (
+        <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert pointer-events-none" />
+      )}
 
-      <ScrollArea
-        disabled={activeSubPanel !== undefined || activePanel === "logs"}
+      <div
         className={cn(
-          "w-full h-full pointer-events-auto text-foreground",
-          activeSubPanel && "pointer-events-none overflow-hidden [&>div]:overflow-hidden!"
+          "w-full h-full pointer-events-auto text-foreground overflow-hidden",
+          activeSubPanel && "pointer-events-none"
         )}
       >
         {activePanel === "logs" && <LogsPanel />}
@@ -93,7 +108,8 @@ export const RHSPanelContainer = () => {
         {activePanel === "trade" && <TradePanel />}
         {activePanel === "tasks" && <TaskPanel />}
         {activePanel === "corp" && <div className=""></div>}
-      </ScrollArea>
+        {activePanel === "task_stream" && <TaskStreamPanel />}
+      </div>
       <div
         className={cn("absolute inset-0 bg-background/50 z-8", activeSubPanel ? "block" : "hidden")}
         onClick={() => setActiveSubPanel(undefined)}

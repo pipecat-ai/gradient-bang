@@ -49,7 +49,7 @@ export const MapLegendLane = ({ oneway = false, className }: MapLegendLaneProps)
 
 export const MapLegend = () => {
   return (
-    <div className="text-muted-foreground flex flex-row items-center gap-3 text-xs uppercase font-bold border bg-card/60 w-fit p-ui-xs">
+    <div className="text-muted-foreground flex flex-row items-center gap-2 text-xs uppercase border bg-card/60 w-fit py-ui-xxs px-ui-xs">
       <div className="inline-flex items-center gap-1">
         <MapLegendNode fillColor="#042f2e" borderColor="#5eead4" /> Federation Space
       </div>
@@ -81,11 +81,11 @@ export const MapLegend = () => {
       <DotDivider />
       <div className="inline-flex items-center gap-1">
         <MapLegendLane oneway={true} className="text-white" />
-        One-way Lane
+        One-way
       </div>
       <div className="inline-flex items-center gap-1">
         <MapLegendLane oneway={false} className="text-white" />
-        Two-way Lane
+        Two-way
       </div>
     </div>
   )

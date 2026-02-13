@@ -1,11 +1,6 @@
 import { useMemo } from "react"
 
-import {
-  ArrowRightIcon,
-  ArrowUpLeftIcon,
-  SphereIcon,
-  WarningDiamondIcon,
-} from "@phosphor-icons/react"
+import { ArrowRightIcon } from "@phosphor-icons/react"
 
 import useGameStore from "@/stores/game"
 import { calculateHopsRemaining } from "@/utils/game"
@@ -13,13 +8,14 @@ import { cn } from "@/utils/tailwind"
 
 import { PortBadge } from "../PortBadge"
 import { Badge } from "../primitives/Badge"
-import { Button } from "../primitives/Button"
 import { Card, CardContent } from "../primitives/Card"
 import { SectorBadge } from "../SectorBadge"
 import SectorMap, { type MapConfig } from "../SectorMap"
 
 const MINIMAP_CONFIG: MapConfig = {
-  hoverable: false,
+  hoverable: true,
+  show_sector_ids: false,
+  show_sector_ids_hover: true,
   uiStyles: {
     edgeFeather: {
       size: 90,
@@ -39,12 +35,10 @@ const MAX_DISTANCE = 4
 
 export const MiniMapPanel = ({ className }: { className?: string }) => {
   const uiState = useGameStore.use.uiState()
-  const setActiveScreen = useGameStore.use.setActiveScreen?.()
   const sector = useGameStore((state) => state.sector)
   const localMapData = useGameStore((state) => state.local_map_data)
   const ships = useGameStore.use.ships?.()
   const coursePlot = useGameStore.use.course_plot?.()
-  const setLookMode = useGameStore.use.setLookMode?.()
   const shipSectors = ships?.data
     ?.filter((s: ShipSelf) => s.owner_type !== "personal")
     .map((s: ShipSelf) => s.sector ?? 0)
@@ -57,40 +51,19 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
   return (
     <div
       className={cn(
-        "group relative elbow elbow-foreground/0 h-full",
+        "group relative h-full",
         className,
-        uiState === "combat" ? "pointer-events-none" : (
-          "pointer-events-auto hover:elbow-foreground/100"
-        )
+        uiState === "combat" ? "pointer-events-none" : "pointer-events-auto"
       )}
     >
       <div
         className={cn(
-          "absolute inset-0 flex items-center justify-center opacity-0 pointer-events-auto transition-opacity duration-600 ease-in-out z-10",
+          "absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-600 ease-in-out z-10",
           uiState === "combat" ?
             "pointer-events-none group-hover:pointer-events-none group-hover:opacity-0 "
           : "pointer-events-auto group-hover:opacity-100 group-hover:pointer-events-auto "
         )}
-      >
-        <div className="bg-background/60 p-4 flex flex-col gap-1 shrink-0">
-          <Button
-            variant="outline"
-            className="shrink-0 bg-background hover:bg-accent-background"
-            onClick={() => setActiveScreen("map")}
-          >
-            <ArrowUpLeftIcon size={20} className="size-5" />
-            <span className="flex-1 text-xs px-4">View map</span>
-          </Button>
-          <Button
-            variant="outline"
-            className="shrink-0 bg-background hover:bg-accent-background"
-            onClick={() => setLookMode(true)}
-          >
-            <SphereIcon size={20} className="size-5" />
-            <span className="flex-1 text-xs px-4">Look around</span>
-          </Button>
-        </div>
-      </div>
+      ></div>
       <Badge
         variant="secondary"
         border="elbow"
@@ -132,20 +105,8 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
           ships={shipSectors}
           map_data={localMapData ?? []}
         />
-        {uiState === "combat" && (
-          <div className="animate-in fade-in-0 duration-1000 absolute inset-x-0 top-0 bottom-14 z-2 cross-lines-subtle pointer-events-none text-destructive-foreground flex flex-col items-center justify-center">
-            <div className="relative z-10 bg-destructive-background/70 text-center px-ui-sm py-ui-xs">
-              <WarningDiamondIcon
-                size={32}
-                className="text-destructive mx-auto mb-1"
-                weight="duotone"
-              />
-              <span className="text-xs uppercase font-bold mx-auto">Combat engaged</span>
-            </div>
-          </div>
-        )}
       </div>
-      <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 z-2">
+      <div className="absolute left-1.5 bottom-1.5 right-0 flex flex-col gap-1.5 z-2">
         <div className="h-[6px] dashed-bg-horizontal dashed-bg-foreground/30 shrink-0" />
         <div className="flex flex-row gap-1.5">
           <SectorBadge />

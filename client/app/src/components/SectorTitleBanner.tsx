@@ -186,7 +186,7 @@ export const SectorTitleBanner = () => {
             <div className="dotted-bg-sm dotted-bg-subtle self-stretch w-[160px]" />
           </div>
           {showSubBadge && (
-            <div className="flex flex-row w-fit mx-auto gap-3 items-center text-sm font-semibold uppercase mt-2 px-2 py-0.5 text-subtle-foreground bg-accent-background/70">
+            <div className="flex flex-row w-fit mx-auto gap-3 items-center text-sm font-semibold uppercase mt-2 px-2 py-0.5 text-subtle-foreground bg-background/70">
               <Divider className="w-8 bg-subtle" />
               {sector.players && sector.players.length > 0 && (
                 <>

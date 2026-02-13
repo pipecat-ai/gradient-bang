@@ -82,7 +82,7 @@ export const COMBAT_ROUND_WAITING_PAYLOAD_MOCK: CombatRoundWaitingMessage = {
   sector: { id: SECTOR_ID },
   round: 1,
   current_time: "2026-02-06T22:14:01.002Z",
-  deadline: "2026-02-06T22:14:16.002Z",
+  deadline: "2026-02-06T22:14:31.002Z",
   initiator: "Captain Vega",
   participants: COMBAT_PARTICIPANTS,
   garrison: COMBAT_GARRISON,
@@ -129,6 +129,11 @@ export const COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK: CombatRoundResolvedMessage = {
     [OPPONENT_ID]: 23,
     [GARRISON_COMBATANT_ID]: 0,
   },
+  damage_mitigated: {
+    [PLAYER_ID]: 48,
+    [OPPONENT_ID]: 12,
+    [GARRISON_COMBATANT_ID]: 0,
+  },
   fighters_remaining: {
     [PLAYER_ID]: 3290,
     [OPPONENT_ID]: 1670,
@@ -147,7 +152,7 @@ export const COMBAT_ROUND_RESOLVED_PAYLOAD_MOCK: CombatRoundResolvedMessage = {
   end: null,
   result: null,
   round_result: null,
-  deadline: "2026-02-06T22:14:16.002Z",
+  deadline: "2026-02-06T22:14:31.002Z",
   participants: [
     {
       ...COMBAT_PARTICIPANTS[0],
@@ -250,6 +255,7 @@ export const COMBAT_ENDED_PAYLOAD_MOCK: CombatEndedMessage = {
       offensive_losses: { [PLAYER_ID]: 30, [OPPONENT_ID]: 0 },
       defensive_losses: { [PLAYER_ID]: 0, [OPPONENT_ID]: 350 },
       shield_loss: { [PLAYER_ID]: 0, [OPPONENT_ID]: 180 },
+      damage_mitigated: { [PLAYER_ID]: 9, [OPPONENT_ID]: 0 },
       result: "Rook AI_defeated",
       timestamp: "2026-02-06T22:15:01.400Z",
     },

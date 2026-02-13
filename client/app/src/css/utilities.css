@@ -89,6 +89,62 @@
   }
 }
 
+@utility bracket-left {
+  position: relative;
+  overflow: visible;
+
+  --bracket-color: white;
+  --bracket-width: 1px;
+  --bracket-opacity: 1;
+  --bracket-size: 10px;
+  --bracket-offset: 6px;
+
+  &:after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--bracket-offset) * -1);
+    transition: all 0.5s ease-in-out;
+    background: 
+        /* Left vertical line (full height) */
+      linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
+        var(--bracket-width) 100% no-repeat,
+      /* Top-left horizontal cap */ linear-gradient(var(--bracket-color), var(--bracket-color)) top
+        0 left 0 / var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Bottom-left horizontal cap */ linear-gradient(var(--bracket-color), var(--bracket-color))
+        bottom 0 left 0 / var(--bracket-size) var(--bracket-width) no-repeat;
+    pointer-events: none;
+    opacity: var(--bracket-opacity);
+  }
+}
+
+@utility bracket-right {
+  position: relative;
+  overflow: visible;
+
+  --bracket-color: white;
+  --bracket-width: 1px;
+  --bracket-opacity: 1;
+  --bracket-size: 10px;
+  --bracket-offset: 6px;
+
+  &:after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--bracket-offset) * -1);
+    transition: all 0.5s ease-in-out;
+    background: 
+      /* Right vertical line (full height) */
+      linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right 0 /
+        var(--bracket-width) 100% no-repeat,
+      /* Top-right horizontal cap */ linear-gradient(var(--bracket-color), var(--bracket-color)) top
+        0 right 0 / var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Bottom-right horizontal cap */ linear-gradient(var(--bracket-color), var(--bracket-color))
+        bottom 0 right 0 / var(--bracket-size) var(--bracket-width) no-repeat;
+    pointer-events: none;
+    opacity: var(--bracket-opacity);
+  }
+}
+
 @utility bracket-vertical {
   &:after {
     content: "";

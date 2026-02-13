@@ -2,69 +2,39 @@
 
 import * as React from "react"
 
-import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
-
 import { cn } from "@/utils/tailwind"
 
 function ScrollArea({
   disabled = false,
   className,
   children,
-  fullHeight = false,
-  classNames,
   onScroll,
+  viewportRef,
   ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
-  fullHeight?: boolean
+}: React.ComponentProps<"div"> & {
   disabled?: boolean
+  /** @deprecated No longer used — scrollbar styling is handled via CSS. Kept for backwards compatibility. */
   classNames?: { scrollbar?: string }
   onScroll?: React.UIEventHandler<HTMLDivElement>
+  /** Ref forwarded to the viewport element (the actual scrollable container) */
+  viewportRef?: React.Ref<HTMLDivElement>
 }) {
   return (
-    <ScrollAreaPrimitive.Root
+    <div
       data-slot="scroll-area"
-      className={cn("relative", className)}
+      className={cn("relative overflow-hidden", className)}
       {...props}
     >
-      <ScrollAreaPrimitive.Viewport
+      <div
+        ref={viewportRef}
         data-slot="scroll-area-viewport"
-        className={cn(
-          "focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1",
-          fullHeight && "[&>div]:min-h-full"
-        )}
+        className={cn("size-full", disabled ? "overflow-hidden" : "overflow-auto")}
         onScroll={onScroll}
       >
         {children}
-      </ScrollAreaPrimitive.Viewport>
-      {!disabled && <ScrollBar className={classNames?.scrollbar} />}
-      <ScrollAreaPrimitive.Corner />
-    </ScrollAreaPrimitive.Root>
+      </div>
+    </div>
   )
 }
 
-function ScrollBar({
-  className,
-  orientation = "vertical",
-  ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>) {
-  return (
-    <ScrollAreaPrimitive.ScrollAreaScrollbar
-      data-slot="scroll-area-scrollbar"
-      orientation={orientation}
-      className={cn(
-        "flex touch-none p-(--scrollbar-offset) transition-colors select-none z-20 *:first:bg-white/30",
-        orientation === "vertical" && "h-full w-scrollbar border-l border-l-transparent",
-        orientation === "horizontal" && "h-scrollbar flex-col border-t border-t-transparent",
-        className
-      )}
-      {...props}
-    >
-      <ScrollAreaPrimitive.ScrollAreaThumb
-        data-slot="scroll-area-thumb"
-        className="bg-border relative flex-1 hover:bg-white"
-      />
-    </ScrollAreaPrimitive.ScrollAreaScrollbar>
-  )
-}
-
-export { ScrollArea, ScrollBar }
+export { ScrollArea }

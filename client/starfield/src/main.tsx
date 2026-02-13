@@ -30,6 +30,11 @@ export const App = () => {
           type: "port",
           label: "bbs",
         },
+        {
+          id: "ship-1",
+          type: "ship",
+          label: "ship-1",
+        },
       ],
       config: {
         palette: "cosmicTeal",

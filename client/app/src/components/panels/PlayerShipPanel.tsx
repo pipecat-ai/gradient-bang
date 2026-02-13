@@ -182,10 +182,16 @@ const PlayerShip = () => {
         </div>
         <div className="flex-1 h-3 dashed-bg-horizontal dashed-bg-accent"></div>
       </div>
-      <div className="flex flex-row gap-1.5 items-center select-none">
-        <PlayerShipFuelBadge className="flex-1" />
-        <PlayerFightersBadge className="flex-1" />
-        <PlayerShieldsBadge className="flex-1" />
+      <div className="flex flex-row items-center select-none divide-x divide-transparent">
+        <div className="flex-1">
+          <PlayerShipFuelBadge className="w-full" />
+        </div>
+        <div className="flex-1">
+          <PlayerFightersBadge className="w-full" />
+        </div>
+        <div className="flex-1">
+          <PlayerShieldsBadge className="w-full" />
+        </div>
       </div>
     </div>
   )

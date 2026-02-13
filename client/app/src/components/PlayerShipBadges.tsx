@@ -53,13 +53,18 @@ const StatBadge = ({
       border="elbow"
       size="sm"
       variant="secondary"
-      className={cn("flex-col gap-1.5 items-start py-1.5 text-xs", className)}
+      className={cn("elbow-offset-0 flex-col gap-1.5 items-start py-1.5 text-xs", className)}
     >
       <div className="flex flex-row gap-2 items-center justify-between w-full">
         <span className="text-xs font-bold leading-none">{label}</span>
-        <div className="text-xs text-subtle-foreground leading-none">
+        <div
+          className={cn(
+            "text-subtle-foreground leading-none",
+            maxValue > 999 ? "text-xxs" : "text-xs"
+          )}
+        >
           {value}
-          <span className="text-subtle/60 leading-none"> / </span>
+          <span className="text-subtle/60 leading-none px-1">/</span>
           {maxValue}
         </div>
       </div>

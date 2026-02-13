@@ -6,12 +6,28 @@ import { SHIP_DEFINITIONS } from "@/types/ships"
 const PLAYER_TYPES: PlayerType[] = ["human", "npc", "corporation_ship"]
 
 const CORP_NAME_PREFIXES = [
-  "Stellar", "Quantum", "Nova", "Apex", "Void",
-  "Nebula", "Crimson", "Shadow", "Iron", "Obsidian",
+  "Stellar",
+  "Quantum",
+  "Nova",
+  "Apex",
+  "Void",
+  "Nebula",
+  "Crimson",
+  "Shadow",
+  "Iron",
+  "Obsidian",
 ]
 const CORP_NAME_SUFFIXES = [
-  "Industries", "Syndicate", "Collective", "Corp", "Alliance",
-  "Trading Co.", "Enterprises", "Holdings", "Group", "Federation",
+  "Industries",
+  "Syndicate",
+  "Collective",
+  "Corp",
+  "Alliance",
+  "Trading Co.",
+  "Enterprises",
+  "Holdings",
+  "Group",
+  "Federation",
 ]
 
 export function createRandomCorporation(): Corporation {
@@ -34,17 +50,13 @@ export function createRandomPlayer(): Player {
   const id = faker.string.uuid()
   const shipDef = pickRandomShipDef()
   const name =
-    playerType === "corporation_ship"
-      ? `Corp Ship [${id.slice(0, 6)}]`
-      : faker.person.fullName()
+    playerType === "corporation_ship" ? `Corp Ship [${id.slice(0, 6)}]` : faker.person.fullName()
 
   // Corp ships always have a corporation, humans sometimes do, NPCs never
   const hasCorp =
-    playerType === "corporation_ship"
-      ? true
-      : playerType === "human"
-        ? faker.datatype.boolean()
-        : false
+    playerType === "corporation_ship" ? true
+    : playerType === "human" ? faker.datatype.boolean()
+    : false
 
   return {
     id,
@@ -58,11 +70,9 @@ export function createRandomPlayer(): Player {
       fighters: faker.number.int({ min: 0, max: shipDef.fighters }),
       shields: faker.number.int({ min: 0, max: shipDef.shields }),
       owner_type:
-        playerType === "corporation_ship"
-          ? "corporation"
-          : playerType === "npc"
-            ? "personal"
-            : "personal",
+        playerType === "corporation_ship" ? "corporation"
+        : playerType === "npc" ? "personal"
+        : "personal",
     },
   }
 }
@@ -255,7 +265,7 @@ export const PLAYER_MOVEMENT_HISTORY_MOCK: CharacterMovedMessage = {
     id: "f1b61393-5975-43dd-83ba-9bf042fcf465",
     name: "Corp Ship [f1b613]",
   },
-  sector: 1611,
+  sector: 0,
 
   movement: "arrive",
   move_type: "normal",

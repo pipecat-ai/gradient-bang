@@ -43,18 +43,32 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
   getTaskOutputsByTaskId: (taskId: string) => get().taskOutputs[taskId] ?? [],
   getTaskOutputs: () => get().taskOutputs,
   removeTaskOutputsByTaskId: (taskId: string) =>
-    set((state) => {
-      const { [taskId]: _, ...rest } = state.taskOutputs
-      return { taskOutputs: rest }
-    }),
+    set(
+      produce((state) => {
+        delete state.taskOutputs[taskId]
+      })
+    ),
 
-  addActiveTask: (task: ActiveTask) =>
+  addActiveTask: (task: ActiveTask) => {
     set(
       produce((state) => {
         state.activeTasks[task.task_id] = task
         state.taskInProgress = true
+        if (task.task_scope === "player_ship") {
+          state.localTaskId = task.task_id
+        }
       })
-    ),
+    )
+    if (task.task_scope === "corp_ship") {
+      const ships = (get() as unknown as Record<string, unknown>).ships as {
+        data?: ShipSelf[]
+      }
+      const corpShipCount =
+        ships.data?.filter((ship) => ship.owner_type === "corporation").length ?? 0
+      const maxSlots = Math.min(corpShipCount, 3)
+      get().assignTaskToCorpSlot(task.task_id, maxSlots)
+    }
+  },
 
   removeActiveTask: (taskId: string) =>
     set(
