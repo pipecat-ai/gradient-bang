@@ -50,3 +50,8 @@ venv.bak/
 # Deployment
 deployment/pcc-deploy.toml
 khk-notes.txt
+
+# Local runtime artifacts / large scratch trees
+bot.log.example
+tmp.bot.log
+pipecat-core-code/
