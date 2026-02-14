@@ -9,7 +9,7 @@
  * - Early-exit when nothing meaningful changed avoids unnecessary canvas ops
  * - Config stabilized via JSON to handle inline object props
  */
-import { memo, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { deepmerge } from "deepmerge-ts"
 import { ErrorBoundary } from "react-error-boundary"
@@ -24,6 +24,7 @@ import type {
   UIStyles,
 } from "@/fx/map/SectorMapFX"
 import { createSectorMapController, DEFAULT_SECTORMAP_CONFIG } from "@/fx/map/SectorMapFX"
+import { getViewportFetchBounds } from "@/utils/map"
 
 import { Button } from "./primitives/Button"
 
@@ -62,7 +63,8 @@ interface MapProps {
   onNodeClick?: (node: MapSectorNode | null) => void
   onNodeEnter?: (node: MapSectorNode) => void
   onNodeExit?: (node: MapSectorNode) => void
-  onMapFetch?: (centerSectorId: number) => void
+  onMapFetch?: (centerSectorId: number, bounds: number) => void
+  onViewportSizeChange?: (width: number, height: number) => void
   /** World-coordinate center override (zoomMode). Undefined for boundMode. */
   center_world?: [number, number]
   /** World-coordinate bounding box override (zoomMode). Undefined for boundMode. */
@@ -83,15 +85,46 @@ const tuplesEqual = (a?: number[], b?: number[]): boolean => {
 
 const RESIZE_DELAY = 300
 
+const getPortCode = (port: MapSectorNode["port"]): string => {
+  if (!port) return ""
+  if (typeof port === "string") return port
+  return port.code ?? ""
+}
+
+const getLaneSignature = (node: MapSectorNode): string => {
+  if (!node.lanes || node.lanes.length === 0) return ""
+  return node.lanes
+    .map((lane) => JSON.stringify(lane))
+    .sort()
+    .join("|")
+}
+
+const sectorsEquivalentForRender = (a: MapSectorNode, b: MapSectorNode): boolean => {
+  if (a.position[0] !== b.position[0] || a.position[1] !== b.position[1]) return false
+  if (a.visited !== b.visited) return false
+  if (a.source !== b.source) return false
+  if (a.region !== b.region) return false
+  if (a.hops_from_center !== b.hops_from_center) return false
+  if (a.last_visited !== b.last_visited) return false
+  if (getPortCode(a.port) !== getPortCode(b.port)) return false
+  if (getLaneSignature(a) !== getLaneSignature(b)) return false
+  return true
+}
+
 const mapTopologyChanged = (previous: MapData | null, next: MapData): boolean => {
   if (!previous) return true
   if (previous.length !== next.length) return true
 
-  // Only check if the set of sector IDs changed, not view-relative properties like hops_from_center
-  const previousIds = new Set(previous.map((sector) => sector.id))
+  const previousById = new Map<number, MapSectorNode>(
+    previous.map((sector) => [sector.id, sector] as const)
+  )
 
-  for (const sector of next) {
-    if (!previousIds.has(sector.id)) {
+  for (const nextSector of next) {
+    const previousSector = previousById.get(nextSector.id)
+    if (!previousSector) {
+      return true
+    }
+    if (!sectorsEquivalentForRender(previousSector, nextSector)) {
       return true
     }
   }
@@ -105,63 +138,10 @@ const courseplotsEqual = (
 ): boolean => {
   if (a === b) return true
   if (!a || !b) return false
-  return a.from_sector === b.from_sector && a.to_sector === b.to_sector
-}
-
-/**
- * Check if we have enough map data to display a view centered on the given sector.
- * Uses spatial distance (position vector) to find sectors within bounds,
- * then checks if any visible sector has lanes to sectors that SHOULD be visible
- * but are missing from our cache.
- */
-const hasEnoughMapData = (
-  mapData: MapData,
-  centerSectorId: number,
-  maxDistance: number
-): boolean => {
-  const sectorIds = new Set(mapData.map((s) => s.id))
-  const sectorMap = new Map(mapData.map((s) => [s.id, s]))
-
-  // Center must exist in our data
-  const centerSector = sectorMap.get(centerSectorId)
-  if (!centerSector) return false
-
-  const centerPos = centerSector.position
-
-  // Find all sectors within spatial bounds of center (using position vector)
-  const visibleSectors = mapData.filter((sector) => {
-    const dx = sector.position[0] - centerPos[0]
-    const dy = sector.position[1] - centerPos[1]
-    const distance = Math.sqrt(dx * dx + dy * dy)
-    return distance <= maxDistance
-  })
-
-  // Check if any visible sector has lanes to sectors that:
-  // 1. Are NOT in our cache, AND
-  // 2. WOULD be within our spatial bounds (if we knew their position)
-  // Since we don't know positions of missing sectors, we check if the lane
-  // destination exists in cache - if it does, we can verify it's covered.
-  // If it doesn't exist but the SOURCE sector is well inside our bounds
-  // (not at the edge), then we're missing interior data.
-  for (const sector of visibleSectors) {
-    const sectorDx = sector.position[0] - centerPos[0]
-    const sectorDy = sector.position[1] - centerPos[1]
-    const sectorDistance = Math.sqrt(sectorDx * sectorDx + sectorDy * sectorDy)
-
-    // Only check lanes from "inner" sectors (not at the edge of our bounds)
-    // Edge sectors are expected to have lanes pointing outside
-    const isInnerSector = sectorDistance <= maxDistance * 0.7
-
-    if (isInnerSector) {
-      for (const lane of sector.lanes) {
-        if (!sectorIds.has(lane.to)) {
-          // Inner sector has lane to unknown sector - likely missing data
-          return false
-        }
-      }
-    }
+  if (a.path.length !== b.path.length) return false
+  for (let i = 0; i < a.path.length; i++) {
+    if (a.path[i] !== b.path[i]) return false
   }
-
   return true
 }
 
@@ -179,6 +159,7 @@ const MapComponent = ({
   onNodeEnter,
   onNodeExit,
   onMapFetch,
+  onViewportSizeChange,
   center_world,
   fit_bounds_world,
   mapFitEpoch,
@@ -225,30 +206,27 @@ const MapComponent = ({
     fit_bounds_world
   )
   const lastMapFitEpochRef = useRef<number | undefined>(mapFitEpoch)
-  const maxZoomFetchedRef = useRef<Map<number, number>>(new Map())
+  const pendingControllerCleanupRef = useRef<number | null>(null)
 
   const [measuredSize, setMeasuredSize] = useState<{
     width: number
     height: number
   } | null>(null)
 
-  // Track whether the controller has completed its first render with data.
-  // Uses a ref (not state) to avoid cascading renders and effect destabilization.
-  // The canvas opacity is set imperatively via the DOM when this flips to true.
-  const hasRenderedRef = useRef(false)
-
   const isAutoSizing = width === undefined && height === undefined
-  const isWaitingForMeasurement = isAutoSizing && measuredSize === null
+  const hasValidMeasurement =
+    measuredSize !== null && measuredSize.width > 0 && measuredSize.height > 0
+  const isWaitingForMeasurement = isAutoSizing && !hasValidMeasurement
 
   // Memoize effective dimensions to prevent unnecessary effect triggers
   const effectiveWidth = useMemo(
-    () => width ?? measuredSize?.width ?? 440,
-    [width, measuredSize?.width]
+    () => width ?? (hasValidMeasurement ? measuredSize.width : 440),
+    [width, hasValidMeasurement, measuredSize]
   )
 
   const effectiveHeight = useMemo(
-    () => height ?? measuredSize?.height ?? 440,
-    [height, measuredSize?.height]
+    () => height ?? (hasValidMeasurement ? measuredSize.height : 440),
+    [height, hasValidMeasurement, measuredSize]
   )
 
   const lastDimensionsRef = useRef<{ width: number; height: number }>({
@@ -268,6 +246,17 @@ const MapComponent = ({
     >
   }, [configKey])
 
+  // Synchronously sample initial size to avoid rendering visible 440x440 fallback.
+  useLayoutEffect(() => {
+    if (!isAutoSizing || measuredSize !== null) return
+    const container = containerRef.current
+    if (!container) return
+    const { width: measuredWidth, height: measuredHeight } = container.getBoundingClientRect()
+    if (measuredWidth > 0 && measuredHeight > 0) {
+      setMeasuredSize({ width: measuredWidth, height: measuredHeight })
+    }
+  }, [isAutoSizing, measuredSize])
+
   // ResizeObserver effect for auto-sizing
   useEffect(() => {
     if (!isAutoSizing || !containerRef.current) return
@@ -280,9 +269,14 @@ const MapComponent = ({
       timeoutId = window.setTimeout(() => {
         const entry = entries[0]
         if (entry) {
-          const { width, height } = entry.contentRect
-          console.debug("[GAME SECTOR MAP] Resizing", { width, height })
-          setMeasuredSize({ width, height })
+          const { width: measuredWidth, height: measuredHeight } = entry.contentRect
+          if (measuredWidth > 0 && measuredHeight > 0) {
+            console.debug("[GAME SECTOR MAP] Resizing", {
+              width: measuredWidth,
+              height: measuredHeight,
+            })
+            setMeasuredSize({ width: measuredWidth, height: measuredHeight })
+          }
         }
       }, RESIZE_DELAY)
     })
@@ -315,14 +309,32 @@ const MapComponent = ({
         width: effectiveWidth,
         height: effectiveHeight,
       })
+      // Resizing should be a non-animated camera recompute; avoid move animations.
       controller.render()
+
+      // Ensure map cache covers the resized viewport envelope.
+      const requiredBounds = getViewportFetchBounds(maxDistance, effectiveWidth, effectiveHeight)
+      onMapFetch?.(center_sector_id, requiredBounds)
 
       lastDimensionsRef.current = {
         width: effectiveWidth,
         height: effectiveHeight,
       }
     }
-  }, [effectiveWidth, effectiveHeight])
+  }, [
+    effectiveWidth,
+    effectiveHeight,
+    center_sector_id,
+    normalizedMapData,
+    maxDistance,
+    onMapFetch,
+  ])
+
+  useEffect(() => {
+    if (effectiveWidth > 0 && effectiveHeight > 0) {
+      onViewportSizeChange?.(effectiveWidth, effectiveHeight)
+    }
+  }, [onViewportSizeChange, effectiveWidth, effectiveHeight])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -364,13 +376,6 @@ const MapComponent = ({
       lastCenterWorldRef.current = center_world
       lastFitBoundsWorldRef.current = fit_bounds_world
       lastMapFitEpochRef.current = mapFitEpoch
-      maxZoomFetchedRef.current.set(center_sector_id, maxDistance)
-
-      // Trigger CSS fade-in once the first render with data completes
-      if (!hasRenderedRef.current && normalizedMapData.length > 0) {
-        hasRenderedRef.current = true
-        canvas.style.opacity = "1"
-      }
       return
     }
 
@@ -427,73 +432,53 @@ const MapComponent = ({
       ships: shipsMap,
     })
 
-    // World-coordinate overrides changed (zoomMode) -- animate camera reframe
-    if (centerWorldChanged || fitBoundsWorldChanged || mapFitEpochChanged) {
-      console.debug("%c[SectorMap] Zoom reframe", "color: red; font-weight: bold", {
-        center_world,
-        fit_bounds_world,
-        mapFitEpoch,
-      })
-      if (needsConfigUpdate) {
-        controller.updateProps({ config: fullConfig })
-      }
-      controller.moveToSector(center_sector_id, normalizedMapData)
-    } else if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
-      let skipReframe = false
-      const hasEnough = hasEnoughMapData(normalizedMapData, center_sector_id, maxDistance)
-      const prevMax = maxZoomFetchedRef.current.get(center_sector_id) ?? 0
-      const needsFetchByZoom = maxDistance > prevMax
-      const needsFetchByTopology = !hasEnough
+    const reframeRequested =
+      centerSectorChanged ||
+      centerWorldChanged ||
+      fitBoundsWorldChanged ||
+      maxDistanceChanged ||
+      mapFitEpochChanged
 
-      // Trigger fetch when USER changes center OR zoom level (not on topology updates)
-      // This prevents recursion: action → fetch → topology changes → fetch → ...
-      if (
-        (centerSectorChanged || maxDistanceChanged) &&
-        (needsFetchByZoom || needsFetchByTopology)
-      ) {
-        const targetSector = normalizedMapData.find((s) => s.id === center_sector_id)
-        const canFetch = targetSector?.visited === true
+    if (reframeRequested) {
+      const requiredBounds = getViewportFetchBounds(maxDistance, effectiveWidth, effectiveHeight)
+      const viewportIntentChanged =
+        centerSectorChanged ||
+        centerWorldChanged ||
+        fitBoundsWorldChanged ||
+        maxDistanceChanged ||
+        mapFitEpochChanged
 
-        if (canFetch) {
-          console.debug("%c[SectorMap] Fetch map data", "color: red; font-weight: bold", {
-            sector: center_sector_id,
-            maxDistance,
-            needsFetchByZoom,
-            needsFetchByTopology,
-          })
-          if (maxDistance > prevMax) {
-            maxZoomFetchedRef.current.set(center_sector_id, maxDistance)
-          }
-          onMapFetch?.(center_sector_id)
-          if (needsFetchByTopology) {
-            skipReframe = true
-          }
-        }
-      }
-
-      if (!skipReframe) {
-        console.debug("%c[SectorMap] Move to sector", "color: red; font-weight: bold", {
+      // In large-map mode, fetching is bounds-driven and deduped by BigMapPanel.
+      if (viewportIntentChanged) {
+        console.debug("%c[SectorMap] Fetch map data", "color: red; font-weight: bold", {
           sector: center_sector_id,
           maxDistance,
-          topologyChanged,
-          coursePlotChanged,
+          bounds: requiredBounds,
+          viewportIntentChanged,
         })
-        controller.moveToSector(center_sector_id, normalizedMapData)
+        onMapFetch?.(center_sector_id, requiredBounds)
       }
 
+      console.debug("%c[SectorMap] Move to sector", "color: red; font-weight: bold", {
+        sector: center_sector_id,
+        maxDistance,
+        topologyChanged,
+        centerWorldChanged,
+        fitBoundsWorldChanged,
+        mapFitEpochChanged,
+        coursePlotChanged,
+      })
+      controller.moveToSector(center_sector_id, normalizedMapData)
+
       prevCenterSectorIdRef.current = center_sector_id
-    } else if (needsConfigUpdate || shipsChanged) {
+    } else if (needsConfigUpdate || shipsChanged || coursePlotChanged || topologyChanged) {
       console.debug("%c[SectorMap] Re-render", "color: red; font-weight: bold", {
         configChanged,
         shipsChanged,
+        coursePlotChanged,
+        topologyChanged,
       })
       controller.render()
-    }
-
-    // If data arrived after initial empty render, trigger fade-in
-    if (!hasRenderedRef.current && normalizedMapData.length > 0 && canvasRef.current) {
-      hasRenderedRef.current = true
-      canvasRef.current.style.opacity = "1"
     }
 
     previousMapRef.current = normalizedMapData
@@ -515,6 +500,8 @@ const MapComponent = ({
     shipsKey,
     shipsMap,
     onMapFetch,
+    effectiveWidth,
+    effectiveHeight,
     center_world,
     fit_bounds_world,
     mapFitEpoch,
@@ -539,12 +526,21 @@ const MapComponent = ({
 
   // Cleanup effect
   useEffect(() => {
+    // StrictMode dev runs mount/cleanup/mount for effects. Defer cleanup one tick
+    // so the synthetic cleanup is canceled by the immediate re-run.
+    if (pendingControllerCleanupRef.current !== null) {
+      window.clearTimeout(pendingControllerCleanupRef.current)
+      pendingControllerCleanupRef.current = null
+    }
     return () => {
-      console.debug("[GAME SECTOR MAP] Cleaning up SectorMap controller")
-      if (controllerRef.current) {
-        controllerRef.current.cleanup()
-      }
-      controllerRef.current = null
+      pendingControllerCleanupRef.current = window.setTimeout(() => {
+        console.debug("[GAME SECTOR MAP] Cleaning up SectorMap controller")
+        if (controllerRef.current) {
+          controllerRef.current.cleanup()
+        }
+        controllerRef.current = null
+        pendingControllerCleanupRef.current = null
+      }, 0)
     }
   }, [])
 
@@ -585,8 +581,6 @@ const MapComponent = ({
             maxHeight: "100%",
             display: "block",
             objectFit: "contain",
-            opacity: 0,
-            transition: "opacity 0.4s ease-in",
             ...(isWaitingForMeasurement && { visibility: "hidden" }),
           }}
         />

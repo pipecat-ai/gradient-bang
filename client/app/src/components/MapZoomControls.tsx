@@ -15,7 +15,6 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
   const setMapFitBoundsWorld = useGameStore.use.setMapFitBoundsWorld?.()
-  const requestMapAutoRecenter = useGameStore.use.requestMapAutoRecenter?.()
   const resolvedZoomLevel = mapZoomLevel ?? DEFAULT_MAX_BOUNDS
   const currentIndex = useMemo(() => getClosestZoomIndex(resolvedZoomLevel), [resolvedZoomLevel])
   const [sliderIndex, setSliderIndex] = useState(currentIndex)
@@ -36,7 +35,6 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
       const index = clampZoomIndex(value)
       setMapFitBoundsWorld?.(undefined)
       setMapZoomLevel?.(zoomLevels[index])
-      requestMapAutoRecenter?.("ui-zoom")
     },
     500,
     { trailing: true }
@@ -53,7 +51,6 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
           setSliderIndex(nextIndex)
           setMapFitBoundsWorld?.(undefined)
           setMapZoomLevel?.(zoomLevels[nextIndex])
-          requestMapAutoRecenter?.("ui-zoom")
         }}
         className="shrink-0 hover:bg-accent-background border-b"
       >
@@ -82,7 +79,6 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
           setSliderIndex(nextIndex)
           setMapFitBoundsWorld?.(undefined)
           setMapZoomLevel?.(zoomLevels[nextIndex])
-          requestMapAutoRecenter?.("ui-zoom")
         }}
         className="shrink-0 hover:bg-accent-background border-t"
       >

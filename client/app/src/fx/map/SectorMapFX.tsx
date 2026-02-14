@@ -25,6 +25,10 @@ export interface SectorMapConfigBase {
   center_world?: [number, number]
   /** Optional world-coordinate bounding box override (zoomMode). When set, camera zooms to fit these bounds. */
   fit_bounds_world?: [number, number, number, number]
+  /** Camera mode. `viewport_rect` is intended for large map panel only. */
+  camera_viewport_mode?: "default" | "viewport_rect"
+  /** Whether to visually emphasize the camera center sector. */
+  highlight_center_sector?: boolean
   grid_spacing: number
   hex_size: number
   sector_label_offset: number
@@ -436,6 +440,8 @@ export const DEFAULT_UI_STYLES: UIStyles = {
 }
 
 export const DEFAULT_SECTORMAP_CONFIG: Omit<SectorMapConfigBase, "center_sector_id"> = {
+  camera_viewport_mode: "default",
+  highlight_center_sector: true,
   grid_spacing: 28,
   hex_size: 20,
   sector_label_offset: 5,
@@ -567,7 +573,8 @@ function filterSectorsBySpatialDistance(
   scale: number,
   centerWorldScaled?: { x: number; y: number },
   viewportWidth?: number,
-  viewportHeight?: number
+  viewportHeight?: number,
+  useViewportRect?: boolean
 ): MapData {
   // Resolve center: explicit override or look up current sector
   let center: { x: number; y: number } | null = centerWorldScaled ?? null
@@ -579,9 +586,14 @@ function filterSectorsBySpatialDistance(
 
   const maxWorldDistance = maxDistanceHexes * scale * Math.sqrt(3)
 
-  // When viewport dimensions are provided, use rectangular filtering
-  // scaled by aspect ratio so the wider axis gets more coverage
-  if (viewportWidth && viewportHeight && viewportWidth > 0 && viewportHeight > 0) {
+  // Use rectangular filtering only for viewport-rect mode.
+  if (
+    useViewportRect &&
+    viewportWidth &&
+    viewportHeight &&
+    viewportWidth > 0 &&
+    viewportHeight > 0
+  ) {
     const aspect = viewportWidth / viewportHeight
     const maxDistX = maxWorldDistance * Math.max(1, aspect)
     const maxDistY = maxWorldDistance * Math.max(1, 1 / aspect)
@@ -607,6 +619,20 @@ function filterSectorsBySpatialDistance(
   if (filtered.length > 0) return filtered
   const fallback = data.find((s) => s.id === currentSectorId)
   return fallback ? [fallback] : data
+}
+
+const getViewportWorldExtents = (
+  maxWorldDistance: number,
+  viewportWidth: number,
+  viewportHeight: number
+) => {
+  const safeWidth = Math.max(1, viewportWidth)
+  const safeHeight = Math.max(1, viewportHeight)
+  const aspect = safeWidth / safeHeight
+  return {
+    maxDistX: maxWorldDistance * Math.max(1, aspect),
+    maxDistY: maxWorldDistance * Math.max(1, 1 / aspect),
+  }
 }
 
 /** Calculate bounding box of all sectors */
@@ -1027,7 +1053,8 @@ function getNodeStyle(
   const isCurrent = config.current_sector_id !== undefined && node.id === config.current_sector_id
   const isVisited = Boolean(node.visited) || isCurrent
   const isHovered = node.id === hoveredSectorId
-  const isCentered = node.id === config.center_sector_id && !isCurrent
+  const isCentered =
+    config.highlight_center_sector !== false && node.id === config.center_sector_id && !isCurrent
   const isMegaPort = Boolean((node.port as Port | null)?.mega)
 
   let baseStyle: NodeStyle
@@ -1358,6 +1385,9 @@ function calculateCameraState(
   maxDistance: number,
   coursePlot?: CoursePlot | null
 ): CameraState | null {
+  const useViewportRectFiltering = config.camera_viewport_mode === "viewport_rect"
+  const useViewportRectCamera = config.camera_viewport_mode === "viewport_rect"
+
   // Resolve scaled center for spatial filtering
   const centerWorldScaled =
     config.center_world ?
@@ -1371,8 +1401,9 @@ function calculateCameraState(
     maxDistance,
     scale,
     centerWorldScaled,
-    config.center_world ? width : undefined,
-    config.center_world ? height : undefined
+    width,
+    height,
+    useViewportRectFiltering
   )
 
   // If course plot exists, include all sectors from the path
@@ -1441,7 +1472,31 @@ function calculateCameraState(
     }
   }
 
-  // --- Override path: center_world (no fit bounds) ---
+  // --- Viewport-rect mode: center on resolved map center and size by rectangular extents ---
+  if (useViewportRectCamera) {
+    const centerSector = data.find((sector) => sector.id === config.center_sector_id)
+    const centerSectorScaled =
+      centerSector ? hexToWorld(centerSector.position[0], centerSector.position[1], scale) : null
+    const resolvedCenterScaled = centerWorldScaled ?? centerSectorScaled
+    if (resolvedCenterScaled) {
+      const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
+      const { maxDistX, maxDistY } = getViewportWorldExtents(maxWorldDistance, width, height)
+      const viewportWidthWorld = Math.max((maxDistX + hexSize) * 2, hexSize * 2)
+      const viewportHeightWorld = Math.max((maxDistY + hexSize) * 2, hexSize * 2)
+      const zoom = Math.max(
+        minZoom,
+        Math.min(availableWidth / viewportWidthWorld, availableHeight / viewportHeightWorld, 1.5)
+      )
+      return {
+        offsetX: -resolvedCenterScaled.x,
+        offsetY: -resolvedCenterScaled.y,
+        zoom,
+        filteredData,
+      }
+    }
+  }
+
+  // --- Legacy override path: center_world (no fit bounds) ---
   if (centerWorldScaled) {
     const maxWorldDistance = maxDistance * scale * Math.sqrt(3)
     const radius = Math.max(maxWorldDistance + hexSize, hexSize)
@@ -1571,7 +1626,8 @@ function renderSectorLabels(
     if (config.current_sector_id !== undefined && node.id === config.current_sector_id) return
 
     const isHovered = node.id === hoveredSectorId
-    const isCentered = node.id === config.center_sector_id
+    const isCentered =
+      config.highlight_center_sector !== false && node.id === config.center_sector_id
 
     // If show_sector_ids is false but show_sector_ids_hover is true,
     // only show labels for hovered or centered sectors
@@ -1655,7 +1711,8 @@ function renderPortLabels(
     // Only show port label if:
     // 1. This is the centered (selected) sector, OR
     // 2. This sector is currently hovered
-    const isCentered = node.id === config.center_sector_id
+    const isCentered =
+      config.highlight_center_sector !== false && node.id === config.center_sector_id
     const isHovered = node.id === hoveredSectorId
     if (!isCentered && !isHovered) return
 
@@ -2353,8 +2410,8 @@ export function createSectorMapController(
 
   // Mouse event handlers
   const handleMouseMove = (event: MouseEvent) => {
-    // Disable hover when not hoverable, course plot is active, or moving to sector
-    if (!currentProps.config.hoverable || currentProps.coursePlot || isMovingToSector) return
+    // Disable hover when not hoverable or moving to sector
+    if (!currentProps.config.hoverable || isMovingToSector) return
 
     const pos = getCanvasMousePosition(event)
     const sector = findSectorAtMouse(pos.x, pos.y)
@@ -2394,8 +2451,8 @@ export function createSectorMapController(
   }
 
   const handleMouseClick = (event: MouseEvent) => {
-    // Disable click when not clickable, course plot is active, or moving to sector
-    if (!currentProps.config.clickable || currentProps.coursePlot || isMovingToSector) return
+    // Disable click when not clickable or moving to sector
+    if (!currentProps.config.clickable || isMovingToSector) return
 
     const pos = getCanvasMousePosition(event)
     const sector = findSectorAtMouse(pos.x, pos.y)
@@ -2408,8 +2465,8 @@ export function createSectorMapController(
   }
 
   const handleMouseLeave = () => {
-    // Disable interaction when not hoverable, course plot is active, or moving to sector
-    if (!currentProps.config.hoverable || currentProps.coursePlot || isMovingToSector) return
+    // Disable interaction when not hoverable or moving to sector
+    if (!currentProps.config.hoverable || isMovingToSector) return
 
     if (hoveredSectorId !== null) {
       const previousHoveredId = hoveredSectorId

@@ -6,8 +6,8 @@ import {
   computeWorldBounds,
   deduplicateMapNodes,
   findNearestDiscoveredSector,
-  getFetchBounds,
   getNextZoomLevel,
+  getViewportFetchBounds,
   getVisibleNodes,
   hexToWorld,
   normalizeMapData,
@@ -20,6 +20,9 @@ import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/types/constants"
 
 const PENDING_REQUEST_TIMEOUT_MS = 10_000
 const MAX_MAP_FIT_STALE_UPDATES = 5
+const DEFAULT_VIEWPORT_WIDTH = 16
+const DEFAULT_VIEWPORT_HEIGHT = 9
+const SQRT3 = Math.sqrt(3)
 
 export interface MapCenterNode {
   centerSector: number
@@ -51,6 +54,8 @@ export interface MapSlice {
   mapFitEpoch?: number
   pendingMapFitSectors?: number[]
   pendingMapFitMissingCount?: number
+  mapViewportWidth?: number
+  mapViewportHeight?: number
 
   // --- Map data methods ---
   setPendingMapCenterRequest: (centerNode: MapCenterNode) => void
@@ -66,6 +71,7 @@ export interface MapSlice {
   setMapCenterWorld: (center: [number, number] | undefined) => void
   setMapFitBoundsWorld: (bounds: [number, number, number, number] | undefined) => void
   setMapZoomLevel: (zoomLevel: number) => void
+  setMapViewportSize: (width: number, height: number) => void
   clearPendingMapFit: () => void
   fitMapToSectors: (sectorIds: number[]) => void
   requestMapAutoRecenter: (reason: string) => void
@@ -84,6 +90,27 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
   let _mapFitTrackedRequestKey: string | undefined
 
   const _getMapFitRequestKey = (sectorIds: number[]): string => sectorIds.join(",")
+
+  const _estimateZoomFromFitBounds = (
+    fitBoundsWorld: [number, number, number, number] | undefined,
+    viewportWidth: number,
+    viewportHeight: number
+  ): number | undefined => {
+    if (!fitBoundsWorld || fitBoundsWorld.length !== 4) return undefined
+    const [minX, maxX, minY, maxY] = fitBoundsWorld
+    const halfWidth = Math.max(0, (maxX - minX) / 2)
+    const halfHeight = Math.max(0, (maxY - minY) / 2)
+    const safeWidth = Math.max(1, viewportWidth)
+    const safeHeight = Math.max(1, viewportHeight)
+    const aspect = safeWidth / safeHeight
+
+    const requiredMaxWorldDistance = Math.max(
+      halfWidth / Math.max(1, aspect),
+      halfHeight / Math.max(1, 1 / aspect)
+    )
+    const requiredHexDistance = requiredMaxWorldDistance / SQRT3
+    return Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, Math.ceil(requiredHexDistance) + 1))
+  }
 
   const _resetMapFitRetryState = () => {
     _mapFitRetryCount = 0
@@ -209,6 +236,8 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     mapFitEpoch: undefined,
     pendingMapFitSectors: undefined,
     pendingMapFitMissingCount: undefined,
+    mapViewportWidth: undefined,
+    mapViewportHeight: undefined,
 
     // =================================================================
     // Map data methods
@@ -407,6 +436,16 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         })
       ),
 
+    setMapViewportSize: (width: number, height: number) =>
+      set(
+        produce((state) => {
+          if (width > 0 && height > 0) {
+            state.mapViewportWidth = width
+            state.mapViewportHeight = height
+          }
+        })
+      ),
+
     clearPendingMapFit: () => {
       _resetMapFitRetryState()
       set(
@@ -520,10 +559,17 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       const hasFit = Boolean(fitSectors && fitSectors.length > 0)
       const zoomOnly =
         mapZoom !== undefined && mapCenterSector === undefined && !hasHighlight && !hasFit
+      const viewportWidth = state.mapViewportWidth ?? DEFAULT_VIEWPORT_WIDTH
+      const viewportHeight = state.mapViewportHeight ?? DEFAULT_VIEWPORT_HEIGHT
+      const fitEquivalentZoom = _estimateZoomFromFitBounds(
+        state.mapFitBoundsWorld,
+        viewportWidth,
+        viewportHeight
+      )
 
       // --- Zoom ---
       if (mapZoom !== undefined) {
-        const currentZoom = state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+        const currentZoom = fitEquivalentZoom ?? state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
 
         if (zoomOnly && mapZoom !== currentZoom) {
           // Step-based zoom: move one level toward the requested zoom
@@ -535,8 +581,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
               draft.mapZoomLevel = nextZoom
             })
           )
-          autoRecenterRequested = true
-          _maybeAutoRecenter("zoom")
         } else if (!zoomOnly) {
           // Absolute zoom
           set(
@@ -545,12 +589,10 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
               draft.mapZoomLevel = mapZoom
             })
           )
-          autoRecenterRequested = true
-          _maybeAutoRecenter("zoom")
         }
       } else if (mapZoomDirection) {
         // Relative zoom via direction
-        const currentZoom = state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+        const currentZoom = fitEquivalentZoom ?? state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
         const nextZoom = getNextZoomLevel(currentZoom, mapZoomDirection)
         set(
           produce((draft) => {
@@ -558,13 +600,16 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
             draft.mapZoomLevel = nextZoom
           })
         )
-        autoRecenterRequested = true
-        _maybeAutoRecenter("zoom")
       }
 
       // --- Center ---
       if (mapCenterSector !== undefined) {
-        const bounds = getFetchBounds(mapZoom ?? state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS)
+        const zoomForBounds = mapZoom ?? state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+        const bounds = getViewportFetchBounds(
+          zoomForBounds,
+          state.mapViewportWidth ?? DEFAULT_VIEWPORT_WIDTH,
+          state.mapViewportHeight ?? DEFAULT_VIEWPORT_HEIGHT
+        )
         set(
           produce((draft) => {
             draft.mapCenterWorld = undefined

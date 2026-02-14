@@ -82,6 +82,21 @@ export const getFetchBounds = (zoomLevel: number) => {
   return Math.max(0, Math.min(MAX_FETCH_BOUNDS, requested))
 }
 
+/**
+ * Compute fetch bounds so the fetched envelope is roughly 2x the current viewport
+ * in both dimensions. On non-square canvases this scales bounds by dominant aspect.
+ */
+export const getViewportFetchBounds = (
+  zoomLevel: number,
+  viewportWidth: number,
+  viewportHeight: number
+) => {
+  const safeWidth = Math.max(1, viewportWidth)
+  const safeHeight = Math.max(1, viewportHeight)
+  const dominantAspect = Math.max(safeWidth / safeHeight, safeHeight / safeWidth)
+  return getFetchBounds(zoomLevel * dominantAspect)
+}
+
 // =========================================================================
 // Hex grid utilities
 // =========================================================================
