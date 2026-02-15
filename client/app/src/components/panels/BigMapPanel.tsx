@@ -4,18 +4,17 @@ import { deepmerge } from "deepmerge-ts"
 import { XIcon } from "@phosphor-icons/react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
+import { DottedTitle } from "@/components/DottedTitle"
+import { FillCrossLoader } from "@/components/FullScreenLoader"
 import { MapLegend } from "@/components/MapLegends"
+import { MapZoomControls } from "@/components/MapZoomControls"
+import { Divider } from "@/components/primitives/Divider"
+import SectorMap, { type MapConfig } from "@/components/SectorMap"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
-
-import { DottedTitle } from "../DottedTitle"
-import { FillCrossLoader } from "../FullScreenLoader"
-import { MapZoomControls } from "../MapZoomControls"
-import { Divider } from "../primitives/Divider"
-import SectorMap, { type MapConfig } from "../SectorMap"
 
 import type { GetMapRegionAction } from "@/types/actions"
 import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS_PADDING } from "@/types/constants"
@@ -262,7 +261,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
                 playsInline
                 preload="auto"
                 aria-hidden="true"
-                className="w-[120px] h-[120px] object-contain mx-auto"
+                className="w-30 h-30 object-contain mx-auto"
               />
 
               <span className="text-muted-foreground text-sm uppercase animate-pulse">
