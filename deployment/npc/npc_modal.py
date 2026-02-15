@@ -60,10 +60,32 @@ WAKE_EVENTS = [
 ]
 
 # ---------------------------------------------------------------------------
-# NPC registry (per-container shared state for the status dashboard)
+# NPC registry (shared across all containers via Modal Dict)
 # ---------------------------------------------------------------------------
 
-NPC_REGISTRY: dict[str, dict] = {}
+NPC_REGISTRY = modal.Dict.from_name("npc-registry", create_if_missing=True)
+
+
+async def _reg_update(character_id: str, **updates) -> dict:
+    """Read-modify-write a registry entry in the shared Modal Dict."""
+    entry = await NPC_REGISTRY.get.aio(character_id, {})
+    entry.update(updates)
+    await NPC_REGISTRY.put.aio(character_id, entry)
+    return entry
+
+
+async def _reg_get_all() -> list[dict]:
+    """Get all NPC entries from the shared registry."""
+    entries = []
+    async for key in NPC_REGISTRY.keys.aio():
+        val = await NPC_REGISTRY.get.aio(key)
+        if val is not None:
+            entries.append(val)
+    return entries
+
+
+async def _reg_contains(character_id: str) -> bool:
+    return await NPC_REGISTRY.contains.aio(character_id)
 
 # ---------------------------------------------------------------------------
 # Image
@@ -224,16 +246,18 @@ class NPC:
             )
 
         # -- Register in NPC_REGISTRY -------------------------------------
-        NPC_REGISTRY[character_id] = {
-            "character_id": character_id,
-            "fragment": fragment,
-            "state": "starting",
-            "current_task": None,
-            "started_at": _now_iso(),
-            "last_state_change": _now_iso(),
-            "task_count": 0,
-            "last_wake_event": None,
-        }
+        task_count = 0
+        await _reg_update(
+            character_id,
+            character_id=character_id,
+            fragment=fragment,
+            state="starting",
+            current_task=None,
+            started_at=_now_iso(),
+            last_state_change=_now_iso(),
+            task_count=0,
+            last_wake_event=None,
+        )
 
         # -- Connect to game and loop -------------------------------------
         try:
@@ -246,21 +270,24 @@ class NPC:
                     await game_client.join(character_id)
                 except Exception as exc:
                     logger.error(f"Failed to join as {character_id}: {exc}")
-                    NPC_REGISTRY.pop(character_id, None)
+                    await NPC_REGISTRY.pop.aio(character_id, None)
                     return False
 
                 logger.info(f"[NPC] joined as {character_id}")
 
                 while True:
                     # ---- ACTIVE PHASE ----
-                    reg = NPC_REGISTRY[character_id]
-                    reg["state"] = "active"
-                    reg["current_task"] = task_prompt[:120]
-                    reg["last_state_change"] = _now_iso()
-                    reg["task_count"] += 1
+                    task_count += 1
+                    await _reg_update(
+                        character_id,
+                        state="active",
+                        current_task=task_prompt[:120],
+                        last_state_change=_now_iso(),
+                        task_count=task_count,
+                    )
 
                     logger.info(
-                        f"[NPC] {character_id} active phase #{reg['task_count']}"
+                        f"[NPC] {character_id} active phase #{task_count}"
                     )
 
                     agent = TaskAgent(
@@ -278,9 +305,12 @@ class NPC:
                         logger.warning(f"[NPC] {character_id} task did not complete")
 
                     # ---- IDLE PHASE ----
-                    reg["state"] = "idle"
-                    reg["current_task"] = None
-                    reg["last_state_change"] = _now_iso()
+                    await _reg_update(
+                        character_id,
+                        state="idle",
+                        current_task=None,
+                        last_state_change=_now_iso(),
+                    )
 
                     logger.info(
                         f"[NPC] {character_id} entering idle, "
@@ -311,7 +341,7 @@ class NPC:
 
                     wake_evt = wake_context.get("event", {})
                     wake_type = wake_evt.get("event_type", "unknown")
-                    reg["last_wake_event"] = wake_type
+                    await _reg_update(character_id, last_wake_event=wake_type)
 
                     logger.info(
                         f"[NPC] {character_id} woke up: {wake_type}"
@@ -323,7 +353,7 @@ class NPC:
                     )
 
         finally:
-            NPC_REGISTRY.pop(character_id, None)
+            await NPC_REGISTRY.pop.aio(character_id, None)
             logger.info(f"[NPC] {character_id} shut down")
 
 
@@ -332,11 +362,11 @@ class NPC:
 # ---------------------------------------------------------------------------
 
 
-def _render_status_html() -> str:
+async def _render_status_html() -> str:
     """Render the NPC registry as a simple HTML dashboard."""
     now = _now_iso()
     rows = ""
-    for npc in sorted(NPC_REGISTRY.values(), key=lambda n: n["character_id"]):
+    for npc in sorted(await _reg_get_all(), key=lambda n: n.get("character_id", "")):
         state = npc["state"]
         state_class = {"active": "active", "idle": "idle"}.get(state, "starting")
         rows += f"""
@@ -468,21 +498,27 @@ def _render_status_html() -> str:
             msg.textContent = '';
 
             try {{
-                const resp = await fetch(
-                    window.location.href.replace('/status', '/spawn'),
-                    {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ character_id: charId, fragment: frag || null }}),
-                    }}
-                );
-                const data = await resp.json();
+                const params = new URLSearchParams({{ character_id: charId }});
+                if (frag) params.set('fragment', frag);
+                const resp = await fetch('/spawn?' + params.toString());
+                const text = await resp.text();
+                let data;
+                try {{ data = JSON.parse(text); }} catch {{ data = null; }}
                 if (resp.ok) {{
-                    msg.textContent = data.message || 'Spawned!';
+                    msg.textContent = (data && data.message) || 'Spawned!';
                     msg.className = 'spawn-msg ok';
                     document.getElementById('char-id').value = '';
                 }} else {{
-                    msg.textContent = data.error || 'Spawn failed';
+                    let errMsg = 'Spawn failed (' + resp.status + ')';
+                    if (data) {{
+                        if (typeof data.detail === 'string') errMsg = data.detail;
+                        else if (Array.isArray(data.detail)) errMsg = data.detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+                        else if (data.error) errMsg = data.error;
+                        else errMsg = JSON.stringify(data);
+                    }} else {{
+                        errMsg = text || errMsg;
+                    }}
+                    msg.textContent = errMsg;
                     msg.className = 'spawn-msg err';
                 }}
             }} catch (e) {{
@@ -519,36 +555,38 @@ def _get_fragment_names() -> list[str]:
     secrets=[modal.Secret.from_name("gb-npc")],
     min_containers=1,
 )
-@modal.web_endpoint(method="GET")
-def status():
-    """HTML dashboard showing the status of all NPCs on this container."""
-    from fastapi.responses import HTMLResponse
+@modal.asgi_app()
+def dashboard():
+    """NPC status dashboard with spawn controls."""
+    from fastapi import FastAPI
+    from fastapi.responses import HTMLResponse, JSONResponse
 
-    return HTMLResponse(content=_render_status_html())
+    web_app = FastAPI()
 
+    @web_app.get("/")
+    async def index():
+        return HTMLResponse(content=await _render_status_html())
 
-@app.function(
-    image=npc_image,
-    secrets=[modal.Secret.from_name("gb-npc")],
-)
-@modal.web_endpoint(method="POST")
-def spawn(body: dict):
-    """Spawn an NPC via the dashboard."""
-    character_id = body.get("character_id", "").strip()
-    fragment = body.get("fragment") or None
+    @web_app.get("/spawn")
+    async def spawn(character_id: str, fragment: str = ""):
+        character_id = character_id.strip()
+        fragment = fragment.strip() or None
 
-    if not character_id:
-        return {"error": "character_id is required"}, 400
+        if not character_id:
+            return JSONResponse({"error": "character_id is required"}, status_code=400)
 
-    if character_id in NPC_REGISTRY:
-        return {"error": f"{character_id} is already running"}, 409
+        if await _reg_contains(character_id):
+            return JSONResponse(
+                {"error": f"{character_id} is already running"}, status_code=409
+            )
 
-    # Fire-and-forget spawn
-    npc = NPC()
-    npc.run.spawn(character_id=character_id, fragment=fragment)
+        npc = NPC()
+        await npc.run.spawn.aio(character_id=character_id, fragment=fragment)
 
-    frag_label = fragment or "random"
-    return {"message": f"Spawned {character_id} (fragment={frag_label})"}
+        frag_label = fragment or "random"
+        return JSONResponse({"message": f"Spawned {character_id} (fragment={frag_label})"})
+
+    return web_app
 
 
 # ---------------------------------------------------------------------------
