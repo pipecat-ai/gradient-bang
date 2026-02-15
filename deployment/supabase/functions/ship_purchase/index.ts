@@ -40,6 +40,11 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
+import {
+  loadUniverseMeta,
+  isMegaPortSector,
+  type UniverseMeta,
+} from "../_shared/fedspace.ts";
 
 class ShipPurchaseError extends Error {
   status: number;
@@ -190,6 +195,8 @@ async function handlePersonalPurchase(
     );
   }
   await ensureNotInCombat(supabase, currentShip);
+  const universeMeta = await loadUniverseMeta(supabase);
+  ensureShipAtMegaPort(universeMeta, currentShip);
 
   const tradeInShipIdRaw = optionalString(payload, "trade_in_ship_id");
   const tradeInShipId = normalizeTradeInShipId(
@@ -357,6 +364,8 @@ async function handleCorporationPurchase(
     );
   }
   await ensureNotInCombat(supabase, currentShip);
+  const universeMeta = await loadUniverseMeta(supabase);
+  ensureShipAtMegaPort(universeMeta, currentShip);
 
   if (optionalString(payload, "trade_in_ship_id")) {
     throw new ShipPurchaseError("Cannot trade in a corporation-owned ship");
@@ -488,6 +497,19 @@ async function ensureNotInCombat(
   }
   if (data && data.combat) {
     throw new ShipPurchaseError("Cannot purchase ships while in combat", 409);
+  }
+}
+
+function ensureShipAtMegaPort(meta: UniverseMeta, ship: ShipRow): void {
+  if (
+    ship.current_sector === null ||
+    ship.current_sector === undefined ||
+    !isMegaPortSector(meta, ship.current_sector)
+  ) {
+    throw new ShipPurchaseError(
+      `Ship purchases require docking at a mega-port. You are in sector ${ship.current_sector ?? "unknown"}`,
+      400,
+    );
   }
 }
 

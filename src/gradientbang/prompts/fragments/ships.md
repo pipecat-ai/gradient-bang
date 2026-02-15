@@ -98,4 +98,4 @@ Each ship type has different:
 
 ## Finding Ship Dealers
 
-Ship purchases are handled through the game system, not at specific locations. You can purchase ships from anywhere, but your new ship will appear at your current location.
+Ship purchases require your active ship to be docked at a mega-port. New ships appear at your current sector.
