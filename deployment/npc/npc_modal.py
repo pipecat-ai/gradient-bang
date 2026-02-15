@@ -78,6 +78,7 @@ npc_image = (
         "python-dotenv>=1.1.1",
         "loguru>=0.7.0",
         "rich>=13.0.0",
+        "fastapi[standard]",
     )
     # Include the full gradientbang package (incl. .md prompt files)
     .add_local_dir(str(REPO_ROOT / "src" / "gradientbang"), remote_path="/root/gradientbang")
