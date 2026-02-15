@@ -2,24 +2,33 @@ import { produce } from "immer"
 import type { StateCreator } from "zustand"
 
 import {
+  addCoverageRect,
+  buildCoverageRect,
   computeMapFit,
   computeWorldBounds,
   deduplicateMapNodes,
   findNearestDiscoveredSector,
-  getFetchBounds,
   getNextZoomLevel,
   getVisibleNodes,
   hexToWorld,
+  isRectCovered,
   normalizeMapData,
   normalizePort,
+  type WorldRect,
 } from "@/utils/map"
 
 import type { GameStoreState } from "./game"
 
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS, MIN_BOUNDS } from "@/types/constants"
+import {
+  DEFAULT_MAX_BOUNDS,
+  MAX_BOUNDS,
+  MIN_BOUNDS,
+  PENDING_MAP_FETCH_STALE_MS,
+} from "@/types/constants"
 
 const PENDING_REQUEST_TIMEOUT_MS = 10_000
 const MAX_MAP_FIT_STALE_UPDATES = 5
+const SQRT3 = Math.sqrt(3)
 
 export interface MapCenterNode {
   centerSector: number
@@ -51,7 +60,6 @@ export interface MapSlice {
   mapFitEpoch?: number
   pendingMapFitSectors?: number[]
   pendingMapFitMissingCount?: number
-
   // --- Map data methods ---
   setPendingMapCenterRequest: (centerNode: MapCenterNode) => void
   handleMapCenterFallback: () => void
@@ -66,6 +74,7 @@ export interface MapSlice {
   setMapCenterWorld: (center: [number, number] | undefined) => void
   setMapFitBoundsWorld: (bounds: [number, number, number, number] | undefined) => void
   setMapZoomLevel: (zoomLevel: number) => void
+  requestMapFetch: (centerSectorId: number, bounds: number) => boolean
   clearPendingMapFit: () => void
   fitMapToSectors: (sectorIds: number[]) => void
   requestMapAutoRecenter: (reason: string) => void
@@ -192,6 +201,78 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
   }
 
   // -----------------------------------------------------------------------
+  // Closure state for coverage tracking
+  // -----------------------------------------------------------------------
+  let _confirmedCoverage: WorldRect[] = []
+  let _inFlightRequests: { key: string; rect: WorldRect | undefined; requestedAt: number }[] = []
+
+  const _pruneStaleInFlightRequests = () => {
+    const now = Date.now()
+    _inFlightRequests = _inFlightRequests.filter(
+      (r) => now - r.requestedAt < PENDING_MAP_FETCH_STALE_MS
+    )
+  }
+
+  const _isAlreadyCovered = (rect: WorldRect | undefined): boolean => {
+    if (!rect) return false
+    if (isRectCovered(rect, _confirmedCoverage)) return true
+    _pruneStaleInFlightRequests()
+    const inFlightRects = _inFlightRequests
+      .map((r) => r.rect)
+      .filter((r): r is WorldRect => r !== undefined)
+    return isRectCovered(rect, inFlightRects)
+  }
+
+  const _registerInFlightRequest = (key: string, rect: WorldRect | undefined) => {
+    _pruneStaleInFlightRequests()
+    _inFlightRequests = [
+      ..._inFlightRequests.filter((r) => r.key !== key),
+      { key, rect, requestedAt: Date.now() },
+    ]
+  }
+
+  const _confirmInFlightRequest = (key: string) => {
+    const request = _inFlightRequests.find((r) => r.key === key)
+    if (request?.rect) {
+      _confirmedCoverage = addCoverageRect(_confirmedCoverage, request.rect)
+    }
+    _inFlightRequests = _inFlightRequests.filter((r) => r.key !== key)
+  }
+
+  const _resolveCenterWorld = (sectorId: number): [number, number] | undefined => {
+    const state = get()
+    const allData = [...(state.regional_map_data ?? []), ...(state.local_map_data ?? [])]
+    const node = allData.find((n) => n.id === sectorId)
+    if (node?.position) {
+      const w = hexToWorld(node.position[0], node.position[1])
+      return [w.x, w.y]
+    }
+    if (state.sector?.id === sectorId && state.sector.position) {
+      const w = hexToWorld(state.sector.position[0], state.sector.position[1])
+      return [w.x, w.y]
+    }
+    return undefined
+  }
+
+  const _estimateZoomFromFitBounds = (
+    fitBoundsWorld: [number, number, number, number] | undefined
+  ): number | undefined => {
+    if (!fitBoundsWorld || fitBoundsWorld.length !== 4) return undefined
+    const [minX, maxX, minY, maxY] = fitBoundsWorld
+    const halfWidth = Math.max(0, (maxX - minX) / 2)
+    const halfHeight = Math.max(0, (maxY - minY) / 2)
+    // Use 16:9 as a reasonable estimate — this is only for deriving a
+    // starting zoom level for step-based zoom, so pixel-accuracy isn't needed.
+    const aspect = 16 / 9
+    const requiredMaxWorldDistance = Math.max(
+      halfWidth / Math.max(1, aspect),
+      halfHeight / Math.max(1, 1 / aspect)
+    )
+    const requiredHexDistance = requiredMaxWorldDistance / SQRT3
+    return Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, Math.ceil(requiredHexDistance) + 1))
+  }
+
+  // -----------------------------------------------------------------------
   // Slice state & methods
   // -----------------------------------------------------------------------
   return {
@@ -209,7 +290,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     mapFitEpoch: undefined,
     pendingMapFitSectors: undefined,
     pendingMapFitMissingCount: undefined,
-
     // =================================================================
     // Map data methods
     // =================================================================
@@ -309,6 +389,13 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           state.regional_map_data = Array.from(existingById.values())
         })
       )
+
+      // Promote in-flight coverage for the pending center request
+      const pending = get().pendingMapCenterRequestRef
+      if (pending) {
+        _confirmInFlightRequest(`${pending.centerSector}:${pending.bounds}`)
+      }
+
       _maybeRetryMapFit()
       _maybeAutoRecenter("map.region")
     },
@@ -406,6 +493,37 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           state.mapZoomLevel = zoomLevel
         })
       ),
+
+    requestMapFetch: (centerSectorId: number, bounds: number): boolean => {
+      const centerWorld = _resolveCenterWorld(centerSectorId)
+      const rect = centerWorld ? buildCoverageRect(centerWorld, bounds) : undefined
+
+      if (_isAlreadyCovered(rect)) return false
+
+      const key = `${centerSectorId}:${bounds}`
+      _registerInFlightRequest(key, rect)
+
+      // Track so setRegionalMapData can confirm coverage when data arrives
+      set(
+        produce((draft) => {
+          draft.pendingMapCenterRequestRef = {
+            centerSector: centerSectorId,
+            bounds,
+            requestedAt: Date.now(),
+          }
+        })
+      )
+
+      const state = get()
+      state.dispatchAction({
+        type: "get-my-map",
+        payload: {
+          center_sector: centerSectorId,
+          bounds,
+        },
+      })
+      return true
+    },
 
     clearPendingMapFit: () => {
       _resetMapFitRetryState()
@@ -522,8 +640,10 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         mapZoom !== undefined && mapCenterSector === undefined && !hasHighlight && !hasFit
 
       // --- Zoom ---
+      const fitEquivalentZoom = _estimateZoomFromFitBounds(state.mapFitBoundsWorld)
+
       if (mapZoom !== undefined) {
-        const currentZoom = state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+        const currentZoom = fitEquivalentZoom ?? state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
 
         if (zoomOnly && mapZoom !== currentZoom) {
           // Step-based zoom: move one level toward the requested zoom
@@ -535,8 +655,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
               draft.mapZoomLevel = nextZoom
             })
           )
-          autoRecenterRequested = true
-          _maybeAutoRecenter("zoom")
         } else if (!zoomOnly) {
           // Absolute zoom
           set(
@@ -545,12 +663,10 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
               draft.mapZoomLevel = mapZoom
             })
           )
-          autoRecenterRequested = true
-          _maybeAutoRecenter("zoom")
         }
       } else if (mapZoomDirection) {
         // Relative zoom via direction
-        const currentZoom = state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+        const currentZoom = fitEquivalentZoom ?? state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
         const nextZoom = getNextZoomLevel(currentZoom, mapZoomDirection)
         set(
           produce((draft) => {
@@ -558,32 +674,19 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
             draft.mapZoomLevel = nextZoom
           })
         )
-        autoRecenterRequested = true
-        _maybeAutoRecenter("zoom")
       }
 
       // --- Center ---
+      // Just update state; SectorMap will detect the center change, compute
+      // viewport-accurate fetch bounds, and call requestMapFetch.
       if (mapCenterSector !== undefined) {
-        const bounds = getFetchBounds(mapZoom ?? state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS)
         set(
           produce((draft) => {
             draft.mapCenterWorld = undefined
             draft.mapFitBoundsWorld = undefined
             draft.mapCenterSector = mapCenterSector
-            draft.pendingMapCenterRequestRef = {
-              centerSector: mapCenterSector,
-              bounds,
-              requestedAt: Date.now(),
-            }
           })
         )
-        state.dispatchAction({
-          type: "get-my-map",
-          payload: {
-            center_sector: mapCenterSector,
-            bounds,
-          },
-        })
       }
 
       // --- Highlight path (course plot) ---

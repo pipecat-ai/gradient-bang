@@ -13,14 +13,16 @@ import SectorMap, { type MapConfig } from "@/components/SectorMap"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
+import { getFetchBounds } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
-import type { GetMapRegionAction } from "@/types/actions"
-import { DEFAULT_MAX_BOUNDS, MAX_BOUNDS_PADDING } from "@/types/constants"
+import { DEFAULT_MAX_BOUNDS, PENDING_MAP_FETCH_STALE_MS } from "@/types/constants"
 
 const MAP_CONFIG: MapConfig = {
   debug: false,
+  camera_viewport_mode: "viewport_rect",
+  highlight_center_sector: false,
   clickable: true,
   show_sector_ids: false,
   show_partial_lanes: true,
@@ -124,12 +126,15 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const mapData = useGameStore.use.regional_map_data?.()
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
+  const mapCenterSector = useGameStore((state) => state.mapCenterSector)
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const mapCenterWorld = useGameStore((state) => state.mapCenterWorld)
   const mapFitBoundsWorld = useGameStore((state) => state.mapFitBoundsWorld)
   const mapFitEpoch = useGameStore((state) => state.mapFitEpoch)
   const dispatchAction = useGameStore.use.dispatchAction?.()
-  const [centerSector, setCenterSector] = useState<number | undefined>(undefined)
+  const setMapCenterSector = useGameStore.use.setMapCenterSector?.()
+  const setMapCenterWorld = useGameStore.use.setMapCenterWorld?.()
+  const requestMapFetch = useGameStore.use.requestMapFetch?.()
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
 
   const [isFetching, setIsFetching] = useState(false)
@@ -149,61 +154,50 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   useEffect(() => {
     if (initialFetchRef.current) return
 
-    if (sector !== undefined && sector.id !== undefined) {
+    const initialCenter = mapCenterSector ?? sector?.id
+    if (initialCenter !== undefined) {
       initialFetchRef.current = true
 
-      // Get the initial zoom level inline to avoid a re-trigger loop
-      const initBounds =
-        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
+      const state = useGameStore.getState()
+      const initBounds = getFetchBounds(state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS)
 
       console.debug(
-        `%c[GAME MAP SCREEN] Initial fetch for current sector ${sector?.id} with bounds ${initBounds}`,
+        `%c[GAME MAP SCREEN] Initial fetch for current sector ${initialCenter} with bounds ${initBounds}`,
         "font-weight: bold; color: #4CAF50;"
       )
 
+      queueMicrotask(() => setIsFetching(true))
       dispatchAction({
         type: "get-my-map",
         payload: {
-          center_sector: sector.id,
+          center_sector: initialCenter,
           bounds: initBounds,
         },
-      } as GetMapRegionAction)
+      })
     }
-  }, [sector, dispatchAction, mapZoomLevel])
+  }, [mapCenterSector, sector, dispatchAction])
 
   const updateCenterSector = useCallback(
     (node: MapSectorNode | null) => {
-      // Click on empty space deselects (resets to current sector)
-      setCenterSector(node?.id ?? sector?.id)
+      // Ignore empty-space clicks to avoid accidental recenter
+      if (!node) return
+      setMapCenterWorld?.(undefined)
+      setMapCenterSector?.(node.id)
     },
-    [setCenterSector, sector?.id]
+    [setMapCenterSector, setMapCenterWorld]
   )
 
-  // Handles fetching map data when the center sector we select
-  // knows there are adjacent sectors culled by bounds
+  // Handles fetching map data when SectorMap signals a viewport intent change
   const handleMapFetch = useCallback(
-    (centerSectorId: number) => {
+    (centerSectorId: number, bounds: number) => {
       if (!initialFetchRef.current) return
 
-      console.debug(
-        "%c[GAME MAP SCREEN] Fetching map data to fulfill bounds",
-        "color: #4CAF50;",
-        centerSectorId
-      )
-
-      setIsFetching(true)
-      const bounds =
-        (useGameStore.getState().mapZoomLevel ?? DEFAULT_MAX_BOUNDS) + MAX_BOUNDS_PADDING
-
-      dispatchAction({
-        type: "get-my-map",
-        payload: {
-          center_sector: centerSectorId,
-          bounds: bounds,
-        },
-      } as GetMapRegionAction)
+      const didFetch = requestMapFetch?.(centerSectorId, bounds)
+      if (didFetch) {
+        setIsFetching(true)
+      }
     },
-    [dispatchAction, setIsFetching]
+    [requestMapFetch, setIsFetching]
   )
 
   // When map data mutates after a fetch, set loading to false
@@ -213,7 +207,14 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
     }
   }, [mapData])
 
-  console.log("isFetching", isFetching)
+  // Ensure transient request state does not keep controls disabled indefinitely
+  useEffect(() => {
+    if (!isFetching) return
+    const timeoutId = window.setTimeout(() => {
+      setIsFetching(false)
+    }, PENDING_MAP_FETCH_STALE_MS)
+    return () => window.clearTimeout(timeoutId)
+  }, [isFetching])
 
   return (
     <div className="group relative flex flex-row gap-3 w-full h-full">
@@ -227,11 +228,13 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
           <MapLegend />
         </footer>
 
-        {isFetching && <FillCrossLoader message="Fetching map data" className="bg-card/40" />}
+        {isFetching && (
+          <FillCrossLoader message="Fetching map data" className="bg-card/40 pointer-events-none" />
+        )}
 
         {mapData ?
           <SectorMap
-            center_sector_id={centerSector}
+            center_sector_id={mapCenterSector ?? sector?.id}
             current_sector_id={sector ? sector.id : undefined}
             config={mapConfig}
             map_data={mapData ?? []}
