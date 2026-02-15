@@ -47,35 +47,99 @@ uv run --group npc modal secret create gb-npc --from-dotenv .env
 uv run --group npc modal deploy npc_modal.py
 ```
 
-### 4. Run an NPC
+This deploys two things:
+- **NPC class** — the long-lived NPC agent (spawned on demand)
+- **Status dashboard** — always-on web endpoint (`min_containers=1`)
 
-**Via CLI (runs remotely on Modal):**
+After deploy, Modal prints the URL for the status dashboard, e.g.:
+
+```
+Created web function status => https://{org}--gb-npc-status.modal.run
+```
+
+Open this URL in a browser to see all running NPCs, their state (active/idle), task count, and last wake event. The page auto-refreshes every 10 seconds.
+
+### 4. Spawn NPCs
+
+**Spawn script (fire-and-forget):**
 
 ```shell
-# Random personality fragment
-uv run --group npc modal run npc_modal.py --character-id npc-01
+# Single NPC, random personality
+python spawn_npc.py npc-01
 
-# Specific personality
+# Single NPC, specific personality
+python spawn_npc.py npc-01 --fragment aggressive
+
+# Multiple NPCs at once
+python spawn_npc.py npc-01 npc-02 npc-03 --fragment friendly
+```
+
+**Via `modal run` (blocks until complete):**
+
+```shell
+uv run --group npc modal run npc_modal.py --character-id npc-01
 uv run --group npc modal run npc_modal.py --character-id npc-01 --fragment aggressive
 ```
 
-**Via Python (fire-and-forget spawn):**
+**Via Python:**
 
 ```python
 import modal
 
 NPC = modal.Cls.from_name("gb-npc", "NPC")
 
-# Random personality
-NPC().run.spawn(character_id="npc-01")
-
-# Specific personality
+# Fire-and-forget spawn
 NPC().run.spawn(character_id="npc-01", fragment="aggressive")
+
+# Blocking call (waits for completion)
+NPC().run.remote(character_id="npc-01", fragment="friendly")
+```
+
+### 5. Monitor NPCs
+
+Open the status dashboard URL (printed during deploy) in a browser. It shows:
+
+| Column | Description |
+|--------|-------------|
+| Character | Character ID |
+| Fragment | Personality fragment name |
+| State | `active` (running TaskAgent), `idle` (listening for events), or `starting` |
+| Current Task | First 120 chars of the active task prompt |
+| Tasks Run | How many TaskAgent runs so far |
+| Last Wake Event | Event type that woke NPC from idle |
+| Started | When the NPC was spawned |
+| Last Change | When the state last changed |
+
+NPCs loop between **active** (TaskAgent running, making LLM calls) and **idle** (no inference, listening for game events). They wake from idle when combat, chat, or sector events fire.
+
+## NPC Lifecycle
+
+```
+spawn(character_id, fragment)
+        │
+        ▼
+┌──────────────┐
+│   ACTIVE     │ TaskAgent running, LLM inference, game tools
+│   phase      │
+└──────┬───────┘
+       │ TaskAgent finishes
+       ▼
+┌──────────────┐
+│   IDLE       │ No inference. Listening for:
+│   phase      │   combat.*, chat.message, sector.update
+└──────┬───────┘
+       │ Wake event fires
+       ▼
+┌──────────────┐
+│   ACTIVE     │ New TaskAgent with reactive prompt
+│   phase      │ (includes the event that woke it)
+└──────┬───────┘
+       │ ... loops indefinitely ...
 ```
 
 ## Prompt Fragments
 
-NPC behavior is defined by prompts in `/prompts/`:
+NPC behavior is defined by prompts in `prompts/`:
 
 - `base.md` — Core NPC behavior, always included
 - `fragment_*.md` — Personality modifiers appended to the base
@@ -91,7 +155,7 @@ To add a new personality, create `prompts/fragment_<name>.md` and redeploy. Frag
 
 ```
 ┌─────────────────────┐
-│  modal run / spawn   │
+│  spawn / modal run   │
 └─────────┬───────────┘
           │ character_id, fragment
           ▼
@@ -102,19 +166,20 @@ To add a new personality, create `prompts/fragment_<name>.md` and redeploy. Frag
 │  + 31 game tools    │     │  /v1/chat/completions│
 │  + AsyncGameClient  │     └─────────────────────┘
 └─────────┬───────────┘
-          │ HTTP
-          ▼
-┌─────────────────────┐
-│  Supabase           │
-│  Edge Functions     │
+          │ HTTP            ┌─────────────────────┐
+          ▼                 │  Status Dashboard   │
+┌─────────────────────┐     │  (always-on)        │
+│  Supabase           │     │  /status            │
+│  Edge Functions     │     └─────────────────────┘
 └─────────────────────┘
 ```
 
 ## Environment Variables
 
-| Variable                    | Required | Description                                                        |
-| --------------------------- | -------- | ------------------------------------------------------------------ |
-| `LLM_SERVICE_URL`           | Yes      | URL of deployed vLLM instance                                      |
-| `MODEL_NAME`                | No       | Model name (default: `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16`) |
-| `SUPABASE_URL`              | Yes      | Supabase base URL                                                  |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes      | Supabase service role key for auth                                 |
+| Variable | Required | Description |
+|---|---|---|
+| `LLM_SERVICE_URL` | Yes | URL of deployed vLLM instance |
+| `MODEL_NAME` | No | Model name (default: `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16`) |
+| `SUPABASE_URL` | Yes | Supabase base URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key for auth |
+| `EDGE_API_TOKEN` | Yes | Edge function API token |

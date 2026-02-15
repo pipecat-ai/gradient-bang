@@ -354,6 +354,12 @@ def _render_status_html() -> str:
     if not rows:
         rows = '<tr><td colspan="8" style="text-align:center;color:#888;">No NPCs running on this container</td></tr>'
 
+    # Build fragment options for the spawn form
+    fragment_names = _get_fragment_names()
+    fragment_options = '<option value="">Random</option>'
+    for name in fragment_names:
+        fragment_options += f'<option value="{name}">{name}</option>'
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -378,11 +384,54 @@ def _render_status_html() -> str:
         .badge.active {{ background: #0f3d0f; color: #4ade80; }}
         .badge.idle {{ background: #3d3d0f; color: #facc15; }}
         .badge.starting {{ background: #0f2d3d; color: #38bdf8; }}
+        .spawn-form {{ margin-bottom: 2rem; padding: 1.2rem; background: #111;
+                      border: 1px solid #222; border-radius: 8px; }}
+        .spawn-form h2 {{ font-size: 0.9rem; margin-bottom: 0.8rem; color: #ccc; }}
+        .spawn-form .fields {{ display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; }}
+        .spawn-form label {{ display: block; font-size: 0.7rem; color: #888;
+                           text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.3rem; }}
+        .spawn-form input, .spawn-form select {{
+            background: #0a0a0a; border: 1px solid #333; color: #e0e0e0;
+            padding: 0.5rem 0.7rem; border-radius: 4px; font-size: 0.85rem;
+            font-family: inherit; }}
+        .spawn-form input:focus, .spawn-form select:focus {{
+            outline: none; border-color: #4ade80; }}
+        .spawn-form input[type="text"] {{ width: 280px; }}
+        .spawn-form button {{
+            background: #166534; color: #fff; border: none; padding: 0.5rem 1.2rem;
+            border-radius: 4px; font-size: 0.85rem; cursor: pointer; font-family: inherit;
+            font-weight: 600; }}
+        .spawn-form button:hover {{ background: #15803d; }}
+        .spawn-form button:disabled {{ background: #333; color: #666; cursor: not-allowed; }}
+        .spawn-msg {{ margin-top: 0.6rem; font-size: 0.8rem; }}
+        .spawn-msg.ok {{ color: #4ade80; }}
+        .spawn-msg.err {{ color: #f87171; }}
     </style>
 </head>
 <body>
     <h1>Gradient Bang — NPC Status</h1>
     <p class="meta">Container snapshot at {now} &middot; Auto-refreshes every 10s</p>
+
+    <div class="spawn-form">
+        <h2>Spawn NPC</h2>
+        <div class="fields">
+            <div>
+                <label for="char-id">Character ID</label>
+                <input type="text" id="char-id" placeholder="e.g. npc-01 or UUID" />
+            </div>
+            <div>
+                <label for="frag">Fragment</label>
+                <select id="frag">
+                    {fragment_options}
+                </select>
+            </div>
+            <div>
+                <button id="spawn-btn" onclick="spawnNpc()">Spawn</button>
+            </div>
+        </div>
+        <div id="spawn-msg" class="spawn-msg"></div>
+    </div>
+
     <table>
         <thead>
             <tr>
@@ -400,15 +449,106 @@ def _render_status_html() -> str:
             {rows}
         </tbody>
     </table>
+
+    <script>
+        async function spawnNpc() {{
+            const charId = document.getElementById('char-id').value.trim();
+            const frag = document.getElementById('frag').value;
+            const btn = document.getElementById('spawn-btn');
+            const msg = document.getElementById('spawn-msg');
+
+            if (!charId) {{
+                msg.textContent = 'Character ID is required';
+                msg.className = 'spawn-msg err';
+                return;
+            }}
+
+            btn.disabled = true;
+            btn.textContent = 'Spawning...';
+            msg.textContent = '';
+
+            try {{
+                const resp = await fetch(
+                    window.location.href.replace('/status', '/spawn'),
+                    {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ character_id: charId, fragment: frag || null }}),
+                    }}
+                );
+                const data = await resp.json();
+                if (resp.ok) {{
+                    msg.textContent = data.message || 'Spawned!';
+                    msg.className = 'spawn-msg ok';
+                    document.getElementById('char-id').value = '';
+                }} else {{
+                    msg.textContent = data.error || 'Spawn failed';
+                    msg.className = 'spawn-msg err';
+                }}
+            }} catch (e) {{
+                msg.textContent = 'Request failed: ' + e.message;
+                msg.className = 'spawn-msg err';
+            }} finally {{
+                btn.disabled = false;
+                btn.textContent = 'Spawn';
+            }}
+        }}
+
+        document.getElementById('char-id').addEventListener('keydown', function(e) {{
+            if (e.key === 'Enter') spawnNpc();
+        }});
+    </script>
 </body>
 </html>"""
 
 
-@app.function(image=npc_image, secrets=[modal.Secret.from_name("gb-npc")])
+def _get_fragment_names() -> list[str]:
+    """Read available fragment names from the prompts dir."""
+    prompts_dir = Path("/app/npc_prompts")
+    if not prompts_dir.exists():
+        # Local dev fallback
+        prompts_dir = SCRIPT_DIR / "prompts"
+    names = []
+    for f in sorted(prompts_dir.glob("fragment_*.md")):
+        names.append(f.stem.removeprefix("fragment_"))
+    return names
+
+
+@app.function(
+    image=npc_image,
+    secrets=[modal.Secret.from_name("gb-npc")],
+    min_containers=1,
+)
 @modal.web_endpoint(method="GET")
 def status():
     """HTML dashboard showing the status of all NPCs on this container."""
-    return _render_status_html()
+    from fastapi.responses import HTMLResponse
+
+    return HTMLResponse(content=_render_status_html())
+
+
+@app.function(
+    image=npc_image,
+    secrets=[modal.Secret.from_name("gb-npc")],
+)
+@modal.web_endpoint(method="POST")
+def spawn(body: dict):
+    """Spawn an NPC via the dashboard."""
+    character_id = body.get("character_id", "").strip()
+    fragment = body.get("fragment") or None
+
+    if not character_id:
+        return {"error": "character_id is required"}, 400
+
+    if character_id in NPC_REGISTRY:
+        return {"error": f"{character_id} is already running"}, 409
+
+    # Fire-and-forget spawn
+    npc = NPC()
+    npc.run.spawn(character_id=character_id, fragment=fragment)
+
+    frag_label = fragment or "random"
+    return {"message": f"Spawned {character_id} (fragment={frag_label})"}
 
 
 # ---------------------------------------------------------------------------
