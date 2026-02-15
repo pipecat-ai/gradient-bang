@@ -82,6 +82,9 @@ def serve():
         "3",
         "--enable-prefix-caching",
         "--trust-remote-code",
+        "--enable-auto-tool-choice",
+        "--tool-call-parser",
+        "hermes",
     ]
 
     # enforce-eager disables both Torch compilation and CUDA graph capture

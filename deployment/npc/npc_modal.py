@@ -1,27 +1,34 @@
 """Modal deployment for Gradient Bang NPC agents.
 
 Spawns a TaskAgent that connects to the game via Supabase and uses
-a self-hosted vLLM Nemotron instance for inference.
+a self-hosted vLLM Nemotron instance for inference. The NPC loops
+between active (running TaskAgent) and idle (listening for events)
+phases indefinitely until manually stopped.
 
 Usage:
     # Deploy
-    uv run --group npc modal deploy deployment/npc/npc_modal.py
+    uv run --group npc modal deploy npc_modal.py
 
-    # Run locally (calls Modal remote)
-    uv run --group npc modal run deployment/npc/npc_modal.py --character-id npc-01
+    # Run (blocks until complete)
+    uv run --group npc modal run npc_modal.py --character-id npc-01
 
     # With a specific personality fragment
-    uv run --group npc modal run deployment/npc/npc_modal.py --character-id npc-01 --fragment aggressive
+    uv run --group npc modal run npc_modal.py --character-id npc-01 --fragment aggressive
 
-    # Spawn from Python
+    # Spawn from Python (fire-and-forget)
     import modal
     NPC = modal.Cls.from_name("gb-npc", "NPC")
     NPC().run.spawn(character_id="npc-01", fragment="aggressive")
+
+    # Status dashboard
+    # After deploy, visit the URL printed for the `status` endpoint.
 """
 
 from __future__ import annotations
 
+import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import modal
@@ -35,6 +42,28 @@ REPO_ROOT = SCRIPT_DIR.parent.parent
 load_dotenv(dotenv_path=SCRIPT_DIR / ".env")
 
 MINUTES = 60  # seconds
+
+# ---------------------------------------------------------------------------
+# Wake-up events (pull NPC out of idle when any of these fire)
+# ---------------------------------------------------------------------------
+
+WAKE_EVENTS = [
+    # Combat
+    "combat.round_waiting",
+    "combat.round_resolved",
+    "combat.ended",
+    "combat.action_accepted",
+    # Chat
+    "chat.message",
+    # Sector changes
+    "sector.update",
+]
+
+# ---------------------------------------------------------------------------
+# NPC registry (per-container shared state for the status dashboard)
+# ---------------------------------------------------------------------------
+
+NPC_REGISTRY: dict[str, dict] = {}
 
 # ---------------------------------------------------------------------------
 # Image
@@ -63,14 +92,40 @@ npc_image = (
 app = modal.App("gb-npc")
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _build_reactive_prompt(base_prompt: str, fragment_text: str, event: dict) -> str:
+    """Build a task prompt that reacts to a wake-up event."""
+    parts = []
+    if base_prompt:
+        parts.append(base_prompt)
+    if fragment_text:
+        parts.append(fragment_text)
+    parts.append(
+        "## Wake-up Event\n"
+        "You were idle and the following event occurred:\n"
+        f"```json\n{json.dumps(event, indent=2, default=str)}\n```\n\n"
+        "React to this event appropriately using your tools. "
+        "When you have finished reacting, call the `finished` tool."
+    )
+    return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# NPC class
+# ---------------------------------------------------------------------------
+
+
 @app.cls(
     image=npc_image,
     secrets=[modal.Secret.from_name("gb-npc")],
-    scaledown_window=15 * MINUTES,
-    timeout=30 * MINUTES,
+    scaledown_window=60 * MINUTES,  # stay warm; NPCs are long-lived
+    timeout=24 * 60 * MINUTES,  # allow up to 24h runtime
 )
 class NPC:
-    """Warm-container NPC agent.
+    """Long-lived NPC agent that loops between active and idle phases.
 
     @modal.enter() runs once when the container starts. Prompt files and
     config are loaded into memory so subsequent .run() calls are instant.
@@ -96,7 +151,9 @@ class NPC:
 
         # Config from env
         self.llm_service_url = os.environ["LLM_SERVICE_URL"]
-        self.model_name = os.environ.get("MODEL_NAME", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16")
+        self.model_name = os.environ.get(
+            "MODEL_NAME", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+        )
 
         fragment_names = ", ".join(self.fragments.keys()) or "(none)"
         print(
@@ -111,13 +168,17 @@ class NPC:
 
     @modal.method()
     async def run(self, character_id: str, fragment: str | None = None):
-        """Run an NPC agent for the given character.
+        """Run an NPC agent indefinitely for the given character.
+
+        Loops between active (TaskAgent running) and idle (event-listening)
+        phases until the container is stopped.
 
         Args:
             character_id: Game character ID to control.
             fragment: Name of the personality fragment (e.g. "aggressive").
                       If None, a random fragment is chosen.
         """
+        import asyncio
         import random
 
         from loguru import logger
@@ -127,18 +188,22 @@ class NPC:
         from gradientbang.utils.supabase_client import AsyncGameClient
         from gradientbang.utils.task_agent import TaskAgent
 
-        # -- Build NPC task prompt (base + fragment) ---------------------
+        # -- Choose fragment -----------------------------------------------
         if fragment is None and self.fragments:
             fragment = random.choice(list(self.fragments.keys()))
 
-        parts = [self.base_prompt] if self.base_prompt else []
+        fragment_text = ""
         if fragment and fragment in self.fragments:
-            parts.append(self.fragments[fragment])
+            fragment_text = self.fragments[fragment]
         elif fragment and fragment not in self.fragments:
             logger.warning(
                 f"Unknown fragment '{fragment}', available: {list(self.fragments.keys())}"
             )
 
+        # -- Build initial task prompt ------------------------------------
+        parts = [self.base_prompt] if self.base_prompt else []
+        if fragment_text:
+            parts.append(fragment_text)
         task_prompt = "\n\n".join(parts) if parts else "Explore the universe."
 
         logger.info(
@@ -146,7 +211,7 @@ class NPC:
             f"fragment={fragment}  task_len={len(task_prompt)}"
         )
 
-        # -- Custom LLM factory (points at our vLLM instance) ----------
+        # -- Custom LLM factory -------------------------------------------
         llm_url = self.llm_service_url
         model = self.model_name
 
@@ -157,39 +222,196 @@ class NPC:
                 model=model,
             )
 
-        # -- Connect to game and run agent ------------------------------
-        async with AsyncGameClient(
-            character_id=character_id,
-        ) as game_client:
-            await game_client.pause_event_delivery()
+        # -- Register in NPC_REGISTRY -------------------------------------
+        NPC_REGISTRY[character_id] = {
+            "character_id": character_id,
+            "fragment": fragment,
+            "state": "starting",
+            "current_task": None,
+            "started_at": _now_iso(),
+            "last_state_change": _now_iso(),
+            "task_count": 0,
+            "last_wake_event": None,
+        }
 
-            try:
-                await game_client.join(character_id)
-            except Exception as exc:
-                logger.error(f"Failed to join as {character_id}: {exc}")
-                return False
-
-            logger.info(f"[NPC] joined as {character_id}")
-
-            agent = TaskAgent(
-                game_client=game_client,
+        # -- Connect to game and loop -------------------------------------
+        try:
+            async with AsyncGameClient(
                 character_id=character_id,
-                config=LLMConfig(model=model),
-                llm_service_factory=make_llm,
-            )
+            ) as game_client:
+                await game_client.pause_event_delivery()
 
-            success = await agent.run_task(task=task_prompt)
+                try:
+                    await game_client.join(character_id)
+                except Exception as exc:
+                    logger.error(f"Failed to join as {character_id}: {exc}")
+                    NPC_REGISTRY.pop(character_id, None)
+                    return False
 
-            if success:
-                logger.info(f"[NPC] {character_id} task completed successfully")
-            else:
-                logger.warning(f"[NPC] {character_id} task did not complete")
+                logger.info(f"[NPC] joined as {character_id}")
 
-            return success
+                while True:
+                    # ---- ACTIVE PHASE ----
+                    reg = NPC_REGISTRY[character_id]
+                    reg["state"] = "active"
+                    reg["current_task"] = task_prompt[:120]
+                    reg["last_state_change"] = _now_iso()
+                    reg["task_count"] += 1
+
+                    logger.info(
+                        f"[NPC] {character_id} active phase #{reg['task_count']}"
+                    )
+
+                    agent = TaskAgent(
+                        game_client=game_client,
+                        character_id=character_id,
+                        config=LLMConfig(model=model),
+                        llm_service_factory=make_llm,
+                    )
+
+                    success = await agent.run_task(task=task_prompt)
+
+                    if success:
+                        logger.info(f"[NPC] {character_id} task completed")
+                    else:
+                        logger.warning(f"[NPC] {character_id} task did not complete")
+
+                    # ---- IDLE PHASE ----
+                    reg["state"] = "idle"
+                    reg["current_task"] = None
+                    reg["last_state_change"] = _now_iso()
+
+                    logger.info(
+                        f"[NPC] {character_id} entering idle, "
+                        f"listening for: {WAKE_EVENTS}"
+                    )
+
+                    wake_event = asyncio.Event()
+                    wake_context: dict[str, dict] = {}
+
+                    async def on_wake(event_message: dict) -> None:
+                        if not wake_event.is_set():
+                            wake_context["event"] = event_message
+                            wake_event.set()
+
+                    # Register wake-up handlers
+                    tokens = []
+                    for evt_name in WAKE_EVENTS:
+                        tokens.append(
+                            game_client.add_event_handler(evt_name, on_wake)
+                        )
+
+                    # Wait until something interesting happens
+                    await wake_event.wait()
+
+                    # Clean up idle handlers
+                    for token in tokens:
+                        game_client.remove_event_handler(token)
+
+                    wake_evt = wake_context.get("event", {})
+                    wake_type = wake_evt.get("event_type", "unknown")
+                    reg["last_wake_event"] = wake_type
+
+                    logger.info(
+                        f"[NPC] {character_id} woke up: {wake_type}"
+                    )
+
+                    # Build reactive prompt for next active phase
+                    task_prompt = _build_reactive_prompt(
+                        self.base_prompt, fragment_text, wake_evt
+                    )
+
+        finally:
+            NPC_REGISTRY.pop(character_id, None)
+            logger.info(f"[NPC] {character_id} shut down")
 
 
 # ---------------------------------------------------------------------------
-# CLI entry point: modal run deployment/npc/npc_modal.py ...
+# Status dashboard
+# ---------------------------------------------------------------------------
+
+
+def _render_status_html() -> str:
+    """Render the NPC registry as a simple HTML dashboard."""
+    now = _now_iso()
+    rows = ""
+    for npc in sorted(NPC_REGISTRY.values(), key=lambda n: n["character_id"]):
+        state = npc["state"]
+        state_class = {"active": "active", "idle": "idle"}.get(state, "starting")
+        rows += f"""
+        <tr>
+            <td><code>{npc['character_id']}</code></td>
+            <td>{npc.get('fragment') or '—'}</td>
+            <td><span class="badge {state_class}">{state}</span></td>
+            <td>{npc.get('current_task') or '—'}</td>
+            <td>{npc.get('task_count', 0)}</td>
+            <td>{npc.get('last_wake_event') or '—'}</td>
+            <td>{npc.get('started_at', '—')}</td>
+            <td>{npc.get('last_state_change', '—')}</td>
+        </tr>"""
+
+    if not rows:
+        rows = '<tr><td colspan="8" style="text-align:center;color:#888;">No NPCs running on this container</td></tr>'
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Gradient Bang — NPC Status</title>
+    <meta charset="utf-8">
+    <meta http-equiv="refresh" content="10">
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               background: #0a0a0a; color: #e0e0e0; padding: 2rem; }}
+        h1 {{ font-size: 1.4rem; margin-bottom: 0.5rem; color: #fff; }}
+        .meta {{ font-size: 0.8rem; color: #666; margin-bottom: 1.5rem; }}
+        table {{ width: 100%; border-collapse: collapse; font-size: 0.85rem; }}
+        th {{ text-align: left; padding: 0.6rem 0.8rem; border-bottom: 2px solid #333;
+             color: #888; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.05em; }}
+        td {{ padding: 0.6rem 0.8rem; border-bottom: 1px solid #1a1a1a; }}
+        tr:hover td {{ background: #111; }}
+        code {{ background: #1a1a1a; padding: 0.15rem 0.4rem; border-radius: 3px;
+               font-size: 0.8rem; }}
+        .badge {{ padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.7rem;
+                 font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }}
+        .badge.active {{ background: #0f3d0f; color: #4ade80; }}
+        .badge.idle {{ background: #3d3d0f; color: #facc15; }}
+        .badge.starting {{ background: #0f2d3d; color: #38bdf8; }}
+    </style>
+</head>
+<body>
+    <h1>Gradient Bang — NPC Status</h1>
+    <p class="meta">Container snapshot at {now} &middot; Auto-refreshes every 10s</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Character</th>
+                <th>Fragment</th>
+                <th>State</th>
+                <th>Current Task</th>
+                <th>Tasks Run</th>
+                <th>Last Wake Event</th>
+                <th>Started</th>
+                <th>Last Change</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows}
+        </tbody>
+    </table>
+</body>
+</html>"""
+
+
+@app.function(image=npc_image, secrets=[modal.Secret.from_name("gb-npc")])
+@modal.web_endpoint(method="GET")
+def status():
+    """HTML dashboard showing the status of all NPCs on this container."""
+    return _render_status_html()
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point: modal run npc_modal.py ...
 # ---------------------------------------------------------------------------
 
 
