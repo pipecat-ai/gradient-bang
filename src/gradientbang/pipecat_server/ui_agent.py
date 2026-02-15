@@ -23,6 +23,7 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     CancelFrame,
+    EndFrame,
     Frame,
     FunctionCallResultFrame,
     FunctionCallResultProperties,
@@ -33,7 +34,6 @@ from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
     LLMTextFrame,
     StartFrame,
-    EndFrame,
     SystemFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -51,8 +51,18 @@ CONTROL_UI_SCHEMA = FunctionSchema(
     properties={
         "show_panel": {
             "type": "string",
-            "enum": ["map", "default"],
-            "description": "Show map screen (map) or close it (default)",
+            "enum": [
+                "default",
+                "map",
+                "tasks",
+                "sector",
+                "player",
+                "trade",
+                "task_history",
+                "corp",
+                "logs",
+            ],
+            "description": "Show map panel (map), tasks panel (tasks, task engines, task details), sector panel (sector), player panel (player), trade panel (trade), task history panel (task_history), corporation panel (corp), or logs panel (logs), or default panel (default)",
         },
         "map_center_sector": {
             "type": "integer",
@@ -508,7 +518,9 @@ class UIAgentContext(FrameProcessor):
                 summary = str(payload)
         return f'<event name="{event_name}">\n{summary}\n</event>'
 
-    def _set_intent_event(self, pending: PendingIntent, event_name: str, event_message: dict) -> None:
+    def _set_intent_event(
+        self, pending: PendingIntent, event_name: str, event_message: dict
+    ) -> None:
         pending.event_xml = self._format_event_xml(event_name, event_message)
         pending.event_received_at = time.time()
 
@@ -517,7 +529,11 @@ class UIAgentContext(FrameProcessor):
         for intent in self._pending_intents.values():
             event_xml = intent.event_xml
             if isinstance(event_xml, str) and event_xml:
-                timestamp = intent.event_received_at if isinstance(intent.event_received_at, (int, float)) else 0.0
+                timestamp = (
+                    intent.event_received_at
+                    if isinstance(intent.event_received_at, (int, float))
+                    else 0.0
+                )
                 events.append((timestamp, event_xml))
 
         events.sort(key=lambda item: item[0])
@@ -568,8 +584,8 @@ class UIAgentContext(FrameProcessor):
                 if existing.request_task and not existing.request_task.done():
                     existing.request_task.cancel()
         intent_id = self._next_intent_id()
-        timeout_secs = default_timeout_secs if expires_in_secs is None else max(
-            1.0, float(expires_in_secs)
+        timeout_secs = (
+            default_timeout_secs if expires_in_secs is None else max(1.0, float(expires_in_secs))
         )
         expires_at = time.time() + timeout_secs
         intent = PendingIntent(
@@ -752,7 +768,12 @@ class UIAgentContext(FrameProcessor):
             logger.error(f"UI agent list_known_ports failed: {exc}")
         finally:
             intent = self._pending_intents.get("ports.list")
-            if intent and intent.id == intent_id and intent.request_task and intent.request_task.done():
+            if (
+                intent
+                and intent.id == intent_id
+                and intent.request_task
+                and intent.request_task.done()
+            ):
                 intent.request_task = None
 
     async def _delayed_ships_list_request(self, intent_id: int) -> None:
@@ -772,7 +793,12 @@ class UIAgentContext(FrameProcessor):
             logger.error(f"UI agent list_user_ships failed: {exc}")
         finally:
             intent = self._pending_intents.get("ships.list")
-            if intent and intent.id == intent_id and intent.request_task and intent.request_task.done():
+            if (
+                intent
+                and intent.id == intent_id
+                and intent.request_task
+                and intent.request_task.done()
+            ):
                 intent.request_task = None
 
     async def _on_ports_list(self, event_message: dict) -> None:
@@ -1116,9 +1142,7 @@ class UIAgentContext(FrameProcessor):
                     break
                 keep[idx] = False
                 to_drop -= 1
-            recent_messages = [
-                msg for idx, msg in enumerate(recent_messages) if keep[idx]
-            ]
+            recent_messages = [msg for idx, msg in enumerate(recent_messages) if keep[idx]]
 
         return recent_messages, latest_assistant
 
@@ -1208,24 +1232,30 @@ class UIAgentContext(FrameProcessor):
         logger.debug(f"UI agent queue_ui_intent args: {arguments}")
 
         # Append tool_call message immediately
-        self._messages.append({
-            "role": "assistant",
-            "tool_calls": [{
-                "id": tool_call_id,
-                "function": {
-                    "name": function_name,
-                    "arguments": json.dumps(arguments, ensure_ascii=False),
-                },
-                "type": "function",
-            }],
-        })
+        self._messages.append(
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": tool_call_id,
+                        "function": {
+                            "name": function_name,
+                            "arguments": json.dumps(arguments, ensure_ascii=False),
+                        },
+                        "type": "function",
+                    }
+                ],
+            }
+        )
 
         result: dict[str, Any]
         intent_type = arguments.get("intent_type")
         clear_existing = arguments.get("clear_existing")
         replace_existing = True if clear_existing is None else bool(clear_existing)
         include_player_sector = arguments.get("include_player_sector")
-        include_player_sector = False if include_player_sector is None else bool(include_player_sector)
+        include_player_sector = (
+            False if include_player_sector is None else bool(include_player_sector)
+        )
         show_panel = arguments.get("show_panel")
         show_panel = True if show_panel is None else bool(show_panel)
         expires_in_secs = arguments.get("expires_in_secs")
@@ -1321,7 +1351,10 @@ class UIAgentContext(FrameProcessor):
 
                 def _course_match_fn(payload: dict) -> bool:
                     if isinstance(from_sector, int) and isinstance(to_sector, int):
-                        if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
+                        if (
+                            payload.get("from_sector") != from_sector
+                            or payload.get("to_sector") != to_sector
+                        ):
                             logger.debug(
                                 "UI agent course.plot mismatch with pending intent; cached only"
                             )
@@ -1343,19 +1376,19 @@ class UIAgentContext(FrameProcessor):
                     if cached_event is not None:
                         await self._on_course_plot(cached_event)
                 else:
-                    logger.debug(
-                        "UI agent course.plot cache skipped; missing from/to sector"
-                    )
+                    logger.debug("UI agent course.plot cache skipped; missing from/to sector")
 
             result = {"success": True, "intent_type": intent_type, "intent_id": intent_id}
         except Exception as exc:  # noqa: BLE001
             result = {"success": False, "error": str(exc)}
 
-        self._messages.append({
-            "role": "tool",
-            "content": json.dumps(result),
-            "tool_call_id": tool_call_id,
-        })
+        self._messages.append(
+            {
+                "role": "tool",
+                "content": json.dumps(result),
+                "tool_call_id": tool_call_id,
+            }
+        )
 
         await params.result_callback(
             result,
@@ -1386,22 +1419,28 @@ class UIAgentContext(FrameProcessor):
         function_name = params.function_name
         result = {"success": True, "skipped": not should_send}
 
-        self._messages.append({
-            "role": "assistant",
-            "tool_calls": [{
-                "id": tool_call_id,
-                "function": {
-                    "name": function_name,
-                    "arguments": json.dumps(arguments, ensure_ascii=False),
-                },
-                "type": "function",
-            }],
-        })
-        self._messages.append({
-            "role": "tool",
-            "content": json.dumps(result),
-            "tool_call_id": tool_call_id,
-        })
+        self._messages.append(
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": tool_call_id,
+                        "function": {
+                            "name": function_name,
+                            "arguments": json.dumps(arguments, ensure_ascii=False),
+                        },
+                        "type": "function",
+                    }
+                ],
+            }
+        )
+        self._messages.append(
+            {
+                "role": "tool",
+                "content": json.dumps(result),
+                "tool_call_id": tool_call_id,
+            }
+        )
 
         await params.result_callback(
             result,
@@ -1415,17 +1454,21 @@ class UIAgentContext(FrameProcessor):
         logger.debug(f"UI agent corporation_info args: {arguments}")
 
         # Append tool_call message immediately
-        self._messages.append({
-            "role": "assistant",
-            "tool_calls": [{
-                "id": tool_call_id,
-                "function": {
-                    "name": function_name,
-                    "arguments": json.dumps(arguments, ensure_ascii=False),
-                },
-                "type": "function",
-            }],
-        })
+        self._messages.append(
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": tool_call_id,
+                        "function": {
+                            "name": function_name,
+                            "arguments": json.dumps(arguments, ensure_ascii=False),
+                        },
+                        "type": "function",
+                    }
+                ],
+            }
+        )
         self._pending_results += 1
         self._had_tool_calls = True
         self._pending_tools[f"corp_info_{tool_call_id}"] = {
@@ -1460,21 +1503,29 @@ class UIAgentContext(FrameProcessor):
         old_pending = self._pending_tools.get("status.snapshot")
         if old_pending:
             old_tool_call_id = old_pending["tool_call_id"]
-            logger.warning(f"UI agent my_status: superseding previous pending call {old_tool_call_id}")
-            self._record_tool_result(old_tool_call_id, {"error": "superseded by new my_status call"})
+            logger.warning(
+                f"UI agent my_status: superseding previous pending call {old_tool_call_id}"
+            )
+            self._record_tool_result(
+                old_tool_call_id, {"error": "superseded by new my_status call"}
+            )
 
         # Append tool_call message immediately
-        self._messages.append({
-            "role": "assistant",
-            "tool_calls": [{
-                "id": tool_call_id,
-                "function": {
-                    "name": function_name,
-                    "arguments": json.dumps(arguments, ensure_ascii=False),
-                },
-                "type": "function",
-            }],
-        })
+        self._messages.append(
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": tool_call_id,
+                        "function": {
+                            "name": function_name,
+                            "arguments": json.dumps(arguments, ensure_ascii=False),
+                        },
+                        "type": "function",
+                    }
+                ],
+            }
+        )
         self._pending_results += 1
         self._had_tool_calls = True
 
@@ -1589,11 +1640,13 @@ class UIAgentContext(FrameProcessor):
         del self._pending_tools[found_key]
 
         # Append tool_result message
-        self._messages.append({
-            "role": "tool",
-            "content": json.dumps(result, default=str),
-            "tool_call_id": tool_call_id,
-        })
+        self._messages.append(
+            {
+                "role": "tool",
+                "content": json.dumps(result, default=str),
+                "tool_call_id": tool_call_id,
+            }
+        )
         self._pending_results -= 1
 
         logger.debug(
@@ -1656,11 +1709,13 @@ class UIAgentContext(FrameProcessor):
             self._context_summary = new_summary
             # Send debug RTVI event for client debug panel
             await self._rtvi.push_frame(
-                RTVIServerMessageFrame({
-                    "frame_type": "event",
-                    "event": "ui-agent-context-summary",
-                    "payload": {"context_summary": self._context_summary},
-                })
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": "ui-agent-context-summary",
+                        "payload": {"context_summary": self._context_summary},
+                    }
+                )
             )
 
         should_rerun = False
@@ -1718,6 +1773,11 @@ class UIAgentContext(FrameProcessor):
         effective_show_panel = show_panel if isinstance(show_panel, str) else None
         if wants_map and effective_show_panel is None:
             effective_show_panel = "map"
+
+        # Non-map panels (e.g. "tasks") bypass map-specific dedup entirely.
+        if effective_show_panel is not None and effective_show_panel not in {"map", "default"}:
+            self._last_show_panel = effective_show_panel
+            return True
 
         if effective_show_panel in {"map", "default"}:
             if effective_show_panel != self._last_show_panel:
