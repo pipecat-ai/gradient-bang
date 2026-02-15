@@ -40,17 +40,18 @@ from pipecat.processors.frameworks.rtvi import (
 )
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
-from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.utils.time import time_now_iso8601
 
+from gradientbang.pipecat_server.magpie_http_tts import MagpieHTTPTTSService
 from gradientbang.utils.llm_factory import (
+    LLMProvider,
     create_llm_service,
     get_ui_agent_llm_config,
     get_voice_llm_config,
 )
+from gradientbang.utils.stt_factory import create_stt_service, get_voice_stt_config
 from gradientbang.utils.prompt_loader import build_voice_agent_prompt
 
 load_dotenv(dotenv_path=".env.bot")
@@ -169,22 +170,31 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # Initialize STT service
     logger.info("Init STT…")
-    stt = DeepgramSTTService(
-        api_key=os.getenv("DEEPGRAM_API_KEY"),
-    )
+    stt_config = get_voice_stt_config()
+    stt = create_stt_service(stt_config)
 
-    # Initialize TTS service (managed session)
-    logger.info("Init TTS (Cartesia)…")
-    cartesia_key = os.getenv("CARTESIA_API_KEY", "")
-    if not cartesia_key:
-        logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
-    tts = CartesiaTTSService(api_key=cartesia_key, voice_id="ec1e269e-9ca0-402f-8a18-58e0e022355a")
+    # Initialize TTS service (Magpie HTTP endpoint)
+    magpie_url = os.getenv("NVIDIA_TTS_URL", "http://192.168.7.228:8001/v1/audio/speech")
+    magpie_voice = os.getenv("NVIDIA_TTS_VOICE", "aria")
+    magpie_language = os.getenv("NVIDIA_TTS_LANGUAGE", "en")
+    logger.info(f"Init TTS (Magpie HTTP) at {magpie_url}…")
+    tts = MagpieHTTPTTSService(
+        server_url=magpie_url,
+        voice=magpie_voice,
+        language=magpie_language,
+    )
 
     # Initialize LLM service
     logger.info("Init LLM…")
     voice_config = get_voice_llm_config()
     llm = create_llm_service(voice_config)
     llm.register_function(None, task_manager.execute_tool_call)
+
+    # Nemotron struggles with mixed marker + tool-calling instructions.
+    # Keep turn-completion filtering for other providers, disable for Nemotron.
+    enable_incomplete_turn_filtering = voice_config.provider != LLMProvider.NEMOTRON
+    if not enable_incomplete_turn_filtering:
+        logger.info("Disabling incomplete-turn filtering for Nemotron voice LLM")
 
     @llm.event_handler("on_function_calls_started")
     async def on_function_calls_started(service, function_calls):
@@ -218,7 +228,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            filter_incomplete_user_turns=True,
+            filter_incomplete_user_turns=enable_incomplete_turn_filtering,
             user_mute_strategies=[
                 TextInputBypassFirstBotMuteStrategy(),
             ],

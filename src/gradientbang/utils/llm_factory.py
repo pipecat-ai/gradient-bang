@@ -1,22 +1,23 @@
 """
 Flexible LLM service factory for Pipecat pipelines.
 
-Supports Google, Anthropic, and OpenAI models with environment-based configuration.
+Supports Google, Anthropic, OpenAI, and Nemotron (vLLM/OpenAI-compatible)
+models with environment-based configuration.
 
 Environment Variables:
     # Voice LLM (bot.py pipeline - typically no thinking mode)
-    VOICE_LLM_PROVIDER: google, anthropic, openai (default: google)
+    VOICE_LLM_PROVIDER: google, anthropic, openai, nemotron (default: google)
     VOICE_LLM_MODEL: Model name (default: gemini-2.5-flash)
     VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
     # Task Agent LLM (TaskAgent - with thinking mode)
-    TASK_LLM_PROVIDER: google, anthropic, openai (default: google)
+    TASK_LLM_PROVIDER: google, anthropic, openai, nemotron (default: google)
     TASK_LLM_MODEL: Model name (default: gemini-2.5-flash-preview-09-2025)
     TASK_LLM_THINKING_BUDGET: Token budget for thinking (default: 2048)
     TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
     # UI Agent LLM (UI agent branch - lightweight, no thinking by default)
-    UI_AGENT_LLM_PROVIDER: google, anthropic, openai (default: google)
+    UI_AGENT_LLM_PROVIDER: google, anthropic, openai, nemotron (default: google)
     UI_AGENT_LLM_MODEL: Model name (default: gemini-2.5-flash)
     UI_AGENT_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
 
@@ -24,16 +25,25 @@ Environment Variables:
     GOOGLE_API_KEY
     ANTHROPIC_API_KEY
     OPENAI_API_KEY
+    NEMOTRON_API_KEY (optional; defaults to "empty")
+    OPENAI_BASE_URL (optional, OpenAI provider)
+    NEMOTRON_BASE_URL (optional, Nemotron provider)
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
+import re
+import time
+import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from loguru import logger
+from openai import APITimeoutError
 from pipecat.services.llm_service import LLMService
 
 
@@ -43,6 +53,15 @@ class LLMProvider(Enum):
     GOOGLE = "google"
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
+    NEMOTRON = "nemotron"
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Parse truthy/falsey environment flags."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -65,7 +84,7 @@ class LLMServiceConfig:
     """Configuration for creating an LLM service.
 
     Attributes:
-        provider: The LLM provider (Google, Anthropic, or OpenAI).
+        provider: The LLM provider (Google, Anthropic, OpenAI, or Nemotron).
         model: The model name to use.
         api_key: Optional API key override (defaults to environment variable).
         thinking: Optional thinking configuration for task agents.
@@ -101,6 +120,14 @@ def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
     """
     if override:
         return override
+
+    if provider == LLMProvider.NEMOTRON:
+        # Most local vLLM deployments don't enforce OpenAI keys; keep this
+        # non-blocking by defaulting to a dummy string when not configured.
+        nemotron_key = os.getenv("NEMOTRON_API_KEY")
+        if isinstance(nemotron_key, str) and nemotron_key.strip():
+            return nemotron_key.strip()
+        return "empty"
 
     env_var_map = {
         LLMProvider.GOOGLE: "GOOGLE_API_KEY",
@@ -150,6 +177,13 @@ def create_llm_service(config: LLMServiceConfig) -> LLMService:
         )
     elif config.provider == LLMProvider.OPENAI:
         service = _create_openai_service(
+            api_key,
+            config.model,
+            config.thinking,
+            config.function_call_timeout_secs,
+        )
+    elif config.provider == LLMProvider.NEMOTRON:
+        service = _create_nemotron_service(
             api_key,
             config.model,
             config.thinking,
@@ -293,11 +327,313 @@ def _create_openai_service(
     )
 
 
+def _get_nemotron_openai_cls():
+    """Return an OpenAILLMService subclass with Nemotron-specific request params.
+
+    Nemotron via vLLM uses OpenAI-compatible chat completions but expects
+    `chat_template_kwargs.enable_thinking` in the request body.
+    """
+    from pipecat.services.openai.llm import OpenAILLMService
+
+    class _NemotronOpenAILLMService(OpenAILLMService):
+        _TAG_START_CHAR_RE = re.compile(r"[A-Za-z/!?]")
+
+        def __init__(self, *, enable_thinking: bool = False, **kwargs):
+            self._enable_thinking = bool(enable_thinking)
+            self._log_request_response = _env_flag("NEMOTRON_LOG_REQUEST_RESPONSE")
+            self._strip_xml_output = _env_flag("NEMOTRON_STRIP_XML_OUTPUT", default=True)
+            self._xml_filter_tail = ""
+            if self._log_request_response:
+                logger.warning("Nemotron request/response logging enabled")
+            super().__init__(**kwargs)
+
+        def _strip_xml_like_tags(self, text: str) -> str:
+            """Strip XML/HTML-like tags from streamed text content.
+
+            Stateful across chunks so tags split over chunk boundaries are removed.
+            """
+            if not text:
+                return text
+
+            buffer = f"{self._xml_filter_tail}{text}"
+            self._xml_filter_tail = ""
+
+            output_parts: list[str] = []
+            i = 0
+            n = len(buffer)
+
+            while i < n:
+                lt = buffer.find("<", i)
+                if lt == -1:
+                    output_parts.append(buffer[i:])
+                    break
+
+                # Keep text before potential tag.
+                if lt > i:
+                    output_parts.append(buffer[i:lt])
+
+                # Incomplete "<" at end of chunk: hold for next chunk.
+                if lt + 1 >= n:
+                    self._xml_filter_tail = buffer[lt:]
+                    break
+
+                next_char = buffer[lt + 1]
+                if not self._TAG_START_CHAR_RE.match(next_char):
+                    # Not a tag start; keep literal '<' and continue.
+                    output_parts.append("<")
+                    i = lt + 1
+                    continue
+
+                gt = buffer.find(">", lt + 1)
+                if gt == -1:
+                    # Potential tag spans chunks; hold from '<' onward.
+                    self._xml_filter_tail = buffer[lt:]
+                    break
+
+                # Skip the full tag.
+                i = gt + 1
+
+            return "".join(output_parts)
+
+        async def _push_llm_text(self, text: str):
+            """Sanitize Nemotron textual output before emitting to pipeline."""
+            if self._strip_xml_output and isinstance(text, str):
+                text = self._strip_xml_like_tags(text)
+                if not text:
+                    return
+            await super()._push_llm_text(text)
+
+        def build_chat_completion_params(self, params_from_context) -> dict:
+            params = super().build_chat_completion_params(params_from_context)
+
+            extra_body = params.get("extra_body")
+            if not isinstance(extra_body, dict):
+                extra_body = {}
+
+            chat_template_kwargs = extra_body.get("chat_template_kwargs")
+            if not isinstance(chat_template_kwargs, dict):
+                chat_template_kwargs = {}
+
+            chat_template_kwargs["enable_thinking"] = self._enable_thinking
+            extra_body["chat_template_kwargs"] = chat_template_kwargs
+            params["extra_body"] = extra_body
+            return params
+
+        @staticmethod
+        def _safe_preview(value: Any, limit: int = 160) -> Optional[str]:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                text = value
+            else:
+                text = str(value)
+            if len(text) <= limit:
+                return text
+            return f"{text[:limit]}..."
+
+        def _extract_tool_names(self, tools: Any) -> list[str]:
+            names: list[str] = []
+            if not isinstance(tools, list):
+                return names
+            for tool in tools:
+                if not isinstance(tool, dict):
+                    continue
+                fn = tool.get("function")
+                if isinstance(fn, dict):
+                    name = fn.get("name")
+                    if isinstance(name, str) and name:
+                        names.append(name)
+            return names
+
+        def _request_log_payload(self, request_id: str, params: dict[str, Any]) -> dict[str, Any]:
+            messages = params.get("messages")
+            message_count = len(messages) if isinstance(messages, list) else None
+            last_user_preview: Optional[str] = None
+            if isinstance(messages, list):
+                for msg in reversed(messages):
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        last_user_preview = self._safe_preview(msg.get("content"))
+                        break
+
+            tools = params.get("tools")
+            tool_names = self._extract_tool_names(tools)
+
+            return {
+                "request_id": request_id,
+                "model": params.get("model"),
+                "message_count": message_count,
+                "last_user_preview": last_user_preview,
+                "tool_count": len(tool_names),
+                "tool_names": tool_names,
+                "tool_choice": str(params.get("tool_choice")),
+                "max_tokens": str(params.get("max_tokens")),
+                "max_completion_tokens": str(params.get("max_completion_tokens")),
+                "extra_body": params.get("extra_body"),
+            }
+
+        def _wrap_chunk_stream_for_logging(self, chunk_stream, request_id: str):
+            async def _iter():
+                started_at = time.monotonic()
+                chunk_count = 0
+                text_chars = 0
+                tool_call_count = 0
+                tool_call_names: set[str] = set()
+                finish_reasons: set[str] = set()
+                usage: dict[str, Optional[int]] = {
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                    "cached_tokens": None,
+                    "reasoning_tokens": None,
+                }
+                model_name: Optional[str] = None
+
+                try:
+                    async for chunk in chunk_stream:
+                        chunk_count += 1
+
+                        if getattr(chunk, "model", None):
+                            model_name = chunk.model
+
+                        if getattr(chunk, "usage", None):
+                            u = chunk.usage
+                            usage["prompt_tokens"] = getattr(u, "prompt_tokens", None)
+                            usage["completion_tokens"] = getattr(u, "completion_tokens", None)
+                            usage["total_tokens"] = getattr(u, "total_tokens", None)
+                            prompt_details = getattr(u, "prompt_tokens_details", None)
+                            completion_details = getattr(u, "completion_tokens_details", None)
+                            usage["cached_tokens"] = (
+                                getattr(prompt_details, "cached_tokens", None) if prompt_details else None
+                            )
+                            usage["reasoning_tokens"] = (
+                                getattr(completion_details, "reasoning_tokens", None)
+                                if completion_details
+                                else None
+                            )
+
+                        choices = getattr(chunk, "choices", None) or []
+                        if choices:
+                            choice0 = choices[0]
+                            finish_reason = getattr(choice0, "finish_reason", None)
+                            if finish_reason is not None:
+                                finish_reasons.add(str(finish_reason))
+                            delta = getattr(choice0, "delta", None)
+                            if delta is not None:
+                                content = getattr(delta, "content", None)
+                                if isinstance(content, str):
+                                    text_chars += len(content)
+                                tool_calls = getattr(delta, "tool_calls", None) or []
+                                if tool_calls:
+                                    tool_call_count += len(tool_calls)
+                                    for call in tool_calls:
+                                        fn = getattr(call, "function", None)
+                                        name = getattr(fn, "name", None) if fn is not None else None
+                                        if isinstance(name, str) and name:
+                                            tool_call_names.add(name)
+
+                        yield chunk
+                except Exception as exc:
+                    logger.exception(
+                        "NEMOTRON_LLM_RESPONSE_ERROR {}",
+                        json.dumps({"request_id": request_id, "error": str(exc)}),
+                    )
+                    raise
+                finally:
+                    elapsed_ms = int((time.monotonic() - started_at) * 1000)
+                    logger.info(
+                        "NEMOTRON_LLM_RESPONSE {}",
+                        json.dumps(
+                            {
+                                "request_id": request_id,
+                                "model": model_name,
+                                "chunks": chunk_count,
+                                "text_chars": text_chars,
+                                "tool_call_chunks": tool_call_count,
+                                "tool_call_names": sorted(tool_call_names),
+                                "finish_reasons": sorted(finish_reasons),
+                                "usage": usage,
+                                "elapsed_ms": elapsed_ms,
+                            }
+                        ),
+                    )
+
+            return _iter()
+
+        async def get_chat_completions(self, params_from_context):
+            # Start each model response with a clean XML filter carry buffer.
+            self._xml_filter_tail = ""
+            request_id = uuid.uuid4().hex[:12]
+            params = self.build_chat_completion_params(params_from_context)
+
+            if self._log_request_response:
+                logger.info(
+                    "NEMOTRON_LLM_REQUEST {}",
+                    json.dumps(self._request_log_payload(request_id, params), ensure_ascii=False),
+                )
+                # Full request body as passed to chat.completions.create(**params).
+                logger.info(
+                    "NEMOTRON_LLM_REQUEST_RAW {}",
+                    json.dumps(params, default=str, ensure_ascii=False),
+                )
+
+            if self._retry_on_timeout:
+                try:
+                    chunk_stream = await asyncio.wait_for(
+                        self._client.chat.completions.create(**params), timeout=self._retry_timeout_secs
+                    )
+                except (APITimeoutError, asyncio.TimeoutError):
+                    logger.debug(f"{self}: Retrying chat completion due to timeout")
+                    chunk_stream = await self._client.chat.completions.create(**params)
+            else:
+                chunk_stream = await self._client.chat.completions.create(**params)
+
+            if not self._log_request_response:
+                return chunk_stream
+            return self._wrap_chunk_stream_for_logging(chunk_stream, request_id)
+
+    return _NemotronOpenAILLMService
+
+
+def _create_nemotron_service(
+    api_key: str,
+    model: str,
+    thinking: Optional[UnifiedThinkingConfig],
+    function_call_timeout_secs: Optional[float] = None,
+) -> LLMService:
+    """Create Nemotron LLM service using OpenAI-compatible API semantics."""
+    enable_thinking = bool(thinking and thinking.enabled)
+    if thinking and thinking.budget_tokens:
+        logger.info(
+            "Nemotron thinking budget is controlled server-side; using enable_thinking={} only",
+            enable_thinking,
+        )
+    nemotron_base_url = os.getenv("NEMOTRON_BASE_URL")
+    if nemotron_base_url:
+        logger.info("Using NEMOTRON_BASE_URL for nemotron provider")
+    else:
+        # Backward compatibility: if only OPENAI_BASE_URL is set, reuse it.
+        nemotron_base_url = os.getenv("OPENAI_BASE_URL")
+
+    llm_kwargs: dict[str, Any] = {}
+    if function_call_timeout_secs is not None:
+        llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
+    if nemotron_base_url:
+        llm_kwargs["base_url"] = nemotron_base_url
+
+    service_cls = _get_nemotron_openai_cls()
+    return service_cls(
+        api_key=api_key,
+        model=model,
+        enable_thinking=enable_thinking,
+        **llm_kwargs,
+    )
+
+
 def get_voice_llm_config() -> LLMServiceConfig:
     """Read VOICE_LLM_* environment variables and return config.
 
     Environment Variables:
-        VOICE_LLM_PROVIDER: google, anthropic, openai (default: google)
+        VOICE_LLM_PROVIDER: google, anthropic, openai, nemotron (default: google)
         VOICE_LLM_MODEL: Model name (default: gemini-2.5-flash)
         VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
@@ -316,6 +652,7 @@ def get_voice_llm_config() -> LLMServiceConfig:
         LLMProvider.GOOGLE: "gemini-2.5-flash",
         LLMProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
         LLMProvider.OPENAI: "gpt-4.1",
+        LLMProvider.NEMOTRON: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
     }
 
     model = os.getenv("VOICE_LLM_MODEL", default_models[provider])
@@ -344,7 +681,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
     """Read TASK_LLM_* environment variables and return config.
 
     Environment Variables:
-        TASK_LLM_PROVIDER: google, anthropic, openai (default: google)
+        TASK_LLM_PROVIDER: google, anthropic, openai, nemotron (default: google)
         TASK_LLM_MODEL: Model name (default: gemini-2.5-flash-preview-09-2025)
         TASK_LLM_THINKING_BUDGET: Token budget for thinking (default: 2048)
         TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
@@ -364,6 +701,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         LLMProvider.GOOGLE: "gemini-2.5-flash-preview-09-2025",
         LLMProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
         LLMProvider.OPENAI: "gpt-4.1",
+        LLMProvider.NEMOTRON: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
     }
 
     model = os.getenv("TASK_LLM_MODEL", default_models[provider])
@@ -411,7 +749,7 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
     """Read UI_AGENT_LLM_* environment variables and return config.
 
     Environment Variables:
-        UI_AGENT_LLM_PROVIDER: google, anthropic, openai (default: google)
+        UI_AGENT_LLM_PROVIDER: google, anthropic, openai, nemotron (default: google)
         UI_AGENT_LLM_MODEL: Model name (default: gemini-2.5-flash)
         UI_AGENT_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
 
@@ -431,6 +769,7 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
         LLMProvider.GOOGLE: "gemini-2.5-flash",
         LLMProvider.ANTHROPIC: "claude-haiku-4-5-20251001",
         LLMProvider.OPENAI: "gpt-4.1",
+        LLMProvider.NEMOTRON: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
     }
     model = os.getenv("UI_AGENT_LLM_MODEL", default_models[provider])
 

@@ -8,6 +8,25 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 
 ➡️ [Join the play test](https://www.gradient-bang.com)
 
+## Models Supported So Far
+
+### STT
+
+- Deepgram Nova 3
+- NVIDIA Nemotron Speech ASR
+
+### LLM
+
+- Claude Sonnet and Opus
+- Gemini 2.5 Flash
+- OpenAI GPT-4.1 and GPT-5.1
+- NVIDIA Nemotron 3 Nano
+
+### TTS
+
+- Cartesia
+- NVIDIA Magpie
+
 ## Table of Contents
 
 [ todo ]
