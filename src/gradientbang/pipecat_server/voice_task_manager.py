@@ -72,6 +72,17 @@ COMBAT_EVENT_ALLOWLIST = {
     "combat.ended",
     "combat.action_accepted",
 }
+# Events that should still flow to RTVI/client but should not be fanned out to
+# corp task agents (to keep task panel + task LLM context focused).
+TASK_AGENT_FANOUT_EVENT_DENYLIST = {
+    "map.update",
+}
+# Task-scoped route events can come from task agents; unless they were triggered by
+# a recent voice-agent request, don't relay them to client UI overlays.
+RTVI_ROUTE_EVENT_DENYLIST_FOR_TASKS = {
+    "course.plot",
+    "path.region",
+}
 
 
 def _extract_display_name(payload: Mapping[str, Any]) -> Optional[str]:
@@ -932,6 +943,10 @@ class VoiceTaskManager:
         self._prune_request_ids()
         return request_id in self._voice_agent_request_ids
 
+    def is_recent_voice_request_id(self, request_id: Optional[str]) -> bool:
+        """Public helper for consumers that need voice-vs-task event disambiguation."""
+        return self._is_recent_request_id(request_id)
+
     def _prune_finished_task_ids(self, now: Optional[float] = None) -> None:
         if now is None:
             now = time.monotonic()
@@ -1103,6 +1118,9 @@ class VoiceTaskManager:
             candidate = payload.get("__task_id") or payload.get("task_id")
             if isinstance(candidate, str) and candidate.strip():
                 payload_task_id = candidate.strip()
+        is_task_scoped_event = payload_task_id is not None
+        # Compute once so request_id-based routing can be used consistently.
+        is_voice_agent_event = self._is_recent_request_id(event_request_id)
 
         is_our_task = False
         if payload_task_id:
@@ -1124,7 +1142,15 @@ class VoiceTaskManager:
                 if isinstance(delivery_event, asyncio.Event) and not delivery_event.is_set():
                     delivery_event.set()
                 if task_agent and task_game_client and task_game_client != self.game_client:
-                    await task_agent._handle_event(event)
+                    if event_name in TASK_AGENT_FANOUT_EVENT_DENYLIST:
+                        logger.debug(
+                            "Skipping corp task event fanout",
+                            event=event_name,
+                            task_id=task_id,
+                            reason="fanout_denylist",
+                        )
+                    else:
+                        await task_agent._handle_event(event)
 
         # Onboarding: intercept mega-port check result (don't relay to UI or LLM)
         if (
@@ -1209,15 +1235,29 @@ class VoiceTaskManager:
             self._update_display_name(clean_payload)
             self._sync_corp_polling_scope()
 
-        await self.rtvi_processor.push_frame(
-            RTVIServerMessageFrame(
-                {
-                    "frame_type": "event",
-                    "event": event_name,
-                    "payload": clean_payload,
-                }
-            )
+        skip_rtvi_event = (
+            event_name in RTVI_ROUTE_EVENT_DENYLIST_FOR_TASKS
+            and is_task_scoped_event
+            and not is_voice_agent_event
         )
+        if skip_rtvi_event:
+            logger.debug(
+                "Skipping RTVI relay for task-scoped route event",
+                event=event_name,
+                request_id=event_request_id,
+                payload_task_id=payload_task_id,
+                reason="task_scoped_non_voice_route_event",
+            )
+        else:
+            await self.rtvi_processor.push_frame(
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": event_name,
+                        "payload": clean_payload,
+                    }
+                )
+            )
 
         # Track current sector for local visibility decisions
         if (
@@ -1262,9 +1302,6 @@ class VoiceTaskManager:
             )
 
         is_task_lifecycle_event = event_name in {"task.start", "task.finish"}
-        is_task_scoped_event = payload_task_id is not None
-        # Compute once so request_id-based routing can be used during early append filtering.
-        is_voice_agent_event = self._is_recent_request_id(event_request_id)
 
         event_sector_id: Optional[int] = None
         if event_name in {"character.moved", "garrison.character_moved"}:
@@ -1461,7 +1498,13 @@ class VoiceTaskManager:
                 f"- Warp power is needed to move, so finding a mega-port is the first priority\n"
                 f"- Ask: should we search for a mega-port now?\n"
                 f"- Ask: do you want to trade along the way, or just focus on finding the mega-port?\n"
-                f"Converse naturally with the player. When they want to search for the mega-port, start a task to find it. Note in the task instructions whether to trade or not. "
+                f"Converse naturally with the player. When they want to search for the mega-port, "
+                f"start a task to find it. Note in the task instructions whether to trade or not.\n"
+                f"When creating that task, include this strategy:\n"
+                f"- Stay in Federation Space; if the route exits Federation Space, backtrack immediately.\n"
+                f"- Prefer unvisited adjacent sectors; if all nearby sectors are visited, backtrack and continue scanning.\n"
+                f"- Check for a MEGA port each step and stop as soon as one is found.\n"
+                f"- If trading was requested, trade opportunistically while searching.\n"
                 "</event>"
             )
             logger.info("Onboarding: new player, injecting welcome message")
