@@ -18,6 +18,13 @@ const MIN_LANE_LENGTH_FOR_ARROWS = 30
 // Opacity multiplier for nodes not in the active course plot path
 const COURSE_PLOT_INACTIVE_NODE_OPACITY = 0.6
 
+// Legacy behavior toggle for quick A/B testing.
+// Set to true to hide sector/port/ship labels while a course plot is active.
+const HIDE_LABELS_DURING_COURSE_PLOT = false
+// Legacy behavior toggle for quick A/B testing.
+// Set to true to hide port icons while a course plot is active.
+const HIDE_PORT_ICONS_DURING_COURSE_PLOT = false
+
 export interface SectorMapConfigBase {
   center_sector_id: number
   current_sector_id?: number
@@ -1230,8 +1237,9 @@ function renderSector(
   ctx.setLineDash([])
   ctx.lineCap = "butt"
 
-  // Hide port icons when course plot is active
-  if (config.show_ports && node.port && !coursePlot) {
+  // Legacy branch retained for quick testing; default keeps port icons visible during plots.
+  const shouldHidePortIconForPlot = HIDE_PORT_ICONS_DURING_COURSE_PLOT && Boolean(coursePlot)
+  if (config.show_ports && node.port && !shouldHidePortIconForPlot) {
     const isMegaPort = Boolean((node.port as Port | null)?.mega)
     const portStyle = isMegaPort ? config.portStyles.mega : config.portStyles.regular
 
@@ -1604,8 +1612,8 @@ function renderSectorLabels(
   coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-  // Hide all labels when course plot is active
-  if (coursePlotSectors) return
+  // Legacy behavior branch retained for quick testing.
+  if (HIDE_LABELS_DURING_COURSE_PLOT && coursePlotSectors) return
 
   // Return early if neither show_sector_ids nor show_sector_ids_hover is enabled
   if (!config.show_sector_ids && !config.show_sector_ids_hover) return
@@ -1655,7 +1663,7 @@ function renderSectorLabels(
     const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0
     const textHeight = ascent + descent
 
-    // Labels are hidden during course plot (early return above), so always full opacity here
+    // Keep labels fully opaque; plot dimming is handled by node/lane rendering.
     const labelOpacity = 1
 
     ctx.save()
@@ -1686,8 +1694,8 @@ function renderPortLabels(
   coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-  // Hide all labels when course plot is active
-  if (coursePlotSectors) return
+  // Legacy behavior branch retained for quick testing.
+  if (HIDE_LABELS_DURING_COURSE_PLOT && coursePlotSectors) return
 
   if (!config.show_port_labels) return
 
@@ -1736,7 +1744,7 @@ function renderPortLabels(
     const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0
     const textHeight = ascent + descent
 
-    // Labels are hidden during course plot (early return above), so always full opacity here
+    // Keep labels fully opaque; plot dimming is handled by node/lane rendering.
     const labelOpacity = 1
 
     ctx.save()
@@ -1768,8 +1776,8 @@ function renderShipLabels(
   coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-  // Hide all labels when course plot is active
-  if (coursePlotSectors) return
+  // Legacy behavior branch retained for quick testing.
+  if (HIDE_LABELS_DURING_COURSE_PLOT && coursePlotSectors) return
 
   if (!ships || ships.size === 0) return
 
@@ -1800,7 +1808,7 @@ function renderShipLabels(
 
     const screenPos = worldToScreen(edgeWorldX, edgeWorldY, width, height, cameraState)
 
-    // Labels are hidden during course plot (early return above), so always full opacity here
+    // Keep labels fully opaque; plot dimming is handled by node/lane rendering.
     const labelOpacity = 1
 
     // Calculate text metrics
@@ -2576,7 +2584,19 @@ export function createSectorMapController(
       return
     }
 
-    renderWithCameraState(canvas, currentProps, cameraState)
+    const scaleFactor = currentProps.config.hover_scale_factor ?? 1.15
+    const hoverScale = 1 + (scaleFactor - 1) * hoverAnimationProgress
+
+    // Render with interaction state so hover labels remain stable even when
+    // the course-plot animation loop re-renders the map each frame.
+    renderWithCameraStateAndInteraction(
+      canvas,
+      currentProps,
+      cameraState,
+      hoveredSectorId,
+      animatingSectorId,
+      hoverScale
+    )
     currentCameraState = cameraState
   }
 
