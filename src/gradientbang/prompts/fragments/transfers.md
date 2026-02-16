@@ -105,6 +105,8 @@ bank_deposit(
 )
 ```
 
+`target_player_name` must be a real player/member character name. Do not use corporation ship identities like `Corp Ship [abcd12]`.
+
 ### Withdrawing
 
 ```

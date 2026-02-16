@@ -97,6 +97,7 @@ bank_deposit(
 ```
 
 The ship must be at a mega-port in Federation Space.
+`target_player_name` must be a real member character name, not `Corp Ship [xxxxxx]`.
 
 ## Credit Transfers
 

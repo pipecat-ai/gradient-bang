@@ -36,6 +36,8 @@ from typing import Optional
 from loguru import logger
 from pipecat.services.llm_service import LLMService
 
+from gradientbang.utils.gemini_adapter import GradientBangGeminiLLMAdapter
+
 
 class LLMProvider(Enum):
     """Supported LLM providers."""
@@ -173,6 +175,9 @@ def _create_google_service(
     """Create Google (Gemini) LLM service."""
     from pipecat.services.google.llm import GoogleLLMService
 
+    class GradientBangGoogleLLMService(GoogleLLMService):
+        adapter_class = GradientBangGeminiLLMAdapter
+
     params = None
     if thinking and thinking.enabled:
         params = GoogleLLMService.InputParams(
@@ -186,7 +191,7 @@ def _create_google_service(
     if function_call_timeout_secs is not None:
         llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
 
-    return GoogleLLMService(
+    return GradientBangGoogleLLMService(
         api_key=api_key,
         model=model,
         params=params,
@@ -404,6 +409,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         model=model,
         thinking=thinking,
         function_call_timeout_secs=function_call_timeout_secs,
+        run_in_parallel=False,
     )
 
 

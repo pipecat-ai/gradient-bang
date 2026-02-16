@@ -15,12 +15,13 @@ from typing import Optional
 from google import genai
 from google.genai.types import Content, GenerateContentConfig, Part
 from loguru import logger
-from pipecat.adapters.services.gemini_adapter import GeminiLLMAdapter
 from pipecat.frames.frames import CancelFrame, EndFrame, Frame, LLMContextFrame, StartFrame, SystemFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.consumer_processor import ConsumerProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.producer_processor import ProducerProcessor
+
+from gradientbang.utils.gemini_adapter import GradientBangGeminiLLMAdapter
 
 from .frames import GradientBangContextCompressionFrame
 
@@ -115,7 +116,7 @@ class ContextCompressionProducer(ProducerProcessor):
         self._message_threshold = message_threshold
         self._model = model
         self._client = genai.Client(api_key=api_key)
-        self._adapter = GeminiLLMAdapter()  # Use Pipecat's adapter for message conversion
+        self._adapter = GradientBangGeminiLLMAdapter()  # Use game-specific Gemini conversion rules
         self._compression_lock = asyncio.Lock()  # Prevents race conditions
         self._compression_in_progress = False
         self._context: Optional[LLMContext] = None  # Cached from LLMContextFrame

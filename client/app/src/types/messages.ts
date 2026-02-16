@@ -12,6 +12,7 @@ export interface ServerMessage {
   summary?: string
   tool_name?: string
   task_id?: string
+  task_short_id?: string
 }
 
 export interface ServerMessagePayload {
