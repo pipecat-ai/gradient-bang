@@ -23,3 +23,8 @@ export const MIN_BOUNDS = 4
 export const MAX_BOUNDS = 50
 export const MAX_FETCH_BOUNDS = 100
 export const FETCH_BOUNDS_MULTIPLIER = 2
+
+// Map coverage tracking
+export const COVERAGE_PADDING_WORLD = Math.sqrt(3)
+export const MAX_COVERAGE_RECTS = 32
+export const PENDING_MAP_FETCH_STALE_MS = 8_000
