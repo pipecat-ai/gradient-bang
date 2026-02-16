@@ -1735,13 +1735,21 @@ class TaskAgent:
                     tool_name,
                     seen_calls,
                 )
-            await self._reject_tool_call_by_policy(
-                params=params,
-                tool_name=tool_name,
-                arguments=arguments,
-                response_id=response_id,
-                reason="max_tool_calls_per_response_exceeded",
-            )
+            # Even rejected overflow calls must drain response bookkeeping so
+            # pending tool-call state cannot block future inference runs.
+            try:
+                await self._reject_tool_call_by_policy(
+                    params=params,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    response_id=response_id,
+                    reason="max_tool_calls_per_response_exceeded",
+                )
+            finally:
+                await self._on_function_call_finished(
+                    tool_call_id=tool_call_id,
+                    response_id=response_id,
+                )
             return
         try:
             if self._max_iterations is not None and self._step_counter >= self._max_iterations:
