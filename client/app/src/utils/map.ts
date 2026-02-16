@@ -1,11 +1,14 @@
 import {
+  COVERAGE_PADDING_WORLD,
   DEFAULT_MAX_BOUNDS,
   FETCH_BOUNDS_MULTIPLIER,
   MAX_BOUNDS,
   MAX_BOUNDS_PADDING,
+  MAX_COVERAGE_RECTS,
   MAX_FETCH_BOUNDS,
   MIN_BOUNDS,
 } from "@/types/constants"
+import { getPortCode } from "@/utils/port"
 
 export const normalizePort = (port: PortLike): PortBase | null => {
   if (!port) return null
@@ -80,6 +83,95 @@ export const getNextZoomLevel = (currentZoom: number, direction: "in" | "out") =
 export const getFetchBounds = (zoomLevel: number) => {
   const requested = Math.ceil(zoomLevel * FETCH_BOUNDS_MULTIPLIER + MAX_BOUNDS_PADDING)
   return Math.max(0, Math.min(MAX_FETCH_BOUNDS, requested))
+}
+
+/**
+ * Compute fetch bounds scaled by the viewport's dominant aspect ratio so
+ * non-square viewports fetch enough data to fill the wider axis.
+ */
+export const getViewportFetchBounds = (
+  zoomLevel: number,
+  viewportWidth: number,
+  viewportHeight: number
+) => {
+  const safeWidth = Math.max(1, viewportWidth)
+  const safeHeight = Math.max(1, viewportHeight)
+  const dominantAspect = Math.max(safeWidth / safeHeight, safeHeight / safeWidth)
+  return getFetchBounds(zoomLevel * dominantAspect)
+}
+
+// =========================================================================
+// Sector comparison
+// =========================================================================
+
+/** Stable string signature of a sector's lanes for change detection. */
+const getLaneSignature = (node: MapSectorNode): string => {
+  if (!node.lanes || node.lanes.length === 0) return ""
+  return node.lanes
+    .map((lane) => JSON.stringify(lane))
+    .sort()
+    .join("|")
+}
+
+/**
+ * Deep comparison of two MapSectorNode objects for render-relevant properties.
+ * Returns true if both sectors would produce the same visual output.
+ */
+export const sectorsEquivalentForRender = (a: MapSectorNode, b: MapSectorNode): boolean => {
+  if (a.position[0] !== b.position[0] || a.position[1] !== b.position[1]) return false
+  if (a.visited !== b.visited) return false
+  if (a.source !== b.source) return false
+  if (a.region !== b.region) return false
+  if (a.hops_from_center !== b.hops_from_center) return false
+  if (a.last_visited !== b.last_visited) return false
+  if (getPortCode(a.port) !== getPortCode(b.port)) return false
+  if (getLaneSignature(a) !== getLaneSignature(b)) return false
+  return true
+}
+
+// =========================================================================
+// Coverage tracking
+// =========================================================================
+
+export interface WorldRect {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+
+/** Does outer fully contain inner? */
+export const rectContains = (outer: WorldRect, inner: WorldRect): boolean =>
+  outer.minX <= inner.minX &&
+  outer.maxX >= inner.maxX &&
+  outer.minY <= inner.minY &&
+  outer.maxY >= inner.maxY
+
+/** Is rect fully covered by at least one candidate? */
+export const isRectCovered = (rect: WorldRect, candidates: WorldRect[]): boolean =>
+  candidates.some((candidate) => rectContains(candidate, rect))
+
+/** Add a coverage rect, pruning subsumed entries, capping at MAX_COVERAGE_RECTS. */
+export const addCoverageRect = (existing: WorldRect[], rect: WorldRect): WorldRect[] => {
+  if (isRectCovered(rect, existing)) return existing
+  const trimmed = existing.filter((candidate) => !rectContains(rect, candidate))
+  const next = [...trimmed, rect]
+  if (next.length <= MAX_COVERAGE_RECTS) return next
+  return next.slice(next.length - MAX_COVERAGE_RECTS)
+}
+
+/** Create a WorldRect from a fetch center (world coords) and hex-distance bounds. */
+export const buildCoverageRect = (
+  centerWorld: [number, number],
+  bounds: number,
+): WorldRect => {
+  const maxWorldDistance = bounds * SQRT3
+  return {
+    minX: centerWorld[0] - maxWorldDistance - COVERAGE_PADDING_WORLD,
+    maxX: centerWorld[0] + maxWorldDistance + COVERAGE_PADDING_WORLD,
+    minY: centerWorld[1] - maxWorldDistance - COVERAGE_PADDING_WORLD,
+    maxY: centerWorld[1] + maxWorldDistance + COVERAGE_PADDING_WORLD,
+  }
 }
 
 // =========================================================================
