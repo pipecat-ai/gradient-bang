@@ -50,7 +50,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -133,6 +133,37 @@ ASYNC_COMPLETION_TIMEOUT = 5.0  # Timeout for waiting for async tool completion 
 MAX_NO_TOOL_NUDGES = 3  # Max times to nudge LLM when it responds without tool calls
 NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
 TASK_LOG_TTL_SECONDS = 15 * 60
+EVENT_LIKE_START_TOKEN = "<event"
+EVENT_LIKE_END_TOKEN = "</event>"
+EVENT_LIKE_START_BOUNDARY_CHARS = {" ", "\t", "\n", "\r", ">"}
+
+MAX_MOVE_CALLS_PER_RESPONSE = 1
+MAX_ASYNC_MUTATING_CALLS_PER_RESPONSE = 1
+MAX_TOOL_CALLS_PER_RESPONSE = 1
+
+TRUSTED_SECTOR_EVENTS = {
+    "status.snapshot",
+    "status.update",
+    "movement.complete",
+}
+
+# Player task agents share the primary game client and can observe corp activity.
+# Drop foreign ship-state events here so the player task context tracks only the
+# controlled player ship; keep character.moved for same-sector awareness.
+PLAYER_TASK_FOREIGN_EVENT_DENYLIST = {
+    "movement.start",
+    "movement.complete",
+    "status.snapshot",
+    "status.update",
+    "trade.executed",
+    "port.update",
+    "map.local",
+    "map.region",
+    "course.plot",
+    "path.region",
+    "ports.list",
+    "error",
+}
 
 # Tools that have async completion events - inference is deferred until the event arrives.
 # See module docstring for full explanation of this pattern.
@@ -184,6 +215,143 @@ SYNC_TOOL_EVENTS = {
     "plot_course": "course.plot",
 }
 
+# Async tools that mutate game state. Calls in this set are constrained by
+# MAX_ASYNC_MUTATING_CALLS_PER_RESPONSE and can be overridden via
+# TASK_AGENT_ASYNC_MUTATING_TOOLS.
+DEFAULT_ASYNC_MUTATING_TOOLS = {
+    "move",
+    "trade",
+    "recharge_warp_power",
+    "transfer_warp_power",
+    "salvage_collect",
+    "place_fighters",
+    "collect_fighters",
+    "send_message",
+    "purchase_fighters",
+    "purchase_ship",
+    "rename_ship",
+    "bank_deposit",
+    "bank_withdraw",
+    "transfer_credits",
+    "dump_cargo",
+    "create_corporation",
+    "join_corporation",
+    "leave_corporation",
+    "kick_corporation_member",
+    "combat_initiate",
+    "combat_action",
+}
+
+
+def _load_async_mutating_tools_allowlist() -> Set[str]:
+    raw = os.getenv("TASK_AGENT_ASYNC_MUTATING_TOOLS")
+    if raw is None:
+        return set(DEFAULT_ASYNC_MUTATING_TOOLS)
+    parsed = {item.strip() for item in raw.split(",") if item.strip()}
+    if parsed:
+        return parsed
+    logger.warning(
+        "TASK_AGENT_ASYNC_MUTATING_TOOLS is set but empty; using default mutating tool allowlist."
+    )
+    return set(DEFAULT_ASYNC_MUTATING_TOOLS)
+
+
+class _EventLikeTextSanitizer:
+    """Incrementally strip assistant-generated <event ...> blocks from text."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self) -> None:
+        self._pending = ""
+        self._inside_event_block = False
+
+    @staticmethod
+    def _longest_suffix_prefix(text: str, token: str) -> int:
+        max_len = min(len(text), len(token) - 1)
+        for size in range(max_len, 0, -1):
+            if text.endswith(token[:size]):
+                return size
+        return 0
+
+    @staticmethod
+    def _find_event_start(text: str) -> Optional[int]:
+        lowered = text.lower()
+        start = 0
+        while True:
+            idx = lowered.find(EVENT_LIKE_START_TOKEN, start)
+            if idx == -1:
+                return None
+
+            next_index = idx + len(EVENT_LIKE_START_TOKEN)
+            if next_index >= len(text):
+                return idx
+
+            if text[next_index] in EVENT_LIKE_START_BOUNDARY_CHARS:
+                return idx
+
+            start = idx + 1
+
+    def sanitize(self, text: str, *, flush: bool = False) -> Tuple[str, int]:
+        if text:
+            self._pending += text
+
+        output_parts: List[str] = []
+        removed_bytes = 0
+
+        while self._pending:
+            if not self._inside_event_block:
+                start_idx = self._find_event_start(self._pending)
+                if start_idx is None:
+                    if flush:
+                        output_parts.append(self._pending)
+                        self._pending = ""
+                    else:
+                        keep = self._longest_suffix_prefix(
+                            self._pending.lower(),
+                            EVENT_LIKE_START_TOKEN,
+                        )
+                        emit_len = len(self._pending) - keep
+                        if emit_len <= 0:
+                            break
+                        output_parts.append(self._pending[:emit_len])
+                        self._pending = self._pending[emit_len:]
+                    continue
+
+                if start_idx > 0:
+                    output_parts.append(self._pending[:start_idx])
+                    self._pending = self._pending[start_idx:]
+                    continue
+
+                self._inside_event_block = True
+                removed_bytes += len(EVENT_LIKE_START_TOKEN)
+                self._pending = self._pending[len(EVENT_LIKE_START_TOKEN) :]
+                continue
+
+            end_idx = self._pending.lower().find(EVENT_LIKE_END_TOKEN)
+            if end_idx == -1:
+                if flush:
+                    removed_bytes += len(self._pending)
+                    self._pending = ""
+                    self._inside_event_block = False
+                else:
+                    keep = self._longest_suffix_prefix(
+                        self._pending.lower(),
+                        EVENT_LIKE_END_TOKEN,
+                    )
+                    remove_len = len(self._pending) - keep
+                    if remove_len <= 0:
+                        break
+                    removed_bytes += remove_len
+                    self._pending = self._pending[remove_len:]
+                continue
+
+            removed_bytes += end_idx + len(EVENT_LIKE_END_TOKEN)
+            self._pending = self._pending[end_idx + len(EVENT_LIKE_END_TOKEN) :]
+            self._inside_event_block = False
+
+        return "".join(output_parts), removed_bytes
+
 
 class _ResponseStateTracker(FrameProcessor):
     """Tracks response state and controls inference scheduling.
@@ -195,6 +363,8 @@ class _ResponseStateTracker(FrameProcessor):
     def __init__(self, agent: "TaskAgent"):
         super().__init__()
         self._agent = agent
+        self._assistant_text_sanitizer = _EventLikeTextSanitizer()
+        self._response_sequence_id = 0
         self._reset_state()
 
     def _reset_state(self):
@@ -202,16 +372,25 @@ class _ResponseStateTracker(FrameProcessor):
         self._has_function_calls = False
         self._has_text_output = False
         self._accumulated_text = ""
+        self._sanitized_bytes_removed = 0
+        self._assistant_text_sanitizer.reset()
 
     async def process_frame(self, frame: Any, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, LLMFullResponseStartFrame):
             self._reset_state()
+            self._response_sequence_id = self._agent._on_llm_response_start()
 
         elif isinstance(frame, LLMTextFrame):
-            self._has_text_output = True
-            self._accumulated_text += frame.text
+            sanitized_text, removed_bytes = self._assistant_text_sanitizer.sanitize(frame.text)
+            if removed_bytes:
+                self._sanitized_bytes_removed += removed_bytes
+            if sanitized_text != frame.text:
+                frame.text = sanitized_text
+            if sanitized_text:
+                self._has_text_output = True
+                self._accumulated_text += sanitized_text
 
         elif isinstance(frame, LLMThoughtTextFrame):
             logger.debug(f"[THOUGHT]: {frame.text[:100]}...")
@@ -219,19 +398,44 @@ class _ResponseStateTracker(FrameProcessor):
         elif isinstance(frame, FunctionCallsStartedFrame):
             # Track function calls early - this frame arrives before LLMFullResponseEndFrame
             self._has_function_calls = True
+            for function_call in frame.function_calls:
+                tool_call_id = getattr(function_call, "tool_call_id", None)
+                if isinstance(tool_call_id, str) and tool_call_id:
+                    self._agent._bind_tool_call_to_response(
+                        tool_call_id,
+                        self._response_sequence_id,
+                    )
 
         elif isinstance(frame, FunctionCallInProgressFrame):
             # Also track this for completeness
             self._has_function_calls = True
+            self._agent._bind_tool_call_to_response(
+                frame.tool_call_id,
+                self._response_sequence_id,
+            )
 
         elif isinstance(frame, LLMFullResponseEndFrame):
             self._agent._llm_inflight = False
-            await self._handle_response_end()
+            await self._handle_response_end(direction)
 
         await self.push_frame(frame, direction)
 
-    async def _handle_response_end(self):
+    async def _handle_response_end(self, direction: FrameDirection):
         """Handle end of LLM response - output text and control inference."""
+        flushed_text, removed_bytes = self._assistant_text_sanitizer.sanitize("", flush=True)
+        if removed_bytes:
+            self._sanitized_bytes_removed += removed_bytes
+        if flushed_text:
+            self._has_text_output = True
+            self._accumulated_text += flushed_text
+            await self.push_frame(LLMTextFrame(flushed_text), direction)
+
+        if self._sanitized_bytes_removed > 0:
+            self._agent._log_sanitized_assistant_event_like_text(
+                response_id=self._response_sequence_id,
+                bytes_removed=self._sanitized_bytes_removed,
+            )
+
         # Output accumulated text to callback
         if self._accumulated_text:
             self._agent._output(self._accumulated_text, TaskOutputType.MESSAGE)
@@ -319,6 +523,17 @@ class TaskAgent:
         # Counter for events to skip (supports concurrent tool calls)
         self._skip_context_events: Dict[str, int] = {}
         self._event_handler_tokens: List[Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]] = []
+        self._response_sequence_id: int = 0
+        self._tool_call_response_sequence: Dict[str, int] = {}
+        self._pending_tool_calls_by_response: Dict[int, Set[str]] = {}
+        self._seen_tool_calls_by_response: Dict[int, int] = {}
+        self._accepted_move_calls_by_response: Dict[int, int] = {}
+        self._accepted_async_mutating_calls_by_response: Dict[int, int] = {}
+        self._policy_rejection_counts_by_response: Dict[int, int] = {}
+        self._policy_rejection_tools_by_response: Dict[int, Dict[str, int]] = {}
+        self._policy_rejection_reasons_by_response: Dict[int, Dict[str, int]] = {}
+        self._async_mutating_tools: Set[str] = _load_async_mutating_tools_allowlist()
+        self._current_sector_id: Optional[int] = None
 
         tools = tools_list or [
             MyStatus,
@@ -444,6 +659,462 @@ class TaskAgent:
     def set_task_metadata(self, metadata: Optional[Dict[str, Any]]) -> None:
         self._task_metadata = metadata or {}
 
+    def _on_llm_response_start(self) -> int:
+        self._response_sequence_id += 1
+        self._prune_response_policy_state(self._response_sequence_id)
+        return self._response_sequence_id
+
+    def _bind_tool_call_to_response(self, tool_call_id: str, response_id: int) -> None:
+        if not tool_call_id:
+            return
+        self._tool_call_response_sequence[tool_call_id] = response_id
+        pending = self._pending_tool_calls_by_response.get(response_id)
+        if pending is None:
+            pending = set()
+            self._pending_tool_calls_by_response[response_id] = pending
+        pending.add(tool_call_id)
+        self._prune_response_policy_state(response_id)
+
+    def _response_id_for_tool_call(self, tool_call_id: str) -> int:
+        if tool_call_id in self._tool_call_response_sequence:
+            return self._tool_call_response_sequence[tool_call_id]
+        return self._response_sequence_id
+
+    def _prune_response_policy_state(self, current_response_id: int) -> None:
+        min_response_id = max(0, current_response_id - 50)
+        stale_move = [
+            response_id
+            for response_id in self._accepted_move_calls_by_response
+            if response_id < min_response_id
+        ]
+        for response_id in stale_move:
+            self._accepted_move_calls_by_response.pop(response_id, None)
+
+        stale_seen_calls = [
+            response_id
+            for response_id in self._seen_tool_calls_by_response
+            if response_id < min_response_id
+        ]
+        for response_id in stale_seen_calls:
+            self._seen_tool_calls_by_response.pop(response_id, None)
+
+        stale_async = [
+            response_id
+            for response_id in self._accepted_async_mutating_calls_by_response
+            if response_id < min_response_id
+        ]
+        for response_id in stale_async:
+            self._accepted_async_mutating_calls_by_response.pop(response_id, None)
+
+        stale_tool_call_ids = [
+            tool_call_id
+            for tool_call_id, response_id in self._tool_call_response_sequence.items()
+            if response_id < min_response_id
+        ]
+        for tool_call_id in stale_tool_call_ids:
+            self._tool_call_response_sequence.pop(tool_call_id, None)
+
+        stale_pending = [
+            response_id
+            for response_id in self._pending_tool_calls_by_response
+            if response_id < min_response_id
+        ]
+        for response_id in stale_pending:
+            self._pending_tool_calls_by_response.pop(response_id, None)
+
+        stale_policy_counts = [
+            response_id
+            for response_id in self._policy_rejection_counts_by_response
+            if response_id < min_response_id
+        ]
+        for response_id in stale_policy_counts:
+            self._policy_rejection_counts_by_response.pop(response_id, None)
+            self._policy_rejection_tools_by_response.pop(response_id, None)
+            self._policy_rejection_reasons_by_response.pop(response_id, None)
+
+    def _record_seen_tool_call(self, response_id: int) -> int:
+        count = self._seen_tool_calls_by_response.get(response_id, 0) + 1
+        self._seen_tool_calls_by_response[response_id] = count
+        self._prune_response_policy_state(response_id)
+        return count
+
+    def _pending_tool_call_counts(self) -> Dict[int, int]:
+        return {
+            response_id: len(tool_call_ids)
+            for response_id, tool_call_ids in self._pending_tool_calls_by_response.items()
+            if tool_call_ids
+        }
+
+    def _record_policy_rejection(
+        self,
+        *,
+        response_id: int,
+        tool_name: str,
+        reason: str,
+    ) -> int:
+        self._policy_rejection_counts_by_response[response_id] = (
+            self._policy_rejection_counts_by_response.get(response_id, 0) + 1
+        )
+        tool_counts = self._policy_rejection_tools_by_response.get(response_id)
+        if tool_counts is None:
+            tool_counts = {}
+            self._policy_rejection_tools_by_response[response_id] = tool_counts
+        tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
+
+        reason_counts = self._policy_rejection_reasons_by_response.get(response_id)
+        if reason_counts is None:
+            reason_counts = {}
+            self._policy_rejection_reasons_by_response[response_id] = reason_counts
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+        return self._policy_rejection_counts_by_response[response_id]
+
+    def _emit_policy_rejection_summary_if_needed(self, response_id: int) -> None:
+        total_rejections = self._policy_rejection_counts_by_response.pop(response_id, 0)
+        tool_counts = self._policy_rejection_tools_by_response.pop(response_id, {})
+        reason_counts = self._policy_rejection_reasons_by_response.pop(response_id, {})
+        if total_rejections <= 1:
+            return
+
+        tool_summary = ", ".join(
+            f"{tool_name}:{count}" for tool_name, count in sorted(tool_counts.items())
+        )
+        reason_summary = ", ".join(
+            f"{reason}:{count}" for reason, count in sorted(reason_counts.items())
+        )
+        summary_text = (
+            f"Policy rejected {total_rejections} tool calls in response {response_id} "
+            f"(tools: {tool_summary}; reasons: {reason_summary})."
+        )
+        self._output(self._timestamped_text(summary_text), TaskOutputType.ERROR)
+        logger.info(
+            "task_agent.tool_call_rejected_policy_summary "
+            "task_id={} response_id={} character_id={} total={} tools={} reasons={}",
+            self._task_id,
+            response_id,
+            self.character_id,
+            total_rejections,
+            tool_counts,
+            reason_counts,
+        )
+
+    async def _on_function_call_finished(
+        self,
+        *,
+        tool_call_id: str,
+        response_id: int,
+    ) -> None:
+        if not tool_call_id:
+            return
+
+        resolved_response_id = response_id
+        pending = self._pending_tool_calls_by_response.get(response_id)
+        if pending and tool_call_id in pending:
+            pending.remove(tool_call_id)
+            if not pending:
+                self._pending_tool_calls_by_response.pop(response_id, None)
+        else:
+            for candidate_response_id, candidate_pending in list(
+                self._pending_tool_calls_by_response.items()
+            ):
+                if tool_call_id not in candidate_pending:
+                    continue
+                candidate_pending.remove(tool_call_id)
+                resolved_response_id = candidate_response_id
+                if not candidate_pending:
+                    self._pending_tool_calls_by_response.pop(candidate_response_id, None)
+                break
+
+        if tool_call_id in self._tool_call_response_sequence:
+            self._tool_call_response_sequence.pop(tool_call_id, None)
+
+        if not self._pending_tool_calls_by_response.get(resolved_response_id):
+            self._emit_policy_rejection_summary_if_needed(resolved_response_id)
+
+        if self.finished or self.cancelled:
+            logger.debug(
+                "Task finished/cancelled; skipping inference scheduling after function call "
+                "task_id={} response_id={}",
+                self._task_id,
+                resolved_response_id,
+            )
+            return
+
+        if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
+            logger.debug(
+                "Pipeline inactive; skipping inference scheduling after function call "
+                "task_id={} response_id={}",
+                self._task_id,
+                resolved_response_id,
+            )
+            return
+
+        if self._awaiting_completion_event:
+            return
+        await self._schedule_pending_inference()
+
+    def _record_accepted_tool_call(
+        self,
+        *,
+        response_id: int,
+        tool_name: str,
+        is_async_mutating_tool: bool,
+    ) -> None:
+        if tool_name == "move":
+            self._accepted_move_calls_by_response[response_id] = (
+                self._accepted_move_calls_by_response.get(response_id, 0) + 1
+            )
+        if is_async_mutating_tool:
+            self._accepted_async_mutating_calls_by_response[response_id] = (
+                self._accepted_async_mutating_calls_by_response.get(response_id, 0) + 1
+            )
+        self._prune_response_policy_state(response_id)
+
+    def _check_tool_call_policy(
+        self,
+        *,
+        tool_name: str,
+        response_id: int,
+        expected_completion_event: Optional[str],
+        is_async_mutating_tool: bool,
+    ) -> Optional[str]:
+        if tool_name == "move":
+            move_calls = self._accepted_move_calls_by_response.get(response_id, 0)
+            if move_calls >= MAX_MOVE_CALLS_PER_RESPONSE:
+                return "max_move_calls_per_response_exceeded"
+
+        if is_async_mutating_tool:
+            async_mutating_calls = self._accepted_async_mutating_calls_by_response.get(
+                response_id,
+                0,
+            )
+            if async_mutating_calls >= MAX_ASYNC_MUTATING_CALLS_PER_RESPONSE:
+                return "max_async_mutating_calls_per_response_exceeded"
+
+        if (
+            expected_completion_event
+            and self._awaiting_completion_event
+            and expected_completion_event == self._awaiting_completion_event
+        ):
+            return "conflicting_async_action_pending"
+
+        return None
+
+    async def _reject_tool_call_by_policy(
+        self,
+        *,
+        params: FunctionCallParams,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        response_id: int,
+        reason: str,
+    ) -> None:
+        error_result = {
+            "error": "Tool call rejected by runtime policy.",
+            "code": "policy_rejected",
+            "reason": reason,
+            "tool_name": tool_name,
+        }
+        properties = FunctionCallResultProperties(run_llm=False)
+        await params.result_callback(error_result, properties=properties)
+
+        rejection_count = self._record_policy_rejection(
+            response_id=response_id,
+            tool_name=tool_name,
+            reason=reason,
+        )
+        if rejection_count == 1:
+            self._output(
+                self._timestamped_text(f"Policy rejected {tool_name}: {reason}"),
+                TaskOutputType.ERROR,
+            )
+            logger.info(
+                "task_agent.tool_call_rejected_policy "
+                "task_id={} response_id={} character_id={} tool_name={} reason={} arguments={}",
+                self._task_id,
+                response_id,
+                self.character_id,
+                tool_name,
+                reason,
+                arguments,
+            )
+        elif rejection_count <= 3:
+            logger.debug(
+                "task_agent.tool_call_rejected_policy_suppressed "
+                "task_id={} response_id={} character_id={} tool_name={} reason={} count={}",
+                self._task_id,
+                response_id,
+                self.character_id,
+                tool_name,
+                reason,
+                rejection_count,
+            )
+
+    def _log_sanitized_assistant_event_like_text(
+        self,
+        *,
+        response_id: int,
+        bytes_removed: int,
+    ) -> None:
+        logger.info(
+            "task_agent.sanitized_assistant_event_like_text "
+            "task_id={} response_id={} character_id={} bytes_removed={}",
+            self._task_id,
+            response_id,
+            self.character_id,
+            bytes_removed,
+        )
+
+    @staticmethod
+    def _sanitize_event_like_text(text: str) -> Tuple[str, int]:
+        sanitizer = _EventLikeTextSanitizer()
+        return sanitizer.sanitize(text, flush=True)
+
+    @staticmethod
+    def _extract_event_character_id(payload: Mapping[str, Any]) -> Optional[str]:
+        player = payload.get("player")
+        if isinstance(player, Mapping):
+            candidate = player.get("id")
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+        for key in ("character_id", "ship_id", "player_id"):
+            candidate = payload.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+        return None
+
+    def _is_player_task_scope(self) -> bool:
+        scope = self._task_metadata.get("task_scope")
+        if isinstance(scope, str):
+            return scope == "player_ship"
+        return False
+
+    @staticmethod
+    def _extract_sector_id(payload: Mapping[str, Any]) -> Optional[int]:
+        candidate: Any = None
+        sector = payload.get("sector")
+        if isinstance(sector, Mapping):
+            candidate = sector.get("id") or sector.get("sector_id")
+        elif sector is not None:
+            candidate = sector
+
+        if candidate is None:
+            candidate = payload.get("sector_id")
+
+        if candidate is None:
+            candidate = payload.get("current_sector")
+
+        if candidate is None or isinstance(candidate, bool):
+            return None
+
+        try:
+            return int(candidate)
+        except (TypeError, ValueError):
+            return None
+
+    def _update_current_sector_from_event(
+        self,
+        event_name: Optional[str],
+        payload: Any,
+    ) -> None:
+        if event_name not in TRUSTED_SECTOR_EVENTS:
+            return
+        if not isinstance(payload, Mapping):
+            return
+
+        sector_id = self._extract_sector_id(payload)
+        if sector_id is not None:
+            self._current_sector_id = sector_id
+
+    def _should_drop_foreign_player_event(
+        self,
+        *,
+        event_name: Optional[str],
+        payload: Any,
+    ) -> bool:
+        if not self._is_player_task_scope():
+            return False
+        if not event_name or event_name not in PLAYER_TASK_FOREIGN_EVENT_DENYLIST:
+            return False
+        if not isinstance(payload, Mapping):
+            return False
+
+        actor_id = self._extract_event_character_id(payload)
+        if not actor_id or actor_id == self.character_id:
+            return False
+
+        logger.debug(
+            "task_agent.filtered_event event_name={} reason=foreign_player_task_event "
+            "actor_id={} character_id={} task_id={}",
+            event_name,
+            actor_id,
+            self.character_id,
+            self._task_id,
+        )
+        return True
+
+    def _should_drop_character_moved_event(
+        self,
+        *,
+        event_name: Optional[str],
+        payload: Any,
+    ) -> bool:
+        if event_name != "character.moved":
+            return False
+        if not isinstance(payload, Mapping):
+            return False
+
+        movement = payload.get("movement")
+        if isinstance(movement, str):
+            normalized_movement = movement.strip().lower()
+            if normalized_movement and normalized_movement != "arrive":
+                logger.debug(
+                    "task_agent.filtered_event event_name={} reason=non_arrival_character_moved "
+                    "movement={} task_id={}",
+                    event_name,
+                    normalized_movement,
+                    self._task_id,
+                )
+                return True
+
+        mover_id = self._extract_event_character_id(payload)
+        if mover_id and mover_id == self.character_id:
+            logger.debug(
+                "task_agent.filtered_event event_name={} reason=own_character_moved "
+                "mover_id={} task_id={}",
+                event_name,
+                mover_id,
+                self._task_id,
+            )
+            return True
+
+        if self._current_sector_id is None:
+            logger.debug(
+                "task_agent.filtered_event event_name={} reason=unknown_current_sector "
+                "task_id={}",
+                event_name,
+                self._task_id,
+            )
+            return True
+
+        event_sector_id = self._extract_sector_id(payload)
+        if event_sector_id is None:
+            return False
+        if event_sector_id == self._current_sector_id:
+            return False
+
+        logger.debug(
+            "task_agent.filtered_event event_name={} reason=non_local_character_moved "
+            "event_sector_id={} current_sector_id={} task_id={}",
+            event_name,
+            event_sector_id,
+            self._current_sector_id,
+            self._task_id,
+        )
+        return True
+
     def add_message(self, message: Dict[str, Any]) -> None:
         msg = {k: v for k, v in message.items() if k != "token_usage"}
         self.messages.append(msg)
@@ -480,7 +1151,6 @@ class TaskAgent:
 
     def cancel(self) -> None:
         self.cancelled = True
-        self._output(self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED)
 
     async def inject_user_message(
         self,
@@ -557,6 +1227,16 @@ class TaskAgent:
         self._llm_inflight = False
         self._awaiting_completion_event = None
         self._idle_wait_event = None
+        self._response_sequence_id = 0
+        self._tool_call_response_sequence.clear()
+        self._pending_tool_calls_by_response.clear()
+        self._seen_tool_calls_by_response.clear()
+        self._accepted_move_calls_by_response.clear()
+        self._accepted_async_mutating_calls_by_response.clear()
+        self._policy_rejection_counts_by_response.clear()
+        self._policy_rejection_tools_by_response.clear()
+        self._policy_rejection_reasons_by_response.clear()
+        self._current_sector_id = None
         self._skip_context_events.clear()
         self._inference_reasons.clear()
         self._last_logged_message_count = 0
@@ -588,8 +1268,15 @@ class TaskAgent:
         if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
             return
         event_name = event.get("event_name")
+        payload = event.get("payload")
+        if self._should_drop_foreign_player_event(event_name=event_name, payload=payload):
+            return
+        self._update_current_sector_from_event(event_name, payload)
+        if self._should_drop_character_moved_event(event_name=event_name, payload=payload):
+            return
+
         summary = event.get("summary")
-        response_data = summary or event.get("payload")
+        response_data = summary or payload
         serialized_payload = self._serialize_output(response_data)
         if event_name:
             event_text = f"{event_name}: {serialized_payload}"
@@ -782,6 +1469,16 @@ class TaskAgent:
         self._tool_call_in_progress = False
         self._llm_inflight = False
         self._awaiting_completion_event = None
+        self._response_sequence_id = 0
+        self._tool_call_response_sequence.clear()
+        self._pending_tool_calls_by_response.clear()
+        self._seen_tool_calls_by_response.clear()
+        self._accepted_move_calls_by_response.clear()
+        self._accepted_async_mutating_calls_by_response.clear()
+        self._policy_rejection_counts_by_response.clear()
+        self._policy_rejection_tools_by_response.clear()
+        self._policy_rejection_reasons_by_response.clear()
+        self._current_sector_id = None
         self._skip_context_events.clear()
         self._context = None
         if self._completion_event_timeout:
@@ -1024,166 +1721,268 @@ class TaskAgent:
         tool_name = params.function_name
         tool_call_id = params.tool_call_id
         arguments = params.arguments or {}
-
-        if self._max_iterations is not None and self._step_counter >= self._max_iterations:
-            limit_message = (
-                f"Task stopped after {self._max_iterations} steps (max_iterations limit)."
-            )
-            self.finished = True
-            self.finished_message = limit_message
-            self._output(self._timestamped_text(limit_message), TaskOutputType.FINISHED)
-
-            if self._task_id and not self._finish_emitted:
-                try:
-                    await self.game_client.task_lifecycle(
-                        task_id=self._task_id,
-                        event_type="finish",
-                        task_summary=limit_message,
-                        task_status="failed",
-                        task_metadata=self._task_metadata,
-                    )
-                    self._finish_emitted = True
-                except Exception as exc:
-                    logger.warning(f"Failed to emit task.finish event: {exc}")
-
-            await params.llm.push_frame(EndFrame())
+        response_id = self._response_id_for_tool_call(tool_call_id)
+        seen_calls = self._record_seen_tool_call(response_id)
+        if seen_calls > MAX_TOOL_CALLS_PER_RESPONSE:
+            if seen_calls == (MAX_TOOL_CALLS_PER_RESPONSE + 1):
+                logger.info(
+                    "task_agent.multiple_tool_calls_in_response "
+                    "task_id={} response_id={} character_id={} "
+                    "first_overflow_tool={} seen_calls={}",
+                    self._task_id,
+                    response_id,
+                    self.character_id,
+                    tool_name,
+                    seen_calls,
+                )
+            # Even rejected overflow calls must drain response bookkeeping so
+            # pending tool-call state cannot block future inference runs.
+            try:
+                await self._reject_tool_call_by_policy(
+                    params=params,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    response_id=response_id,
+                    reason="max_tool_calls_per_response_exceeded",
+                )
+            finally:
+                await self._on_function_call_finished(
+                    tool_call_id=tool_call_id,
+                    response_id=response_id,
+                )
             return
-
-        if tool_name == "finished":
-            self.finished = True
-            self.finished_message = arguments.get("message", "Done")
-            finished_text = self._timestamped_text(self.finished_message)
-            self._output(finished_text, TaskOutputType.FINISHED)
-
-            # Emit task.finish event
-            if self._task_id:
-                try:
-                    await self.game_client.task_lifecycle(
-                        task_id=self._task_id,
-                        event_type="finish",
-                        task_summary=self.finished_message,
-                        task_status="completed",
-                        task_metadata=self._task_metadata,
-                    )
-                    self._finish_emitted = True
-                except Exception as exc:
-                    logger.warning(f"Failed to emit task.finish event: {exc}")
-
-            await params.llm.push_frame(EndFrame())
-            return
-
-        self._emit_step()
-        self._no_tool_nudge_count = 0  # Reset nudge counter on successful tool call
-        if self._no_tool_watchdog_handle:
-            self._no_tool_watchdog_handle.cancel()
-            self._no_tool_watchdog_handle = None
-        action_text = f"{tool_name}({json.dumps(arguments)})"
-        self._output(action_text, TaskOutputType.ACTION)
-
-        if self._tool_call_event_callback:
-            await self._tool_call_event_callback(tool_name, arguments)
-
-        tool = self.tools.get(tool_name)
-        if not tool:
-            # Put error result into context
-            error_result = {"error": f"Unknown tool: {tool_name}"}
-            properties = FunctionCallResultProperties(run_llm=False)
-            await params.result_callback(error_result, properties=properties)
-            error_text = self._timestamped_text(f"Unknown tool: {tool_name}")
-            self._output(error_text, TaskOutputType.ERROR)
-            logger.debug("TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments)
-            await self._on_tool_call_completed(tool_name, error_result)
-            return
-
-        # Check if this is an async tool that will deliver results via events
-        expected_completion_event = ASYNC_TOOL_COMPLETIONS.get(tool_name)
-        is_async_tool = expected_completion_event is not None
-
-        if is_async_tool:
-            # For async tools, put a placeholder result into context - actual data comes via events
-            tool_result = {"status": "Executed."}
-            properties = FunctionCallResultProperties(run_llm=False)
-            await params.result_callback(tool_result, properties=properties)
-
-            # Pre-set awaiting flag for async completion tools BEFORE any yield points.
-            # This prevents race conditions where events arrive between tool completion
-            # and _on_tool_call_completed setting the flag.
-            self._awaiting_completion_event = expected_completion_event
-            loop = asyncio.get_event_loop()
-            self._completion_event_timeout = loop.call_later(
-                ASYNC_COMPLETION_TIMEOUT,
-                lambda: asyncio.create_task(self._on_completion_event_timeout()),
-            )
-            logger.debug(
-                "Pre-set awaiting {} event for tool {} before execution",
-                expected_completion_event,
-                tool_name,
-            )
-
-        # For sync tools with events, pre-mark the event for skipping BEFORE execution
-        # to prevent race condition where event arrives before tool call returns
-        sync_event_to_skip: Optional[str] = None
-        if tool_name in SYNC_TOOL_EVENTS:
-            sync_event_to_skip = SYNC_TOOL_EVENTS[tool_name]
-            self._skip_context_events[sync_event_to_skip] = (
-                self._skip_context_events.get(sync_event_to_skip, 0) + 1
-            )
-            logger.debug(
-                "Pre-marked {} event for context skip (tool={})",
-                sync_event_to_skip,
-                tool_name,
-            )
-
-        result_payload: Any = None
-        error_payload: Optional[Any] = None
         try:
-            self._tool_call_in_progress = True
-            result = tool(**arguments)
-            if inspect.isawaitable(result):
-                result = await result
-            result_payload = result
-        except Exception as exc:
-            # On error, clear the completion await since we'll handle error path
-            if is_async_tool:
-                self._awaiting_completion_event = None
-                if self._completion_event_timeout:
-                    self._completion_event_timeout.cancel()
-                    self._completion_event_timeout = None
-            # On error, also clear any sync tool event skip marker
-            if sync_event_to_skip and sync_event_to_skip in self._skip_context_events:
-                self._skip_context_events[sync_event_to_skip] -= 1
-                if self._skip_context_events[sync_event_to_skip] <= 0:
-                    del self._skip_context_events[sync_event_to_skip]
-            error_payload = {"error": f"{exc}"}
-        finally:
-            self._tool_call_in_progress = False
+            if self._max_iterations is not None and self._step_counter >= self._max_iterations:
+                limit_message = (
+                    f"Task stopped after {self._max_iterations} steps (max_iterations limit)."
+                )
+                self.finished = True
+                self.finished_message = limit_message
+                self._output(self._timestamped_text(limit_message), TaskOutputType.FINISHED)
 
-        if error_payload is not None:
-            if not is_async_tool:
-                # For sync tools with errors, put error result into context
+                if self._task_id and not self._finish_emitted:
+                    try:
+                        await self.game_client.task_lifecycle(
+                            task_id=self._task_id,
+                            event_type="finish",
+                            task_summary=limit_message,
+                            task_status="failed",
+                            task_metadata=self._task_metadata,
+                        )
+                        self._finish_emitted = True
+                    except Exception as exc:
+                        logger.warning(f"Failed to emit task.finish event: {exc}")
+
+                # Always resolve the in-flight function call so LLMService can
+                # cancel its timeout handler, but do not run another inference.
                 properties = FunctionCallResultProperties(run_llm=False)
-                await params.result_callback(error_payload, properties=properties)
+                await params.result_callback({"status": "Executed."}, properties=properties)
+                await params.llm.push_frame(EndFrame())
+                return
+
+            if tool_name == "finished":
+                self.finished = True
+                self.finished_message = arguments.get("message", "Done")
+                finished_text = self._timestamped_text(self.finished_message)
+                self._output(finished_text, TaskOutputType.FINISHED)
+
+                # Emit task.finish event
+                if self._task_id:
+                    try:
+                        await self.game_client.task_lifecycle(
+                            task_id=self._task_id,
+                            event_type="finish",
+                            task_summary=self.finished_message,
+                            task_status="completed",
+                            task_metadata=self._task_metadata,
+                        )
+                        self._finish_emitted = True
+                    except Exception as exc:
+                        logger.warning(f"Failed to emit task.finish event: {exc}")
+
+                # Always resolve the in-flight function call so LLMService can
+                # cancel its timeout handler, but do not run another inference.
+                properties = FunctionCallResultProperties(run_llm=False)
+                await params.result_callback({"status": "Executed."}, properties=properties)
+                await params.llm.push_frame(EndFrame())
+                return
+
+            tool = self.tools.get(tool_name)
+            if not tool:
+                # Put error result into context
+                error_result = {"error": f"Unknown tool: {tool_name}"}
+                properties = FunctionCallResultProperties(run_llm=False)
+                await params.result_callback(error_result, properties=properties)
+                error_text = self._timestamped_text(f"Unknown tool: {tool_name}")
+                self._output(error_text, TaskOutputType.ERROR)
+                logger.debug("TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments)
+                await self._on_tool_call_completed(tool_name, error_result)
+                return
+
+            # Check if this is an async tool that will deliver results via events
+            expected_completion_event = ASYNC_TOOL_COMPLETIONS.get(tool_name)
+            is_async_tool = expected_completion_event is not None
+            is_async_mutating_tool = tool_name in self._async_mutating_tools
+
+            policy_rejection_reason = self._check_tool_call_policy(
+                tool_name=tool_name,
+                response_id=response_id,
+                expected_completion_event=expected_completion_event,
+                is_async_mutating_tool=is_async_mutating_tool,
+            )
+            if policy_rejection_reason:
+                await self._reject_tool_call_by_policy(
+                    params=params,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    response_id=response_id,
+                    reason=policy_rejection_reason,
+                )
+                return
+
+            self._record_accepted_tool_call(
+                response_id=response_id,
+                tool_name=tool_name,
+                is_async_mutating_tool=is_async_mutating_tool,
+            )
+            self._emit_step()
+            self._no_tool_nudge_count = 0  # Reset nudge counter on successful tool call
+            if self._no_tool_watchdog_handle:
+                self._no_tool_watchdog_handle.cancel()
+                self._no_tool_watchdog_handle = None
+            action_text = f"{tool_name}({json.dumps(arguments)})"
+            self._output(action_text, TaskOutputType.ACTION)
+
+            if self._tool_call_event_callback:
+                await self._tool_call_event_callback(tool_name, arguments)
+
+            if is_async_tool:
+                # For async tools, put a placeholder result into context - actual data comes via events
+                tool_result = {"status": "Executed."}
+                properties = FunctionCallResultProperties(run_llm=False)
+                await params.result_callback(tool_result, properties=properties)
+
+                # Pre-set awaiting flag for async completion tools BEFORE any yield points.
+                # This prevents race conditions where events arrive between tool completion
+                # and _on_tool_call_completed setting the flag.
+                self._awaiting_completion_event = expected_completion_event
+                loop = asyncio.get_event_loop()
+                self._completion_event_timeout = loop.call_later(
+                    ASYNC_COMPLETION_TIMEOUT,
+                    lambda: asyncio.create_task(self._on_completion_event_timeout()),
+                )
+                logger.debug(
+                    "Pre-set awaiting {} event for tool {} before execution",
+                    expected_completion_event,
+                    tool_name,
+                )
+
+            # For sync tools with events, pre-mark the event for skipping BEFORE execution
+            # to prevent race condition where event arrives before tool call returns
+            sync_event_to_skip: Optional[str] = None
+            if tool_name in SYNC_TOOL_EVENTS:
+                sync_event_to_skip = SYNC_TOOL_EVENTS[tool_name]
+                self._skip_context_events[sync_event_to_skip] = (
+                    self._skip_context_events.get(sync_event_to_skip, 0) + 1
+                )
+                logger.debug(
+                    "Pre-marked {} event for context skip (tool={})",
+                    sync_event_to_skip,
+                    tool_name,
+                )
+
+            result_payload: Any = None
+            error_payload: Optional[Any] = None
+            try:
+                self._tool_call_in_progress = True
+                result = tool(**arguments)
+                if inspect.isawaitable(result):
+                    result = await result
+                result_payload = result
+            except Exception as exc:
+                # On error, clear the completion await since we'll handle error path
+                if is_async_tool:
+                    self._awaiting_completion_event = None
+                    if self._completion_event_timeout:
+                        self._completion_event_timeout.cancel()
+                        self._completion_event_timeout = None
+                # On error, also clear any sync tool event skip marker
+                if sync_event_to_skip and sync_event_to_skip in self._skip_context_events:
+                    self._skip_context_events[sync_event_to_skip] -= 1
+                    if self._skip_context_events[sync_event_to_skip] <= 0:
+                        del self._skip_context_events[sync_event_to_skip]
+                error_payload = {"error": f"{exc}"}
+            finally:
+                self._tool_call_in_progress = False
+
+            if error_payload is not None:
+                if not is_async_tool:
+                    # For sync tools with errors, put error result into context
+                    properties = FunctionCallResultProperties(run_llm=False)
+                    await params.result_callback(error_payload, properties=properties)
+                logger.debug(
+                    "TOOL_RESULT error tool={} arguments={} payload={}",
+                    tool_name,
+                    arguments,
+                    error_payload,
+                )
+                await self._on_tool_call_completed(tool_name, error_payload)
+                return
+
+            if not is_async_tool:
+                # For sync tools, put actual result into context so LLM sees the data
+                context_result_payload = self._summarize_sync_tool_result_for_context(
+                    tool_name=tool_name,
+                    result_payload=result_payload,
+                )
+                properties = FunctionCallResultProperties(run_llm=False)
+                await params.result_callback(context_result_payload, properties=properties)
+
             logger.debug(
-                "TOOL_RESULT error tool={} arguments={} payload={}",
+                "TOOL_RESULT tool={} arguments={} result={}",
                 tool_name,
                 arguments,
-                error_payload,
+                result_payload,
             )
-            await self._on_tool_call_completed(tool_name, error_payload)
-            return
+            await self._on_tool_call_completed(tool_name, result_payload)
+        finally:
+            await self._on_function_call_finished(
+                tool_call_id=tool_call_id,
+                response_id=response_id,
+            )
 
-        if not is_async_tool:
-            # For sync tools, put actual result into context so LLM sees the data
-            properties = FunctionCallResultProperties(run_llm=False)
-            await params.result_callback(result_payload, properties=properties)
+    def _summarize_sync_tool_result_for_context(
+        self,
+        *,
+        tool_name: str,
+        result_payload: Any,
+    ) -> Any:
+        """Return condensed context payload for sync tool responses when possible."""
+        event_name = SYNC_TOOL_EVENTS.get(tool_name)
+        if not event_name or not isinstance(result_payload, dict):
+            return result_payload
 
-        logger.debug(
-            "TOOL_RESULT tool={} arguments={} result={}",
-            tool_name,
-            arguments,
-            result_payload,
-        )
-        await self._on_tool_call_completed(tool_name, result_payload)
+        summary_text: Optional[str] = None
+        summary_fn = getattr(self.game_client, "_get_summary", None)
+        if callable(summary_fn):
+            try:
+                candidate = summary_fn(event_name, result_payload)
+                if isinstance(candidate, str):
+                    cleaned = candidate.strip()
+                    if cleaned:
+                        summary_text = cleaned
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "Failed to summarize sync tool result for context tool={} event={}",
+                    tool_name,
+                    event_name,
+                    exc_info=True,
+                )
+
+        if summary_text:
+            return {"summary": summary_text}
+
+        return result_payload
 
     def _format_tool_message(self, tool_call_id: str, result: Any) -> Dict[str, Any]:
         if isinstance(result, str):
@@ -1214,6 +2013,19 @@ class TaskAgent:
     def _output(self, text: str, message_type: Optional[TaskOutputType] = None) -> None:
         if not self._active_pipeline_task:
             return
+
+        if message_type == TaskOutputType.MESSAGE and text:
+            sanitized_text, bytes_removed = self._sanitize_event_like_text(text)
+            if bytes_removed > 0:
+                logger.debug(
+                    "Sanitized event-like text from task output "
+                    "task_id={} response_id={} character_id={} bytes_removed={}",
+                    self._task_id,
+                    self._response_sequence_id,
+                    self.character_id,
+                    bytes_removed,
+                )
+                text = sanitized_text
 
         type_value = message_type.value if message_type else None
         if type_value:
@@ -1289,6 +2101,13 @@ class TaskAgent:
         if self._llm_inflight:
             return
         if not self._inference_reasons:
+            return
+        pending_tool_calls = self._pending_tool_call_counts()
+        if pending_tool_calls:
+            logger.debug(
+                "Deferring inference while response tool calls are still draining pending={}",
+                pending_tool_calls,
+            )
             return
         if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
             logger.debug(
@@ -1390,9 +2209,19 @@ class TaskAgent:
             await self._schedule_pending_inference()
 
     async def _queue_pending_run_now(self) -> None:
+        if self.finished or self.cancelled:
+            logger.debug("Task finished/cancelled; not queuing inference.")
+            return
+        if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
+            logger.debug("Pipeline inactive; not queuing inference.")
+            return
         if self._llm_inflight:
             logger.debug("LLM inflight; not queuing inference.")
             return
+        if not self._inference_reasons:
+            # Ensure follow-up inference for responses that had function calls but
+            # produced only policy rejections.
+            self._record_inference_reason("response.function_calls")
         await self._schedule_pending_inference()
 
     async def _handle_no_tool_response(self) -> None:

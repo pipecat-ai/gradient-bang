@@ -159,6 +159,8 @@ DEFAULT_PORTS_LIST_STALE_SECS = 60
 DEFAULT_COURSE_PLOT_CACHE_TTL_SECS = 300
 DEFAULT_UI_INTENT_REQUEST_DELAY_SECS = 2.0
 DEFAULT_PORTS_LIST_MAX_HOPS = 100
+DEFAULT_MAP_VIEW_LOCK_SECS = 25
+DEFAULT_CONTEXT_SUMMARY_WORD_LIMIT = 120
 
 
 @dataclass
@@ -179,7 +181,13 @@ class PendingIntent:
 class UIAgentContext(FrameProcessor):
     """Catches LLMContextFrame from main pipeline, builds fresh context, pushes to LLM."""
 
-    def __init__(self, config, rtvi, game_client) -> None:
+    def __init__(
+        self,
+        config,
+        rtvi,
+        game_client,
+        is_recent_voice_request_id: Optional[Callable[[Optional[str]], bool]] = None,
+    ) -> None:
         super().__init__()
         self._config = config
         self._rtvi = rtvi
@@ -203,6 +211,8 @@ class UIAgentContext(FrameProcessor):
         self._last_map_zoom_level: int | None = None
         self._last_map_highlight_path: tuple[int, ...] | None = None
         self._last_map_fit_sectors: tuple[int, ...] | None = None
+        self._map_view_lock_until: float = 0.0
+        self._map_view_lock_reason: str | None = None
 
         # Tool instances
         self._corp_info_tool = CorporationInfo(game_client)
@@ -241,6 +251,34 @@ class UIAgentContext(FrameProcessor):
                 str(DEFAULT_UI_INTENT_REQUEST_DELAY_SECS),
             )
         )
+        map_view_lock_secs_raw = os.getenv(
+            "UI_AGENT_MAP_VIEW_LOCK_SECS",
+            str(DEFAULT_MAP_VIEW_LOCK_SECS),
+        )
+        try:
+            self._map_view_lock_secs = float(map_view_lock_secs_raw)
+        except ValueError:
+            logger.warning(
+                "Invalid UI_AGENT_MAP_VIEW_LOCK_SECS "
+                f"'{map_view_lock_secs_raw}', using default {DEFAULT_MAP_VIEW_LOCK_SECS}"
+            )
+            self._map_view_lock_secs = float(DEFAULT_MAP_VIEW_LOCK_SECS)
+
+        summary_word_limit_raw = os.getenv(
+            "UI_AGENT_CONTEXT_SUMMARY_WORD_LIMIT",
+            str(DEFAULT_CONTEXT_SUMMARY_WORD_LIMIT),
+        )
+        try:
+            self._summary_word_limit = int(summary_word_limit_raw)
+        except ValueError:
+            logger.warning(
+                "Invalid UI_AGENT_CONTEXT_SUMMARY_WORD_LIMIT "
+                f"'{summary_word_limit_raw}', using default {DEFAULT_CONTEXT_SUMMARY_WORD_LIMIT}"
+            )
+            self._summary_word_limit = DEFAULT_CONTEXT_SUMMARY_WORD_LIMIT
+        self._latest_ui_user_message: str | None = None
+        self._latest_ui_assistant_message: str | None = None
+        self._is_recent_voice_request_id = is_recent_voice_request_id
         self._pending_intents: dict[str, PendingIntent] = {}
         self._pending_intent_id = 0
         self._ports_list_cache: dict[tuple, dict] = {}
@@ -276,6 +314,32 @@ class UIAgentContext(FrameProcessor):
             except Exception:  # noqa: BLE001
                 pass
         return task
+
+    @staticmethod
+    def _log_metric(metric_name: str, **fields: Any) -> None:
+        payload = {"metric": metric_name, **fields}
+        try:
+            serialized = json.dumps(payload, ensure_ascii=True, sort_keys=True)
+        except Exception:
+            serialized = str(payload)
+        logger.info(f"UI_AGENT_METRIC {serialized}")
+
+    async def _yield_for_pending_intent_tasks(self, intent_type: str, intent_id: int) -> None:
+        """Let newly-created intent tasks enter the event loop before possible cancellation.
+
+        Without this yield, immediate cache-hit paths can cancel timeout/request
+        tasks before they start, which triggers "coroutine was never awaited"
+        warnings in Python.
+        """
+        intent = self._pending_intents.get(intent_type)
+        if not intent or intent.id != intent_id:
+            return
+        has_scheduled_task = bool(
+            (intent.timeout_task and not intent.timeout_task.done())
+            or (intent.request_task and not intent.request_task.done())
+        )
+        if has_scheduled_task:
+            await asyncio.sleep(0)
 
     # ── Ships cache ───────────────────────────────────────────────────
 
@@ -410,6 +474,8 @@ class UIAgentContext(FrameProcessor):
             if not latest_user:
                 self._warn_missing_user_input()
                 latest_user = self._find_latest_message(messages, "user") or ""
+            self._latest_ui_user_message = latest_user
+            self._latest_ui_assistant_message = latest_assistant
 
             user_payload = self._build_user_payload(
                 latest_user=latest_user,
@@ -838,11 +904,18 @@ class UIAgentContext(FrameProcessor):
         payload = event_message.get("payload", event_message)
         if not isinstance(payload, dict):
             return
+        if self._is_task_scoped_event_without_voice_request(event_message, payload):
+            logger.debug("UI agent ignoring task-scoped course.plot event not tied to voice request")
+            return
         self._cache_course_plot_event(event_message)
 
         intent = self._pending_intents.get("course.plot")
         if not intent:
-            logger.debug("UI agent course.plot received with no pending intent; cached only")
+            if not self._payload_matches_player(payload):
+                logger.debug("UI agent course.plot received with no pending intent for different player")
+                return
+            logger.debug("UI agent course.plot received with no pending intent")
+            await self._auto_fit_course_plot(payload)
             return
 
         if time.time() > intent.expires_at:
@@ -863,6 +936,166 @@ class UIAgentContext(FrameProcessor):
         self._set_intent_event(intent, "course.plot", event_message)
         await self._maybe_trigger_pending_intent_inference()
 
+    def _is_task_scoped_event_without_voice_request(
+        self,
+        event_message: dict,
+        payload: dict,
+    ) -> bool:
+        payload_task_id = payload.get("__task_id") or payload.get("task_id")
+        if not isinstance(payload_task_id, str) or not payload_task_id.strip():
+            return False
+
+        event_request_id = event_message.get("request_id")
+        is_voice_request = False
+        if callable(self._is_recent_voice_request_id):
+            try:
+                is_voice_request = bool(self._is_recent_voice_request_id(event_request_id))
+            except Exception:  # noqa: BLE001
+                is_voice_request = False
+
+        if is_voice_request:
+            return False
+
+        self._log_metric(
+            "course_plot_event_ignored_task_scoped",
+            task_id=payload_task_id.strip(),
+            request_id=event_request_id,
+        )
+        return True
+
+    def _map_view_lock_remaining_secs(self) -> float:
+        return max(0.0, self._map_view_lock_until - time.time())
+
+    def _map_view_lock_active(self) -> bool:
+        if self._map_view_lock_until <= 0:
+            return False
+        remaining = self._map_view_lock_remaining_secs()
+        if remaining <= 0:
+            self._map_view_lock_until = 0.0
+            self._map_view_lock_reason = None
+            return False
+        return True
+
+    def _set_map_view_lock(self, reason: str) -> None:
+        if self._map_view_lock_secs <= 0:
+            return
+        self._map_view_lock_until = time.time() + self._map_view_lock_secs
+        self._map_view_lock_reason = reason
+
+    def _user_prefers_no_auto_show_map(self) -> bool:
+        summary = self._context_summary.lower()
+        markers = (
+            "don't auto-show map",
+            "do not auto-show map",
+            "don't auto show map",
+            "do not auto show map",
+            "prefer not to auto-show map",
+            "prefer not to auto show map",
+        )
+        return any(marker in summary for marker in markers)
+
+    @staticmethod
+    def _is_affirmative_reply(text: str) -> bool:
+        normalized = re.sub(r"[^a-z0-9\s]", "", text.lower()).strip()
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized in {
+            "yes",
+            "y",
+            "yeah",
+            "yep",
+            "yup",
+            "sure",
+            "ok",
+            "okay",
+            "please",
+            "please do",
+            "do it",
+            "go ahead",
+            "affirmative",
+        }
+
+    @staticmethod
+    def _normalize_intent_text(text: str | None) -> str:
+        if not isinstance(text, str):
+            return ""
+        return re.sub(r"\s+", " ", text.lower()).strip()
+
+    @classmethod
+    def _is_explicit_ui_request(cls, text: str | None) -> bool:
+        normalized = cls._normalize_intent_text(text)
+        if not normalized:
+            return False
+        if "ui agent" in normalized:
+            return True
+
+        ui_verbs = (
+            "show",
+            "display",
+            "open",
+            "close",
+            "hide",
+            "zoom",
+            "center",
+            "focus",
+            "highlight",
+            "fit",
+            "frame",
+            "clear",
+            "plot",
+            "adjust",
+        )
+        ui_targets = (
+            "map",
+            "panel",
+            "course",
+            "plot",
+            "route",
+            "sector",
+            "ship",
+            "ships",
+            "port",
+            "ports",
+            "destination",
+        )
+
+        has_ui_verb = any(re.search(rf"\b{re.escape(verb)}\b", normalized) for verb in ui_verbs)
+        has_ui_target = any(re.search(rf"\b{re.escape(target)}\b", normalized) for target in ui_targets)
+        if has_ui_verb and has_ui_target:
+            return True
+
+        if any(
+            phrase in normalized
+            for phrase in ("course plot", "plot course", "show map", "clear course plot")
+        ):
+            return True
+        return False
+
+    @classmethod
+    def _assistant_prompted_ui_confirmation(cls, text: str | None) -> bool:
+        normalized = cls._normalize_intent_text(text)
+        if not normalized:
+            return False
+        asks_confirmation = any(
+            marker in normalized
+            for marker in ("do you want", "would you like", "want me to", "should i")
+        )
+        if not asks_confirmation and "?" not in normalized:
+            return False
+        return any(
+            token in normalized
+            for token in ("map", "plot", "course", "zoom", "highlight", "center", "fit", "panel")
+        )
+
+    def _latest_user_allows_deferred_ui_action(self) -> bool:
+        latest_user = self._latest_ui_user_message or ""
+        if self._is_explicit_ui_request(latest_user):
+            return True
+        if self._is_affirmative_reply(latest_user) and self._assistant_prompted_ui_confirmation(
+            self._latest_ui_assistant_message
+        ):
+            return True
+        return False
+
     async def _auto_fit_course_plot(self, payload: dict) -> None:
         """Auto-fit map to a course.plot path when no intent was queued.
 
@@ -875,15 +1108,38 @@ class UIAgentContext(FrameProcessor):
         int_path = [s for s in path if isinstance(s, int)]
         if len(int_path) < 2:
             return
+        if self._user_prefers_no_auto_show_map():
+            self._log_metric(
+                "course_plot_auto_fit_skipped",
+                reason="user_prefers_no_auto_show_map",
+                path_len=len(int_path),
+            )
+            logger.debug("UI agent auto-fit skipped due to user no-auto-show preference")
+            return
+        if self._map_view_lock_active():
+            remaining = round(self._map_view_lock_remaining_secs(), 2)
+            reason = self._map_view_lock_reason or "recent_explicit_map_view"
+            self._log_metric(
+                "course_plot_auto_fit_skipped",
+                reason="recent_explicit_map_view",
+                lock_reason=reason,
+                lock_remaining_secs=remaining,
+                path_len=len(int_path),
+            )
+            logger.debug(
+                f"UI agent auto-fit skipped due to map view lock ({reason}, {remaining}s remaining)"
+            )
+            return
 
         arguments = {
             "show_panel": "map",
             "map_highlight_path": int_path,
             "map_fit_sectors": int_path,
         }
-        should_send = self._apply_control_ui_dedupe(arguments)
+        should_send, skip_reason = self._apply_control_ui_dedupe(arguments, source="auto_fit")
         if should_send:
             logger.debug(f"UI agent auto-fit course.plot path ({len(int_path)} sectors)")
+            self._log_metric("course_plot_auto_fit_applied", path_len=len(int_path))
             await self._rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
@@ -892,6 +1148,12 @@ class UIAgentContext(FrameProcessor):
                         "payload": {"ui-action": "control_ui", **arguments},
                     }
                 )
+            )
+        else:
+            self._log_metric(
+                "course_plot_auto_fit_skipped",
+                reason=skip_reason,
+                path_len=len(int_path),
             )
 
     # ── Message helpers ───────────────────────────────────────────────
@@ -1229,6 +1491,8 @@ class UIAgentContext(FrameProcessor):
         show_panel = arguments.get("show_panel")
         show_panel = True if show_panel is None else bool(show_panel)
         expires_in_secs = arguments.get("expires_in_secs")
+        result: dict[str, Any] | None = None
+        intent_id: int | None = None
 
         try:
             if intent_type not in ("ports.list", "ships.list", "course.plot"):
@@ -1239,45 +1503,60 @@ class UIAgentContext(FrameProcessor):
                 expires_override = float(expires_in_secs)
 
             if intent_type == "ports.list":
-                max_hops = arguments.get("max_hops")
-                if max_hops is None:
-                    max_hops = DEFAULT_PORTS_LIST_MAX_HOPS
+                if not self._latest_user_allows_deferred_ui_action():
+                    self._log_metric(
+                        "ui_intent_rejected_non_ui_request",
+                        intent_type="ports.list",
+                        latest_user=(self._latest_ui_user_message or "")[:160],
+                    )
+                    result = {
+                        "success": True,
+                        "intent_type": "ports.list",
+                        "intent_id": None,
+                        "skipped": True,
+                        "skip_reason": "latest_user_not_ui_request",
+                    }
                 else:
-                    max_hops = int(max_hops)
-                from_sector = arguments.get("from_sector")
-                if from_sector is None:
-                    from_sector = getattr(self._game_client, "_current_sector", None)
-                elif not isinstance(from_sector, int):
-                    from_sector = int(from_sector)
-                filters = {
-                    "mega": arguments.get("mega"),
-                    "port_type": arguments.get("port_type"),
-                    "commodity": arguments.get("commodity"),
-                    "trade_type": arguments.get("trade_type"),
-                    "from_sector": from_sector,
-                    "max_hops": max_hops,
-                }
+                    max_hops = arguments.get("max_hops")
+                    if max_hops is None:
+                        max_hops = DEFAULT_PORTS_LIST_MAX_HOPS
+                    else:
+                        max_hops = int(max_hops)
+                    from_sector = arguments.get("from_sector")
+                    if from_sector is None:
+                        from_sector = getattr(self._game_client, "_current_sector", None)
+                    elif not isinstance(from_sector, int):
+                        from_sector = int(from_sector)
+                    filters = {
+                        "mega": arguments.get("mega"),
+                        "port_type": arguments.get("port_type"),
+                        "commodity": arguments.get("commodity"),
+                        "trade_type": arguments.get("trade_type"),
+                        "from_sector": from_sector,
+                        "max_hops": max_hops,
+                    }
 
-                def _ports_match_fn(payload: dict) -> bool:
-                    return self._ports_list_filters_match(payload, filters)
+                    def _ports_match_fn(payload: dict) -> bool:
+                        return self._ports_list_filters_match(payload, filters)
 
-                async def _ports_request_factory(iid: int) -> None:
-                    await self._delayed_ports_list_request(iid, filters)
+                    async def _ports_request_factory(iid: int) -> None:
+                        await self._delayed_ports_list_request(iid, filters)
 
-                intent_id = self._set_pending_intent(
-                    "ports.list",
-                    match_fn=_ports_match_fn,
-                    type_fields={"filters": filters},
-                    include_player_sector=include_player_sector,
-                    show_panel=show_panel,
-                    default_timeout_secs=self._ports_list_timeout_secs,
-                    expires_in_secs=expires_override,
-                    replace_existing=replace_existing,
-                    request_factory=_ports_request_factory,
-                )
-                cached_event = self._get_cached_ports_list_event(filters)
-                if cached_event is not None:
-                    await self._on_ports_list(cached_event)
+                    intent_id = self._set_pending_intent(
+                        "ports.list",
+                        match_fn=_ports_match_fn,
+                        type_fields={"filters": filters},
+                        include_player_sector=include_player_sector,
+                        show_panel=show_panel,
+                        default_timeout_secs=self._ports_list_timeout_secs,
+                        expires_in_secs=expires_override,
+                        replace_existing=replace_existing,
+                        request_factory=_ports_request_factory,
+                    )
+                    await self._yield_for_pending_intent_tasks("ports.list", intent_id)
+                    cached_event = self._get_cached_ports_list_event(filters)
+                    if cached_event is not None:
+                        await self._on_ports_list(cached_event)
 
             elif intent_type == "ships.list":
                 ship_scope = arguments.get("ship_scope") or "all"
@@ -1301,6 +1580,7 @@ class UIAgentContext(FrameProcessor):
                     replace_existing=replace_existing,
                     request_factory=_ships_request_factory,
                 )
+                await self._yield_for_pending_intent_tasks("ships.list", intent_id)
                 if self._ships_cache_is_fresh():
                     cached_event = self._cached_ships_event_message
                     if cached_event is None:
@@ -1312,42 +1592,58 @@ class UIAgentContext(FrameProcessor):
                     await self._handle_ships_list_intent(cached_event)
 
             else:
-                from_sector = arguments.get("from_sector")
-                if from_sector is not None and not isinstance(from_sector, int):
-                    from_sector = int(from_sector)
-                to_sector = arguments.get("to_sector")
-                if to_sector is not None and not isinstance(to_sector, int):
-                    to_sector = int(to_sector)
-
-                def _course_match_fn(payload: dict) -> bool:
-                    if isinstance(from_sector, int) and isinstance(to_sector, int):
-                        if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
-                            logger.debug(
-                                "UI agent course.plot mismatch with pending intent; cached only"
-                            )
-                            return False
-                    return True
-
-                intent_id = self._set_pending_intent(
-                    "course.plot",
-                    match_fn=_course_match_fn,
-                    type_fields={"from_sector": from_sector, "to_sector": to_sector},
-                    include_player_sector=include_player_sector,
-                    show_panel=show_panel,
-                    default_timeout_secs=self._course_plot_timeout_secs,
-                    expires_in_secs=expires_override,
-                    replace_existing=replace_existing,
-                )
-                if isinstance(from_sector, int) and isinstance(to_sector, int):
-                    cached_event = self._get_cached_course_plot_event(from_sector, to_sector)
-                    if cached_event is not None:
-                        await self._on_course_plot(cached_event)
-                else:
-                    logger.debug(
-                        "UI agent course.plot cache skipped; missing from/to sector"
+                if not self._latest_user_allows_deferred_ui_action():
+                    self._log_metric(
+                        "ui_intent_rejected_non_ui_request",
+                        intent_type="course.plot",
+                        latest_user=(self._latest_ui_user_message or "")[:160],
                     )
+                    result = {
+                        "success": True,
+                        "intent_type": "course.plot",
+                        "intent_id": None,
+                        "skipped": True,
+                        "skip_reason": "latest_user_not_ui_request",
+                    }
+                else:
+                    from_sector = arguments.get("from_sector")
+                    if from_sector is not None and not isinstance(from_sector, int):
+                        from_sector = int(from_sector)
+                    to_sector = arguments.get("to_sector")
+                    if to_sector is not None and not isinstance(to_sector, int):
+                        to_sector = int(to_sector)
 
-            result = {"success": True, "intent_type": intent_type, "intent_id": intent_id}
+                    def _course_match_fn(payload: dict) -> bool:
+                        if isinstance(from_sector, int) and isinstance(to_sector, int):
+                            if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
+                                logger.debug(
+                                    "UI agent course.plot mismatch with pending intent; cached only"
+                                )
+                                return False
+                        return True
+
+                    intent_id = self._set_pending_intent(
+                        "course.plot",
+                        match_fn=_course_match_fn,
+                        type_fields={"from_sector": from_sector, "to_sector": to_sector},
+                        include_player_sector=include_player_sector,
+                        show_panel=show_panel,
+                        default_timeout_secs=self._course_plot_timeout_secs,
+                        expires_in_secs=expires_override,
+                        replace_existing=replace_existing,
+                    )
+                    await self._yield_for_pending_intent_tasks("course.plot", intent_id)
+                    if isinstance(from_sector, int) and isinstance(to_sector, int):
+                        cached_event = self._get_cached_course_plot_event(from_sector, to_sector)
+                        if cached_event is not None:
+                            await self._on_course_plot(cached_event)
+                    else:
+                        logger.debug(
+                            "UI agent course.plot cache skipped; missing from/to sector"
+                        )
+
+            if result is None:
+                result = {"success": True, "intent_type": intent_type, "intent_id": intent_id}
         except Exception as exc:  # noqa: BLE001
             result = {"success": False, "error": str(exc)}
 
@@ -1367,7 +1663,17 @@ class UIAgentContext(FrameProcessor):
 
         logger.debug(f"UI agent control_ui args: {arguments}")
 
-        should_send = self._apply_control_ui_dedupe(arguments)
+        highlight_path = self._normalize_int_list(arguments.get("map_highlight_path"))
+        if highlight_path and not self._latest_user_allows_deferred_ui_action():
+            should_send = False
+            skip_reason = "latest_user_not_ui_request_for_route_highlight"
+            self._log_metric(
+                "control_ui_skipped_unsolicited_route_highlight",
+                path_len=len(highlight_path),
+                latest_user=(self._latest_ui_user_message or "")[:160],
+            )
+        else:
+            should_send, skip_reason = self._apply_control_ui_dedupe(arguments, source="llm")
         if should_send:
             await self._rtvi.push_frame(
                 RTVIServerMessageFrame(
@@ -1379,12 +1685,12 @@ class UIAgentContext(FrameProcessor):
                 )
             )
         else:
-            logger.debug("UI agent skipped no-op control_ui action")
+            logger.debug(f"UI agent skipped no-op control_ui action (reason={skip_reason})")
 
         # Append tool_call + tool_result messages (no counter increment for control_ui)
         tool_call_id = params.tool_call_id
         function_name = params.function_name
-        result = {"success": True, "skipped": not should_send}
+        result = {"success": True, "skipped": not should_send, "skip_reason": skip_reason}
 
         self._messages.append({
             "role": "assistant",
@@ -1654,6 +1960,7 @@ class UIAgentContext(FrameProcessor):
     async def on_inference_complete(self, new_summary: str | None) -> None:
         if new_summary is not None:
             self._context_summary = new_summary
+            self._log_context_summary_quality(new_summary, self._latest_ui_user_message)
             # Send debug RTVI event for client debug panel
             await self._rtvi.push_frame(
                 RTVIServerMessageFrame({
@@ -1698,10 +2005,143 @@ class UIAgentContext(FrameProcessor):
         summary = match.group(1).strip()
         return summary or ""
 
+    @staticmethod
+    def _word_count(text: str) -> int:
+        return len(re.findall(r"\b\w+\b", text))
+
+    @staticmethod
+    def _looks_like_ui_intent(text: str) -> bool:
+        normalized = text.lower()
+        keywords = (
+            "map",
+            "zoom",
+            "panel",
+            "plot",
+            "course",
+            "clear",
+            "ship",
+            "sector",
+            "port",
+            "highlight",
+            "center",
+            "fit",
+            "frame",
+            "show",
+            "hide",
+        )
+        return any(keyword in normalized for keyword in keywords)
+
+    @classmethod
+    def _summary_mentions_latest_intent(cls, summary: str, latest_user: str) -> bool:
+        summary_lower = summary.lower()
+        latest_lower = latest_user.lower()
+        summary_signals = (
+            "user asked",
+            "user wants",
+            "user requested",
+            "latest user",
+        )
+        if any(signal in summary_lower for signal in summary_signals):
+            return True
+        keywords = (
+            "map",
+            "zoom",
+            "panel",
+            "plot",
+            "course",
+            "clear",
+            "ship",
+            "sector",
+            "port",
+            "highlight",
+            "center",
+            "fit",
+            "frame",
+            "show",
+            "hide",
+        )
+        matched = [keyword for keyword in keywords if keyword in latest_lower]
+        if not matched:
+            return True
+        return any(keyword in summary_lower for keyword in matched)
+
+    def _summary_ship_sector_mentions(self, summary: str) -> dict[str, set[int]]:
+        mentions: dict[str, set[int]] = {}
+        if not summary:
+            return mentions
+        for ship in self._cached_ships:
+            ship_name = ship.get("ship_name")
+            if not isinstance(ship_name, str) or not ship_name.strip():
+                continue
+            name_parts = [re.escape(part) for part in ship_name.split() if part]
+            if not name_parts:
+                continue
+            name_pattern = r"\s*".join(name_parts)
+            pattern = re.compile(
+                rf"{name_pattern}.{{0,120}}?sector\s+(\d+)",
+                re.IGNORECASE | re.DOTALL,
+            )
+            sectors = {int(match) for match in pattern.findall(summary)}
+            if sectors:
+                mentions[ship_name] = sectors
+        return mentions
+
+    def _log_context_summary_quality(self, summary: str, latest_user: str | None) -> None:
+        word_count = self._word_count(summary)
+        self._log_metric("context_summary_observed", word_count=word_count)
+
+        if self._summary_word_limit > 0 and word_count > self._summary_word_limit:
+            self._log_metric(
+                "context_summary_too_long",
+                word_count=word_count,
+                word_limit=self._summary_word_limit,
+            )
+
+        if (
+            isinstance(latest_user, str)
+            and latest_user.strip()
+            and self._looks_like_ui_intent(latest_user)
+            and not self._summary_mentions_latest_intent(summary, latest_user)
+        ):
+            self._log_metric(
+                "context_summary_missing_latest_intent_signal",
+                latest_user=latest_user,
+            )
+
+        latest_known_sectors: dict[str, int] = {}
+        for ship in self._cached_ships:
+            ship_name = ship.get("ship_name")
+            ship_sector = ship.get("sector")
+            if isinstance(ship_name, str) and isinstance(ship_sector, int):
+                latest_known_sectors[ship_name] = ship_sector
+
+        mentions = self._summary_ship_sector_mentions(summary)
+        for ship_name, sectors in mentions.items():
+            if len(sectors) > 1:
+                self._log_metric(
+                    "context_summary_ship_sector_conflict",
+                    ship_name=ship_name,
+                    sectors=sorted(sectors),
+                )
+            latest_sector = latest_known_sectors.get(ship_name)
+            if isinstance(latest_sector, int) and latest_sector not in sectors:
+                self._log_metric(
+                    "context_summary_stale_ship_sector",
+                    ship_name=ship_name,
+                    summary_sectors=sorted(sectors),
+                    latest_sector=latest_sector,
+                )
+
     # ── control_ui dedup ──────────────────────────────────────────────
 
-    def _apply_control_ui_dedupe(self, arguments: dict) -> bool:
+    def _apply_control_ui_dedupe(self, arguments: dict, *, source: str) -> tuple[bool, str]:
         changed = False
+        reason = "no_change"
+        show_panel_changed = False
+        map_center_changed = False
+        map_zoom_level_changed = False
+        map_zoom_direction_changed = False
+        fit_sectors_changed = False
 
         show_panel = arguments.get("show_panel")
         map_center = arguments.get("map_center_sector")
@@ -1722,40 +2162,69 @@ class UIAgentContext(FrameProcessor):
         if effective_show_panel in {"map", "default"}:
             if effective_show_panel != self._last_show_panel:
                 changed = True
+                show_panel_changed = True
+                reason = "show_panel_changed"
                 self._last_show_panel = effective_show_panel
 
         if isinstance(map_center, int) and map_center != self._last_map_center_sector:
             changed = True
+            map_center_changed = True
+            reason = "map_center_changed"
             self._last_map_center_sector = map_center
 
         if isinstance(map_zoom, int) and map_zoom != self._last_map_zoom_level:
             changed = True
+            map_zoom_level_changed = True
+            reason = "map_zoom_level_changed"
             self._last_map_zoom_level = map_zoom
         elif map_zoom_direction in {"in", "out"}:
             # Relative zoom should always be sent (no dedupe), since each call advances a step.
             changed = True
+            map_zoom_direction_changed = True
+            reason = "map_zoom_direction"
 
         if highlight_path is not None:
             highlight_tuple = tuple(highlight_path)
             if highlight_tuple != self._last_map_highlight_path:
                 changed = True
+                reason = "map_highlight_path_changed"
                 self._last_map_highlight_path = highlight_tuple
 
         if fit_sectors is not None:
             fit_tuple = tuple(fit_sectors)
             if fit_tuple != self._last_map_fit_sectors:
                 changed = True
+                fit_sectors_changed = True
+                reason = "map_fit_sectors_changed"
                 self._last_map_fit_sectors = fit_tuple
                 # fit_sectors changes the client zoom to an unknown level,
                 # so invalidate the tracked zoom to prevent false dedup.
                 self._last_map_zoom_level = None
 
         if clear_plot:
-            if self._last_map_highlight_path not in {None, tuple()}:
-                changed = True
+            # Explicit clear requests should always pass through even if our local
+            # highlight state is already empty or unknown.
+            changed = True
+            reason = "explicit_clear_course_plot"
             self._last_map_highlight_path = tuple()
 
-        return changed
+        if source == "llm" and changed:
+            lock_reason: str | None = None
+            if show_panel == "default" and show_panel_changed:
+                lock_reason = "show_panel_default"
+            elif isinstance(map_center, int) and map_center_changed:
+                lock_reason = "map_center_sector"
+            elif isinstance(map_zoom, int) and map_zoom_level_changed:
+                lock_reason = "map_zoom_level"
+            elif map_zoom_direction_changed:
+                lock_reason = "map_zoom_direction"
+            elif fit_sectors is not None and highlight_path is None and fit_sectors_changed:
+                lock_reason = "map_fit_sectors"
+
+            if lock_reason:
+                self._set_map_view_lock(lock_reason)
+
+        return changed, reason
 
     @staticmethod
     def _normalize_int_list(value: Any) -> list[int] | None:

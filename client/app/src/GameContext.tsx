@@ -157,6 +157,118 @@ export function GameProvider({ children }: GameProviderProps) {
             return undefined
           }
 
+          const getPayloadShipId = (payload: Msg.ServerMessagePayload): string | undefined => {
+            if (typeof payload.ship_id === "string" && payload.ship_id) {
+              return payload.ship_id
+            }
+            const ship = payload.ship
+            if (ship && typeof ship === "object") {
+              const shipId = (ship as { ship_id?: unknown }).ship_id
+              if (typeof shipId === "string" && shipId) {
+                return shipId
+              }
+            }
+            return undefined
+          }
+
+          const getPayloadSectorId = (payload: Msg.ServerMessagePayload): number | undefined => {
+            const sector = payload.sector
+            if (typeof sector === "number") {
+              return sector
+            }
+            if (sector && typeof sector === "object") {
+              const sectorId = (sector as { id?: unknown }).id
+              if (typeof sectorId === "number") {
+                return sectorId
+              }
+            }
+            return undefined
+          }
+
+          const isKnownCorporationShip = (shipId: string | undefined): boolean => {
+            if (!shipId) {
+              return false
+            }
+            const ships = useGameStore.getState().ships.data ?? []
+            return ships.some((ship) => ship.ship_id === shipId && ship.owner_type === "corporation")
+          }
+
+          const isCorporationShipPayload = (payload: Msg.ServerMessagePayload): boolean => {
+            const player = payload.player
+            if (
+              player &&
+              typeof player === "object" &&
+              (player as { player_type?: unknown }).player_type === "corporation_ship"
+            ) {
+              return true
+            }
+
+            const ship = payload.ship
+            if (
+              ship &&
+              typeof ship === "object" &&
+              (ship as { owner_type?: unknown }).owner_type === "corporation"
+            ) {
+              return true
+            }
+
+            return isKnownCorporationShip(getPayloadShipId(payload))
+          }
+
+          const upsertCorporationShip = (
+            shipId: string,
+            shipUpdate: Partial<ShipSelf> = {}
+          ): void => {
+            const store = useGameStore.getState()
+            const hasShip = (store.ships.data ?? []).some((ship) => ship.ship_id === shipId)
+            if (hasShip) {
+              store.updateShip({
+                ...shipUpdate,
+                ship_id: shipId,
+              })
+              return
+            }
+            store.addShip({
+              ...shipUpdate,
+              ship_id: shipId,
+              owner_type: "corporation",
+            })
+          }
+
+          const normalizeTaskId = (value: unknown): string | undefined => {
+            if (typeof value !== "string") {
+              return undefined
+            }
+            const trimmed = value.trim()
+            return trimmed || undefined
+          }
+
+          const getTaskIdCandidates = (
+            eventMessage: Msg.ServerMessage,
+            payload: Msg.ServerMessagePayload
+          ): string[] => {
+            const eventWithShort = eventMessage as Msg.ServerMessage & { task_short_id?: string }
+            const payloadTaskId =
+              payload && typeof payload === "object" ?
+                normalizeTaskId((payload as Record<string, unknown>).task_id)
+              : undefined
+            const payloadTaskShortId =
+              payload && typeof payload === "object" ?
+                normalizeTaskId((payload as Record<string, unknown>).task_short_id)
+              : undefined
+
+            return Array.from(
+              new Set(
+                [
+                  normalizeTaskId(eventMessage.task_id),
+                  normalizeTaskId(eventWithShort.task_short_id),
+                  payloadTaskId,
+                  payloadTaskShortId,
+                ].filter((taskId): taskId is string => !!taskId)
+              )
+            )
+          }
+
           const logMissingPlayerId = (eventName: string, payload: Msg.ServerMessagePayload) => {
             console.warn(`[GAME EVENT] Missing player.id for ${eventName}`, payload)
           }
@@ -233,8 +345,9 @@ export function GameProvider({ children }: GameProviderProps) {
                   ship: status.ship,
                   sector: status.sector,
                 })
-              } else if (status.player.player_type === "corporation_ship") {
-                if (!status.ship.ship_id) {
+              } else if (isCorporationShipPayload(status)) {
+                const shipId = getPayloadShipId(status)
+                if (!shipId) {
                   console.warn(
                     "[GAME EVENT] Status update missing ship_id for corporation ship",
                     status
@@ -243,12 +356,13 @@ export function GameProvider({ children }: GameProviderProps) {
                 }
                 const shipUpdate: Partial<ShipSelf> & { ship_id: string } = {
                   ...status.ship,
-                  ship_id: status.ship.ship_id,
+                  ship_id: shipId,
                 }
-                if (typeof status.sector?.id === "number") {
-                  shipUpdate.sector = status.sector.id
+                const sectorId = getPayloadSectorId(status)
+                if (typeof sectorId === "number") {
+                  shipUpdate.sector = sectorId
                 }
-                gameStore.updateShip(shipUpdate)
+                upsertCorporationShip(shipId, shipUpdate)
               } else {
                 logIgnored(e.event, `player ${status.player.id}`, status)
               }
@@ -306,10 +420,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
               // Update corp ship position icons regardless of sector visibility
               if (data.ship?.ship_id && typeof sectorId === "number") {
-                gameStore.updateShip({
-                  ship_id: data.ship.ship_id,
-                  sector: sectorId,
-                })
+                upsertCorporationShip(data.ship.ship_id, { sector: sectorId })
               } else if (!data.ship?.ship_id) {
                 console.warn("[GAME EVENT] character.moved missing ship_id", data)
               }
@@ -365,7 +476,24 @@ export function GameProvider({ children }: GameProviderProps) {
             case "movement.complete": {
               console.debug("[GAME EVENT] Move completed", e.payload)
               const data = e.payload as Msg.MovementCompleteMessage
-              if (!isPlayerSessionPayload("movement.complete", data)) {
+              const isPersonalMove = isPlayerSessionPayload("movement.complete", data)
+              if (!isPersonalMove) {
+                if (!isCorporationShipPayload(data)) {
+                  break
+                }
+
+                const shipId = getPayloadShipId(data)
+                if (!shipId) {
+                  console.warn("[GAME EVENT] movement.complete missing ship_id for corporation ship", data)
+                  break
+                }
+
+                const sectorId = getPayloadSectorId(data)
+                const shipUpdate: Partial<ShipSelf> = { ...data.ship }
+                if (typeof sectorId === "number") {
+                  shipUpdate.sector = sectorId
+                }
+                upsertCorporationShip(shipId, shipUpdate)
                 break
               }
 
@@ -880,13 +1008,10 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Task start", e.payload)
               const data = e.payload as Msg.TaskStartMessage
 
-              if (data.task_id) {
-                // @TODO: this is to align task messages to task_output messages
-                // task.start and task.finish use full uuids, but task_output uses truncated ids
-                const truncated_task_id = data.task_id.slice(0, 6)
-
+              const taskId = normalizeTaskId(data.task_id)
+              if (taskId) {
                 gameStore.addActiveTask({
-                  task_id: truncated_task_id,
+                  task_id: taskId,
                   task_description: data.task_description,
                   started_at: data.source?.timestamp || new Date().toISOString(),
                   actor_character_id: data.actor_character_id,
@@ -905,11 +1030,21 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as Msg.TaskFinishMessage
 
               // Remove task from active task map
-              if (data.task_id) {
-                // @TODO: this is to align task messages to task_output messages
-                // task.start and task.finish use full uuids, but task_output uses truncated ids
-                const truncated_task_id = data.task_id.slice(0, 6)
-                gameStore.removeActiveTask(truncated_task_id)
+              const taskId = normalizeTaskId(data.task_id)
+              if (taskId) {
+                gameStore.removeActiveTask(taskId)
+
+                // Backward compatibility while old short IDs may still exist in local state.
+                if (taskId.length > 6) {
+                  gameStore.removeActiveTask(taskId.slice(0, 6))
+                } else {
+                  const activeTaskIds = Object.keys(useGameStore.getState().activeTasks)
+                  for (const activeTaskId of activeTaskIds) {
+                    if (activeTaskId.startsWith(taskId)) {
+                      gameStore.removeActiveTask(activeTaskId)
+                    }
+                  }
+                }
               }
 
               // Add task summary to store
@@ -923,12 +1058,28 @@ export function GameProvider({ children }: GameProviderProps) {
             case "task_output": {
               console.debug("[GAME EVENT] Task output", e, e.payload)
               const data = e.payload as Msg.TaskOutputMessage
-              if (!e.task_id) {
+              const taskIdCandidates = getTaskIdCandidates(e, data)
+              if (taskIdCandidates.length === 0) {
                 console.warn("[GAME EVENT] Task output missing task_id", e.payload)
                 return
               }
+
+              const activeTasks = useGameStore.getState().activeTasks
+              const activeTaskId = taskIdCandidates.find((candidate) =>
+                Object.prototype.hasOwnProperty.call(activeTasks, candidate)
+              )
+              const prefixedActiveTaskId = taskIdCandidates
+                .filter((candidate) => candidate.length === 6)
+                .map((candidate) =>
+                  Object.keys(activeTasks).find((activeTaskId) => activeTaskId.startsWith(candidate))
+                )
+                .find((taskId): taskId is string => !!taskId)
+              const fullTaskId = taskIdCandidates.find((candidate) => candidate.includes("-"))
+              const selectedTaskId =
+                activeTaskId ?? prefixedActiveTaskId ?? fullTaskId ?? taskIdCandidates[0]
+
               gameStore.addTaskOutput({
-                task_id: e.task_id,
+                task_id: selectedTaskId,
                 text: data.text,
                 task_message_type: data.task_message_type,
               })

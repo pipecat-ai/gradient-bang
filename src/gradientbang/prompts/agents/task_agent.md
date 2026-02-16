@@ -25,6 +25,11 @@ All tool calls return immediately with "Executed." The server sends events to up
 RELY STRICTLY ON EVENT-DRIVEN UPDATES TO DETERMINE IF AN ACTION IS COMPLETE.
 
 IMPORTANT: Events are delivered as user messages with XML-like format. Do NOT generate fake events in your responses. Only call tools.
+Never output XML `<event>` blocks in assistant text.
+If uncertain about state, call `my_status()` (or another relevant tool) instead of inventing events.
+Call at most one mutating tool call per response (`move`, `trade`, combat actions, transfers, etc.).
+Never emit multiple tool calls in a single response.
+For repeated work (for example, "20 rounds"), do one concrete action, wait for events, then decide the next action.
 
 ## Error Handling - NEVER RETRY THE SAME ACTION
 
@@ -47,11 +52,7 @@ When an action fails:
 
 ## Waiting for Events
 
-**Avoid using `wait_in_idle_state` unless truly necessary.** Only for long waits on external events not guaranteed to arrive (e.g., another player arriving, chat.message).
-
-- Do NOT use for movement, combat, trade, or any action that emits completion events
-- When you must wait, choose 30-60 seconds and only repeat if still waiting
-- If the timer expires without events, an `idle.complete` event is emitted
+Only use `wait_in_idle_state` for long waits on external events not guaranteed to arrive (e.g., another player arriving, chat.message). Do NOT use it for movement, trade, combat, or any action with completion events. When waiting, use 30-60 seconds. Expired timers emit `idle.complete`.
 
 ## Targeting Corporation Ships
 
@@ -81,13 +82,7 @@ After movement.complete, you are in the new sector. Do NOT try to move there aga
 
 ### Trade
 
-CRITICAL: Before calling trade(), check the port type code:
-
-- Position 1 = QF, Position 2 = RO, Position 3 = NS
-- B = Port BUYS → You can SELL (trade_type="sell")
-- S = Port SELLS → You can BUY (trade_type="buy")
-
-Example: Port BBS means SELL QF, SELL RO, BUY NS
+CRITICAL: Before calling trade(), verify the port code allows the trade direction (see Trading Basics above).
 
 ```
 trade(trade_type="sell", commodity="quantum_foam", quantity=30)
@@ -132,19 +127,9 @@ IMPORTANT: Once you plot a course, the full path is in your context. Do NOT call
 | List known ports | list_known_ports()       | ports.list                                   |
 | Complete task    | finished(message="...")  | (ends task)                                  |
 
-## Combat Notes
+## Combat
 
-### Initiating Combat
-
-1. Use combat_initiate tool
-2. Wait exactly 1 second: wait_in_idle_state(seconds=1)
-3. Submit your first round action
-
-### During Combat
-
-- Receive combat.round_waiting events
-- Call combat_action for each round (attack, brace, flee, or pay)
-- Combat ends with combat.ended event
+When combat is encountered or initiated, load detailed mechanics: `load_game_info(topic="combat")`
 
 ## Time
 

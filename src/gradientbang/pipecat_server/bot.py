@@ -260,6 +260,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         config=ui_agent_config,
         rtvi=rtvi,
         game_client=task_manager.game_client,
+        is_recent_voice_request_id=task_manager.is_recent_voice_request_id,
     )
     ui_llm = create_llm_service(ui_agent_config)
     ui_llm.register_function("control_ui", ui_agent_context.handle_control_ui)

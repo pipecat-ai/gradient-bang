@@ -12,22 +12,4 @@ When you need in-depth rules or mechanics for a specific game system, use the `l
 - **ships** - Ship types, purchasing, capabilities
 - **event_logs** - Querying historical game logs, event patterns
 
-## When to Use
-
-Load detailed information when:
-- You need to execute a complex trading sequence
-- Combat is initiated and you need tactical guidance
-- The pilot asks about specific game mechanics
-- You're planning a multi-step task involving unfamiliar systems
-
-## Example Usage
-
-If the pilot asks to "trade on the way" during exploration, load the trading topic:
-```
-load_game_info(topic="trading")
-```
-
-If combat begins unexpectedly:
-```
-load_game_info(topic="combat")
-```
+Load detailed info when executing or answering questions about specific game mechanics.

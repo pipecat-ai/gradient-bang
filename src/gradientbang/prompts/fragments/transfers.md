@@ -78,7 +78,7 @@ recharge_warp_power(units=1000)
 ### Finding Mega-Ports
 
 ```
-list_known_ports(mega=true, max_hops=50)
+list_known_ports(mega=true, max_hops=100)
 ```
 
 Returns nearest known mega-ports for recharging.
@@ -104,6 +104,8 @@ bank_deposit(
     target_player_name="Member Name"
 )
 ```
+
+`target_player_name` must be a real player/member character name. Do not use corporation ship identities like `Corp Ship [abcd12]`.
 
 ### Withdrawing
 

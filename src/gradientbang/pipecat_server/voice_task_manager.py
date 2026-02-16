@@ -72,6 +72,17 @@ COMBAT_EVENT_ALLOWLIST = {
     "combat.ended",
     "combat.action_accepted",
 }
+# Events that should still flow to RTVI/client but should not be fanned out to
+# corp task agents (to keep task panel + task LLM context focused).
+TASK_AGENT_FANOUT_EVENT_DENYLIST = {
+    "map.update",
+}
+# Task-scoped route events can come from task agents; unless they were triggered by
+# a recent voice-agent request, don't relay them to client UI overlays.
+RTVI_ROUTE_EVENT_DENYLIST_FOR_TASKS = {
+    "course.plot",
+    "path.region",
+}
 
 
 def _extract_display_name(payload: Mapping[str, Any]) -> Optional[str]:
@@ -932,6 +943,10 @@ class VoiceTaskManager:
         self._prune_request_ids()
         return request_id in self._voice_agent_request_ids
 
+    def is_recent_voice_request_id(self, request_id: Optional[str]) -> bool:
+        """Public helper for consumers that need voice-vs-task event disambiguation."""
+        return self._is_recent_request_id(request_id)
+
     def _prune_finished_task_ids(self, now: Optional[float] = None) -> None:
         if now is None:
             now = time.monotonic()
@@ -1005,6 +1020,76 @@ class VoiceTaskManager:
             return
         self._last_corporation_id = corp_id
         self._update_polling_scope()
+
+    async def _fanout_character_moved_to_corp_tasks(self, event: Dict[str, Any]) -> None:
+        """Deliver character.moved to active corp task agents.
+
+        We intentionally avoid sector filtering here. Each TaskAgent applies
+        its own local-sector suppression based on trusted status events.
+        """
+
+        mover_id: Optional[str] = None
+        payload = event.get("payload")
+        if isinstance(payload, Mapping):
+            player = payload.get("player")
+            if isinstance(player, Mapping):
+                candidate = player.get("id")
+                if isinstance(candidate, str) and candidate.strip():
+                    mover_id = candidate.strip()
+            if mover_id is None:
+                for key in ("character_id", "ship_id", "player_id"):
+                    candidate = payload.get(key)
+                    if isinstance(candidate, str) and candidate.strip():
+                        mover_id = candidate.strip()
+                        break
+
+        # Iterate over a snapshot because _handle_event may mutate _active_tasks
+        # (task completion/cancellation) while this loop is running.
+        for task_id, _ in list(self._active_tasks.items()):
+            task_info = self._active_tasks.get(task_id)
+            if not isinstance(task_info, dict):
+                continue
+            if not task_info.get("is_corp_ship"):
+                continue
+            task_agent = task_info.get("task_agent")
+            task_game_client = task_info.get("task_game_client")
+            asyncio_task = task_info.get("asyncio_task")
+            delivery_event = task_info.get("event_delivery_check")
+            target_character_id = task_info.get("target_character_id")
+
+            if asyncio_task and asyncio_task.done():
+                continue
+            if not task_agent or not task_game_client:
+                continue
+            if task_game_client == self.game_client:
+                continue
+            if (
+                mover_id
+                and isinstance(target_character_id, str)
+                and mover_id == target_character_id
+            ):
+                logger.debug(
+                    "Skipping own character.moved fanout",
+                    task_id=task_id,
+                    mover_id=mover_id,
+                    reason="own_character_moved",
+                )
+                continue
+
+            logger.debug(
+                "Fanout character.moved to corp task",
+                task_id=task_id,
+                reason="corp_task_character_moved_fanout",
+            )
+            if isinstance(delivery_event, asyncio.Event) and not delivery_event.is_set():
+                delivery_event.set()
+            try:
+                await task_agent._handle_event(event)
+            except Exception:
+                logger.exception(
+                    "Failed to fanout character.moved to corp task",
+                    task_id=task_id,
+                )
 
     def _should_onboard_from_status(self, payload: Mapping[str, Any]) -> bool:
         sector = payload.get("sector")
@@ -1103,6 +1188,9 @@ class VoiceTaskManager:
             candidate = payload.get("__task_id") or payload.get("task_id")
             if isinstance(candidate, str) and candidate.strip():
                 payload_task_id = candidate.strip()
+        is_task_scoped_event = payload_task_id is not None
+        # Compute once so request_id-based routing can be used consistently.
+        is_voice_agent_event = self._is_recent_request_id(event_request_id)
 
         is_our_task = False
         if payload_task_id:
@@ -1121,10 +1209,21 @@ class VoiceTaskManager:
                 task_agent = task_info.get("task_agent") if task_info else None
                 task_game_client = task_info.get("task_game_client") if task_info else None
                 delivery_event = task_info.get("event_delivery_check") if task_info else None
-                if isinstance(delivery_event, asyncio.Event) and not delivery_event.is_set():
-                    delivery_event.set()
                 if task_agent and task_game_client and task_game_client != self.game_client:
-                    await task_agent._handle_event(event)
+                    if event_name in TASK_AGENT_FANOUT_EVENT_DENYLIST:
+                        logger.debug(
+                            "Skipping corp task event fanout",
+                            event=event_name,
+                            task_id=task_id,
+                            reason="fanout_denylist",
+                        )
+                    else:
+                        await task_agent._handle_event(event)
+                        if isinstance(delivery_event, asyncio.Event) and not delivery_event.is_set():
+                            delivery_event.set()
+
+        if event_name == "character.moved" and not is_task_scoped_event:
+            await self._fanout_character_moved_to_corp_tasks(event)
 
         # Onboarding: intercept mega-port check result (don't relay to UI or LLM)
         if (
@@ -1144,12 +1243,21 @@ class VoiceTaskManager:
             return
 
         player_id: Optional[str] = None
+        is_corporation_ship_event = False
         if isinstance(payload, Mapping):
             player = payload.get("player")
             if isinstance(player, Mapping):
                 candidate = player.get("id")
                 if isinstance(candidate, str) and candidate.strip():
                     player_id = candidate
+                player_type = player.get("player_type")
+                if isinstance(player_type, str) and player_type == "corporation_ship":
+                    is_corporation_ship_event = True
+            ship = payload.get("ship")
+            if isinstance(ship, Mapping):
+                owner_type = ship.get("owner_type")
+                if isinstance(owner_type, str) and owner_type == "corporation":
+                    is_corporation_ship_event = True
 
         is_other_player_event = bool(player_id and player_id != self.character_id)
 
@@ -1162,16 +1270,15 @@ class VoiceTaskManager:
             drop_event = True
             drop_reason = "other_player_movement_start"
         elif event_name == "movement.complete" and is_other_player_event:
-            drop_event = True
-            drop_reason = "other_player_movement_complete"
+            if not is_corporation_ship_event:
+                drop_event = True
+                drop_reason = "other_player_movement_complete"
         elif event_name == "character.moved" and is_other_player_event:
-            movement = payload.get("movement") if isinstance(payload, Mapping) else None
-            if movement == "depart":
-                sector_id = self._extract_sector_id(payload)
-                if self._current_sector_id is not None and sector_id is not None:
-                    if sector_id != self._current_sector_id:
-                        drop_event = True
-                        drop_reason = "other_player_depart_outside_sector"
+            sector_id = self._extract_sector_id(payload) if isinstance(payload, Mapping) else None
+            if self._current_sector_id is not None and sector_id is not None:
+                if sector_id != self._current_sector_id:
+                    drop_event = True
+                    drop_reason = "other_player_character_moved_outside_sector"
 
         if drop_event:
             logger.debug(
@@ -1209,15 +1316,29 @@ class VoiceTaskManager:
             self._update_display_name(clean_payload)
             self._sync_corp_polling_scope()
 
-        await self.rtvi_processor.push_frame(
-            RTVIServerMessageFrame(
-                {
-                    "frame_type": "event",
-                    "event": event_name,
-                    "payload": clean_payload,
-                }
-            )
+        skip_rtvi_event = (
+            event_name in RTVI_ROUTE_EVENT_DENYLIST_FOR_TASKS
+            and is_task_scoped_event
+            and not is_voice_agent_event
         )
+        if skip_rtvi_event:
+            logger.debug(
+                "Skipping RTVI relay for task-scoped route event",
+                event=event_name,
+                request_id=event_request_id,
+                payload_task_id=payload_task_id,
+                reason="task_scoped_non_voice_route_event",
+            )
+        else:
+            await self.rtvi_processor.push_frame(
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": event_name,
+                        "payload": clean_payload,
+                    }
+                )
+            )
 
         # Track current sector for local visibility decisions
         if (
@@ -1262,9 +1383,6 @@ class VoiceTaskManager:
             )
 
         is_task_lifecycle_event = event_name in {"task.start", "task.finish"}
-        is_task_scoped_event = payload_task_id is not None
-        # Compute once so request_id-based routing can be used during early append filtering.
-        is_voice_agent_event = self._is_recent_request_id(event_request_id)
 
         event_sector_id: Optional[int] = None
         if event_name in {"character.moved", "garrison.character_moved"}:
@@ -1461,7 +1579,13 @@ class VoiceTaskManager:
                 f"- Warp power is needed to move, so finding a mega-port is the first priority\n"
                 f"- Ask: should we search for a mega-port now?\n"
                 f"- Ask: do you want to trade along the way, or just focus on finding the mega-port?\n"
-                f"Converse naturally with the player. When they want to search for the mega-port, start a task to find it. Note in the task instructions whether to trade or not. "
+                f"Converse naturally with the player. When they want to search for the mega-port, "
+                f"start a task to find it. Note in the task instructions whether to trade or not.\n"
+                f"When creating that task, include this strategy:\n"
+                f"- Stay in Federation Space; if the route exits Federation Space, backtrack immediately.\n"
+                f"- Prefer unvisited adjacent sectors; if all nearby sectors are visited, backtrack and continue scanning.\n"
+                f"- Check for a MEGA port each step and stop as soon as one is found.\n"
+                f"- If trading was requested, trade opportunistically while searching.\n"
                 "</event>"
             )
             logger.info("Onboarding: new player, injecting welcome message")
@@ -1674,9 +1798,39 @@ class VoiceTaskManager:
             task_id: Optional task ID for multi-task tracking
             task_type: Type of task ("player_ship" or "corp_ship")
         """
+        resolved_short_task_id: Optional[str] = None
+        resolved_full_task_id: Optional[str] = None
+        if task_id:
+            # task_id can be short (internal active task key) or full UUID.
+            task_info = self._active_tasks.get(task_id)
+            if task_info is not None:
+                resolved_short_task_id = task_id
+                full_candidate = task_info.get("full_task_id")
+                if isinstance(full_candidate, str) and full_candidate.strip():
+                    resolved_full_task_id = full_candidate
+            else:
+                maybe_short = self._get_task_id_for_full(task_id)
+                if maybe_short:
+                    resolved_short_task_id = maybe_short
+                    resolved_full_task_id = task_id
+
+        if resolved_full_task_id is None:
+            resolved_full_task_id = task_id
+
         logger.info(
-            f"!!! task output: [{message_type}] task_id={task_id} task_type={task_type} {text}"
+            "!!! task output: [{}] task_id={} task_short_id={} task_type={} {}",
+            message_type,
+            resolved_full_task_id,
+            resolved_short_task_id,
+            task_type,
+            text,
         )
+
+        if resolved_short_task_id:
+            task_info = self._active_tasks.get(resolved_short_task_id)
+            delivery_event = task_info.get("event_delivery_check") if task_info else None
+            if isinstance(delivery_event, asyncio.Event) and not delivery_event.is_set():
+                delivery_event.set()
 
         # send everything from the task agent to the client to be displayed
         await self.rtvi_processor.push_frame(
@@ -1684,7 +1838,8 @@ class VoiceTaskManager:
                 data={
                     "frame_type": "event",
                     "event": "task_output",
-                    "task_id": task_id,
+                    "task_id": resolved_full_task_id,
+                    "task_short_id": resolved_short_task_id,
                     "task_type": task_type,
                     "payload": {
                         "text": text,
@@ -1696,7 +1851,10 @@ class VoiceTaskManager:
 
         # Push task activity frame to reset idle timeout on main pipeline
         await self.rtvi_processor.push_frame(
-            TaskActivityFrame(task_id=task_id or "", activity_type="output")
+            TaskActivityFrame(
+                task_id=(resolved_short_task_id or resolved_full_task_id or ""),
+                activity_type="output",
+            )
         )
 
         # TaskAgent now owns the task log; no buffering here.
@@ -1779,15 +1937,15 @@ class VoiceTaskManager:
                 # Check if it was cancelled vs failed
                 if task_agent.cancelled:
                     was_cancelled = True
-                    await self._task_output_handler(
-                        "Task was cancelled by user", "cancelled", task_id, task_type
-                    )
                 else:
                     await self._task_output_handler("Task failed", "failed", task_id, task_type)
 
         except asyncio.CancelledError:
             was_cancelled = True
-            await self._task_output_handler("Task was cancelled", "cancelled", task_id, task_type)
+            if not task_agent.cancelled:
+                await self._task_output_handler(
+                    "Task was cancelled", "cancelled", task_id, task_type
+                )
         except Exception as e:
             await self._task_output_handler(f"Task error: {str(e)}", "error", task_id, task_type)
 
