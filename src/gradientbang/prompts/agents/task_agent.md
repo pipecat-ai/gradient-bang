@@ -25,6 +25,11 @@ All tool calls return immediately with "Executed." The server sends events to up
 RELY STRICTLY ON EVENT-DRIVEN UPDATES TO DETERMINE IF AN ACTION IS COMPLETE.
 
 IMPORTANT: Events are delivered as user messages with XML-like format. Do NOT generate fake events in your responses. Only call tools.
+Never output XML `<event>` blocks in assistant text.
+If uncertain about state, call `my_status()` (or another relevant tool) instead of inventing events.
+Call at most one mutating tool call per response (`move`, `trade`, combat actions, transfers, etc.).
+Never emit multiple tool calls in a single response.
+For repeated work (for example, "20 rounds"), do one concrete action, wait for events, then decide the next action.
 
 ## Error Handling - NEVER RETRY THE SAME ACTION
 

@@ -363,6 +363,12 @@ async function handleDeposit(
     targetCharacterId,
     targetName: target.name,
   });
+  if (isCorporationShipCharacter(target)) {
+    throw new BankTransferError(
+      "Corporation ships cannot receive bank deposits",
+      400,
+    );
+  }
 
   // Verify depositor and target are in the same corporation
   const depositorCharacterId =
@@ -816,11 +822,15 @@ async function findCharacterByName(
   credits_in_megabank: number | null;
   name: string | null;
   corporation_id: string | null;
+  is_npc: boolean | null;
+  player_metadata: Record<string, unknown> | null;
 } | null> {
   const pattern = name.replace(/[%_]/g, (ch) => `\\${ch}`);
   const { data, error } = await supabase
     .from("characters")
-    .select("character_id, credits_in_megabank, name, corporation_id")
+    .select(
+      "character_id, credits_in_megabank, name, corporation_id, is_npc, player_metadata",
+    )
     .ilike("name", pattern)
     .limit(1)
     .maybeSingle();
@@ -829,6 +839,21 @@ async function findCharacterByName(
     throw new BankTransferError("Failed to lookup target player", 500);
   }
   return data ?? null;
+}
+
+function isCorporationShipCharacter(target: {
+  is_npc: boolean | null;
+  player_metadata: Record<string, unknown> | null;
+}): boolean {
+  if (target.is_npc !== true) {
+    return false;
+  }
+  const metadata = target.player_metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return false;
+  }
+  const playerType = metadata["player_type"];
+  return typeof playerType === "string" && playerType === "corporation_ship";
 }
 
 function resolveDisplayIdFromStatus(
