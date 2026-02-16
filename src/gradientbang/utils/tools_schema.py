@@ -1211,7 +1211,8 @@ class BankDeposit(GameClientTool):
             description=(
                 "Deposit ship credits into a mega-port bank account in Federation Space. "
                 "Provide your active ship automatically or specify a corporation ship. "
-                "You may only deposit to yourself or (when in the same corporation) to another member."
+                "You may only deposit to yourself or (when in the same corporation) to another member. "
+                "The target must be a player/member character name, not a corporation ship name like 'Corp Ship [abcd12]'."
             ),
             properties={
                 "amount": {
