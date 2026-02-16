@@ -277,6 +277,7 @@ class UIAgentContext(FrameProcessor):
             )
             self._summary_word_limit = DEFAULT_CONTEXT_SUMMARY_WORD_LIMIT
         self._latest_ui_user_message: str | None = None
+        self._latest_ui_assistant_message: str | None = None
         self._is_recent_voice_request_id = is_recent_voice_request_id
         self._pending_intents: dict[str, PendingIntent] = {}
         self._pending_intent_id = 0
@@ -474,6 +475,7 @@ class UIAgentContext(FrameProcessor):
                 self._warn_missing_user_input()
                 latest_user = self._find_latest_message(messages, "user") or ""
             self._latest_ui_user_message = latest_user
+            self._latest_ui_assistant_message = latest_assistant
 
             user_payload = self._build_user_payload(
                 latest_user=latest_user,
@@ -992,6 +994,108 @@ class UIAgentContext(FrameProcessor):
         )
         return any(marker in summary for marker in markers)
 
+    @staticmethod
+    def _is_affirmative_reply(text: str) -> bool:
+        normalized = re.sub(r"[^a-z0-9\s]", "", text.lower()).strip()
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized in {
+            "yes",
+            "y",
+            "yeah",
+            "yep",
+            "yup",
+            "sure",
+            "ok",
+            "okay",
+            "please",
+            "please do",
+            "do it",
+            "go ahead",
+            "affirmative",
+        }
+
+    @staticmethod
+    def _normalize_intent_text(text: str | None) -> str:
+        if not isinstance(text, str):
+            return ""
+        return re.sub(r"\s+", " ", text.lower()).strip()
+
+    @classmethod
+    def _is_explicit_ui_request(cls, text: str | None) -> bool:
+        normalized = cls._normalize_intent_text(text)
+        if not normalized:
+            return False
+        if "ui agent" in normalized:
+            return True
+
+        ui_verbs = (
+            "show",
+            "display",
+            "open",
+            "close",
+            "hide",
+            "zoom",
+            "center",
+            "focus",
+            "highlight",
+            "fit",
+            "frame",
+            "clear",
+            "plot",
+            "adjust",
+        )
+        ui_targets = (
+            "map",
+            "panel",
+            "course",
+            "plot",
+            "route",
+            "sector",
+            "ship",
+            "ships",
+            "port",
+            "ports",
+            "destination",
+        )
+
+        has_ui_verb = any(re.search(rf"\b{re.escape(verb)}\b", normalized) for verb in ui_verbs)
+        has_ui_target = any(re.search(rf"\b{re.escape(target)}\b", normalized) for target in ui_targets)
+        if has_ui_verb and has_ui_target:
+            return True
+
+        if any(
+            phrase in normalized
+            for phrase in ("course plot", "plot course", "show map", "clear course plot")
+        ):
+            return True
+        return False
+
+    @classmethod
+    def _assistant_prompted_ui_confirmation(cls, text: str | None) -> bool:
+        normalized = cls._normalize_intent_text(text)
+        if not normalized:
+            return False
+        asks_confirmation = any(
+            marker in normalized
+            for marker in ("do you want", "would you like", "want me to", "should i")
+        )
+        if not asks_confirmation and "?" not in normalized:
+            return False
+        return any(
+            token in normalized
+            for token in ("map", "plot", "course", "zoom", "highlight", "center", "fit", "panel")
+        )
+
+    def _latest_user_allows_deferred_ui_action(self) -> bool:
+        latest_user = self._latest_ui_user_message or ""
+        if self._is_explicit_ui_request(latest_user):
+            return True
+        if self._is_affirmative_reply(latest_user) and self._assistant_prompted_ui_confirmation(
+            self._latest_ui_assistant_message
+        ):
+            return True
+        return False
+
     async def _auto_fit_course_plot(self, payload: dict) -> None:
         """Auto-fit map to a course.plot path when no intent was queued.
 
@@ -1387,6 +1491,8 @@ class UIAgentContext(FrameProcessor):
         show_panel = arguments.get("show_panel")
         show_panel = True if show_panel is None else bool(show_panel)
         expires_in_secs = arguments.get("expires_in_secs")
+        result: dict[str, Any] | None = None
+        intent_id: int | None = None
 
         try:
             if intent_type not in ("ports.list", "ships.list", "course.plot"):
@@ -1397,46 +1503,60 @@ class UIAgentContext(FrameProcessor):
                 expires_override = float(expires_in_secs)
 
             if intent_type == "ports.list":
-                max_hops = arguments.get("max_hops")
-                if max_hops is None:
-                    max_hops = DEFAULT_PORTS_LIST_MAX_HOPS
+                if not self._latest_user_allows_deferred_ui_action():
+                    self._log_metric(
+                        "ui_intent_rejected_non_ui_request",
+                        intent_type="ports.list",
+                        latest_user=(self._latest_ui_user_message or "")[:160],
+                    )
+                    result = {
+                        "success": True,
+                        "intent_type": "ports.list",
+                        "intent_id": None,
+                        "skipped": True,
+                        "skip_reason": "latest_user_not_ui_request",
+                    }
                 else:
-                    max_hops = int(max_hops)
-                from_sector = arguments.get("from_sector")
-                if from_sector is None:
-                    from_sector = getattr(self._game_client, "_current_sector", None)
-                elif not isinstance(from_sector, int):
-                    from_sector = int(from_sector)
-                filters = {
-                    "mega": arguments.get("mega"),
-                    "port_type": arguments.get("port_type"),
-                    "commodity": arguments.get("commodity"),
-                    "trade_type": arguments.get("trade_type"),
-                    "from_sector": from_sector,
-                    "max_hops": max_hops,
-                }
+                    max_hops = arguments.get("max_hops")
+                    if max_hops is None:
+                        max_hops = DEFAULT_PORTS_LIST_MAX_HOPS
+                    else:
+                        max_hops = int(max_hops)
+                    from_sector = arguments.get("from_sector")
+                    if from_sector is None:
+                        from_sector = getattr(self._game_client, "_current_sector", None)
+                    elif not isinstance(from_sector, int):
+                        from_sector = int(from_sector)
+                    filters = {
+                        "mega": arguments.get("mega"),
+                        "port_type": arguments.get("port_type"),
+                        "commodity": arguments.get("commodity"),
+                        "trade_type": arguments.get("trade_type"),
+                        "from_sector": from_sector,
+                        "max_hops": max_hops,
+                    }
 
-                def _ports_match_fn(payload: dict) -> bool:
-                    return self._ports_list_filters_match(payload, filters)
+                    def _ports_match_fn(payload: dict) -> bool:
+                        return self._ports_list_filters_match(payload, filters)
 
-                async def _ports_request_factory(iid: int) -> None:
-                    await self._delayed_ports_list_request(iid, filters)
+                    async def _ports_request_factory(iid: int) -> None:
+                        await self._delayed_ports_list_request(iid, filters)
 
-                intent_id = self._set_pending_intent(
-                    "ports.list",
-                    match_fn=_ports_match_fn,
-                    type_fields={"filters": filters},
-                    include_player_sector=include_player_sector,
-                    show_panel=show_panel,
-                    default_timeout_secs=self._ports_list_timeout_secs,
-                    expires_in_secs=expires_override,
-                    replace_existing=replace_existing,
-                    request_factory=_ports_request_factory,
-                )
-                await self._yield_for_pending_intent_tasks("ports.list", intent_id)
-                cached_event = self._get_cached_ports_list_event(filters)
-                if cached_event is not None:
-                    await self._on_ports_list(cached_event)
+                    intent_id = self._set_pending_intent(
+                        "ports.list",
+                        match_fn=_ports_match_fn,
+                        type_fields={"filters": filters},
+                        include_player_sector=include_player_sector,
+                        show_panel=show_panel,
+                        default_timeout_secs=self._ports_list_timeout_secs,
+                        expires_in_secs=expires_override,
+                        replace_existing=replace_existing,
+                        request_factory=_ports_request_factory,
+                    )
+                    await self._yield_for_pending_intent_tasks("ports.list", intent_id)
+                    cached_event = self._get_cached_ports_list_event(filters)
+                    if cached_event is not None:
+                        await self._on_ports_list(cached_event)
 
             elif intent_type == "ships.list":
                 ship_scope = arguments.get("ship_scope") or "all"
@@ -1472,43 +1592,58 @@ class UIAgentContext(FrameProcessor):
                     await self._handle_ships_list_intent(cached_event)
 
             else:
-                from_sector = arguments.get("from_sector")
-                if from_sector is not None and not isinstance(from_sector, int):
-                    from_sector = int(from_sector)
-                to_sector = arguments.get("to_sector")
-                if to_sector is not None and not isinstance(to_sector, int):
-                    to_sector = int(to_sector)
-
-                def _course_match_fn(payload: dict) -> bool:
-                    if isinstance(from_sector, int) and isinstance(to_sector, int):
-                        if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
-                            logger.debug(
-                                "UI agent course.plot mismatch with pending intent; cached only"
-                            )
-                            return False
-                    return True
-
-                intent_id = self._set_pending_intent(
-                    "course.plot",
-                    match_fn=_course_match_fn,
-                    type_fields={"from_sector": from_sector, "to_sector": to_sector},
-                    include_player_sector=include_player_sector,
-                    show_panel=show_panel,
-                    default_timeout_secs=self._course_plot_timeout_secs,
-                    expires_in_secs=expires_override,
-                    replace_existing=replace_existing,
-                )
-                await self._yield_for_pending_intent_tasks("course.plot", intent_id)
-                if isinstance(from_sector, int) and isinstance(to_sector, int):
-                    cached_event = self._get_cached_course_plot_event(from_sector, to_sector)
-                    if cached_event is not None:
-                        await self._on_course_plot(cached_event)
-                else:
-                    logger.debug(
-                        "UI agent course.plot cache skipped; missing from/to sector"
+                if not self._latest_user_allows_deferred_ui_action():
+                    self._log_metric(
+                        "ui_intent_rejected_non_ui_request",
+                        intent_type="course.plot",
+                        latest_user=(self._latest_ui_user_message or "")[:160],
                     )
+                    result = {
+                        "success": True,
+                        "intent_type": "course.plot",
+                        "intent_id": None,
+                        "skipped": True,
+                        "skip_reason": "latest_user_not_ui_request",
+                    }
+                else:
+                    from_sector = arguments.get("from_sector")
+                    if from_sector is not None and not isinstance(from_sector, int):
+                        from_sector = int(from_sector)
+                    to_sector = arguments.get("to_sector")
+                    if to_sector is not None and not isinstance(to_sector, int):
+                        to_sector = int(to_sector)
 
-            result = {"success": True, "intent_type": intent_type, "intent_id": intent_id}
+                    def _course_match_fn(payload: dict) -> bool:
+                        if isinstance(from_sector, int) and isinstance(to_sector, int):
+                            if payload.get("from_sector") != from_sector or payload.get("to_sector") != to_sector:
+                                logger.debug(
+                                    "UI agent course.plot mismatch with pending intent; cached only"
+                                )
+                                return False
+                        return True
+
+                    intent_id = self._set_pending_intent(
+                        "course.plot",
+                        match_fn=_course_match_fn,
+                        type_fields={"from_sector": from_sector, "to_sector": to_sector},
+                        include_player_sector=include_player_sector,
+                        show_panel=show_panel,
+                        default_timeout_secs=self._course_plot_timeout_secs,
+                        expires_in_secs=expires_override,
+                        replace_existing=replace_existing,
+                    )
+                    await self._yield_for_pending_intent_tasks("course.plot", intent_id)
+                    if isinstance(from_sector, int) and isinstance(to_sector, int):
+                        cached_event = self._get_cached_course_plot_event(from_sector, to_sector)
+                        if cached_event is not None:
+                            await self._on_course_plot(cached_event)
+                    else:
+                        logger.debug(
+                            "UI agent course.plot cache skipped; missing from/to sector"
+                        )
+
+            if result is None:
+                result = {"success": True, "intent_type": intent_type, "intent_id": intent_id}
         except Exception as exc:  # noqa: BLE001
             result = {"success": False, "error": str(exc)}
 
@@ -1528,7 +1663,17 @@ class UIAgentContext(FrameProcessor):
 
         logger.debug(f"UI agent control_ui args: {arguments}")
 
-        should_send, skip_reason = self._apply_control_ui_dedupe(arguments, source="llm")
+        highlight_path = self._normalize_int_list(arguments.get("map_highlight_path"))
+        if highlight_path and not self._latest_user_allows_deferred_ui_action():
+            should_send = False
+            skip_reason = "latest_user_not_ui_request_for_route_highlight"
+            self._log_metric(
+                "control_ui_skipped_unsolicited_route_highlight",
+                path_len=len(highlight_path),
+                latest_user=(self._latest_ui_user_message or "")[:160],
+            )
+        else:
+            should_send, skip_reason = self._apply_control_ui_dedupe(arguments, source="llm")
         if should_send:
             await self._rtvi.push_frame(
                 RTVIServerMessageFrame(

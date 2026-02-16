@@ -1081,6 +1081,8 @@ class VoiceTaskManager:
                 task_id=task_id,
                 reason="corp_task_character_moved_fanout",
             )
+            if isinstance(delivery_event, asyncio.Event) and not delivery_event.is_set():
+                delivery_event.set()
             try:
                 await task_agent._handle_event(event)
             except Exception:
