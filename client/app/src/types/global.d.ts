@@ -240,7 +240,13 @@ declare global {
   type UIMode = "tasks" | "map"
   type UIScreen = "ship-details" | "combat-results"
   type UIPanel = "sector" | "player" | "trade" | "task_history" | "corp" | "logs" | "task_stream"
-  type UIModal = "settings" | "leaderboard" | "signup" | "character_select" | undefined
+  type UIModal =
+    | "settings"
+    | "leaderboard"
+    | "signup"
+    | "character_select"
+    | "disconnect"
+    | undefined
 
   // --- COMBAT
 

@@ -53,7 +53,7 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
       <div className="flex flex-col gap-2 flex-1 min-w-0">
         <div className="flex flex-row gap-2 items-center">
           <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
-          <div className="text-xxs text-subtle-foreground">{ship.ship_type.replace("_", " ")}</div>
+          <div className="text-xxs text-subtle-foreground">{ship.ship_type?.replace("_", " ")}</div>
         </div>
         <div className="text-sm text-subtle-foreground flex flex-row gap-2 items-center min-w-0">
           <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">

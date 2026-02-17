@@ -5,6 +5,7 @@ import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
 import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
+import { Disconnect } from "@/components/dialogs/Disconnect"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
 import { HighlightOverlay } from "@/components/HighlightOverlay"
@@ -216,6 +217,7 @@ export const Game = () => {
       {/* Dialogs */}
       <Settings />
       <Leaderboard />
+      <Disconnect />
 
       {/* Other Renderables */}
       <Starfield />

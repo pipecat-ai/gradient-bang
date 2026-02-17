@@ -387,7 +387,8 @@ export function GameProvider({ children }: GameProviderProps) {
               if (isLocalSector) {
                 if (data.movement === "arrive") {
                   console.debug("[GAME EVENT] Adding player to sector", e.payload)
-                  gameStore.addSectorPlayer(data.player)
+                  const sectorPlayer: Player = { ...data.player, ship: data.player.ship ?? data.ship }
+                  gameStore.addSectorPlayer(sectorPlayer)
                   gameStore.addActivityLogEntry({
                     type: "character.moved",
                     message: `[${data.player.name}] arrived in sector`,
