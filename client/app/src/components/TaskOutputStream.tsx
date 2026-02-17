@@ -69,8 +69,7 @@ const TaskRow = memo(
         </div>
       </div>
     )
-  },
-  (prev, next) => prev.task.task_id === next.task.task_id && prev.className === next.className
+  }
 )
 
 export const TaskOutputStreamComponent = ({
@@ -94,6 +93,7 @@ export const TaskOutputStreamComponent = ({
   }, [tasks.length, trackItems])
 
   const visibleTasks = tasks.slice(-MAX_TASK_SUMMARY_LENGTH)
+  const visibleStartIndex = Math.max(tasks.length - visibleTasks.length, 0)
 
   return (
     <div className={cn("flex flex-col w-full h-full min-h-0 select-none", className)}>
@@ -103,7 +103,8 @@ export const TaskOutputStreamComponent = ({
             <div className="flex-1" aria-hidden="true" />
             <div ref={contentRef} className="pt-10 pb-1">
               {visibleTasks.map((task, index) => {
-                return <TaskRow key={`${task.task_id}-${index}`} task={task} />
+                const absoluteIndex = visibleStartIndex + index
+                return <TaskRow key={`${task.task_id}-${absoluteIndex}`} task={task} />
               })}
             </div>
           </div>
