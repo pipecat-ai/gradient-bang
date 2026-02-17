@@ -68,7 +68,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
           setSliderIndex(index)
           debouncedTrailing(index)
         }}
-        className="flex-1 min-h-0 h-full"
+        className="min-h-0 h-full mx-auto"
       />
       <Button
         variant="bland"

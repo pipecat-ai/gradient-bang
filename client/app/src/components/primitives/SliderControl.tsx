@@ -77,7 +77,7 @@ function SliderControl({
           <SliderPrimitive.Track
             data-slot="slider-track"
             className={cn(
-              "relative grow overflow-hidden data-[orientation=vertical]:h-full data-[orientation=horizontal]:w-full",
+              "relative grow data-[orientation=vertical]:h-full data-[orientation=horizontal]:w-full",
               resolvedSize === "lg"
                 ? "data-[orientation=horizontal]:h-6.5 data-[orientation=vertical]:w-6.5"
                 : "data-[orientation=horizontal]:h-4.5 data-[orientation=vertical]:w-4.5"
@@ -85,7 +85,16 @@ function SliderControl({
           >
             <SliderPrimitive.Range
               data-slot="slider-range"
-              className="bg-input/20 absolute data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full"
+              className={cn(
+                "bg-input/20 absolute",
+                isVertical
+                  ? resolvedSize === "lg"
+                    ? "-inset-x-1.25 -mb-1.25"
+                    : "-inset-x-panel-gap -mb-panel-gap"
+                  : resolvedSize === "lg"
+                    ? "-inset-y-1.25 -ml-1.25"
+                    : "-inset-y-panel-gap -ml-panel-gap"
+              )}
             />
           </SliderPrimitive.Track>
           {Array.from({ length: _values.length }, (_, index) => (
