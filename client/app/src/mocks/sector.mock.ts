@@ -236,6 +236,7 @@ export const PORT_MOCK: Port = {
     retro_organics: 100,
     neuro_symbolics: 100,
   },
+  port_class: 3,
 }
 
 export const MEGA_PORT_MOCK: Port = {
@@ -252,6 +253,7 @@ export const MEGA_PORT_MOCK: Port = {
     retro_organics: 100,
     neuro_symbolics: 100,
   },
+  port_class: 7,
 }
 
 export const PLAYER_MOVEMENT_HISTORY_MOCK: CharacterMovedMessage = {

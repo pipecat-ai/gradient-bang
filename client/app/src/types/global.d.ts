@@ -161,6 +161,7 @@ declare global {
   interface PortBase {
     code: string
     mega?: boolean
+    port_class?: number
   }
 
   interface Port extends PortBase {
@@ -169,7 +170,6 @@ declare global {
     mega?: boolean
     stock: Record<Resource, number>
     prices: Record<Resource, number>
-    port_class?: number
     observed_at?: string
   }
 
