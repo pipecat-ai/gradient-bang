@@ -1919,8 +1919,6 @@ class VoiceTaskManager:
         full_task_id: Optional[str] = None,
     ):
         """Implementation of _run_task_with_tracking, separated for trace attributes."""
-        was_cancelled = False
-
         try:
             logger.info(f"!!! running task {task_id} ({task_type}): {task_description}")
             # Pass full_task_id to TaskAgent so events are tagged with the UUID
@@ -1935,13 +1933,10 @@ class VoiceTaskManager:
                 )
             else:
                 # Check if it was cancelled vs failed
-                if task_agent.cancelled:
-                    was_cancelled = True
-                else:
+                if not task_agent.cancelled:
                     await self._task_output_handler("Task failed", "failed", task_id, task_type)
 
         except asyncio.CancelledError:
-            was_cancelled = True
             if not task_agent.cancelled:
                 await self._task_output_handler(
                     "Task was cancelled", "cancelled", task_id, task_type

@@ -9,7 +9,6 @@ import asyncio
 import json
 import uuid
 import inspect
-import os
 
 from gradientbang.utils.summary_formatters import (
     bank_transaction_summary,
