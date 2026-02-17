@@ -123,6 +123,13 @@ declare global {
     garrisons?: Garrison[]
   }
 
+  interface SectorHistory {
+    sector: Sector
+    updated_at?: string
+    last_visited?: string
+    hops_from_start?: number
+  }
+
   interface Planet {
     class_code: string
     class_name: string
@@ -161,6 +168,7 @@ declare global {
   interface PortBase {
     code: string
     mega?: boolean
+    port_class?: number
   }
 
   interface Port extends PortBase {
@@ -169,7 +177,6 @@ declare global {
     mega?: boolean
     stock: Record<Resource, number>
     prices: Record<Resource, number>
-    port_class?: number
     observed_at?: string
   }
 

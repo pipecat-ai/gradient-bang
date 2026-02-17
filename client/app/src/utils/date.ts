@@ -1,4 +1,11 @@
-import { differenceInHours, differenceInSeconds, format, formatDistanceToNow } from "date-fns"
+import {
+  differenceInDays,
+  differenceInHours,
+  differenceInMinutes,
+  differenceInSeconds,
+  format,
+  formatDistanceToNow,
+} from "date-fns"
 
 /**
  * Formats a timestamp as relative time (e.g., "5 minutes ago") when recent;
@@ -36,6 +43,21 @@ export function combatRoundTimeRemaining(deadline: string, currentTime: string):
   const currentTimeDate = new Date(currentTime)
   const timeDiff = differenceInSeconds(deadlineDate, currentTimeDate)
   return timeDiff > 0 ? timeDiff : 0
+}
+
+export function formatTimeAgoShort(value: string | Date | undefined | null): string {
+  if (!value) return ""
+  const date = value instanceof Date ? value : new Date(value)
+  if (isNaN(date.getTime())) return ""
+
+  const now = new Date()
+  const mins = differenceInMinutes(now, date)
+  if (mins < 1) return "now"
+  if (mins < 60) return `${mins}m ago`
+  const hrs = differenceInHours(now, date)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = differenceInDays(now, date)
+  return `${days}d ago`
 }
 
 export function formatDuration(started: string | Date, ended: string | Date): string {

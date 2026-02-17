@@ -1,8 +1,6 @@
-import { type ReactNode, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 
-import type { Icon } from "@phosphor-icons/react"
 import {
-  ArrowRightIcon,
   ClockCounterClockwiseIcon,
   EmptyIcon,
   FlowArrowIcon,
@@ -26,67 +24,10 @@ import { ChevronSM } from "../svg/ChevronSM"
 import { CombatAsidePanel } from "./CombatAsidePanel"
 import { SectorPlayerMovementPanel } from "./DataTablePanels"
 import { RHSPanelContent, RHSSubPanel } from "./RHSPanelContainer"
+import { RHSPanelList, RHSPanelListItem } from "./RHSPanelList"
 import { SectorSalvageSubPanel } from "./SectorSalvageSubPanel"
 import { SectorShipSubPanel } from "./SectorShipSubPanel"
 import { SectorUnownedSubPanel } from "./SectorUnownedSubPanel"
-
-interface SectorInfoRowProps {
-  label: string
-  value?: ReactNode
-  empty?: string
-  Icon: Icon
-  count?: number
-  valueClassName?: string
-  onClick?: () => void
-}
-
-const SectorInfoRow = ({
-  label,
-  value,
-  empty = "N/A",
-  Icon,
-  count,
-  valueClassName,
-  onClick,
-}: SectorInfoRowProps) => {
-  const isEmpty = value === undefined || value === null || value === ""
-
-  return (
-    <div className="flex flex-row items-center">
-      <div className="bg-accent-background p-ui-xs flex items-center justify-center corner-dots border border-accent">
-        <Icon size={16} weight="duotone" />
-      </div>
-      <div className="w-12">
-        <Divider className="bg-accent shrink-0" />
-      </div>
-      <div className="flex flex-row flex-1 h-full justify-between items-center px-ui-sm bg-subtle-background bracket bracket-offset-0 bracket-accent">
-        <span className="font-bold inline-flex items-center gap-2">
-          {count !== undefined ?
-            <span className={cn("text-xs font-bold", count > 0 ? "text-terminal" : "text-subtle")}>
-              {count}
-            </span>
-          : null}
-
-          {label}
-        </span>
-        {onClick ?
-          <Button
-            variant="link"
-            size="sm"
-            onClick={onClick}
-            className="px-0! text-xs"
-            disabled={count === 0}
-          >
-            View <ArrowRightIcon size={16} />
-          </Button>
-        : <span className={cn(isEmpty ? "text-subtle" : "", valueClassName)}>
-            {isEmpty ? empty : value}
-          </span>
-        }
-      </div>
-    </div>
-  )
-}
 
 export const SectorPanel = () => {
   const sector = useGameStore.use.sector?.()
@@ -128,35 +69,40 @@ export const SectorPanel = () => {
             <CardTitle>Sector {sector?.id}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-row gap-ui-sm pr-0">
-            <div className="text-xs uppercase flex flex-col gap-ui-xxs flex-1">
-              <SectorInfoRow label="Zone" value={sector?.region} empty="Unknown" Icon={GpsIcon} />
-              <SectorInfoRow
+            <RHSPanelList>
+              <RHSPanelListItem
+                label="Zone"
+                value={sector?.region}
+                empty="Unknown"
+                Icon={GpsIcon}
+              />
+              <RHSPanelListItem
                 label="Hostility"
                 value={sector?.region === "Federation Space" ? "Safe" : "Dangerous"}
                 Icon={ShieldChevronIcon}
                 valueClassName="text-success-foreground"
               />
-              <SectorInfoRow
+              <RHSPanelListItem
                 label="Adjacent"
                 value={sector?.adjacent_sectors?.join(", ")}
                 Icon={FlowArrowIcon}
               />
-              <SectorInfoRow
+              <RHSPanelListItem
                 label="Last visit"
                 value={undefined}
                 Icon={ClockCounterClockwiseIcon}
               />
-              <SectorInfoRow
+              <RHSPanelListItem
                 label="Salvage"
                 count={sector?.salvage?.length ?? 0}
                 value={undefined}
                 Icon={SalvageIcon}
                 onClick={() => setActiveSubPanel("salvage")}
               />
-            </div>
+            </RHSPanelList>
           </CardContent>
           <CardContent className="relative text-xs uppercase">
-            <Divider variant="dotted" className="h-[6px] mb-ui-sm text-accent-background" />
+            <Divider variant="dotted" className="h-1.5 mb-ui-sm text-accent-background" />
             <Button
               variant="ghost"
               disabled={!sector?.port}
@@ -199,8 +145,8 @@ export const SectorPanel = () => {
             <CardTitle>Ships in sector</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-row gap-ui-sm pr-0">
-            <div className="text-xs uppercase flex flex-col gap-ui-xxs flex-1">
-              <SectorInfoRow
+            <RHSPanelList>
+              <RHSPanelListItem
                 label="Humans"
                 value="view"
                 empty="Unknown"
@@ -211,7 +157,7 @@ export const SectorPanel = () => {
                   setActiveSubPanel("players")
                 }}
               />
-              <SectorInfoRow
+              <RHSPanelListItem
                 label="Autonomous"
                 value="view"
                 empty="Unknown"
@@ -224,9 +170,9 @@ export const SectorPanel = () => {
               />
               <Divider
                 variant="dotted"
-                className="h-[6px] my-ui-xs text-accent-background shrink-0"
+                className="h-1.5 my-ui-xs text-accent-background shrink-0"
               />
-              <SectorInfoRow
+              <RHSPanelListItem
                 label="Unmanned"
                 value="view"
                 empty="Unknown"
@@ -236,10 +182,10 @@ export const SectorPanel = () => {
               />
               <Divider
                 variant="dotted"
-                className="h-[6px] my-ui-xs text-accent-background shrink-0"
+                className="h-1.5 my-ui-xs text-accent-background shrink-0"
               />
-              <SectorPlayerMovementPanel className="max-h-[280px]" />
-            </div>
+              <SectorPlayerMovementPanel className="max-h-70" />
+            </RHSPanelList>
           </CardContent>
         </Card>
         <Card size="sm" className="border-x-0 border-y">

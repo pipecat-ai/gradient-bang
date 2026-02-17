@@ -19,7 +19,7 @@ export const ConversationPanel = ({ className }: { className?: string }) => {
         />
         <UserMicControl className="@2xl/main:min-w-30" />
       </div>
-      <Divider variant="dashed" className="h-[6px] text-foreground/30 " />
+      <Divider variant="dashed" className="h-1.5 text-foreground/30 " />
     </div>
   )
 }

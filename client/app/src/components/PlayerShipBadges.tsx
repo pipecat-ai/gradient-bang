@@ -53,7 +53,7 @@ const StatBadge = ({
       border="elbow"
       size="sm"
       variant="secondary"
-      className={cn("elbow-offset-0 flex-col gap-1.5 items-start py-1.5 text-xs", className)}
+      className={cn("elbow-offset-1 flex-col gap-1.5 items-start py-1.5 text-xs", className)}
     >
       <div className="flex flex-row gap-2 items-center justify-between w-full">
         <span className="text-xs font-bold leading-none">{label}</span>

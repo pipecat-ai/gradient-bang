@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 
+import { differenceInDays, differenceInMonths, differenceInYears } from "date-fns"
 import { type ColumnDef } from "@tanstack/react-table"
 
 type LeaderboardRow = { name: string }
@@ -75,7 +76,27 @@ const explorationColumns: ColumnDef<LeaderboardExploration>[] = [
     meta: { width: "20%", cellClassName: "text-foreground" },
   },
   { accessorKey: "sectors_visited", header: "Sectors Visited", meta: { align: "center" } },
-  { accessorKey: "first_visit", header: "First Visit", meta: { align: "center" } },
+  {
+    accessorKey: "first_visit",
+    header: "Account Age",
+    meta: { align: "center" },
+    cell: ({ getValue }) => {
+      const value = getValue() as string | null
+      if (!value) return "N/A"
+      const date = new Date(value)
+      const now = new Date()
+      const years = differenceInYears(now, date)
+      const months = differenceInMonths(now, date) % 12
+      const days = differenceInDays(now, date)
+      if (years > 0) {
+        return months > 0 ? `${years}y ${months}mo` : `${years}y`
+      }
+      if (months > 0) {
+        return `${months}mo`
+      }
+      return `${days}d`
+    },
+  },
 ]
 
 export const LeaderboardPanel = ({ className }: { className?: string }) => {

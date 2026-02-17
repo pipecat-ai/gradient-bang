@@ -81,7 +81,7 @@ export const ChatPanel = () => {
   const playSound = useAudioStore.use.playSound()
   const { messages } = useChat({ textMode: "llm" })
   const llmIsWorking = useGameStore.use.llmIsWorking()
-  const [showSystem, setShowSystem] = useState(true)
+  const [showSystem, setShowSystem] = useState(false)
 
   const filteredMessages = useMemo(
     () => (showSystem ? messages : messages?.filter((m) => m.role !== "system")),

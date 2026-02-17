@@ -34,7 +34,7 @@ export const PlayerPanel = () => {
           <img
             src={RadialGrad}
             alt=""
-            className="absolute -top-[128px] left-1/2 -translate-x-1/2 opacity-25 select-none"
+            className="absolute -top-32 left-1/2 -translate-x-1/2 opacity-25 select-none"
           />
 
           <CardTitle className="text-base normal-case py-ui-sm flex flex-col items-center justify-center">
@@ -102,7 +102,7 @@ export const PlayerPanel = () => {
         </CardHeader>
         <CardContent className="flex flex-row gap-ui-sm">
           <div className="text-xs flex flex-col flex-1">
-            <MovementHistoryPanel className="max-h-[280px]" />
+            <MovementHistoryPanel className="max-h-70" />
           </div>
         </CardContent>
       </Card>

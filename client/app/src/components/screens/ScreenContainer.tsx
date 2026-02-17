@@ -92,7 +92,7 @@ export const ScreenContainer = () => {
           }}
           onCloseAutoFocus={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => import.meta.env.DEV && e.preventDefault()}
-          className="DialogContent DialogContent-NoPadding z-20 w-[calc(100vw-var(--spacing-ui-2xl)*2)] h-[calc(100dvh-var(--spacing-ui-2xl)*2)] pointer-events-none"
+          className="DialogContent DialogContent-NoPadding z-20 w-fit h-fit pointer-events-none"
         >
           <Dialog.Close asChild>
             <Button
