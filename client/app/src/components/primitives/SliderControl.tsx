@@ -89,14 +89,13 @@ function SliderControl({
           className="bg-input/20 absolute data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full"
         />
       </SliderPrimitive.Track>
-      {!disabled &&
-        Array.from({ length: _values.length }, (_, index) => (
-          <SliderPrimitive.Thumb
-            data-slot="slider-thumb"
-            key={index}
-            className={sliderThumbVariants({ size })}
-          />
-        ))}
+      {Array.from({ length: _values.length }, (_, index) => (
+        <SliderPrimitive.Thumb
+          data-slot="slider-thumb"
+          key={index}
+          className={sliderThumbVariants({ size })}
+        />
+      ))}
     </SliderPrimitive.Root>
   )
 
