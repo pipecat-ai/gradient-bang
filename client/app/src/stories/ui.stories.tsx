@@ -2,6 +2,7 @@ import type { Story } from "@ladle/react"
 
 import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
 import { PlayerShipFuelBadge } from "@/components/PlayerShipBadges"
+import { SliderControl } from "@/components/primitives/SliderControl"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/primitives/Tabs"
 import useGameStore from "@/stores/game"
 
@@ -85,6 +86,47 @@ export const ProgressIndicatorStory: Story = () => {
   )
 }
 ProgressIndicatorStory.meta = {
+  useDevTools: true,
+  useChatControls: false,
+  disconnectedStory: true,
+  enableMic: false,
+  disableAudioOutput: true,
+}
+
+export const SliderStory: Story = () => {
+  return (
+    <div className="w-100 p-ui-lg flex flex-col gap-4 ">
+      <SliderControl min={0} max={100} step={1} onChange={(value) => console.log(value)} />
+      <SliderControl
+        size="lg"
+        min={0}
+        max={100}
+        step={1}
+        onChange={(value) => console.log(value)}
+      />
+      <div className="h-40 flex flex-row gap-4">
+        <SliderControl
+          orientation="vertical"
+          min={0}
+          max={100}
+          step={1}
+          onChange={(value) => console.log(value)}
+          className="min-h-0 h-full"
+        />
+        <SliderControl
+          orientation="vertical"
+          size="lg"
+          min={0}
+          max={100}
+          step={1}
+          onChange={(value) => console.log(value)}
+          className="min-h-0 h-full"
+        />
+      </div>
+    </div>
+  )
+}
+SliderStory.meta = {
   useDevTools: true,
   useChatControls: false,
   disconnectedStory: true,

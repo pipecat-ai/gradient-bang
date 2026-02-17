@@ -382,8 +382,8 @@ export const DEFAULT_LABEL_STYLES: LabelStyles = {
     textColor: "#ffffff",
     backgroundColor: "#0284c7",
     padding: 2,
-    fontSize: 10,
-    hoveredFontSize: 12,
+    fontSize: 11,
+    hoveredFontSize: 13,
     fontWeight: 800,
     mutedOpacity: 0.3,
   },
@@ -423,6 +423,7 @@ export interface UIStyles {
   }
   edgeFeather: {
     size: number
+    falloff?: number
   }
 }
 
@@ -436,6 +437,7 @@ export const DEFAULT_UI_STYLES: UIStyles = {
   },
   edgeFeather: {
     size: 150,
+    falloff: 1,
   },
 }
 
@@ -1331,12 +1333,27 @@ function renderHexGrid(
   ctx.restore()
 }
 
-/** Apply a rectangular feather mask around the edges in screen space */
+/** Build gradient color stops with a power-curve falloff.
+ *  falloff=1 is linear, >1 is steeper (sharper edge), <1 is gentler. */
+function buildFeatherGradient(gradient: CanvasGradient, inward: boolean, falloff: number) {
+  const STEPS = 10
+  for (let i = 0; i <= STEPS; i++) {
+    const t = i / STEPS
+    // alpha goes from 1 (edge) to 0 (interior)
+    const alpha = Math.pow(inward ? 1 - t : t, falloff)
+    gradient.addColorStop(t, `rgba(0,0,0,${alpha})`)
+  }
+  return gradient
+}
+
+/** Apply a rectangular feather mask around the edges in screen space.
+ *  falloff controls the gradient curve: 1=linear, >1=steeper, <1=gentler. */
 function applyRectangularFeatherMask(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  featherSize: number
+  featherSize: number,
+  falloff: number = 1
 ) {
   if (featherSize <= 0) return
   ctx.save()
@@ -1344,29 +1361,25 @@ function applyRectangularFeatherMask(
 
   // Top edge
   let gradient = ctx.createLinearGradient(0, 0, 0, featherSize)
-  gradient.addColorStop(0, "rgba(0,0,0,1)")
-  gradient.addColorStop(1, "rgba(0,0,0,0)")
+  buildFeatherGradient(gradient, true, falloff)
   ctx.fillStyle = gradient
   ctx.fillRect(0, 0, width, featherSize)
 
   // Bottom edge
   gradient = ctx.createLinearGradient(0, height - featherSize, 0, height)
-  gradient.addColorStop(0, "rgba(0,0,0,0)")
-  gradient.addColorStop(1, "rgba(0,0,0,1)")
+  buildFeatherGradient(gradient, false, falloff)
   ctx.fillStyle = gradient
   ctx.fillRect(0, height - featherSize, width, featherSize)
 
   // Left edge
   gradient = ctx.createLinearGradient(0, 0, featherSize, 0)
-  gradient.addColorStop(0, "rgba(0,0,0,1)")
-  gradient.addColorStop(1, "rgba(0,0,0,0)")
+  buildFeatherGradient(gradient, true, falloff)
   ctx.fillStyle = gradient
   ctx.fillRect(0, 0, featherSize, height)
 
   // Right edge
   gradient = ctx.createLinearGradient(width - featherSize, 0, width, 0)
-  gradient.addColorStop(0, "rgba(0,0,0,0)")
-  gradient.addColorStop(1, "rgba(0,0,0,1)")
+  buildFeatherGradient(gradient, false, falloff)
   ctx.fillStyle = gradient
   ctx.fillRect(width - featherSize, 0, featherSize, height)
 
@@ -1603,10 +1616,8 @@ function renderSectorLabels(
   height: number,
   cameraState: CameraState,
   config: SectorMapConfigBase,
-  coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-
   // Return early if neither show_sector_ids nor show_sector_ids_hover is enabled
   if (!config.show_sector_ids && !config.show_sector_ids_hover) return
 
@@ -1683,10 +1694,8 @@ function renderPortLabels(
   height: number,
   cameraState: CameraState,
   config: SectorMapConfigBase,
-  coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-
   if (!config.show_port_labels) return
 
   const labelStyle = config.labelStyles.portCode
@@ -1763,14 +1772,12 @@ function renderShipLabels(
   cameraState: CameraState,
   config: SectorMapConfigBase,
   ships: Map<number, number> | undefined,
-  coursePlotSectors: Set<number> | null = null,
   hoveredSectorId: number | null = null
 ) {
-
   if (!ships || ships.size === 0) return
 
   const labelStyle = config.labelStyles.shipCount
-  const iconSize = 12
+  const iconSize = 14
 
   ctx.save()
   ctx.textAlign = "left"
@@ -1910,7 +1917,7 @@ function renderWithCameraState(
 
   // 2) Apply rectangular feather mask to background, grid, and glows (screen space)
   const featherSize = Math.min(config.uiStyles.edgeFeather.size, Math.min(width, height) / 2)
-  applyRectangularFeatherMask(ctx, width, height, featherSize)
+  applyRectangularFeatherMask(ctx, width, height, featherSize, config.uiStyles.edgeFeather.falloff)
 
   // 3) Draw lanes and sectors in world space (unmasked - stays crisp at edges)
   ctx.save()
@@ -1964,7 +1971,6 @@ function renderWithCameraState(
     cameraState,
     config,
     ships,
-    coursePlotSectors,
     null
   )
   renderPortLabels(
@@ -1976,7 +1982,6 @@ function renderWithCameraState(
     height,
     cameraState,
     config,
-    coursePlotSectors,
     null
   )
   renderSectorLabels(
@@ -1988,7 +1993,6 @@ function renderWithCameraState(
     height,
     cameraState,
     config,
-    coursePlotSectors,
     null
   )
 }
@@ -2128,7 +2132,7 @@ function renderWithCameraStateAndInteraction(
 
   // 2) Apply rectangular feather mask to background, grid, and glows (screen space)
   const featherSize = Math.min(config.uiStyles.edgeFeather.size, Math.min(width, height) / 2)
-  applyRectangularFeatherMask(ctx, width, height, featherSize)
+  applyRectangularFeatherMask(ctx, width, height, featherSize, config.uiStyles.edgeFeather.falloff)
 
   // 3) Draw lanes and sectors in world space (unmasked - stays crisp at edges)
   ctx.save()
@@ -2206,7 +2210,6 @@ function renderWithCameraStateAndInteraction(
     cameraState,
     config,
     ships,
-    coursePlotSectors,
     hoveredSectorId
   )
   renderPortLabels(
@@ -2218,7 +2221,6 @@ function renderWithCameraStateAndInteraction(
     height,
     cameraState,
     config,
-    coursePlotSectors,
     hoveredSectorId
   )
   renderSectorLabels(
@@ -2230,7 +2232,6 @@ function renderWithCameraStateAndInteraction(
     height,
     cameraState,
     config,
-    coursePlotSectors,
     hoveredSectorId
   )
 }
@@ -2567,7 +2568,13 @@ export function createSectorMapController(
         }
 
         const feather = Math.min(config.uiStyles.edgeFeather.size, Math.min(width, height) / 2)
-        applyRectangularFeatherMask(ctx, width, height, feather)
+        applyRectangularFeatherMask(
+          ctx,
+          width,
+          height,
+          feather,
+          config.uiStyles.edgeFeather.falloff
+        )
       }
       return
     }
@@ -2965,7 +2972,7 @@ export function renderSectorMapCanvas(canvas: HTMLCanvasElement, props: SectorMa
       }
 
       const feather = Math.min(config.uiStyles.edgeFeather.size, Math.min(width, height) / 2)
-      applyRectangularFeatherMask(ctx, width, height, feather)
+      applyRectangularFeatherMask(ctx, width, height, feather, config.uiStyles.edgeFeather.falloff)
     }
     return
   }
@@ -3044,7 +3051,7 @@ export function updateCurrentSector(
       }
 
       const feather = Math.min(config.uiStyles.edgeFeather.size, Math.min(width, height) / 2)
-      applyRectangularFeatherMask(ctx, width, height, feather)
+      applyRectangularFeatherMask(ctx, width, height, feather, config.uiStyles.edgeFeather.falloff)
     }
     return () => {}
   }
