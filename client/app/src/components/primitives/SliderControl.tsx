@@ -29,7 +29,7 @@ const sliderTrackVariants = cva(
     variants: {
       size: {
         default:
-          "bg-background border border-input data-[orientation=horizontal]:h-[25px] data-[orientation=horizontal]:-ml-[3px] data-[orientation=horizontal]:-mr-[3px] data-[orientation=horizontal]:-mt-[3px] data-[orientation=horizontal]:-mb-[3px] data-[orientation=vertical]:w-[25px] data-[orientation=vertical]:-mt-[3px] data-[orientation=vertical]:-mb-[3px] data-[orientation=vertical]:-ml-[3px] data-[orientation=vertical]:-mr-[3px]",
+          "bg-background border border-input data-[orientation=horizontal]:h-[25px] data-[orientation=horizontal]:-ml-[6px] data-[orientation=horizontal]:-mr-[6px] data-[orientation=horizontal]:-mt-[3px] data-[orientation=horizontal]:-mb-[3px] data-[orientation=vertical]:w-[25px] data-[orientation=vertical]:-mt-[6px] data-[orientation=vertical]:-mb-[6px] data-[orientation=vertical]:-ml-[3px] data-[orientation=vertical]:-mr-[3px]",
         lg: "data-[orientation=horizontal]:h-[36px] data-[orientation=horizontal]:-mx-[4px] data-[orientation=vertical]:w-1.5 data-[orientation=vertical]:-my-[4px]",
       },
     },
@@ -89,13 +89,14 @@ function SliderControl({
           className="bg-input/20 absolute data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full"
         />
       </SliderPrimitive.Track>
-      {Array.from({ length: _values.length }, (_, index) => (
-        <SliderPrimitive.Thumb
-          data-slot="slider-thumb"
-          key={index}
-          className={sliderThumbVariants({ size })}
-        />
-      ))}
+      {!disabled &&
+        Array.from({ length: _values.length }, (_, index) => (
+          <SliderPrimitive.Thumb
+            data-slot="slider-thumb"
+            key={index}
+            className={sliderThumbVariants({ size })}
+          />
+        ))}
     </SliderPrimitive.Root>
   )
 

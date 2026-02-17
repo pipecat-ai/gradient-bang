@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import {
   ChargingStationIcon,
@@ -12,11 +12,17 @@ import { SectorHistoryTablePanel } from "@/components/panels/DataTablePanels"
 import { RHSPanelContent, RHSSubPanel } from "@/components/panels/RHSPanelContainer"
 import { RHSPanelDivider, RHSPanelList, RHSPanelListItem } from "@/components/panels/RHSPanelList"
 import { ShipCatalogue } from "@/components/panels/ShipCatalogue"
+import { Button } from "@/components/primitives/Button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/primitives/Card"
+import { Input } from "@/components/primitives/Input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/primitives/Popover"
+import { SliderControl } from "@/components/primitives/SliderControl"
+import { useGameContext } from "@/hooks/useGameContext"
 import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
+import { formatCurrency } from "@/utils/formatting"
 import { cn } from "@/utils/tailwind"
 
 import { RESOURCE_VERBOSE_NAMES } from "@/types/constants"
@@ -37,8 +43,8 @@ export const TradePanelPortExchange = ({
   return (
     <div>
       {port.prices ?
-        <div className="grid grid-cols-[auto_1fr] gap-y-1">
-          {Object.entries(port.prices).map(([good, price], i) => {
+        <div className="grid grid-cols-[auto_1fr] gap-y-ui-xs">
+          {Object.entries(port.prices).map(([good, price], i, arr) => {
             const oldPrice = (history?.sector?.port as Port | undefined)?.prices?.[good as Resource]
             const diffPct =
               oldPrice != null && oldPrice !== 0 ?
@@ -48,56 +54,150 @@ export const TradePanelPortExchange = ({
             const portChar = port.code?.[i]
             const isBuy = portChar === "B"
             return (
-              <div key={good} className="col-span-2 grid grid-cols-subgrid border">
-                <div className="flex flex-col items-center justify-center corner-dots px-ui-xs gap-1.5 border-r bg-subtle-background/80">
-                  {ICON_MAP[good as Resource]}
-                  <span className="text-xxs uppercase">
-                    {RESOURCE_VERBOSE_NAMES[good as Resource]}
-                  </span>
-                </div>
-                <div className="flex flex-col min-w-0 divide-y">
-                  <div
-                    className={cn(
-                      "flex flex-1 justify-between text-xs px-ui-sm py-ui-xs",
-                      isBuy ? "bg-success-background/30" : "bg-warning-background/30"
-                    )}
-                  >
-                    <span
+              <Fragment key={good}>
+                <div className="group col-span-2 grid grid-cols-subgrid border">
+                  <div className="relative flex flex-col items-center justify-center corner-dots px-ui-sm gap-1.5 border-r bg-subtle-background/80">
+                    {ICON_MAP[good as Resource]}
+                    <span className="text-xxs uppercase">
+                      {RESOURCE_VERBOSE_NAMES[good as Resource]}
+                    </span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button className="opacity-0 group-hover:opacity-100 absolute inset-0 bg-background/80 cross-lines-offset-8 cross-lines-terminal-foreground/20 flex items-center justify-center text-xs font-bold text-terminal uppercase">
+                          trade
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="p-ui-sm w-90" side="left">
+                        <TradePanelOrderForm commodity={good as Resource} port={port} />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="flex flex-col min-w-0 divide-y">
+                    <div
                       className={cn(
-                        "text-xs uppercase",
-                        isBuy ? "text-success-foreground" : "text-warning-foreground"
+                        "flex flex-1 justify-between text-xs px-ui-sm py-ui-xs",
+                        isBuy ? "bg-success-background/30" : "bg-warning-background/30"
                       )}
                     >
-                      {isBuy ? "BUYS" : "SELLS"}
-                    </span>
-                    <div className="flex items-center gap-ui-xs">
-                      <div className="text-xxs font-bold uppercase">{price} CR</div>
-                      <div
+                      <span
                         className={cn(
-                          "text-xxs",
-                          diffPct == null || diffPct === 0 ? "text-subtle"
-                          : diffPct > 0 ? "text-destructive-foreground"
-                          : "text-success-foreground"
+                          "text-xs uppercase",
+                          isBuy ? "text-success-foreground" : "text-warning-foreground"
                         )}
                       >
-                        {diffPct == null || diffPct === 0 ?
-                          "0%"
-                        : `${diffPct > 0 ? "+" : ""}${diffPct}%`}
+                        {isBuy ? "BUYS" : "SELLS"}
+                      </span>
+                      <div className="flex items-center gap-ui-xs">
+                        <div className="text-xxs font-bold uppercase">{price} CR</div>
+                        <div
+                          className={cn(
+                            "text-xxs",
+                            diffPct == null || diffPct === 0 ? "text-subtle"
+                            : diffPct > 0 ? "text-destructive-foreground"
+                            : "text-success-foreground"
+                          )}
+                        >
+                          {diffPct == null || diffPct === 0 ?
+                            "0%"
+                          : `${diffPct > 0 ? "+" : ""}${diffPct}%`}
+                        </div>
                       </div>
                     </div>
+                    {stock != null && (
+                      <div className="flex flex-1 justify-between text-xs border-accent px-ui-sm py-ui-xs">
+                        <span className="uppercase text-subtle">Units in stock</span>
+                        <span className="font-semibold">{stock}</span>
+                      </div>
+                    )}
                   </div>
-                  {stock != null && (
-                    <div className="flex flex-1 justify-between text-xs border-accent px-ui-sm py-ui-xs">
-                      <span className="uppercase text-subtle">Units in stock</span>
-                      <span className="font-semibold">{stock}</span>
-                    </div>
-                  )}
                 </div>
-              </div>
+                {i < arr.length - 1 && <RHSPanelDivider className="col-span-2 mb-0 h-2" />}
+              </Fragment>
             )
           })}
         </div>
       : <div className="text-sm text-subtle">No price data available</div>}
+    </div>
+  )
+}
+
+export const TradePanelOrderForm = ({ commodity, port }: { commodity: Resource; port: Port }) => {
+  const ship = useGameStore((state) => state.ship)
+  const { sendUserTextInput } = useGameContext()
+  const portCodeIndex = (Object.keys(port.prices) as Resource[]).indexOf(commodity)
+  const portBuys = port.code?.[portCodeIndex] === "B"
+  const pricePerUnit = port.prices[commodity] ?? 0
+
+  const maxQuantity = portBuys ? (ship?.cargo?.[commodity] ?? 0) : (port.stock?.[commodity] ?? 0)
+
+  const [quantity, setQuantity] = useState(0)
+  const totalPrice = quantity * pricePerUnit
+
+  const handleQuantityChange = useCallback(
+    (value: number) => {
+      setQuantity(Math.max(0, Math.min(value, maxQuantity)))
+    },
+    [maxQuantity]
+  )
+
+  const handleConfirm = useCallback(() => {
+    if (quantity <= 0) return
+
+    sendUserTextInput(
+      `Place a ${portBuys ? "SELL" : "BUY"} trade for ${quantity} of ${RESOURCE_VERBOSE_NAMES[commodity]} at ${pricePerUnit} CR per unit`
+    )
+  }, [quantity, portBuys, commodity, pricePerUnit, sendUserTextInput])
+
+  return (
+    <div className="flex flex-col gap-ui-sm">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-ui-xs">
+          {ICON_MAP[commodity]}
+          <span className="text-xs font-bold uppercase">{RESOURCE_VERBOSE_NAMES[commodity]}</span>
+        </div>
+        <span
+          className={cn(
+            "text-xxs font-bold uppercase",
+            portBuys ? "text-success-foreground" : "text-warning-foreground"
+          )}
+        >
+          {portBuys ? "SELL" : "BUY"} @ {pricePerUnit} CR
+        </span>
+      </div>
+
+      <div className="flex flex-row gap-ui-xs">
+        <SliderControl
+          min={0}
+          max={maxQuantity}
+          step={1}
+          size="lg"
+          value={[quantity]}
+          onValueChange={(value) => handleQuantityChange(value[0])}
+          disabled={maxQuantity === 0}
+          className="flex-1"
+        />
+        <Input
+          type="number"
+          min={0}
+          max={maxQuantity}
+          value={quantity}
+          onChange={(e) => handleQuantityChange(Number(e.target.value))}
+          disabled={maxQuantity === 0}
+          className="w-20 text-center appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className="text-xxs uppercase text-subtle">
+          Total:{" "}
+          <span className="font-bold text-foreground">
+            {formatCurrency(totalPrice, "standard")} CR
+          </span>
+        </span>
+        <Button size="sm" variant="default" disabled={quantity <= 0} onClick={handleConfirm}>
+          {portBuys ? "Sell" : "Buy"} {RESOURCE_VERBOSE_NAMES[commodity]}
+        </Button>
+      </div>
     </div>
   )
 }
@@ -177,9 +277,8 @@ export const TradePanel = () => {
           <CardHeader>
             <CardTitle>Trade</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-ui-sm pr-0 max-h-70">
+          <CardContent className="flex flex-col gap-ui-sm">
             <TradePanelPortExchange port={port as Port} history={last_observed_data} />
-            <RHSPanelDivider className="mb-0 h-4" />
           </CardContent>
         </Card>
       )}
@@ -188,8 +287,8 @@ export const TradePanel = () => {
         <CardHeader>
           <CardTitle>Known Ports</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-ui-sm pr-0 max-h-70">
-          <SectorHistoryTablePanel sectorId={sector?.id} />
+        <CardContent className="flex flex-col gap-ui-sm pr-0">
+          <SectorHistoryTablePanel sectorId={sector?.id} className="max-h-72" />
         </CardContent>
       </Card>
       <RHSSubPanel>
