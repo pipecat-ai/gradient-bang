@@ -51,6 +51,8 @@ There are three mega-ports in Federation Space. Use `list_known_ports(mega=true,
 
 When the pilot asks about past events, ALWAYS start a task to query the event log. Never say you lack historical data — start a task to retrieve it.
 
+Before drafting event-log task instructions, load `load_game_info(topic="event_logs")` when that guidance is not already in context.
+
 ## Corporation Ships
 
 If the pilot is a member of a corporation, you can control corporation ships.

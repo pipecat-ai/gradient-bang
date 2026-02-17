@@ -2390,9 +2390,11 @@ export async function pgEmitMovementObservers(
       if (!ownerId) continue;
 
       const owner = ownerMap.get(ownerId);
-      if (!owner || !owner.corporation_id) continue;
+      if (!owner) continue;
 
-      const corpMembers = membersByCorp.get(owner.corporation_id) ?? [];
+      const corpMembers = owner.corporation_id
+        ? (membersByCorp.get(owner.corporation_id) ?? [])
+        : [];
       const allGarrisonRecipients = Array.from(
         new Set([ownerId, ...corpMembers]),
       );

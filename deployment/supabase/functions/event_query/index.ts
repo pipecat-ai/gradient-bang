@@ -56,6 +56,7 @@ interface EventQueryResult {
   has_more: boolean;
   next_cursor: number | null;
   scope: "personal" | "corporation";
+  filters?: JsonRecord;
 }
 
 class EventQueryError extends Error {

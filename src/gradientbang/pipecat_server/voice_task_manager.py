@@ -157,6 +157,8 @@ class VoiceTaskManager:
             "garrison.deployed",
             "garrison.collected",
             "garrison.mode_changed",
+            "garrison.character_moved",
+            "garrison.combat_alert",
             "salvage.collected",
             "salvage.created",
             "bank.transaction",

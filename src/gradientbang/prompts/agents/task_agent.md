@@ -18,6 +18,22 @@ Approach each task methodically:
 
 If you receive a user message beginning with "Steering instruction:", treat it as an update to the current task plan. Integrate it and continue.
 
+## Historical Event Queries
+
+For tasks about past activity, load `load_game_info(topic="event_logs")` before building queries unless already loaded.
+
+For garrisoned-sector visit questions:
+- Use `event_query(..., filter_sector=<id>, filter_event_type="garrison.character_moved", event_scope="corporation")`
+- Keep `movement="arrive"` when asked who visited/arrived
+- Do not substitute `movement.complete`
+
+For toll fighter outcomes, also query combat events in the same sector/time window:
+- `filter_event_type="combat.round_resolved"`
+- `filter_event_type="combat.ended"`
+
+If asked for all sector activity, omit `filter_event_type` and paginate all pages.
+If useful to fully answer a question, continue paging with `cursor=next_cursor` until `has_more` is false.
+
 ## Event-driven State Management
 
 All tool calls return immediately with "Executed." The server sends events to update the game state. Use event information to understand tool results and plan your next action.

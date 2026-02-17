@@ -89,6 +89,64 @@ event_query(
 )
 ```
 
+## Garrison Sector Activity Playbook
+
+Use these rules when the user asks about activity in a garrisoned sector.
+
+### Visitor list (who was in sector X)
+Use:
+```
+event_query(
+    start=..., end=...,
+    event_scope="corporation",
+    filter_sector=<sector_id>,
+    filter_event_type="garrison.character_moved",
+    sort_direction="reverse",
+    max_rows=100
+)
+```
+Then:
+- Keep `movement="arrive"` for arrivals/visits
+- Exclude self only if the user asked for non-self visitors
+- Paginate until `has_more` is false
+
+### Toll fighter actions (demand/pay/flee context)
+Run additional queries in the same time window and sector:
+```
+event_query(
+    start=..., end=...,
+    event_scope="corporation",
+    filter_sector=<sector_id>,
+    filter_event_type="combat.round_resolved",
+    sort_direction="reverse",
+    max_rows=100
+)
+```
+```
+event_query(
+    start=..., end=...,
+    event_scope="corporation",
+    filter_sector=<sector_id>,
+    filter_event_type="combat.ended",
+    sort_direction="reverse",
+    max_rows=100
+)
+```
+Use payload fields like `result`, `flee_results`, and `fled_to_sector` to report toll stand-down/flee outcomes.
+
+### All activity in a sector (not just visits)
+If asked for all activity, do not set `filter_event_type`:
+```
+event_query(
+    start=..., end=...,
+    event_scope="corporation",
+    filter_sector=<sector_id>,
+    sort_direction="reverse",
+    max_rows=100
+)
+```
+Then paginate until `has_more` is false.
+
 ## Filter Parameters
 
 All filter parameters use the `filter_` prefix:
@@ -111,6 +169,7 @@ All filter parameters use the `filter_` prefix:
 |------------|----------|
 | trade.executed | commodity, units, price, total_price, trade_type |
 | movement.complete | sector arrivals, first_visit flag |
+| garrison.character_moved | arrivals/departures detected by garrisons (includes player + movement) |
 | combat.ended | combat results |
 | bank.transaction | deposits/withdrawals |
 | warp.purchase | warp power recharges |
@@ -133,5 +192,5 @@ If `has_more: true` in response:
 
 ## Event Scope
 
-- **personal** (default): Only your own events
+- **personal** (default): Your own events, plus events explicitly delivered to you via visibility rules (including garrison visibility events like `garrison.character_moved`)
 - **corporation**: Events for all corp members and corp-tagged events
