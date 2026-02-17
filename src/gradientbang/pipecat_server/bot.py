@@ -715,7 +715,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         if msg_type == "custom-message":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
             if text:
-                logger.info(f"!!! TODO: Process custom message: {text}")
                 await rtvi.send_server_message(
                     {"type": "message-received", "text": f"Received: {text}"}
                 )

@@ -486,22 +486,28 @@ class QueryTaskProgress(Tool):
         return FunctionSchema(
             name="query_task_progress",
             description=(
-                "Check on what a running or recently finished task is doing by querying its task log."
+                "Check on what a running or recently finished task is doing by querying its task log. "
+                "For best results, include `prompt` with the user's exact question."
             ),
             properties={
                 "task_id": {
                     "type": "string",
                     "description": (
                         "Optional task ID to query (short ID or full UUID). "
-                        "If omitted, defaults to your primary ship's active task."
+                        "If omitted, defaults to your primary ship's active task. "
+                        "For corp-ship tasks, pass the task_id returned by start_task or task.start."
                     ),
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "Question or instruction about task progress.",
+                    "description": (
+                        "Optional question or instruction about task progress. "
+                        "Use the user's exact question when available. "
+                        "If omitted, a generic status update prompt is used."
+                    ),
                 },
             },
-            required=["prompt"],
+            required=[],
         )
 
 

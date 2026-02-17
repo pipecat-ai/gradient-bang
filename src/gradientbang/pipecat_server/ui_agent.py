@@ -503,7 +503,7 @@ class UIAgentContext(FrameProcessor):
         if not isinstance(summary, str) or not summary.strip():
             payload = event_message.get("payload", event_message)
             try:
-                summary = json.dumps(payload, ensure_ascii=True, indent=2)
+                summary = json.dumps(payload, ensure_ascii=False)
             except Exception:
                 summary = str(payload)
         return f'<event name="{event_name}">\n{summary}\n</event>'
@@ -545,7 +545,7 @@ class UIAgentContext(FrameProcessor):
 
     # ── Generic intent lifecycle ─────────────────────────────────────
 
-    def _set_pending_intent(
+    async def _set_pending_intent(
         self,
         intent_type: str,
         *,
@@ -593,6 +593,11 @@ class UIAgentContext(FrameProcessor):
                 request_factory(intent_id),
                 name=f"{intent_type}_request",
             )
+
+        # Let scheduled tasks enter once so immediate cancellation during teardown
+        # does not leave their coroutines un-awaited.
+        if intent.timeout_task or intent.request_task:
+            await asyncio.sleep(0)
 
         return intent_id
 
@@ -920,7 +925,7 @@ class UIAgentContext(FrameProcessor):
         if isinstance(value, str):
             return value
         try:
-            return json.dumps(value, ensure_ascii=True)
+            return json.dumps(value, ensure_ascii=False)
         except Exception:
             return str(value)
 
@@ -1174,7 +1179,7 @@ class UIAgentContext(FrameProcessor):
             for ship in self._cached_ships
         ]
         try:
-            ships_json = json.dumps(summary, ensure_ascii=True, indent=2)
+            ships_json = json.dumps(summary, ensure_ascii=False, separators=(",", ":"))
         except Exception:
             ships_json = str(summary)
         return f"Recent ships list {meta_line}:\n{ships_json}"
@@ -1205,7 +1210,6 @@ class UIAgentContext(FrameProcessor):
         arguments = params.arguments if isinstance(params.arguments, dict) else {}
         tool_call_id = params.tool_call_id
         function_name = params.function_name
-        logger.debug(f"UI agent queue_ui_intent args: {arguments}")
 
         # Append tool_call message immediately
         self._messages.append({
@@ -1264,7 +1268,7 @@ class UIAgentContext(FrameProcessor):
                 async def _ports_request_factory(iid: int) -> None:
                     await self._delayed_ports_list_request(iid, filters)
 
-                intent_id = self._set_pending_intent(
+                intent_id = await self._set_pending_intent(
                     "ports.list",
                     match_fn=_ports_match_fn,
                     type_fields={"filters": filters},
@@ -1290,7 +1294,7 @@ class UIAgentContext(FrameProcessor):
                 async def _ships_request_factory(iid: int) -> None:
                     await self._delayed_ships_list_request(iid)
 
-                intent_id = self._set_pending_intent(
+                intent_id = await self._set_pending_intent(
                     "ships.list",
                     match_fn=_ships_match_fn,
                     type_fields={"ship_scope": ship_scope},
@@ -1328,7 +1332,7 @@ class UIAgentContext(FrameProcessor):
                             return False
                     return True
 
-                intent_id = self._set_pending_intent(
+                intent_id = await self._set_pending_intent(
                     "course.plot",
                     match_fn=_course_match_fn,
                     type_fields={"from_sector": from_sector, "to_sector": to_sector},
@@ -1364,8 +1368,6 @@ class UIAgentContext(FrameProcessor):
 
     async def handle_control_ui(self, params: FunctionCallParams) -> None:
         arguments = params.arguments if isinstance(params.arguments, dict) else {}
-
-        logger.debug(f"UI agent control_ui args: {arguments}")
 
         should_send = self._apply_control_ui_dedupe(arguments)
         if should_send:
@@ -1412,7 +1414,6 @@ class UIAgentContext(FrameProcessor):
         arguments = params.arguments if isinstance(params.arguments, dict) else {}
         tool_call_id = params.tool_call_id
         function_name = params.function_name
-        logger.debug(f"UI agent corporation_info args: {arguments}")
 
         # Append tool_call message immediately
         self._messages.append({
@@ -1453,7 +1454,6 @@ class UIAgentContext(FrameProcessor):
         arguments = params.arguments if isinstance(params.arguments, dict) else {}
         tool_call_id = params.tool_call_id
         function_name = params.function_name
-        logger.debug(f"UI agent my_status args: {arguments}")
 
         # Guard: if there's already a pending my_status, resolve the old one with an error
         # before starting a new one, so _pending_results stays consistent.

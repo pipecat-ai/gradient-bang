@@ -239,6 +239,7 @@ class AsyncGameClient:
             "ports.list": list_known_ports_summary,
             "map.local": map_local_wrapper,
             "map.region": map_local_wrapper,
+            "map.update": map_local_wrapper,
             "path.region": path_region_summary,
             "trade.executed": trade_executed_summary,
             "credits.transfer": transfer_summary,
@@ -321,17 +322,11 @@ class AsyncGameClient:
     def _get_summary(self, name: str, data: Dict[str, Any]) -> Optional[str]:
         """Run a registered summary formatter and return the summary string."""
 
-        logger.info(
-            f"_get_summary called for name: {name}, has formatter: {name in self._summary_formatters}"
-        )
-
         formatter = self._summary_formatters.get(name)
         if not formatter:
-            logger.debug(f"No formatter registered for {name}")
             return None
 
         try:
-            logger.info(f"Calling formatter for {name}")
             summary = formatter(data)
         except Exception:
             logger.exception(f"Summary formatter for {name} failed")
@@ -349,7 +344,6 @@ class AsyncGameClient:
             logger.warning(f"Formatter for {name} returned empty summary")
             return None
 
-        logger.info(f"Summary formatter for {name} produced: {summary}")
         return summary
 
     def _format_event(self, event_name: str, payload: Any, request_id: Optional[str] = None) -> Dict[str, Any]:

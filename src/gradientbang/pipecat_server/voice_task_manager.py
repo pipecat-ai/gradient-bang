@@ -54,6 +54,10 @@ FINISHED_TASK_ID_CACHE_MAX_SIZE = 5000
 TASK_LOG_TTL_SECONDS = 15 * 60
 CORP_TASK_EVENT_VALIDATE_TIMEOUT_SECONDS = 10.0
 COMBAT_WAITING_DUPLICATE_WINDOW_SECONDS = 3.0
+DEFAULT_TASK_PROGRESS_QUERY_PROMPT = (
+    "Give a concise status update on this task: what it is doing now, any errors/blockers, "
+    "and whether it appears complete."
+)
 TASK_SCOPED_DIRECT_EVENT_ALLOWLIST = {
     "bank.transaction",
     "chat.message",
@@ -1157,13 +1161,10 @@ class VoiceTaskManager:
 
         # Filter out corp-visible movement events we don't want to forward
         drop_event = False
-        drop_reason: Optional[str] = None
         if event_name == "movement.start" and is_other_player_event:
             drop_event = True
-            drop_reason = "other_player_movement_start"
         elif event_name == "movement.complete" and is_other_player_event:
             drop_event = True
-            drop_reason = "other_player_movement_complete"
         elif event_name == "character.moved" and is_other_player_event:
             movement = payload.get("movement") if isinstance(payload, Mapping) else None
             if movement == "depart":
@@ -1171,15 +1172,8 @@ class VoiceTaskManager:
                 if self._current_sector_id is not None and sector_id is not None:
                     if sector_id != self._current_sector_id:
                         drop_event = True
-                        drop_reason = "other_player_depart_outside_sector"
 
         if drop_event:
-            logger.debug(
-                "dropping event due to identity filter",
-                event=event_name,
-                player_id=player_id,
-                reason=drop_reason,
-            )
             return
 
         # Onboarding: decide whether to run onboarding on the initial status snapshot
@@ -1230,11 +1224,6 @@ class VoiceTaskManager:
                 self._current_sector_id = sector_id
 
         if duplicate_combat_waiting:
-            logger.debug(
-                "Skipping duplicate combat.round_waiting for LLM append event_name={} request_id={}",
-                event_name,
-                event_request_id,
-            )
             return
 
         # Use voice-specific condensed summary for verbose events
@@ -1254,12 +1243,6 @@ class VoiceTaskManager:
 
         if not task_id:
             task_id = self._get_task_id_for_character(self.character_id)
-
-        if event_name == "status.snapshot":
-            logger.debug(
-                f"status.snapshot received request_id={event_request_id} payload_task_id={payload_task_id} "
-                f"resolved_task_id={task_id} is_our_task={is_our_task}"
-            )
 
         is_task_lifecycle_event = event_name in {"task.start", "task.finish"}
         is_task_scoped_event = payload_task_id is not None
@@ -1353,11 +1336,6 @@ class VoiceTaskManager:
             "ship.renamed",  # Corp ship renamed (want to know about all corp activity)
         }
 
-        # Debug logging for request ID tracking
-        logger.debug(f"Event arrived: {event_name}")
-        logger.debug(f"  event_request_id: {event_request_id}")
-        logger.debug(f"  is_voice_agent_event: {is_voice_agent_event}")
-
         # Trigger inference if:
         # 1. Event is in always_trigger_events (external events needing response), OR
         # 2. Event is in inference_triggering_events AND from voice agent's tool call, OR
@@ -1389,8 +1367,6 @@ class VoiceTaskManager:
                 event_name,
             )
             should_run_llm = False
-        logger.debug(f"  should_run_llm: {should_run_llm}")
-
         # Onboarding: suppress initial inference, let _maybe_complete_onboarding trigger it
         if should_run_llm and self._onboarding_phase and event_name == "status.snapshot":
             logger.info("Onboarding: suppressing initial status.snapshot inference")
@@ -1674,10 +1650,6 @@ class VoiceTaskManager:
             task_id: Optional task ID for multi-task tracking
             task_type: Type of task ("player_ship" or "corp_ship")
         """
-        logger.info(
-            f"!!! task output: [{message_type}] task_id={task_id} task_type={task_type} {text}"
-        )
-
         # send everything from the task agent to the client to be displayed
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
@@ -1764,12 +1736,10 @@ class VoiceTaskManager:
         was_cancelled = False
 
         try:
-            logger.info(f"!!! running task {task_id} ({task_type}): {task_description}")
             # Pass full_task_id to TaskAgent so events are tagged with the UUID
             success = await task_agent.run_task(
                 task=task_description, max_iterations=100, task_id=full_task_id
             )
-            logger.info(f"!!! task {task_id} result: {success}")
 
             if success:
                 await self._task_output_handler(
@@ -2148,7 +2118,6 @@ class VoiceTaskManager:
         task_game_client = None
         task_agent: Optional[TaskAgent] = None
         try:
-            logger.info(f"!!! start_task: {params.arguments}")
             task_desc = params.arguments.get("task_description", "")
             ship_id = params.arguments.get("ship_id")
             self._prune_expired_tasks()
@@ -2499,11 +2468,15 @@ class VoiceTaskManager:
     @traced
     async def _handle_query_task_progress(self, params: FunctionCallParams):
         self._prune_expired_tasks()
-        prompt = params.arguments.get("prompt")
-        if not isinstance(prompt, str) or not prompt.strip():
-            return {"success": False, "error": "prompt is required"}
+        arguments = params.arguments if isinstance(params.arguments, dict) else {}
+        prompt_arg = arguments.get("prompt")
+        if isinstance(prompt_arg, str) and prompt_arg.strip():
+            prompt = prompt_arg.strip()
+        else:
+            prompt = DEFAULT_TASK_PROGRESS_QUERY_PROMPT
+            logger.debug("query_task_progress missing prompt; using default")
 
-        task_id = params.arguments.get("task_id")
+        task_id = arguments.get("task_id")
         if task_id:
             if isinstance(task_id, str):
                 task_id = task_id.strip()

@@ -1033,6 +1033,9 @@ class TaskAgent:
             self.finished_message = limit_message
             self._output(self._timestamped_text(limit_message), TaskOutputType.FINISHED)
 
+            properties = FunctionCallResultProperties(run_llm=False)
+            await params.result_callback({"error": limit_message}, properties=properties)
+
             if self._task_id and not self._finish_emitted:
                 try:
                     await self.game_client.task_lifecycle(
@@ -1054,6 +1057,12 @@ class TaskAgent:
             self.finished_message = arguments.get("message", "Done")
             finished_text = self._timestamped_text(self.finished_message)
             self._output(finished_text, TaskOutputType.FINISHED)
+
+            properties = FunctionCallResultProperties(run_llm=False)
+            await params.result_callback(
+                {"status": "completed", "message": self.finished_message},
+                properties=properties,
+            )
 
             # Emit task.finish event
             if self._task_id:
