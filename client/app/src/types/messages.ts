@@ -154,7 +154,7 @@ export interface CharacterMovedMessage extends ServerMessagePayload {
 
 export interface KnownPortListMessage extends ServerMessagePayload {
   from_sector: number
-  ports: Port[]
+  ports: SectorHistory[]
   total_ports_found: number
   searched_sectors: number
 }

@@ -14,8 +14,8 @@ export interface HistorySlice {
   movement_history: MovementHistory[]
   addMovementHistory: (history: Omit<MovementHistory, "timestamp">) => void
 
-  known_ports: Sector[] | undefined // Note: allow undefined here to handle fetching state
-  setKnownPorts: (ports: Sector[]) => void
+  known_ports: SectorHistory[] | undefined // Note: allow undefined here to handle fetching state
+  setKnownPorts: (ports: SectorHistory[]) => void
 
   // Task history from server
   task_history: TaskHistoryEntry[] | undefined
@@ -71,7 +71,7 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
     )
   },
 
-  setKnownPorts: (ports: Sector[]) =>
+  setKnownPorts: (ports: SectorHistory[]) =>
     set(
       produce((state) => {
         state.known_ports = ports

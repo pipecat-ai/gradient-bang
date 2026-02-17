@@ -123,6 +123,13 @@ declare global {
     garrisons?: Garrison[]
   }
 
+  interface SectorHistory {
+    sector: Sector
+    updated_at?: string
+    last_visited?: string
+    hops_from_start?: number
+  }
+
   interface Planet {
     class_code: string
     class_name: string

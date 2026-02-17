@@ -190,7 +190,9 @@ export function GameProvider({ children }: GameProviderProps) {
               return false
             }
             const ships = useGameStore.getState().ships.data ?? []
-            return ships.some((ship) => ship.ship_id === shipId && ship.owner_type === "corporation")
+            return ships.some(
+              (ship) => ship.ship_id === shipId && ship.owner_type === "corporation"
+            )
           }
 
           const isCorporationShipPayload = (payload: Msg.ServerMessagePayload): boolean => {
@@ -484,7 +486,10 @@ export function GameProvider({ children }: GameProviderProps) {
 
                 const shipId = getPayloadShipId(data)
                 if (!shipId) {
-                  console.warn("[GAME EVENT] movement.complete missing ship_id for corporation ship", data)
+                  console.warn(
+                    "[GAME EVENT] movement.complete missing ship_id for corporation ship",
+                    data
+                  )
                   break
                 }
 
@@ -822,15 +827,14 @@ export function GameProvider({ children }: GameProviderProps) {
 
               // If update is for current sector, update port payload
               gameStore.updateSector(data.sector)
-
               break
             }
 
             case "ports.list": {
               console.debug("[GAME EVENT] Port list", e.payload)
               // @TODO: implement - waiting on shape of event to align to schema
-              //const data = e.payload as KnownPortListMessage;
-              //gameStore.setKnownPorts(data.ports);
+              const data = e.payload as Msg.KnownPortListMessage
+              gameStore.setKnownPorts(data.ports)
               break
             }
 
@@ -1071,7 +1075,9 @@ export function GameProvider({ children }: GameProviderProps) {
               const prefixedActiveTaskId = taskIdCandidates
                 .filter((candidate) => candidate.length === 6)
                 .map((candidate) =>
-                  Object.keys(activeTasks).find((activeTaskId) => activeTaskId.startsWith(candidate))
+                  Object.keys(activeTasks).find((activeTaskId) =>
+                    activeTaskId.startsWith(candidate)
+                  )
                 )
                 .find((taskId): taskId is string => !!taskId)
               const fullTaskId = taskIdCandidates.find((candidate) => candidate.includes("-"))

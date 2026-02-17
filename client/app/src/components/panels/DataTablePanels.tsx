@@ -6,10 +6,12 @@ import { type ColumnDef } from "@tanstack/react-table"
 import { DataTableScrollArea } from "@/components/DataTable"
 import useGameStore from "@/stores/game"
 import { sumRecordValues } from "@/utils/combat"
-import { formatDateTime24, formatTimeAgoOrDate } from "@/utils/date"
+import { formatDateTime24, formatTimeAgoOrDate, formatTimeAgoShort } from "@/utils/date"
+import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
 import { BlankSlateTile } from "../BlankSlates"
+import { PortCodeString } from "../PortCodeString"
 import { Button } from "../primitives/Button"
 import { Card, CardContent } from "../primitives/Card"
 
@@ -305,6 +307,123 @@ export const CombatRoundTablePanel = ({
           hoverable={Boolean(onRowClick)}
           onRowClick={onRowClick ? (row) => onRowClick(row.roundData) : undefined}
           className="text-background dither-mask-sm dither-mask-invert h-full"
+          classNames={{ table: "text-xxs" }}
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
+// --- Sector History (Known Ports) Table ---
+
+type SectorHistoryRow = {
+  sectorId: number
+  portCode: string
+  qfPrice: number | null
+  roPrice: number | null
+  nsPrice: number | null
+  hops: number | null
+  updatedAt: string | null
+}
+
+const columnsSectorHistory: ColumnDef<SectorHistoryRow>[] = [
+  {
+    accessorKey: "sectorId",
+    header: "Sector",
+    meta: { align: "center", width: 0 },
+    cell: ({ getValue }) => <span className="font-bold">{getValue() as number}</span>,
+  },
+  {
+    accessorKey: "portCode",
+    header: "Port",
+    meta: { align: "center", width: 0 },
+    cell: ({ getValue }) => <PortCodeString code={getValue() as string} />,
+  },
+  {
+    accessorKey: "qfPrice",
+    header: "QF",
+    meta: { align: "right", width: 0 },
+    cell: ({ getValue }) => {
+      const v = getValue() as number | null
+      return v != null ? v : "—"
+    },
+  },
+  {
+    accessorKey: "roPrice",
+    header: "RO",
+    meta: { align: "right", width: 0 },
+    cell: ({ getValue }) => {
+      const v = getValue() as number | null
+      return v != null ? v : "—"
+    },
+  },
+  {
+    accessorKey: "nsPrice",
+    header: "NS",
+    meta: { align: "right", width: 0 },
+    cell: ({ getValue }) => {
+      const v = getValue() as number | null
+      return v != null ? v : "—"
+    },
+  },
+  {
+    accessorKey: "hops",
+    header: "Hops",
+    meta: { align: "center", width: 0 },
+    cell: ({ getValue }) => {
+      const v = getValue() as number | null
+      return v != null ? v : "—"
+    },
+  },
+  {
+    accessorKey: "updatedAt",
+    header: "Updated",
+    cell: ({ getValue }) => {
+      const v = getValue() as string | null
+      return v ? formatTimeAgoShort(v) : "—"
+    },
+  },
+]
+
+export const SectorHistoryTablePanel = ({
+  className,
+  sectorId,
+}: {
+  className?: string
+  sectorId?: number
+}) => {
+  const knownPorts = useGameStore((state) => state.known_ports)
+
+  const rows = useMemo<SectorHistoryRow[]>(() => {
+    if (!knownPorts) return []
+    return knownPorts
+      .filter((sh) => sh.sector.port && sh.sector.id !== sectorId)
+      .map((sh) => {
+        const port = sh.sector.port as Port | undefined
+        return {
+          sectorId: sh.sector.id,
+          portCode: getPortCode(port),
+          qfPrice: port?.prices?.quantum_foam ?? null,
+          roPrice: port?.prices?.retro_organics ?? null,
+          nsPrice: port?.prices?.neuro_symbolics ?? null,
+          hops: sh.hops_from_start ?? null,
+          updatedAt: sh.updated_at ?? sh.last_visited ?? null,
+        }
+      })
+  }, [knownPorts, sectorId])
+
+  if (rows.length <= 0) {
+    return <BlankSlateTile text="No known ports" />
+  }
+
+  return (
+    <Card className={cn("flex h-full bg-background", className)} size="none">
+      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative px-0!">
+        <DataTableScrollArea
+          data={rows}
+          columns={columnsSectorHistory}
+          striped
+          className="text-background h-full"
           classNames={{ table: "text-xxs" }}
         />
       </CardContent>

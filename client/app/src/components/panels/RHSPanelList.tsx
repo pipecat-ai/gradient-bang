@@ -18,8 +18,8 @@ export const RHSPanelList = ({ children, className }: RHSPanelListProps) => (
   </div>
 )
 
-export const RHSPanelDivider = () => (
-  <Divider variant="dotted" className="h-1.5 mb-ui-sm text-accent-background" />
+export const RHSPanelDivider = ({ className }: { className?: string }) => (
+  <Divider variant="dotted" className={cn("h-1.5 mb-ui-sm text-accent-background", className)} />
 )
 
 interface RHSPanelListItemProps {
