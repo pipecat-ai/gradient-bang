@@ -18,7 +18,8 @@ const MINIMAP_CONFIG: MapConfig = {
   show_sector_ids_hover: true,
   uiStyles: {
     edgeFeather: {
-      size: 90,
+      size: 80,
+      falloff: 1.5,
     },
   },
   nodeStyles: {
