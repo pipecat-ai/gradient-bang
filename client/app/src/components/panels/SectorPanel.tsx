@@ -10,6 +10,7 @@ import {
   UserIcon,
 } from "@phosphor-icons/react"
 
+import { GarrisonPanel } from "@/components/panels/GarrisonPanel"
 import { SalvageIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { getPortCode } from "@/utils/port"
@@ -34,6 +35,8 @@ export const SectorPanel = () => {
   const setActivePanel = useGameStore.use.setActivePanel?.()
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
+  const player = useGameStore.use.player?.()
+
   const uiState = useGameStore.use.uiState?.()
 
   const [shipSubPanelFilter, setShipSubPanelFilter] = useState<PlayerType>("human")
@@ -59,15 +62,38 @@ export const SectorPanel = () => {
   return (
     <>
       <RHSPanelContent>
+        {sector?.garrison && sector.garrison.owner_id !== player?.id && (
+          <Card
+            variant="stripes"
+            className="bg-warning-background m-ui-sm mb-0 stripe-frame-warning"
+            size="xs"
+          >
+            <CardContent className="text-sm text-warning-foreground flex flex-col gap-ui-xs">
+              <h4 className="font-bold uppercase">Garrison toll</h4>
+              <p className="uppercase text-xs">
+                Payment of{" "}
+                <span className="font-extrabold">
+                  {sector?.garrison?.mode === "toll" ? sector.garrison.toll_amount : "N/A"} CR
+                </span>{" "}
+                required to pass through sector
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {uiState === "combat" && <CombatAsidePanel />}
 
         <Card
           size="sm"
-          className={cn("border-0", uiState === "combat" ? "border-b border-t" : "border-b")}
+          className={cn(
+            "border-0",
+            uiState === "combat" || sector?.garrison ? "border-b border-t" : "border-b"
+          )}
         >
           <CardHeader className="gap-0">
             <CardTitle>Sector {sector?.id}</CardTitle>
           </CardHeader>
+
           <CardContent className="flex flex-row gap-ui-sm pr-0">
             <RHSPanelList>
               <RHSPanelListItem
@@ -190,11 +216,15 @@ export const SectorPanel = () => {
         </Card>
         <Card size="sm" className="border-x-0 border-y">
           <CardHeader>
-            <CardTitle>Garrisons</CardTitle>
+            <CardTitle>Garrison</CardTitle>
           </CardHeader>
-          <CardContent>
-            <BlankSlateTile text="No garrisons in sector" />
-          </CardContent>
+
+          {sector?.garrison ?
+            <GarrisonPanel garrison={sector.garrison} />
+          : <CardContent>
+              <BlankSlateTile text="No garrison in sector" />
+            </CardContent>
+          }
         </Card>
         <Card size="sm" className="border-x-0 border-y">
           <CardHeader>

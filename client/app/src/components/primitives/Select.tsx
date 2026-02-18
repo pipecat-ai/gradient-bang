@@ -50,19 +50,27 @@ function SelectTrigger({
   variant = "default",
   size = "default",
   children,
+  asChild,
   ...props
 }: SelectTriggerProps) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       data-size={size}
-      className={cn(selectTriggerVariants({ variant }), className)}
+      className={cn(!asChild && selectTriggerVariants({ variant }), className)}
+      asChild={asChild}
       {...props}
     >
-      {children}
-      <SelectPrimitive.Icon asChild>
-        <CaretUpDownIcon weight="bold" className="size-4 opacity-50" />
-      </SelectPrimitive.Icon>
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {children}
+          <SelectPrimitive.Icon asChild>
+            <CaretUpDownIcon weight="bold" className="size-4 opacity-50" />
+          </SelectPrimitive.Icon>
+        </>
+      )}
     </SelectPrimitive.Trigger>
   )
 }

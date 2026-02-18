@@ -102,11 +102,11 @@ export const SECTOR_MOCK: Sector = {
   planets: [],
   port: undefined,
   players: [],
-  garrisons: [],
+  garrison: undefined,
   salvage: [],
 }
 export const SECTOR_FULL_MOCK: Sector = {
-  id: 1611,
+  id: 0,
   region: "Federation Space",
   port: {
     code: "SSS",
@@ -123,6 +123,7 @@ export const SECTOR_FULL_MOCK: Sector = {
     },
     port_class: 7,
   },
+
   players: [
     {
       id: "aff49e24-9051-45ce-aebd-b7f830c13a25",
@@ -185,7 +186,16 @@ export const SECTOR_FULL_MOCK: Sector = {
       salvage_id: "fd06dfb3-9d79-432d-b0f7-4b886759dc47",
     },
   ],
-  garrisons: [],
+  garrison: {
+    mode: "toll",
+    fighters: 947,
+    fighter_loss: 123,
+    owner_id: "81da8782-7bb1-4f68-9456-76697f249b92",
+    owner_name: "Mal Reynolds",
+    is_friendly: true,
+    toll_amount: 1000,
+    toll_balance: 5000,
+  },
   position: [94, 171],
   scene_config: null,
   unowned_ships: [

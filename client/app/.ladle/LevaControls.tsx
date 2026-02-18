@@ -84,7 +84,7 @@ export const LevaControls = ({
       const state = useGameStore.getState()
       state.setPlayer({
         name: faker.person.fullName(),
-        id: faker.string.uuid(),
+        id: "81da8782-7bb1-4f68-9456-76697f249b92",
       })
     }),
 
