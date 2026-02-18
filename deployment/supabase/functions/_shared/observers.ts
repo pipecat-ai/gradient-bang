@@ -163,10 +163,12 @@ export async function emitGarrisonCharacterMovedEvents({
       continue;
     }
     const owner = ownerMap.get(ownerId);
-    if (!owner || !owner.corporation_id) {
+    if (!owner) {
       continue;
     }
-    const corpMembers = membersByCorp.get(owner.corporation_id) ?? [];
+    const corpMembers = owner.corporation_id
+      ? (membersByCorp.get(owner.corporation_id) ?? [])
+      : [];
     const recipients = Array.from(new Set([ownerId, ...corpMembers]));
     if (!recipients.length) {
       continue;

@@ -1155,7 +1155,7 @@ class EventQuery(GameClientTool):
                 },
                 "filter_event_type": {
                     "type": "string",
-                    "description": "Filter to a specific event type (e.g., 'task.start', 'task.finish', 'movement.complete')",
+                    "description": "Filter to a specific event type. e.g., 'task.start', 'task.finish', 'movement.complete' (for player's own movements), 'garrison.character_moved' (for monitoring events in a sector where we have placed fighters)",
                 },
                 "filter_string_match": {
                     "type": "string",
@@ -1176,7 +1176,9 @@ class EventQuery(GameClientTool):
                     "type": "string",
                     "enum": ["personal", "corporation"],
                     "description": (
-                        "Scope of events to query. Defaults to 'personal' (only your own events). "
+                        "Scope of events to query. Defaults to 'personal' (your own events, plus "
+                        "events explicitly delivered to you via visibility rules, including "
+                        "garrison visibility events like garrison.character_moved). "
                         "Use 'corporation' to see events for all corp members and corp-tagged events "
                         "(e.g., corp ship tasks, shared trade history). Falls back to personal if not in a corp."
                     ),

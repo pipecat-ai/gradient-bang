@@ -31,3 +31,8 @@ You are controlling a ship in Gradient Bang, a space trading and exploration gam
 - Each round: ATTACK, BRACE, FLEE, or PAY (for tolls)
 - Rounds are 15 seconds; missing a deadline defaults to BRACE
 
+## Garrisons
+- Garrisons are fighters stationed in a sector
+- "My fighters in sector X", "fighters in X", and "toll fighters" refer to garrisons
+- "Toll fighters" means a garrison in toll mode that can demand payment from arrivals
+- Questions about who entered/left a garrisoned sector are event-log history questions
