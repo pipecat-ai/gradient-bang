@@ -15,12 +15,12 @@ const PlayerShipCard = ({ player }: { player: Player }) => {
       className="group py-ui-xs bg-subtle-background even:bg-subtle-background/50 flex flex-row items-center"
     >
       <div className="flex flex-row gap-ui-sm items-center px-ui-xs w-full">
-        <ShipLogoPopover ship_type={player.ship.ship_type} alt={player.ship.ship_name} />
+        <ShipLogoPopover ship_type={player.ship?.ship_type} alt={player.ship?.ship_name} />
         <div className="w-0 grow flex flex-row gap-ui-sm items-center">
           <div className="w-0 grow overflow-hidden flex flex-col gap-0.5 border-l border-accent px-ui-xs uppercase">
             <h3 className="text-sm font-bold truncate">{player.name}</h3>
             <span className="flex gap-1.5 items-center text-xxs text-subtle-foreground min-w-0">
-              <span className="truncate shrink">{player.ship.ship_name}</span>
+              <span className="truncate shrink">{player.ship?.ship_name}</span>
               <DotDivider className="shrink-0" />
               <span
                 className={

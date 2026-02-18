@@ -30,8 +30,12 @@ const MAP_CONFIG: MapConfig = {
   show_grid: true,
   show_port_labels: true,
   uiStyles: {
+    background: {
+      color: "rgba(0,0,0,0.95)",
+    },
     edgeFeather: {
-      size: 90,
+      size: 180,
+      falloff: 3,
     },
   },
   nodeStyles: {
@@ -228,8 +232,11 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
           <MapLegend />
         </footer>
 
-        {isFetching && (
-          <FillCrossLoader message="Fetching map data" className="bg-card/40 pointer-events-none" />
+        {mapData && isFetching && (
+          <FillCrossLoader
+            message="Fetching map data"
+            className="bg-transparent pointer-events-none"
+          />
         )}
 
         {mapData ?
@@ -268,7 +275,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
               />
 
               <span className="text-muted-foreground text-sm uppercase animate-pulse">
-                Fetching map data...
+                Awaiting map data...
               </span>
             </div>
           </div>
