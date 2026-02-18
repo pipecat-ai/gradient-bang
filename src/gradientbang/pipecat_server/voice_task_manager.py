@@ -1495,8 +1495,6 @@ class VoiceTaskManager:
         """Resolve a full UUID task_id to the short task_id used for display."""
         if not task_id:
             return None
-        if task_id in self._active_tasks:
-            return task_id
         for short_id, task_info in self._active_tasks.items():
             if task_info.get("full_task_id") == task_id:
                 return short_id
