@@ -12,11 +12,15 @@ export const Disconnect = () => {
   const setActiveModal = useGameStore.use.setActiveModal()
 
   useRTVIClientEvent(RTVIEvent.Disconnected, () => {
-    setActiveModal("disconnect")
+    if (!import.meta.env.DEV) {
+      setActiveModal("disconnect")
+    }
   })
 
   useRTVIClientEvent(RTVIEvent.BotDisconnected, () => {
-    setActiveModal("disconnect")
+    if (!import.meta.env.DEV) {
+      setActiveModal("disconnect")
+    }
   })
 
   return (

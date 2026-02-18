@@ -8,29 +8,32 @@ import {
 } from "@phosphor-icons/react"
 
 import { BlankSlateTile } from "@/components/BlankSlates"
-import { SectorHistoryTablePanel } from "@/components/panels/DataTablePanels"
+import {
+  SectorHistoryTablePanel,
+  TradeHistoryTablePanel,
+} from "@/components/panels/DataTablePanels"
 import { RHSPanelContent, RHSSubPanel } from "@/components/panels/RHSPanelContainer"
-import { RHSPanelDivider, RHSPanelList, RHSPanelListItem } from "@/components/panels/RHSPanelList"
+import { RHSPanelList, RHSPanelListItem } from "@/components/panels/RHSPanelList"
 import { ShipCatalogue } from "@/components/panels/ShipCatalogue"
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/primitives/Card"
 import { Input } from "@/components/primitives/Input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/primitives/Popover"
 import { SliderControl } from "@/components/primitives/SliderControl"
+import { ChevronSM } from "@/components/svg/ChevronSM"
 import { useGameContext } from "@/hooks/useGameContext"
 import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
-import { formatTimeAgoOrDate } from "@/utils/date"
 import { formatCurrency } from "@/utils/formatting"
 import { cn } from "@/utils/tailwind"
 
 import { RESOURCE_VERBOSE_NAMES } from "@/types/constants"
 
 const ICON_MAP = {
-  quantum_foam: <QuantumFoamIcon size={20} weight="duotone" className="size-5" />,
-  retro_organics: <RetroOrganicsIcon size={20} weight="duotone" className="size-5" />,
-  neuro_symbolics: <NeuroSymbolicsIcon size={20} weight="duotone" className="size-5" />,
+  quantum_foam: <QuantumFoamIcon size={20} weight="duotone" className="size-6" />,
+  retro_organics: <RetroOrganicsIcon size={20} weight="duotone" className="size-6" />,
+  neuro_symbolics: <NeuroSymbolicsIcon size={20} weight="duotone" className="size-6" />,
 }
 
 export const TradePanelPortExchange = ({
@@ -43,8 +46,8 @@ export const TradePanelPortExchange = ({
   return (
     <div>
       {port.prices ?
-        <div className="grid grid-cols-[auto_1fr] gap-y-ui-xs">
-          {Object.entries(port.prices).map(([good, price], i, arr) => {
+        <div className="grid grid-cols-[auto_12px_1fr] gap-y-ui-xs">
+          {Object.entries(port.prices).map(([good, price], i) => {
             const oldPrice = (history?.sector?.port as Port | undefined)?.prices?.[good as Resource]
             const diffPct =
               oldPrice != null && oldPrice !== 0 ?
@@ -55,16 +58,26 @@ export const TradePanelPortExchange = ({
             const isBuy = portChar === "B"
             return (
               <Fragment key={good}>
-                <div className="group col-span-2 grid grid-cols-subgrid border">
-                  <div className="relative flex flex-col items-center justify-center corner-dots px-ui-sm gap-1.5 border-r bg-subtle-background/80">
+                <div className="group grid grid-cols-subgrid col-span-3 border">
+                  <div
+                    className={cn(
+                      "relative flex flex-col items-center justify-center border-r corner-dots px-ui-sm gap-2 bg-subtle-background/80",
+                      isBuy ? "text-success" : "text-warning"
+                    )}
+                  >
                     {ICON_MAP[good as Resource]}
-                    <span className="text-xxs uppercase">
+                    <span
+                      className={cn(
+                        "text-xxs uppercase",
+                        isBuy ? "text-success-foreground" : "text-warning-foreground"
+                      )}
+                    >
                       {RESOURCE_VERBOSE_NAMES[good as Resource]}
                     </span>
                     <Popover>
                       <PopoverTrigger asChild>
                         <button className="opacity-0 group-hover:opacity-100 absolute inset-0 bg-background/80 cross-lines-offset-8 cross-lines-terminal-foreground/20 flex items-center justify-center text-xs font-bold text-terminal uppercase">
-                          trade
+                          {isBuy ? "Sell" : "Buy"}
                         </button>
                       </PopoverTrigger>
                       <PopoverContent className="p-ui-sm w-90" side="left">
@@ -72,21 +85,34 @@ export const TradePanelPortExchange = ({
                       </PopoverContent>
                     </Popover>
                   </div>
-                  <div className="flex flex-col min-w-0 divide-y">
+                  <div className="dashed-bg-vertical-tight w-[12px] h-full text-accent-background bg-background" />
+                  <div
+                    className={cn(
+                      "flex flex-col min-w-0 divide-y bracket bracket-offset-1",
+                      isBuy ? "bracket-success" : "bracket-warning"
+                    )}
+                  >
                     <div
                       className={cn(
-                        "flex flex-1 justify-between text-xs px-ui-sm py-ui-xs",
-                        isBuy ? "bg-success-background/30" : "bg-warning-background/30"
+                        "flex flex-1 justify-between items-center text-xs px-ui-sm py-ui-xs"
                       )}
                     >
                       <span
                         className={cn(
-                          "text-xs uppercase",
-                          isBuy ? "text-success-foreground" : "text-warning-foreground"
+                          "text-xxs font-extrabold uppercase w-12 text-center py-px border",
+                          isBuy ?
+                            "bg-success-background text-success-foreground border-success"
+                          : "bg-warning-background text-warning-foreground border-warning"
                         )}
                       >
                         {isBuy ? "BUYS" : "SELLS"}
                       </span>
+                      <ChevronSM
+                        className={cn(
+                          "size-2.5 transition-transform -rotate-90",
+                          isBuy ? "text-success" : "text-warning/40"
+                        )}
+                      />
                       <div className="flex items-center gap-ui-xs">
                         <div className="text-xxs font-bold uppercase">{price} CR</div>
                         <div
@@ -98,7 +124,7 @@ export const TradePanelPortExchange = ({
                           )}
                         >
                           {diffPct == null || diffPct === 0 ?
-                            "0%"
+                            "---"
                           : `${diffPct > 0 ? "+" : ""}${diffPct}%`}
                         </div>
                       </div>
@@ -111,7 +137,6 @@ export const TradePanelPortExchange = ({
                     )}
                   </div>
                 </div>
-                {i < arr.length - 1 && <RHSPanelDivider className="col-span-2 mb-0 h-2" />}
               </Fragment>
             )
           })}
@@ -260,13 +285,6 @@ export const TradePanel = () => {
                   onClick={() => setActiveSubPanel("ship-catalog")}
                 />
               </RHSPanelList>
-
-              <div className="text-xxs text-subtle uppercase">
-                Last observed:{" "}
-                {last_observed_data?.last_visited ?
-                  formatTimeAgoOrDate(last_observed_data.last_visited)
-                : "Unknown"}
-              </div>
             </>
           }
         </CardContent>
@@ -288,9 +306,21 @@ export const TradePanel = () => {
           <CardTitle>Known Ports</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-ui-sm pr-0">
-          <SectorHistoryTablePanel sectorId={sector?.id} className="max-h-72" />
+          <SectorHistoryTablePanel sectorId={sector?.id} className="max-h-70" />
         </CardContent>
       </Card>
+
+      <Card size="sm" className="border-x-0 border-y flex-1 shrink-0">
+        <CardHeader>
+          <CardTitle>Trade History</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-row gap-ui-sm pr-0">
+          <RHSPanelList>
+            <TradeHistoryTablePanel className="max-h-70" />
+          </RHSPanelList>
+        </CardContent>
+      </Card>
+
       <RHSSubPanel>
         <ShipCatalogue />
       </RHSSubPanel>

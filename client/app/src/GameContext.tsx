@@ -18,8 +18,6 @@ import {
   transferSummaryString,
 } from "@/utils/game"
 
-import { RESOURCE_SHORT_NAMES } from "./types/constants"
-
 import type * as Msg from "@/types/messages"
 
 interface GameProviderProps {
@@ -387,7 +385,10 @@ export function GameProvider({ children }: GameProviderProps) {
               if (isLocalSector) {
                 if (data.movement === "arrive") {
                   console.debug("[GAME EVENT] Adding player to sector", e.payload)
-                  const sectorPlayer: Player = { ...data.player, ship: data.player.ship ?? data.ship }
+                  const sectorPlayer: Player = {
+                    ...data.player,
+                    ship: data.player.ship ?? data.ship,
+                  }
                   gameStore.addSectorPlayer(sectorPlayer)
                   gameStore.addActivityLogEntry({
                     type: "character.moved",
@@ -803,13 +804,22 @@ export function GameProvider({ children }: GameProviderProps) {
                 break
               }
 
-              gameStore.addActivityLogEntry({
+              /*gameStore.addActivityLogEntry({
                 type: "trade.executed",
                 message: `Trade executed: ${
                   data.trade.trade_type === "buy" ? "Bought" : "Sold"
                 } ${data.trade.units} [${
                   RESOURCE_SHORT_NAMES[data.trade.commodity]
                 }] for [CR ${data.trade.total_price}]`,
+              })*/
+
+              gameStore.addTradeHistoryEntry({
+                sector: gameStore.sector?.id ?? 0,
+                commodity: data.trade.commodity,
+                units: data.trade.units,
+                price_per_unit: data.trade.price_per_unit,
+                total_price: data.trade.total_price,
+                is_buy: data.trade.trade_type === "buy",
               })
 
               gameStore.addToast({

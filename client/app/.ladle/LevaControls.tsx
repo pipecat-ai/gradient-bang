@@ -10,6 +10,7 @@ import { useCombatControls } from "./combat/useCombatControls"
 import { useChatControls } from "./useChatControls"
 import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
+import { useTradeControls } from "./useTradeControls"
 
 import { SHIP_DEFINITIONS } from "@/types/ships"
 import { INCOMING_CHAT_TOOL_CALL_MOCK } from "@/mocks/chat.mock"
@@ -375,6 +376,7 @@ export const LevaControls = ({
   useMapControls()
   useChatControls()
   useCombatControls()
+  useTradeControls()
 
   return <Leva hidden={hidden} />
 }

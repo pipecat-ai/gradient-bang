@@ -6,6 +6,7 @@ import { createLogEntrySignature } from "@/utils/game"
 import type { EventQueryEntry } from "@/types/messages"
 
 const MAX_MOVEMENT_HISTORY = 200
+const MAX_TRADE_HISTORY = 100
 
 export interface HistorySlice {
   activity_log: LogEntry[]
@@ -16,6 +17,9 @@ export interface HistorySlice {
 
   known_ports: SectorHistory[] | undefined // Note: allow undefined here to handle fetching state
   setKnownPorts: (ports: SectorHistory[]) => void
+
+  trade_history: TradeHistoryEntry[] | undefined
+  addTradeHistoryEntry: (entry: TradeHistoryEntry) => void
 
   // Task history from server
   task_history: TaskHistoryEntry[] | undefined
@@ -29,6 +33,7 @@ export interface HistorySlice {
 export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
   activity_log: [],
   known_ports: undefined,
+  trade_history: undefined,
   task_history: undefined,
   user_ships: undefined,
   task_events: undefined,
@@ -54,6 +59,23 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
         })
       })
     ),
+
+  addTradeHistoryEntry: (history: Omit<TradeHistoryEntry, "timestamp">) => {
+    return set(
+      produce((state) => {
+        if (!state.trade_history) {
+          state.trade_history = []
+        }
+        state.trade_history.push({
+          ...history,
+          timestamp: new Date().toISOString(),
+        })
+        if (state.trade_history.length > MAX_TRADE_HISTORY) {
+          state.trade_history.shift()
+        }
+      })
+    )
+  },
 
   movement_history: [],
   addMovementHistory: (history: Omit<MovementHistory, "timestamp">) => {

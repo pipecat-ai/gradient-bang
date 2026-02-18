@@ -104,6 +104,14 @@ export const SliderStory: Story = () => {
         step={1}
         onChange={(value) => console.log(value)}
       />
+      <SliderControl
+        disabled
+        size="lg"
+        min={0}
+        max={0}
+        step={1}
+        onChange={(value) => console.log(value)}
+      />
       <div className="h-40 flex flex-row gap-4">
         <SliderControl
           orientation="vertical"

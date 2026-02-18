@@ -441,6 +441,16 @@ declare global {
     ship_type?: string | null
   }
 
+  export interface TradeHistoryEntry {
+    timestamp?: string
+    sector: number
+    commodity: Resource
+    units: number
+    price_per_unit: number
+    total_price: number
+    is_buy: boolean
+  }
+
   interface LogEntry {
     type: string
     message: string

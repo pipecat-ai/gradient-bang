@@ -7,6 +7,7 @@ import { DataTableScrollArea } from "@/components/DataTable"
 import useGameStore from "@/stores/game"
 import { sumRecordValues } from "@/utils/combat"
 import { formatDateTime24, formatTimeAgoOrDate, formatTimeAgoShort } from "@/utils/date"
+import { formatCurrency } from "@/utils/formatting"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -14,6 +15,8 @@ import { BlankSlateTile } from "../BlankSlates"
 import { PortCodeString } from "../PortCodeString"
 import { Button } from "../primitives/Button"
 import { Card, CardContent } from "../primitives/Card"
+
+import { RESOURCE_SHORT_NAMES } from "@/types/constants"
 
 const columns: ColumnDef<MovementHistory>[] = [
   {
@@ -378,12 +381,118 @@ const columnsSectorHistory: ColumnDef<SectorHistoryRow>[] = [
   {
     accessorKey: "updatedAt",
     header: "Updated",
+    meta: { align: "right" },
     cell: ({ getValue }) => {
       const v = getValue() as string | null
       return v ? formatTimeAgoShort(v) : "—"
     },
   },
 ]
+
+// --- Trade History Table ---
+
+const columnsTradeHistory: ColumnDef<TradeHistoryEntry>[] = [
+  {
+    accessorKey: "is_buy",
+    header: "Type",
+    meta: { align: "center", width: 0, cellClassName: "overflow-visible relative" },
+    cell: ({ getValue }) => {
+      const isBuy = getValue() as boolean
+      return (
+        <>
+          <div
+            className={cn(
+              "absolute inset-y-0 left-0 w-panel-gap",
+              isBuy ? "bg-success" : "bg-warning"
+            )}
+          />
+          <span
+            className={cn(
+              "uppercase",
+              isBuy ? "text-success-foreground" : "text-warning-foreground"
+            )}
+          >
+            {isBuy ? "Buy" : "Sell"}
+          </span>
+        </>
+      )
+    },
+  },
+  {
+    accessorKey: "timestamp",
+    header: "Time",
+    meta: { width: 0 },
+    cell: ({ getValue }) => {
+      const v = getValue() as string | undefined
+      return v ? formatTimeAgoShort(v) : "—"
+    },
+  },
+  {
+    accessorKey: "sector",
+    header: "Sector",
+    meta: { align: "center", width: 0 },
+    cell: ({ getValue }) => <span className="font-bold">{getValue() as number}</span>,
+  },
+  {
+    accessorKey: "commodity",
+    header: "Commodity",
+    meta: { align: "center", width: 0 },
+    cell: ({ getValue }) => RESOURCE_SHORT_NAMES[getValue() as Resource] ?? getValue(),
+  },
+  {
+    accessorKey: "units",
+    header: "Units",
+    meta: { align: "center", width: 0 },
+  },
+  {
+    accessorKey: "price_per_unit",
+    header: "Price",
+    meta: { align: "center", width: 0 },
+  },
+  {
+    accessorKey: "total_price",
+    header: "Total",
+    meta: { align: "right", cellClassName: "overflow-visible" },
+    cell: ({ getValue }) => (
+      <span className="text-foreground font-bold">
+        {formatCurrency(getValue() as number, "standard")} CR
+      </span>
+    ),
+  },
+]
+
+export const TradeHistoryTablePanel = ({ className }: { className?: string }) => {
+  const tradeHistory = useGameStore((state) => state.trade_history)
+
+  const rows = useMemo(() => (tradeHistory ? [...tradeHistory].reverse() : []), [tradeHistory])
+
+  if (rows.length <= 0) {
+    return <BlankSlateTile text="No trade history" />
+  }
+
+  return (
+    <Card className={cn("flex h-full bg-background", className)} size="none">
+      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative px-0!">
+        <DataTableScrollArea
+          data={rows}
+          columns={columnsTradeHistory}
+          getRowClassName={(row) =>
+            cn(
+              "border-l-3",
+              row.is_buy ?
+                "bg-success-background/40 border-l-success"
+              : "bg-warning-background/40 border-l-warning"
+            )
+          }
+          className="text-background h-full"
+          classNames={{ table: "text-xxs" }}
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
+// --- Sector History (Known Ports) Table ---
 
 export const SectorHistoryTablePanel = ({
   className,
