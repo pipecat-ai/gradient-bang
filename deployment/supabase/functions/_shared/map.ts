@@ -26,6 +26,11 @@ export interface LocalMapPort {
   mega?: boolean;
 }
 
+export interface LocalMapSectorGarrison {
+  player_id: string;
+  corporation_id: string | null;
+}
+
 export interface SectorSnapshot {
   id: number;
   region?: string | null;
@@ -50,6 +55,7 @@ export interface LocalMapSector {
   adjacent_sectors?: number[];
   last_visited?: string;
   source?: "player" | "corp" | "both";
+  garrison?: LocalMapSectorGarrison | null;
 }
 
 export interface LocalMapRegionPayload {
@@ -484,8 +490,13 @@ export async function buildSectorSnapshot(
     .eq("in_hyperspace", false);
   const garrisonsQuery = supabase
     .from("garrisons")
-    .select("owner_id, fighters, mode, toll_amount, toll_balance")
-    .eq("sector_id", sectorId);
+    .select(
+      "owner_id, fighters, mode, toll_amount, toll_balance, deployed_at, updated_at",
+    )
+    .eq("sector_id", sectorId)
+    .order("updated_at", { ascending: false })
+    .order("deployed_at", { ascending: false })
+    .order("owner_id", { ascending: true });
 
   const [
     { data: ships, error: shipsError },
@@ -694,10 +705,19 @@ export async function buildSectorSnapshot(
     });
   }
 
+  const selectedGarrison = garrisons?.[0];
+  if ((garrisons?.length ?? 0) > 1) {
+    console.warn("map.buildSectorSnapshot.multiple_garrisons", {
+      sector_id: sectorId,
+      garrison_count: garrisons?.length ?? 0,
+      owners: garrisons?.map((row) => row.owner_id).filter(Boolean),
+    });
+  }
+
   // Build garrison object with is_friendly field
   let garrisonObject: Record<string, unknown> | null = null;
-  if (garrisons && garrisons.length > 0) {
-    const garrison = garrisons[0]; // Use first garrison (one per sector)
+  if (selectedGarrison) {
+    const garrison = selectedGarrison;
     const garrisonOwnerId = garrison.owner_id;
     const currentCharacterCorpId = currentCharacterId
       ? characterCorpMap.get(currentCharacterId)
@@ -904,6 +924,91 @@ async function loadPortCodes(
   }
 
   return result;
+}
+
+async function loadSectorGarrisons(
+  supabase: SupabaseClient,
+  sectorIds: number[],
+): Promise<Record<number, LocalMapSectorGarrison>> {
+  if (sectorIds.length === 0) {
+    return {};
+  }
+
+  const uniqueIds = Array.from(new Set(sectorIds));
+  const { data: garrisonRows, error: garrisonError } = await supabase
+    .from("garrisons")
+    .select("sector_id, owner_id, updated_at, deployed_at, characters(corporation_id)")
+    .in("sector_id", uniqueIds)
+    .order("sector_id", { ascending: true })
+    .order("updated_at", { ascending: false })
+    .order("deployed_at", { ascending: false })
+    .order("owner_id", { ascending: true });
+  if (garrisonError) {
+    throw new Error(`failed to load sector garrisons: ${garrisonError.message}`);
+  }
+
+  const characterCorpMap = new Map<string, string | null>();
+  for (const row of garrisonRows ?? []) {
+    const ownerId = row.owner_id;
+    if (typeof ownerId !== "string" || ownerId.length === 0) {
+      continue;
+    }
+    const charactersValue = (row as { characters?: unknown }).characters;
+    const characterRow = Array.isArray(charactersValue)
+      ? charactersValue[0]
+      : charactersValue;
+    const corporationId =
+      characterRow &&
+      typeof (characterRow as { corporation_id?: unknown }).corporation_id ===
+          "string"
+        ? (characterRow as { corporation_id: string }).corporation_id
+        : null;
+    characterCorpMap.set(ownerId, corporationId);
+  }
+
+  const garrisonBySector: Record<number, LocalMapSectorGarrison> = {};
+  const garrisonCountBySector = new Map<number, number>();
+  for (const row of garrisonRows ?? []) {
+    const sectorIdValue = row.sector_id;
+    const sectorId =
+      typeof sectorIdValue === "number"
+        ? sectorIdValue
+        : typeof sectorIdValue === "string"
+          ? Number(sectorIdValue)
+          : null;
+    if (sectorId === null || !Number.isFinite(sectorId)) {
+      continue;
+    }
+    garrisonCountBySector.set(
+      sectorId,
+      (garrisonCountBySector.get(sectorId) ?? 0) + 1,
+    );
+    if (garrisonBySector[sectorId]) {
+      continue;
+    }
+
+    const ownerId = row.owner_id;
+    if (typeof ownerId !== "string" || ownerId.length === 0) {
+      continue;
+    }
+
+    garrisonBySector[sectorId] = {
+      player_id: ownerId,
+      corporation_id: characterCorpMap.get(ownerId) ?? null,
+    };
+  }
+
+  const duplicateSectors = Array.from(garrisonCountBySector.entries())
+    .filter(([, count]) => count > 1)
+    .map(([sectorId, count]) => ({ sector_id: sectorId, garrison_count: count }))
+    .sort((a, b) => a.sector_id - b.sector_id);
+  if (duplicateSectors.length > 0) {
+    console.warn("map.loadSectorGarrisons.multiple_garrisons", {
+      sectors: duplicateSectors,
+    });
+  }
+
+  return garrisonBySector;
 }
 
 function buildLocalMapPort(
@@ -1326,12 +1431,11 @@ export async function buildLocalMapRegion(
     }
   }
 
-  const portCodes = needsPortCodes
-    ? await loadPortCodes(supabase, visitedSectorIds)
-    : {};
-  const universeMeta = needsUniverseMeta
-    ? await loadUniverseMeta(supabase)
-    : null;
+  const [portCodes, universeMeta, garrisonsBySector] = await Promise.all([
+    needsPortCodes ? loadPortCodes(supabase, visitedSectorIds) : Promise.resolve({}),
+    needsUniverseMeta ? loadUniverseMeta(supabase) : Promise.resolve(null),
+    loadSectorGarrisons(supabase, visitedSectorIds),
+  ]);
 
   const resultSectors: LocalMapSector[] = [];
   const disconnectedSet = new Set(disconnectedSectors);
@@ -1376,6 +1480,7 @@ export async function buildLocalMapRegion(
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
         last_visited: knowledgeEntry?.last_visited,
         source: knowledgeEntry?.source,
+        garrison: garrisonsBySector[sectorId] ?? null,
       });
     } else {
       const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
@@ -1539,12 +1644,11 @@ export async function buildLocalMapRegionByBounds(
     }
   }
 
-  const portCodes = needsPortCodes
-    ? await loadPortCodes(supabase, visitedSectorIds)
-    : {};
-  const universeMeta = needsUniverseMeta
-    ? await loadUniverseMeta(supabase)
-    : null;
+  const [portCodes, universeMeta, garrisonsBySector] = await Promise.all([
+    needsPortCodes ? loadPortCodes(supabase, visitedSectorIds) : Promise.resolve({}),
+    needsUniverseMeta ? loadUniverseMeta(supabase) : Promise.resolve(null),
+    loadSectorGarrisons(supabase, visitedSectorIds),
+  ]);
 
   const resultSectors: LocalMapSector[] = [];
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
@@ -1586,6 +1690,7 @@ export async function buildLocalMapRegionByBounds(
         adjacent_sectors: adjacent,
         last_visited: knowledgeEntry?.last_visited,
         source: knowledgeEntry?.source,
+        garrison: garrisonsBySector[sectorId] ?? null,
       });
     } else {
       const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
