@@ -121,7 +121,7 @@ from gradientbang.utils.weave_tracing import init_weave, traced
 
 load_dotenv(dotenv_path=".env.bot")
 
-DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
+DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash"
 # DEFAULT_GOOGLE_MODEL = "gemini-3-flash-preview"
 DEFAULT_THINKING_BUDGET = 2048
 DEFAULT_INCLUDE_THOUGHTS = True
@@ -130,6 +130,7 @@ ASYNC_COMPLETION_TIMEOUT = 5.0  # Timeout for waiting for async tool completion 
 MAX_NO_TOOL_NUDGES = 3  # Max times to nudge LLM when it responds without tool calls
 NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
 TASK_LOG_TTL_SECONDS = 15 * 60
+PIPELINE_GRACEFUL_SHUTDOWN_TIMEOUT = 3.0
 
 # Tools that have async completion events - inference is deferred until the event arrives.
 # See module docstring for full explanation of this pattern.
@@ -232,6 +233,10 @@ class _ResponseStateTracker(FrameProcessor):
         # Output accumulated text to callback
         if self._accumulated_text:
             self._agent._output(self._accumulated_text, TaskOutputType.MESSAGE)
+
+        # Ignore trailing model output once task is terminal.
+        if self._agent.finished or self._agent.cancelled:
+            return
 
         # Queue inference if function calls were made
         if self._has_function_calls:
@@ -585,6 +590,34 @@ class TaskAgent:
         if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
             return
         event_name = event.get("event_name")
+        event_task_id = self._extract_event_task_id(event)
+
+        if event_task_id and not self._is_active_task_id(event_task_id):
+            logger.debug(
+                "Ignoring {} for non-active task event_task_id={} active_task_id={}",
+                event_name,
+                event_task_id,
+                self._task_id,
+            )
+            return
+
+        if event_name == "task.finish":
+            if not event_task_id:
+                logger.debug(
+                    "Ignoring task.finish without task_id active_task_id={}",
+                    self._task_id,
+                )
+                return
+
+            event_task_status = self._extract_event_task_status(event)
+            if event_task_status in {"pending", "started", "running", "in_progress"}:
+                logger.debug(
+                    "Ignoring task.finish with non-terminal status={} task_id={}",
+                    event_task_status,
+                    event_task_id,
+                )
+                return
+
         summary = event.get("summary")
         response_data = summary or event.get("payload")
         serialized_payload = self._serialize_output(response_data)
@@ -635,6 +668,23 @@ class TaskAgent:
             error_text = self._timestamped_text(error_message)
             self._output(error_text, TaskOutputType.ERROR)
 
+        # task.finish is terminal for the task agent. Do not schedule another
+        # inference cycle from this event; instead, close out the pipeline.
+        if event_name == "task.finish":
+            if not self.finished:
+                self.finished = True
+            if not self.finished_message and isinstance(response_data, str):
+                self.finished_message = response_data.strip() or None
+
+            self._quench_inference_state()
+
+            if self._active_pipeline_task and not self._active_pipeline_task.has_finished():
+                try:
+                    await self._active_pipeline_task.queue_frames([EndFrame()])
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to queue EndFrame after task.finish event: {}", exc)
+            return
+
         reason = event_name or "unknown"
         self._record_inference_reason(reason)
 
@@ -679,6 +729,55 @@ class TaskAgent:
             return
         if not self._llm_inflight:
             self._start_inference_watchdog()
+
+    @staticmethod
+    def _extract_event_task_id(event: Dict[str, Any]) -> Optional[str]:
+        top_level_task_id = event.get("task_id")
+        if isinstance(top_level_task_id, str):
+            cleaned = top_level_task_id.strip()
+            if cleaned:
+                return cleaned
+
+        payload = event.get("payload")
+        if isinstance(payload, dict):
+            payload_task_id = payload.get("task_id") or payload.get("__task_id")
+            if isinstance(payload_task_id, str):
+                cleaned = payload_task_id.strip()
+                if cleaned:
+                    return cleaned
+
+        return None
+
+    def _is_active_task_id(self, event_task_id: str) -> bool:
+        if not self._task_id:
+            return False
+        active_task_id = self._task_id.strip()
+        if not active_task_id:
+            return False
+        return event_task_id == active_task_id
+
+    @staticmethod
+    def _extract_event_task_status(event: Dict[str, Any]) -> Optional[str]:
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        status = payload.get("task_status") or payload.get("status")
+        if not isinstance(status, str):
+            return None
+        cleaned = status.strip().lower()
+        return cleaned or None
+
+    def _quench_inference_state(self) -> None:
+        """Clear all pending inference state once task completion is terminal."""
+        self._inference_reasons.clear()
+        self._cancel_inference_watchdog()
+        if self._no_tool_watchdog_handle:
+            self._no_tool_watchdog_handle.cancel()
+            self._no_tool_watchdog_handle = None
+        if self._completion_event_timeout:
+            self._completion_event_timeout.cancel()
+            self._completion_event_timeout = None
+        self._awaiting_completion_event = None
 
     def _log_error_event(self, event: Dict[str, Any]) -> None:
         log_path = Path(os.getenv("ERROR_EVENT_LOG", "logs/error_events.jsonl"))
@@ -883,8 +982,24 @@ class TaskAgent:
                     logger.warning(f"Failed to emit task.finish (cancelled): {exc}")
             # Clear task_id from game_client so subsequent calls aren't tagged
             self.game_client.current_task_id = None
-            if self._active_pipeline_task:
-                await self._active_pipeline_task.cancel()
+            if self._active_pipeline_task and not self._active_pipeline_task.has_finished():
+                if self.finished and not self.cancelled:
+                    # The `finished` tool path already pushes EndFrame; let it
+                    # drain naturally before forcing a cancellation.
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(runner_task),
+                            timeout=PIPELINE_GRACEFUL_SHUTDOWN_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "TaskAgent {} graceful pipeline shutdown timed out after {}s; forcing cancel.",
+                            self._task_id,
+                            PIPELINE_GRACEFUL_SHUTDOWN_TIMEOUT,
+                        )
+                        await self._active_pipeline_task.cancel()
+                else:
+                    await self._active_pipeline_task.cancel()
             await runner_task
             self._active_pipeline_task = None
             self._cancel_inference_watchdog()
@@ -1021,6 +1136,7 @@ class TaskAgent:
             self.finished = True
             self.finished_message = limit_message
             self._output(self._timestamped_text(limit_message), TaskOutputType.FINISHED)
+            self._quench_inference_state()
 
             properties = FunctionCallResultProperties(run_llm=False)
             await params.result_callback({"error": limit_message}, properties=properties)
@@ -1038,7 +1154,16 @@ class TaskAgent:
                 except Exception as exc:
                     logger.warning(f"Failed to emit task.finish event: {exc}")
 
-            await params.llm.push_frame(EndFrame())
+            if self._active_pipeline_task and not self._active_pipeline_task.has_finished():
+                try:
+                    await self._active_pipeline_task.queue_frames([EndFrame()])
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to queue EndFrame after max_iterations terminal: {}", exc)
+            else:
+                try:
+                    await params.llm.push_frame(EndFrame())
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to push EndFrame after max_iterations terminal: {}", exc)
             return
 
         if tool_name == "finished":
@@ -1046,6 +1171,7 @@ class TaskAgent:
             self.finished_message = arguments.get("message", "Done")
             finished_text = self._timestamped_text(self.finished_message)
             self._output(finished_text, TaskOutputType.FINISHED)
+            self._quench_inference_state()
 
             properties = FunctionCallResultProperties(run_llm=False)
             await params.result_callback(
@@ -1067,7 +1193,16 @@ class TaskAgent:
                 except Exception as exc:
                     logger.warning(f"Failed to emit task.finish event: {exc}")
 
-            await params.llm.push_frame(EndFrame())
+            if self._active_pipeline_task and not self._active_pipeline_task.has_finished():
+                try:
+                    await self._active_pipeline_task.queue_frames([EndFrame()])
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to queue EndFrame after finished tool: {}", exc)
+            else:
+                try:
+                    await params.llm.push_frame(EndFrame())
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to push EndFrame after finished tool: {}", exc)
             return
 
         self._emit_step()
@@ -1285,6 +1420,15 @@ class TaskAgent:
 
     async def _schedule_pending_inference(self) -> None:
         if self._llm_inflight:
+            return
+        if self.finished or self.cancelled:
+            self._inference_reasons.clear()
+            return
+        if self._tool_call_in_progress:
+            logger.debug(
+                "Deferring inference scheduling while tool call is in progress pending={}",
+                self._inference_reasons,
+            )
             return
         if not self._inference_reasons:
             return

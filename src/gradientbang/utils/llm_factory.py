@@ -11,7 +11,7 @@ Environment Variables:
 
     # Task Agent LLM (TaskAgent - with thinking mode)
     TASK_LLM_PROVIDER: google, anthropic, openai (default: google)
-    TASK_LLM_MODEL: Model name (default: gemini-2.5-flash-preview-09-2025)
+    TASK_LLM_MODEL: Model name (default: gemini-2.5-flash)
     TASK_LLM_THINKING_BUDGET: Token budget for thinking (default: 2048)
     TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
@@ -28,6 +28,7 @@ Environment Variables:
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -37,6 +38,33 @@ from loguru import logger
 from pipecat.services.llm_service import LLMService
 
 from gradientbang.utils.gemini_adapter import GradientBangGeminiLLMAdapter
+
+
+class _GoogleGenAINonTextFunctionCallFilter(logging.Filter):
+    """Suppress only the known non-text warning for function_call parts.
+
+    We intentionally process function_call parts from candidates.content.parts.
+    Keep other google-genai warnings visible.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if "there are non-text parts in the response" not in message:
+            return True
+        return "['function_call']" not in message
+
+
+_google_genai_filter_installed = False
+
+
+def _install_google_genai_warning_filter() -> None:
+    global _google_genai_filter_installed
+    if _google_genai_filter_installed:
+        return
+
+    google_logger = logging.getLogger("google_genai.types")
+    google_logger.addFilter(_GoogleGenAINonTextFunctionCallFilter())
+    _google_genai_filter_installed = True
 
 
 class LLMProvider(Enum):
@@ -173,6 +201,8 @@ def _create_google_service(
     function_call_timeout_secs: Optional[float] = None,
 ) -> LLMService:
     """Create Google (Gemini) LLM service."""
+    _install_google_genai_warning_filter()
+
     from pipecat.services.google.llm import GoogleLLMService
 
     class GradientBangGoogleLLMService(GoogleLLMService):
@@ -350,7 +380,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
 
     Environment Variables:
         TASK_LLM_PROVIDER: google, anthropic, openai (default: google)
-        TASK_LLM_MODEL: Model name (default: gemini-2.5-flash-preview-09-2025)
+        TASK_LLM_MODEL: Model name (default: gemini-2.5-flash)
         TASK_LLM_THINKING_BUDGET: Token budget for thinking (default: 2048)
         TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
@@ -366,7 +396,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
 
     # Default models per provider (prefer preview/reasoning models)
     default_models = {
-        LLMProvider.GOOGLE: "gemini-2.5-flash-preview-09-2025",
+        LLMProvider.GOOGLE: "gemini-2.5-flash",
         LLMProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
         LLMProvider.OPENAI: "gpt-4.1",
     }

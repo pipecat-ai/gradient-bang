@@ -42,6 +42,8 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.utils.time import time_now_iso8601
@@ -222,18 +224,30 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             user_mute_strategies=[
                 TextInputBypassFirstBotMuteStrategy(),
             ],
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            user_turn_strategies=UserTurnStrategies(
+                stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())]
+            ),
         ),
     )
+    user_aggregator = context_aggregator.user()
+    # Pipecat 0.0.102 emits UserMuteStartedFrame when mute state flips.
+    # In our parallel pipeline this can happen before StartFrame reaches branch
+    # sources, triggering startup errors. Seed initial mute state to avoid an
+    # early transition/frame emission before startup completes.
+    if hasattr(user_aggregator, "_user_is_muted"):
+        user_aggregator._user_is_muted = True
+
     user_mute_state = {"muted": True}
     user_unmuted_event = asyncio.Event()
 
-    @context_aggregator.user().event_handler("on_user_mute_started")
+    @user_aggregator.event_handler("on_user_mute_started")
     async def on_user_mute_started(aggregator):
         logger.info("User input muted")
         user_mute_state["muted"] = True
         user_unmuted_event.clear()
 
-    @context_aggregator.user().event_handler("on_user_mute_stopped")
+    @user_aggregator.event_handler("on_user_mute_stopped")
     async def on_user_mute_stopped(aggregator):
         logger.info("User input unmuted")
         user_mute_state["muted"] = False
@@ -281,7 +295,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             stt,
             # rtvi,  # Add RTVI processor for transcription events
             pre_llm_gate,
-            context_aggregator.user(),
+            user_aggregator,
             ParallelPipeline(
                 # Main branch
                 [
@@ -315,6 +329,34 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         rtvi_processor=rtvi,
         idle_timeout_frames=(BotSpeakingFrame, UserStartedSpeakingFrame, TaskActivityFrame),
     )
+
+    runner: PipelineRunner | None = None
+    shutdown_lock = asyncio.Lock()
+    shutdown_started = False
+
+    async def _shutdown(reason: str) -> None:
+        nonlocal shutdown_started
+        async with shutdown_lock:
+            if shutdown_started:
+                return
+            shutdown_started = True
+
+        logger.info(f"Shutting down bot pipeline ({reason})")
+        try:
+            await task.cancel(reason=reason)
+        except Exception as exc:
+            logger.debug(f"Task cancel during shutdown raised: {exc}")
+
+        if runner is not None:
+            try:
+                await runner.cancel()
+            except Exception as exc:
+                logger.debug(f"Runner cancel during shutdown raised: {exc}")
+
+        try:
+            await task_manager.close()
+        except Exception as exc:
+            logger.error(f"Task manager close during shutdown failed: {exc}")
 
     # Patch RTVI observer to ignore LLM frames from UI branch sources.
     # This prevents UI agent inference from leaking bot-llm-text, user-llm-text,
@@ -728,8 +770,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     async def on_client_disconnected(transport, client):
         """Handle disconnection."""
         logger.info("Client disconnected")
-        await task.cancel()
-        await task_manager.close()
+        await _shutdown("client disconnected")
         logger.info("Bot stopped")
 
     # Create runner and run the task
@@ -738,8 +779,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         logger.info("Starting pipeline runner…")
         await runner.run(task)
         logger.info("Pipeline runner finished")
+    except asyncio.CancelledError:
+        await _shutdown("run_bot cancelled")
+        raise
     except Exception as e:
         logger.exception(f"Pipeline runner error: {e}")
+        await _shutdown("pipeline runner error")
+    finally:
+        await _shutdown("run_bot exit")
 
 
 async def bot(runner_args: RunnerArguments):
@@ -751,16 +798,12 @@ async def bot(runner_args: RunnerArguments):
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
             audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
-            turn_analyzer=LocalSmartTurnAnalyzerV3(),
         ),
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
             audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
-            turn_analyzer=LocalSmartTurnAnalyzerV3(),
         ),
     }
 

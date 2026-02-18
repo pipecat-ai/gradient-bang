@@ -4,6 +4,7 @@ import { RTVIEvent } from "@pipecat-ai/client-js"
 import { useRTVIClientEvent } from "@pipecat-ai/client-react"
 
 import { filterEmptyMessages, mergeMessages, sortByCreatedAt } from "@/stores/chatSlice"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
 export type TextMode = "llm" | "tts"
@@ -16,6 +17,7 @@ interface Props {
 export const useChat = ({ textMode = "llm" }: Props = {}) => {
   const userStoppedTimeout = useRef<ReturnType<typeof setTimeout>>(undefined)
   const assistantStreamResetRef = useRef<number>(0)
+  const hasReceivedInitialUserUnmute = useRef(false)
 
   // Get the raw state from the store using separate selectors
   const messages = useGameStore.use.chatMessages()
@@ -30,9 +32,16 @@ export const useChat = ({ textMode = "llm" }: Props = {}) => {
   const upsertUserTranscript = useGameStore.use.upsertUserTranscript()
   const setBotHasSpoken = useGameStore.use.setBotHasSpoken()
   const addToolCallMessage = useGameStore.use.addToolCallMessage()
+  const playSound = useAudioStore.use.playSound()
 
   useRTVIClientEvent(RTVIEvent.Connected, () => {
+    hasReceivedInitialUserUnmute.current = false
     clearMessages()
+  })
+
+  useRTVIClientEvent(RTVIEvent.UserMuteStopped, () => {
+    hasReceivedInitialUserUnmute.current = true
+    playSound("chime7", { volume: 0.2 })
   })
 
   useRTVIClientEvent(RTVIEvent.ServerMessage, (data) => {
@@ -97,6 +106,10 @@ export const useChat = ({ textMode = "llm" }: Props = {}) => {
   })
 
   useRTVIClientEvent(RTVIEvent.UserTranscript, (data) => {
+    if (!hasReceivedInitialUserUnmute.current) {
+      return
+    }
+
     const text = data.text ?? ""
     const final = Boolean(data.final)
     upsertUserTranscript(text, final)
