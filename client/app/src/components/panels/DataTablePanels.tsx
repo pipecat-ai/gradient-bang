@@ -421,7 +421,7 @@ const columnsTradeHistory: ColumnDef<TradeHistoryEntry>[] = [
   {
     accessorKey: "timestamp",
     header: "Time",
-    meta: { width: 0 },
+    meta: { width: "20%" },
     cell: ({ getValue }) => {
       const v = getValue() as string | undefined
       return v ? formatTimeAgoShort(v) : "—"

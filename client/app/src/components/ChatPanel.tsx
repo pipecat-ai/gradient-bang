@@ -120,7 +120,7 @@ export const ChatPanel = () => {
         <ToggleControl size="sm" checked={showSystem} onCheckedChange={setShowSystem} />
       </div>
       <div className="relative flex-1 mb-0 text-foreground">
-        <div className="absolute bottom-0 inset-x-0 h-[60px] z-10 pointer-events-none pl-ui-xs">
+        <div className="absolute bottom-0 inset-x-0 h-15 z-10 pointer-events-none pl-ui-xs">
           <div className="relative inline-block">
             <ShipOSDVisualizer
               barLineCap="square"

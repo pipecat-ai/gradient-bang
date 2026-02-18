@@ -66,12 +66,7 @@ export const TradePanelPortExchange = ({
                     )}
                   >
                     {ICON_MAP[good as Resource]}
-                    <span
-                      className={cn(
-                        "text-xxs uppercase",
-                        isBuy ? "text-success-foreground" : "text-warning-foreground"
-                      )}
-                    >
+                    <span className="text-xxs uppercase text-foreground font-bold">
                       {RESOURCE_VERBOSE_NAMES[good as Resource]}
                     </span>
                     <Popover>
@@ -183,7 +178,7 @@ export const TradePanelOrderForm = ({ commodity, port }: { commodity: Resource; 
         <span
           className={cn(
             "text-xxs font-bold uppercase",
-            portBuys ? "text-success-foreground" : "text-warning-foreground"
+            portBuys ? "text-warning-foreground" : "text-success-foreground"
           )}
         >
           {portBuys ? "SELL" : "BUY"} @ {pricePerUnit} CR
@@ -266,73 +261,70 @@ export const TradePanel = () => {
 
   return (
     <div className="w-full h-full" onPointerEnter={handleIntent} onFocusCapture={handleIntent}>
-    <RHSPanelContent>
-      <Card size="sm" className="border-0 border-b">
-        <CardHeader>
-          <CardTitle>Port Info</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-ui-sm pr-0">
-          {!port ?
-            <BlankSlateTile text="This sector does not have a port" />
-          : <>
-              <RHSPanelList>
-                <RHSPanelListItem label="Code" value={port?.code} Icon={LetterCirclePIcon} />
-                <RHSPanelListItem label="Class" value={port?.port_class} Icon={RankingIcon} />
-                <RHSPanelListItem
-                  label="Refuel Station"
-                  disabled={!port?.mega}
-                  value={port?.mega ? "Yes" : "No"}
-                  Icon={ChargingStationIcon}
-                  valueClassName="text-terminal"
-                />
-                <RHSPanelListItem
-                  disabled={!port?.mega}
-                  label="Shipyard"
-                  value={port?.mega ? "Yes" : "No"}
-                  Icon={ShippingContainerIcon}
-                  onClick={() => setActiveSubPanel("ship-catalog")}
-                />
-              </RHSPanelList>
-            </>
-          }
-        </CardContent>
-      </Card>
-
-      {port && (
-        <Card size="sm" className="border-0 border-y">
+      <RHSPanelContent>
+        <Card size="sm" className="border-0 border-b">
           <CardHeader>
-            <CardTitle>Trade</CardTitle>
+            <CardTitle>Port Info</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-ui-sm">
-            <TradePanelPortExchange port={port as Port} history={last_observed_data} />
+          <CardContent className="flex flex-col gap-ui-sm pr-0">
+            {!port ?
+              <BlankSlateTile text="This sector does not have a port" />
+            : <>
+                <RHSPanelList>
+                  <RHSPanelListItem label="Code" value={port?.code} Icon={LetterCirclePIcon} />
+                  <RHSPanelListItem label="Class" value={port?.port_class} Icon={RankingIcon} />
+                  <RHSPanelListItem
+                    label="Refuel Station"
+                    disabled={!port?.mega}
+                    value={port?.mega ? "Yes" : "No"}
+                    Icon={ChargingStationIcon}
+                    valueClassName={port?.mega ? "text-terminal" : undefined}
+                  />
+                  <RHSPanelListItem
+                    disabled={!port?.mega}
+                    label="Shipyard"
+                    value={port?.mega ? "Yes" : "No"}
+                    Icon={ShippingContainerIcon}
+                    onClick={() => setActiveSubPanel("ship-catalog")}
+                  />
+                </RHSPanelList>
+              </>
+            }
           </CardContent>
         </Card>
-      )}
 
-      <Card size="sm" className="border-0 border-y">
-        <CardHeader>
-          <CardTitle>Known Ports</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-ui-sm pr-0">
-          <SectorHistoryTablePanel sectorId={sector?.id} className="max-h-70" />
-        </CardContent>
-      </Card>
+        {port && (
+          <Card size="sm" className="border-0 border-y">
+            <CardContent className="flex flex-col gap-ui-sm">
+              <TradePanelPortExchange port={port as Port} history={last_observed_data} />
+            </CardContent>
+          </Card>
+        )}
 
-      <Card size="sm" className="border-x-0 border-y flex-1 shrink-0">
-        <CardHeader>
-          <CardTitle>Trade History</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-row gap-ui-sm pr-0">
-          <RHSPanelList>
-            <TradeHistoryTablePanel className="max-h-70" />
-          </RHSPanelList>
-        </CardContent>
-      </Card>
+        <Card size="sm" className="border-x-0 border-y flex-1 shrink-0">
+          <CardHeader>
+            <CardTitle>Trade History</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-row gap-ui-sm pr-0">
+            <RHSPanelList>
+              <TradeHistoryTablePanel className="max-h-70" />
+            </RHSPanelList>
+          </CardContent>
+        </Card>
 
-      <RHSSubPanel>
-        <ShipCatalogue />
-      </RHSSubPanel>
-    </RHSPanelContent>
+        <Card size="sm" className="border-0 border-y">
+          <CardHeader>
+            <CardTitle>Known Ports</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-ui-sm pr-0">
+            <SectorHistoryTablePanel sectorId={sector?.id} className="max-h-70" />
+          </CardContent>
+        </Card>
+
+        <RHSSubPanel>
+          <ShipCatalogue />
+        </RHSSubPanel>
+      </RHSPanelContent>
     </div>
   )
 }
