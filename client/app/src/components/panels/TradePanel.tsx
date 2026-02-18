@@ -232,6 +232,13 @@ export const TradePanel = () => {
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
   const knownPorts = useGameStore((state) => state.known_ports)
   const { isConnected } = usePipecatConnectionState()
+
+  const handleIntent = useCallback(() => {
+    const sector = useGameStore.getState().sector
+    if (sector?.port) {
+      useGameStore.getState().setLookAtTarget("port-" + sector.id.toString())
+    }
+  }, [])
   const lastFetchRef = useRef<{ sectorId: number | undefined; at: number }>({
     sectorId: undefined,
     at: 0,
@@ -258,6 +265,7 @@ export const TradePanel = () => {
   }, [isConnected, sector?.id, knownPorts])
 
   return (
+    <div className="w-full h-full" onPointerEnter={handleIntent} onFocusCapture={handleIntent}>
     <RHSPanelContent>
       <Card size="sm" className="border-0 border-b">
         <CardHeader>
@@ -325,5 +333,6 @@ export const TradePanel = () => {
         <ShipCatalogue />
       </RHSSubPanel>
     </RHSPanelContent>
+    </div>
   )
 }
