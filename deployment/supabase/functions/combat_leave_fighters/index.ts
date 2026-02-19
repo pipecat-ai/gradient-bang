@@ -36,7 +36,11 @@ import {
   loadCharacterNames,
   loadGarrisonCombatants,
 } from "../_shared/combat_participants.ts";
-import { nowIso, type CombatEncounterState } from "../_shared/combat_types.ts";
+import {
+  nowIso,
+  type CombatEncounterState,
+  type CombatantState,
+} from "../_shared/combat_types.ts";
 import { getEffectiveCorporationId } from "../_shared/corporations.ts";
 import {
   loadCombatForSector,
@@ -50,6 +54,7 @@ import {
 import { computeNextCombatDeadline } from "../_shared/combat_resolution.ts";
 import { computeEventRecipients } from "../_shared/visibility.ts";
 import { loadUniverseMeta, isFedspaceSector } from "../_shared/fedspace.ts";
+import { runLeaveFightersTransaction } from "../_shared/garrison_transactions.ts";
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -247,100 +252,15 @@ async function handleCombatLeaveFighters(params: {
     throw err;
   }
 
-  // Check ship has enough fighters
-  const currentFighters = ship.current_fighters ?? 0;
-  if (quantity > currentFighters) {
-    console.log(
-      `combat_leave_fighters.insufficient_fighters ship=${ship.ship_id} has=${currentFighters} requested=${quantity}`,
-    );
-    const err = new Error(
-      `Insufficient fighters: ship has ${currentFighters}, requested ${quantity}`,
-    ) as Error & { status?: number };
-    err.status = 400;
-    throw err;
-  }
-
-  // Check for other players' garrisons in this sector
-  const { data: existingGarrisons, error: garrisonFetchError } = await supabase
-    .from("garrisons")
-    .select("owner_id, fighters, mode, toll_amount, toll_balance, deployed_at")
-    .eq("sector_id", sector);
-
-  if (garrisonFetchError) {
-    console.error("combat_leave_fighters.garrison_fetch", garrisonFetchError);
-    const err = new Error("Failed to check existing garrisons") as Error & {
-      status?: number;
-    };
-    err.status = 500;
-    throw err;
-  }
-
-  // Find existing garrison from character
-  const ownGarrison = existingGarrisons?.find(
-    (g) => g.owner_id === characterId,
-  );
-  const otherGarrison = existingGarrisons?.find(
-    (g) => g.owner_id !== characterId,
-  );
-
-  if (otherGarrison) {
-    const err = new Error(
-      "Sector already contains another player's garrison; clear it before deploying your fighters.",
-    ) as Error & { status?: number };
-    err.status = 409;
-    throw err;
-  }
-
-  // Calculate new total fighters
-  const existingFighters = ownGarrison?.fighters ?? 0;
-  const newTotal = existingFighters + quantity;
-  const existingTollBalance = ownGarrison?.toll_balance ?? 0;
-
-  // Update ship fighters
-  const newShipFighters = currentFighters - quantity;
-  const { error: shipUpdateError } = await supabase
-    .from("ship_instances")
-    .update({
-      current_fighters: newShipFighters,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("ship_id", ship.ship_id);
-
-  if (shipUpdateError) {
-    console.error("combat_leave_fighters.ship_update", shipUpdateError);
-    const err = new Error("Failed to update ship fighters") as Error & {
-      status?: number;
-    };
-    err.status = 500;
-    throw err;
-  }
-
-  // Upsert garrison
-  const { data: updatedGarrison, error: garrisonUpsertError } = await supabase
-    .from("garrisons")
-    .upsert(
-      {
-        sector_id: sector,
-        owner_id: characterId,
-        fighters: newTotal,
-        mode,
-        toll_amount: effectiveTollAmount,
-        toll_balance: existingTollBalance,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "sector_id,owner_id" },
-    )
-    .select()
-    .single();
-
-  if (garrisonUpsertError || !updatedGarrison) {
-    console.error("combat_leave_fighters.garrison_upsert", garrisonUpsertError);
-    const err = new Error("Failed to deploy garrison") as Error & {
-      status?: number;
-    };
-    err.status = 500;
-    throw err;
-  }
+  const { newShipFighters, garrison: updatedGarrison } =
+    await runLeaveFightersTransaction(pg, {
+      sectorId: sector,
+      characterId,
+      shipId: ship.ship_id,
+      quantity,
+      mode,
+      tollAmount: effectiveTollAmount,
+    });
 
   // Build garrison payload for events
   const garrisonPayload = {

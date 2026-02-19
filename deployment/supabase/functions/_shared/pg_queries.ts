@@ -6,7 +6,12 @@
 import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 import { RATE_LIMITS } from "./constants.ts";
 import type { CharacterRow, ShipRow, ShipDefinitionRow } from "./status.ts";
-import type { MapKnowledge, WarpEdge, SectorSnapshot } from "./map.ts";
+import type {
+  MapKnowledge,
+  WarpEdge,
+  SectorSnapshot,
+  LocalMapSectorGarrison,
+} from "./map.ts";
 import {
   parseWarpEdges,
   normalizeMapKnowledge,
@@ -729,6 +734,7 @@ export async function pgBuildSectorSnapshot(
     port_json: string | null;
     ships_json: string | null;
     garrisons_json: string | null;
+    garrison_count: number | null;
     occupants_json: string | null;
     corps_json: string | null;
   }>(
@@ -761,10 +767,20 @@ export async function pgBuildSectorSnapshot(
       WHERE current_sector = $1 AND in_hyperspace = false
     ),
     garrisons_data AS (
-      SELECT owner_id, fighters::int, mode,
-             toll_amount::numeric, toll_balance::numeric
+      SELECT owner_id,
+             fighters::int,
+             mode,
+             toll_amount::float8 AS toll_amount,
+             toll_balance::float8 AS toll_balance,
+             deployed_at,
+             updated_at
       FROM garrisons
       WHERE sector_id = $1
+      ORDER BY updated_at DESC NULLS LAST, deployed_at DESC NULLS LAST, owner_id ASC
+    ),
+    garrison_count_data AS (
+      SELECT COUNT(*)::int AS garrison_count
+      FROM garrisons_data
     ),
     occupants_data AS (
       SELECT c.character_id, c.name, c.first_visit, c.player_metadata,
@@ -804,6 +820,7 @@ export async function pgBuildSectorSnapshot(
       (SELECT row_to_json(p) FROM port_data p) as port_json,
       (SELECT COALESCE(json_agg(s), '[]'::json) FROM ships_data s) as ships_json,
       (SELECT COALESCE(json_agg(g), '[]'::json) FROM garrisons_data g) as garrisons_json,
+      (SELECT garrison_count FROM garrison_count_data) as garrison_count,
       (SELECT COALESCE(json_agg(json_build_object(
         'character_id', o.character_id,
         'name', o.name,
@@ -861,6 +878,8 @@ export async function pgBuildSectorSnapshot(
     mode: string;
     toll_amount: number;
     toll_balance: number;
+    deployed_at: string | null;
+    updated_at?: string | null;
   };
   type OccupantJson = {
     character_id: string;
@@ -893,6 +912,17 @@ export async function pgBuildSectorSnapshot(
       ? JSON.parse(row.garrisons_json)
       : row.garrisons_json
     : [];
+  const garrisonCount =
+    typeof row.garrison_count === "number" && Number.isFinite(row.garrison_count)
+      ? row.garrison_count
+      : garrisons.length;
+  if (garrisonCount > 1) {
+    console.warn("pgBuildSectorSnapshot.multiple_garrisons", {
+      sector_id: sectorId,
+      garrison_count: garrisonCount,
+      owners: garrisons.map((garrison) => garrison.owner_id).filter(Boolean),
+    });
+  }
   const occupants: OccupantJson[] = row.occupants_json
     ? typeof row.occupants_json === "string"
       ? JSON.parse(row.occupants_json)
@@ -1350,6 +1380,60 @@ async function pgLoadPortCodes(
   return portCodes;
 }
 
+async function pgLoadSectorGarrisons(
+  pg: Client,
+  sectorIds: number[],
+): Promise<Record<number, LocalMapSectorGarrison>> {
+  if (sectorIds.length === 0) {
+    return {};
+  }
+
+  const uniqueIds = Array.from(new Set(sectorIds));
+  const result = await pg.queryObject<{
+    sector_id: number;
+    player_id: string;
+    corporation_id: string | null;
+    garrison_count: number;
+  }>(
+    `WITH ranked AS (
+      SELECT
+        g.sector_id::int AS sector_id,
+        g.owner_id::text AS player_id,
+        c.corporation_id::text AS corporation_id,
+        COUNT(*) OVER (PARTITION BY g.sector_id) AS garrison_count,
+        ROW_NUMBER() OVER (
+          PARTITION BY g.sector_id
+          ORDER BY g.updated_at DESC NULLS LAST, g.deployed_at DESC NULLS LAST, g.owner_id ASC
+        ) AS row_num
+      FROM garrisons g
+      LEFT JOIN characters c ON c.character_id = g.owner_id
+      WHERE g.sector_id = ANY($1::int[])
+    )
+    SELECT sector_id, player_id, corporation_id, garrison_count::int
+    FROM ranked
+    WHERE row_num = 1`,
+    [uniqueIds],
+  );
+
+  const garrisonBySector: Record<number, LocalMapSectorGarrison> = {};
+  const duplicateSectors: number[] = [];
+  for (const row of result.rows) {
+    if (row.garrison_count > 1) {
+      duplicateSectors.push(row.sector_id);
+    }
+    garrisonBySector[row.sector_id] = {
+      player_id: row.player_id,
+      corporation_id: row.corporation_id ?? null,
+    };
+  }
+  if (duplicateSectors.length > 0) {
+    console.warn("pgLoadSectorGarrisons.multiple_garrisons", {
+      sector_ids: Array.from(new Set(duplicateSectors)).sort((a, b) => a - b),
+    });
+  }
+  return garrisonBySector;
+}
+
 interface LocalMapSector {
   id: number;
   visited: boolean;
@@ -1361,6 +1445,7 @@ interface LocalMapSector {
   adjacent_sectors: number[];
   last_visited?: string;
   source?: "player" | "corp" | "both";
+  garrison?: LocalMapSectorGarrison | null;
 }
 
 interface LocalMapRegionPayload {
@@ -1679,10 +1764,11 @@ export async function pgBuildLocalMapRegion(
     }
   }
 
-  const portCodes = needsPortCodes
-    ? await pgLoadPortCodes(pg, visitedSectorIds)
-    : {};
-  const universeMeta = needsUniverseMeta ? await pgLoadUniverseMeta(pg) : null;
+  const [portCodes, universeMeta, garrisonsBySector] = await Promise.all([
+    needsPortCodes ? pgLoadPortCodes(pg, visitedSectorIds) : Promise.resolve({}),
+    needsUniverseMeta ? pgLoadUniverseMeta(pg) : Promise.resolve(null),
+    pgLoadSectorGarrisons(pg, visitedSectorIds),
+  ]);
 
   const resultSectors: LocalMapSector[] = [];
   const disconnectedSet = new Set(disconnectedSectors);
@@ -1727,6 +1813,7 @@ export async function pgBuildLocalMapRegion(
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
         last_visited: knowledgeEntry?.last_visited,
         source: knowledgeEntry?.source,
+        garrison: garrisonsBySector[sectorId] ?? null,
       });
     } else {
       const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);

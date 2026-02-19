@@ -1,3 +1,5 @@
+import { getPortCode } from "@/utils/port"
+
 import {
   COVERAGE_PADDING_WORLD,
   DEFAULT_MAX_BOUNDS,
@@ -8,7 +10,6 @@ import {
   MAX_FETCH_BOUNDS,
   MIN_BOUNDS,
 } from "@/types/constants"
-import { getPortCode } from "@/utils/port"
 
 export const normalizePort = (port: PortLike): PortBase | null => {
   if (!port) return null
@@ -113,6 +114,15 @@ const getLaneSignature = (node: MapSectorNode): string => {
     .join("|")
 }
 
+const garrisonsEquivalent = (
+  a: MapSectorNode["garrison"] | undefined,
+  b: MapSectorNode["garrison"] | undefined
+): boolean => {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.player_id === b.player_id && a.corporation_id === b.corporation_id
+}
+
 /**
  * Deep comparison of two MapSectorNode objects for render-relevant properties.
  * Returns true if both sectors would produce the same visual output.
@@ -124,6 +134,7 @@ export const sectorsEquivalentForRender = (a: MapSectorNode, b: MapSectorNode): 
   if (a.region !== b.region) return false
   if (a.hops_from_center !== b.hops_from_center) return false
   if (a.last_visited !== b.last_visited) return false
+  if (!garrisonsEquivalent(a.garrison, b.garrison)) return false
   if (getPortCode(a.port) !== getPortCode(b.port)) return false
   if (getLaneSignature(a) !== getLaneSignature(b)) return false
   return true

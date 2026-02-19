@@ -7,12 +7,12 @@ import {
   successResponse,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
+import { createPgClient, connectWithCleanup } from "../_shared/pg.ts";
 import {
   emitCharacterEvent,
   emitErrorEvent,
   buildEventSource,
 } from "../_shared/events.ts";
-import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
   parseJsonRequest,
   requireString,
@@ -22,14 +22,17 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
-import { loadCharacter, loadShip } from "../_shared/status.ts";
-import {
-  ensureActorAuthorization,
-  ActorAuthorizationError,
-} from "../_shared/actors.ts";
-import { getEffectiveCorporationId } from "../_shared/corporations.ts";
 import { computeSectorVisibilityRecipients } from "../_shared/visibility.ts";
 import { recordEventWithRecipients } from "../_shared/events.ts";
+import {
+  pgLoadCharacter,
+  pgLoadShip,
+  pgEnforceRateLimit,
+  pgEnsureActorAuthorization,
+  RateLimitError,
+  ActorAuthorizationError,
+} from "../_shared/pg_queries.ts";
+import { runCollectFightersTransaction } from "../_shared/garrison_transactions.ts";
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -56,13 +59,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
   }
 
-  const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, "character_id");
-  const sector = optionalNumber(payload, "sector");
-  const quantity = optionalNumber(payload, "quantity");
-  const actorCharacterId = optionalString(payload, "actor_character_id");
-  const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
-  const taskId = optionalString(payload, "task_id");
+  let requestId: string;
+  let characterId: string;
+  let sector: number | null;
+  let quantity: number | null;
+  let actorCharacterId: string | null;
+  let adminOverride: boolean;
+  let taskId: string | null;
+  try {
+    requestId = resolveRequestId(payload);
+    characterId = requireString(payload, "character_id");
+    sector = optionalNumber(payload, "sector");
+    quantity = optionalNumber(payload, "quantity");
+    actorCharacterId = optionalString(payload, "actor_character_id");
+    adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+    taskId = optionalString(payload, "task_id");
+  } catch (err) {
+    const response = respondWithError(err);
+    if (response) {
+      return response;
+    }
+    return errorResponse("invalid request payload", 400);
+  }
 
   if (sector === null || sector === undefined) {
     return errorResponse("sector is required", 400);
@@ -71,25 +89,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return errorResponse("quantity is required", 400);
   }
 
+  const pg = createPgClient();
   try {
-    await enforceRateLimit(supabase, characterId, "combat_collect_fighters");
-  } catch (err) {
-    if (err instanceof RateLimitError) {
-      await emitErrorEvent(supabase, {
-        characterId,
-        method: "combat_collect_fighters",
-        requestId,
-        detail: "Too many requests",
-        status: 429,
-      });
-      return errorResponse("Too many requests", 429);
-    }
-    console.error("combat_collect_fighters.rate_limit", err);
-    return errorResponse("rate limit error", 500);
-  }
+    await connectWithCleanup(pg);
 
-  try {
+    try {
+      await pgEnforceRateLimit(pg, characterId, "combat_collect_fighters");
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        await emitErrorEvent(supabase, {
+          characterId,
+          method: "combat_collect_fighters",
+          requestId,
+          detail: "Too many requests",
+          status: 429,
+        });
+        return errorResponse("Too many requests", 429);
+      }
+      console.error("combat_collect_fighters.rate_limit", err);
+      return errorResponse("rate limit error", 500);
+    }
+
     return await handleCombatCollectFighters({
+      pg,
       supabase,
       requestId,
       characterId,
@@ -125,10 +147,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
       status,
     });
     return errorResponse(detail, status);
+  } finally {
+    try {
+      await pg.end();
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 });
 
 async function handleCombatCollectFighters(params: {
+  pg: Awaited<ReturnType<typeof createPgClient>>;
   supabase: ReturnType<typeof createServiceRoleClient>;
   requestId: string;
   characterId: string;
@@ -139,6 +168,7 @@ async function handleCombatCollectFighters(params: {
   taskId: string | null;
 }): Promise<Response> {
   const {
+    pg,
     supabase,
     requestId,
     characterId,
@@ -158,137 +188,29 @@ async function handleCombatCollectFighters(params: {
     throw err;
   }
 
-  // Load character and ship
-  const character = await loadCharacter(supabase, characterId);
-  const ship = await loadShip(supabase, character.current_ship_id);
-  await ensureActorAuthorization({
-    supabase,
+  // Load character and ship via PG, then validate actor controls the ship.
+  const character = await pgLoadCharacter(pg, characterId);
+  const ship = await pgLoadShip(pg, character.current_ship_id);
+  await pgEnsureActorAuthorization(pg, {
     ship,
     actorCharacterId,
     adminOverride,
     targetCharacterId: characterId,
   });
 
-  // Verify character is in the correct sector (not strictly required for collection, but matches legacy)
-  // Legacy doesn't check this, but it's a good sanity check
-  // Actually, legacy DOES check via in_hyperspace, so we'll allow collection from any sector
+  const {
+    newShipFighters,
+    newShipCredits,
+    tollPayout,
+    updatedGarrison,
+  } = await runCollectFightersTransaction(pg, {
+    sectorId: sector,
+    characterId,
+    shipId: ship.ship_id,
+    quantity,
+  });
 
-  // Get all garrisons in this sector
-  const { data: existingGarrisons, error: garrisonFetchError } = await supabase
-    .from("garrisons")
-    .select("owner_id, fighters, mode, toll_amount, toll_balance, deployed_at")
-    .eq("sector_id", sector);
-
-  if (garrisonFetchError) {
-    console.error("combat_collect_fighters.garrison_fetch", garrisonFetchError);
-    const err = new Error("Failed to check existing garrisons") as Error & {
-      status?: number;
-    };
-    err.status = 500;
-    throw err;
-  }
-
-  // Check if character owns a garrison directly
-  let ownGarrison = existingGarrisons?.find((g) => g.owner_id === characterId);
-
-  // If not, check if character's corporation owns a garrison
-  let collectorCorpId: string | null = null;
-  if (!ownGarrison) {
-    // Get collector's effective corporation (membership OR ship ownership for corp-owned ships)
-    collectorCorpId = await getEffectiveCorporationId(
-      supabase,
-      characterId,
-      ship.ship_id,
-    );
-
-    if (collectorCorpId) {
-      // Find garrisons owned by corp members
-      const { data: corpMemberships, error: corpMemberError } = await supabase
-        .from("corporation_members")
-        .select("character_id")
-        .eq("corp_id", collectorCorpId)
-        .is("left_at", null);
-
-      if (corpMemberError) {
-        console.error("combat_collect_fighters.corp_members", corpMemberError);
-      } else if (corpMemberships) {
-        const corpMemberIds = new Set(
-          corpMemberships.map((m) => m.character_id),
-        );
-        ownGarrison = existingGarrisons?.find((g) =>
-          corpMemberIds.has(g.owner_id),
-        );
-      }
-    }
-  }
-
-  if (!ownGarrison) {
-    const err = new Error(
-      "No friendly garrison found in this sector",
-    ) as Error & { status?: number };
-    err.status = 404;
-    throw err;
-  }
-
-  // Verify garrison has enough fighters
-  if (quantity > ownGarrison.fighters) {
-    console.log(
-      `combat_collect_fighters.insufficient_fighters garrison=${ownGarrison.owner_id} has=${ownGarrison.fighters} requested=${quantity}`,
-    );
-    const err = new Error(
-      `Cannot collect more fighters than stationed: garrison has ${ownGarrison.fighters}, requested ${quantity}`,
-    ) as Error & { status?: number };
-    err.status = 400;
-    throw err;
-  }
-
-  // Calculate remaining fighters
-  const remainingFighters = ownGarrison.fighters - quantity;
-  const tollPayout =
-    ownGarrison.mode === "toll" ? (ownGarrison.toll_balance ?? 0) : 0;
-
-  // Update ship fighters
-  const currentFighters = ship.current_fighters ?? 0;
-  const newShipFighters = currentFighters + quantity;
-  const { error: shipUpdateError } = await supabase
-    .from("ship_instances")
-    .update({
-      current_fighters: newShipFighters,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("ship_id", ship.ship_id);
-
-  if (shipUpdateError) {
-    console.error("combat_collect_fighters.ship_update", shipUpdateError);
-    const err = new Error("Failed to update ship fighters") as Error & {
-      status?: number;
-    };
-    err.status = 500;
-    throw err;
-  }
-
-  // Update ship credits if there's a toll payout
-  let updatedCredits = ship.credits;
   if (tollPayout > 0) {
-    updatedCredits = ship.credits + tollPayout;
-    const { error: creditsUpdateError } = await supabase
-      .from("ship_instances")
-      .update({ credits: updatedCredits, updated_at: new Date().toISOString() })
-      .eq("ship_id", ship.ship_id);
-
-    if (creditsUpdateError) {
-      console.error(
-        "combat_collect_fighters.credits_update",
-        creditsUpdateError,
-      );
-      const err = new Error("Failed to update ship credits") as Error & {
-        status?: number;
-      };
-      err.status = 500;
-      throw err;
-    }
-
-    // Emit status.update for toll payout
     await emitCharacterEvent({
       supabase,
       characterId,
@@ -296,11 +218,11 @@ async function handleCombatCollectFighters(params: {
       payload: {
         source: buildEventSource("combat.collect_fighters", requestId),
         sector: { id: sector },
-        credits: updatedCredits,
+        credits: newShipCredits,
         ship: {
           ship_id: ship.ship_id,
           ship_type: ship.ship_type,
-          credits: updatedCredits,
+          credits: newShipCredits,
           current_fighters: newShipFighters,
         },
       },
@@ -313,59 +235,11 @@ async function handleCombatCollectFighters(params: {
     });
   }
 
-  // Update or remove garrison
-  let updatedGarrison: typeof ownGarrison | null = null;
-  if (remainingFighters > 0) {
-    const { data: updatedData, error: garrisonUpdateError } = await supabase
-      .from("garrisons")
-      .update({
-        fighters: remainingFighters,
-        toll_balance: 0, // Reset toll balance when collected
-        updated_at: new Date().toISOString(),
-      })
-      .eq("sector_id", sector)
-      .eq("owner_id", ownGarrison.owner_id)
-      .select()
-      .single();
-
-    if (garrisonUpdateError || !updatedData) {
-      console.error(
-        "combat_collect_fighters.garrison_update",
-        garrisonUpdateError,
-      );
-      const err = new Error("Failed to update garrison") as Error & {
-        status?: number;
-      };
-      err.status = 500;
-      throw err;
-    }
-    updatedGarrison = updatedData;
-  } else {
-    // Remove garrison entirely
-    const { error: garrisonDeleteError } = await supabase
-      .from("garrisons")
-      .delete()
-      .eq("sector_id", sector)
-      .eq("owner_id", ownGarrison.owner_id);
-
-    if (garrisonDeleteError) {
-      console.error(
-        "combat_collect_fighters.garrison_delete",
-        garrisonDeleteError,
-      );
-      const err = new Error("Failed to remove garrison") as Error & {
-        status?: number;
-      };
-      err.status = 500;
-      throw err;
-    }
-  }
-
   // Build garrison payload for event
   // Fetch garrison owner's name for the event
   let garrisonOwnerName: string | null = null;
   if (updatedGarrison) {
-    const ownerChar = await loadCharacter(supabase, updatedGarrison.owner_id);
+    const ownerChar = await pgLoadCharacter(pg, updatedGarrison.owner_id);
     garrisonOwnerName = ownerChar.name;
   }
 
@@ -414,6 +288,7 @@ async function handleCombatCollectFighters(params: {
     await recordEventWithRecipients({
       supabase,
       eventType: "sector.update",
+      scope: "sector",
       payload: {
         source: buildEventSource("combat.collect_fighters", requestId),
         sector: { id: sector },

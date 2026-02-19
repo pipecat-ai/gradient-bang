@@ -196,6 +196,11 @@ declare global {
 
   type MapData = MapSectorNode[]
 
+  interface MapSectorGarrison {
+    player_id: string
+    corporation_id: string | null
+  }
+
   interface MapSectorNode {
     id: number
     port?: PortBase | null
@@ -207,6 +212,7 @@ declare global {
     last_visited?: string
     adjacent_sectors?: number[]
     hops_from_center?: number
+    garrison?: MapSectorGarrison | null
 
     is_mega?: boolean //@TODO: Unused
   }

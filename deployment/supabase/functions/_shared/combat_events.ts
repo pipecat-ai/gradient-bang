@@ -4,23 +4,10 @@ import {
   CombatantState,
 } from './combat_types.ts';
 
-interface ParticipantDelta {
-  fighters: number;
-  shields: number;
-}
-
 interface ParticipantEventContext {
   shieldIntegrity: number;
   shieldDamage?: number;
   fighterLoss?: number;
-}
-
-function safeNumber(value: unknown, fallback = 0): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function buildParticipantPayload(
@@ -83,28 +70,40 @@ function computeShieldIntegrity(state: CombatantState): number {
   return (shields / maxShields) * 100;
 }
 
-function buildParticipantDeltas(
+function garrisonSortKey(participant: CombatantState): [number, string] {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  const deployedAtRaw = metadata.deployed_at;
+  const deployedAt =
+    typeof deployedAtRaw === 'string' ? Date.parse(deployedAtRaw) : NaN;
+  const deployedMs = Number.isFinite(deployedAt) ? deployedAt : -1;
+  return [deployedMs, participant.combatant_id];
+}
+
+function selectPrimaryGarrison(
   encounter: CombatEncounterState,
-  outcome: CombatRoundOutcome,
-): Record<string, ParticipantDelta> {
-  const deltas: Record<string, ParticipantDelta> = {};
-  if (outcome.participant_deltas) {
-    for (const [pid, delta] of Object.entries(outcome.participant_deltas)) {
-      deltas[pid] = {
-        fighters: safeNumber(delta.fighters),
-        shields: safeNumber(delta.shields),
-      };
+  garrisons: CombatantState[],
+  context: 'round_waiting' | 'round_resolved',
+): CombatantState | null {
+  if (garrisons.length === 0) {
+    return null;
+  }
+  const ordered = [...garrisons].sort((a, b) => {
+    const [aTime, aId] = garrisonSortKey(a);
+    const [bTime, bId] = garrisonSortKey(b);
+    if (aTime !== bTime) {
+      return bTime - aTime;
     }
-    return deltas;
+    return aId.localeCompare(bId);
+  });
+
+  if (ordered.length > 1) {
+    console.warn(`combat_events.${context}.multiple_garrisons`, {
+      combat_id: encounter.combat_id,
+      sector_id: encounter.sector_id,
+      garrison_ids: ordered.map((participant) => participant.combatant_id),
+    });
   }
-  for (const [pid, state] of Object.entries(encounter.participants)) {
-    const remaining = outcome.fighters_remaining?.[pid] ?? state.fighters;
-    deltas[pid] = {
-      fighters: remaining - state.fighters,
-      shields: (outcome.shields_remaining?.[pid] ?? state.shields) - state.shields,
-    };
-  }
-  return deltas;
+  return ordered[0];
 }
 
 function basePayload(encounter: CombatEncounterState): Record<string, unknown> {
@@ -116,21 +115,29 @@ function basePayload(encounter: CombatEncounterState): Record<string, unknown> {
 }
 
 export function buildRoundWaitingPayload(encounter: CombatEncounterState): Record<string, unknown> {
-  const payload = {
+  const payload: Record<string, unknown> = {
     ...basePayload(encounter),
     current_time: new Date().toISOString(),
     deadline: encounter.deadline,
   };
   const participants: Record<string, unknown>[] = [];
-  let garrisonPayload: Record<string, unknown> | null = null;
+  const garrisonParticipants: CombatantState[] = [];
   for (const participant of Object.values(encounter.participants)) {
     const shieldIntegrity = computeShieldIntegrity(participant);
     if (participant.combatant_type === 'character') {
       participants.push(buildParticipantPayload(participant, { shieldIntegrity }));
-    } else if (!garrisonPayload) {
-      garrisonPayload = buildGarrisonPayload(participant);
+    } else {
+      garrisonParticipants.push(participant);
     }
   }
+  const primaryGarrison = selectPrimaryGarrison(
+    encounter,
+    garrisonParticipants,
+    'round_waiting',
+  );
+  const garrisonPayload = primaryGarrison
+    ? buildGarrisonPayload(primaryGarrison)
+    : null;
   if (encounter.round === 1 && typeof encounter.context?.initiator === 'string') {
     const initiatorId = encounter.context.initiator;
     const participant = encounter.participants[initiatorId];
@@ -151,7 +158,7 @@ export function buildRoundResolvedPayload(
   outcome: CombatRoundOutcome,
   actions?: Record<string, unknown>,
 ): Record<string, unknown> {
-  const payload = {
+  const payload: Record<string, unknown> = {
     ...basePayload(encounter),
     hits: outcome.hits,
     offensive_losses: outcome.offensive_losses,
@@ -166,12 +173,13 @@ export function buildRoundResolvedPayload(
     deadline: encounter.deadline,
     round_result: outcome.end_state,
   };
-  const deltas = buildParticipantDeltas(encounter, outcome);
   const participants: Record<string, unknown>[] = [];
-  let garrisonPayload: Record<string, unknown> | null = null;
+  const garrisonPayloadCandidates: Array<{
+    participant: CombatantState;
+    fighterLoss: number;
+  }> = [];
 
   for (const [pid, participant] of Object.entries(encounter.participants)) {
-    const delta = deltas[pid] ?? { fighters: 0, shields: 0 };
     const fightersStart = participant.fighters ?? 0;
     const fightersRemaining = outcome.fighters_remaining?.[pid] ?? fightersStart;
     const fighterLoss = Math.max(0, fightersStart - fightersRemaining);
@@ -192,10 +200,24 @@ export function buildRoundResolvedPayload(
           fighterLoss,
         }),
       );
-    } else if (!garrisonPayload) {
-      garrisonPayload = buildGarrisonPayload(participant, fighterLoss);
+    } else {
+      garrisonPayloadCandidates.push({ participant, fighterLoss });
     }
   }
+
+  const primaryGarrison = selectPrimaryGarrison(
+    encounter,
+    garrisonPayloadCandidates.map((entry) => entry.participant),
+    'round_resolved',
+  );
+  const primaryLoss = primaryGarrison
+    ? (garrisonPayloadCandidates.find(
+      (entry) => entry.participant.combatant_id === primaryGarrison.combatant_id,
+    )?.fighterLoss ?? 0)
+    : 0;
+  const garrisonPayload = primaryGarrison
+    ? buildGarrisonPayload(primaryGarrison, primaryLoss)
+    : null;
 
   payload['participants'] = participants;
   payload['garrison'] = garrisonPayload;
