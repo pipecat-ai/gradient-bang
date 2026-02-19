@@ -26,13 +26,15 @@ export function calculatePlayerRank(
   return { rank, total_players, to_next_rank }
 }
 
-export function didPlayerRankChange(
+export function didPlayerRankUp(
   prev: Record<LeaderboardCategory, PlayerLeaderboardCategoryRank> | null,
   next: Record<LeaderboardCategory, PlayerLeaderboardCategoryRank> | null
 ): boolean {
   if (!prev || !next) return false
 
-  return (Object.keys(next) as LeaderboardCategory[]).some(
-    (category) => prev[category]?.rank !== next[category]?.rank
-  )
+  return (Object.keys(next) as LeaderboardCategory[]).some((category) => {
+    const prevRank = prev[category]?.rank ?? 0
+    const nextRank = next[category]?.rank ?? 0
+    return nextRank > 0 && (prevRank === 0 || nextRank < prevRank)
+  })
 }

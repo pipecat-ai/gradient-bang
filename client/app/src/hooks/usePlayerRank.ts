@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 
 import useGameStore from "@/stores/game"
-import { calculatePlayerRank, didPlayerRankChange } from "@/utils/leaderboard"
+import { calculatePlayerRank, didPlayerRankUp } from "@/utils/leaderboard"
 
 const CATEGORIES: LeaderboardCategory[] = ["wealth", "trading", "exploration", "territory"]
 
@@ -27,7 +27,7 @@ export const usePlayerRank = () => {
         }
 
         const next = useGameStore.getState().playerCategoryRank
-        if (didPlayerRankChange(prev, next)) {
+        if (didPlayerRankUp(prev, next)) {
           console.debug("[GAME usePlayerRank] Rank changed", { prev, next })
           useGameStore.getState().setPlayerCategoryRankPrev(prev)
           useGameStore.getState().setNotifications({ rankChanged: true })

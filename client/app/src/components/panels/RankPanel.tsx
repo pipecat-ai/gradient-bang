@@ -18,7 +18,7 @@ export const RankPanel = () => {
     <RHSPanelContent>
       <Card>
         <CardHeader>
-          <CardTitle>Your rank</CardTitle>
+          <CardTitle>Global Ranking</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           {!playerCategoryRank ?

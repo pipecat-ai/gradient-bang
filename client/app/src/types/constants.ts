@@ -5,6 +5,12 @@ export const LEADERBOARD_CATEGORY_KEYS: Record<LeaderboardCategory, string> = {
   exploration: "sectors_visited",
   territory: "territory_control_percentage",
 }
+export const LEADERBOARD_CATEGORY_LABELS: Record<LeaderboardCategory, string> = {
+  wealth: "Wealth",
+  trading: "Trading",
+  exploration: "Exploration",
+  territory: "Territory",
+}
 
 export const RESOURCE_SHORT_NAMES = {
   quantum_foam: "QF",

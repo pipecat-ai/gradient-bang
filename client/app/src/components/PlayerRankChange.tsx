@@ -3,15 +3,9 @@ import { useEffect } from "react"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
-const CATEGORY_LABELS: Record<LeaderboardCategory, string> = {
-  wealth: "Wealth",
-  trading: "Trading",
-  exploration: "Exploration",
-  territory: "Territory",
-}
+import { LEADERBOARD_CATEGORY_LABELS } from "@/types/constants"
 
-const DISPLAY_TIME = 5000
-
+const DISPLAY_TIME = 7000
 const CATEGORIES: LeaderboardCategory[] = ["wealth", "trading", "exploration", "territory"]
 
 export const PlayerRankChange = () => {
@@ -34,8 +28,6 @@ export const PlayerRankChange = () => {
 
   if (!rankChanged || !playerCategoryRank) return null
 
-  console.log("PEW PEW PEW")
-
   return (
     <div className="fixed inset-0 bg-red-500 border p-4 z-50">
       <div className="font-bold mb-2">Rank Changed!</div>
@@ -43,15 +35,16 @@ export const PlayerRankChange = () => {
         const curr = playerCategoryRank[category]
         const prev = playerCategoryRankPrev?.[category]
         if (!curr) return null
-        const changed = prev && prev.rank !== curr.rank
+        const improved =
+          prev && curr.rank > 0 && (prev.rank === 0 || curr.rank < prev.rank)
         return (
           <div
             key={category}
-            className={`flex justify-between gap-4 ${changed ? "text-yellow-300 font-bold" : "text-muted-foreground"}`}
+            className={`flex justify-between gap-4 ${improved ? "text-yellow-300 font-bold" : "text-muted-foreground"}`}
           >
-            <span>{CATEGORY_LABELS[category]}</span>
+            <span>{LEADERBOARD_CATEGORY_LABELS[category]}</span>
             <span>
-              {changed && prev ? `#${prev.rank} → ` : ""}#{curr.rank}/{curr.total_players}
+              {improved && prev ? `#${prev.rank} → ` : ""}#{curr.rank}/{curr.total_players}
             </span>
           </div>
         )
