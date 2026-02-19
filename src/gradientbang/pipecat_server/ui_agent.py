@@ -51,8 +51,17 @@ CONTROL_UI_SCHEMA = FunctionSchema(
     properties={
         "show_panel": {
             "type": "string",
-            "enum": ["map", "default"],
-            "description": "Show map screen (map) or close it (default)",
+            "enum": [
+                "map",
+                "default",
+                "sector",
+                "player",
+                "trade",
+                "task_history",
+                "leaderboard",
+                "logs",
+            ],
+            "description": "Toggle map screen (map) or close it (default). Highlight and show sub panels: sector, player, trade, task_history, leaderboard, logs.",
         },
         "map_center_sector": {
             "type": "integer",
@@ -1764,7 +1773,7 @@ class UIAgentContext(FrameProcessor):
         if wants_map and effective_show_panel is None:
             effective_show_panel = "map"
 
-        if effective_show_panel in {"map", "default"}:
+        if effective_show_panel is not None:
             if effective_show_panel != self._last_show_panel:
                 changed = True
                 self._last_show_panel = effective_show_panel

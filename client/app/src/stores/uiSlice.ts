@@ -88,7 +88,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
       "player",
       "trade",
       "task_history",
-      "corp",
+      "leaderboard",
       "logs",
       "task_stream",
     ]

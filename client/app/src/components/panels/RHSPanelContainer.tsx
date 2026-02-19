@@ -105,7 +105,7 @@ export const RHSPanelContainer = () => {
         {activePanel === "player" && <PlayerPanel />}
         {activePanel === "trade" && <TradePanel />}
         {activePanel === "task_history" && <TaskPanel />}
-        {activePanel === "corp" && <div className=""></div>}
+        {activePanel === "leaderboard" && <div className=""></div>}
         {activePanel === "task_stream" && <TaskStreamPanel />}
       </div>
       <div
