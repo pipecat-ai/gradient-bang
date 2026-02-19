@@ -33,7 +33,6 @@ const PlayerMovement = () => {
 
   const addPlayer = useCallback(
     (player: Player) => {
-      console.log("addPlayer", player)
       addGameObject({
         id: player.id,
         type: "ship",

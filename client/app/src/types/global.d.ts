@@ -90,12 +90,15 @@ declare global {
   // --- GARRISON
 
   interface Garrison {
-    id: string
+    mode: "offensive" | "defensive" | "toll"
+    owner_id: string
+    owner_name: string
     fighters: number
     fighter_loss: number
-    mode: "offensive" | "defensive" | "toll"
-    toll_amount: number
     deployed_at?: string
+    toll_balance?: number
+    toll_amount: number
+    is_friendly?: boolean
   }
 
   // --- REGION AND SECTOR
@@ -113,14 +116,12 @@ declare global {
     planets?: Planet[]
     players?: Player[]
     port?: PortBase | null
+    garrison?: Garrison
     region?: string
     unowned_ships?: ShipUnowned[]
     last_visited?: string
     salvage?: Salvage[]
     scene_config?: unknown
-
-    // Not yet implemented
-    garrisons?: Garrison[]
   }
 
   interface SectorHistory {
@@ -169,6 +170,7 @@ declare global {
     code: string
     mega?: boolean
     port_class?: number
+    observed_at?: string
   }
 
   interface Port extends PortBase {
@@ -177,7 +179,6 @@ declare global {
     mega?: boolean
     stock: Record<Resource, number>
     prices: Record<Resource, number>
-    observed_at?: string
   }
 
   type PortLike =
@@ -213,8 +214,6 @@ declare global {
     adjacent_sectors?: number[]
     hops_from_center?: number
     garrison?: MapSectorGarrison | null
-
-    is_mega?: boolean //@TODO: Unused
   }
 
   interface MapLane {
@@ -439,6 +438,16 @@ declare global {
     ship_id?: string
     ship_name?: string | null
     ship_type?: string | null
+  }
+
+  export interface TradeHistoryEntry {
+    timestamp?: string
+    sector: number
+    commodity: Resource
+    units: number
+    price_per_unit: number
+    total_price: number
+    is_buy: boolean
   }
 
   interface LogEntry {

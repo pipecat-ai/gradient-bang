@@ -1,6 +1,6 @@
 import { getPortCode } from "@/utils/port"
 
-import { MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
+import { GARRISON_ICON, MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
 
 import { DEFAULT_MAX_BOUNDS } from "@/types/constants"
 
@@ -8,8 +8,10 @@ import { DEFAULT_MAX_BOUNDS } from "@/types/constants"
 const portPath = new Path2D(PORT_ICON)
 const megaPortPath = new Path2D(MEGA_PORT_ICON)
 const shipPath = new Path2D(SHIP_ICON)
+const garrisonPath = new Path2D(GARRISON_ICON)
 const PORT_ICON_VIEWBOX = 256
 const SHIP_ICON_VIEWBOX = 256
+const GARRISON_ICON_VIEWBOX = 256
 
 // Minimum lane length (in pixels) to render arrow heads on course plot lanes
 // Short lanes look cluttered with arrows
@@ -100,6 +102,7 @@ export interface NodeStyles {
   unvisited: NodeStyle
   muted: NodeStyle
   megaPort: NodeStyle
+  garrison: NodeStyle
   coursePlotCurrent: NodeStyle
   coursePlotStart: NodeStyle
   coursePlotEnd: NodeStyle
@@ -170,6 +173,19 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     glow: true,
     glowRadius: 100,
     glowColor: "rgba(255,255,255,0.15)",
+    glowFalloff: 0.3,
+  },
+  garrison: {
+    fill: "rgba(220,38,38,0.3)",
+    border: "rgba(239,68,68,1)",
+    borderWidth: 3,
+    borderStyle: "solid",
+    outline: "rgba(239,68,68,0.5)",
+    outlineWidth: 2,
+    iconColor: "#fecaca",
+    glow: true,
+    glowRadius: 100,
+    glowColor: "rgba(239,68,68,0.15)",
     glowFalloff: 0.3,
   },
   coursePlotCurrent: {
@@ -1061,10 +1077,24 @@ function getNodeStyle(
   const isCentered =
     config.highlight_center_sector !== false && node.id === config.center_sector_id && !isCurrent
   const isMegaPort = Boolean((node.port as Port | null)?.mega)
+  const hasGarrison = Boolean(node.garrison)
 
   let baseStyle: NodeStyle
 
-  if (isMegaPort) {
+  if (hasGarrison) {
+    baseStyle = config.nodeStyles.garrison
+    // If this is also the current sector, carry over the offset frame indicator
+    if (isCurrent) {
+      const cs = config.nodeStyles.current
+      baseStyle = {
+        ...baseStyle,
+        offset: cs.offset,
+        offsetColor: cs.offsetColor,
+        offsetSize: cs.offsetSize,
+        offsetWeight: cs.offsetWeight,
+      }
+    }
+  } else if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
     // If this is also the current sector, carry over the offset frame indicator
     if (isCurrent) {
@@ -1089,8 +1119,8 @@ function getNodeStyle(
     baseStyle = config.nodeStyles.unvisited
   }
 
-  // Apply region overrides
-  if (node.region && config.regionStyles) {
+  // Apply region overrides (skip for garrison nodes — garrison style takes full priority)
+  if (!hasGarrison && node.region && config.regionStyles) {
     const regionKey = slugifyRegion(node.region)
     const regionOverride = config.regionStyles[regionKey]
     if (regionOverride) {
@@ -1235,8 +1265,21 @@ function renderSector(
   ctx.setLineDash([])
   ctx.lineCap = "butt"
 
-  // Hide port icons when course plot is active
-  if (config.show_ports && node.port) {
+  // Render icon: garrison takes priority over port icons
+  if (node.garrison) {
+    const iconColor = nodeStyle.iconColor ?? "#fecaca"
+    const portStyle = config.portStyles.regular
+    const effectiveSize = isAnimating ? portStyle.size * hoverScale : portStyle.size
+
+    ctx.save()
+    ctx.translate(world.x, world.y)
+    const iconScale = effectiveSize / GARRISON_ICON_VIEWBOX
+    ctx.scale(iconScale, iconScale)
+    ctx.translate(-GARRISON_ICON_VIEWBOX / 2, -GARRISON_ICON_VIEWBOX / 2)
+    ctx.fillStyle = applyAlpha(iconColor, finalOpacity)
+    ctx.fill(garrisonPath)
+    ctx.restore()
+  } else if (config.show_ports && node.port) {
     const isMegaPort = Boolean((node.port as Port | null)?.mega)
     const portStyle = isMegaPort ? config.portStyles.mega : config.portStyles.regular
 

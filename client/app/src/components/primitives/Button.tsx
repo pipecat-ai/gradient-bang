@@ -27,6 +27,8 @@ const buttonVariants = cva(
           "bg-success-background/60 text-secondary-foreground hover:bg-success-background border-1 border-success outline-primary hover:outline-solid transition-[background,color] focus-hover",
         micDisabled:
           "bg-destructive-background/60 text-destructive border-1 border-destructive hover:bg-destructive-background hover:border-destructive transition-[background,color] focus-hover hover:animate-outline-pulse",
+        micRemoteMuted:
+          "text-xs cross-lines-warning/40 bg-warning-background/60 text-warning border-1 border-warning transition-[background,color] disabled:opacity-100 animate-pulse",
         micLoading:
           "bg-muted/60 text-primary border-1 border-border transition-[background,color] disabled:opacity-100",
       },

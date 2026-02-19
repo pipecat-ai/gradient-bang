@@ -16,6 +16,19 @@ import { cn } from "@/utils/tailwind"
 
 import { NewMessageFloater } from "../NewMessageFloater"
 
+const HighlightHotkey = ({ label, hotkey }: { label: string; hotkey?: string }) => {
+  if (!hotkey) return <>{label}</>
+  const idx = label.toLowerCase().indexOf(hotkey.toLowerCase())
+  if (idx === -1) return <>{label}</>
+  return (
+    <>
+      {label.slice(0, idx)}
+      <span className="underline underline-offset-2 decoration-current/60">{label[idx]}</span>
+      {label.slice(idx + 1)}
+    </>
+  )
+}
+
 export const RHSPanelNavItem = ({
   id,
   children,
@@ -66,6 +79,37 @@ export const RHSPanelNav = () => {
   const setActivePanel = useGameStore.use.setActivePanel?.()
   const uiState = useGameStore.use.uiState?.()
 
+  const hotkeyMap = React.useMemo(
+    () =>
+      new Map([
+        ["s", "sector"],
+        ["p", "player"],
+        ["t", "trade"],
+        ["h", "task_history"],
+        ["c", "corp"],
+        ["w", "logs"],
+      ]),
+    []
+  )
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+
+      const tabId = hotkeyMap.get(e.key.toLowerCase())
+      if (!tabId) return
+
+      if (uiState === "combat" && tabId !== "logs" && tabId !== "sector") return
+
+      e.preventDefault()
+      setActivePanel(activePanel === tabId ? undefined : (tabId as UIPanel))
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [activePanel, setActivePanel, uiState, hotkeyMap])
+
   const tabs = [
     {
       id: "sector",
@@ -73,12 +117,18 @@ export const RHSPanelNav = () => {
       disabledLabel: "Combat",
       icon: <PlanetIcon size={20} />,
       disabledIcon: <CrosshairIcon size={20} />,
+      hotkey: "s",
     },
-    { id: "player", label: "Player", icon: <PersonIcon size={20} /> },
-    { id: "trade", label: "Trade", icon: <SwapIcon size={20} /> },
-    { id: "task_history", label: "Tasks", icon: <CheckSquareOffsetIcon size={20} /> },
-    { id: "corp", label: "Corp", icon: <UsersFourIcon size={20} /> },
-    { id: "logs", label: "Waves", icon: <ChatCircleTextIcon size={20} /> },
+    { id: "player", label: "Player", icon: <PersonIcon size={20} />, hotkey: "p" },
+    { id: "trade", label: "Trade", icon: <SwapIcon size={20} />, hotkey: "t" },
+    {
+      id: "task_history",
+      label: "History",
+      icon: <CheckSquareOffsetIcon size={20} />,
+      hotkey: "h",
+    },
+    { id: "corp", label: "Corp", icon: <UsersFourIcon size={20} />, hotkey: "c" },
+    { id: "logs", label: "Waves", icon: <ChatCircleTextIcon size={20} />, hotkey: "w" },
   ]
 
   return (
@@ -102,7 +152,9 @@ export const RHSPanelNav = () => {
             {uiState === "combat" ? (tab.disabledIcon ?? tab.icon) : tab.icon}
             {tab.id === "logs" && <NewMessageFloater />}
             <span className="text-xxs truncate">
-              {uiState === "combat" ? (tab.disabledLabel ?? tab.label) : tab.label}
+              {uiState === "combat" ?
+                <HighlightHotkey label={tab.disabledLabel ?? tab.label} hotkey={tab.hotkey} />
+              : <HighlightHotkey label={tab.label} hotkey={tab.hotkey} />}
             </span>
           </RHSPanelNavItem>
         ))}

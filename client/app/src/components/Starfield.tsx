@@ -37,15 +37,7 @@ export const Starfield = () => {
   const activePanel = useGameStore.use.activePanel?.()
 
   const handleSceneChangeEnd = useCallback(() => {
-    const ap = useGameStore.getState().activePanel
-    if (ap === "trade") {
-      const sector = useGameStore.getState().sector
-      if (sector?.port) {
-        useGameStore.getState().setLookAtTarget("port-" + sector?.id.toString())
-      }
-    } else {
-      useGameStore.getState().setLookAtTarget(undefined)
-    }
+    useGameStore.getState().setLookAtTarget(undefined)
   }, [])
 
   const handleTargetRest = useCallback((target: PositionedGameObject) => {

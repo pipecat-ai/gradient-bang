@@ -40,7 +40,7 @@ export const ShipCatalogue = () => {
             <h4 className="text-xs font-bold flex flex-col @md/aside:flex-row @md/aside:items-center gap-0.5 @md/aside:gap-2">
               {ship.display_name} <span className="text-xxs text-accent">{ship.stats.role}</span>
             </h4>
-            <ul className="flex flex-row flex-wrap gap-x-3 @md/aside:gap-x-4 gap-y-1 list-none text-subtle-foreground">
+            <ul className="flex flex-row flex-wrap gap-x-2 @md/aside:gap-x-2.5 gap-y-1 list-none text-subtle-foreground">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <li className="flex flex-row gap-0.5 items-center">
@@ -88,7 +88,7 @@ export const ShipCatalogue = () => {
               </Tooltip>
             </ul>
           </div>
-          <div className="pr-1.5 flex flex-row gap-1 @md/aside:gap-ui-sm self-center">
+          <div className="pr-1.5 flex flex-row gap-1 @md/aside:gap-ui-xs self-center">
             <Badge
               variant="ghost"
               size="sm"

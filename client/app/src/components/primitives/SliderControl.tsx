@@ -44,6 +44,7 @@ function SliderControl({
 
   const isVertical = orientation === "vertical"
   const resolvedSize = size ?? "default"
+  const safeMax = max <= min ? min + 1 : max
 
   return (
     <div
@@ -68,7 +69,7 @@ function SliderControl({
           defaultValue={defaultValue}
           value={value}
           min={min}
-          max={max}
+          max={safeMax}
           disabled={disabled}
           orientation={orientation}
           className="relative flex w-full touch-none items-center select-none data-[orientation=vertical]:h-full data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col"

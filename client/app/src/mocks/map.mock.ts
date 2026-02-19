@@ -134,6 +134,10 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
       },
     ],
     region: "Neutral",
+    garrison: {
+      player_id: "81da8782-7bb1-4f68-9456-76697f249b92",
+      corporation_id: "960d1cab-fa46-4bd6-a0e7-b8a8978b1d65",
+    },
     source: "both",
     visited: true,
     position: [98, 176],

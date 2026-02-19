@@ -95,8 +95,8 @@ export const ChatPanel = () => {
   }, [llmIsWorking, playSound])
 
   const clxConnected =
-    "relative flex-1 h-full bg-card/60 relative border-0 border-b border-b-foreground/30"
-  const clxDisconnected = "relative flex-1 h-full opacity-50 stripe-frame-white/30"
+    "group relative flex-1 h-full bg-card/60 relative border-0 border-b border-b-foreground/30"
+  const clxDisconnected = "group relative flex-1 h-full opacity-50 stripe-frame-white/30"
 
   const panelActive = isConnected || (messages?.length ?? 0) > 0
 
@@ -113,14 +113,14 @@ export const ChatPanel = () => {
           </div>
         </CardContent>
       )}
-      <div className="absolute right-ui-sm bottom-ui-sm w-fit h-fit bg-background-500/20 inline-flex items-center gap-ui-xs px-ui-xxs py-ui-xxs z-20">
-        <span className="text-xxs uppercase text-foreground bg-background/60 px-ui-xxs">
+      <div className="absolute right-ui-sm bottom-ui-sm w-fit h-fit bg-background-500/20 inline-flex items-center gap-ui-xs px-ui-xxs py-ui-xxs z-20 opacity-50 group-hover:opacity-100 transition-opacity">
+        <span className="text-xxs uppercase text-foreground bg-background/60 px-ui-xxs opacity-0 group-hover:opacity-100 transition-opacity">
           Show system
         </span>
         <ToggleControl size="sm" checked={showSystem} onCheckedChange={setShowSystem} />
       </div>
       <div className="relative flex-1 mb-0 text-foreground">
-        <div className="absolute bottom-0 inset-x-0 h-[60px] z-10 pointer-events-none pl-ui-xs">
+        <div className="absolute bottom-0 inset-x-0 h-15 z-10 pointer-events-none pl-ui-xs">
           <div className="relative inline-block">
             <ShipOSDVisualizer
               barLineCap="square"
