@@ -24,6 +24,8 @@ const MAP_CONFIG: MapConfig = {
   camera_viewport_mode: "viewport_rect",
   highlight_center_sector: false,
   clickable: true,
+  draggable: true,
+  scrollZoom: true,
   show_sector_ids: false,
   show_partial_lanes: true,
   show_ports: true,
@@ -139,8 +141,8 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const setMapCenterSector = useGameStore.use.setMapCenterSector?.()
   const setMapCenterWorld = useGameStore.use.setMapCenterWorld?.()
   const requestMapFetch = useGameStore.use.requestMapFetch?.()
-  const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
 
+  const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
   const [isFetching, setIsFetching] = useState(false)
 
   const initialFetchRef = useRef(false)

@@ -49,6 +49,10 @@ export interface SectorMapConfigBase {
   partial_lane_max_length?: number
   clickable: boolean
   hoverable: boolean
+  draggable: boolean
+  scrollZoom: boolean
+  minZoom?: number
+  maxZoom?: number
   hover_scale_factor?: number
   hover_animation_duration?: number
   current_sector_scale?: number
@@ -478,6 +482,8 @@ export const DEFAULT_SECTORMAP_CONFIG: Omit<SectorMapConfigBase, "center_sector_
   partial_lane_max_length: 40,
   clickable: false,
   hoverable: true,
+  draggable: false,
+  scrollZoom: false,
   hover_scale_factor: 1.15,
   hover_animation_duration: 150,
   current_sector_scale: 1,
@@ -2289,6 +2295,7 @@ export interface SectorMapController {
   setOnNodeClick: (callback: ((node: MapSectorNode | null) => void) | null) => void
   setOnNodeEnter: (callback: ((node: MapSectorNode) => void) | null) => void
   setOnNodeExit: (callback: ((node: MapSectorNode) => void) | null) => void
+  setOnViewportChange: (callback: ((centerSectorId: number, bounds: number) => void) | null) => void
   cleanup: () => void
 }
 
@@ -2309,6 +2316,8 @@ export function createSectorMapController(
   let onNodeClickCallback: ((node: MapSectorNode | null) => void) | null = null
   let onNodeEnterCallback: ((node: MapSectorNode) => void) | null = null
   let onNodeExitCallback: ((node: MapSectorNode) => void) | null = null
+  let onViewportChangeCallback: ((centerSectorId: number, bounds: number) => void) | null = null
+  let viewportChangeTimeoutId: number | null = null
 
   // Hover animation state
   // animatingSectorId tracks which sector is being animated (for smooth out-animation)
@@ -2321,6 +2330,79 @@ export function createSectorMapController(
 
   // Movement animation lock
   let isMovingToSector = false
+
+  // Manual pan/zoom offsets (applied on top of computed camera state)
+  let manualPanX = 0
+  let manualPanY = 0
+  let manualZoomFactor = 1
+
+  // Drag interaction state
+  let isDragging = false
+  let dragStartX = 0
+  let dragStartY = 0
+  let suppressNextClick = false
+
+  /** Reset manual pan/zoom offsets to defaults */
+  const resetManualOffsets = () => {
+    manualPanX = 0
+    manualPanY = 0
+    manualZoomFactor = 1
+  }
+
+  /** Apply manual offsets to a computed camera state, expanding spatial
+   *  filtering so sectors visible at the panned/zoomed position appear. */
+  let lastEffectiveFilterKey = ""
+  let lastEffectiveFilteredData: MapData | null = null
+
+  const getEffectiveCameraState = (camera: CameraState): CameraState => {
+    if (manualPanX === 0 && manualPanY === 0 && manualZoomFactor === 1) return camera
+    const baseZoom = camera.zoom
+    const minZoom = currentProps.config.minZoom ?? 0.08
+    const maxZoom = currentProps.config.maxZoom ?? 5
+    const effectiveZoom = Math.max(minZoom, Math.min(baseZoom * manualZoomFactor, maxZoom))
+    const effectiveOffsetX = camera.offsetX + manualPanX
+    const effectiveOffsetY = camera.offsetY + manualPanY
+
+    // Re-filter data around the effective camera center so panned/zoomed
+    // sectors appear. Cached to avoid re-filtering every animation frame.
+    const filterKey = `${manualPanX},${manualPanY},${manualZoomFactor}`
+    let filteredData: MapData
+    if (filterKey === lastEffectiveFilterKey && lastEffectiveFilteredData) {
+      filteredData = lastEffectiveFilteredData
+    } else {
+      const { width, height, data, config } = currentProps
+      const scale = config.grid_spacing ?? 28
+
+      // Effective camera center in world space (camera offsets are negated)
+      const centerWorldScaled = { x: -effectiveOffsetX, y: -effectiveOffsetY }
+
+      // Visible radius in hex units, with padding to avoid popping at edges
+      const visibleWorldW = width / effectiveZoom
+      const visibleWorldH = height / effectiveZoom
+      const visibleRadius = Math.max(visibleWorldW, visibleWorldH) / 2
+      const hexRadius = Math.ceil(visibleRadius / (scale * Math.sqrt(3)) * 1.5)
+
+      filteredData = filterSectorsBySpatialDistance(
+        data,
+        config.center_sector_id,
+        hexRadius,
+        scale,
+        centerWorldScaled,
+        width,
+        height
+      )
+      lastEffectiveFilterKey = filterKey
+      lastEffectiveFilteredData = filteredData
+    }
+
+    return {
+      ...camera,
+      offsetX: effectiveOffsetX,
+      offsetY: effectiveOffsetY,
+      zoom: effectiveZoom,
+      filteredData,
+    }
+  }
 
   // Get mouse position relative to canvas, accounting for object-fit: contain
   const getCanvasMousePosition = (event: MouseEvent): { x: number; y: number } => {
@@ -2376,11 +2458,12 @@ export function createSectorMapController(
     const hexSize = config.hex_size ?? gridSpacing * 0.85
     const scale = gridSpacing
 
-    const worldPos = screenToWorld(screenX, screenY, width, height, currentCameraState)
+    const effective = getEffectiveCameraState(currentCameraState)
+    const worldPos = screenToWorld(screenX, screenY, width, height, effective)
     return findSectorAtPoint(
       worldPos.x,
       worldPos.y,
-      currentCameraState.filteredData,
+      effective.filteredData,
       scale,
       hexSize
     )
@@ -2491,6 +2574,11 @@ export function createSectorMapController(
   }
 
   const handleMouseClick = (event: MouseEvent) => {
+    // Suppress click after a drag gesture
+    if (suppressNextClick) {
+      suppressNextClick = false
+      return
+    }
     // Disable click when not clickable or moving to sector
     if (!currentProps.config.clickable || isMovingToSector) return
 
@@ -2505,6 +2593,8 @@ export function createSectorMapController(
   }
 
   const handleMouseLeave = () => {
+    // Don't interfere with active drag (pointer capture handles this)
+    if (isDragging) return
     // Disable interaction when not hoverable or moving to sector
     if (!currentProps.config.hoverable || isMovingToSector) return
 
@@ -2527,17 +2617,116 @@ export function createSectorMapController(
     }
   }
 
+  // Drag-to-pan handlers (pointer events for touch compatibility)
+  const handlePointerDown = (event: PointerEvent) => {
+    if (!currentProps.config.draggable || isMovingToSector) return
+    isDragging = false
+    dragStartX = event.clientX
+    dragStartY = event.clientY
+    canvas.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: PointerEvent) => {
+    if (!currentProps.config.draggable || isMovingToSector) return
+    // Only process if we have pointer capture (button is down)
+    if (!canvas.hasPointerCapture(event.pointerId)) return
+
+    const dx = event.clientX - dragStartX
+    const dy = event.clientY - dragStartY
+
+    // Require minimum distance to distinguish drag from click
+    if (!isDragging && Math.abs(dx) < 3 && Math.abs(dy) < 3) return
+
+    if (!isDragging) {
+      isDragging = true
+      // Clear hover state when starting a drag
+      if (hoveredSectorId !== null) {
+        const prevId = hoveredSectorId
+        hoveredSectorId = null
+        setHoverTarget(0, prevId)
+      }
+      canvas.style.cursor = "grabbing"
+    }
+
+    // Convert screen delta to world delta (divide by effective zoom)
+    if (currentCameraState) {
+      const effectiveZoom = getEffectiveCameraState(currentCameraState).zoom
+      manualPanX += dx / effectiveZoom
+      manualPanY += dy / effectiveZoom
+    }
+
+    dragStartX = event.clientX
+    dragStartY = event.clientY
+
+    // Re-render with updated offsets
+    renderWithInteractionState()
+  }
+
+  const handlePointerUp = (event: PointerEvent) => {
+    if (!currentProps.config.draggable) return
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId)
+    }
+    if (isDragging) {
+      isDragging = false
+      suppressNextClick = true
+      canvas.style.cursor = "default"
+      scheduleViewportChange()
+    }
+  }
+
+  // Scroll-to-zoom handler
+  const handleWheel = (event: WheelEvent) => {
+    if (!currentProps.config.scrollZoom || isMovingToSector || !currentCameraState) return
+    event.preventDefault()
+
+    const zoomSensitivity = 0.005
+    const zoomDelta = 1 - event.deltaY * zoomSensitivity
+    const oldEffective = getEffectiveCameraState(currentCameraState)
+
+    // Compute new zoom factor, clamping to bounds
+    const minZoom = currentProps.config.minZoom ?? 0.08
+    const maxZoom = currentProps.config.maxZoom ?? 5
+    const newZoom = Math.max(minZoom, Math.min(oldEffective.zoom * zoomDelta, maxZoom))
+    manualZoomFactor = newZoom / currentCameraState.zoom
+
+    // Zoom toward cursor: keep the world point under the cursor fixed
+    const { width, height } = currentProps
+    const pos = getCanvasMousePosition(event as unknown as MouseEvent)
+    const screenX = pos.x
+    const screenY = pos.y
+
+    // World point under cursor at old zoom
+    const worldX = (screenX - width / 2) / oldEffective.zoom - oldEffective.offsetX
+    const worldY = (screenY - height / 2) / oldEffective.zoom - oldEffective.offsetY
+
+    // Solve for new manualPan so that worldX/worldY stays at screenX/screenY
+    manualPanX = (screenX - width / 2) / newZoom - currentCameraState.offsetX - worldX
+    manualPanY = (screenY - height / 2) / newZoom - currentCameraState.offsetY - worldY
+
+    renderWithInteractionState()
+    scheduleViewportChange()
+  }
+
   // Attach/detach event listeners
   const attachEventListeners = () => {
     canvas.addEventListener("mousemove", handleMouseMove)
     canvas.addEventListener("click", handleMouseClick)
     canvas.addEventListener("mouseleave", handleMouseLeave)
+    canvas.addEventListener("pointerdown", handlePointerDown)
+    canvas.addEventListener("pointermove", handlePointerMove)
+    canvas.addEventListener("pointerup", handlePointerUp)
+    canvas.addEventListener("wheel", handleWheel, { passive: false })
   }
 
   const detachEventListeners = () => {
     canvas.removeEventListener("mousemove", handleMouseMove)
     canvas.removeEventListener("click", handleMouseClick)
     canvas.removeEventListener("mouseleave", handleMouseLeave)
+    canvas.removeEventListener("pointerdown", handlePointerDown)
+    canvas.removeEventListener("pointermove", handlePointerMove)
+    canvas.removeEventListener("pointerup", handlePointerUp)
+    canvas.removeEventListener("wheel", handleWheel)
     canvas.style.cursor = "default"
   }
 
@@ -2551,7 +2740,7 @@ export function createSectorMapController(
     renderWithCameraStateAndInteraction(
       canvas,
       currentProps,
-      currentCameraState,
+      getEffectiveCameraState(currentCameraState),
       hoveredSectorId,
       animatingSectorId,
       hoverScale
@@ -2622,18 +2811,19 @@ export function createSectorMapController(
       return
     }
 
+    currentCameraState = cameraState
+
     const scaleFactor = currentProps.config.hover_scale_factor ?? 1.15
     const hoverScale = 1 + (scaleFactor - 1) * hoverAnimationProgress
 
     renderWithCameraStateAndInteraction(
       canvas,
       currentProps,
-      cameraState,
+      getEffectiveCameraState(cameraState),
       hoveredSectorId,
       animatingSectorId,
       hoverScale
     )
-    currentCameraState = cameraState
   }
 
   // Animate camera reframe (e.g., when entering/exiting course plot mode)
@@ -2664,21 +2854,26 @@ export function createSectorMapController(
     )
 
     if (!targetCameraState || !currentCameraState || config.bypass_animation) {
+      resetManualOffsets()
       render()
       onComplete?.()
       return
     }
 
+    // Start animation from effective (manually-offset) position for smooth transition
+    const effectiveStart = getEffectiveCameraState(currentCameraState)
+    resetManualOffsets()
+
     // Calculate fading sectors
-    const currentDataIds = new Set(currentCameraState.filteredData.map((s) => s.id))
+    const currentDataIds = new Set(effectiveStart.filteredData.map((s) => s.id))
     const targetDataIds = new Set(targetCameraState.filteredData.map((s) => s.id))
-    const fadingOutData = currentCameraState.filteredData.filter((s) => !targetDataIds.has(s.id))
+    const fadingOutData = effectiveStart.filteredData.filter((s) => !targetDataIds.has(s.id))
     const fadingInData = targetCameraState.filteredData.filter((s) => !currentDataIds.has(s.id))
 
     const startCameraWithFade: CameraState = {
-      offsetX: currentCameraState.offsetX,
-      offsetY: currentCameraState.offsetY,
-      zoom: currentCameraState.zoom,
+      offsetX: effectiveStart.offsetX,
+      offsetY: effectiveStart.offsetY,
+      zoom: effectiveStart.zoom,
       filteredData: targetCameraState.filteredData,
       fadingOutData,
       fadingInData,
@@ -2780,7 +2975,10 @@ export function createSectorMapController(
     currentProps = updatedProps
 
     if (currentCameraState) {
-      animationCleanup = updateCurrentSector(canvas, updatedProps, newSectorId, currentCameraState)
+      // Start animation from effective (manually-offset) position for smooth transition
+      const effectiveStart = getEffectiveCameraState(currentCameraState)
+      resetManualOffsets()
+      animationCleanup = updateCurrentSector(canvas, updatedProps, newSectorId, effectiveStart)
 
       const animDuration = Math.max(
         updatedProps.config.animation_duration_pan,
@@ -2889,7 +3087,7 @@ export function createSectorMapController(
         // Re-render the base map first to clear previous animation frame
         render()
         // Then draw animated dashes on top
-        renderCoursePlotAnimation(canvas, currentProps, currentCameraState, courseAnimationOffset)
+        renderCoursePlotAnimation(canvas, currentProps, getEffectiveCameraState(currentCameraState), courseAnimationOffset)
       }
 
       courseAnimationFrameId = requestAnimationFrame(animate)
@@ -2919,6 +3117,71 @@ export function createSectorMapController(
     onNodeExitCallback = callback
   }
 
+  const setOnViewportChange = (callback: ((centerSectorId: number, bounds: number) => void) | null) => {
+    onViewportChangeCallback = callback
+  }
+
+  /** Find the sector in full data closest to a world-space point */
+  const findNearestSector = (worldX: number, worldY: number): MapSectorNode | null => {
+    const { data, config } = currentProps
+    const scale = config.grid_spacing ?? 28
+    let best: MapSectorNode | null = null
+    let bestDist = Infinity
+    for (const sector of data) {
+      const w = hexToWorld(sector.position[0], sector.position[1], scale)
+      const dx = w.x - worldX
+      const dy = w.y - worldY
+      const d = dx * dx + dy * dy
+      if (d < bestDist) {
+        bestDist = d
+        best = sector
+      }
+    }
+    return best
+  }
+
+  /**
+   * Debounced handler that fires after manual pan/zoom settles.
+   * Computes the visible viewport extent, finds the nearest sector to the
+   * camera center, and fires onViewportChangeCallback for data fetching.
+   * Does NOT update store state (no reframes) — spatial filtering is handled
+   * by getEffectiveCameraState expanding filteredData around the effective camera.
+   */
+  const VIEWPORT_CHANGE_DEBOUNCE = 300
+  const scheduleViewportChange = () => {
+    if (!onViewportChangeCallback || !currentCameraState) return
+    if (viewportChangeTimeoutId !== null) {
+      window.clearTimeout(viewportChangeTimeoutId)
+    }
+    viewportChangeTimeoutId = window.setTimeout(() => {
+      viewportChangeTimeoutId = null
+      if (!onViewportChangeCallback || !currentCameraState) return
+
+      const effective = getEffectiveCameraState(currentCameraState)
+      const { width, height, config } = currentProps
+      const scale = config.grid_spacing ?? 28
+
+      // Camera center in world space
+      const centerWorldX = -effective.offsetX
+      const centerWorldY = -effective.offsetY
+
+      // Find nearest sector to the effective camera center
+      const nearest = findNearestSector(centerWorldX, centerWorldY)
+      if (!nearest) return
+
+      // Compute visible world extent → convert to hex-unit radius
+      const visibleWorldW = width / effective.zoom
+      const visibleWorldH = height / effective.zoom
+      const visibleRadius = Math.max(visibleWorldW, visibleWorldH) / 2
+      const hexRadius = visibleRadius / (scale * Math.sqrt(3))
+
+      // Use same formula as getViewportFetchBounds: ceil(radius * FETCH_BOUNDS_MULTIPLIER)
+      // FETCH_BOUNDS_MULTIPLIER = 2, capped at 100
+      const bounds = Math.max(0, Math.min(100, Math.ceil(hexRadius * 2)))
+      onViewportChangeCallback(nearest.id, bounds)
+    }, VIEWPORT_CHANGE_DEBOUNCE)
+  }
+
   const cleanup = () => {
     detachEventListeners()
     stopHoverAnimation()
@@ -2928,6 +3191,9 @@ export function createSectorMapController(
     }
     if (animationCompletionTimeout !== null) {
       window.clearTimeout(animationCompletionTimeout)
+    }
+    if (viewportChangeTimeoutId !== null) {
+      window.clearTimeout(viewportChangeTimeoutId)
     }
   }
 
@@ -2956,6 +3222,7 @@ export function createSectorMapController(
     setOnNodeClick,
     setOnNodeEnter,
     setOnNodeExit,
+    setOnViewportChange,
     cleanup,
   }
 }
