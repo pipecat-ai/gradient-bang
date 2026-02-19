@@ -246,9 +246,7 @@ class VoiceTaskManager:
             "list_known_ports": lambda **kwargs: self.game_client.list_known_ports(
                 character_id=self.character_id, **kwargs
             ),
-            "send_message": lambda **kwargs: self.game_client.send_message(
-                character_id=self.character_id, **kwargs
-            ),
+            "send_message": SendMessage(game_client=self.game_client),
             "combat_initiate": lambda **kwargs: self.game_client.combat_initiate(
                 character_id=self.character_id, **kwargs
             ),
