@@ -214,8 +214,6 @@ declare global {
     adjacent_sectors?: number[]
     hops_from_center?: number
     garrison?: MapSectorGarrison | null
-
-    is_mega?: boolean //@TODO: Unused
   }
 
   interface MapLane {
