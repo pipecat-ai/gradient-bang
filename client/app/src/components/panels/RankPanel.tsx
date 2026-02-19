@@ -8,14 +8,32 @@ const CATEGORY_LABELS: Record<LeaderboardCategory, string> = {
   exploration: "Exploration",
   territory: "Territory",
 }
-
 const CATEGORIES: LeaderboardCategory[] = ["wealth", "trading", "exploration", "territory"]
+
+export const RankTile = ({
+  category,
+  children,
+}: {
+  category: LeaderboardCategory
+  children: React.ReactNode
+}) => {
+  return (
+    <div className="flex flex-row gap-ui-xs">
+      <div className="flex-1">
+        Wealth
+        <p className="text-xs text-pretty">{children}</p>
+      </div>
+    </div>
+  )
+}
 
 export const RankPanel = () => {
   const playerCategoryRank = useGameStore((state) => state.playerCategoryRank)
 
   return (
-    <RHSPanelContent>
+    <RHSPanelContent className="p-ui-sm">
+      <RankTile category="wealth">Total net worth calculated from cash and assets</RankTile>
+
       <Card>
         <CardHeader>
           <CardTitle>Global Ranking</CardTitle>

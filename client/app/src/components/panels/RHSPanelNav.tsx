@@ -86,7 +86,7 @@ export const RHSPanelNav = () => {
         ["p", "player"],
         ["t", "trade"],
         ["h", "task_history"],
-        ["c", "corp"],
+        ["r", "leaderboard"],
         ["w", "logs"],
       ]),
     []
