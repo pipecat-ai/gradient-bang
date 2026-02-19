@@ -106,10 +106,14 @@ export interface GameSlice extends GameState {
   setSectorBuffer: (sector: Sector) => void
 
   playerCategoryRank: Record<LeaderboardCategory, PlayerLeaderboardCategoryRank> | null
+  playerCategoryRankPrev: Record<LeaderboardCategory, PlayerLeaderboardCategoryRank> | null
   playerRankLastUpdated: string | null
   setPlayerCategoryRank: (
     category: LeaderboardCategory,
     rank: PlayerLeaderboardCategoryRank
+  ) => void
+  setPlayerCategoryRankPrev: (
+    prev: Record<LeaderboardCategory, PlayerLeaderboardCategoryRank> | null
   ) => void
 
   setStarfieldReady: (starfieldReady: boolean) => void
@@ -142,6 +146,7 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   leaderboard_data: undefined, // @TODO: remove snakecase
   leaderboard_last_updated: null, //@TODO: remove snakecase
   playerCategoryRank: null,
+  playerCategoryRankPrev: null,
   playerRankLastUpdated: null,
 
   starfieldReady: false,
@@ -400,6 +405,10 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
         state.playerRankLastUpdated = new Date().toISOString()
       })
     ),
+
+  setPlayerCategoryRankPrev: (
+    prev: Record<LeaderboardCategory, PlayerLeaderboardCategoryRank> | null
+  ) => set({ playerCategoryRankPrev: prev }),
 
   setLeaderboardData: (leaderboardData: LeaderboardResponse) =>
     set(

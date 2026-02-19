@@ -10,7 +10,7 @@ export const usePlayerRank = () => {
     const unsub = useGameStore.subscribe(
       (state) => state.leaderboard_data,
       (leaderboardData) => {
-        console.debug("[GAME usePlayerRank] Checking player ranking", leaderboardData)
+        console.debug("[GAME usePlayerRank] Leaderboard changed; checking rank", leaderboardData)
 
         const {
           character_id,
@@ -29,6 +29,8 @@ export const usePlayerRank = () => {
         const next = useGameStore.getState().playerCategoryRank
         if (didPlayerRankChange(prev, next)) {
           console.debug("[GAME usePlayerRank] Rank changed", { prev, next })
+          useGameStore.getState().setPlayerCategoryRankPrev(prev)
+          useGameStore.getState().setNotifications({ rankChanged: true })
         }
       }
     )

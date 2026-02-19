@@ -25,7 +25,6 @@ import skybox8 from "./images/skybox-8.png"
 import skybox9 from "./images/skybox-9.png"
 import splash1 from "./images/splash-1.png"
 // Sounds
-import ambienceSound from "./sounds/ambience.wav"
 import chime1Sound from "./sounds/chime-1.wav"
 import chime2Sound from "./sounds/chime-2.wav"
 import chime3Sound from "./sounds/chime-3.wav"
@@ -103,7 +102,6 @@ export const sounds = {
   impact3: impact3Sound,
   impact4: impact4Sound,
   text: textSound,
-  ambience: ambienceSound,
   currency: currencySound,
 } as const
 
