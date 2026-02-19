@@ -27,6 +27,7 @@ import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { TopBar } from "@/components/TopBar"
 import { UIModeToggle } from "@/components/UIModeToggle"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
+import { usePlayerRank } from "@/hooks/usePlayerRank"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
@@ -42,6 +43,7 @@ export const Game = () => {
   const setLookMode = useGameStore.use.setLookMode?.()
   const [isCollapsed, setIsCollapsed] = useState(false)
 
+  usePlayerRank()
   useNotificationSound()
 
   const handleAsideResize = useCallback(() => {

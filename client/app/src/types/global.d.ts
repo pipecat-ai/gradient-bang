@@ -476,8 +476,17 @@ declare global {
     timestamp: string
   }
 
+  type LeaderboardCategory = "wealth" | "trading" | "exploration" | "territory"
+
+  interface PlayerLeaderboardCategoryRank {
+    rank: number
+    total_players: number
+    to_next_rank: number
+  }
+
   interface LeaderboardWealth {
-    name: string
+    player_id: string
+    player_name: string
     bank_credits: number
     ship_credits: number
     cargo_value: number
@@ -487,14 +496,16 @@ declare global {
   }
 
   interface LeaderboardTrading {
-    name: string
+    player_id: string
+    player_name: string
     total_trades: number
     total_trade_volume: number
     ports_visited: number
   }
 
   interface LeaderboardExploration {
-    name: string
+    player_id: string
+    player_name: string
     sectors_visited: number
     first_visit: string
   }

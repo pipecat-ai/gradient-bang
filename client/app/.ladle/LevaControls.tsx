@@ -11,6 +11,7 @@ import { useChatControls } from "./useChatControls"
 import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
 import { useTradeControls } from "./useTradeControls"
+import { useLeaderboardControls } from ".ladle/useLeaderboardControls"
 
 import { SHIP_DEFINITIONS } from "@/types/ships"
 import { INCOMING_CHAT_TOOL_CALL_MOCK } from "@/mocks/chat.mock"
@@ -361,17 +362,9 @@ export const LevaControls = ({
       },
       { collapsed: true, order: 3 }
     ),
-    Leaderboard: folder(
-      {
-        ["Set Leaderboard Data"]: button(() => {
-          const setLeaderboardData = useGameStore.getState().setLeaderboardData
-          setLeaderboardData(LEADERBOARD_DATA_MOCK)
-        }),
-      },
-      { collapsed: true, order: 4 }
-    ),
   }))
 
+  useLeaderboardControls()
   useTaskControls()
   useMapControls()
   useChatControls()

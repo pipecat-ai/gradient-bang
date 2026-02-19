@@ -105,6 +105,13 @@ export interface GameSlice extends GameState {
   removeSectorPlayer: (player: Player) => void
   setSectorBuffer: (sector: Sector) => void
 
+  playerCategoryRank: Record<LeaderboardCategory, PlayerLeaderboardCategoryRank> | null
+  playerRankLastUpdated: string | null
+  setPlayerCategoryRank: (
+    category: LeaderboardCategory,
+    rank: PlayerLeaderboardCategoryRank
+  ) => void
+
   setStarfieldReady: (starfieldReady: boolean) => void
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) => void
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") => void
@@ -131,8 +138,11 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   sector: undefined,
   messages: null, // @TODO: move to chat slice
   messageFilters: "all",
-  leaderboard_data: undefined,
-  leaderboard_last_updated: null,
+
+  leaderboard_data: undefined, // @TODO: remove snakecase
+  leaderboard_last_updated: null, //@TODO: remove snakecase
+  playerCategoryRank: null,
+  playerRankLastUpdated: null,
 
   starfieldReady: false,
   diamondFXInstance: undefined,
@@ -376,6 +386,20 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
 
   setMessageFilters: (filters: "all" | "direct" | "broadcast" | "corporation") =>
     set({ messageFilters: filters }),
+
+  setPlayerCategoryRank: (category: LeaderboardCategory, rank: PlayerLeaderboardCategoryRank) =>
+    set(
+      produce((state) => {
+        if (!state.playerCategoryRank) {
+          state.playerCategoryRank = {} as Record<
+            LeaderboardCategory,
+            PlayerLeaderboardCategoryRank
+          >
+        }
+        state.playerCategoryRank[category] = rank
+        state.playerRankLastUpdated = new Date().toISOString()
+      })
+    ),
 
   setLeaderboardData: (leaderboardData: LeaderboardResponse) =>
     set(

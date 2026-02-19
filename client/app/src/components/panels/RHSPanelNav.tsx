@@ -127,7 +127,7 @@ export const RHSPanelNav = () => {
       icon: <CheckSquareOffsetIcon size={20} />,
       hotkey: "h",
     },
-    { id: "rank", label: "Rank", icon: <UsersFourIcon size={20} />, hotkey: "r" },
+    { id: "leaderboard", label: "Rank", icon: <UsersFourIcon size={20} />, hotkey: "r" },
     { id: "logs", label: "Waves", icon: <ChatCircleTextIcon size={20} />, hotkey: "w" },
   ]
 
