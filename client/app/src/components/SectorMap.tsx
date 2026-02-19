@@ -462,6 +462,14 @@ const MapComponent = ({
     }
   }, [onNodeEnter, onNodeExit])
 
+  // Wire viewport change (from manual pan/zoom) to the same fetch path
+  useEffect(() => {
+    const controller = controllerRef.current
+    if (controller) {
+      controller.setOnViewportChange(onMapFetch ?? null)
+    }
+  }, [onMapFetch])
+
   // Cleanup effect — StrictMode-safe via deferred cleanup
   useEffect(() => {
     if (pendingControllerCleanupRef.current !== null) {
