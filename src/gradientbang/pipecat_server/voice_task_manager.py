@@ -181,6 +181,9 @@ class VoiceTaskManager:
             "ships.list",
             "task.start",
             "task.finish",
+            "quest.status",
+            "quest.step_completed",
+            "quest.completed",
         ]
         for event_name in self._event_names:
             self.game_client.on(event_name)(self._relay_event)
@@ -378,6 +381,8 @@ class VoiceTaskManager:
         await self.game_client.subscribe_my_messages()
         # Send ships list so client has it on connection
         await self.game_client.list_user_ships(character_id=self.character_id)
+        # Send quest status so client has it on connection
+        await self.game_client.quest_status(character_id=self.character_id)
         # Send recent chat history so client has messages on connection
         await self._send_initial_chat_history()
         if isinstance(result, Mapping):
@@ -1334,6 +1339,8 @@ class VoiceTaskManager:
             "combat.round_resolved",  # Combat round completed
             "combat.ended",  # Combat finished
             "ship.renamed",  # Corp ship renamed (want to know about all corp activity)
+            "quest.step_completed",  # Quest step completed
+            "quest.completed",  # Entire quest completed
         }
 
         # Trigger inference if:
