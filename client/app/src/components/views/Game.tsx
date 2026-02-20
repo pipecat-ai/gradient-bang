@@ -5,10 +5,13 @@ import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
 import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
+import { ActivityStream } from "@/components/ActivityStream"
 import { Disconnect } from "@/components/dialogs/Disconnect"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
 import { HighlightOverlay } from "@/components/HighlightOverlay"
+import { QuestCodecOverlay } from "@/components/QuestCodecOverlay"
+import { QuestCompleteNotification } from "@/components/QuestCompleteNotification"
 import { BigMapPanel } from "@/components/panels/BigMapPanel"
 import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
 import { CombatDamageVignette } from "@/components/panels/CombatDamageVignette"
@@ -105,6 +108,10 @@ export const Game = () => {
         <Panel className="flex flex-col">
           <TopBar />
           <main className=" @container/main relative flex-1 flex flex-col gap-0 gap-y-ui-sm">
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full pointer-events-none z-20">
+              <ActivityStream />
+            </div>
+
             {uiState === "combat" && <CombatDamageVignette />}
             <div className="flex-1">
               {uiState === "combat" ?
@@ -228,6 +235,8 @@ export const Game = () => {
       <ToastContainer />
       <HighlightOverlay />
       <PlayerRankChange />
+      <QuestCompleteNotification />
+      <QuestCodecOverlay />
       <PipecatClientAudio />
     </>
   )

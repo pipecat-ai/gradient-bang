@@ -471,3 +471,25 @@ export interface LLMTaskMessage extends ServerMessagePayload {
 export interface UIAgentContextSummaryMessage extends ServerMessagePayload {
   context_summary: string
 }
+
+// --- Quest Messages
+
+export interface QuestStatusMessage extends ServerMessagePayload {
+  quests: Quest[]
+}
+
+export interface QuestStepCompletedMessage extends ServerMessagePayload {
+  quest_id: string
+  quest_code: string
+  quest_name: string
+  step_id: string
+  step_name: string
+  step_index: number
+  next_step?: QuestStep
+}
+
+export interface QuestCompletedMessage extends ServerMessagePayload {
+  quest_id: string
+  quest_code: string
+  quest_name: string
+}

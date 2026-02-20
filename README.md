@@ -362,6 +362,12 @@ Now load it into your Supabase project:
 uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 ```
 
+Load quest definitions:
+
+```bash
+uv run -m gradientbang.scripts.load_quests_to_supabase --from-json quest-data/
+```
+
 ### Deploy bot to Pipecat Cloud
 
 Create `.env.bot` for Pipecat Cloud:

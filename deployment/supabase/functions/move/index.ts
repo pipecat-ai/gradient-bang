@@ -677,13 +677,17 @@ async function completeMovement({
     const mergedKnowledge = await pgLoadMapKnowledge(pg, characterId);
     mark("load_map_knowledge");
 
+    const sectorPayload = statusPayload.sector as Record<string, unknown>;
+    const portPayload = sectorPayload?.port as Record<string, unknown> | null;
+
     const movementCompletePayload = {
       source,
       player: statusPayload.player,
       ship: statusPayload.ship,
-      sector: statusPayload.sector,
+      sector: sectorPayload,
       first_visit: firstPersonalVisit,
       known_to_corp: knownToCorp,
+      has_megaport: portPayload?.mega === true,
     } as Record<string, unknown>;
 
     await pgEmitCharacterEvent({

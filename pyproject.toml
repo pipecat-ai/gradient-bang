@@ -15,30 +15,16 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "pytest>=8.4.1",
-    "pytest-asyncio>=1.1.0",
-    "pytest-timeout>=2.3.1"
-]
+dev = ["pytest>=8.4.1", "pytest-asyncio>=1.1.0", "pytest-timeout>=2.3.1"]
 
-worldgen = [
-    "numpy>=1.26.0",
-    "scipy>=1.11.0",
-    "networkx>=3.0"
-]
+worldgen = ["numpy>=1.26.0", "scipy>=1.11.0", "networkx>=3.0"]
 
 bot = [
     "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,local-smart-turn,google,anthropic,runner]==0.0.102",
-    "pipecat-ai-cli"
+    "pipecat-ai-cli",
 ]
 
-cli = [
-    "typer>=0.15.0",
-]
-
-tracing = [
-    "weave>=0.50",
-]
+tracing = ["weave>=0.50"]
 
 [project.scripts]
 # CLI
@@ -56,7 +42,7 @@ character-lookup = "gradientbang.scripts.character_lookup:main"
 
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -67,7 +53,7 @@ where = ["src"]
 # Note: run all scripts/tests via `uv run …` to keep environments consistent.
 override-dependencies = [
     "numba==0.61.2",  # Pin to version that supports Python 3.12
-    "openai==1.99.5",  
+    "openai==1.99.5",
 ]
 package = true
 
@@ -92,7 +78,7 @@ filterwarnings = [
     "ignore:The 'verify' parameter is deprecated:DeprecationWarning:supabase",
 ]
 # Timeout configuration (prevent hanging tests)
-timeout = 60  # Max 30 seconds per test
+timeout = 60 # Max 30 seconds per test
 # Event waiting timeouts (use asyncio.timeout() in tests):
 #   - Integration tests: 10 seconds (real server, events)
 #   - Unit tests: 5 seconds (fast, mocked operations)

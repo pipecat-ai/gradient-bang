@@ -1,4 +1,6 @@
 // Images
+// Characters
+import character1 from "./images/characters/fed-cadet-1.png"
 import port1 from "./images/ports/port-1.png"
 import port2 from "./images/ports/port-2.png"
 import port3 from "./images/ports/port-3.png"
@@ -48,6 +50,7 @@ import titleVideo from "./videos/title.mp4"
 
 export const images = {
   splash1,
+  character1,
   aegisCruiserLogo,
   atlasHaulerLogo,
   autonomousLightHaulerLogo,

@@ -1114,6 +1114,30 @@ class AsyncGameClient:
 
         return await self._request("list.user.ships", payload)
 
+    async def quest_status(
+        self,
+        *,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch active quests for the character.
+
+        Emits a quest.status event with all quest progress data.
+
+        Args:
+            character_id: Character ID (defaults to bound character)
+
+        Returns:
+            Minimal RPC acknowledgment
+        """
+        if character_id is None:
+            character_id = self._character_id
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+        }
+
+        return await self._request("quest.status", payload)
+
     async def task_lifecycle(
         self,
         *,

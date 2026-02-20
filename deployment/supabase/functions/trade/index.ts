@@ -357,6 +357,9 @@ async function handleTrade({
         new_cargo: execution.computation.updatedCargo,
         new_prices: priceMap,
       },
+      // Top-level fields for quest evaluation
+      profit: tradeType === "sell" ? execution.computation.totalPrice : 0,
+      trade_type: tradeType,
     },
     senderId: characterId,
     sectorId,
