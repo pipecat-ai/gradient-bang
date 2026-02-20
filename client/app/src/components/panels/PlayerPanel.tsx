@@ -15,6 +15,49 @@ import { ShipCatalogue } from "./ShipCatalogue"
 
 import { SHIP_DEFINITIONS } from "@/types/ships"
 
+const QuestList = () => {
+  const quests = useGameStore.use.quests?.()
+
+  if (!quests || quests.length === 0) {
+    return <span className="text-xs text-subtle-foreground">No active quests</span>
+  }
+
+  return (
+    <div className="flex flex-col gap-ui-xs">
+      {quests.map((quest) => (
+        <div
+          key={quest.quest_id}
+          className="corner-dots p-ui-xs flex flex-col gap-0.5 border border-accent bg-subtle-background"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium uppercase">{quest.name}</span>
+            <span
+              className={`text-xxs uppercase ${quest.status === "completed" ? "text-green-400" : "text-subtle-foreground"}`}
+            >
+              {quest.status}
+            </span>
+          </div>
+          {quest.status === "active" && quest.current_step && (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xxs text-subtle-foreground">
+                Step {quest.current_step_index}: {quest.current_step.name}
+              </span>
+              <div className="w-full h-1 bg-accent rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-foreground rounded-full"
+                  style={{
+                    width: `${Math.min(100, (quest.current_step.current_value / quest.current_step.target_value) * 100)}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export const PlayerPanel = () => {
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
   const player = useGameStore.use.player?.()
@@ -95,6 +138,15 @@ export const PlayerPanel = () => {
           </CardContent>
         </Card>
       </header>
+
+      <Card size="sm" className="border-0 border-y">
+        <CardHeader className="shrink-0">
+          <CardTitle>Quests</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-ui-xs">
+          <QuestList />
+        </CardContent>
+      </Card>
 
       <Card size="sm" className="border-0 border-y">
         <CardHeader className="shrink-0">

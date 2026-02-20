@@ -134,10 +134,16 @@ fi
 # Step 1: Truncate all game data tables
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 1/3 -- Truncating game data tables ..."
+echo "[reset-world] Step 1/4 -- Truncating game data tables ..."
 
 run_sql "
   TRUNCATE TABLE
+    quest_progress_events,
+    player_quest_steps,
+    player_quests,
+    quest_event_subscriptions,
+    quest_step_definitions,
+    quest_definitions,
     event_character_recipients,
     event_broadcast_recipients,
     events,
@@ -167,7 +173,7 @@ echo ""
 # Step 2: Generate new universe
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 2/3 -- Generating universe ($SECTOR_COUNT sectors) ..."
+echo "[reset-world] Step 2/4 -- Generating universe ($SECTOR_COUNT sectors) ..."
 
 BANG_ARGS=("$SECTOR_COUNT")
 if [[ -n "$SEED" ]]; then
@@ -184,12 +190,24 @@ echo ""
 # Step 3: Load universe into Supabase
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 3/3 -- Loading universe into Supabase ..."
+echo "[reset-world] Step 3/4 -- Loading universe into Supabase ..."
 
 uv run -m gradientbang.scripts.load_universe_to_supabase \
   --from-json world-data/ --force
 
 echo "[reset-world] Universe loaded."
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 4: Load quest definitions
+# ---------------------------------------------------------------------------
+
+echo "[reset-world] Step 4/4 -- Loading quest definitions ..."
+
+uv run -m gradientbang.scripts.load_quests_to_supabase \
+  --from-json quest-data/ --force
+
+echo "[reset-world] Quests loaded."
 echo ""
 
 # ---------------------------------------------------------------------------

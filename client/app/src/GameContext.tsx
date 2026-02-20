@@ -520,16 +520,7 @@ export function GameProvider({ children }: GameProviderProps) {
               })
 
               // Update activity log
-              // @TODO: optimize but having movement history and activity log index same data
-              gameStore.addActivityLogEntry({
-                type: "movement",
-                message: `Moved from [sector ${gameStore.sector?.id}] to [sector ${gameStore.sectorBuffer?.id}]`,
-              })
-
               if (data.first_visit) {
-                console.debug(
-                  `[GAME EVENT] Discovered sector for first time: ${gameStore.sectorBuffer?.id}`
-                )
                 gameStore.addActivityLogEntry({
                   type: "map.sector.discovered",
                   message: `Discovered [sector ${gameStore.sectorBuffer?.id}]`,
@@ -1174,6 +1165,38 @@ export function GameProvider({ children }: GameProviderProps) {
               gameStore.addActivityLogEntry({
                 type: "garrison.character_moved",
                 message: `[${data.player.name}] ${data.movement === "depart" ? "departed" : "arrived"} near garrison`,
+              })
+              break
+            }
+
+            // ----- QUESTS
+            case "quest.status": {
+              console.debug("[GAME EVENT] Quest status", e.payload)
+              const data = e.payload as Msg.QuestStatusMessage
+              if (data.quests) {
+                gameStore.setQuests(data.quests)
+              }
+              break
+            }
+
+            case "quest.step_completed": {
+              console.debug("[GAME EVENT] Quest step completed", e.payload)
+              const data = e.payload as Msg.QuestStepCompletedMessage
+              gameStore.updateQuestStepCompleted(data.quest_id, data.step_index, data.next_step)
+              gameStore.addActivityLogEntry({
+                type: "quest.step_completed",
+                message: `[${data.quest_name}] Step completed: ${data.step_name}`,
+              })
+              break
+            }
+
+            case "quest.completed": {
+              console.debug("[GAME EVENT] Quest completed", e.payload)
+              const data = e.payload as Msg.QuestCompletedMessage
+              gameStore.completeQuest(data.quest_id)
+              gameStore.addActivityLogEntry({
+                type: "quest.completed",
+                message: `Quest completed: ${data.quest_name}`,
               })
               break
             }

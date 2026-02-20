@@ -10,6 +10,7 @@ import { type ChatSlice, createChatSlice } from "./chatSlice"
 import { type CombatSlice, createCombatSlice } from "./combatSlice"
 import { createHistorySlice, type HistorySlice } from "./historySlice"
 import { createMapSlice, type MapSlice } from "./mapSlice"
+import { createQuestSlice, type QuestSlice } from "./questSlice"
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice"
 import { createTaskSlice, type TaskSlice } from "./taskSlice"
 import { createUISlice, type UISlice } from "./uiSlice"
@@ -399,6 +400,7 @@ export type GameStoreState = GameSlice &
   CombatSlice &
   HistorySlice &
   TaskSlice &
+  QuestSlice &
   SettingsSlice &
   UISlice &
   MapSlice
@@ -410,6 +412,7 @@ const useGameStoreBase = create<GameStoreState>()(
     ...createCombatSlice(...a),
     ...createHistorySlice(...a),
     ...createTaskSlice(...a),
+    ...createQuestSlice(...a),
     ...createSettingsSlice(...a),
     ...createUISlice(...a),
     ...createMapSlice(...a),

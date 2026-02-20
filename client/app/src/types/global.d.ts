@@ -528,6 +528,31 @@ declare global {
    * Text mode for conversation display
    */
   export type TextMode = "llm" | "tts"
-}
 
+  // --- QUESTS
+
+  export interface QuestStep {
+    meta: Record<string, unknown>
+    name: string
+    completed: boolean
+    step_index: number
+    description: string
+    target_value: number
+    current_value: number
+  }
+
+  export interface Quest {
+    code: string
+    meta: Record<string, unknown>
+    name: string
+    status: "active" | "completed" | "failed"
+    quest_id: string
+    started_at: string
+    description: string
+    completed_at: string | null
+    current_step: QuestStep
+    completed_steps: QuestStep[]
+    current_step_index: number
+  }
+}
 export {}
