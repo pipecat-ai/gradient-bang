@@ -64,7 +64,7 @@
       "eval_type": "count_filtered",
       "event_types": ["ship.traded_in"],
       "target_value": 1,
-      "payload_filter": { "ship_type": "kestrel_courier" }
+      "payload_filter": { "new_ship_type": "kestrel_courier" }
     },
     {
       "step_index": 8,
@@ -81,7 +81,7 @@
       "eval_type": "count_filtered",
       "event_types": ["task.start"],
       "target_value": 1,
-      "payload_filter": { "ship_owner": "corporation" }
+      "payload_filter": { "task_scope": "corp_ship" }
     }
   ]
 }

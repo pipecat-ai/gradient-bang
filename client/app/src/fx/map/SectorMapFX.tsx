@@ -1285,7 +1285,7 @@ function renderSector(
     ctx.fillStyle = applyAlpha(iconColor, finalOpacity)
     ctx.fill(garrisonPath)
     ctx.restore()
-  } else if (config.show_ports && node.port) {
+  } else if ((config.show_ports || isCurrent) && node.port) {
     const isMegaPort = Boolean((node.port as Port | null)?.mega)
     const portStyle = isMegaPort ? config.portStyles.mega : config.portStyles.regular
 

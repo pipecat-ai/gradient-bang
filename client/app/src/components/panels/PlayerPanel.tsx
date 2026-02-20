@@ -1,5 +1,5 @@
 import { format } from "date-fns"
-import { UserIcon } from "@phosphor-icons/react"
+import { CheckCircleIcon, CircleDashedIcon, CircleIcon, UserIcon } from "@phosphor-icons/react"
 
 import RadialGrad from "@/assets/images/radial-grad-md.png"
 import useGameStore from "@/stores/game"
@@ -15,6 +15,57 @@ import { ShipCatalogue } from "./ShipCatalogue"
 
 import { SHIP_DEFINITIONS } from "@/types/ships"
 
+const QuestStepRow = ({
+  step,
+  isActive,
+  isLast,
+}: {
+  step: QuestStep
+  isActive: boolean
+  isLast: boolean
+}) => {
+  const progress = step.target_value > 0
+    ? Math.min(100, (step.current_value / step.target_value) * 100)
+    : 0
+
+  return (
+    <div className="flex gap-ui-xs">
+      {/* Timeline column */}
+      <div className="flex flex-col items-center w-4 shrink-0">
+        {step.completed ? (
+          <CheckCircleIcon weight="fill" className="size-4 text-green-400 shrink-0" />
+        ) : isActive ? (
+          <CircleDashedIcon weight="bold" className="size-4 text-foreground shrink-0" />
+        ) : (
+          <CircleIcon className="size-4 text-subtle-foreground/40 shrink-0" />
+        )}
+        {!isLast && (
+          <div className="w-px flex-1 min-h-2 bg-accent" />
+        )}
+      </div>
+      {/* Step content */}
+      <div className={`flex flex-col gap-0.5 pb-ui-xs min-w-0 ${step.completed ? "opacity-60" : ""}`}>
+        <span className={`text-xxs uppercase leading-4 ${isActive ? "text-foreground" : "text-subtle-foreground"}`}>
+          {step.name}
+        </span>
+        {isActive && !step.completed && step.target_value > 0 && (
+          <div className="flex items-center gap-ui-xs">
+            <div className="w-full h-1 bg-accent rounded-full overflow-hidden">
+              <div
+                className="h-full bg-foreground rounded-full transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="text-xxs text-subtle-foreground tabular-nums shrink-0">
+              {step.current_value}/{step.target_value}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const QuestList = () => {
   const quests = useGameStore.use.quests?.()
 
@@ -24,36 +75,40 @@ const QuestList = () => {
 
   return (
     <div className="flex flex-col gap-ui-xs">
-      {quests.map((quest) => (
-        <div
-          key={quest.quest_id}
-          className="corner-dots p-ui-xs flex flex-col gap-0.5 border border-accent bg-subtle-background"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium uppercase">{quest.name}</span>
-            <span
-              className={`text-xxs uppercase ${quest.status === "completed" ? "text-green-400" : "text-subtle-foreground"}`}
-            >
-              {quest.status}
-            </span>
-          </div>
-          {quest.status === "active" && quest.current_step && (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xxs text-subtle-foreground">
-                Step {quest.current_step_index}: {quest.current_step.name}
+      {quests.map((quest) => {
+        const allSteps = [
+          ...quest.completed_steps,
+          ...(quest.current_step ? [quest.current_step] : []),
+        ].sort((a, b) => a.step_index - b.step_index)
+
+        return (
+          <div
+            key={quest.quest_id}
+            className="corner-dots p-ui-xs flex flex-col gap-0.5 border border-accent bg-subtle-background"
+          >
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-xs font-medium uppercase">{quest.name}</span>
+              <span
+                className={`text-xxs uppercase ${quest.status === "completed" ? "text-green-400" : quest.status === "failed" ? "text-red-400" : "text-subtle-foreground"}`}
+              >
+                {quest.status}
               </span>
-              <div className="w-full h-1 bg-accent rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-foreground rounded-full"
-                  style={{
-                    width: `${Math.min(100, (quest.current_step.current_value / quest.current_step.target_value) * 100)}%`,
-                  }}
-                />
-              </div>
             </div>
-          )}
-        </div>
-      ))}
+            {allSteps.length > 0 && (
+              <div className="flex flex-col">
+                {allSteps.map((step, i) => (
+                  <QuestStepRow
+                    key={step.step_index}
+                    step={step}
+                    isActive={!step.completed && quest.status === "active"}
+                    isLast={i === allSteps.length - 1}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

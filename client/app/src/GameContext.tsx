@@ -1253,11 +1253,6 @@ export function GameProvider({ children }: GameProviderProps) {
                   gameStore.handleMapCenterFallback()
                 }
               }
-
-              gameStore.addActivityLogEntry({
-                type: "error",
-                message: `Ship Protocol Failure: ${data.endpoint ?? "Unknown"} - ${data.error}`,
-              })
               break
             }
 
