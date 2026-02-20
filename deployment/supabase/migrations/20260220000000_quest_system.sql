@@ -283,6 +283,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_event RECORD;
+  v_player_id UUID;
   v_sub RECORD;
   v_pq_id UUID;
   v_pq_quest_id UUID;
@@ -300,13 +301,17 @@ DECLARE
   v_step_completed_payload JSONB;
 BEGIN
   -- 1. Load event
-  SELECT id, event_type, character_id, payload
+  SELECT id, event_type, character_id, actor_character_id, payload
   INTO v_event
   FROM events
   WHERE id = p_event_id;
 
   IF NOT FOUND THEN RETURN; END IF;
   IF v_event.character_id IS NULL THEN RETURN; END IF;
+
+  -- Resolve the player who owns quests. For corp ship tasks,
+  -- character_id is the ship UUID; actor_character_id is the player.
+  v_player_id := COALESCE(v_event.actor_character_id, v_event.character_id);
 
   -- 2. Find matching step definitions via subscription routing
   FOR v_sub IN
@@ -325,7 +330,7 @@ BEGIN
          v_pqs_id, v_pqs_current_value, v_pqs_unique_values
     FROM player_quests pq
     JOIN player_quest_steps pqs ON pqs.player_quest_id = pq.id
-    WHERE pq.player_id = v_event.character_id
+    WHERE pq.player_id = v_player_id
       AND pq.status = 'active'
       AND pqs.step_id = v_sub.step_id
       AND v_sub.step_index = pq.current_step_index
@@ -341,7 +346,7 @@ BEGIN
 
     -- 3c. Idempotency check (only after filter passes)
     INSERT INTO quest_progress_events (event_id, player_id, step_id)
-    VALUES (p_event_id, v_event.character_id, v_sub.step_id)
+    VALUES (p_event_id, v_player_id, v_sub.step_id)
     ON CONFLICT DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
@@ -432,10 +437,10 @@ BEGIN
       PERFORM record_event_with_recipients(
         p_event_type := 'quest.step_completed',
         p_scope := 'direct',
-        p_actor_character_id := v_event.character_id,
-        p_character_id := v_event.character_id,
+        p_actor_character_id := v_player_id,
+        p_character_id := v_player_id,
         p_payload := v_step_completed_payload,
-        p_recipients := ARRAY[v_event.character_id],
+        p_recipients := ARRAY[v_player_id],
         p_reasons := ARRAY['direct']
       );
 
@@ -458,14 +463,14 @@ BEGIN
         PERFORM record_event_with_recipients(
           p_event_type := 'quest.completed',
           p_scope := 'direct',
-          p_actor_character_id := v_event.character_id,
-          p_character_id := v_event.character_id,
+          p_actor_character_id := v_player_id,
+          p_character_id := v_player_id,
           p_payload := jsonb_build_object(
             'quest_id', v_pq_quest_id,
             'quest_code', v_quest_code,
             'quest_name', v_quest_name
           ),
-          p_recipients := ARRAY[v_event.character_id],
+          p_recipients := ARRAY[v_player_id],
           p_reasons := ARRAY['direct']
         );
       END IF;
