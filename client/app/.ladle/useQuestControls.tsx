@@ -47,6 +47,9 @@ export const useQuestControls = () => {
           ["Reset"]: button(() => {
             setQuests([])
           }),
+          ["Test Codec"]: button(() => {
+            setNotifications({ incomingCodec: true })
+          }),
         },
         { collapsed: true }
       ),

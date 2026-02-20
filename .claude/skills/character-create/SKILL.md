@@ -54,6 +54,10 @@ curl -s -X POST "${SUPABASE_URL}/functions/v1/user_character_create" \
 
 Show the user the `character_id`, `name`, `ship.ship_id`, `ship.ship_type`, `ship.current_sector`, and `ship.credits` from the response.
 
+### 6. Update .env.bot (optional)
+
+After reporting the result, check if `BOT_TEST_CHARACTER_ID` exists in `.env.bot`. If it does, ask the user if they want to update it to the newly created character ID. If yes, replace the value in `.env.bot`.
+
 ## Defaults
 
 The edge function applies these defaults:

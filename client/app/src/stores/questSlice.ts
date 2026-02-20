@@ -21,6 +21,7 @@ export interface QuestSlice {
   completeQuest: (questId: string) => void
   getActiveQuests: () => Quest[]
   getQuestByCode: (code: string) => Quest | undefined
+  getActiveCodec: () => QuestCodec | null
   questCompletionData: QuestCompletionData | null
   setQuestCompletionData: (data: QuestCompletionData) => void
 }
@@ -28,7 +29,18 @@ export interface QuestSlice {
 export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
   quests: [],
 
-  setQuests: (quests: Quest[]) => set({ quests }),
+  setQuests: (quests: Quest[]) =>
+    set(
+      produce((state) => {
+        state.quests = quests
+        const hasCodec = quests.some(
+          (q: Quest) => q.status === "active" && q.current_step?.meta?.codec
+        )
+        if (hasCodec) {
+          ;(state as Record<string, any>).notifications.incomingCodec = true
+        }
+      })
+    ),
 
   updateQuestStepCompleted: (questId: string, stepIndex: number, nextStep?: QuestStep) =>
     set(
@@ -44,6 +56,10 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
           })
           quest.current_step_index = stepIndex + 1
           quest.current_step = nextStep ?? null
+        }
+
+        if (nextStep?.meta?.codec) {
+          ;(state as Record<string, any>).notifications.incomingCodec = true
         }
       })
     ),
@@ -71,6 +87,16 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
   getActiveQuests: () => get().quests.filter((q) => q.status === "active"),
 
   getQuestByCode: (code: string) => get().quests.find((q) => q.code === code),
+
+  getActiveCodec: () => {
+    const activeQuests = get().quests.filter((q) => q.status === "active")
+    for (const quest of activeQuests) {
+      if (quest.current_step?.meta?.codec) {
+        return quest.current_step.meta.codec
+      }
+    }
+    return null
+  },
 
   questCompletionData: null,
 

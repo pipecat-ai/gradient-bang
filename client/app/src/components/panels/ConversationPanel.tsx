@@ -4,6 +4,7 @@ import { RTVIEvent } from "@pipecat-ai/client-js"
 import { useRTVIClientEvent } from "@pipecat-ai/client-react"
 
 import { ChatPanel } from "@/components/ChatPanel"
+import { IncomingCodecBadge } from "@/components/IncomingCodecBadge"
 import { useGameContext } from "@/hooks/useGameContext"
 import { cn } from "@/utils/tailwind"
 
@@ -24,7 +25,8 @@ export const ConversationPanel = ({ className }: { className?: string }) => {
   })
 
   return (
-    <div className={cn("flex flex-col gap-ui-xs h-full", className)}>
+    <div className={cn("relative flex flex-col gap-ui-xs h-full", className)}>
+      <IncomingCodecBadge className="absolute -top-ui-sm -translate-y-full right-0 z-90" />
       <ChatPanel />
       <div className="flex flex-row gap-ui-xs items-center">
         <TextInputControl

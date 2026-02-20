@@ -19,7 +19,9 @@
         "codec": {
           "giver": "tutorial",
           "pages": [
-            "Welcome to the galaxy, pilot! Your first task is to travel to an adjacent sector. Use your ship's warp drive to move to a neighboring location. This will allow you to explore new areas and find opportunities for trading and adventure. Good luck!"
+            "<emotion value=\"excitable\">Welcome to the galaxy, pilot![laughter] I'm Amy, <emotion value=\"content\" />a representative from the Federation, and I'll be guiding you through your first steps as a spacefaring trader.",
+            "<emotion value=\"neutral\" /> In this tutorial, we'll cover the basics of navigation, trading, and survival in the galaxy. Don't worry, it's easier than it sounds! Let's get started.",
+            "<emotion value=\"anticipation\">Your first task is to travel to an adjacent sector.</emotion> Use your ship's warp drive to move to a neighboring location. This will allow you to explore new areas and find opportunities for trading and adventure. Good luck!"
           ]
         }
       }

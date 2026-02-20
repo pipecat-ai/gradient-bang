@@ -18,6 +18,8 @@ from pipecat.frames.frames import (
     LLMTextFrame,
     StartFrame,
     StopFrame,
+    TTSSpeakFrame,
+    TTSUpdateSettingsFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -240,6 +242,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     user_mute_state = {"muted": True}
     user_unmuted_event = asyncio.Event()
+    say_text_restore_voice: dict[str, str | None] = {"voice_id": None}
 
     @user_aggregator.event_handler("on_user_mute_started")
     async def on_user_mute_started(aggregator):
@@ -727,6 +730,35 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 target_id=msg_data.get("target_id"),
                 to_sector=msg_data.get("to_sector"),
             )
+            return
+
+        # Handle say-text: generate TTS with an optional temporary voice
+        if msg_type == "say-text":
+            text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
+            voice_id = msg_data.get("voice_id") if isinstance(msg_data, dict) else None
+            if text:
+                await task.queue_frame(InterruptionFrame())
+                frames = []
+                if voice_id:
+                    say_text_restore_voice["voice_id"] = tts._voice_id
+                    frames.append(TTSUpdateSettingsFrame(settings={"voice_id": voice_id}))
+                else:
+                    say_text_restore_voice["voice_id"] = None
+                frames.append(TTSSpeakFrame(text=text, append_to_context=False))
+                if voice_id:
+                    frames.append(TTSUpdateSettingsFrame(settings={"voice_id": say_text_restore_voice["voice_id"]}))
+                await task.queue_frames(frames)
+            return
+
+        # Handle say-text-dismiss: stop TTS, restore voice, resume normal pipeline
+        if msg_type == "say-text-dismiss":
+            await task.queue_frame(InterruptionFrame())
+            restore_id = say_text_restore_voice.get("voice_id")
+            frames = []
+            if restore_id:
+                frames.append(TTSUpdateSettingsFrame(settings={"voice_id": restore_id}))
+                say_text_restore_voice["voice_id"] = None
+            await task.queue_frames(frames)
             return
 
         # Handle user text input messages
