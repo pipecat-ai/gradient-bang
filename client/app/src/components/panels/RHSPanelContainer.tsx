@@ -5,6 +5,7 @@ import { ArrowLeftIcon } from "@phosphor-icons/react"
 
 import { LogsPanel } from "@/components/panels/LogsPanel"
 import { PlayerPanel } from "@/components/panels/PlayerPanel"
+import { RankPanel } from "@/components/panels/RankPanel"
 import { SectorPanel } from "@/components/panels/SectorPanel"
 import { TaskPanel } from "@/components/panels/TaskPanel"
 import { TaskStreamPanel } from "@/components/panels/TaskStreamPanel"
@@ -105,7 +106,7 @@ export const RHSPanelContainer = () => {
         {activePanel === "player" && <PlayerPanel />}
         {activePanel === "trade" && <TradePanel />}
         {activePanel === "task_history" && <TaskPanel />}
-        {activePanel === "corp" && <div className=""></div>}
+        {activePanel === "leaderboard" && <RankPanel />}
         {activePanel === "task_stream" && <TaskStreamPanel />}
       </div>
       <div

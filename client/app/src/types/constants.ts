@@ -1,3 +1,17 @@
+// Leaderboard ranking keys
+export const LEADERBOARD_CATEGORY_KEYS: Record<LeaderboardCategory, string> = {
+  wealth: "total_wealth",
+  trading: "total_trade_volume",
+  exploration: "sectors_visited",
+  territory: "territory_control_percentage",
+}
+export const LEADERBOARD_CATEGORY_LABELS: Record<LeaderboardCategory, string> = {
+  wealth: "Wealth",
+  trading: "Trading",
+  exploration: "Exploration",
+  territory: "Territory",
+}
+
 export const RESOURCE_SHORT_NAMES = {
   quantum_foam: "QF",
   retro_organics: "RO",

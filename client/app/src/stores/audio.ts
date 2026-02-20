@@ -35,7 +35,6 @@ const soundTypes: Record<SoundName, SoundType> = {
   chime7: "fx",
   chime8: "fx",
   text: "fx",
-  ambience: "ambience",
   currency: "fx",
   impact1: "fx",
   impact2: "fx",

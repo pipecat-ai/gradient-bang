@@ -3,7 +3,7 @@ import { useMemo, useState } from "react"
 import { differenceInDays, differenceInMonths, differenceInYears } from "date-fns"
 import { type ColumnDef } from "@tanstack/react-table"
 
-type LeaderboardRow = { name: string }
+type LeaderboardRow = { player_name: string }
 
 import { DataTableScrollArea } from "@/components/DataTable"
 import useGameStore from "@/stores/game"
@@ -17,7 +17,7 @@ import { Card } from "../primitives/Card"
 
 const wealthColumns: ColumnDef<LeaderboardWealth>[] = [
   {
-    accessorKey: "name",
+    accessorKey: "player_name",
     header: "Player",
     meta: { width: "20%", cellClassName: "text-foreground" },
   },
@@ -60,7 +60,7 @@ const wealthColumns: ColumnDef<LeaderboardWealth>[] = [
 
 const tradingColumns: ColumnDef<LeaderboardTrading>[] = [
   {
-    accessorKey: "name",
+    accessorKey: "player_name",
     header: "Player",
     meta: { width: "20%", cellClassName: "text-foreground" },
   },
@@ -71,7 +71,7 @@ const tradingColumns: ColumnDef<LeaderboardTrading>[] = [
 
 const explorationColumns: ColumnDef<LeaderboardExploration>[] = [
   {
-    accessorKey: "name",
+    accessorKey: "player_name",
     header: "Player",
     meta: { width: "20%", cellClassName: "text-foreground" },
   },
@@ -102,7 +102,7 @@ const explorationColumns: ColumnDef<LeaderboardExploration>[] = [
 export const LeaderboardPanel = ({ className }: { className?: string }) => {
   const leaderboardData = useGameStore((state) => state.leaderboard_data)
   const player = useGameStore((state) => state.player)
-  const [filter, setFilter] = useState<"wealth" | "territory" | "trading" | "exploration">("wealth")
+  const [filter, setFilter] = useState<LeaderboardCategory>("wealth")
 
   const wealthData = useMemo(
     () => [...(leaderboardData?.wealth ?? [])].sort((a, b) => b.total_wealth - a.total_wealth),
@@ -190,7 +190,7 @@ export const LeaderboardPanel = ({ className }: { className?: string }) => {
           columns={columns as ColumnDef<LeaderboardRow>[]}
           striped
           getRowClassName={(row) =>
-            row.name === player?.name ?
+            row.player_name === player?.name ?
               "bg-terminal-background/50 text-terminal-foreground font-bold"
             : undefined
           }

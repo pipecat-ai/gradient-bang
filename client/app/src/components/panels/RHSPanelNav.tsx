@@ -86,7 +86,7 @@ export const RHSPanelNav = () => {
         ["p", "player"],
         ["t", "trade"],
         ["h", "task_history"],
-        ["c", "corp"],
+        ["r", "leaderboard"],
         ["w", "logs"],
       ]),
     []
@@ -127,7 +127,7 @@ export const RHSPanelNav = () => {
       icon: <CheckSquareOffsetIcon size={20} />,
       hotkey: "h",
     },
-    { id: "corp", label: "Corp", icon: <UsersFourIcon size={20} />, hotkey: "c" },
+    { id: "leaderboard", label: "Rank", icon: <UsersFourIcon size={20} />, hotkey: "r" },
     { id: "logs", label: "Waves", icon: <ChatCircleTextIcon size={20} />, hotkey: "w" },
   ]
 

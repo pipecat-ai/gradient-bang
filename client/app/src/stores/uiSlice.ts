@@ -8,6 +8,7 @@ import type { Toast, ToastInput } from "@/types/toasts"
 
 interface Notifications {
   newChatMessage: boolean
+  rankChanged: boolean
 }
 
 const DEDUPE_TOAST_TYPES = ["trade.executed"]
@@ -62,6 +63,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   activeSubPanel: undefined,
   notifications: {
     newChatMessage: false,
+    rankChanged: false,
   },
 
   toasts: [],
@@ -88,7 +90,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
       "player",
       "trade",
       "task_history",
-      "corp",
+      "leaderboard",
       "logs",
       "task_stream",
     ]

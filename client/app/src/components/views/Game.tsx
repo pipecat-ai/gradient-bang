@@ -19,6 +19,7 @@ import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { RHSPanelContainer } from "@/components/panels/RHSPanelContainer"
 import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
+import { PlayerRankChange } from "@/components/PlayerRankChange"
 import { Button } from "@/components/primitives/Button"
 import { ScreenContainer } from "@/components/screens/ScreenContainer"
 import { SectorTitleBanner } from "@/components/SectorTitleBanner"
@@ -27,6 +28,7 @@ import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { TopBar } from "@/components/TopBar"
 import { UIModeToggle } from "@/components/UIModeToggle"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
+import { usePlayerRank } from "@/hooks/usePlayerRank"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
@@ -42,6 +44,7 @@ export const Game = () => {
   const setLookMode = useGameStore.use.setLookMode?.()
   const [isCollapsed, setIsCollapsed] = useState(false)
 
+  usePlayerRank()
   useNotificationSound()
 
   const handleAsideResize = useCallback(() => {
@@ -224,6 +227,7 @@ export const Game = () => {
       <SectorTitleBanner />
       <ToastContainer />
       <HighlightOverlay />
+      <PlayerRankChange />
       <PipecatClientAudio />
     </>
   )
