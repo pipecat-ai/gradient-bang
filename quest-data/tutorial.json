@@ -11,7 +11,6 @@
       "name": "Travel to any adjacent sector",
       "description": "Use the warp drive to move to a neighboring sector.",
       "eval_type": "count",
-<<<<<<< HEAD
       "event_types": [
         "movement.complete"
       ],
@@ -24,17 +23,12 @@
           ]
         }
       }
-=======
-      "event_types": ["movement.complete"],
-      "target_value": 1
->>>>>>> 688c3344be9990a55d741648cfa6f7bc91d13b27
     },
     {
       "step_index": 2,
       "name": "Locate the Megaport",
       "description": "Find a sector that contains a Megaport.",
       "eval_type": "count_filtered",
-<<<<<<< HEAD
       "event_types": [
         "movement.complete"
       ],
@@ -50,18 +44,12 @@
           ]
         }
       }
-=======
-      "event_types": ["movement.complete"],
-      "target_value": 1,
-      "payload_filter": { "has_megaport": true }
->>>>>>> 688c3344be9990a55d741648cfa6f7bc91d13b27
     },
     {
       "step_index": 3,
       "name": "Refuel your ship",
       "description": "Purchase warp fuel to recharge your drives.",
       "eval_type": "count",
-<<<<<<< HEAD
       "event_types": [
         "warp.purchase"
       ],
@@ -74,23 +62,15 @@
           ]
         }
       }
-=======
-      "event_types": ["warp.purchase"],
-      "target_value": 1
->>>>>>> 688c3344be9990a55d741648cfa6f7bc91d13b27
     },
     {
       "step_index": 4,
       "name": "Purchase a commodity",
       "description": "Buy goods from a port to begin trading.",
       "eval_type": "count",
-<<<<<<< HEAD
       "event_types": [
         "trade.executed"
       ],
-=======
-      "event_types": ["trade.executed"],
->>>>>>> 688c3344be9990a55d741648cfa6f7bc91d13b27
       "target_value": 1
     },
     {
@@ -98,20 +78,14 @@
       "name": "Earn 2000 credits trading",
       "description": "Generate at least 2000 credits in trading profit.",
       "eval_type": "aggregate",
-<<<<<<< HEAD
       "event_types": [
         "trade.executed"
       ],
       "target_value": 100,
-=======
-      "event_types": ["trade.executed"],
-      "target_value": 2000,
->>>>>>> 688c3344be9990a55d741648cfa6f7bc91d13b27
       "aggregate_field": "profit"
     },
     {
       "step_index": 6,
-<<<<<<< HEAD
       "name": "Deposit 1000 credits into the megabank",
       "description": "Transfer at least 1000 credits to the Megaport bank.",
       "eval_type": "count_filtered",
@@ -122,21 +96,12 @@
       "payload_filter": {
         "amount_gte": 1000
       }
-=======
-      "name": "Deposit 2000 credits into the megabank",
-      "description": "Transfer at least 2000 credits to the Megaport bank.",
-      "eval_type": "count_filtered",
-      "event_types": ["bank.transaction"],
-      "target_value": 1,
-      "payload_filter": { "amount_gte": 2000 }
->>>>>>> 688c3344be9990a55d741648cfa6f7bc91d13b27
     },
     {
       "step_index": 7,
       "name": "Purchase a kestrel",
       "description": "Buy a Kestrel Courier from a shipyard.",
       "eval_type": "count_filtered",
-<<<<<<< HEAD
       "event_types": [
         "ship.traded_in"
       ],
@@ -144,25 +109,16 @@
       "payload_filter": {
         "new_ship_type": "kestrel_courier"
       }
-=======
-      "event_types": ["ship.traded_in"],
-      "target_value": 1,
-      "payload_filter": { "new_ship_type": "kestrel_courier" }
->>>>>>> 688c3344be9990a55d741648cfa6f7bc91d13b27
     },
     {
       "step_index": 8,
       "name": "Create or join a corporation",
       "description": "Form a new corporation or join an existing one.",
       "eval_type": "count",
-<<<<<<< HEAD
       "event_types": [
         "corporation.created",
         "corporation.member_joined"
       ],
-=======
-      "event_types": ["corporation.created", "corporation.member_joined"],
->>>>>>> 688c3344be9990a55d741648cfa6f7bc91d13b27
       "target_value": 1
     },
     {
@@ -170,7 +126,6 @@
       "name": "Run a task on a corp ship",
       "description": "Purchase or select a corporation ship and execute a task on it.",
       "eval_type": "count_filtered",
-<<<<<<< HEAD
       "event_types": [
         "task.start"
       ],
@@ -181,11 +136,3 @@
     }
   ]
 }
-=======
-      "event_types": ["task.start"],
-      "target_value": 1,
-      "payload_filter": { "task_scope": "corp_ship" }
-    }
-  ]
-}
->>>>>>> 688c3344be9990a55d741648cfa6f7bc91d13b27
