@@ -1,4 +1,4 @@
--- Quest System: tables, functions, trigger, and seed data
+-- Quest System: tables, functions, trigger
 -- Date: 2026-02-20
 -- See docs/quest-system-spec.md for full design
 
@@ -84,11 +84,13 @@ COMMENT ON TABLE player_quest_steps IS 'Progress on individual sub-quest steps. 
 
 -- Idempotency tracking
 CREATE TABLE quest_progress_events (
+  id BIGSERIAL PRIMARY KEY,
   event_id BIGINT NOT NULL,
   player_id UUID NOT NULL,
   step_id UUID NOT NULL,
   applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (event_id, player_id, step_id)
+  CONSTRAINT quest_progress_events_event_step_unique
+    UNIQUE (event_id, player_id, step_id)
 );
 
 COMMENT ON TABLE quest_progress_events IS 'Prevents double-application of events to quest progress.';
@@ -292,7 +294,10 @@ DECLARE
   v_new_value NUMERIC;
   v_unique_val TEXT;
   v_next_step RECORD;
+  v_has_next_step BOOLEAN;
   v_quest_code TEXT;
+  v_quest_name TEXT;
+  v_step_completed_payload JSONB;
 BEGIN
   -- 1. Load event
   SELECT id, event_type, character_id, payload
@@ -328,18 +333,19 @@ BEGIN
 
     IF NOT FOUND THEN CONTINUE; END IF;
 
-    -- 3b. Idempotency check
+    -- 3b. Evaluate payload filter FIRST (before idempotency insert)
+    --     This avoids writing a row for events that don't match the filter.
+    IF NOT evaluate_payload_filter(v_event.payload, v_sub.payload_filter) THEN
+      CONTINUE;
+    END IF;
+
+    -- 3c. Idempotency check (only after filter passes)
     INSERT INTO quest_progress_events (event_id, player_id, step_id)
     VALUES (p_event_id, v_event.character_id, v_sub.step_id)
     ON CONFLICT DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
     IF v_row_count = 0 THEN CONTINUE; END IF;
-
-    -- 3c. Evaluate payload filter
-    IF NOT evaluate_payload_filter(v_event.payload, v_sub.payload_filter) THEN
-      CONTINUE;
-    END IF;
 
     -- 3d. Update progress based on eval_type
     v_new_value := v_pqs_current_value;
@@ -382,30 +388,58 @@ BEGIN
       SET completed_at = now()
       WHERE id = v_pqs_id;
 
-      -- Emit step completed event
-      PERFORM record_event_with_recipients(
-        p_event_type := 'quest.step_completed',
-        p_scope := 'direct',
-        p_actor_character_id := v_event.character_id,
-        p_character_id := v_event.character_id,
-        p_payload := jsonb_build_object(
-          'quest_id', v_pq_quest_id,
-          'step_id', v_sub.step_id,
-          'step_name', v_sub.step_name,
-          'step_index', v_sub.step_index
-        ),
-        p_recipients := ARRAY[v_event.character_id],
-        p_reasons := ARRAY['direct']
-      );
+      -- Look up quest name/code for the payload
+      SELECT code, name INTO v_quest_code, v_quest_name
+      FROM quest_definitions WHERE id = v_pq_quest_id;
 
-      -- Check for next step
+      -- Check for next step (save FOUND before PERFORM clobbers it)
       SELECT * INTO v_next_step
       FROM quest_step_definitions
       WHERE quest_id = v_pq_quest_id
         AND step_index = v_pq_current_step + 1
         AND enabled = true;
 
-      IF FOUND THEN
+      v_has_next_step := FOUND;
+
+      -- Build step_completed payload with next step info
+      v_step_completed_payload := jsonb_build_object(
+        'quest_id', v_pq_quest_id,
+        'quest_code', v_quest_code,
+        'quest_name', v_quest_name,
+        'step_id', v_sub.step_id,
+        'step_name', v_sub.step_name,
+        'step_index', v_sub.step_index
+      );
+
+      IF v_has_next_step THEN
+        -- Include next step details so the client can render immediately
+        v_step_completed_payload := v_step_completed_payload || jsonb_build_object(
+          'next_step', jsonb_build_object(
+            'quest_id', v_pq_quest_id,
+            'step_id', v_next_step.id,
+            'step_index', v_next_step.step_index,
+            'name', v_next_step.name,
+            'description', v_next_step.description,
+            'target_value', v_next_step.target_value,
+            'current_value', 0,
+            'completed', false,
+            'meta', COALESCE(v_next_step.meta, '{}'::jsonb)
+          )
+        );
+      END IF;
+
+      -- Emit step completed event
+      PERFORM record_event_with_recipients(
+        p_event_type := 'quest.step_completed',
+        p_scope := 'direct',
+        p_actor_character_id := v_event.character_id,
+        p_character_id := v_event.character_id,
+        p_payload := v_step_completed_payload,
+        p_recipients := ARRAY[v_event.character_id],
+        p_reasons := ARRAY['direct']
+      );
+
+      IF v_has_next_step THEN
         -- Advance to next step
         UPDATE player_quests
         SET current_step_index = v_pq_current_step + 1
@@ -420,10 +454,6 @@ BEGIN
         SET status = 'completed', completed_at = now()
         WHERE id = v_pq_id;
 
-        -- Get quest code for the event payload
-        SELECT code INTO v_quest_code
-        FROM quest_definitions WHERE id = v_pq_quest_id;
-
         -- Emit quest completed event
         PERFORM record_event_with_recipients(
           p_event_type := 'quest.completed',
@@ -432,7 +462,8 @@ BEGIN
           p_character_id := v_event.character_id,
           p_payload := jsonb_build_object(
             'quest_id', v_pq_quest_id,
-            'quest_code', v_quest_code
+            'quest_code', v_quest_code,
+            'quest_name', v_quest_name
           ),
           p_recipients := ARRAY[v_event.character_id],
           p_reasons := ARRAY['direct']
@@ -474,5 +505,6 @@ CREATE TRIGGER quest_eval_trigger
   FOR EACH ROW
   WHEN (NEW.event_type NOT LIKE 'quest.%')
   EXECUTE FUNCTION trigger_evaluate_quest_progress();
+
 -- Quest data is loaded separately via:
 --   uv run -m gradientbang.scripts.load_quests_to_supabase --from-json quest-data/

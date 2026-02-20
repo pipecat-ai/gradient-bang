@@ -550,13 +550,15 @@ declare global {
   // --- QUESTS
 
   export interface QuestStep {
-    meta: Record<string, unknown>
-    name: string
-    completed: boolean
+    quest_id: string
+    step_id: string
     step_index: number
-    description: string
+    name: string
+    description: string | null
     target_value: number
     current_value: number
+    completed: boolean
+    meta: Record<string, unknown>
   }
 
   export interface Quest {

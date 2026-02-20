@@ -239,8 +239,23 @@ def main():
         action="store_true",
         help="Validate files without loading to database",
     )
+    parser.add_argument(
+        "--env",
+        dest="env_file",
+        type=Path,
+        default=None,
+        help="Path to .env file to load (e.g. .env.supabase)",
+    )
 
     args = parser.parse_args()
+
+    # Load .env file if specified
+    if args.env_file:
+        from dotenv import load_dotenv
+        if not args.env_file.exists():
+            print(f"Error: env file not found: {args.env_file}")
+            sys.exit(1)
+        load_dotenv(args.env_file, override=True)
 
     # Get Supabase credentials
     supabase_url = os.getenv("SUPABASE_URL")

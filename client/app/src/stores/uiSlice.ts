@@ -9,6 +9,7 @@ import type { Toast, ToastInput } from "@/types/toasts"
 interface Notifications {
   newChatMessage: boolean
   rankChanged: boolean
+  questCompleted: boolean
 }
 
 const DEDUPE_TOAST_TYPES = ["trade.executed"]
@@ -64,6 +65,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   notifications: {
     newChatMessage: false,
     rankChanged: false,
+    questCompleted: false,
   },
 
   toasts: [],

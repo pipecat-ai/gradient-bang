@@ -10,6 +10,7 @@ import { Disconnect } from "@/components/dialogs/Disconnect"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
 import { HighlightOverlay } from "@/components/HighlightOverlay"
+import { QuestCompleteNotification } from "@/components/QuestCompleteNotification"
 import { BigMapPanel } from "@/components/panels/BigMapPanel"
 import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
 import { CombatDamageVignette } from "@/components/panels/CombatDamageVignette"
@@ -233,6 +234,7 @@ export const Game = () => {
       <ToastContainer />
       <HighlightOverlay />
       <PlayerRankChange />
+      <QuestCompleteNotification />
       <PipecatClientAudio />
     </>
   )

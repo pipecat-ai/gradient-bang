@@ -25,6 +25,8 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 interface QuestStepInfo {
+  quest_id: string;
+  step_id: string;
   step_index: number;
   name: string;
   description: string | null;
@@ -140,6 +142,7 @@ async function fetchQuestStatus(
     .select(
       `
       player_quest_id,
+      step_id,
       current_value,
       completed_at,
       quest_step_definitions (
@@ -196,6 +199,8 @@ async function fetchQuestStatus(
       if (!stepDef) continue;
 
       const stepInfo: QuestStepInfo = {
+        quest_id: pq.quest_id,
+        step_id: step.step_id,
         step_index: stepDef.step_index,
         name: stepDef.name,
         description: stepDef.description,

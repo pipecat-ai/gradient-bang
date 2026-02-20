@@ -1087,34 +1087,13 @@ function getNodeStyle(
 
   let baseStyle: NodeStyle
 
-  if (hasGarrison) {
+  if (isCurrent) {
+    // Current sector always gets the current style (blue) regardless of port/garrison
+    baseStyle = config.nodeStyles.current
+  } else if (hasGarrison) {
     baseStyle = config.nodeStyles.garrison
-    // If this is also the current sector, carry over the offset frame indicator
-    if (isCurrent) {
-      const cs = config.nodeStyles.current
-      baseStyle = {
-        ...baseStyle,
-        offset: cs.offset,
-        offsetColor: cs.offsetColor,
-        offsetSize: cs.offsetSize,
-        offsetWeight: cs.offsetWeight,
-      }
-    }
   } else if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
-    // If this is also the current sector, carry over the offset frame indicator
-    if (isCurrent) {
-      const cs = config.nodeStyles.current
-      baseStyle = {
-        ...baseStyle,
-        offset: cs.offset,
-        offsetColor: cs.offsetColor,
-        offsetSize: cs.offsetSize,
-        offsetWeight: cs.offsetWeight,
-      }
-    }
-  } else if (isCurrent) {
-    baseStyle = config.nodeStyles.current
   } else if (isVisited) {
     if (node.source === "corp") {
       baseStyle = config.nodeStyles.visited_corp
@@ -2296,6 +2275,7 @@ export interface SectorMapController {
   setOnNodeEnter: (callback: ((node: MapSectorNode) => void) | null) => void
   setOnNodeExit: (callback: ((node: MapSectorNode) => void) | null) => void
   setOnViewportChange: (callback: ((centerSectorId: number, bounds: number) => void) | null) => void
+  setOnZoomChange: (callback: ((zoomLevel: number) => void) | null) => void
   cleanup: () => void
 }
 
@@ -2317,6 +2297,7 @@ export function createSectorMapController(
   let onNodeEnterCallback: ((node: MapSectorNode) => void) | null = null
   let onNodeExitCallback: ((node: MapSectorNode) => void) | null = null
   let onViewportChangeCallback: ((centerSectorId: number, bounds: number) => void) | null = null
+  let onZoomChangeCallback: ((zoomLevel: number) => void) | null = null
   let viewportChangeTimeoutId: number | null = null
 
   // Hover animation state
@@ -2706,6 +2687,16 @@ export function createSectorMapController(
 
     renderWithInteractionState()
     scheduleViewportChange()
+
+    // Notify UI of effective zoom level (as hex-distance radius)
+    if (onZoomChangeCallback) {
+      const scale = currentProps.config.grid_spacing ?? 28
+      const visibleWorldW = width / newZoom
+      const visibleWorldH = height / newZoom
+      const visibleRadius = Math.max(visibleWorldW, visibleWorldH) / 2
+      const hexRadius = visibleRadius / (scale * Math.sqrt(3))
+      onZoomChangeCallback(Math.max(1, Math.round(hexRadius)))
+    }
   }
 
   // Attach/detach event listeners
@@ -2809,6 +2800,14 @@ export function createSectorMapController(
         )
       }
       return
+    }
+
+    // Recalibrate manual zoom factor when the base camera zoom changes
+    // (e.g. maxDistance update from scroll-zoom syncing to store) so the
+    // effective zoom stays continuous instead of jumping.
+    if (manualZoomFactor !== 1 && currentCameraState && cameraState.zoom > 0) {
+      const prevEffectiveZoom = getEffectiveCameraState(currentCameraState).zoom
+      manualZoomFactor = prevEffectiveZoom / cameraState.zoom
     }
 
     currentCameraState = cameraState
@@ -2977,8 +2976,11 @@ export function createSectorMapController(
     if (currentCameraState) {
       // Start animation from effective (manually-offset) position for smooth transition
       const effectiveStart = getEffectiveCameraState(currentCameraState)
+      // Don't preserve manual zoom when a course plot is active — the course-fit zoom should win
+      const hadManualZoom = manualZoomFactor !== 1 && !updatedProps.coursePlot
+      const preservedZoom = hadManualZoom ? effectiveStart.zoom : undefined
       resetManualOffsets()
-      animationCleanup = updateCurrentSector(canvas, updatedProps, newSectorId, effectiveStart)
+      animationCleanup = updateCurrentSector(canvas, updatedProps, newSectorId, effectiveStart, preservedZoom)
 
       const animDuration = Math.max(
         updatedProps.config.animation_duration_pan,
@@ -2987,6 +2989,10 @@ export function createSectorMapController(
 
       animationCompletionTimeout = window.setTimeout(() => {
         currentCameraState = getCurrentCameraState(updatedProps)
+        // Restore manual zoom factor so effective zoom matches the user's previous level
+        if (hadManualZoom && currentCameraState && preservedZoom !== undefined) {
+          manualZoomFactor = preservedZoom / currentCameraState.zoom
+        }
         animationCleanup = null
         animationCompletionTimeout = null
         isMovingToSector = false
@@ -3121,6 +3127,10 @@ export function createSectorMapController(
     onViewportChangeCallback = callback
   }
 
+  const setOnZoomChange = (callback: ((zoomLevel: number) => void) | null) => {
+    onZoomChangeCallback = callback
+  }
+
   /** Find the sector in full data closest to a world-space point */
   const findNearestSector = (worldX: number, worldY: number): MapSectorNode | null => {
     const { data, config } = currentProps
@@ -3223,6 +3233,7 @@ export function createSectorMapController(
     setOnNodeEnter,
     setOnNodeExit,
     setOnViewportChange,
+    setOnZoomChange,
     cleanup,
   }
 }
@@ -3304,7 +3315,8 @@ export function updateCurrentSector(
   canvas: HTMLCanvasElement,
   props: SectorMapProps,
   newSectorId: number,
-  currentCameraState: CameraState | null
+  currentCameraState: CameraState | null,
+  targetZoomOverride?: number
 ): () => void {
   const { width, height, data, config, maxDistance = 3, coursePlot } = props
 
@@ -3364,6 +3376,11 @@ export function updateCurrentSector(
       applyRectangularFeatherMask(ctx, width, height, feather, config.uiStyles.edgeFeather.falloff)
     }
     return () => {}
+  }
+
+  // Override target zoom to preserve user's manual zoom level during sector transitions
+  if (targetZoomOverride !== undefined) {
+    targetCameraState.zoom = targetZoomOverride
   }
 
   if (!currentCameraState || config.bypass_animation) {

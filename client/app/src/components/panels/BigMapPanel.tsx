@@ -141,6 +141,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const setMapCenterSector = useGameStore.use.setMapCenterSector?.()
   const setMapCenterWorld = useGameStore.use.setMapCenterWorld?.()
   const requestMapFetch = useGameStore.use.requestMapFetch?.()
+  const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
 
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
   const [isFetching, setIsFetching] = useState(false)
@@ -206,6 +207,14 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
     [requestMapFetch, setIsFetching]
   )
 
+  // Sync zoom controls when user scroll-zooms on the map
+  const handleZoomChange = useCallback(
+    (zoomLevel: number) => {
+      setMapZoomLevel?.(zoomLevel)
+    },
+    [setMapZoomLevel]
+  )
+
   // When map data mutates after a fetch, set loading to false
   useEffect(() => {
     if (mapData !== undefined) {
@@ -257,6 +266,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
               setHoveredNode(null)
             }}
             onMapFetch={handleMapFetch}
+            onZoomChange={handleZoomChange}
             coursePlot={coursePlot ?? null}
             ships={shipSectors}
             center_world={mapCenterWorld}

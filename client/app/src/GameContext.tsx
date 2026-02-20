@@ -1193,7 +1193,9 @@ export function GameProvider({ children }: GameProviderProps) {
             case "quest.completed": {
               console.debug("[GAME EVENT] Quest completed", e.payload)
               const data = e.payload as Msg.QuestCompletedMessage
+              gameStore.setQuestCompletionData(data.quest_name)
               gameStore.completeQuest(data.quest_id)
+              gameStore.setNotifications({ questCompleted: true })
               gameStore.addActivityLogEntry({
                 type: "quest.completed",
                 message: `Quest completed: ${data.quest_name}`,

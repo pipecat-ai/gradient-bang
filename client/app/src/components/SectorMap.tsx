@@ -64,6 +64,7 @@ interface MapProps {
   onNodeEnter?: (node: MapSectorNode) => void
   onNodeExit?: (node: MapSectorNode) => void
   onMapFetch?: (centerSectorId: number, bounds: number) => void
+  onZoomChange?: (zoomLevel: number) => void
   /** World-coordinate center override (zoomMode). Undefined for boundMode. */
   center_world?: [number, number]
   /** World-coordinate bounding box override (zoomMode). Undefined for boundMode. */
@@ -129,6 +130,7 @@ const MapComponent = ({
   onNodeEnter,
   onNodeExit,
   onMapFetch,
+  onZoomChange,
   center_world,
   fit_bounds_world,
   mapFitEpoch,
@@ -391,8 +393,11 @@ const MapComponent = ({
       centerSectorChanged ||
       centerWorldChanged ||
       fitBoundsWorldChanged ||
-      maxDistanceChanged ||
       mapFitEpochChanged
+
+    // maxDistance-only change (e.g. from scroll-zoom syncing to store):
+    // just re-render without moveToSector to avoid resetting manual zoom
+    const maxDistanceOnly = maxDistanceChanged && !reframeRequested
 
     if (reframeRequested) {
       // Signal that viewport intent changed — coverage dedup happens in mapSlice
@@ -409,7 +414,7 @@ const MapComponent = ({
       controller.moveToSector(center_sector_id, normalizedMapData)
 
       prevCenterSectorIdRef.current = center_sector_id
-    } else if (needsConfigUpdate || shipsChanged || coursePlotChanged || topologyChanged) {
+    } else if (maxDistanceOnly || needsConfigUpdate || shipsChanged || coursePlotChanged || topologyChanged) {
       console.debug("%c[SectorMap] Re-render", "color: red; font-weight: bold", {
         configChanged,
         shipsChanged,
@@ -469,6 +474,14 @@ const MapComponent = ({
       controller.setOnViewportChange(onMapFetch ?? null)
     }
   }, [onMapFetch])
+
+  // Wire zoom change (from scroll-zoom) to update zoom controls
+  useEffect(() => {
+    const controller = controllerRef.current
+    if (controller) {
+      controller.setOnZoomChange(onZoomChange ?? null)
+    }
+  }, [onZoomChange])
 
   // Cleanup effect — StrictMode-safe via deferred cleanup
   useEffect(() => {
