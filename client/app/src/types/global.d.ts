@@ -549,6 +549,11 @@ declare global {
 
   // --- QUESTS
 
+  export interface QuestCodec {
+    giver: string
+    pages: string[]
+  }
+
   export interface QuestStep {
     quest_id: string
     step_id: string
@@ -558,7 +563,7 @@ declare global {
     target_value: number
     current_value: number
     completed: boolean
-    meta: Record<string, unknown>
+    meta: QuestCodec | Record<string, unknown>
   }
 
   export interface Quest {

@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "motion/react"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
-const NEXT_QUEST_DELAY = 2000
+const TRANSITION_DELAY = 2000
 const AUTO_DISMISS_DELAY = 6000
 
 type Phase = "check" | "next" | "chain-complete"
@@ -32,7 +32,7 @@ export const QuestCompleteNotification = () => {
     }
   }, [questCompleted])
 
-  // Watch for new quests and transition after delay
+  // Transition to next phase after delay
   useEffect(() => {
     if (!questCompleted || !questCompletionData) return
 
@@ -40,18 +40,23 @@ export const QuestCompleteNotification = () => {
       if (hasTransitioned.current) return
       hasTransitioned.current = true
 
-      const newQuests = quests.filter(
-        (q) =>
-          q.status === "active" && !questCompletionData.snapshotQuestIds.includes(q.quest_id)
-      )
-
-      if (newQuests.length > 0) {
-        setNextQuest(newQuests[0])
+      if (questCompletionData.type === "step") {
         setPhase("next")
       } else {
-        setPhase("chain-complete")
+        // Quest completion — check if a new quest appeared in the store
+        const newQuests = quests.filter(
+          (q) =>
+            q.status === "active" &&
+            !questCompletionData.snapshotQuestIds.includes(q.quest_id)
+        )
+        if (newQuests.length > 0) {
+          setNextQuest(newQuests[0])
+          setPhase("next")
+        } else {
+          setPhase("chain-complete")
+        }
       }
-    }, NEXT_QUEST_DELAY)
+    }, TRANSITION_DELAY)
 
     return () => clearTimeout(timer)
   }, [questCompleted, questCompletionData, quests])
@@ -65,6 +70,11 @@ export const QuestCompleteNotification = () => {
   }, [questCompleted])
 
   if (!questCompleted || !questCompletionData) return null
+
+  const isStep = questCompletionData.type === "step"
+  const headerText = isStep ? "Step Complete" : "Quest Complete"
+  const completedName =
+    isStep ? questCompletionData.completedStepName : questCompletionData.completedQuestName
 
   return (
     <AnimatePresence>
@@ -97,12 +107,12 @@ export const QuestCompleteNotification = () => {
             >
               <div className="dotted-bg-sm dotted-bg-terminal/40 h-px w-20" />
               <span className="text-xs uppercase tracking-[0.3em] font-bold text-terminal">
-                Quest Complete
+                {headerText}
               </span>
               <div className="dotted-bg-sm dotted-bg-terminal/40 h-px w-20" />
             </motion.div>
 
-            {/* Quest content - animated transitions */}
+            {/* Animated transitions */}
             <div className="relative min-h-20 flex items-center justify-center">
               <AnimatePresence mode="wait">
                 {phase === "check" && (
@@ -114,7 +124,6 @@ export const QuestCompleteNotification = () => {
                     exit={{ opacity: 0, x: -60, scale: 0.95 }}
                     transition={{ duration: 0.4, delay: 0.4 }}
                   >
-                    {/* Animated checkmark */}
                     <motion.svg
                       width="28"
                       height="28"
@@ -145,29 +154,48 @@ export const QuestCompleteNotification = () => {
                         transition={{ duration: 0.4, delay: 1.0, ease: "easeOut" }}
                       />
                     </motion.svg>
-                    <span className="text-lg font-bold text-foreground">
-                      {questCompletionData.completedQuestName}
-                    </span>
+                    <span className="text-lg font-bold text-foreground">{completedName}</span>
                   </motion.div>
                 )}
 
-                {phase === "next" && nextQuest && (
+                {phase === "next" && (
                   <motion.div
-                    key="next-quest"
+                    key="next"
                     className="flex flex-col items-center gap-3"
                     initial={{ opacity: 0, x: 60, scale: 0.95 }}
                     animate={{ opacity: 1, x: 0, scale: 1 }}
                     transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
                   >
-                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                      New Quest
-                    </span>
-                    <span className="text-lg font-bold text-foreground">{nextQuest.name}</span>
-                    {nextQuest.description && (
-                      <span className="text-sm text-muted-foreground max-w-sm text-center leading-relaxed">
-                        {nextQuest.description}
-                      </span>
-                    )}
+                    {isStep ?
+                      <>
+                        <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                          Next Step
+                        </span>
+                        <span className="text-lg font-bold text-foreground">
+                          {questCompletionData.nextStep.name}
+                        </span>
+                        {questCompletionData.nextStep.description && (
+                          <span className="text-sm text-muted-foreground max-w-sm text-center leading-relaxed">
+                            {questCompletionData.nextStep.description}
+                          </span>
+                        )}
+                      </>
+                    : nextQuest && (
+                        <>
+                          <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                            New Quest
+                          </span>
+                          <span className="text-lg font-bold text-foreground">
+                            {nextQuest.name}
+                          </span>
+                          {nextQuest.description && (
+                            <span className="text-sm text-muted-foreground max-w-sm text-center leading-relaxed">
+                              {nextQuest.description}
+                            </span>
+                          )}
+                        </>
+                      )
+                    }
                   </motion.div>
                 )}
 

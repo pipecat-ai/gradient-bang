@@ -1183,6 +1183,15 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Quest step completed", e.payload)
               const data = e.payload as Msg.QuestStepCompletedMessage
               gameStore.updateQuestStepCompleted(data.quest_id, data.step_index, data.next_step)
+              if (data.next_step) {
+                gameStore.setQuestCompletionData({
+                  type: "step",
+                  questName: data.quest_name,
+                  completedStepName: data.step_name,
+                  nextStep: data.next_step,
+                })
+                gameStore.setNotifications({ questCompleted: true })
+              }
               gameStore.addActivityLogEntry({
                 type: "quest.step_completed",
                 message: `[${data.quest_name}] Step completed: ${data.step_name}`,
@@ -1193,7 +1202,11 @@ export function GameProvider({ children }: GameProviderProps) {
             case "quest.completed": {
               console.debug("[GAME EVENT] Quest completed", e.payload)
               const data = e.payload as Msg.QuestCompletedMessage
-              gameStore.setQuestCompletionData(data.quest_name)
+              gameStore.setQuestCompletionData({
+                type: "quest",
+                completedQuestName: data.quest_name,
+                snapshotQuestIds: [],
+              })
               gameStore.completeQuest(data.quest_id)
               gameStore.setNotifications({ questCompleted: true })
               gameStore.addActivityLogEntry({

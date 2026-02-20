@@ -1,10 +1,18 @@
 import { produce } from "immer"
 import type { StateCreator } from "zustand"
 
-export interface QuestCompletionData {
-  completedQuestName: string
-  snapshotQuestIds: string[]
-}
+export type QuestCompletionData =
+  | {
+      type: "step"
+      questName: string
+      completedStepName: string
+      nextStep: QuestStep
+    }
+  | {
+      type: "quest"
+      completedQuestName: string
+      snapshotQuestIds: string[]
+    }
 
 export interface QuestSlice {
   quests: Quest[]
@@ -14,7 +22,7 @@ export interface QuestSlice {
   getActiveQuests: () => Quest[]
   getQuestByCode: (code: string) => Quest | undefined
   questCompletionData: QuestCompletionData | null
-  setQuestCompletionData: (questName: string) => void
+  setQuestCompletionData: (data: QuestCompletionData) => void
 }
 
 export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
@@ -66,12 +74,16 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
 
   questCompletionData: null,
 
-  setQuestCompletionData: (questName: string) =>
+  setQuestCompletionData: (data: QuestCompletionData) =>
     set(
       produce((state) => {
-        state.questCompletionData = {
-          completedQuestName: questName,
-          snapshotQuestIds: state.quests.map((q: Quest) => q.quest_id),
+        if (data.type === "quest") {
+          state.questCompletionData = {
+            ...data,
+            snapshotQuestIds: state.quests.map((q: Quest) => q.quest_id),
+          }
+        } else {
+          state.questCompletionData = data
         }
       })
     ),

@@ -14,7 +14,15 @@
       "event_types": [
         "movement.complete"
       ],
-      "target_value": 1
+      "target_value": 1,
+      "meta": {
+        "codec": {
+          "giver": "tutorial",
+          "pages": [
+            "Welcome to the galaxy, pilot! Your first task is to travel to an adjacent sector. Use your ship's warp drive to move to a neighboring location. This will allow you to explore new areas and find opportunities for trading and adventure. Good luck!"
+          ]
+        }
+      }
     },
     {
       "step_index": 2,
@@ -27,6 +35,14 @@
       "target_value": 1,
       "payload_filter": {
         "has_megaport": true
+      },
+      "meta": {
+        "codec": {
+          "giver": "tutorial",
+          "pages": [
+            "Great job on your first warp! Now, let's find the Megaport. The Megaport is a major hub for trade and commerce in the galaxy, and it's a great place to start your trading career. Keep warping to adjacent sectors until you find one that contains a Megaport. Once you arrive, you'll have access to markets, shipyards, and other facilities that will help you on your journey."
+          ]
+        }
       }
     },
     {
@@ -37,7 +53,15 @@
       "event_types": [
         "warp.purchase"
       ],
-      "target_value": 1
+      "target_value": 1,
+      "meta": {
+        "codec": {
+          "giver": "tutorial",
+          "pages": [
+            "Now that you've found the Megaport, it's time to refuel your ship. Purchase warp fuel to recharge your drives and continue your journey through the galaxy."
+          ]
+        }
+      }
     },
     {
       "step_index": 4,
