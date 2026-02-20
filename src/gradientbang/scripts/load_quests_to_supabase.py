@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from supabase import create_client, Client
+from supabase import Client, create_client
 
 
 class QuestLoader:
@@ -65,15 +65,11 @@ class QuestLoader:
             step_required = ["step_index", "name", "eval_type", "event_types", "target_value"]
             for key in step_required:
                 if key not in step:
-                    raise ValueError(
-                        f"{filepath.name}: step {i} missing required key '{key}'"
-                    )
+                    raise ValueError(f"{filepath.name}: step {i} missing required key '{key}'")
 
             idx = step["step_index"]
             if idx in seen_indexes:
-                raise ValueError(
-                    f"{filepath.name}: duplicate step_index {idx}"
-                )
+                raise ValueError(f"{filepath.name}: duplicate step_index {idx}")
             seen_indexes.add(idx)
 
             valid_eval_types = ("count", "count_filtered", "aggregate", "unique_count")
@@ -112,17 +108,13 @@ class QuestLoader:
 
         # Upsert quest definition, get back the id
         result = (
-            self.supabase.table("quest_definitions")
-            .upsert(quest_row, on_conflict="code")
-            .execute()
+            self.supabase.table("quest_definitions").upsert(quest_row, on_conflict="code").execute()
         )
         quest_id = result.data[0]["id"]
 
         # 2. Delete existing steps and subscriptions for this quest
         #    (CASCADE from quest_step_definitions will remove subscriptions too)
-        self.supabase.table("quest_step_definitions").delete().eq(
-            "quest_id", quest_id
-        ).execute()
+        self.supabase.table("quest_step_definitions").delete().eq("quest_id", quest_id).execute()
 
         # 3. Insert steps and subscriptions
         for step in quest["steps"]:
@@ -141,11 +133,7 @@ class QuestLoader:
                 "meta": step.get("meta", {}),
             }
 
-            step_result = (
-                self.supabase.table("quest_step_definitions")
-                .insert(step_row)
-                .execute()
-            )
+            step_result = self.supabase.table("quest_step_definitions").insert(step_row).execute()
             step_id = step_result.data[0]["id"]
             self.stats["steps_loaded"] += 1
 
@@ -162,11 +150,7 @@ class QuestLoader:
 
     def check_existing_quests(self) -> int:
         """Check how many quest definitions exist."""
-        result = (
-            self.supabase.table("quest_definitions")
-            .select("code", count="exact")
-            .execute()
-        )
+        result = self.supabase.table("quest_definitions").select("code", count="exact").execute()
         return result.count or 0
 
     def truncate_quests(self) -> None:
@@ -176,9 +160,7 @@ class QuestLoader:
             print("  [DRY RUN] Would delete all quest definitions")
             return
 
-        self.supabase.table("quest_definitions").delete().neq(
-            "code", ""
-        ).execute()
+        self.supabase.table("quest_definitions").delete().neq("code", "").execute()
         print("  Deleted all quest definitions")
 
     def load(self, data_path: Path) -> None:
@@ -252,6 +234,7 @@ def main():
     # Load .env file if specified
     if args.env_file:
         from dotenv import load_dotenv
+
         if not args.env_file.exists():
             print(f"Error: env file not found: {args.env_file}")
             sys.exit(1)
@@ -298,6 +281,7 @@ def main():
     except Exception as e:
         print(f"\nError: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
