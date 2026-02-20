@@ -8,10 +8,9 @@ import { PipecatClientAudio } from "@pipecat-ai/client-react"
 import { ActivityStream } from "@/components/ActivityStream"
 import { Disconnect } from "@/components/dialogs/Disconnect"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
+import { QuestCodec } from "@/components/dialogs/QuestCodec"
 import { Settings } from "@/components/dialogs/Settings"
 import { HighlightOverlay } from "@/components/HighlightOverlay"
-import { QuestCodecOverlay } from "@/components/QuestCodecOverlay"
-import { QuestCompleteNotification } from "@/components/QuestCompleteNotification"
 import { BigMapPanel } from "@/components/panels/BigMapPanel"
 import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
 import { CombatDamageVignette } from "@/components/panels/CombatDamageVignette"
@@ -24,6 +23,7 @@ import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
 import { PlayerRankChange } from "@/components/PlayerRankChange"
 import { Button } from "@/components/primitives/Button"
+import { QuestCompleteNotification } from "@/components/QuestCompleteNotification"
 import { ScreenContainer } from "@/components/screens/ScreenContainer"
 import { SectorTitleBanner } from "@/components/SectorTitleBanner"
 import { Starfield } from "@/components/Starfield"
@@ -228,6 +228,7 @@ export const Game = () => {
       <Settings />
       <Leaderboard />
       <Disconnect />
+      <QuestCodec />
 
       {/* Other Renderables */}
       <Starfield />
@@ -236,7 +237,6 @@ export const Game = () => {
       <HighlightOverlay />
       <PlayerRankChange />
       <QuestCompleteNotification />
-      <QuestCodecOverlay />
       <PipecatClientAudio />
     </>
   )

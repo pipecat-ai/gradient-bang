@@ -18,6 +18,7 @@ export const ModalCloseButton = ({
         variant="secondary"
         size="icon-lg"
         onClick={handleClose}
+        data-modal-close
         className={cn("fixed top-ui-md right-ui-md", className)}
       >
         <XIcon weight="bold" className="size-4" />

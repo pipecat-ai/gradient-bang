@@ -59,12 +59,12 @@ const StatBadge = ({
         <span className="text-xs font-bold leading-none">{label}</span>
         <div
           className={cn(
-            "text-subtle-foreground leading-none",
+            "text-subtle-foreground leading-none tabular-nums",
             maxValue > 999 ? "text-xxs" : "text-xs"
           )}
         >
           {value}
-          <span className="text-subtle/60 leading-none px-1">/</span>
+          <span className="text-subtle/60 leading-none px-1 tabular-nums">/</span>
           {maxValue}
         </div>
       </div>

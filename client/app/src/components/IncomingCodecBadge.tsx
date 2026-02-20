@@ -5,14 +5,13 @@ import { EnvelopeSimpleIcon } from "@phosphor-icons/react"
 
 import useGameStore from "@/stores/game"
 
-import { codecOverlayApi } from "./QuestCodecOverlay"
-
 export const IncomingCodecBadge = ({ className }: { className?: string }) => {
   const incomingCodec = useGameStore((state) => state.notifications.incomingCodec)
+  const setActiveModal = useGameStore.use.setActiveModal()
 
   const handleClick = useCallback(() => {
-    codecOverlayApi.open?.()
-  }, [])
+    setActiveModal("quest_codec")
+  }, [setActiveModal])
 
   return (
     <AnimatePresence>

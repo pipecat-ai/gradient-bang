@@ -258,6 +258,7 @@ declare global {
     | "signup"
     | "character_select"
     | "disconnect"
+    | "quest_codec"
     | undefined
 
   // --- COMBAT

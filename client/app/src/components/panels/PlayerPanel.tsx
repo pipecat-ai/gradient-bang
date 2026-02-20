@@ -2,13 +2,13 @@ import { format } from "date-fns"
 import { CheckCircleIcon, CircleDashedIcon, CircleIcon, UserIcon } from "@phosphor-icons/react"
 
 import RadialGrad from "@/assets/images/radial-grad-md.png"
+import { DottedTitle } from "@/components/DottedTitle"
+import { Button } from "@/components/primitives/Button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/primitives/Card"
+import { Divider } from "@/components/primitives/Divider"
+import { ShipLogoPopover } from "@/components/ShipLogoPopover"
 import useGameStore from "@/stores/game"
 
-import { DottedTitle } from "../DottedTitle"
-import { Button } from "../primitives/Button"
-import { Card, CardContent, CardHeader, CardTitle } from "../primitives/Card"
-import { Divider } from "../primitives/Divider"
-import { ShipLogoPopover } from "../ShipLogoPopover"
 import { MovementHistoryPanel } from "./DataTablePanels"
 import { RHSPanelContent, RHSSubPanel } from "./RHSPanelContainer"
 import { ShipCatalogue } from "./ShipCatalogue"
@@ -24,28 +24,27 @@ const QuestStepRow = ({
   isActive: boolean
   isLast: boolean
 }) => {
-  const progress = step.target_value > 0
-    ? Math.min(100, (step.current_value / step.target_value) * 100)
-    : 0
+  const progress =
+    step.target_value > 0 ? Math.min(100, (step.current_value / step.target_value) * 100) : 0
 
   return (
     <div className="flex gap-ui-xs">
       {/* Timeline column */}
       <div className="flex flex-col items-center w-4 shrink-0">
-        {step.completed ? (
+        {step.completed ?
           <CheckCircleIcon weight="fill" className="size-4 text-green-400 shrink-0" />
-        ) : isActive ? (
+        : isActive ?
           <CircleDashedIcon weight="bold" className="size-4 text-foreground shrink-0" />
-        ) : (
-          <CircleIcon className="size-4 text-subtle-foreground/40 shrink-0" />
-        )}
-        {!isLast && (
-          <div className="w-px flex-1 min-h-2 bg-accent" />
-        )}
+        : <CircleIcon className="size-4 text-subtle-foreground/40 shrink-0" />}
+        {!isLast && <div className="w-px flex-1 min-h-2 bg-accent" />}
       </div>
       {/* Step content */}
-      <div className={`flex flex-col gap-0.5 pb-ui-xs min-w-0 ${step.completed ? "opacity-60" : ""}`}>
-        <span className={`text-xxs uppercase leading-4 ${isActive ? "text-foreground" : "text-subtle-foreground"}`}>
+      <div
+        className={`flex flex-col gap-0.5 pb-ui-xs min-w-0 ${step.completed ? "opacity-60" : ""}`}
+      >
+        <span
+          className={`text-xxs uppercase leading-4 ${isActive ? "text-foreground" : "text-subtle-foreground"}`}
+        >
           {step.name}
         </span>
         {isActive && !step.completed && step.target_value > 0 && (
@@ -89,7 +88,11 @@ const QuestList = () => {
             <div className="flex items-center justify-between mb-0.5">
               <span className="text-xs font-medium uppercase">{quest.name}</span>
               <span
-                className={`text-xxs uppercase ${quest.status === "completed" ? "text-green-400" : quest.status === "failed" ? "text-red-400" : "text-subtle-foreground"}`}
+                className={`text-xxs uppercase ${
+                  quest.status === "completed" ? "text-green-400"
+                  : quest.status === "failed" ? "text-red-400"
+                  : "text-subtle-foreground"
+                }`}
               >
                 {quest.status}
               </span>
