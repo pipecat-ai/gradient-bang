@@ -259,6 +259,7 @@ declare global {
     | "character_select"
     | "disconnect"
     | "quest_codec"
+    | "quest_list"
     | undefined
 
   // --- COMBAT
@@ -551,6 +552,7 @@ declare global {
   // --- QUESTS
 
   export interface QuestCodec {
+    giver_id: string
     giver: string
     pages: string[]
   }

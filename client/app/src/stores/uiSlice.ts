@@ -10,6 +10,7 @@ interface Notifications {
   newChatMessage: boolean
   rankChanged: boolean
   questCompleted: boolean
+  questAccepted: boolean
   incomingCodec: boolean
 }
 
@@ -67,6 +68,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     newChatMessage: false,
     rankChanged: false,
     questCompleted: false,
+    questAccepted: false,
     incomingCodec: false,
   },
 

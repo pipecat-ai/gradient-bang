@@ -84,7 +84,11 @@ class QuestLoader:
                 )
 
     def load_quest(self, quest: Dict[str, Any]) -> None:
-        """Load a single quest into Supabase (upsert by code)."""
+        """Load a single quest into Supabase (upsert by code).
+
+        Steps are upserted by (quest_id, step_index) so existing UUIDs are
+        preserved and player progress is not destroyed.
+        """
         code = quest["code"]
 
         # 1. Upsert quest definition
@@ -112,11 +116,8 @@ class QuestLoader:
         )
         quest_id = result.data[0]["id"]
 
-        # 2. Delete existing steps and subscriptions for this quest
-        #    (CASCADE from quest_step_definitions will remove subscriptions too)
-        self.supabase.table("quest_step_definitions").delete().eq("quest_id", quest_id).execute()
-
-        # 3. Insert steps and subscriptions
+        # 2. Upsert steps by (quest_id, step_index) to preserve existing UUIDs
+        new_step_indexes: List[int] = []
         for step in quest["steps"]:
             step_row = {
                 "quest_id": quest_id,
@@ -133,17 +134,39 @@ class QuestLoader:
                 "meta": step.get("meta", {}),
             }
 
-            step_result = self.supabase.table("quest_step_definitions").insert(step_row).execute()
+            step_result = (
+                self.supabase.table("quest_step_definitions")
+                .upsert(step_row, on_conflict="quest_id,step_index")
+                .execute()
+            )
             step_id = step_result.data[0]["id"]
+            new_step_indexes.append(step["step_index"])
             self.stats["steps_loaded"] += 1
 
-            # Insert event subscriptions for this step
+            # Remove old subscriptions for this step, then insert current ones
+            self.supabase.table("quest_event_subscriptions").delete().eq(
+                "step_id", step_id
+            ).execute()
             for event_type in step["event_types"]:
-                self.supabase.table("quest_event_subscriptions").upsert(
+                self.supabase.table("quest_event_subscriptions").insert(
                     {"event_type": event_type, "step_id": step_id},
-                    on_conflict="event_type,step_id",
                 ).execute()
                 self.stats["subscriptions_loaded"] += 1
+
+        # 3. Remove steps that are no longer in the JSON (e.g. quest was shortened).
+        #    This will CASCADE delete their subscriptions and any player progress
+        #    on those removed steps, which is the correct behavior.
+        existing_steps = (
+            self.supabase.table("quest_step_definitions")
+            .select("id,step_index")
+            .eq("quest_id", quest_id)
+            .execute()
+        )
+        for row in existing_steps.data:
+            if row["step_index"] not in new_step_indexes:
+                self.supabase.table("quest_step_definitions").delete().eq(
+                    "id", row["id"]
+                ).execute()
 
         self.stats["quests_loaded"] += 1
         print(f"  Loaded quest '{code}' ({len(quest['steps'])} steps)")

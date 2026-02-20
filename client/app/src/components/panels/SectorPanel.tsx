@@ -1,16 +1,19 @@
 import { useMemo, useState } from "react"
 
 import {
+  CheckerboardIcon,
   ClockCounterClockwiseIcon,
   EmptyIcon,
   FlowArrowIcon,
   GpsIcon,
   HeadCircuitIcon,
   ShieldChevronIcon,
+  ShippingContainerIcon,
   UserIcon,
 } from "@phosphor-icons/react"
 
 import { GarrisonPanel } from "@/components/panels/GarrisonPanel"
+import { ShipCatalogue } from "@/components/panels/ShipCatalogue"
 import { SalvageIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { getPortCode } from "@/utils/port"
@@ -35,6 +38,7 @@ export const SectorPanel = () => {
   const setActivePanel = useGameStore.use.setActivePanel?.()
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
+  const setActiveModal = useGameStore.use.setActiveModal?.()
   const player = useGameStore.use.player?.()
 
   const uiState = useGameStore.use.uiState?.()
@@ -155,7 +159,7 @@ export const SectorPanel = () => {
                     sector?.port ? "text-fuel-foreground font-bold  z-10" : "text-subtle z-10"
                   )}
                 >
-                  {sector?.port ? "View " + portCode + " port" : "No port in sector"}
+                  {sector?.port ? "Trade at " + portCode + " port" : "No port in sector"}
                 </span>
                 <div className="inline-flex items-center gap-0.5">
                   <ChevronSM className="size-3 text-fuel rotate-90 opacity-20" />
@@ -166,6 +170,29 @@ export const SectorPanel = () => {
             </Button>
           </CardContent>
         </Card>
+        {sector?.port?.mega && (
+          <Card size="sm" className="border-x-0 border-y">
+            <CardHeader>
+              <CardTitle>Mega Port Facilities</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <RHSPanelList>
+                <RHSPanelListItem
+                  label="Shipyard"
+                  value="view"
+                  Icon={ShippingContainerIcon}
+                  onClick={() => setActiveSubPanel("ship-catalog")}
+                />
+                <RHSPanelListItem
+                  label="Contract Board"
+                  Icon={CheckerboardIcon}
+                  onClick={() => setActiveModal("quest_list")}
+                />
+              </RHSPanelList>
+            </CardContent>
+          </Card>
+        )}
+
         <Card size="sm" className="border-x-0 border-y">
           <CardHeader>
             <CardTitle>Ships in sector</CardTitle>
@@ -271,6 +298,7 @@ export const SectorPanel = () => {
         )}
         {activeSubPanel === "unowned" && <SectorUnownedSubPanel sector={sector} />}
         {activeSubPanel === "salvage" && <SectorSalvageSubPanel sector={sector} />}
+        {activeSubPanel === "ship-catalog" && <ShipCatalogue />}
       </RHSSubPanel>
     </>
   )

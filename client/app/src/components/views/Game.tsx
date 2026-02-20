@@ -6,10 +6,7 @@ import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { ActivityStream } from "@/components/ActivityStream"
-import { Disconnect } from "@/components/dialogs/Disconnect"
-import { Leaderboard } from "@/components/dialogs/Leaderboard"
-import { QuestCodec } from "@/components/dialogs/QuestCodec"
-import { Settings } from "@/components/dialogs/Settings"
+import { GameDialogs } from "@/components/dialogs/GameDialogs"
 import { HighlightOverlay } from "@/components/HighlightOverlay"
 import { BigMapPanel } from "@/components/panels/BigMapPanel"
 import { CombatActionPanel } from "@/components/panels/CombatActionPanel"
@@ -23,6 +20,7 @@ import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
 import { PlayerRankChange } from "@/components/PlayerRankChange"
 import { Button } from "@/components/primitives/Button"
+import { QuestAcceptedOverlay } from "@/components/QuestAcceptedOverlay"
 import { QuestCompleteNotification } from "@/components/QuestCompleteNotification"
 import { ScreenContainer } from "@/components/screens/ScreenContainer"
 import { SectorTitleBanner } from "@/components/SectorTitleBanner"
@@ -225,10 +223,7 @@ export const Game = () => {
       <ScreenContainer />
 
       {/* Dialogs */}
-      <Settings />
-      <Leaderboard />
-      <Disconnect />
-      <QuestCodec />
+      <GameDialogs />
 
       {/* Other Renderables */}
       <Starfield />
@@ -236,6 +231,7 @@ export const Game = () => {
       <ToastContainer />
       <HighlightOverlay />
       <PlayerRankChange />
+      <QuestAcceptedOverlay />
       <QuestCompleteNotification />
       <PipecatClientAudio />
     </>

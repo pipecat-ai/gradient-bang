@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ArrowRightIcon, CaretLeftIcon, WaveSineIcon } from "@phosphor-icons/react"
 
-import CharacterPortrait from "@/assets/images/characters/fed-cadet-1.png"
+import CharacterPortrait1 from "@/assets/images/characters/fed-cadet-1.png"
+import CharacterPortrait2 from "@/assets/images/characters/fed-cadet-2.png"
 import { DottedTitle } from "@/components/DottedTitle"
 import { Button } from "@/components/primitives/Button"
 import { Card } from "@/components/primitives/Card"
@@ -14,11 +15,17 @@ import { BaseDialog } from "./BaseDialog"
 
 import type { SayTextAction } from "@/types/actions"
 
+const VOICE_ID_MAP = {
+  cadet_amy: "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
+  commander_voss: "0ad65e7f-006c-47cf-bd31-52279d487913",
+}
+
 export const QuestCodec = () => {
   const getActiveCodec = useGameStore.use.getActiveCodec()
   const setNotifications = useGameStore.use.setNotifications()
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
+  const diamondFXInstance = useGameStore.use.diamondFXInstance?.()
   const dispatchAction = useGameStore.use.dispatchAction()
 
   const isOpen = activeModal === "quest_codec"
@@ -26,24 +33,36 @@ export const QuestCodec = () => {
   const [page, setPage] = useState(0)
 
   const codec = isOpen ? getActiveCodec() : null
+  const giverId = codec?.giver_id
   const pages = useMemo(() => codec?.pages ?? [], [codec?.pages])
   const totalPages = pages.length
   const isLastPage = page >= totalPages - 1
 
+  // Fire diamond FX only on initial open
+  useEffect(() => {
+    if (isOpen) {
+      useGameStore.getState().diamondFXInstance?.start("quest-dialog", false, true, {
+        half: true,
+      })
+    }
+  }, [isOpen])
+
   // Read back the current page text via TTS whenever the page changes
   useEffect(() => {
-    if (isOpen && pages[page]) {
-      dispatchAction({
-        type: "say-text",
-        payload: {
-          voice_id: "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
-          text: pages[page],
-        },
-      } as SayTextAction)
-    }
-  }, [isOpen, page, pages, dispatchAction])
+    if (!isOpen || !pages[page] || !giverId) return
+    dispatchAction({
+      type: "say-text",
+      payload: {
+        voice_id:
+          VOICE_ID_MAP[giverId as keyof typeof VOICE_ID_MAP] ??
+          "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
+        text: pages[page],
+      },
+    } as SayTextAction)
+  }, [isOpen, page, pages, giverId, dispatchAction])
 
   function dismiss() {
+    diamondFXInstance?.clear()
     setActiveModal(undefined)
     setPage(0)
     setNotifications({ incomingCodec: false })
@@ -73,16 +92,16 @@ export const QuestCodec = () => {
       onClose={dismiss}
     >
       {codec && (
-        <div className="relative flex flex-row items-end gap-0 w-3xl">
+        <div id="quest-dialog" className="relative flex flex-row items-end gap-0 w-3xl">
           {/* Portrait — full size, anchored to bottom */}
           <motion.div
             initial={{ opacity: 0, x: -50 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
+            transition={{ duration: 0.5, delay: 0.5 }}
             className="shrink-0 absolute left-0 bottom-0 z-10"
           >
             <img
-              src={CharacterPortrait}
+              src={codec?.giver_id === "commander_voss" ? CharacterPortrait2 : CharacterPortrait1}
               alt={codec?.giver}
               className="h-80 w-auto object-contain z-20"
             />
@@ -90,7 +109,7 @@ export const QuestCodec = () => {
           <motion.div
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
+            transition={{ duration: 0.5, delay: 0.5 }}
             className="absolute left-0 w-fit bg-background text-foreground leading-none px-2.5 pl-2 py-1.5 gap-2 outline-1 outline-terminal border-l-7 border-terminal/30 font-medium uppercase text-xs pointer-events-none bottom-0 translate-y-1/2 z-30 flex flex-row items-center"
           >
             <WaveSineIcon size={16} weight="bold" className="size-3.5 text-terminal" />{" "}
@@ -101,16 +120,16 @@ export const QuestCodec = () => {
           <div className="w-full shadow-xlong">
             <Card className="px-ui-md pl-70 mask-[linear-gradient(to_right,transparent_20%,black_calc(var(--spacing)*70))] elbow elbow-offset-1 gap-ui-md">
               {/* Header */}
+
+              <DottedTitle title="Incoming Transmission" className="w-full" />
+
+              {/* Page text */}
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ duration: 0.5, delay: 0.5 }}
+                transition={{ duration: 0.4, delay: 0.7 }}
+                className="relative min-h-[6lh] text-sm"
               >
-                <DottedTitle title="Incoming Transmission" className="w-full animate-pulse" />
-              </motion.div>
-
-              {/* Page text */}
-              <div className="relative min-h-[6lh] text-sm">
                 <AnimatePresence mode="wait">
                   <motion.p
                     key={page}
@@ -123,13 +142,13 @@ export const QuestCodec = () => {
                     {pages[page] ? stripTags(pages[page]) : ""}
                   </motion.p>
                 </AnimatePresence>
-              </div>
+              </motion.div>
 
               {/* Navigation */}
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ duration: 0.4, delay: 0.35 }}
+                transition={{ duration: 0.4, delay: 1 }}
                 className="flex gap-4 flex-1 items-center justify-between"
               >
                 <div className="flex flex-row gap-2 items-center">

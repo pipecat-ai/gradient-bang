@@ -2,6 +2,7 @@ import { format } from "date-fns"
 import { CheckCircleIcon, CircleDashedIcon, CircleIcon, UserIcon } from "@phosphor-icons/react"
 
 import RadialGrad from "@/assets/images/radial-grad-md.png"
+import { BlankSlateTile } from "@/components/BlankSlates"
 import { DottedTitle } from "@/components/DottedTitle"
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/primitives/Card"
@@ -69,7 +70,7 @@ const QuestList = () => {
   const quests = useGameStore.use.quests?.()
 
   if (!quests || quests.length === 0) {
-    return <span className="text-xs text-subtle-foreground">No active quests</span>
+    return <BlankSlateTile text="No active contracts" />
   }
 
   return (
@@ -199,7 +200,7 @@ export const PlayerPanel = () => {
 
       <Card size="sm" className="border-0 border-y">
         <CardHeader className="shrink-0">
-          <CardTitle>Quests</CardTitle>
+          <CardTitle>Contracts</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-ui-xs">
           <QuestList />

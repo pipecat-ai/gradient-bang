@@ -68,6 +68,11 @@ export interface SayTextDimissAction {
   type: "say-text-dismiss"
 }
 
+export interface AssignQuestAction {
+  type: "assign-quest"
+  payload: { quest_code: string }
+}
+
 type ActionMeta = { async?: boolean }
 
 export type GameAction = (
@@ -82,6 +87,7 @@ export type GameAction = (
   | GetChatHistoryAction
   | SayTextAction
   | SayTextDimissAction
+  | AssignQuestAction
 ) &
   ActionMeta
 

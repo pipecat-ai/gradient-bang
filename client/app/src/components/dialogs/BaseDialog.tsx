@@ -104,9 +104,6 @@ export const BaseDialog = ({
                   )}
                 />
               </Dialog.Overlay>
-              <motion.div {...CONTENT_ANIMATION} className="fixed top-0 right-0 z-91">
-                <ModalCloseButton handleClose={handleClose} />
-              </motion.div>
               <Dialog.Content
                 asChild
                 forceMount
@@ -136,6 +133,9 @@ export const BaseDialog = ({
                   {children}
                 </motion.div>
               </Dialog.Content>
+              <motion.div {...CONTENT_ANIMATION} className="fixed top-0 right-0 z-100 pointer-events-auto">
+                <ModalCloseButton handleClose={handleClose} />
+              </motion.div>
             </>
           )}
         </AnimatePresence>

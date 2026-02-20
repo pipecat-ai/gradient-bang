@@ -785,6 +785,22 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await task.queue_frames(frames)
             return
 
+        # Assign a quest to the player
+        if msg_type == "assign-quest":
+            quest_code = msg_data.get("quest_code", "") if isinstance(msg_data, dict) else ""
+            if not quest_code:
+                logger.warning("assign-quest: missing quest_code")
+                return
+            try:
+                result = await task_manager.game_client.assign_quest(
+                    quest_code=quest_code,
+                    character_id=task_manager.character_id,
+                )
+                logger.info(f"assign-quest result: {result}")
+            except Exception as e:
+                logger.error(f"assign-quest failed: {e}")
+            return
+
         # Client sent a custom message
         if msg_type == "custom-message":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""

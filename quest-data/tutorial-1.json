@@ -1,6 +1,6 @@
 {
   "code": "tutorial",
-  "name": "Getting Started",
+  "name": "Taking Flight",
   "description": "Learn the basics of trading, navigation, and survival in the galaxy.",
   "assign_on_creation": true,
   "enabled": true,
@@ -17,7 +17,8 @@
       "target_value": 1,
       "meta": {
         "codec": {
-          "giver": "tutorial",
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
           "pages": [
             "<emotion value=\"excitable\">Welcome to the galaxy, pilot![laughter] I'm Amy, <emotion value=\"content\" />a representative from the Federation, and I'll be guiding you through your first steps as a spacefaring trader.",
             "<emotion value=\"neutral\" /> In this tutorial, we'll cover the basics of navigation, trading, and survival in the galaxy. Don't worry, it's easier than it sounds! Let's get started.",
@@ -40,7 +41,8 @@
       },
       "meta": {
         "codec": {
-          "giver": "tutorial",
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
           "pages": [
             "Great job on your first warp! Now, let's find the Megaport. The Megaport is a major hub for trade and commerce in the galaxy, and it's a great place to start your trading career. Keep warping to adjacent sectors until you find one that contains a Megaport. Once you arrive, you'll have access to markets, shipyards, and other facilities that will help you on your journey."
           ]
@@ -58,7 +60,8 @@
       "target_value": 1,
       "meta": {
         "codec": {
-          "giver": "tutorial",
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
           "pages": [
             "Now that you've found the Megaport, it's time to refuel your ship. Purchase warp fuel to recharge your drives and continue your journey through the galaxy."
           ]
@@ -110,30 +113,6 @@
       "target_value": 1,
       "payload_filter": {
         "new_ship_type": "kestrel_courier"
-      }
-    },
-    {
-      "step_index": 8,
-      "name": "Create or join a corporation",
-      "description": "Form a new corporation or join an existing one.",
-      "eval_type": "count",
-      "event_types": [
-        "corporation.created",
-        "corporation.member_joined"
-      ],
-      "target_value": 1
-    },
-    {
-      "step_index": 9,
-      "name": "Run a task on a corp ship",
-      "description": "Purchase or select a corporation ship and execute a task on it.",
-      "eval_type": "count_filtered",
-      "event_types": [
-        "task.start"
-      ],
-      "target_value": 1,
-      "payload_filter": {
-        "task_scope": "corp_ship"
       }
     }
   ]

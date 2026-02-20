@@ -1,0 +1,54 @@
+{
+  "code": "tutorial_corporations",
+  "name": "Corporations & Fleet Command",
+  "description": "Learn how to form a corporation and manage a fleet of ships.",
+  "assign_on_creation": false,
+  "enabled": true,
+  "meta": {},
+  "steps": [
+    {
+      "step_index": 1,
+      "name": "Create or join a corporation",
+      "description": "Form a new corporation or join an existing one.",
+      "eval_type": "count",
+      "event_types": [
+        "corporation.created",
+        "corporation.member_joined"
+      ],
+      "target_value": 1,
+      "meta": {
+        "codec": {
+          "giver_id": "commander_voss",
+          "giver": "Voss, Commander",
+          "pages": [
+            "Now that you've got a handle on trading and navigation, it's time to think bigger. Corporations are the backbone of power in this galaxy.",
+            "You can either create your own corporation or join an existing one. Either way, you'll gain access to shared resources, fleet ships, and the ability to coordinate with other players."
+          ]
+        }
+      }
+    },
+    {
+      "step_index": 2,
+      "name": "Run a task on a corp ship",
+      "description": "Purchase or select a corporation ship and execute a task on it.",
+      "eval_type": "count_filtered",
+      "event_types": [
+        "task.start"
+      ],
+      "target_value": 1,
+      "payload_filter": {
+        "task_scope": "corp_ship"
+      },
+      "meta": {
+        "codec": {
+          "giver": "Voss, Commander",
+          "giver_id": "commander_voss",
+          "pages": [
+            "Excellent! Now that you're part of a corporation, you can command fleet ships. Corporation ships operate independently from your personal vessel, allowing you to run tasks across multiple sectors simultaneously.",
+            "Purchase a corporation ship from any shipyard, then assign it a task. This is the key to scaling your operations and building real wealth in the galaxy."
+          ]
+        }
+      }
+    }
+  ]
+}
