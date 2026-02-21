@@ -57,9 +57,7 @@ export const QuestCompleteNotification = () => {
       } else {
         // Quest completion — check if a new quest appeared in the store
         const newQuests = quests.filter(
-          (q) =>
-            q.status === "active" &&
-            !questCompletionData.snapshotQuestIds.includes(q.quest_id)
+          (q) => q.status === "active" && !questCompletionData.snapshotQuestIds.includes(q.quest_id)
         )
         if (newQuests.length > 0) {
           setNextQuest(newQuests[0])

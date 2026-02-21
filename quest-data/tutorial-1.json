@@ -101,6 +101,19 @@
     },
     {
       "step_index": 6,
+      "name": "Purchase a kestrel",
+      "description": "Buy a Kestrel Courier from a shipyard.",
+      "eval_type": "count_filtered",
+      "event_types": [
+        "ship.traded_in"
+      ],
+      "target_value": 1,
+      "payload_filter": {
+        "new_ship_type": "kestrel_courier"
+      }
+    },
+    {
+      "step_index": 7,
       "name": "Accept a contract from the contracts board",
       "description": "Visit the contracts board and accept a new contract from Commander Voss.",
       "eval_type": "count_filtered",
@@ -116,23 +129,10 @@
           "giver_id": "cadet_amy",
           "giver": "Amy, Federation Cadet",
           "pages": [
-            "<emotion value=\"impressed\">Nice work on the trading, pilot!</emotion> You're really getting the hang of this. Now it's time to take on something bigger.",
+            "<emotion value=\"impressed\">Nice work on the Kestrel, pilot!</emotion> You're really getting the hang of this. Now it's time to take on something bigger.",
             "<emotion value=\"neutral\" />The Federation contracts board has new assignments available. You'll find it at the Megaport. Commander Voss has posted a contract about forming corporations and managing fleets. <emotion value=\"encouraging\">Head to the contracts board and accept his contract to continue your training.</emotion>"
           ]
         }
-      }
-    },
-    {
-      "step_index": 7,
-      "name": "Purchase a kestrel",
-      "description": "Buy a Kestrel Courier from a shipyard.",
-      "eval_type": "count_filtered",
-      "event_types": [
-        "ship.traded_in"
-      ],
-      "target_value": 1,
-      "payload_filter": {
-        "new_ship_type": "kestrel_courier"
       }
     }
   ]

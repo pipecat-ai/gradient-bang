@@ -11,7 +11,7 @@ interface Notifications {
   rankChanged: boolean
   questCompleted: boolean
   questAccepted: boolean
-  incomingCodec: boolean
+  incomingCodec: string | false
 }
 
 const DEDUPE_TOAST_TYPES = ["trade.executed"]
