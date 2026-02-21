@@ -227,6 +227,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
+    // Emit quest.assigned event (can be used as a quest step trigger)
+    await emitCharacterEvent({
+      supabase,
+      characterId,
+      eventType: "quest.assigned",
+      payload: {
+        source,
+        quest_code: questCode,
+        player_quest_id: playerQuestId,
+      },
+      requestId,
+      scope: "direct",
+      recipientReason: "direct",
+    });
+
+    // Emit quest.status so the client gets the updated list
     await emitCharacterEvent({
       supabase,
       characterId,

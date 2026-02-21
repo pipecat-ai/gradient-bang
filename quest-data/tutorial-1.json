@@ -20,7 +20,7 @@
           "giver_id": "cadet_amy",
           "giver": "Amy, Federation Cadet",
           "pages": [
-            "<emotion value=\"excitable\">Welcome to the galaxy, pilot![laughter] I'm Amy, <emotion value=\"content\" />a representative from the Federation, and I'll be guiding you through your first steps as a spacefaring trader.",
+            "<emotion value=\"excitable\">Welcome to the galaxy, pilot! <emotion value=\"content\" />I'm Amy, a representative from the Federation, and I'll be guiding you through your first steps as a spacefaring trader.",
             "<emotion value=\"neutral\" /> In this tutorial, we'll cover the basics of navigation, trading, and survival in the galaxy. Don't worry, it's easier than it sounds! Let's get started.",
             "<emotion value=\"anticipation\">Your first task is to travel to an adjacent sector.</emotion> Use your ship's warp drive to move to a neighboring location. This will allow you to explore new areas and find opportunities for trading and adventure. Good luck!"
           ]
@@ -80,26 +80,46 @@
     },
     {
       "step_index": 5,
-      "name": "Earn 2000 credits trading",
-      "description": "Generate at least 2000 credits in trading profit.",
+      "name": "Earn 1000 credits trading",
+      "description": "Generate at least 1000 credits in trading profit.",
       "eval_type": "aggregate",
       "event_types": [
         "trade.executed"
       ],
-      "target_value": 100,
-      "aggregate_field": "profit"
+      "target_value": 1000,
+      "aggregate_field": "profit",
+      "meta": {
+        "codec": {
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
+          "pages": [
+            "<emotion value=\"content\">Great, you've made your first trade!</emotion> Now here's the thing — that Sparrow you're flying is a loaner from the Federation. It's fine for getting started, but you're going to want your own ship.",
+            "<emotion value=\"anticipation\">Our goal is to upgrade you to a Kestrel Courier.</emotion> It's fast, reliable, and it's yours to keep. To get there, you'll need to earn some credits. Keep trading between ports — buy low, sell high — and you'll have enough in no time."
+          ]
+        }
+      }
     },
     {
       "step_index": 6,
-      "name": "Deposit 1000 credits into the megabank",
-      "description": "Transfer at least 1000 credits to the Megaport bank.",
+      "name": "Accept a contract from the contracts board",
+      "description": "Visit the contracts board and accept a new contract from Commander Voss.",
       "eval_type": "count_filtered",
       "event_types": [
-        "bank.transaction"
+        "quest.assigned"
       ],
       "target_value": 1,
       "payload_filter": {
-        "amount_gte": 1000
+        "quest_code": "tutorial_corporations"
+      },
+      "meta": {
+        "codec": {
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
+          "pages": [
+            "<emotion value=\"impressed\">Nice work on the trading, pilot!</emotion> You're really getting the hang of this. Now it's time to take on something bigger.",
+            "<emotion value=\"neutral\" />The Federation contracts board has new assignments available. You'll find it at the Megaport. Commander Voss has posted a contract about forming corporations and managing fleets. <emotion value=\"encouraging\">Head to the contracts board and accept his contract to continue your training.</emotion>"
+          ]
+        }
       }
     },
     {

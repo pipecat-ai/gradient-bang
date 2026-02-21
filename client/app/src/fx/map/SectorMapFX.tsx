@@ -3082,6 +3082,14 @@ export function createSectorMapController(
     const wasHoverable = currentProps.config.hoverable
     const prevMaxDistance = currentProps.maxDistance
 
+    // Invalidate the effective-camera filtered data cache when the underlying
+    // data changes, so that updated sector properties (e.g. mega port flag)
+    // are picked up on the next render.
+    if (newProps.data) {
+      lastEffectiveFilterKey = ""
+      lastEffectiveFilteredData = null
+    }
+
     Object.assign(currentProps, newProps)
     if (newProps.config) {
       Object.assign(currentProps.config, newProps.config)

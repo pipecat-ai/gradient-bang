@@ -142,6 +142,10 @@ export const sectorsEquivalentForRender = (a: MapSectorNode, b: MapSectorNode): 
   if (a.last_visited !== b.last_visited) return false
   if (!garrisonsEquivalent(a.garrison, b.garrison)) return false
   if (getPortCode(a.port) !== getPortCode(b.port)) return false
+  if (Boolean((a.port as PortBase | null)?.mega) !== Boolean((b.port as PortBase | null)?.mega))
+    return false
+  if ((a.port as PortBase | null)?.port_class !== (b.port as PortBase | null)?.port_class)
+    return false
   if (getLaneSignature(a) !== getLaneSignature(b)) return false
   return true
 }

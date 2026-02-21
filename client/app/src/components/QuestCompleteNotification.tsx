@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
+const SHOW_DELAY = 1500
 const TRANSITION_DELAY = 2000
 const AUTO_DISMISS_DELAY = 6000
 
@@ -18,23 +19,34 @@ export const QuestCompleteNotification = () => {
 
   const [phase, setPhase] = useState<Phase>("check")
   const [nextQuest, setNextQuest] = useState<Quest | null>(null)
+  const [visible, setVisible] = useState(false)
   const hasTransitioned = useRef(false)
 
-  const dismiss = () => setNotifications({ questCompleted: false })
+  const dismiss = () => {
+    setVisible(false)
+    setNotifications({ questCompleted: false })
+  }
 
-  // Play sound on show
+  // Delay showing the overlay so things settle after quest completion
   useEffect(() => {
     if (questCompleted) {
-      useAudioStore.getState().playSound("chime8")
       hasTransitioned.current = false
       setPhase("check")
       setNextQuest(null)
+      setVisible(false)
+
+      const timer = setTimeout(() => {
+        setVisible(true)
+        useAudioStore.getState().playSound("chime8")
+      }, SHOW_DELAY)
+
+      return () => clearTimeout(timer)
     }
   }, [questCompleted])
 
   // Transition to next phase after delay
   useEffect(() => {
-    if (!questCompleted || !questCompletionData) return
+    if (!visible || !questCompletionData) return
 
     const timer = setTimeout(() => {
       if (hasTransitioned.current) return
@@ -59,17 +71,17 @@ export const QuestCompleteNotification = () => {
     }, TRANSITION_DELAY)
 
     return () => clearTimeout(timer)
-  }, [questCompleted, questCompletionData, quests])
+  }, [visible, questCompletionData, quests])
 
-  // Auto-dismiss
+  // Auto-dismiss (starts from when overlay becomes visible)
   useEffect(() => {
-    if (!questCompleted) return
+    if (!visible) return
 
     const timer = setTimeout(dismiss, AUTO_DISMISS_DELAY)
     return () => clearTimeout(timer)
-  }, [questCompleted])
+  }, [visible])
 
-  if (!questCompleted || !questCompletionData) return null
+  if (!visible || !questCompletionData) return null
 
   const isStep = questCompletionData.type === "step"
   const headerText = isStep ? "Step Complete" : "Quest Complete"
@@ -78,7 +90,7 @@ export const QuestCompleteNotification = () => {
 
   return (
     <AnimatePresence>
-      {questCompleted && (
+      {visible && (
         <motion.div
           key="quest-complete-overlay"
           className="fixed inset-0 z-(--z-toasts) flex items-center justify-center pointer-events-auto"
