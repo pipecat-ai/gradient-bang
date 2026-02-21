@@ -62,6 +62,7 @@ export interface MapSlice {
   pendingMapFitSectors?: number[]
   pendingMapFitMissingCount?: number
   coursePlotZoomEnabled: boolean
+  mapLegendVisible: boolean
   // --- Map data methods ---
   setPendingMapCenterRequest: (centerNode: MapCenterNode) => void
   handleMapCenterFallback: () => void
@@ -81,6 +82,7 @@ export interface MapSlice {
   fitMapToSectors: (sectorIds: number[]) => void
   requestMapAutoRecenter: (reason: string) => void
   setCoursePlotZoomEnabled: (enabled: boolean) => void
+  setMapLegendVisible: (visible: boolean) => void
   resetMapView: () => void
 
   // --- Compound actions ---
@@ -295,6 +297,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     pendingMapFitSectors: undefined,
     pendingMapFitMissingCount: undefined,
     coursePlotZoomEnabled: true,
+    mapLegendVisible: false,
     mapResetEpoch: 0,
     // =================================================================
     // Map data methods
@@ -504,6 +507,13 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       set(
         produce((state) => {
           state.coursePlotZoomEnabled = enabled
+        })
+      ),
+
+    setMapLegendVisible: (visible: boolean) =>
+      set(
+        produce((state) => {
+          state.mapLegendVisible = visible
         })
       ),
 

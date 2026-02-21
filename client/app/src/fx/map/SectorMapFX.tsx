@@ -1179,7 +1179,6 @@ function renderSector(
   config: SectorMapConfigBase,
   opacity = 1,
   coursePlotSectors: Set<number> | null = null,
-  coursePlot: CoursePlot | null = null,
   hoveredSectorId: number | null = null,
   animatingSectorId: number | null = null,
   hoverScale = 1
@@ -1297,44 +1296,65 @@ function renderSector(
     ctx.restore()
   }
 
-  // Render hop number badge for sectors in course plot (offset to bottom-right of hex)
-  if (coursePlot && isInPlot) {
+}
+
+/** Render hop number badges for course plot sectors (rendered above animation overlay) */
+function renderCoursePlotBadges(
+  ctx: CanvasRenderingContext2D,
+  scale: number,
+  hexSize: number,
+  width: number,
+  height: number,
+  cameraState: CameraState,
+  coursePlot: CoursePlot
+) {
+  const coursePlotSectors = new Set(coursePlot.path)
+
+  ctx.save()
+  ctx.translate(width / 2, height / 2)
+  ctx.scale(cameraState.zoom, cameraState.zoom)
+  ctx.translate(cameraState.offsetX, cameraState.offsetY)
+
+  cameraState.filteredData.forEach((node) => {
+    if (!coursePlotSectors.has(node.id)) return
     const hopIndex = coursePlot.path.indexOf(node.id)
-    if (hopIndex !== -1) {
-      const hopNumber = hopIndex + 1
-      ctx.save()
+    if (hopIndex === -1) return
 
-      const fontSize = isAnimating ? effectiveHexSize * 0.55 : hexSize * 0.55
-      ctx.font = `bold ${fontSize}px ${getCanvasFontFamily(ctx)}`
-      ctx.textAlign = "center"
-      ctx.textBaseline = "middle"
+    const hopNumber = hopIndex + 1
+    const world = hexToWorld(node.position[0], node.position[1], scale)
 
-      // Offset to bottom-right of hex
-      const badgeOffsetX = effectiveHexSize * 0.7
-      const badgeOffsetY = effectiveHexSize * 0.55
-      const badgeX = world.x + badgeOffsetX
-      const badgeY = world.y + badgeOffsetY
+    ctx.save()
 
-      // Draw black pill background
-      const text = hopNumber.toString()
-      const metrics = ctx.measureText(text)
-      const badgePadX = fontSize * 0.4
-      const badgePadY = fontSize * 0.25
-      const badgeW = metrics.width + badgePadX * 2
-      const badgeH = fontSize + badgePadY * 2
-      const badgeR = badgeH / 2
+    const fontSize = hexSize * 0.55
+    ctx.font = `bold ${fontSize}px ${getCanvasFontFamily(ctx)}`
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
 
-      ctx.fillStyle = applyAlpha("#000000", finalOpacity * 0.85)
-      ctx.beginPath()
-      ctx.roundRect(badgeX - badgeW / 2, badgeY - badgeH / 2, badgeW, badgeH, badgeR)
-      ctx.fill()
+    // Offset to top-left of hex
+    const badgeOffsetX = hexSize * -0.7
+    const badgeOffsetY = hexSize * -0.55
+    const badgeX = world.x + badgeOffsetX
+    const badgeY = world.y + badgeOffsetY
 
-      // Draw white text
-      ctx.fillStyle = applyAlpha("#ffffff", finalOpacity * 0.95)
-      ctx.fillText(text, badgeX, badgeY)
-      ctx.restore()
-    }
-  }
+    // Draw square background
+    const text = hopNumber.toString()
+    const metrics = ctx.measureText(text)
+    const badgePad = fontSize * 0.4
+    const badgeSize = Math.max(metrics.width, fontSize) + badgePad * 2
+    const badgeR = fontSize * 0.15
+
+    ctx.fillStyle = applyAlpha("#000000", 0.85)
+    ctx.beginPath()
+    ctx.roundRect(badgeX - badgeSize / 2, badgeY - badgeSize / 2, badgeSize, badgeSize, badgeR)
+    ctx.fill()
+
+    // Draw white text
+    ctx.fillStyle = applyAlpha("#ffffff", 0.95)
+    ctx.fillText(text, badgeX, badgeY)
+    ctx.restore()
+  })
+
+  ctx.restore()
 }
 
 /** Render hex grid background covering viewport */
@@ -1995,7 +2015,7 @@ function renderWithCameraState(
   if (cameraState.fadingOutData && cameraState.fadeProgress !== undefined) {
     const fadeOpacity = 1 - cameraState.fadeProgress
     cameraState.fadingOutData.forEach((node) => {
-      renderSector(ctx, node, scale, hexSize, config, fadeOpacity, coursePlotSectors, coursePlot)
+      renderSector(ctx, node, scale, hexSize, config, fadeOpacity, coursePlotSectors)
     })
   }
 
@@ -2004,7 +2024,7 @@ function renderWithCameraState(
       fadingInIds.has(node.id) && cameraState.fadeProgress !== undefined ?
         cameraState.fadeProgress
       : 1
-    renderSector(ctx, node, scale, hexSize, config, opacity, coursePlotSectors, coursePlot)
+    renderSector(ctx, node, scale, hexSize, config, opacity, coursePlotSectors)
   })
 
   if (config.debug) {
@@ -2219,7 +2239,6 @@ function renderWithCameraStateAndInteraction(
         config,
         fadeOpacity,
         coursePlotSectors,
-        coursePlot,
         hoveredSectorId,
         animatingSectorId,
         hoverScale
@@ -2240,7 +2259,6 @@ function renderWithCameraStateAndInteraction(
       config,
       opacity,
       coursePlotSectors,
-      coursePlot,
       hoveredSectorId,
       animatingSectorId,
       hoverScale
@@ -2259,6 +2277,9 @@ function renderWithCameraStateAndInteraction(
   }
 
   // 5) Labels always render last so they're never obscured
+  if (coursePlot) {
+    renderCoursePlotBadges(ctx, scale, hexSize, width, height, cameraState, coursePlot)
+  }
   renderShipLabels(
     ctx,
     cameraState.filteredData,

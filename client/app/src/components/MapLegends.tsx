@@ -1,10 +1,7 @@
-import { useState } from "react"
-
 import { AnimatePresence, motion } from "motion/react"
-import { CaretRightIcon, StarIcon, SwapIcon } from "@phosphor-icons/react"
+import { StarIcon, SwapIcon } from "@phosphor-icons/react"
 
-import { Button } from "@/components/primitives/Button"
-import { cn } from "@/utils/tailwind"
+import useGameStore from "@/stores/game"
 
 import { DotDivider } from "./primitives/DotDivider"
 
@@ -54,29 +51,13 @@ export const MapLegendLane = ({ oneway = false, className }: MapLegendLaneProps)
 }
 
 export const MapLegend = () => {
-  const [showLegend, setShowLegend] = useState(false)
+  const mapLegendVisible = useGameStore((state) => state.mapLegendVisible)
   return (
     <div className="text-muted-foreground flex flex-row items-center text-xs uppercase border bg-card/60 w-fit overflow-hidden">
-      <Button
-        variant="bland"
-        size="sm"
-        onClick={() => setShowLegend(!showLegend)}
-        className={cn(
-          "bg-background/60 hover:bg-accent-background",
-          showLegend && "bg-accent-background"
-        )}
-      >
-        {showLegend ? "Hide legend" : "Show legend"}
-        <CaretRightIcon
-          size={12}
-          weight="bold"
-          className={cn("size-3", showLegend ? "-scale-x-100" : "scale-x-100")}
-        />
-      </Button>
       <AnimatePresence>
-        {showLegend && (
+        {mapLegendVisible && (
           <motion.div
-            className="flex flex-row items-center gap-2 px-ui-xs "
+            className="flex flex-row items-center gap-2 px-ui-xs py-ui-xxs"
             initial={{ opacity: 0, x: -20, width: 0 }}
             animate={{ opacity: 1, x: 0, width: "auto" }}
             exit={{ opacity: 0, x: -20, width: 0 }}

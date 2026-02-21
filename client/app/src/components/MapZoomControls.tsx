@@ -3,9 +3,10 @@ import { useEffect, useMemo, useState } from "react"
 import { useDebouncedCallback } from "use-debounce"
 import {
   ArrowClockwiseIcon,
+  EyeClosedIcon,
+  EyeIcon,
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
-  QuestionMarkIcon,
 } from "@phosphor-icons/react"
 import { WrenchIcon } from "@phosphor-icons/react/dist/ssr"
 
@@ -27,6 +28,9 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
   const resetMapView = useGameStore.use.resetMapView?.()
   const coursePlotZoomEnabled = useGameStore((state) => state.coursePlotZoomEnabled)
   const setCoursePlotZoomEnabled = useGameStore.use.setCoursePlotZoomEnabled?.()
+  const clearCoursePlot = useGameStore.use.clearCoursePlot?.()
+  const mapLegendVisible = useGameStore((state) => state.mapLegendVisible)
+  const setMapLegendVisible = useGameStore.use.setMapLegendVisible?.()
   const resolvedZoomLevel = mapZoomLevel ?? DEFAULT_MAX_BOUNDS
   const currentIndex = useMemo(() => getClosestZoomIndex(resolvedZoomLevel), [resolvedZoomLevel])
   const [sliderIndex, setSliderIndex] = useState(currentIndex)
@@ -107,6 +111,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
               disabled={disabled}
               onClick={() => {
                 resetMapView?.()
+                clearCoursePlot()
               }}
               className="shrink-0 hover:bg-accent-background"
             >
@@ -121,9 +126,12 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
               variant="bland"
               size="icon-sm"
               disabled={disabled}
+              onClick={() => setMapLegendVisible?.(!mapLegendVisible)}
               className="shrink-0 hover:bg-accent-background"
             >
-              <QuestionMarkIcon weight="bold" />
+              {mapLegendVisible ?
+                <EyeClosedIcon weight="bold" />
+              : <EyeIcon weight="bold" />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="left">Show legend</TooltipContent>
