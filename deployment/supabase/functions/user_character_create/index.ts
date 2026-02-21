@@ -31,7 +31,7 @@ import {
 } from "../_shared/fedspace.ts";
 
 const DEFAULT_START_SECTOR = 0;
-const DEFAULT_SHIP_TYPE = "kestrel_courier";
+const DEFAULT_SHIP_TYPE = "sparrow_scout";
 const DEFAULT_CREDITS = 12000;
 const MAX_CHARACTERS_PER_USER = 5;
 

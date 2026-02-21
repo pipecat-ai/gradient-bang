@@ -119,6 +119,14 @@ export function pickRandomFedspaceSector(
   if (fedspaceSectors.length === 0) {
     return fallbackSector;
   }
-  const index = Math.floor(Math.random() * fedspaceSectors.length);
-  return fedspaceSectors[index] ?? fallbackSector;
+
+  // Exclude mega port sectors so new players must discover them via quests.
+  const megaSet = new Set(getMegaPortSectors(meta));
+  const candidates = fedspaceSectors.filter((s) => !megaSet.has(s));
+
+  if (candidates.length === 0) {
+    return fallbackSector;
+  }
+  const index = Math.floor(Math.random() * candidates.length);
+  return candidates[index] ?? fallbackSector;
 }
