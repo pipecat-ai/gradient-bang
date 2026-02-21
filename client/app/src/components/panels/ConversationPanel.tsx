@@ -26,7 +26,7 @@ export const ConversationPanel = ({ className }: { className?: string }) => {
 
   return (
     <div className={cn("relative flex flex-col gap-ui-xs h-full", className)}>
-      <IncomingCodecBadge className="absolute -top-ui-sm -translate-y-full right-0 z-90" />
+      <IncomingCodecBadge className="absolute top-0 -translate-y-1/2 right-ui-xs z-90" />
       <ChatPanel />
       <div className="flex flex-row gap-ui-xs items-center">
         <TextInputControl

@@ -36,6 +36,8 @@ import chime5Sound from "./sounds/chime-5.wav"
 import chime6Sound from "./sounds/chime-6.wav"
 import chime7Sound from "./sounds/chime-7.wav"
 import chime8Sound from "./sounds/chime-8.wav"
+import codec1Sound from "./sounds/codec-1.wav"
+import codec2Sound from "./sounds/codec-2.wav"
 import currencySound from "./sounds/currency.wav"
 import enterSound from "./sounds/enter.wav"
 import enterCombatSound from "./sounds/enter-combat.wav"
@@ -108,6 +110,8 @@ export const sounds = {
   impact4: impact4Sound,
   text: textSound,
   currency: currencySound,
+  codec1: codec1Sound,
+  codec2: codec2Sound,
 } as const
 
 // JS Chunks - preload lazy-loaded components and their dependencies
