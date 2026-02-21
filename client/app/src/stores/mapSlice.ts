@@ -58,8 +58,10 @@ export interface MapSlice {
   mapFitBoundsWorld?: [number, number, number, number]
   mapZoomLevel?: number
   mapFitEpoch?: number
+  mapResetEpoch: number
   pendingMapFitSectors?: number[]
   pendingMapFitMissingCount?: number
+  coursePlotZoomEnabled: boolean
   // --- Map data methods ---
   setPendingMapCenterRequest: (centerNode: MapCenterNode) => void
   handleMapCenterFallback: () => void
@@ -78,6 +80,8 @@ export interface MapSlice {
   clearPendingMapFit: () => void
   fitMapToSectors: (sectorIds: number[]) => void
   requestMapAutoRecenter: (reason: string) => void
+  setCoursePlotZoomEnabled: (enabled: boolean) => void
+  resetMapView: () => void
 
   // --- Compound actions ---
   handleMapUIAction: (payload: MapUIActionPayload) => void
@@ -290,6 +294,8 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     mapFitEpoch: undefined,
     pendingMapFitSectors: undefined,
     pendingMapFitMissingCount: undefined,
+    coursePlotZoomEnabled: true,
+    mapResetEpoch: 0,
     // =================================================================
     // Map data methods
     // =================================================================
@@ -491,6 +497,23 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       set(
         produce((state) => {
           state.mapZoomLevel = zoomLevel
+        })
+      ),
+
+    setCoursePlotZoomEnabled: (enabled: boolean) =>
+      set(
+        produce((state) => {
+          state.coursePlotZoomEnabled = enabled
+        })
+      ),
+
+    resetMapView: () =>
+      set(
+        produce((state) => {
+          state.mapCenterSector = undefined
+          state.mapCenterWorld = undefined
+          state.mapFitBoundsWorld = undefined
+          state.mapResetEpoch = (state.mapResetEpoch ?? 0) + 1
         })
       ),
 

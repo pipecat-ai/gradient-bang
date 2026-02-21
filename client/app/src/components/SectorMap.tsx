@@ -64,13 +64,14 @@ interface MapProps {
   onNodeEnter?: (node: MapSectorNode) => void
   onNodeExit?: (node: MapSectorNode) => void
   onMapFetch?: (centerSectorId: number, bounds: number) => void
-  onZoomChange?: (zoomLevel: number) => void
   /** World-coordinate center override (zoomMode). Undefined for boundMode. */
   center_world?: [number, number]
   /** World-coordinate bounding box override (zoomMode). Undefined for boundMode. */
   fit_bounds_world?: [number, number, number, number]
   /** Monotonic counter from fitMapToSectors to force re-render on fit resolution. */
   mapFitEpoch?: number
+  /** Monotonic counter to reset pan/zoom to base camera state. */
+  mapResetEpoch?: number
 }
 
 /** Element-wise comparison for short numeric tuples. */
@@ -130,10 +131,10 @@ const MapComponent = ({
   onNodeEnter,
   onNodeExit,
   onMapFetch,
-  onZoomChange,
   center_world,
   fit_bounds_world,
   mapFitEpoch,
+  mapResetEpoch,
 }: MapProps) => {
   // Normalize map_data to always be an array (memoized to avoid dependency changes)
   const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
@@ -178,6 +179,7 @@ const MapComponent = ({
     fit_bounds_world
   )
   const lastMapFitEpochRef = useRef<number | undefined>(mapFitEpoch)
+  const lastMapResetEpochRef = useRef<number | undefined>(mapResetEpoch)
   const pendingControllerCleanupRef = useRef<number | null>(null)
 
   const [measuredSize, setMeasuredSize] = useState<{
@@ -346,6 +348,7 @@ const MapComponent = ({
     const centerWorldChanged = !tuplesEqual(lastCenterWorldRef.current, center_world)
     const fitBoundsWorldChanged = !tuplesEqual(lastFitBoundsWorldRef.current, fit_bounds_world)
     const mapFitEpochChanged = lastMapFitEpochRef.current !== mapFitEpoch
+    const mapResetEpochChanged = lastMapResetEpochRef.current !== mapResetEpoch
 
     // Early exit if nothing has actually changed
     if (
@@ -358,7 +361,8 @@ const MapComponent = ({
       !shipsChanged &&
       !centerWorldChanged &&
       !fitBoundsWorldChanged &&
-      !mapFitEpochChanged
+      !mapFitEpochChanged &&
+      !mapResetEpochChanged
     ) {
       return
     }
@@ -398,6 +402,11 @@ const MapComponent = ({
     // maxDistance-only change (e.g. from scroll-zoom syncing to store):
     // just re-render without moveToSector to avoid resetting manual zoom
     const maxDistanceOnly = maxDistanceChanged && !reframeRequested
+
+    if (mapResetEpochChanged) {
+      controller.resetView()
+      lastMapResetEpochRef.current = mapResetEpoch
+    }
 
     if (reframeRequested) {
       // Signal that viewport intent changed — coverage dedup happens in mapSlice
@@ -448,6 +457,7 @@ const MapComponent = ({
     center_world,
     fit_bounds_world,
     mapFitEpoch,
+    mapResetEpoch,
   ])
 
   // Update click callback when it changes
@@ -474,14 +484,6 @@ const MapComponent = ({
       controller.setOnViewportChange(onMapFetch ?? null)
     }
   }, [onMapFetch])
-
-  // Wire zoom change (from scroll-zoom) to update zoom controls
-  useEffect(() => {
-    const controller = controllerRef.current
-    if (controller) {
-      controller.setOnZoomChange(onZoomChange ?? null)
-    }
-  }, [onZoomChange])
 
   // Cleanup effect — StrictMode-safe via deferred cleanup
   useEffect(() => {
@@ -582,6 +584,7 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
   if (!tuplesEqual(prevProps.center_world, nextProps.center_world)) return false
   if (!tuplesEqual(prevProps.fit_bounds_world, nextProps.fit_bounds_world)) return false
   if (prevProps.mapFitEpoch !== nextProps.mapFitEpoch) return false
+  if (prevProps.mapResetEpoch !== nextProps.mapResetEpoch) return false
 
   return true
 }

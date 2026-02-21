@@ -78,7 +78,7 @@ const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
   const ns_state = portCode[2] === "B" ? "buy" : "sell"
 
   return (
-    <aside className="z-90 absolute top-ui-sm left-0 w-70 h-fit flex flex-row gap-4 bg-background border border-border border-l-0 p-ui-sm shadow-long shadow-black/25">
+    <aside className="z-90 absolute top-ui-sm left-0 w-70 h-fit flex flex-row gap-4 bg-background border border-border border-l-0 p-ui-sm shadow-long shadow-black/25 pointer-events-none">
       <Divider
         orientation="vertical"
         variant="dashed"
@@ -137,21 +137,23 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const mapCenterWorld = useGameStore((state) => state.mapCenterWorld)
   const mapFitBoundsWorld = useGameStore((state) => state.mapFitBoundsWorld)
   const mapFitEpoch = useGameStore((state) => state.mapFitEpoch)
+  const mapResetEpoch = useGameStore((state) => state.mapResetEpoch)
   const dispatchAction = useGameStore.use.dispatchAction?.()
   const setMapCenterSector = useGameStore.use.setMapCenterSector?.()
   const setMapCenterWorld = useGameStore.use.setMapCenterWorld?.()
   const requestMapFetch = useGameStore.use.requestMapFetch?.()
-  const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
 
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
   const [isFetching, setIsFetching] = useState(false)
 
   const initialFetchRef = useRef(false)
 
+  const coursePlotZoomEnabled = useGameStore((state) => state.coursePlotZoomEnabled)
+
   const mapConfig = useMemo(() => {
-    if (!config) return MAP_CONFIG
-    return deepmerge(MAP_CONFIG, config) as MapConfig
-  }, [config])
+    const base = config ? (deepmerge(MAP_CONFIG, config) as MapConfig) : MAP_CONFIG
+    return { ...base, coursePlotZoomEnabled }
+  }, [config, coursePlotZoomEnabled])
 
   const shipSectors = ships?.data
     ?.filter((s: ShipSelf) => s.owner_type !== "personal")
@@ -207,14 +209,6 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
     [requestMapFetch, setIsFetching]
   )
 
-  // Sync zoom controls when user scroll-zooms on the map
-  const handleZoomChange = useCallback(
-    (zoomLevel: number) => {
-      setMapZoomLevel?.(zoomLevel)
-    },
-    [setMapZoomLevel]
-  )
-
   // When map data mutates after a fetch, set loading to false
   useEffect(() => {
     if (mapData !== undefined) {
@@ -266,12 +260,12 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
               setHoveredNode(null)
             }}
             onMapFetch={handleMapFetch}
-            onZoomChange={handleZoomChange}
             coursePlot={coursePlot ?? null}
             ships={shipSectors}
             center_world={mapCenterWorld}
             fit_bounds_world={mapFitBoundsWorld}
             mapFitEpoch={mapFitEpoch}
+            mapResetEpoch={mapResetEpoch}
           />
         : <div className="relative w-full h-full flex items-center justify-center cross-lines-white/50 cross-lines-offset-12">
             <div className="elbow relative z-99 flex flex-col gap-3 bg-black border border-border p-6 animate-in fade-in-0 duration-300">
