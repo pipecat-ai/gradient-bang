@@ -417,23 +417,17 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
             ignoreLocal: boolean = false
           ): void => {
             if (!mapData) return
-
-            const updates =
-              ignoreLocal ?
-                sectorUpdates.filter((s) => (s as MapSectorNode).source !== "player")
-              : sectorUpdates
-
-            if (updates.length === 0) return
+            if (sectorUpdates.length === 0) return
 
             const existingIndex = new Map<number, number>()
             mapData.forEach((s: MapSectorNode, idx: number) => existingIndex.set(s.id, idx))
 
-            const hasMatch = updates.some((s) => existingIndex.has(s.id))
-            if (!hasMatch) return
-
-            for (const sectorUpdate of updates) {
+            for (const sectorUpdate of sectorUpdates) {
               const existingIdx = existingIndex.get(sectorUpdate.id)
               if (existingIdx !== undefined) {
+                // Always merge into existing sectors so field updates
+                // (e.g. port mega flag) are applied to both local and
+                // regional map data.
                 Object.assign(mapData[existingIdx], sectorUpdate)
                 if (sectorUpdate.port !== undefined) {
                   const normalizedPort = normalizePort(
@@ -441,7 +435,12 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
                   )
                   mapData[existingIdx].port = normalizedPort as MapSectorNode["port"]
                 }
-              } else {
+              } else if (
+                !ignoreLocal ||
+                (sectorUpdate as MapSectorNode).source !== "player"
+              ) {
+                // Only add NEW sectors when not filtered by ignoreLocal.
+                // local_map_data gets new player sectors via setLocalMapData.
                 const newSector = {
                   ...sectorUpdate,
                   port: normalizePort((sectorUpdate as MapSectorNode).port as PortLike),

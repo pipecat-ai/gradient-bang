@@ -22,6 +22,8 @@ export interface QuestSlice {
   getActiveQuests: () => Quest[]
   getQuestByCode: (code: string) => Quest | undefined
   getActiveCodec: (questId?: string) => QuestCodec | null
+  viewCodec: QuestCodec | null
+  setViewCodec: (codec: QuestCodec | null) => void
   questCompletionData: QuestCompletionData | null
   setQuestCompletionData: (data: QuestCompletionData) => void
 }
@@ -101,6 +103,15 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
     }
     return null
   },
+
+  viewCodec: null,
+
+  setViewCodec: (codec: QuestCodec | null) =>
+    set(
+      produce((state) => {
+        state.viewCodec = codec
+      })
+    ),
 
   questCompletionData: null,
 

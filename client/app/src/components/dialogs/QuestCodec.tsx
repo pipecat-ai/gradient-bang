@@ -23,6 +23,8 @@ const VOICE_ID_MAP = {
 export const QuestCodec = () => {
   const getActiveCodec = useGameStore.use.getActiveCodec()
   const codecQuestId = useGameStore((state) => state.notifications.incomingCodec)
+  const viewCodec = useGameStore.use.viewCodec?.()
+  const setViewCodec = useGameStore.use.setViewCodec()
   const setNotifications = useGameStore.use.setNotifications()
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
@@ -33,7 +35,7 @@ export const QuestCodec = () => {
 
   const [page, setPage] = useState(0)
 
-  const codec = isOpen ? getActiveCodec(codecQuestId || undefined) : null
+  const codec = isOpen ? (viewCodec ?? getActiveCodec(codecQuestId || undefined)) : null
   const giverId = codec?.giver_id
   const pages = useMemo(() => codec?.pages ?? [], [codec?.pages])
   const totalPages = pages.length
@@ -66,6 +68,7 @@ export const QuestCodec = () => {
     diamondFXInstance?.clear()
     setActiveModal(undefined)
     setPage(0)
+    setViewCodec(null)
     setNotifications({ incomingCodec: false })
     dispatchAction({ type: "say-text-dismiss" })
   }

@@ -25,11 +25,24 @@ const QuestStepRow = ({
   isActive: boolean
   isLast: boolean
 }) => {
+  const setViewCodec = useGameStore.use.setViewCodec()
+  const setActiveModal = useGameStore.use.setActiveModal()
+
+  const hasCodec = !!step.meta?.codec
   const progress =
     step.target_value > 0 ? Math.min(100, (step.current_value / step.target_value) * 100) : 0
 
+  function handleClick() {
+    if (!hasCodec) return
+    setViewCodec(step.meta.codec!)
+    setActiveModal("quest_codec")
+  }
+
   return (
-    <div className="flex gap-ui-xs">
+    <div
+      className={`flex gap-ui-xs ${hasCodec ? "cursor-pointer hover:bg-accent/30 rounded" : ""}`}
+      onClick={handleClick}
+    >
       {/* Timeline column */}
       <div className="flex flex-col items-center w-4 shrink-0">
         {step.completed ?
