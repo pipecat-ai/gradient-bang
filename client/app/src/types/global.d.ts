@@ -489,6 +489,7 @@ declare global {
   interface LeaderboardWealth {
     player_id: string
     player_name: string
+    player_type: PlayerType
     bank_credits: number
     ship_credits: number
     cargo_value: number
@@ -500,6 +501,7 @@ declare global {
   interface LeaderboardTrading {
     player_id: string
     player_name: string
+    player_type: PlayerType
     total_trades: number
     total_trade_volume: number
     ports_visited: number
@@ -508,8 +510,18 @@ declare global {
   interface LeaderboardExploration {
     player_id: string
     player_name: string
+    player_type: PlayerType
     sectors_visited: number
     first_visit: string
+  }
+
+  interface LeaderboardTerritory {
+    player_id: string
+    player_name: string
+    player_type: PlayerType
+    sectors_controlled: number
+    total_fighters_deployed: number
+    total_toll_collected: number
   }
 
   interface LeaderboardResponse {

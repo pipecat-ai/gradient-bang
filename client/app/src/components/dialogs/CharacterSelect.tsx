@@ -23,6 +23,7 @@ export const CharacterSelectDialog = ({
       title="Select Character"
       size="full"
       noPadding
+      dismissOnClickOutside={false}
       playOpenSound={false}
       contentClassName="max-h-min"
       onClose={handleClose}
@@ -37,19 +38,18 @@ export const CharacterSelectDialog = ({
         tabIndex={-1}
         className="relative py-ui-md w-full overflow-hidden flex items-center justify-center bg-background/80 border-y shadow-long outline-none"
       >
-        {isCreatingNewCharacter ? (
+        {isCreatingNewCharacter ?
           <CreateCharacter
             onCancel={() => setIsCreatingNewCharacter(false)}
             onCharacterCreate={(characterId) => {
               onCharacterSelect(characterId)
             }}
           />
-        ) : (
-          <CharacterSelectComponent
+        : <CharacterSelectComponent
             onCharacterSelect={onCharacterSelect}
             onIsCreating={() => setIsCreatingNewCharacter(true)}
           />
-        )}
+        }
       </div>
     </BaseDialog>
   )

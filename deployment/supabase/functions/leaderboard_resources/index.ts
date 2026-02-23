@@ -147,25 +147,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
           supabase
             .from("leaderboard_wealth")
             .select(
-              "player_id:character_id, player_name:name, bank_credits, ship_credits, cargo_value, ships_owned, ship_value, total_wealth",
+              "player_id:character_id, player_name:name, player_type, bank_credits, ship_credits, cargo_value, ships_owned, ship_value, total_wealth",
             )
             .order("total_wealth", { ascending: false })
             .limit(100),
           supabase
             .from("leaderboard_territory")
             .select(
-              "player_id:character_id, player_name:name, sectors_controlled, total_fighters_deployed, total_toll_collected",
+              "player_id:character_id, player_name:name, player_type, sectors_controlled, total_fighters_deployed, total_toll_collected",
             )
             .order("sectors_controlled", { ascending: false })
             .limit(100),
           supabase
             .from("leaderboard_trading")
-            .select("player_id:character_id, player_name:name, total_trades, total_trade_volume, ports_visited")
+            .select("player_id:character_id, player_name:name, player_type, total_trades, total_trade_volume, ports_visited")
             .order("total_trade_volume", { ascending: false })
             .limit(100),
           supabase
             .from("leaderboard_exploration")
-            .select("player_id:character_id, player_name:name, sectors_visited, first_visit")
+            .select("player_id:character_id, player_name:name, player_type, sectors_visited, first_visit")
             .order("sectors_visited", { ascending: false })
             .limit(100),
         ]);

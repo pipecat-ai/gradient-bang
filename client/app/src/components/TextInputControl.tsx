@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import { PaperPlaneRightIcon } from "@phosphor-icons/react"
 import { usePipecatClientTransportState } from "@pipecat-ai/client-react"
@@ -20,6 +20,7 @@ export const TextInputControl = ({
 }) => {
   const transportState = usePipecatClientTransportState()
 
+  const inputRef = useRef<HTMLInputElement>(null)
   const [command, setCommand] = useState("")
   const [isDispatching, setIsDispatching] = useState(false)
 
@@ -30,20 +31,24 @@ export const TextInputControl = ({
     setCommand("")
     await wait(THROTTLE_DELAY_MS)
     setIsDispatching(false)
+    inputRef.current?.focus()
   }
 
-  const isDisabled = isDispatching || transportState !== "ready"
+  const isDisabled = transportState !== "ready"
+  const isBusy = isDispatching || isDisabled
 
   return (
     <div className={cn("relative flex-1 flex flex-row items-center min-w-2/3", className)}>
       <Input
+        ref={inputRef}
         variant="default"
         placeholder="Enter command"
         value={command}
         disabled={isDisabled}
+        readOnly={isDispatching}
         onChange={(e) => setCommand(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && command) {
+          if (e.key === "Enter" && command && !isBusy) {
             handleSend(command)
           }
         }}
@@ -51,12 +56,12 @@ export const TextInputControl = ({
       />
       <Button
         size="icon"
-        variant={isDisabled || !command ? "ghost" : "default"}
-        disabled={isDisabled}
+        variant={isBusy || !command ? "ghost" : "default"}
+        disabled={isBusy}
         onClick={() => handleSend(command)}
         className={cn(
           "absolute right-0 border-l-0 outline-none",
-          isDisabled || !command ? "hover:bg-transparent text-primary/50" : ""
+          isBusy || !command ? "hover:bg-transparent text-primary/50" : ""
         )}
         loader="stripes"
         isLoading={isDispatching}

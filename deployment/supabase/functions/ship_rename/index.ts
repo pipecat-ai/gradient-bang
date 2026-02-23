@@ -24,7 +24,10 @@ import {
   emitErrorEvent,
   buildEventSource,
 } from "../_shared/events.ts";
-import { emitCorporationEvent } from "../_shared/corporations.ts";
+import {
+  emitCorporationEvent,
+  loadCorporationById,
+} from "../_shared/corporations.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
@@ -248,6 +251,10 @@ async function handleRename(params: {
   const actorName =
     actorCharacterId && actorCharacterId !== characterId
       ? await loadActorName(supabase, actorCharacterId)
+      : null;
+  const ownerCorporationName =
+    ship.owner_type === "corporation" && ship.owner_corporation_id
+      ? (await loadCorporationById(supabase, ship.owner_corporation_id)).name
       : null;
   const eventPayload: Record<string, unknown> = {
     source,

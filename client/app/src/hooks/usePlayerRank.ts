@@ -5,6 +5,12 @@ import { calculatePlayerRank, didPlayerRankUp } from "@/utils/leaderboard"
 
 const CATEGORIES: LeaderboardCategory[] = ["wealth", "trading", "exploration", "territory"]
 
+const LEADERBOARD_URL =
+  (import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1") +
+  (import.meta.env.VITE_SERVER_LEADERBOARD_ENDPOINT ?? "/leaderboard_resources")
+
+const POLL_INTERVAL_MS = 60_000
+
 export const usePlayerRank = () => {
   useEffect(() => {
     const unsub = useGameStore.subscribe(
@@ -36,5 +42,22 @@ export const usePlayerRank = () => {
     )
 
     return unsub
+  }, [])
+
+  useEffect(() => {
+    const pollLeaderboard = async () => {
+      console.debug("[GAME] Polling leaderboard")
+      try {
+        const response = await fetch(LEADERBOARD_URL)
+        const data = await response.json()
+        useGameStore.getState().setLeaderboardData(data)
+      } catch (e) {
+        console.debug("[GAME] Leaderboard poll failed", e)
+      }
+    }
+
+    const interval = setInterval(pollLeaderboard, POLL_INTERVAL_MS)
+
+    return () => clearInterval(interval)
   }, [])
 }
