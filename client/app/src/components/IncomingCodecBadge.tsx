@@ -17,6 +17,7 @@ export const IncomingCodecBadge = ({ className }: { className?: string }) => {
   const setNotifications = useGameStore.use.setNotifications()
   const [visible, setVisible] = useState(false)
   const [entered, setEntered] = useState(false)
+  const shownCodecRef = useRef<string | null>(null)
 
   const handleClick = useCallback(() => {
     setActiveModal("quest_codec")
@@ -34,12 +35,19 @@ export const IncomingCodecBadge = ({ className }: { className?: string }) => {
   }, [setNotifications])
 
   useRTVIClientEvent(RTVIEvent.BotStoppedSpeaking, async () => {
-    if (incomingCodec) {
+    if (incomingCodec && incomingCodec !== shownCodecRef.current) {
+      shownCodecRef.current = incomingCodec
       const playSound = useAudioStore.getState().playSound
       playSound("codec1")
       setVisible(true)
     }
   })
+
+  useEffect(() => {
+    if (!incomingCodec) {
+      shownCodecRef.current = null
+    }
+  }, [incomingCodec])
 
   useEffect(() => {
     if (visible) {

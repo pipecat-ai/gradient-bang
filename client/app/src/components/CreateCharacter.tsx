@@ -48,6 +48,7 @@ export const CreateCharacter = ({
       onCharacterCreate(data.character_id)
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to create character")
+      setIsLoading(false)
     }
   }
 
@@ -74,9 +75,7 @@ export const CreateCharacter = ({
               >
                 <CardContent className="flex flex-col gap-2">
                   <WarningDiamondIcon className="size-6 text-destructive" weight="duotone" />
-                  <span className="text-sm uppercase bg-background/40 tracking-wider font-medium">
-                    {error}
-                  </span>
+                  <span className="text-sm uppercase tracking-wider font-medium">{error}</span>
                 </CardContent>
               </Card>
             )}

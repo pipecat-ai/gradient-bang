@@ -1,6 +1,8 @@
 import { RESOURCE_SHORT_NAMES } from "../types/constants"
 import { type CreditsTransferMessage, type WarpTransferMessage } from "../types/messages"
 
+import { SHIP_DEFINITIONS } from "@/types/ships"
+
 /**
  * Formats a transfer message (credits or warp) into a human-readable summary string.
  *
@@ -317,4 +319,9 @@ export const calculateHopsRemaining = (
     return "???"
   }
   return coursePlot.path.length - 1 - currentIndex
+}
+
+export function shipTypeVerbose(shipType: string) {
+  const def = SHIP_DEFINITIONS.find((d) => d.ship_type === shipType)
+  return def?.display_name ?? shipType
 }

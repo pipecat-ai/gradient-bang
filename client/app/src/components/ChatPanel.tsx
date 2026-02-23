@@ -160,7 +160,7 @@ export const ChatPanel = () => {
 
         <CardContent className="absolute inset-0 min-h-0  mask-[linear-gradient(to_bottom,black_60%,transparent_100%)]">
           <ScrollArea className="relative w-full h-full pointer-events-auto">
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 pb-20">
               {filteredMessages
                 ?.toReversed()
                 .map((message) =>
