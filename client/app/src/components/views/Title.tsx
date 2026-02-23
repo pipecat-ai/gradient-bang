@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 
@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader } from "@/components/primitives/Card"
 import { Input } from "@/components/primitives/Input"
 import { Separator } from "@/components/primitives/Separator"
 import { ScrambleText } from "@/fx/ScrambleText"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { wait } from "@/utils/animation"
 
@@ -26,6 +27,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [state, setState] = useState<"idle" | "join">("idle")
   const [error, setError] = useState<boolean>(false)
+  const hasStartedMusic = useRef(false)
 
   const handleSignIn = async () => {
     setIsLoading(true)
@@ -82,7 +84,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
         >
           <CardHeader className="block">
             <h1 className="text-white text-3xl font-bold uppercase">
-              <ScrambleText>Gradient Bang Dev Build</ScrambleText>
+              <ScrambleText>Gradient Bang Playtest</ScrambleText>
             </h1>
           </CardHeader>
           <Separator />
@@ -97,7 +99,17 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                   transition={{ duration: 0.2, ease: "easeInOut" }}
                   className="w-full flex flex-col gap-5"
                 >
-                  <Button onClick={() => setState("join")} className="w-full" size="xl">
+                  <Button
+                    onClick={() => {
+                      setState("join")
+                      if (!hasStartedMusic.current) {
+                        hasStartedMusic.current = true
+                        useAudioStore.getState().fadeIn("theme", { volume: 0.2, duration: 5000 })
+                      }
+                    }}
+                    className="w-full"
+                    size="xl"
+                  >
                     Sign In
                   </Button>
                   <Button

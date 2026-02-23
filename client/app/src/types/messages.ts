@@ -488,6 +488,14 @@ export interface QuestStepCompletedMessage extends ServerMessagePayload {
   next_step?: QuestStep
 }
 
+export interface QuestProgressMessage extends ServerMessagePayload {
+  quest_id: string
+  step_id: string
+  step_index: number
+  current_value: number
+  target_value: number
+}
+
 export interface QuestCompletedMessage extends ServerMessagePayload {
   quest_id: string
   quest_code: string

@@ -387,6 +387,25 @@ BEGIN
     WHERE id = v_pqs_id;
 
     -- 3f. Check step completion
+    IF v_new_value < v_sub.target_value THEN
+      -- Step not yet complete — emit progress update
+      PERFORM record_event_with_recipients(
+        p_event_type := 'quest.progress',
+        p_scope := 'direct',
+        p_actor_character_id := v_player_id,
+        p_character_id := v_player_id,
+        p_payload := jsonb_build_object(
+          'quest_id', v_pq_quest_id,
+          'step_id', v_sub.step_id,
+          'step_index', v_sub.step_index,
+          'current_value', v_new_value,
+          'target_value', v_sub.target_value
+        ),
+        p_recipients := ARRAY[v_player_id],
+        p_reasons := ARRAY['direct']
+      );
+    END IF;
+
     IF v_new_value >= v_sub.target_value THEN
       -- Mark step completed
       UPDATE player_quest_steps

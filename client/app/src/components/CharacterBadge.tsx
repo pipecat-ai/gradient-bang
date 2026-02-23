@@ -72,7 +72,7 @@ export const CharacterBadge = () => {
                   ease: "easeInOut",
                 }}
               >
-                <ChevronSM className="rotate-180" />
+                <ChevronSM className="rotate-180 size-3.5" />
               </motion.div>
 
               {/* "RANK UP" — blinks 4 times after chevron exits */}

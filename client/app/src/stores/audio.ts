@@ -14,6 +14,12 @@ interface PlaySoundOptions {
   once?: boolean
 }
 
+interface FadeOptions {
+  volume?: number
+  duration?: number
+  loop?: boolean
+}
+
 interface OnceSoundEntry {
   audio: HTMLAudioElement
   baseVolume: number
@@ -42,13 +48,17 @@ const soundTypes: Record<SoundName, SoundType> = {
   impact4: "fx",
   codec1: "fx",
   codec2: "fx",
+  theme: "music",
 }
 
 interface AudioState {
   soundCache: Map<SoundName, HTMLAudioElement>
   activeOnceSounds: Map<SoundName, OnceSoundEntry>
+  activeFades: Map<SoundName, number>
   playSound: (soundName: SoundName, options?: PlaySoundOptions) => void
   stopSound: (soundName: SoundName) => void
+  fadeIn: (soundName: SoundName, options?: FadeOptions) => void
+  fadeOut: (soundName: SoundName, options?: { duration?: number }) => void
   syncAudioVolumes: () => void
 }
 
@@ -68,6 +78,7 @@ const useAudioStoreBase = create<AudioState>()(
   subscribeWithSelector((set, get) => ({
     soundCache: new Map(),
     activeOnceSounds: new Map(),
+    activeFades: new Map(),
 
     playSound: (soundName: SoundName, options?: PlaySoundOptions) => {
       const { soundCache, activeOnceSounds } = get()
@@ -158,13 +169,98 @@ const useAudioStoreBase = create<AudioState>()(
     },
 
     stopSound: (soundName: SoundName) => {
-      const { activeOnceSounds } = get()
+      const { activeOnceSounds, activeFades } = get()
+      const fadeInterval = activeFades.get(soundName)
+      if (fadeInterval) {
+        clearInterval(fadeInterval)
+        activeFades.delete(soundName)
+      }
       const entry = activeOnceSounds.get(soundName)
       if (entry) {
         entry.audio.pause()
         entry.audio.currentTime = 0
         activeOnceSounds.delete(soundName)
       }
+    },
+
+    fadeIn: (soundName: SoundName, options?: FadeOptions) => {
+      const { activeFades, playSound } = get()
+      const duration = options?.duration ?? 1000
+      const stepInterval = 20
+      const steps = duration / stepInterval
+
+      // Cancel any existing fade on this sound
+      const existingFade = activeFades.get(soundName)
+      if (existingFade) {
+        clearInterval(existingFade)
+        activeFades.delete(soundName)
+      }
+
+      // Start the sound at volume 0 as a "once" (looping/persistent) sound
+      playSound(soundName, { volume: 0, once: true, loop: options?.loop })
+
+      const entry = get().activeOnceSounds.get(soundName)
+      if (!entry) return
+
+      const targetBaseVolume = options?.volume ?? 1
+      entry.baseVolume = targetBaseVolume
+
+      let currentStep = 0
+      const interval = window.setInterval(() => {
+        currentStep++
+        const progress = Math.min(currentStep / steps, 1)
+        const settings = useGameStore.getState().settings
+
+        let typeMultiplier = 1
+        if (entry.soundType === "ambience") typeMultiplier = settings.ambienceVolume
+        else if (entry.soundType === "fx") typeMultiplier = settings.soundFXVolume
+        else if (entry.soundType === "music") typeMultiplier = settings.musicVolume
+
+        entry.audio.volume = targetBaseVolume * progress * typeMultiplier
+
+        if (progress >= 1) {
+          clearInterval(interval)
+          get().activeFades.delete(soundName)
+        }
+      }, stepInterval)
+
+      activeFades.set(soundName, interval)
+    },
+
+    fadeOut: (soundName: SoundName, options?: { duration?: number }) => {
+      const { activeOnceSounds, activeFades } = get()
+      const duration = options?.duration ?? 1000
+      const stepInterval = 20
+      const steps = duration / stepInterval
+
+      const entry = activeOnceSounds.get(soundName)
+      if (!entry) return
+
+      // Cancel any existing fade on this sound
+      const existingFade = activeFades.get(soundName)
+      if (existingFade) {
+        clearInterval(existingFade)
+        activeFades.delete(soundName)
+      }
+
+      const startVolume = entry.audio.volume
+      let currentStep = 0
+
+      const interval = window.setInterval(() => {
+        currentStep++
+        const progress = Math.min(currentStep / steps, 1)
+        entry.audio.volume = startVolume * (1 - progress)
+
+        if (progress >= 1) {
+          clearInterval(interval)
+          get().activeFades.delete(soundName)
+          entry.audio.pause()
+          entry.audio.currentTime = 0
+          get().activeOnceSounds.delete(soundName)
+        }
+      }, stepInterval)
+
+      activeFades.set(soundName, interval)
     },
 
     syncAudioVolumes: () => {

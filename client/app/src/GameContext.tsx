@@ -1179,6 +1179,12 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "quest.progress": {
+              const data = e.payload as Msg.QuestProgressMessage
+              gameStore.updateQuestStepProgress(data.quest_id, data.step_index, data.current_value)
+              break
+            }
+
             case "quest.step_completed": {
               console.debug("[GAME EVENT] Quest step completed", e.payload)
               const data = e.payload as Msg.QuestStepCompletedMessage

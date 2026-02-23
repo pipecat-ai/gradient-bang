@@ -7,7 +7,6 @@ import { useRTVIClientEvent } from "@pipecat-ai/client-react"
 
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
-import { wait } from "@/utils/animation"
 import { cn } from "@/utils/tailwind"
 
 const SHOW_BADGE_DURATION = 15_000
@@ -39,8 +38,6 @@ export const IncomingCodecBadge = ({ className }: { className?: string }) => {
       const playSound = useAudioStore.getState().playSound
       playSound("codec1")
       setVisible(true)
-      await wait(2000)
-      playSound("codec1")
     }
   })
 
