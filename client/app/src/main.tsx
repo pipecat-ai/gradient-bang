@@ -17,6 +17,18 @@ import "./css/index.css"
 
 import "./sw-update"
 
+// Prevent browser-level zoom (Ctrl/Cmd +/-, Ctrl/Cmd scroll, pinch)
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "-" || e.key === "=")) {
+    e.preventDefault()
+  }
+})
+document.addEventListener("wheel", (e) => {
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+  }
+}, { passive: false })
+
 // Get settings from the initialized store (not from JSON directly)
 const Settings = useGameStore.getState().settings
 
