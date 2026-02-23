@@ -235,6 +235,30 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                     }))
                   }
                 />
+                {/* Music */}
+                <SettingSwitch
+                  label="Music Enabled"
+                  id="enable-music"
+                  checked={!formSettings.disableMusic}
+                  onChange={(enabled) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      disableMusic: !enabled,
+                    }))
+                  }
+                />
+                <SettingSlider
+                  id="music"
+                  label="Music Volume"
+                  disabled={formSettings.disableMusic}
+                  value={formSettings.musicVolume}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      musicVolume: value,
+                    }))
+                  }
+                />
               </FieldGroup>
             </FieldSet>
 
@@ -264,7 +288,7 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                 <SettingSelect
                   label="Quality Preset"
                   id="quality-preset"
-                  options={["low", "mid", "high"]}
+                  options={["low", "mid", "high", "auto"]}
                   value={formSettings.qualityPreset}
                   onChange={(value) =>
                     setFormSettings((prev) => ({
@@ -281,30 +305,6 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                     setFormSettings((prev) => ({
                       ...prev,
                       renderStarfield: value,
-                    }))
-                  }
-                />
-
-                <SettingSwitch
-                  label="Bypass Flashing Effects"
-                  id="bypass-flash-effects"
-                  checked={formSettings.fxBypassFlash}
-                  onChange={(value) =>
-                    setFormSettings((prev) => ({
-                      ...prev,
-                      fxBypassFlash: value,
-                    }))
-                  }
-                />
-
-                <SettingSwitch
-                  label="Bypass Warp Animation"
-                  id="bypass-warp-animation"
-                  checked={formSettings.fxBypassAnimation}
-                  onChange={(value) =>
-                    setFormSettings((prev) => ({
-                      ...prev,
-                      fxBypassAnimation: value,
                     }))
                   }
                 />
