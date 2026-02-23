@@ -184,6 +184,7 @@ class VoiceTaskManager:
             "quest.status",
             "quest.step_completed",
             "quest.completed",
+            "quest.progress",
         ]
         for event_name in self._event_names:
             self.game_client.on(event_name)(self._relay_event)
