@@ -42,7 +42,7 @@ export const normalizePort = (port: PortLike): PortBase | null => {
 }
 
 export const normalizeMapData = (mapData: MapData): MapData =>
-  mapData.map((sector) => normalizeSector(sector))
+  mapData.map((sector) => ({ ...sector, port: normalizePort(sector.port as PortLike) }))
 
 export const normalizeSector = <T extends Sector>(sector: T): T => ({
   ...sector,
@@ -50,11 +50,17 @@ export const normalizeSector = <T extends Sector>(sector: T): T => ({
 })
 
 export const zoomLevels = (() => {
-  const levels = Array.from({ length: 5 }, (_, index) =>
-    Math.round(MIN_BOUNDS + ((MAX_BOUNDS - MIN_BOUNDS) * index) / 4)
+  const STEPS = 10
+  const logMin = Math.log(MIN_BOUNDS)
+  const logMax = Math.log(MAX_BOUNDS)
+  const levels = Array.from({ length: STEPS + 1 }, (_, index) =>
+    Math.round(Math.exp(logMin + ((logMax - logMin) * index) / STEPS))
   )
+  // Ensure DEFAULT_MAX_BOUNDS is included as a snap point
   if (!levels.includes(DEFAULT_MAX_BOUNDS)) {
-    levels[1] = DEFAULT_MAX_BOUNDS
+    const closest = levels.reduce((best, val, i) =>
+      Math.abs(val - DEFAULT_MAX_BOUNDS) < Math.abs(levels[best] - DEFAULT_MAX_BOUNDS) ? i : best, 0)
+    levels[closest] = DEFAULT_MAX_BOUNDS
   }
   return Array.from(new Set(levels)).sort((a, b) => a - b)
 })()
@@ -136,6 +142,10 @@ export const sectorsEquivalentForRender = (a: MapSectorNode, b: MapSectorNode): 
   if (a.last_visited !== b.last_visited) return false
   if (!garrisonsEquivalent(a.garrison, b.garrison)) return false
   if (getPortCode(a.port) !== getPortCode(b.port)) return false
+  if (Boolean((a.port as PortBase | null)?.mega) !== Boolean((b.port as PortBase | null)?.mega))
+    return false
+  if ((a.port as PortBase | null)?.port_class !== (b.port as PortBase | null)?.port_class)
+    return false
   if (getLaneSignature(a) !== getLaneSignature(b)) return false
   return true
 }

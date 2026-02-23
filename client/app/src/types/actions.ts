@@ -56,6 +56,23 @@ export interface GetChatHistoryAction {
   }
 }
 
+export interface SayTextAction {
+  type: "say-text"
+  payload: {
+    voice_id?: string
+    text: string
+  }
+}
+
+export interface SayTextDimissAction {
+  type: "say-text-dismiss"
+}
+
+export interface AssignQuestAction {
+  type: "assign-quest"
+  payload: { quest_code: string }
+}
+
 type ActionMeta = { async?: boolean }
 
 export type GameAction = (
@@ -68,6 +85,9 @@ export type GameAction = (
   | CancelTaskAction
   | RenameShipAction
   | GetChatHistoryAction
+  | SayTextAction
+  | SayTextDimissAction
+  | AssignQuestAction
 ) &
   ActionMeta
 

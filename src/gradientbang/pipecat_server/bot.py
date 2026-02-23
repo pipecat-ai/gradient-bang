@@ -18,6 +18,8 @@ from pipecat.frames.frames import (
     LLMTextFrame,
     StartFrame,
     StopFrame,
+    TTSSpeakFrame,
+    TTSUpdateSettingsFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -31,7 +33,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
     RTVIObserver,
@@ -240,6 +242,33 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     user_mute_state = {"muted": True}
     user_unmuted_event = asyncio.Event()
+    say_text_restore_voice: dict[str, str | None] = {"voice_id": None}
+
+    class SayTextVoiceGuard(FrameProcessor):
+        """Restores the original TTS voice before normal LLM speech.
+
+        When say-text sets a temporary voice, the queued restore frame can be
+        cancelled by an interruption. This guard sits before TTS and ensures
+        the voice is always restored when normal LLM-driven speech begins.
+        """
+
+        def __init__(self, restore_state: dict):
+            super().__init__()
+            self._restore_state = restore_state
+
+        async def process_frame(self, frame, direction: FrameDirection):
+            await super().process_frame(frame, direction)
+            if isinstance(frame, LLMFullResponseStartFrame):
+                restore_id = self._restore_state.get("voice_id")
+                if restore_id:
+                    logger.info(f"SayTextVoiceGuard: restoring voice to {restore_id}")
+                    self._restore_state["voice_id"] = None
+                    await self.push_frame(
+                        TTSUpdateSettingsFrame(settings={"voice_id": restore_id})
+                    )
+            await self.push_frame(frame, direction)
+
+    say_text_voice_guard = SayTextVoiceGuard(say_text_restore_voice)
 
     @user_aggregator.event_handler("on_user_mute_started")
     async def on_user_mute_started(aggregator):
@@ -302,6 +331,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     llm,
                     post_llm_gate,
                     token_usage_metrics,
+                    say_text_voice_guard,
                     tts,
                     context_aggregator.assistant(),
                     output_transport,
@@ -729,6 +759,42 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             )
             return
 
+        # Handle say-text: generate TTS with an optional temporary voice
+        if msg_type == "say-text":
+            text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
+            voice_id = msg_data.get("voice_id") if isinstance(msg_data, dict) else None
+            if text:
+                await task.queue_frame(InterruptionFrame())
+                frames = []
+                if voice_id:
+                    # Only store the original voice if we don't already have a
+                    # pending restore (avoids overwriting original with a
+                    # temporary voice on back-to-back say-text calls).
+                    if not say_text_restore_voice.get("voice_id"):
+                        say_text_restore_voice["voice_id"] = tts._voice_id
+                    frames.append(TTSUpdateSettingsFrame(settings={"voice_id": voice_id}))
+                else:
+                    say_text_restore_voice["voice_id"] = None
+                frames.append(TTSSpeakFrame(text=text, append_to_context=False))
+                if voice_id:
+                    # Best-effort restore after speak completes. If an
+                    # interruption cancels this frame, SayTextVoiceGuard
+                    # will restore the voice before the next LLM response.
+                    frames.append(TTSUpdateSettingsFrame(settings={"voice_id": say_text_restore_voice["voice_id"]}))
+                await task.queue_frames(frames)
+            return
+
+        # Handle say-text-dismiss: stop TTS, restore voice, resume normal pipeline
+        if msg_type == "say-text-dismiss":
+            await task.queue_frame(InterruptionFrame())
+            restore_id = say_text_restore_voice.get("voice_id")
+            frames = []
+            if restore_id:
+                frames.append(TTSUpdateSettingsFrame(settings={"voice_id": restore_id}))
+                say_text_restore_voice["voice_id"] = None
+            await task.queue_frames(frames)
+            return
+
         # Handle user text input messages
         if msg_type == "user-text-input":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
@@ -751,6 +817,22 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     ]
                 )
             await task.queue_frames(frames)
+            return
+
+        # Assign a quest to the player
+        if msg_type == "assign-quest":
+            quest_code = msg_data.get("quest_code", "") if isinstance(msg_data, dict) else ""
+            if not quest_code:
+                logger.warning("assign-quest: missing quest_code")
+                return
+            try:
+                result = await task_manager.game_client.assign_quest(
+                    quest_code=quest_code,
+                    character_id=task_manager.character_id,
+                )
+                logger.info(f"assign-quest result: {result}")
+            except Exception as e:
+                logger.error(f"assign-quest failed: {e}")
             return
 
         # Client sent a custom message

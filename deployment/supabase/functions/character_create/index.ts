@@ -26,7 +26,7 @@ import {
 } from "../_shared/fedspace.ts";
 
 const DEFAULT_START_SECTOR = 0;
-const DEFAULT_SHIP_TYPE = "kestrel_courier";
+const DEFAULT_SHIP_TYPE = "sparrow_scout";
 const DEFAULT_CREDITS = 5000;
 const DEFAULT_PLAYER_TYPE = "human";
 
@@ -247,6 +247,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
         .delete()
         .eq("character_id", characterId);
       throw new CharacterCreateError("Failed to link ship to character", 500);
+    }
+
+    // Assign quests marked as assign_on_creation (e.g. tutorial)
+    const { data: autoQuests } = await supabase
+      .from("quest_definitions")
+      .select("code")
+      .eq("assign_on_creation", true)
+      .eq("enabled", true);
+
+    if (autoQuests) {
+      for (const quest of autoQuests) {
+        await supabase.rpc("assign_quest", {
+          p_player_id: characterId,
+          p_quest_code: quest.code,
+        });
+      }
     }
 
     // Log successful creation

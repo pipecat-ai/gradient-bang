@@ -40,6 +40,8 @@ const soundTypes: Record<SoundName, SoundType> = {
   impact2: "fx",
   impact3: "fx",
   impact4: "fx",
+  codec1: "fx",
+  codec2: "fx",
 }
 
 interface AudioState {

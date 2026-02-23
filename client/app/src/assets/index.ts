@@ -1,4 +1,7 @@
 // Images
+// Characters
+import character1 from "./images/characters/fed-cadet-1.png"
+import character2 from "./images/characters/fed-cadet-2.png"
 import port1 from "./images/ports/port-1.png"
 import port2 from "./images/ports/port-2.png"
 import port3 from "./images/ports/port-3.png"
@@ -33,6 +36,8 @@ import chime5Sound from "./sounds/chime-5.wav"
 import chime6Sound from "./sounds/chime-6.wav"
 import chime7Sound from "./sounds/chime-7.wav"
 import chime8Sound from "./sounds/chime-8.wav"
+import codec1Sound from "./sounds/codec-1.wav"
+import codec2Sound from "./sounds/codec-2.wav"
 import currencySound from "./sounds/currency.wav"
 import enterSound from "./sounds/enter.wav"
 import enterCombatSound from "./sounds/enter-combat.wav"
@@ -48,6 +53,8 @@ import titleVideo from "./videos/title.mp4"
 
 export const images = {
   splash1,
+  character1,
+  character2,
   aegisCruiserLogo,
   atlasHaulerLogo,
   autonomousLightHaulerLogo,
@@ -103,6 +110,8 @@ export const sounds = {
   impact4: impact4Sound,
   text: textSound,
   currency: currencySound,
+  codec1: codec1Sound,
+  codec2: codec2Sound,
 } as const
 
 // JS Chunks - preload lazy-loaded components and their dependencies

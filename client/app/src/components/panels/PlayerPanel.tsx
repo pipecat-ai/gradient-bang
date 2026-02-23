@@ -1,19 +1,134 @@
 import { format } from "date-fns"
-import { UserIcon } from "@phosphor-icons/react"
+import { CheckCircleIcon, CircleDashedIcon, CircleIcon, UserIcon } from "@phosphor-icons/react"
 
 import RadialGrad from "@/assets/images/radial-grad-md.png"
+import { BlankSlateTile } from "@/components/BlankSlates"
+import { DottedTitle } from "@/components/DottedTitle"
+import { Button } from "@/components/primitives/Button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/primitives/Card"
+import { Divider } from "@/components/primitives/Divider"
+import { ShipLogoPopover } from "@/components/ShipLogoPopover"
 import useGameStore from "@/stores/game"
 
-import { DottedTitle } from "../DottedTitle"
-import { Button } from "../primitives/Button"
-import { Card, CardContent, CardHeader, CardTitle } from "../primitives/Card"
-import { Divider } from "../primitives/Divider"
-import { ShipLogoPopover } from "../ShipLogoPopover"
 import { MovementHistoryPanel } from "./DataTablePanels"
 import { RHSPanelContent, RHSSubPanel } from "./RHSPanelContainer"
 import { ShipCatalogue } from "./ShipCatalogue"
 
 import { SHIP_DEFINITIONS } from "@/types/ships"
+
+const QuestStepRow = ({
+  step,
+  isActive,
+  isLast,
+}: {
+  step: QuestStep
+  isActive: boolean
+  isLast: boolean
+}) => {
+  const setViewCodec = useGameStore.use.setViewCodec()
+  const setActiveModal = useGameStore.use.setActiveModal()
+
+  const hasCodec = !!step.meta?.codec
+  const progress =
+    step.target_value > 0 ? Math.min(100, (step.current_value / step.target_value) * 100) : 0
+
+  function handleClick() {
+    if (!hasCodec) return
+    setViewCodec(step.meta.codec!)
+    setActiveModal("quest_codec")
+  }
+
+  return (
+    <div
+      className={`flex gap-ui-xs ${hasCodec ? "cursor-pointer hover:bg-accent/30 rounded" : ""}`}
+      onClick={handleClick}
+    >
+      {/* Timeline column */}
+      <div className="flex flex-col items-center w-4 shrink-0">
+        {step.completed ?
+          <CheckCircleIcon weight="fill" className="size-4 text-green-400 shrink-0" />
+        : isActive ?
+          <CircleDashedIcon weight="bold" className="size-4 text-foreground shrink-0" />
+        : <CircleIcon className="size-4 text-subtle-foreground/40 shrink-0" />}
+        {!isLast && <div className="w-px flex-1 min-h-2 bg-accent" />}
+      </div>
+      {/* Step content */}
+      <div
+        className={`flex flex-col gap-0.5 pb-ui-xs min-w-0 ${step.completed ? "opacity-60" : ""}`}
+      >
+        <span
+          className={`text-xxs uppercase leading-4 ${isActive ? "text-foreground" : "text-subtle-foreground"}`}
+        >
+          {step.name}
+        </span>
+        {isActive && !step.completed && step.target_value > 0 && (
+          <div className="flex items-center gap-ui-xs">
+            <div className="w-full h-1 bg-accent rounded-full overflow-hidden">
+              <div
+                className="h-full bg-foreground rounded-full transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="text-xxs text-subtle-foreground tabular-nums shrink-0">
+              {step.current_value}/{step.target_value}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const QuestList = () => {
+  const quests = useGameStore.use.quests?.()
+
+  if (!quests || quests.length === 0) {
+    return <BlankSlateTile text="No active contracts" />
+  }
+
+  return (
+    <div className="flex flex-col gap-ui-xs">
+      {quests.map((quest) => {
+        const allSteps = [
+          ...quest.completed_steps,
+          ...(quest.current_step ? [quest.current_step] : []),
+        ].sort((a, b) => a.step_index - b.step_index)
+
+        return (
+          <div
+            key={quest.quest_id}
+            className="corner-dots p-ui-xs flex flex-col gap-0.5 border border-accent bg-subtle-background"
+          >
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-xs font-medium uppercase">{quest.name}</span>
+              <span
+                className={`text-xxs uppercase ${
+                  quest.status === "completed" ? "text-green-400"
+                  : quest.status === "failed" ? "text-red-400"
+                  : "text-subtle-foreground"
+                }`}
+              >
+                {quest.status}
+              </span>
+            </div>
+            {allSteps.length > 0 && (
+              <div className="flex flex-col">
+                {allSteps.map((step, i) => (
+                  <QuestStepRow
+                    key={step.step_index}
+                    step={step}
+                    isActive={!step.completed && quest.status === "active"}
+                    isLast={i === allSteps.length - 1}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 export const PlayerPanel = () => {
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
@@ -95,6 +210,15 @@ export const PlayerPanel = () => {
           </CardContent>
         </Card>
       </header>
+
+      <Card size="sm" className="border-0 border-y">
+        <CardHeader className="shrink-0">
+          <CardTitle>Contracts</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-ui-xs">
+          <QuestList />
+        </CardContent>
+      </Card>
 
       <Card size="sm" className="border-0 border-y">
         <CardHeader className="shrink-0">

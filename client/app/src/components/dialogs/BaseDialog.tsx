@@ -46,6 +46,7 @@ export interface BaseDialogProps {
   contentClassName?: string
   noPadding?: boolean
   playOpenSound?: boolean
+  dismissOnClickOutside?: boolean
   onClose?: () => void
   onOpenAutoFocus?: (e: Event) => void
   onCloseAutoFocus?: (e: Event) => void
@@ -60,6 +61,7 @@ export const BaseDialog = ({
   contentClassName,
   noPadding = false,
   playOpenSound = true,
+  dismissOnClickOutside = true,
   onClose,
   onOpenAutoFocus,
   onCloseAutoFocus,
@@ -102,9 +104,6 @@ export const BaseDialog = ({
                   )}
                 />
               </Dialog.Overlay>
-              <motion.div {...CONTENT_ANIMATION} className="fixed top-0 right-0 z-90">
-                <ModalCloseButton handleClose={handleClose} />
-              </motion.div>
               <Dialog.Content
                 asChild
                 forceMount
@@ -115,6 +114,17 @@ export const BaseDialog = ({
                   noPadding && "DialogContent-NoPadding",
                   contentClassName
                 )}
+                onPointerDownOutside={
+                  dismissOnClickOutside
+                    ? undefined
+                    : (e) => {
+                        // Allow the close button to still work
+                        const target = e.detail.originalEvent.target as HTMLElement
+                        if (!target.closest("[data-modal-close]")) {
+                          e.preventDefault()
+                        }
+                      }
+                }
                 onOpenAutoFocus={onOpenAutoFocus}
                 onCloseAutoFocus={onCloseAutoFocus}
               >
@@ -123,6 +133,9 @@ export const BaseDialog = ({
                   {children}
                 </motion.div>
               </Dialog.Content>
+              <motion.div {...CONTENT_ANIMATION} className="fixed top-0 right-0 z-100 pointer-events-auto">
+                <ModalCloseButton handleClose={handleClose} />
+              </motion.div>
             </>
           )}
         </AnimatePresence>

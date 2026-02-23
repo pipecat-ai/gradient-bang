@@ -520,16 +520,7 @@ export function GameProvider({ children }: GameProviderProps) {
               })
 
               // Update activity log
-              // @TODO: optimize but having movement history and activity log index same data
-              gameStore.addActivityLogEntry({
-                type: "movement",
-                message: `Moved from [sector ${gameStore.sector?.id}] to [sector ${gameStore.sectorBuffer?.id}]`,
-              })
-
               if (data.first_visit) {
-                console.debug(
-                  `[GAME EVENT] Discovered sector for first time: ${gameStore.sectorBuffer?.id}`
-                )
                 gameStore.addActivityLogEntry({
                   type: "map.sector.discovered",
                   message: `Discovered [sector ${gameStore.sectorBuffer?.id}]`,
@@ -1178,6 +1169,53 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            // ----- QUESTS
+            case "quest.status": {
+              console.debug("[GAME EVENT] Quest status", e.payload)
+              const data = e.payload as Msg.QuestStatusMessage
+              if (data.quests) {
+                gameStore.setQuests(data.quests)
+              }
+              break
+            }
+
+            case "quest.step_completed": {
+              console.debug("[GAME EVENT] Quest step completed", e.payload)
+              const data = e.payload as Msg.QuestStepCompletedMessage
+              gameStore.updateQuestStepCompleted(data.quest_id, data.step_index, data.next_step)
+              if (data.next_step) {
+                gameStore.setQuestCompletionData({
+                  type: "step",
+                  questName: data.quest_name,
+                  completedStepName: data.step_name,
+                  nextStep: data.next_step,
+                })
+                gameStore.setNotifications({ questCompleted: true })
+              }
+              gameStore.addActivityLogEntry({
+                type: "quest.step_completed",
+                message: `[${data.quest_name}] Step completed: ${data.step_name}`,
+              })
+              break
+            }
+
+            case "quest.completed": {
+              console.debug("[GAME EVENT] Quest completed", e.payload)
+              const data = e.payload as Msg.QuestCompletedMessage
+              gameStore.setQuestCompletionData({
+                type: "quest",
+                completedQuestName: data.quest_name,
+                snapshotQuestIds: [],
+              })
+              gameStore.completeQuest(data.quest_id)
+              gameStore.setNotifications({ questCompleted: true })
+              gameStore.addActivityLogEntry({
+                type: "quest.completed",
+                message: `Quest completed: ${data.quest_name}`,
+              })
+              break
+            }
+
             // ----- MISC
 
             case "chat.message": {
@@ -1230,11 +1268,6 @@ export function GameProvider({ children }: GameProviderProps) {
                   gameStore.handleMapCenterFallback()
                 }
               }
-
-              gameStore.addActivityLogEntry({
-                type: "error",
-                message: `Ship Protocol Failure: ${data.endpoint ?? "Unknown"} - ${data.error}`,
-              })
               break
             }
 

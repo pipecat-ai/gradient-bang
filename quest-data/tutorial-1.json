@@ -1,0 +1,139 @@
+{
+  "code": "tutorial",
+  "name": "Taking Flight",
+  "description": "Learn the basics of trading, navigation, and survival in the galaxy.",
+  "assign_on_creation": true,
+  "enabled": true,
+  "meta": {},
+  "steps": [
+    {
+      "step_index": 1,
+      "name": "Travel to any adjacent sector",
+      "description": "Use the warp drive to move to a neighboring sector.",
+      "eval_type": "count",
+      "event_types": [
+        "movement.complete"
+      ],
+      "target_value": 1,
+      "meta": {
+        "codec": {
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
+          "pages": [
+            "<emotion value=\"excitable\">Welcome to the galaxy, pilot! <emotion value=\"content\" />I'm Amy, a representative from the Federation, and I'll be guiding you through your first steps as a spacefaring trader.",
+            "<emotion value=\"neutral\" /> In this tutorial, we'll cover the basics of navigation, trading, and survival in the galaxy. Don't worry, it's easier than it sounds! Let's get started.",
+            "<emotion value=\"anticipation\">Your first task is to travel to an adjacent sector.</emotion> Use your ship's warp drive to move to a neighboring location. This will allow you to explore new areas and find opportunities for trading and adventure. Good luck!"
+          ]
+        }
+      }
+    },
+    {
+      "step_index": 2,
+      "name": "Locate the Megaport",
+      "description": "Find a sector that contains a Megaport.",
+      "eval_type": "count_filtered",
+      "event_types": [
+        "movement.complete"
+      ],
+      "target_value": 1,
+      "payload_filter": {
+        "has_megaport": true
+      },
+      "meta": {
+        "codec": {
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
+          "pages": [
+            "Great job on your first warp! Now, let's find the Megaport. The Megaport is a major hub for trade and commerce in the galaxy, and it's a great place to start your trading career. Keep warping to adjacent sectors until you find one that contains a Megaport. Once you arrive, you'll have access to markets, shipyards, and other facilities that will help you on your journey."
+          ]
+        }
+      }
+    },
+    {
+      "step_index": 3,
+      "name": "Refuel your ship",
+      "description": "Purchase warp fuel to recharge your drives.",
+      "eval_type": "count",
+      "event_types": [
+        "warp.purchase"
+      ],
+      "target_value": 1,
+      "meta": {
+        "codec": {
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
+          "pages": [
+            "Now that you've found the Megaport, it's time to refuel your ship. Purchase warp fuel to recharge your drives and continue your journey through the galaxy."
+          ]
+        }
+      }
+    },
+    {
+      "step_index": 4,
+      "name": "Purchase a commodity",
+      "description": "Buy goods from a port to begin trading.",
+      "eval_type": "count",
+      "event_types": [
+        "trade.executed"
+      ],
+      "target_value": 1
+    },
+    {
+      "step_index": 5,
+      "name": "Earn 1000 credits trading",
+      "description": "Generate at least 1000 credits in trading profit.",
+      "eval_type": "aggregate",
+      "event_types": [
+        "trade.executed"
+      ],
+      "target_value": 1000,
+      "aggregate_field": "profit",
+      "meta": {
+        "codec": {
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
+          "pages": [
+            "<emotion value=\"content\">Great, you've made your first trade!</emotion> Now here's the thing — that Sparrow you're flying is a loaner from the Federation. It's fine for getting started, but you're going to want your own ship.",
+            "<emotion value=\"anticipation\">Our goal is to upgrade you to a Kestrel Courier.</emotion> It's fast, reliable, and it's yours to keep. To get there, you'll need to earn some credits. Keep trading between ports — buy low, sell high — and you'll have enough in no time."
+          ]
+        }
+      }
+    },
+    {
+      "step_index": 6,
+      "name": "Purchase a kestrel",
+      "description": "Buy a Kestrel Courier from a shipyard.",
+      "eval_type": "count_filtered",
+      "event_types": [
+        "ship.traded_in"
+      ],
+      "target_value": 1,
+      "payload_filter": {
+        "new_ship_type": "kestrel_courier"
+      }
+    },
+    {
+      "step_index": 7,
+      "name": "Accept a contract from the contracts board",
+      "description": "Visit the contracts board and accept a new contract from Commander Voss.",
+      "eval_type": "count_filtered",
+      "event_types": [
+        "quest.assigned"
+      ],
+      "target_value": 1,
+      "payload_filter": {
+        "quest_code": "tutorial_corporations"
+      },
+      "meta": {
+        "codec": {
+          "giver_id": "cadet_amy",
+          "giver": "Amy, Federation Cadet",
+          "pages": [
+            "<emotion value=\"impressed\">Nice work on the Kestrel, pilot!</emotion> You're really getting the hang of this. Now it's time to take on something bigger.",
+            "<emotion value=\"neutral\" />The Federation contracts board has new assignments available. You'll find it at the Megaport. Commander Voss has posted a contract about forming corporations and managing fleets. <emotion value=\"encouraging\">Head to the contracts board and accept his contract to continue your training.</emotion>"
+          ]
+        }
+      }
+    }
+  ]
+}

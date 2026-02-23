@@ -31,7 +31,7 @@ export const PLAYER_TYPE_NAMES = {
 } as const satisfies Record<PlayerType, string>
 
 // Map bounds & zoom
-export const DEFAULT_MAX_BOUNDS = 12
+export const DEFAULT_MAX_BOUNDS = 10
 export const MAX_BOUNDS_PADDING = 0
 export const MIN_BOUNDS = 4
 export const MAX_BOUNDS = 50

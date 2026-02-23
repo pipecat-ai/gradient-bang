@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'linux'",
@@ -1200,9 +1200,6 @@ bot = [
     { name = "pipecat-ai", extra = ["anthropic", "cartesia", "daily", "deepgram", "google", "local-smart-turn", "runner", "silero", "webrtc"] },
     { name = "pipecat-ai-cli" },
 ]
-cli = [
-    { name = "typer" },
-]
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1233,7 +1230,6 @@ bot = [
     { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "google", "anthropic", "runner"], specifier = "==0.0.102" },
     { name = "pipecat-ai-cli" },
 ]
-cli = [{ name = "typer", specifier = ">=0.15.0" }]
 dev = [
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },

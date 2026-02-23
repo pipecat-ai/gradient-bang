@@ -258,6 +258,8 @@ declare global {
     | "signup"
     | "character_select"
     | "disconnect"
+    | "quest_codec"
+    | "quest_list"
     | undefined
 
   // --- COMBAT
@@ -546,6 +548,44 @@ declare global {
    * Text mode for conversation display
    */
   export type TextMode = "llm" | "tts"
-}
 
+  // --- QUESTS
+
+  export interface QuestCodec {
+    giver_id: string
+    giver: string
+    pages: string[]
+  }
+
+  export interface QuestStepMeta {
+    codec?: QuestCodec
+    [key: string]: unknown
+  }
+
+  export interface QuestStep {
+    quest_id: string
+    step_id: string
+    step_index: number
+    name: string
+    description: string | null
+    target_value: number
+    current_value: number
+    completed: boolean
+    meta: QuestStepMeta
+  }
+
+  export interface Quest {
+    code: string
+    meta: Record<string, unknown>
+    name: string
+    status: "active" | "completed" | "failed"
+    quest_id: string
+    started_at: string
+    description: string
+    completed_at: string | null
+    current_step: QuestStep
+    completed_steps: QuestStep[]
+    current_step_index: number
+  }
+}
 export {}
