@@ -1189,9 +1189,12 @@ dependencies = [
     { name = "google-genai" },
     { name = "httpx" },
     { name = "loguru" },
+    { name = "networkx" },
+    { name = "numpy" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
     { name = "rich" },
+    { name = "scipy" },
     { name = "supabase" },
 ]
 
@@ -1219,9 +1222,12 @@ requires-dist = [
     { name = "google-genai", specifier = ">=0.7.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "loguru", specifier = ">=0.7.0" },
+    { name = "networkx" },
+    { name = "numpy" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.1" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "rich", specifier = ">=13.0.0" },
+    { name = "scipy" },
     { name = "supabase", specifier = ">=2.24.0" },
 ]
 
