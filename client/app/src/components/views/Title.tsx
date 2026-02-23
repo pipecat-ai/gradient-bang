@@ -196,7 +196,13 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                   <Separator />
                   <Button
                     variant="secondary"
-                    onClick={() => setState("idle")}
+                    onClick={() => {
+                      setState("idle")
+                      if (hasStartedMusic.current) {
+                        hasStartedMusic.current = false
+                        useAudioStore.getState().fadeOut("theme", { duration: 2000 })
+                      }
+                    }}
                     className="w-full"
                     size="xl"
                   >

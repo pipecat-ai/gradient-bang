@@ -997,6 +997,7 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "ship.renamed":
             case "ship.rename": {
               console.debug("[GAME EVENT] Ship renamed", e.payload)
               const data = e.payload as Msg.ShipRenameMessage
