@@ -41,7 +41,7 @@ const SettingSelect = ({
   label: string
   id: string
   options: string[]
-  value: string
+  value?: string
   placeholder?: string
   onChange: (value: string) => void
 }) => {
@@ -271,7 +271,7 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                 <SettingSelect
                   label="Voice"
                   id="voice"
-                  value=""
+                  value={undefined}
                   options={["male", "female"]}
                   placeholder="Select a voice"
                   onChange={() => null}
