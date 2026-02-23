@@ -31,6 +31,7 @@ export interface PPConfig {
   dithering_pixelSizeRatio: number
   dithering_blendMode: BlendFunction
   dithering_grayscaleOnly: boolean
+  dithering_dpr: number
   // Grading
   grading_enabled: boolean
   grading_brightness: number
@@ -239,6 +240,7 @@ export class PostProcessingManager {
         gridSize: config.dithering_gridSize,
         pixelSizeRatio: config.dithering_pixelSizeRatio,
         grayscaleOnly: config.dithering_grayscaleOnly,
+        dpr: config.dithering_dpr,
         blendFunction: config.dithering_blendMode,
       })
       this.safeRegisterUniform(
@@ -387,6 +389,7 @@ export class PostProcessingManager {
       this.dithering.setGridSize(config.dithering_gridSize)
       this.dithering.setPixelSizeRatio(config.dithering_pixelSizeRatio)
       this.dithering.setGrayscaleOnly(config.dithering_grayscaleOnly)
+      this.dithering.setDpr(config.dithering_dpr)
     }
 
     // Sharpening

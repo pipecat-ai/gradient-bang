@@ -20,10 +20,11 @@ const DEFAULT_PP_CONFIG: PPConfig = {
   sharpening_threshold: 0,
   // Dithering
   dithering_enabled: true,
-  dithering_gridSize: 2,
+  dithering_gridSize: 1.33,
   dithering_pixelSizeRatio: 1,
   dithering_blendMode: BlendFunction.SET,
   dithering_grayscaleOnly: false,
+  dithering_dpr: 1.0,
   // Grading
   grading_enabled: true,
   grading_brightness: 0.05,
@@ -125,10 +126,6 @@ export const PostProcessingController = () => {
 
   // Map store configs to flattened structure for useControlSync
   const mappedSource = useMemo(() => {
-    // Increase grid size for higher DPR
-    // @NOTE: we scale grid size UP for lower DPRs
-    const dprBasedGridSize = currentDpr > 1 ? 2 : 3
-
     return {
       // Sharpening
       sharpening_enabled: storedSharpening?.enabled,
@@ -137,7 +134,7 @@ export const PostProcessingController = () => {
       sharpening_threshold: storedSharpening?.threshold,
       // Dithering (blendMode not stored, uses default)
       dithering_enabled: storedDithering?.enabled,
-      dithering_gridSize: storedDithering?.gridSize ?? dprBasedGridSize,
+      dithering_gridSize: storedDithering?.gridSize,
       dithering_pixelSizeRatio: storedDithering?.pixelSizeRatio,
       dithering_grayscaleOnly: storedDithering?.grayscaleOnly,
       // Grading (with palette fallbacks for contrast/saturation)
@@ -168,7 +165,6 @@ export const PostProcessingController = () => {
     palette,
     defaultTintPrimary,
     defaultTintSecondary,
-    currentDpr,
   ])
 
   // Leva controls - conditional based on debug mode
@@ -228,9 +224,9 @@ export const PostProcessingController = () => {
                       value:
                         storedDithering?.gridSize ??
                         DEFAULT_PP_CONFIG.dithering_gridSize,
-                      min: 1,
+                      min: 0.5,
                       max: 20,
-                      step: 1,
+                      step: 0.25,
                       label: "Effect Resolution",
                     },
                     dithering_pixelSizeRatio: {
@@ -408,13 +404,19 @@ export const PostProcessingController = () => {
   )
 
   // Get stable config from useControlSync
-  const controls = useControlSync({
+  const syncedControls = useControlSync({
     source: mappedSource,
     defaults: DEFAULT_PP_CONFIG,
     sync: TRANSIENT_PROPERTIES,
     levaValues: levaValues as Partial<PPConfig>,
     set: set as (values: Partial<PPConfig>) => void,
   })
+
+  // Inject DPR (not a Leva control, but needed by the dithering shader)
+  const controls = useMemo(
+    () => ({ ...syncedControls, dithering_dpr: currentDpr }),
+    [syncedControls, currentDpr]
+  )
 
   // Store controls ref to access in useFrame without triggering re-renders
   const controlsRef = useRef(controls)

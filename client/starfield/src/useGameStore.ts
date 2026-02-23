@@ -105,7 +105,7 @@ export const useGameStore = create<AppState>()(
           })
         ),
 
-      performanceProfile: "high",
+      performanceProfile: "auto",
       setPerformanceProfile: (profile: PerformanceProfile) =>
         profile !== get().performanceProfile &&
         set({ performanceProfile: profile }),
