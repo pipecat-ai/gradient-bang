@@ -9,7 +9,7 @@ import {
 import { cn } from "@/utils/tailwind"
 
 import { Button } from "./primitives/Button"
-import { VoiceVisualizer } from "./VoiceVisualizer"
+import { ShipOSDVisualizer } from "./ShipOSDVisualizer"
 
 export interface PipecatClientMicToggleProps {
   /**
@@ -83,7 +83,8 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
               {isMicEnabled ?
                 <MicrophoneIcon weight="bold" />
               : <MicrophoneSlashIcon weight="bold" />}
-              <VoiceVisualizer
+              <ShipOSDVisualizer
+                disablePeakLines
                 participantType="local"
                 backgroundColor="transparent"
                 barCount={8}
@@ -91,6 +92,7 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
                 barMaxHeight={28}
                 barOrigin="center"
                 barWidth={3}
+                barLineCap="square"
                 barColor={isMicEnabled ? "--color-success" : "--color-destructive"}
                 className="hidden @2xl/main:block"
               />
