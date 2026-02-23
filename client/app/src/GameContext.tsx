@@ -997,6 +997,21 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "ship.rename": {
+              console.debug("[GAME EVENT] Ship renamed", e.payload)
+              const data = e.payload as Msg.ShipRenameMessage
+              // Update in the ships list (corporation/fleet ships)
+              gameStore.updateShip({
+                ship_id: data.ship_id,
+                ship_name: data.ship_name,
+              })
+              // Update the active ship if it's the one being renamed
+              if (gameStore.ship?.ship_id === data.ship_id) {
+                gameStore.setShip({ ship_name: data.ship_name })
+              }
+              break
+            }
+
             case "ship.destroyed": {
               console.debug("[GAME EVENT] Ship destroyed", e.payload)
               applyShipDestroyedState(gameStore, e.payload as Msg.ShipDestroyedMessage)

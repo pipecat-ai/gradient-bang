@@ -407,6 +407,20 @@ export interface ChatHistoryMessage extends ServerMessagePayload {
   total_count: number
 }
 
+export interface ShipRenameMessage extends ServerMessagePayload {
+  ship_id: string
+  ship_name: string
+  ship_type: string
+  previous_ship_name: string
+  actor_id: string
+  actor_name: string
+  corp_id: string | null
+  owner_type: "personal" | "corporation"
+  owner_character_id: string | null
+  owner_corporation_name: string | null
+  timestamp: string
+}
+
 export interface ShipsListMessage extends ServerMessagePayload {
   ships: ShipSelf[]
 }
