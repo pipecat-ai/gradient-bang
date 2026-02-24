@@ -244,14 +244,7 @@ declare global {
   type UIState = "idle" | "moving" | "combat" | "paused"
   type UIMode = "tasks" | "map"
   type UIScreen = "ship-details" | "combat-results"
-  type UIPanel =
-    | "sector"
-    | "player"
-    | "trade"
-    | "task_history"
-    | "leaderboard"
-    | "logs"
-    | "task_stream"
+  type UIPanel = (typeof import("./constants"))["UI_PANELS"][number]
   type UIModal =
     | "settings"
     | "leaderboard"
@@ -586,9 +579,14 @@ declare global {
     meta: QuestStepMeta
   }
 
+  export interface QuestMeta {
+    giver?: string
+    [key: string]: unknown
+  }
+
   export interface Quest {
     code: string
-    meta: Record<string, unknown>
+    meta: QuestMeta
     name: string
     status: "active" | "completed" | "failed"
     quest_id: string

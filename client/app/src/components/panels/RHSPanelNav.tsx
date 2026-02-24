@@ -14,6 +14,7 @@ import { Button } from "@/components/primitives/Button"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
+import { NewContractFloater } from "../NewContractFloater"
 import { NewMessageFloater } from "../NewMessageFloater"
 
 const HighlightHotkey = ({ label, hotkey }: { label: string; hotkey?: string }) => {
@@ -86,7 +87,7 @@ export const RHSPanelNav = () => {
         ["p", "player"],
         ["t", "trade"],
         ["h", "task_history"],
-        ["r", "leaderboard"],
+        ["c", "contracts"],
         ["w", "logs"],
       ]),
     []
@@ -127,7 +128,7 @@ export const RHSPanelNav = () => {
       icon: <CheckSquareOffsetIcon size={20} />,
       hotkey: "h",
     },
-    { id: "leaderboard", label: "Rank", icon: <UsersFourIcon size={20} />, hotkey: "r" },
+    { id: "contracts", label: "Contracts", icon: <UsersFourIcon size={20} />, hotkey: "c" },
     { id: "logs", label: "Waves", icon: <ChatCircleTextIcon size={20} />, hotkey: "w" },
   ]
 
@@ -150,6 +151,7 @@ export const RHSPanelNav = () => {
             }}
           >
             {uiState === "combat" ? (tab.disabledIcon ?? tab.icon) : tab.icon}
+            {tab.id === "contracts" && <NewContractFloater />}
             {tab.id === "logs" && <NewMessageFloater />}
             <span className="text-xxs truncate">
               {uiState === "combat" ?

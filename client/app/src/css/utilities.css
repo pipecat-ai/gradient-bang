@@ -500,6 +500,7 @@
     content: "";
     position: absolute;
     inset: 0;
+    pointer-events: none;
     --dot: linear-gradient(var(--corner-dots-color), var(--corner-dots-color));
     background-image: var(--dot), var(--dot), var(--dot), var(--dot);
     background-size: var(--corner-dots-size) var(--corner-dots-size);

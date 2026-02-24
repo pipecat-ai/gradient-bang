@@ -5,6 +5,7 @@ import type { StateCreator } from "zustand"
 import { getLocalSettings, updateLocalSettings } from "@/utils/settings"
 
 import type { Toast, ToastInput } from "@/types/toasts"
+import { UI_PANELS } from "@/types/constants"
 
 interface Notifications {
   newChatMessage: boolean
@@ -12,6 +13,7 @@ interface Notifications {
   questCompleted: boolean
   questAccepted: boolean
   incomingCodec: string | false
+  seenContractCodecs: string[]
 }
 
 const DEDUPE_TOAST_TYPES = ["trade.executed"]
@@ -70,6 +72,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     questCompleted: false,
     questAccepted: false,
     incomingCodec: false,
+    seenContractCodecs: [],
   },
 
   toasts: [],
@@ -91,15 +94,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   },
   setUIModeFromAgent: (panel: string) => {
     const validModes: UIMode[] = ["tasks", "map"]
-    const validPanels: UIPanel[] = [
-      "sector",
-      "player",
-      "trade",
-      "task_history",
-      "leaderboard",
-      "logs",
-      "task_stream",
-    ]
+    const validPanels = UI_PANELS as readonly string[]
     const resolved = panel === "default" ? "tasks" : panel
 
     if (validModes.includes(resolved as UIMode)) {
@@ -221,6 +216,9 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
         state.activePanelData = data ?? undefined
         state.activePanel = panel
         state.activeSubPanel = undefined
+        if (panel === "contracts") {
+          state.notifications.seenContractCodecs = []
+        }
       })
     )
   },

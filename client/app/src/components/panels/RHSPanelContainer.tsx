@@ -3,13 +3,7 @@ import { useRef } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ArrowLeftIcon } from "@phosphor-icons/react"
 
-import { LogsPanel } from "@/components/panels/LogsPanel"
-import { PlayerPanel } from "@/components/panels/PlayerPanel"
-import { RankPanel } from "@/components/panels/RankPanel"
-import { SectorPanel } from "@/components/panels/SectorPanel"
-import { TaskPanel } from "@/components/panels/TaskPanel"
-import { TaskStreamPanel } from "@/components/panels/TaskStreamPanel"
-import { TradePanel } from "@/components/panels/TradePanel"
+import * as Panels from "@/components/panels"
 import { Button } from "@/components/primitives/Button"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
 import useGameStore from "@/stores/game"
@@ -101,13 +95,13 @@ export const RHSPanelContainer = () => {
           activeSubPanel && "pointer-events-none"
         )}
       >
-        {activePanel === "logs" && <LogsPanel />}
-        {activePanel === "sector" && <SectorPanel />}
-        {activePanel === "player" && <PlayerPanel />}
-        {activePanel === "trade" && <TradePanel />}
-        {activePanel === "task_history" && <TaskPanel />}
-        {activePanel === "leaderboard" && <RankPanel />}
-        {activePanel === "task_stream" && <TaskStreamPanel />}
+        {activePanel === "logs" && <Panels.LogsPanel />}
+        {activePanel === "sector" && <Panels.SectorPanel />}
+        {activePanel === "player" && <Panels.PlayerPanel />}
+        {activePanel === "trade" && <Panels.TradePanel />}
+        {activePanel === "task_history" && <Panels.TaskPanel />}
+        {activePanel === "contracts" && <Panels.ContractsPanel />}
+        {activePanel === "task_stream" && <Panels.TaskStreamPanel />}
       </div>
       <div
         className={cn("absolute inset-0 bg-background/50 z-8", activeSubPanel ? "block" : "hidden")}

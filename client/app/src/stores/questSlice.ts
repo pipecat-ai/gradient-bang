@@ -40,7 +40,11 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
           (q: Quest) => q.status === "active" && q.current_step?.meta?.codec
         )
         if (codecQuest) {
-          ;(state as Record<string, any>).notifications.incomingCodec = codecQuest.quest_id
+          const s = state as Record<string, any>
+          s.notifications.incomingCodec = codecQuest.quest_id
+          if (s.activePanel !== "contracts" && !s.notifications.seenContractCodecs.includes(codecQuest.quest_id)) {
+            s.notifications.seenContractCodecs.push(codecQuest.quest_id)
+          }
         }
       })
     ),
@@ -73,7 +77,11 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
         }
 
         if (nextStep?.meta?.codec) {
-          ;(state as Record<string, any>).notifications.incomingCodec = questId
+          const s = state as Record<string, any>
+          s.notifications.incomingCodec = questId
+          if (s.activePanel !== "contracts" && !s.notifications.seenContractCodecs.includes(questId)) {
+            s.notifications.seenContractCodecs.push(questId)
+          }
         }
       })
     ),
@@ -95,6 +103,11 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
           })
           quest.current_step = null
         }
+
+        const s = state as Record<string, any>
+        s.notifications.seenContractCodecs = s.notifications.seenContractCodecs.filter(
+          (key: string) => key !== questId
+        )
       })
     ),
 

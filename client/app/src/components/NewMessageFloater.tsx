@@ -15,7 +15,7 @@ export const NewMessageFloater = () => {
   }, [notifications?.newChatMessage, activePanel])
 
   return shouldShow ?
-      <div className="absolute -top-[36px] -inset-x-px h-[32px] bg-terminal-background text-terminal-foreground z-10 stripe-frame stripe-frame-1 stripe-frame-size-2 stripe-frame-terminal flex flex-col items-center justify-center animate-new-msg">
+      <div className="absolute -top-9 -inset-x-px h-8 bg-terminal-background text-terminal-foreground z-10 stripe-frame stripe-frame-1 stripe-frame-size-2 stripe-frame-terminal flex flex-col items-center justify-center animate-new-msg">
         <span className="text-xs animate-pulse">
           <EnvelopeSimpleIcon size={12} weight="bold" className="size-4" />
         </span>
