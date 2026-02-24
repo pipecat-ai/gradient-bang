@@ -54,7 +54,7 @@ export const ShipCatalogue = () => {
                 <TooltipTrigger asChild>
                   <li className="flex flex-row gap-0.5 items-center">
                     <ShieldIcon weight="duotone" size={16} className="size-4" />
-                    <span className="text-xs">{ship.warp_power_capacity}</span>
+                    <span className="text-xs">{ship.shields}</span>
                   </li>
                 </TooltipTrigger>
                 <TooltipContent>Shields</TooltipContent>
@@ -63,7 +63,7 @@ export const ShipCatalogue = () => {
                 <TooltipTrigger asChild>
                   <li className="flex flex-row gap-0.5 items-center">
                     <FighterIcon weight="duotone" size={16} className="size-4" />
-                    <span className="text-xs">{ship.warp_power_capacity}</span>
+                    <span className="text-xs">{ship.fighters}</span>
                   </li>
                 </TooltipTrigger>
                 <TooltipContent>Fighters</TooltipContent>
@@ -72,7 +72,7 @@ export const ShipCatalogue = () => {
                 <TooltipTrigger asChild>
                   <li className="flex flex-row gap-0.5 items-center">
                     <TurnsPerWarpIcon weight="duotone" size={16} className="size-4" />
-                    <span className="text-xs">{ship.warp_power_capacity}</span>
+                    <span className="text-xs">{ship.turns_per_warp}</span>
                   </li>
                 </TooltipTrigger>
                 <TooltipContent>Turns per warp</TooltipContent>
