@@ -30,6 +30,17 @@ export const PLAYER_TYPE_NAMES = {
   corporation_ship: "Corporation Ship",
 } as const satisfies Record<PlayerType, string>
 
+// UI panels
+export const UI_PANELS = [
+  "sector",
+  "player",
+  "trade",
+  "task_history",
+  "contracts",
+  "logs",
+  "task_stream",
+] as const
+
 // Map bounds & zoom
 export const DEFAULT_MAX_BOUNDS = 10
 export const MAX_BOUNDS_PADDING = 0

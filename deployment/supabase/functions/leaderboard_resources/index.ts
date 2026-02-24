@@ -88,60 +88,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           : null,
       });
 
-      // Refresh materialized views
-      const { error: refreshWealthError } = await supabase.rpc(
-        "refresh_materialized_view",
-        {
-          view_name: "leaderboard_wealth",
-        },
-      );
-      if (refreshWealthError) {
-        console.error(
-          "leaderboard_resources.refresh.wealth",
-          refreshWealthError,
-        );
-      }
-
-      const { error: refreshTerritoryError } = await supabase.rpc(
-        "refresh_materialized_view",
-        {
-          view_name: "leaderboard_territory",
-        },
-      );
-      if (refreshTerritoryError) {
-        console.error(
-          "leaderboard_resources.refresh.territory",
-          refreshTerritoryError,
-        );
-      }
-
-      const { error: refreshTradingError } = await supabase.rpc(
-        "refresh_materialized_view",
-        {
-          view_name: "leaderboard_trading",
-        },
-      );
-      if (refreshTradingError) {
-        console.error(
-          "leaderboard_resources.refresh.trading",
-          refreshTradingError,
-        );
-      }
-
-      const { error: refreshExplorationError } = await supabase.rpc(
-        "refresh_materialized_view",
-        {
-          view_name: "leaderboard_exploration",
-        },
-      );
-      if (refreshExplorationError) {
-        console.error(
-          "leaderboard_resources.refresh.exploration",
-          refreshExplorationError,
-        );
-      }
-
-      // Query fresh data from materialized views
+      // Query fresh data from views
       const [wealthResult, territoryResult, tradingResult, explorationResult] =
         await Promise.all([
           supabase

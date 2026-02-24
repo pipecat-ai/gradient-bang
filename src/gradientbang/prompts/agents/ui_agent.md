@@ -21,7 +21,7 @@ If the event path is already visible in the pending events block, use `control_u
 ## `control_ui` guidance
 
 - Combine all fields in a single `control_ui` call (don't make separate calls for show_panel, highlight, and fit).
-- `show_panel: "default"` closes/dismisses the map panel, or highlight and switch sidebar panel: "sector" (current sector info and ships), "player" (current player info) ,"trade" (port info and trade history), "task_history" (task history and summaries),"leaderboard" (player ranking), "logs" (chat and messages)
+- `show_panel: "default"` closes/dismisses the map panel, or highlight and switch sidebar panel: "sector" (current sector info and ships), "player" (current player info) ,"trade" (port info and trade history), "task_history" (task history and summaries),"contracts" (player contracts and progress), "logs" (chat and messages)
 - `map_center_sector`: centers the map on one sector at the current zoom. Use for single-sector focus ("show me sector 220").
 - `map_fit_sectors`: auto-adjusts zoom so all listed sectors are visible. Use when showing multiple locations (ships, route endpoints).
 - `map_highlight_path` + `map_fit_sectors`: use together for route display — highlight draws the line, fit_sectors zooms to show it.

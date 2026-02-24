@@ -58,10 +58,10 @@ CONTROL_UI_SCHEMA = FunctionSchema(
                 "player",
                 "trade",
                 "task_history",
-                "leaderboard",
+                "contracts",
                 "logs",
             ],
-            "description": "Toggle map screen (map) or close it (default). Highlight and show sub panels: sector, player, trade, task_history, leaderboard, logs.",
+            "description": "Toggle map screen (map) or close it (default). Highlight and show sub panels: sector, player, trade, task_history, contracts, logs.",
         },
         "map_center_sector": {
             "type": "integer",
