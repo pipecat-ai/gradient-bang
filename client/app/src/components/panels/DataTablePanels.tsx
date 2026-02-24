@@ -574,12 +574,7 @@ const columnsDestroyedShips: ColumnDef<ShipSelf>[] = [
 ]
 
 export const DestroyedShipsPanel = ({ className }: { className?: string }) => {
-  const ships = useGameStore((state) => state.ships.data)
-
-  const destroyedShips = useMemo(
-    () => (ships ?? []).filter((s) => s.owner_type === "corporation" && s.destroyed_at),
-    [ships]
-  )
+  const destroyedShips = useGameStore((state) => state.destroyedShips)
 
   if (destroyedShips.length <= 0) {
     return <BlankSlateTile text="No destroyed ships" />

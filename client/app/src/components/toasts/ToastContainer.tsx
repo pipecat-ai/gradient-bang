@@ -6,6 +6,7 @@ import { BankTransactionToast } from "@/components/toasts/BankTransactionToast"
 import { FuelPurchasedToast } from "@/components/toasts/FuelPurchasedToast"
 import { SalvageCollectedToast } from "@/components/toasts/SalvageCollectedToast"
 import { SalvageCreatedToast } from "@/components/toasts/SalvageCreatedToast"
+import { ShipDestroyedToast } from "@/components/toasts/ShipDestroyedToast"
 import { ShipPurchasedToast } from "@/components/toasts/ShipPurchasedToast"
 import { TradeExecutedToast } from "@/components/toasts/TradeExecutedToast"
 import { TransferToast } from "@/components/toasts/TransferToast"
@@ -68,6 +69,8 @@ export const ToastContainer = () => {
         return <CorporationCreatedToast toast={toast} {...baseProps} />
       case "ship.purchased":
         return <ShipPurchasedToast toast={toast} {...baseProps} />
+      case "ship.destroyed":
+        return <ShipDestroyedToast toast={toast} {...baseProps} />
       case "warp.purchase":
         return <FuelPurchasedToast toast={toast} {...baseProps} />
       case "bank.transaction":

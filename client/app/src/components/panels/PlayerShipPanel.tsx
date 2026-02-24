@@ -114,16 +114,16 @@ const exitTransition = {
 const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
   const shipsState = useGameStore.use.ships()
   const ships = shipsState.data
+  const destroyedShips = useGameStore.use.destroyedShips()
   const destroyingShipIds = useGameStore.use.destroyingShipIds()
   const clearDestroyingShipId = useGameStore.use.clearDestroyingShipId()
 
-  // Include ships that are mid-destruction animation (have destroyed_at but still blinking)
-  const corpShips =
-    ships?.filter(
-      (s) =>
-        s.owner_type === "corporation" &&
-        (!s.destroyed_at || destroyingShipIds.includes(s.ship_id))
-    ) ?? []
+  // Active corp ships + ships mid-destruction animation (from destroyedShips)
+  const activeCorpShips = ships?.filter((s) => s.owner_type === "corporation") ?? []
+  const animatingShips = destroyedShips.filter(
+    (s) => s.owner_type === "corporation" && destroyingShipIds.includes(s.ship_id)
+  )
+  const corpShips = [...activeCorpShips, ...animatingShips]
 
   return (
     <motion.div

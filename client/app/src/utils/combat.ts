@@ -233,4 +233,15 @@ export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDes
       destroyed.salvage_created ? " - salvage created" : ""
     }`,
   })
+
+  if (destroyed.player_type === "corporation_ship" || isLocalShipDestroyed) {
+    gameStore.addToast({
+      type: "ship.destroyed",
+      meta: {
+        ship_name: destroyed.ship_name ?? destroyed.ship_type,
+        ship_type: destroyed.ship_type,
+        sector: destroyed.sector?.id,
+      },
+    })
+  }
 }

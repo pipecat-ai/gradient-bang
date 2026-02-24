@@ -84,7 +84,8 @@ export interface GameState {
   leaderboard_last_updated: string | null
   setLeaderboardData: (leaderboardData: LeaderboardResponse) => void
 
-  /* Ship destruction animation tracking */
+  /* Ship destruction */
+  destroyedShips: ShipSelf[]
   destroyingShipIds: string[]
   clearDestroyingShipId: (shipId: string) => void
 }
@@ -159,6 +160,7 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   diamondFXInstance: undefined,
 
   alertTransfer: 0,
+  destroyedShips: [],
   destroyingShipIds: [],
   clearDestroyingShipId: (shipId: string) =>
     set(
@@ -260,12 +262,11 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   setShips: (ships: ShipSelf[]) =>
     set(
       produce((state) => {
-        // Detect ships that were alive and are now destroyed
-        const currentShips = state.ships.data ?? []
+        const now = new Date().toISOString()
+
+        // Detect ships that were alive and are now destroyed (for animation)
         const aliveIds = new Set(
-          currentShips
-            .filter((s: ShipSelf) => !s.destroyed_at)
-            .map((s: ShipSelf) => s.ship_id)
+          (state.ships.data ?? []).map((s: ShipSelf) => s.ship_id)
         )
         for (const ship of ships) {
           if (ship.destroyed_at && aliveIds.has(ship.ship_id)) {
@@ -274,10 +275,13 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
             }
           }
         }
+
+        // Split: active ships go to ships.data, destroyed go to destroyedShips
         state.ships = {
-          data: ships,
-          last_updated: new Date().toISOString(),
+          data: ships.filter((s: ShipSelf) => !s.destroyed_at),
+          last_updated: now,
         }
+        state.destroyedShips = ships.filter((s: ShipSelf) => !!s.destroyed_at)
       })
     ),
 
@@ -300,11 +304,16 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
           if (index !== -1) {
             const existing = state.ships.data[index]
             if (ship.destroyed_at && !existing.destroyed_at) {
+              // Move ship from active to destroyed list
+              Object.assign(existing, ship)
+              state.destroyedShips.push({ ...existing })
+              state.ships.data.splice(index, 1)
               if (!state.destroyingShipIds.includes(ship.ship_id)) {
                 state.destroyingShipIds.push(ship.ship_id)
               }
+            } else {
+              Object.assign(existing, ship)
             }
-            Object.assign(existing, ship)
             state.ships.last_updated = new Date().toISOString()
           }
         }
