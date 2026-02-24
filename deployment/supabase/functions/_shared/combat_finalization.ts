@@ -415,8 +415,12 @@ async function emitShipDestroyedEvent(
 }
 
 /**
- * Execute deferred corp ship deletions.
+ * Execute deferred corp ship cleanup.
  * Call this AFTER combat.ended events have been emitted.
+ *
+ * Soft-deletes the ship (sets destroyed_at) rather than hard-deleting,
+ * because events and port_transactions have FK references to ship_id
+ * with NO ACTION constraints that block deletion.
  */
 export async function executeCorpShipDeletions(
   supabase: SupabaseClient,
@@ -452,15 +456,27 @@ export async function executeCorpShipDeletions(
       });
     }
 
-    // 3. Delete ship instance
+    // 3. Soft-delete ship instance (preserves current_sector for destruction history)
     const { error: shipError } = await supabase
       .from("ship_instances")
-      .delete()
+      .update({ destroyed_at: new Date().toISOString() })
       .eq("ship_id", shipId);
     if (shipError) {
-      console.error("combat_finalization.delete_ship", {
+      console.error("combat_finalization.soft_delete_ship", {
         shipId,
         error: shipError,
+      });
+    }
+
+    // 4. Remove from corporation_ships so it no longer appears in active ship lists
+    const { error: corpShipError } = await supabase
+      .from("corporation_ships")
+      .delete()
+      .eq("ship_id", shipId);
+    if (corpShipError) {
+      console.error("combat_finalization.remove_corp_ship", {
+        shipId,
+        error: corpShipError,
       });
     }
   }

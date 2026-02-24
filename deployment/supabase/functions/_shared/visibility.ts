@@ -187,7 +187,8 @@ async function loadSectorShipObservers(
     .from("ship_instances")
     .select("owner_character_id")
     .eq("current_sector", sectorId)
-    .eq("in_hyperspace", false);
+    .eq("in_hyperspace", false)
+    .is("destroyed_at", null);
   if (error) {
     console.error("visibility.sector.ships", { sectorId, error });
     return [];

@@ -41,6 +41,7 @@ export async function listSectorObservers(
     .select("owner_character_id, owner_id, owner_type")
     .eq("current_sector", sectorId)
     .eq("in_hyperspace", false)
+    .is("destroyed_at", null)
     .or("owner_character_id.not.is.null,owner_type.eq.character");
   if (error) {
     console.error("observers.list.error", { sectorId, error });

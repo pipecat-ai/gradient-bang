@@ -154,7 +154,8 @@ export async function loadCharacterCombatants(
       "ship_id, ship_type, ship_name, current_sector, current_fighters, current_shields, in_hyperspace, owner_character_id, owner_type, owner_corporation_id, is_escape_pod",
     )
     .eq("current_sector", sectorId)
-    .eq("in_hyperspace", false);
+    .eq("in_hyperspace", false)
+    .is("destroyed_at", null);
   if (shipError) {
     console.error("combat_participants.load_ships", shipError);
     throw new Error("Failed to load sector ships");

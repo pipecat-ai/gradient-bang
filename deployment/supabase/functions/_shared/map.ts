@@ -487,7 +487,8 @@ export async function buildSectorSnapshot(
       "ship_id, ship_type, ship_name, owner_id, owner_character_id, owner_type, former_owner_name, became_unowned, current_fighters, current_shields, cargo_qf, cargo_ro, cargo_ns",
     )
     .eq("current_sector", sectorId)
-    .eq("in_hyperspace", false);
+    .eq("in_hyperspace", false)
+    .is("destroyed_at", null);
   const garrisonsQuery = supabase
     .from("garrisons")
     .select(

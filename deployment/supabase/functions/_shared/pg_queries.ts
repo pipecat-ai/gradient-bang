@@ -764,7 +764,7 @@ export async function pgBuildSectorSnapshot(
              current_fighters::int, current_shields::int,
              cargo_qf::int, cargo_ro::int, cargo_ns::int
       FROM ship_instances
-      WHERE current_sector = $1 AND in_hyperspace = false
+      WHERE current_sector = $1 AND in_hyperspace = false AND destroyed_at IS NULL
     ),
     garrisons_data AS (
       SELECT owner_id,
@@ -2215,6 +2215,7 @@ async function pgListSectorObservers(
     FROM ship_instances
     WHERE current_sector = $1
       AND in_hyperspace = false
+      AND destroyed_at IS NULL
       AND (owner_character_id IS NOT NULL OR owner_type = 'character')`,
     [sectorId],
   );
@@ -2921,7 +2922,7 @@ export async function pgListCharactersInSector(
   const shipResult = await pg.queryObject<{ ship_id: string }>(
     `SELECT ship_id
     FROM ship_instances
-    WHERE current_sector = $1 AND in_hyperspace = false`,
+    WHERE current_sector = $1 AND in_hyperspace = false AND destroyed_at IS NULL`,
     [sectorId],
   );
 

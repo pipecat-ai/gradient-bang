@@ -20,6 +20,7 @@ import {
   buildCorporationPublicPayload,
   fetchCorporationMembers,
   fetchCorporationShipSummaries,
+  fetchDestroyedCorporationShips,
   loadCorporationById,
 } from "../_shared/corporations.ts";
 
@@ -101,7 +102,8 @@ async function handleInfo(params: {
   }
 
   const ships = await fetchCorporationShipSummaries(supabase, corpId);
-  return buildCorporationMemberPayload(corporation, members, ships);
+  const destroyedShips = await fetchDestroyedCorporationShips(supabase, corpId);
+  return buildCorporationMemberPayload(corporation, members, ships, destroyedShips);
 }
 
 async function loadCharacterSafe(

@@ -19,6 +19,7 @@ import {
   buildCorporationMemberPayload,
   fetchCorporationMembers,
   fetchCorporationShipSummaries,
+  fetchDestroyedCorporationShips,
   loadCorporationById,
 } from "../_shared/corporations.ts";
 
@@ -104,7 +105,11 @@ async function loadMyCorporation(params: {
     supabase,
     character.corporation_id,
   );
-  const payload = buildCorporationMemberPayload(corporation, members, ships);
+  const destroyedShips = await fetchDestroyedCorporationShips(
+    supabase,
+    character.corporation_id,
+  );
+  const payload = buildCorporationMemberPayload(corporation, members, ships, destroyedShips);
   payload.joined_at = character.corporation_joined_at;
   return { corporation: payload };
 }
