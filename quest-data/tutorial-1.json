@@ -4,7 +4,9 @@
   "description": "Learn the basics of trading, navigation, and survival in the galaxy.",
   "assign_on_creation": true,
   "enabled": true,
-  "meta": {},
+  "meta": {
+    "giver": "Federation Intake Program"
+  },
   "steps": [
     {
       "step_index": 1,
