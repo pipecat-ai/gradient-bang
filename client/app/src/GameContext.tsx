@@ -607,6 +607,16 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "corporation.data": {
+              console.debug("[GAME EVENT] Corporation data", e.payload)
+              const data = e.payload as { corporation: Corporation | null }
+              if (data.corporation) {
+                gameStore.setCorporation(data.corporation)
+              }
+              gameStore.resolveFetchPromise("get-my-corporation")
+              break
+            }
+
             case "corporation.ship_purchased": {
               console.debug("[GAME EVENT] Ship purchased", e.payload)
               const data = e.payload as Msg.CorporationShipPurchaseMessage

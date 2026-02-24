@@ -432,24 +432,22 @@ async function buildActionState(params: {
     const destination =
       optionalNumber(params.payload, "to_sector") ??
       optionalNumber(params.payload, "destination_sector");
-    if (destination === null || Number.isNaN(destination)) {
-      const err = new Error("to_sector is required for flee") as Error & {
-        status?: number;
-      };
-      err.status = 400;
-      throw err;
-    }
-    destinationSector = destination;
     const adjacent = await getAdjacentSectors(
       params.supabase,
       params.encounter.sector_id,
     );
-    if (!adjacent.includes(destinationSector)) {
-      const err = new Error(
-        `Sector ${destinationSector} is not adjacent`,
-      ) as Error & { status?: number };
-      err.status = 400;
-      throw err;
+    if (destination !== null && !Number.isNaN(destination) && adjacent.includes(destination)) {
+      destinationSector = destination;
+    } else {
+      // No valid destination provided — pick a random adjacent sector
+      if (adjacent.length === 0) {
+        const err = new Error("No adjacent sectors to flee to") as Error & {
+          status?: number;
+        };
+        err.status = 400;
+        throw err;
+      }
+      destinationSector = adjacent[Math.floor(Math.random() * adjacent.length)];
     }
   } else if (action === "pay") {
     // Process toll payment

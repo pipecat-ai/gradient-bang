@@ -83,6 +83,10 @@ export interface GameState {
   leaderboard_data?: LeaderboardResponse
   leaderboard_last_updated: string | null
   setLeaderboardData: (leaderboardData: LeaderboardResponse) => void
+
+  /* Ship destruction animation tracking */
+  destroyingShipIds: string[]
+  clearDestroyingShipId: (shipId: string) => void
 }
 
 export interface GameSlice extends GameState {
@@ -155,6 +159,13 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   diamondFXInstance: undefined,
 
   alertTransfer: 0,
+  destroyingShipIds: [],
+  clearDestroyingShipId: (shipId: string) =>
+    set(
+      produce((state) => {
+        state.destroyingShipIds = state.destroyingShipIds.filter((id: string) => id !== shipId)
+      })
+    ),
   gameState: "not_ready",
   gameStateMessage: GameInitStateMessage.INIT,
   fetchPromises: {},
@@ -249,6 +260,20 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   setShips: (ships: ShipSelf[]) =>
     set(
       produce((state) => {
+        // Detect ships that were alive and are now destroyed
+        const currentShips = state.ships.data ?? []
+        const aliveIds = new Set(
+          currentShips
+            .filter((s: ShipSelf) => !s.destroyed_at)
+            .map((s: ShipSelf) => s.ship_id)
+        )
+        for (const ship of ships) {
+          if (ship.destroyed_at && aliveIds.has(ship.ship_id)) {
+            if (!state.destroyingShipIds.includes(ship.ship_id)) {
+              state.destroyingShipIds.push(ship.ship_id)
+            }
+          }
+        }
         state.ships = {
           data: ships,
           last_updated: new Date().toISOString(),
@@ -273,7 +298,13 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
         if (state.ships.data) {
           const index = state.ships.data.findIndex((s: ShipSelf) => s.ship_id === ship.ship_id)
           if (index !== -1) {
-            Object.assign(state.ships.data[index], ship)
+            const existing = state.ships.data[index]
+            if (ship.destroyed_at && !existing.destroyed_at) {
+              if (!state.destroyingShipIds.includes(ship.ship_id)) {
+                state.destroyingShipIds.push(ship.ship_id)
+              }
+            }
+            Object.assign(existing, ship)
             state.ships.last_updated = new Date().toISOString()
           }
         }

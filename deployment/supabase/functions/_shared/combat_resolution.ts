@@ -18,10 +18,11 @@ import {
   getCorpIdsFromParticipants,
   collectParticipantIds,
 } from "./combat_events.ts";
-import { buildSectorSnapshot } from "./map.ts";
+import { buildSectorSnapshot, getAdjacentSectors } from "./map.ts";
 import { computeEventRecipients } from "./visibility.ts";
 import {
   CombatEncounterState,
+  CombatRoundOutcome,
   RoundActionState,
   CombatantState,
 } from "./combat_types.ts";
@@ -126,6 +127,9 @@ export async function resolveEncounterRound(options: {
       outcome,
       requestId,
     );
+
+    // Move successful fleers to their destination sector
+    await moveSuccessfulFleers(supabase, encounter, outcome, combinedActions);
 
     console.log("combat_resolution.broadcasting_ended", {
       combat_id: encounter.combat_id,
@@ -387,4 +391,53 @@ function checkTollStanddown(
   }
 
   return false;
+}
+
+/**
+ * Move ships of players who successfully fled to their chosen destination sector.
+ * Called after finalizeCombat but before combat.ended events so the personalized
+ * payload reflects the new sector.
+ */
+async function moveSuccessfulFleers(
+  supabase: SupabaseClient,
+  encounter: CombatEncounterState,
+  outcome: CombatRoundOutcome,
+  actions: Record<string, RoundActionState>,
+): Promise<void> {
+  for (const [pid, succeeded] of Object.entries(outcome.flee_results)) {
+    if (!succeeded) continue;
+
+    const participant = encounter.participants[pid];
+    if (!participant || participant.combatant_type !== "character") continue;
+
+    const shipId = (participant.metadata as Record<string, unknown>)?.ship_id;
+    if (typeof shipId !== "string") continue;
+
+    let destination = actions[pid]?.destination_sector ?? null;
+
+    // If no destination was specified, pick a random adjacent sector
+    if (destination == null) {
+      try {
+        const adjacent = await getAdjacentSectors(supabase, encounter.sector_id);
+        if (adjacent.length > 0) {
+          destination = adjacent[Math.floor(Math.random() * adjacent.length)];
+        }
+      } catch (err) {
+        console.error("combat_resolution.flee_adjacent_lookup", { pid, error: err });
+      }
+    }
+
+    if (destination == null) continue;
+
+    const { error } = await supabase
+      .from("ship_instances")
+      .update({ current_sector: destination })
+      .eq("ship_id", shipId);
+
+    if (error) {
+      console.error("combat_resolution.move_fleer", { pid, shipId, destination, error });
+    } else {
+      console.log("combat_resolution.fleer_moved", { pid, shipId, destination });
+    }
+  }
 }

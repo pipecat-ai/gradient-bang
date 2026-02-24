@@ -153,6 +153,19 @@ def _summarize_corporation_info(result: Any) -> str:
     else:
         lines.append("Ships: none")
 
+    destroyed_ships = corp.get("destroyed_ships") if isinstance(corp.get("destroyed_ships"), list) else []
+    if destroyed_ships:
+        lines.append(f"Destroyed ships ({len(destroyed_ships)}):")
+        for ship in destroyed_ships:
+            if not isinstance(ship, dict):
+                continue
+            ship_name = ship.get("name") or ship.get("ship_name") or "Unnamed Vessel"
+            ship_name = _shorten_embedded_ids(str(ship_name))
+            ship_type = _friendly_ship_type(ship.get("ship_type"))
+            sector = ship.get("sector")
+            sector_display = sector if isinstance(sector, int) else "unknown"
+            lines.append(f"- [DESTROYED] {ship_name} ({ship_type}) last seen sector {sector_display}")
+
     return "\n".join(lines)
 
 

@@ -205,6 +205,10 @@ export async function loadCharacterCombatants(
 
   const combatants: CharacterCombatant[] = [];
   for (const ship of filteredShips) {
+    // Skip escape pods — they should never be combat participants
+    if (ship.is_escape_pod || ship.ship_type === "escape_pod") {
+      continue;
+    }
     const characterKey =
       ship.owner_type === "character" ? ship.owner_character_id! : ship.ship_id;
     if (!characterKey) {

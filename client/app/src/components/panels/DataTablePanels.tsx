@@ -8,6 +8,7 @@ import useGameStore from "@/stores/game"
 import { sumRecordValues } from "@/utils/combat"
 import { formatDateTime24, formatTimeAgoOrDate, formatTimeAgoShort } from "@/utils/date"
 import { formatCurrency } from "@/utils/formatting"
+import { shipTypeVerbose } from "@/utils/game"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -531,6 +532,65 @@ export const SectorHistoryTablePanel = ({
         <DataTableScrollArea
           data={rows}
           columns={columnsSectorHistory}
+          striped
+          className="text-background h-full"
+          classNames={{ table: "text-xxs" }}
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
+// --- Destroyed Ships Table ---
+
+const columnsDestroyedShips: ColumnDef<ShipSelf>[] = [
+  {
+    accessorKey: "ship_name",
+    header: "Ship",
+  },
+  {
+    accessorKey: "ship_type",
+    header: "Type",
+    cell: ({ getValue }) => shipTypeVerbose(getValue() as string),
+  },
+  {
+    accessorKey: "sector",
+    header: "Sector",
+    meta: { align: "center", width: 0 },
+    cell: ({ getValue }) => {
+      const v = getValue() as number | null
+      return v != null ? <span className="font-bold">{v}</span> : "—"
+    },
+  },
+  {
+    accessorKey: "destroyed_at",
+    header: "Destroyed",
+    meta: { align: "right" },
+    cell: ({ getValue }) => {
+      const v = getValue() as string | null
+      return v ? formatTimeAgoShort(v) : "—"
+    },
+  },
+]
+
+export const DestroyedShipsPanel = ({ className }: { className?: string }) => {
+  const ships = useGameStore((state) => state.ships.data)
+
+  const destroyedShips = useMemo(
+    () => (ships ?? []).filter((s) => s.owner_type === "corporation" && s.destroyed_at),
+    [ships]
+  )
+
+  if (destroyedShips.length <= 0) {
+    return <BlankSlateTile text="No destroyed ships" />
+  }
+
+  return (
+    <Card className={cn("flex h-full bg-background", className)} size="none">
+      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative px-0!">
+        <DataTableScrollArea
+          data={destroyedShips}
+          columns={columnsDestroyedShips}
           striped
           className="text-background h-full"
           classNames={{ table: "text-xxs" }}

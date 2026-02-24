@@ -102,6 +102,25 @@ export const LevaControls = ({
             type: "get-my-ships",
           })
         }),
+        ["Target Ship"]: { value: "" },
+        ["TEST: Destroy Corp Ship"]: button((get) => {
+          const filter = (get("Ships.Target Ship") as string).toLowerCase().trim()
+          const ships = useGameStore.getState().ships.data ?? []
+          const corpShip = filter
+            ? ships.find(
+                (s) =>
+                  s.owner_type === "corporation" &&
+                  !s.destroyed_at &&
+                  s.ship_name.toLowerCase().includes(filter)
+              )
+            : ships.find((s) => s.owner_type === "corporation" && !s.destroyed_at)
+          if (corpShip) {
+            useGameStore.getState().updateShip({
+              ship_id: corpShip.ship_id,
+              destroyed_at: new Date().toISOString(),
+            })
+          }
+        }),
       },
       { collapsed: true }
     ),

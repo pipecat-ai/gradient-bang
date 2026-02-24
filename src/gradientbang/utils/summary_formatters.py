@@ -1178,10 +1178,11 @@ def ships_list_summary(event: Dict[str, Any]) -> str:
     if not isinstance(ships, list) or not ships:
         return "Ships: none."
 
-    lines = [f"Ships: {len(ships)} total."]
-    for ship in ships:
-        if not isinstance(ship, dict):
-            continue
+    active = [s for s in ships if isinstance(s, dict) and not s.get("destroyed_at")]
+    destroyed = [s for s in ships if isinstance(s, dict) and s.get("destroyed_at")]
+
+    lines = [f"Ships: {len(active)} active{f', {len(destroyed)} destroyed' if destroyed else ''}."]
+    for ship in active:
         name = _shorten_embedded_ids(str(ship.get("name") or "Unnamed Vessel"))
         ship_type = _friendly_ship_type(ship.get("ship_type"))
         ship_id_prefix = _short_id(ship.get("ship_id"))
@@ -1200,6 +1201,13 @@ def ships_list_summary(event: Dict[str, Any]) -> str:
             f"task {task_display}",
         ]
         lines.append("- " + "; ".join(details))
+
+    for ship in destroyed:
+        name = _shorten_embedded_ids(str(ship.get("name") or ship.get("ship_name") or "Unnamed Vessel"))
+        ship_type = _friendly_ship_type(ship.get("ship_type"))
+        sector = ship.get("sector")
+        sector_display = sector if isinstance(sector, int) else "unknown"
+        lines.append(f"- [DESTROYED] {name} ({ship_type}) last seen sector {sector_display}")
 
     return "\n".join(lines)
 

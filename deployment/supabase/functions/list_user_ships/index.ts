@@ -46,6 +46,7 @@ export interface ShipSummary {
   max_fighters: number;
   credits: number;
   current_task_id: string | null;
+  destroyed_at: string | null;
 }
 
 interface ShipsListResult {
@@ -156,17 +157,19 @@ async function fetchUserShips(
     }
   }
 
-  if (!shipIds.length) {
+  if (!shipIds.length && !corporationId) {
     return { ships: [] };
   }
 
-  // 3. Fetch all ship instances
-  const { data: shipRows, error: shipError } = await supabase
-    .from("ship_instances")
-    .select(
-      "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters",
-    )
-    .in("ship_id", shipIds);
+  // 3. Fetch all active ship instances
+  const { data: shipRows, error: shipError } = shipIds.length
+    ? await supabase
+        .from("ship_instances")
+        .select(
+          "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters",
+        )
+        .in("ship_id", shipIds)
+    : { data: [], error: null };
 
   if (shipError) {
     console.error("list_user_ships.ship_instances", shipError);
@@ -217,13 +220,72 @@ async function fetchUserShips(
       max_fighters: definition?.fighters ?? 0,
       credits: Number(row.credits ?? 0),
       current_task_id: activeTasks.get(shipId) ?? null,
+      destroyed_at: null,
     });
   }
 
-  // Sort: personal ship first, then corp ships by ship_name
+  // 6. Fetch destroyed corporation ships
+  if (corporationId) {
+    try {
+      const { data: destroyedRows, error: destroyedError } = await supabase
+        .from("ship_instances")
+        .select(
+          "ship_id, ship_type, ship_name, current_sector, destroyed_at",
+        )
+        .eq("owner_corporation_id", corporationId)
+        .not("destroyed_at", "is", null)
+        .order("destroyed_at", { ascending: false });
+
+      if (destroyedError) {
+        console.error("list_user_ships.destroyed_ships", destroyedError);
+      } else {
+        const destroyedDefinitionMap = await loadShipDefinitions(
+          supabase,
+          destroyedRows ?? [],
+        );
+        for (const row of destroyedRows ?? []) {
+          if (!row || typeof row.ship_id !== "string") continue;
+          const definition =
+            destroyedDefinitionMap.get(row.ship_type ?? "") ?? null;
+          ships.push({
+            ship_id: row.ship_id,
+            ship_type: row.ship_type ?? "unknown",
+            ship_name:
+              typeof row.ship_name === "string" &&
+              row.ship_name.trim().length > 0
+                ? row.ship_name
+                : (definition?.display_name ?? row.ship_type ?? row.ship_id),
+            sector:
+              typeof row.current_sector === "number"
+                ? row.current_sector
+                : null,
+            owner_type: "corporation",
+            cargo: { quantum_foam: 0, retro_organics: 0, neuro_symbolics: 0 },
+            cargo_capacity: 0,
+            warp_power: 0,
+            warp_power_capacity: 0,
+            shields: 0,
+            max_shields: 0,
+            fighters: 0,
+            max_fighters: 0,
+            credits: 0,
+            current_task_id: null,
+            destroyed_at: row.destroyed_at,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("list_user_ships.destroyed_ships", err);
+    }
+  }
+
+  // Sort: personal first, then active corp ships by name, then destroyed at end
   ships.sort((a, b) => {
     if (a.owner_type === "personal" && b.owner_type !== "personal") return -1;
     if (a.owner_type !== "personal" && b.owner_type === "personal") return 1;
+    const aDestroyed = a.destroyed_at !== null;
+    const bDestroyed = b.destroyed_at !== null;
+    if (aDestroyed !== bDestroyed) return aDestroyed ? 1 : -1;
     return a.ship_name.localeCompare(b.ship_name);
   });
 
