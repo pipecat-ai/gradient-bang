@@ -103,7 +103,7 @@ export function StarfieldComponent({
 
   usePerformanceProfile({ initialProfile: profile })
 
-  const { dpr } = useDevControls({ profile })
+  const { dpr } = useDevControls()
 
   useEffect(() => {
     useGameStore.getState().setIsReady(false)

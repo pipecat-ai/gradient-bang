@@ -2363,6 +2363,11 @@ export function createSectorMapController(
   // Movement animation lock
   let isMovingToSector = false
 
+  // When true, the user has explicitly zoomed (slider or scroll wheel) while a
+  // course plot is active.  The course plot is still rendered, but the camera
+  // framing ignores it so the user's zoom takes effect.
+  let userOverrodeCoursePlotZoom = false
+
   // Manual pan/zoom offsets (applied on top of computed camera state)
   let manualPanX = 0
   let manualPanY = 0
@@ -2707,6 +2712,11 @@ export function createSectorMapController(
     if (!currentProps.config.scrollZoom || isMovingToSector || !currentCameraState) return
     event.preventDefault()
 
+    // Mark that the user explicitly zoomed while a course plot is active
+    if (currentProps.coursePlot && currentProps.config.coursePlotZoomEnabled !== false) {
+      userOverrodeCoursePlotZoom = true
+    }
+
     const zoomSensitivity = 0.005
     const zoomDelta = 1 - event.deltaY * zoomSensitivity
     const oldEffective = getEffectiveCameraState(currentCameraState)
@@ -2781,8 +2791,10 @@ export function createSectorMapController(
     const hexSize = config.hex_size ?? gridSpacing * 0.85
     const scale = gridSpacing
 
-    // When coursePlotZoomEnabled is false, don't let the course plot affect camera framing
-    const coursePlotForCamera = config.coursePlotZoomEnabled !== false ? coursePlot : undefined
+    // When coursePlotZoomEnabled is false or the user has overridden zoom,
+    // don't let the course plot affect camera framing
+    const coursePlotForCamera =
+      config.coursePlotZoomEnabled !== false && !userOverrodeCoursePlotZoom ? coursePlot : undefined
 
     const cameraState = calculateCameraState(
       data,
@@ -2883,8 +2895,10 @@ export function createSectorMapController(
     const hexSize = config.hex_size ?? gridSpacing * 0.85
     const scale = gridSpacing
 
-    // When coursePlotZoomEnabled is false, don't let the course plot affect camera framing
-    const coursePlotForCamera = config.coursePlotZoomEnabled !== false ? coursePlot : undefined
+    // When coursePlotZoomEnabled is false or user has overridden zoom,
+    // don't let the course plot affect camera framing
+    const coursePlotForCamera =
+      config.coursePlotZoomEnabled !== false && !userOverrodeCoursePlotZoom ? coursePlot : undefined
 
     const targetCameraState = calculateCameraState(
       data,
@@ -3033,13 +3047,22 @@ export function createSectorMapController(
     if (currentCameraState) {
       // Start animation from effective (manually-offset) position for smooth transition
       const effectiveStart = getEffectiveCameraState(currentCameraState)
-      // Don't preserve manual zoom when a course plot is active — the course-fit zoom should win
-      const hadManualZoom = manualZoomFactor !== 1 && !updatedProps.coursePlot
+      // Preserve manual zoom unless a course plot is actively controlling the camera framing
+      const coursePlotControlsCamera =
+        !!updatedProps.coursePlot &&
+        updatedProps.config.coursePlotZoomEnabled !== false &&
+        !userOverrodeCoursePlotZoom
+      const hadManualZoom = manualZoomFactor !== 1 && !coursePlotControlsCamera
       const preservedZoom = hadManualZoom ? effectiveStart.zoom : undefined
       resetManualOffsets()
+
+      // Pass effective coursePlotZoomEnabled to the animation target calculation
+      const animationProps = userOverrodeCoursePlotZoom
+        ? { ...updatedProps, config: { ...updatedProps.config, coursePlotZoomEnabled: false } }
+        : updatedProps
       animationCleanup = updateCurrentSector(
         canvas,
-        updatedProps,
+        animationProps,
         newSectorId,
         effectiveStart,
         preservedZoom
@@ -3051,7 +3074,11 @@ export function createSectorMapController(
       )
 
       animationCompletionTimeout = window.setTimeout(() => {
-        currentCameraState = getCurrentCameraState(updatedProps)
+        currentCameraState = getCurrentCameraState(
+          userOverrodeCoursePlotZoom
+            ? { ...updatedProps, config: { ...updatedProps.config, coursePlotZoomEnabled: false } }
+            : updatedProps
+        )
         // Restore manual zoom factor so effective zoom matches the user's previous level
         if (hadManualZoom && currentCameraState && preservedZoom !== undefined) {
           manualZoomFactor = preservedZoom / currentCameraState.zoom
@@ -3063,6 +3090,9 @@ export function createSectorMapController(
         if (updatedProps.coursePlot) {
           startCourseAnimation()
         }
+        // Repaint with current data so any props that changed during the
+        // animation (e.g. port mega flag from a map.update) are visible.
+        renderWithInteractionState()
       }, animDuration)
     } else {
       render()
@@ -3097,6 +3127,11 @@ export function createSectorMapController(
 
     // Check course plot AFTER merging props (to handle partial updates that don't include coursePlot)
     const hasCoursePlot = currentProps.coursePlot !== undefined && currentProps.coursePlot !== null
+
+    // Reset user zoom override on course plot transitions (new plot or cleared)
+    if (hasCoursePlot !== hadCoursePlot) {
+      userOverrodeCoursePlotZoom = false
+    }
 
     // Start or stop animation based on coursePlot presence
     const coursePlotZoom = currentProps.config.coursePlotZoomEnabled !== false
@@ -3148,6 +3183,12 @@ export function createSectorMapController(
       newProps.maxDistance !== undefined && newProps.maxDistance !== prevMaxDistance
     const coursePlotTransitioned =
       (hasCoursePlot && !hadCoursePlot) || (!hasCoursePlot && hadCoursePlot)
+
+    // Mark that the user explicitly changed zoom while a course plot is active
+    if (maxDistanceChanged && hasCoursePlot && coursePlotZoom && !coursePlotTransitioned) {
+      userOverrodeCoursePlotZoom = true
+    }
+
     if (maxDistanceChanged && !coursePlotTransitioned && !isMovingToSector) {
       resetManualOffsets()
       animateCameraReframe()
@@ -3320,6 +3361,7 @@ export function createSectorMapController(
     setOnNodeExit,
     setOnViewportChange,
     resetView: () => {
+      userOverrodeCoursePlotZoom = false
       resetManualOffsets()
       animateCameraReframe()
     },
@@ -3418,6 +3460,10 @@ export function updateCurrentSector(
 
   const newConfig = { ...config, center_sector_id: newSectorId }
 
+  // Respect coursePlotZoomEnabled so that when zoom is overridden,
+  // the camera uses maxDistance-based framing instead of auto-fitting
+  const coursePlotForCamera = config.coursePlotZoomEnabled !== false ? coursePlot : undefined
+
   const targetCameraState = calculateCameraState(
     data,
     newConfig,
@@ -3426,7 +3472,7 @@ export function updateCurrentSector(
     scale,
     hexSize,
     maxDistance,
-    coursePlot
+    coursePlotForCamera
   )
 
   if (!targetCameraState) {

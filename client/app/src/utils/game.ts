@@ -1,6 +1,8 @@
 import { RESOURCE_SHORT_NAMES } from "../types/constants"
 import { type CreditsTransferMessage, type WarpTransferMessage } from "../types/messages"
 
+import { SHIP_DEFINITIONS } from "@/types/ships"
+
 /**
  * Formats a transfer message (credits or warp) into a human-readable summary string.
  *
@@ -267,44 +269,6 @@ export function createLogEntrySignature(
 }
 
 /**
- * Checks if a ship's current position has deviated from its plotted course.
- * A deviation occurs when the current sector is not in the planned path.
- *
- * @param coursePlot - The plotted course containing the path and destination, can be null/undefined
- * @param current_sector_id - The ID of the sector the ship is currently in
- * @param falseIfFinished - If true, returns false when at destination (default: false)
- * @returns true if the ship is off course, false if on course, at destination (when falseIfFinished=true), or no course is plotted
- *
- * @example
- * ```ts
- * const plot = {
- *   from_sector: 1,
- *   to_sector: 5,
- *   path: [1, 2, 3, 4, 5]
- * };
- *
- * hasDeviatedFromCoursePlot(plot, 3, false); // false - on course
- * hasDeviatedFromCoursePlot(plot, 10, false); // true - off course
- * hasDeviatedFromCoursePlot(plot, 5, true); // false - at destination
- * hasDeviatedFromCoursePlot(plot, 5, false); // false - still on path
- * hasDeviatedFromCoursePlot(null, 3, false); // false - no plot
- * ```
- */
-export const hasDeviatedFromCoursePlot = (
-  coursePlot: CoursePlot | null | undefined,
-  current_sector_id: number,
-  falseIfFinished: boolean = false
-) => {
-  if (!coursePlot) {
-    return false
-  }
-  if (falseIfFinished && coursePlot.to_sector === current_sector_id) {
-    return false
-  }
-  return !coursePlot.path.includes(current_sector_id)
-}
-
-/**
  * Compares previous and new map data to find newly discovered sectors.
  * A sector is considered newly discovered when its `visited` property changes
  * from unvisited (undefined/null/empty) to visited (timestamp string).
@@ -355,4 +319,9 @@ export const calculateHopsRemaining = (
     return "???"
   }
   return coursePlot.path.length - 1 - currentIndex
+}
+
+export function shipTypeVerbose(shipType: string) {
+  const def = SHIP_DEFINITIONS.find((d) => d.ship_type === shipType)
+  return def?.display_name ?? shipType
 }

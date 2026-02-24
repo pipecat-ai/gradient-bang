@@ -30,6 +30,9 @@ export const PERFORMANCE_PROFILES: PerformanceProfile[] = [
   "extreme",
 ] as const
 
+/** Max framebuffer pixels (~4.7M). Equivalent to 1080p at 1.5× DPR. */
+export const MAX_RENDER_PIXELS = 2880 * 1620
+
 export const DEFAULT_DPR: Record<PerformanceProfile, number> = {
   auto: 1,
   low: 0.5,

@@ -27,7 +27,16 @@ export const TaskEngineSummaryText = ({
     const textEl = textRef.current
     const containerEl = containerRef.current
     if (!textEl || !containerEl) return
-    setOverflow(Math.max(0, textEl.scrollWidth - containerEl.clientWidth))
+
+    const measure = () => {
+      setOverflow(Math.max(0, textEl.scrollWidth - containerEl.clientWidth))
+    }
+
+    const ro = new ResizeObserver(measure)
+    ro.observe(containerEl)
+    ro.observe(textEl)
+
+    return () => ro.disconnect()
   }, [text])
 
   const maskWidth = 24

@@ -40,7 +40,7 @@ export const Leaderboard = () => {
   }, [activeModal])
 
   return (
-    <BaseDialog modalName="leaderboard" title="Leaderboard" size="2xl">
+    <BaseDialog modalName="leaderboard" title="Leaderboard" size="3xl">
       <Card elbow={true} size="default" className="w-full h-full bg-black shadow-2xl">
         <CardHeader>
           <CardTitle className="heading-2 flex flex-row items-center gap-2">

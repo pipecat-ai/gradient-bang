@@ -200,6 +200,11 @@ export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDes
     })
   }
 
+  // Remove destroyed corporation ships from the fleet list
+  if (destroyed.player_type === "corporation_ship") {
+    gameStore.removeShip(destroyed.ship_id)
+  }
+
   gameStore.addActivityLogEntry({
     type: "ship.destroyed",
     message: `${shipDescription} destroyed in [sector ${destroyed.sector.id}]${

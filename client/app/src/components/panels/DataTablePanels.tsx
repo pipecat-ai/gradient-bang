@@ -37,7 +37,7 @@ const columns: ColumnDef<MovementHistory>[] = [
   {
     accessorKey: "last_visited",
     header: "Last Visit",
-    meta: { align: "center", width: "25%" },
+    meta: { align: "right", width: "25%" },
     cell: ({ getValue }) => {
       const value = getValue() as string | null
       return <span className="uppercase">{value ? formatTimeAgoOrDate(value) : "Discovered"}</span>

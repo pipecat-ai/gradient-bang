@@ -13,6 +13,7 @@ export interface DitheringEffectOptions {
   invertColor?: boolean
   pixelSizeRatio?: number
   grayscaleOnly?: boolean
+  dpr?: number
   blendFunction?: BlendFunction
 }
 
@@ -37,6 +38,7 @@ export class DitheringEffect extends Effect {
     invertColor = false,
     pixelSizeRatio = 1,
     grayscaleOnly = false,
+    dpr = 1.0,
     blendFunction = BlendFunction.NORMAL,
   }: DitheringEffectOptions = {}) {
     // Initialize uniforms with default values
@@ -48,6 +50,7 @@ export class DitheringEffect extends Effect {
       ["ditheringEnabled", new THREE.Uniform(1)], // Enabled by default
       ["pixelSizeRatio", new THREE.Uniform(pixelSizeRatio)],
       ["grayscaleOnly", new THREE.Uniform(grayscaleOnly ? 1 : 0)],
+      ["dpr", new THREE.Uniform(dpr)],
     ])
 
     super("DitheringEffect", ditheringShader, {
@@ -118,6 +121,17 @@ export class DitheringEffect extends Effect {
     const pixelSizeRatioUniform = this.uniforms.get("pixelSizeRatio")
     if (pixelSizeRatioUniform !== undefined) {
       pixelSizeRatioUniform.value = ratio
+    }
+  }
+
+  /**
+   * Sets the device pixel ratio for DPR-independent pattern rendering
+   * @param dpr - The device pixel ratio
+   */
+  setDpr(dpr: number): void {
+    const dprUniform = this.uniforms.get("dpr")
+    if (dprUniform !== undefined) {
+      dprUniform.value = dpr
     }
   }
 

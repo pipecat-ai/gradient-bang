@@ -18,7 +18,6 @@ import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { RHSPanelContainer } from "@/components/panels/RHSPanelContainer"
 import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
-import { PlayerRankChange } from "@/components/PlayerRankChange"
 import { Button } from "@/components/primitives/Button"
 import { QuestAcceptedOverlay } from "@/components/QuestAcceptedOverlay"
 import { QuestCompleteNotification } from "@/components/QuestCompleteNotification"
@@ -230,7 +229,6 @@ export const Game = () => {
       <SectorTitleBanner />
       <ToastContainer />
       <HighlightOverlay />
-      <PlayerRankChange />
       <QuestAcceptedOverlay />
       <QuestCompleteNotification />
       <PipecatClientAudio />

@@ -6,6 +6,7 @@ import { CircleNotchIcon, UserIcon, XIcon } from "@phosphor-icons/react"
 import { CreditsIcon, CurrentSectorIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatCurrency } from "@/utils/formatting"
+import { shipTypeVerbose } from "@/utils/game"
 import { cn } from "@/utils/tailwind"
 
 import { PlayerFightersBadge, PlayerShieldsBadge, PlayerShipFuelBadge } from "../PlayerShipBadges"
@@ -53,7 +54,7 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
       <div className="flex flex-col gap-2 flex-1 min-w-0">
         <div className="flex flex-row gap-2 items-center">
           <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
-          <div className="text-xxs text-subtle-foreground">{ship.ship_type?.replace("_", " ")}</div>
+          <div className="text-xxs text-subtle-foreground">{shipTypeVerbose(ship.ship_type)}</div>
         </div>
         <div className="text-sm text-subtle-foreground flex flex-row gap-2 items-center min-w-0">
           <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">
@@ -178,7 +179,7 @@ const PlayerShip = () => {
       <div className="flex flex-row gap-ui-sm items-center">
         <div className="uppercase text-white font-semibold">{ship?.ship_name ?? "---"}</div>
         <div className="text-xxs uppercase text-subtle-foreground">
-          {ship?.ship_type?.replace("_", " ") ?? "---"}
+          {shipTypeVerbose(ship?.ship_type) ?? "---"}
         </div>
         <div className="flex-1 h-3 dashed-bg-horizontal dashed-bg-accent"></div>
       </div>

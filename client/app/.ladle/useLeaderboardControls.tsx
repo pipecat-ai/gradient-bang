@@ -24,8 +24,9 @@ const mockWithPlayerAtTop = (category: LeaderboardCategory) => {
   const match = existing.find((e) => e.player_id === playerId)
   const topValue = rest.length > 0 ? (Number(rest[0][rankKey]) || 0) + 1 : 1
 
-  const playerEntry = match
-    ? { ...match, [rankKey]: topValue }
+  const playerEntry =
+    match ?
+      { ...match, [rankKey]: topValue }
     : {
         player_id: playerId,
         player_name: `Player [${playerId.slice(0, 6)}]`,
@@ -63,6 +64,8 @@ const rankCategory = (category: LeaderboardCategory) => {
 }
 
 export const useLeaderboardControls = () => {
+  const setNotifications = useGameStore.use.setNotifications()
+
   const [, set] = useControls(() => ({
     Leaderboard: folder(
       {
@@ -86,6 +89,7 @@ export const useLeaderboardControls = () => {
           CATEGORIES.map((category) => [`Rank: ${category}`, button(() => rankCategory(category))])
         ),
         ["Rank: All"]: button(() => CATEGORIES.forEach(rankCategory)),
+        ["Rank Notification"]: button(() => setNotifications({ rankChanged: true })),
       },
       { collapsed: true, order: 4 }
     ),

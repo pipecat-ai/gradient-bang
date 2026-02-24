@@ -182,7 +182,7 @@ export const TaskEngine = ({
             label={
               isLocal ? "Local Task Engine"
               : displayTask?.ship_name ?
-                `${displayTask.ship_name} (${displayTask.ship_type?.replace("_", " ")})`
+                `${displayTask.ship_name}`
               : "Awaiting Task"
             }
           />

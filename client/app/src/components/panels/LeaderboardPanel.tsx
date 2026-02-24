@@ -105,20 +105,26 @@ export const LeaderboardPanel = ({ className }: { className?: string }) => {
   const [filter, setFilter] = useState<LeaderboardCategory>("wealth")
 
   const wealthData = useMemo(
-    () => [...(leaderboardData?.wealth ?? [])].sort((a, b) => b.total_wealth - a.total_wealth),
+    () =>
+      [...(leaderboardData?.wealth ?? [])]
+        .filter((p) => p.player_type === "human")
+        .sort((a, b) => b.total_wealth - a.total_wealth),
     [leaderboardData?.wealth]
   )
 
   const tradingData = useMemo(
-    () => [...(leaderboardData?.trading ?? [])].sort((a, b) => b.total_trades - a.total_trades),
+    () =>
+      [...(leaderboardData?.trading ?? [])]
+        .filter((p) => p.player_type === "human")
+        .sort((a, b) => b.total_trades - a.total_trades),
     [leaderboardData?.trading]
   )
 
   const explorationData = useMemo(
     () =>
-      [...(leaderboardData?.exploration ?? [])].sort(
-        (a, b) => b.sectors_visited - a.sectors_visited
-      ),
+      [...(leaderboardData?.exploration ?? [])]
+        .filter((p) => p.player_type === "human")
+        .sort((a, b) => b.sectors_visited - a.sectors_visited),
     [leaderboardData?.exploration]
   )
 

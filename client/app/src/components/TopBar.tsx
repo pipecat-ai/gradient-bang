@@ -1,9 +1,9 @@
-import { MedalIcon, SlidersHorizontalIcon, UserIcon } from "@phosphor-icons/react"
+import { MedalIcon, SlidersHorizontalIcon } from "@phosphor-icons/react"
 
 import useGameStore from "@/stores/game"
 import { formatCurrency } from "@/utils/formatting"
 
-import { Badge } from "./primitives/Badge"
+import { CharacterBadge } from "./CharacterBadge"
 import { Button } from "./primitives/Button"
 import { DotDivider } from "./primitives/DotDivider"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./primitives/ToolTip"
@@ -26,12 +26,7 @@ export const TopBar = () => {
   return (
     <header className="bg-subtle-background border-b p-1.5 flex flex-row items-center shadow-long z-50">
       <div className="text-xs uppercase">
-        <Badge variant="secondary" size="sm" border="bracket" className="h-8 bracket-size-8 px-2">
-          <UserIcon weight="duotone" size={16} />
-          {player?.name ?
-            <span className="text-white">{player.name}</span>
-          : <span className="text-subtle-foreground">---</span>}
-        </Badge>
+        <CharacterBadge />
       </div>
       <div className="flex-1 flex flex-row gap-3 text-sm items-center justify-center">
         <TopBarTextItem

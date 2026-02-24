@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 
 export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
@@ -20,6 +21,8 @@ export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
     if (gameState !== "ready" || !diamondFXInstance) return
 
     diamondFXInstance?.clear(true)
+
+    useAudioStore.getState().fadeOut("theme", { duration: 1000 })
   }, [gameState, diamondFXInstance])
 
   return (

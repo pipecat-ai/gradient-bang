@@ -17,6 +17,7 @@ import {
   salvageCreatedSummaryString,
   transferSummaryString,
 } from "@/utils/game"
+import { hasDeviatedFromCoursePlot } from "@/utils/map"
 
 import type * as Msg from "@/types/messages"
 
@@ -382,7 +383,10 @@ export function GameProvider({ children }: GameProviderProps) {
                 typeof currentSectorId === "number" &&
                 sectorId === currentSectorId
 
-              if (isLocalSector) {
+              const eventPlayerId = getPayloadPlayerId(data)
+              const isLocalPlayer = !!eventPlayerId && eventPlayerId === gameStore.playerSessionId
+
+              if (isLocalSector && !isLocalPlayer) {
                 if (data.movement === "arrive") {
                   console.debug("[GAME EVENT] Adding player to sector", e.payload)
                   const sectorPlayer: Player = {
@@ -418,15 +422,17 @@ export function GameProvider({ children }: GameProviderProps) {
                 } else {
                   console.warn("[GAME EVENT] Unknown movement type", data.movement)
                 }
-              } else {
+              } else if (!isLocalSector) {
                 logIgnored("character.moved", "non-local sector", data)
               }
 
               // Update corp ship position icons regardless of sector visibility
-              if (data.ship?.ship_id && typeof sectorId === "number") {
+              if (
+                isCorporationShipPayload(data) &&
+                data.ship?.ship_id &&
+                typeof sectorId === "number"
+              ) {
                 upsertCorporationShip(data.ship.ship_id, { sector: sectorId })
-              } else if (!data.ship?.ship_id) {
-                console.warn("[GAME EVENT] character.moved missing ship_id", data)
               }
 
               break
@@ -451,28 +457,6 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME] Starting movement action", newSector)
 
               gameStore.setUIState("moving")
-
-              // @TODO: implement starfield warpToSector
-
-              /*
-              if (!starfield || !gameStore.settings.renderStarfield) {
-                console.error(
-                  "[GAME] Starfield instance not found / disabled, skipping animation"
-                )
-                break
-              }
-              console.debug("[GAME] Updating Starfield to", newSector)
-
-              starfield.warpToSector({
-                id: newSector.id.toString(),
-                sceneConfig:
-                  newSector.scene_config as Partial<StarfieldSceneConfig>,
-                gameObjects: newSector.port
-                  ? [{ id: "port", type: "port", name: "Port" }]
-                  : undefined,
-                bypassAnimation: gameStore.settings.fxBypassAnimation,
-                bypassFlash: gameStore.settings.fxBypassFlash,
-              })*/
 
               break
             }
@@ -534,6 +518,17 @@ export function GameProvider({ children }: GameProviderProps) {
               }
 
               gameStore.setUIState("idle")
+
+              // Clear course plot if we've reached the destination or deviated from the path
+              const newSectorId = gameStore.sectorBuffer?.id ?? 0
+              if (gameStore.course_plot?.to_sector === newSectorId) {
+                console.debug("[GAME EVENT] Reached intended destination, clearing course plot")
+                gameStore.clearCoursePlot()
+              } else if (hasDeviatedFromCoursePlot(gameStore.course_plot, newSectorId)) {
+                console.debug("[GAME EVENT] Went to a sector outside of the plot, clearing")
+                gameStore.clearCoursePlot()
+              }
+
               break
             }
 
@@ -1002,6 +997,22 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "ship.renamed":
+            case "ship.rename": {
+              console.debug("[GAME EVENT] Ship renamed", e.payload)
+              const data = e.payload as Msg.ShipRenameMessage
+              // Update in the ships list (corporation/fleet ships)
+              gameStore.updateShip({
+                ship_id: data.ship_id,
+                ship_name: data.ship_name,
+              })
+              // Update the active ship if it's the one being renamed
+              if (gameStore.ship?.ship_id === data.ship_id) {
+                gameStore.setShip({ ship_name: data.ship_name })
+              }
+              break
+            }
+
             case "ship.destroyed": {
               console.debug("[GAME EVENT] Ship destroyed", e.payload)
               applyShipDestroyedState(gameStore, e.payload as Msg.ShipDestroyedMessage)
@@ -1176,6 +1187,12 @@ export function GameProvider({ children }: GameProviderProps) {
               if (data.quests) {
                 gameStore.setQuests(data.quests)
               }
+              break
+            }
+
+            case "quest.progress": {
+              const data = e.payload as Msg.QuestProgressMessage
+              gameStore.updateQuestStepProgress(data.quest_id, data.step_index, data.current_value)
               break
             }
 

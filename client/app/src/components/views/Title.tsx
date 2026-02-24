@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 
@@ -6,13 +6,13 @@ import TitleVideo from "@/assets/videos/title.mp4"
 import { CharacterSelectDialog } from "@/components/dialogs/CharacterSelect"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
-import { Signup } from "@/components/dialogs/Signup"
 import PipecatSVG from "@/components/PipecatSVG"
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card"
 import { Input } from "@/components/primitives/Input"
 import { Separator } from "@/components/primitives/Separator"
 import { ScrambleText } from "@/fx/ScrambleText"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { wait } from "@/utils/animation"
 
@@ -26,6 +26,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [state, setState] = useState<"idle" | "join">("idle")
   const [error, setError] = useState<boolean>(false)
+  const hasStartedMusic = useRef(false)
 
   const handleSignIn = async () => {
     setIsLoading(true)
@@ -82,7 +83,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
         >
           <CardHeader className="block">
             <h1 className="text-white text-3xl font-bold uppercase">
-              <ScrambleText>Gradient Bang Dev Build</ScrambleText>
+              <ScrambleText>Gradient Bang Playtest</ScrambleText>
             </h1>
           </CardHeader>
           <Separator />
@@ -97,7 +98,17 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                   transition={{ duration: 0.2, ease: "easeInOut" }}
                   className="w-full flex flex-col gap-5"
                 >
-                  <Button onClick={() => setState("join")} className="w-full" size="xl">
+                  <Button
+                    onClick={() => {
+                      setState("join")
+                      if (!hasStartedMusic.current) {
+                        hasStartedMusic.current = true
+                        useAudioStore.getState().fadeIn("theme", { volume: 0.2, duration: 5000 })
+                      }
+                    }}
+                    className="w-full"
+                    size="xl"
+                  >
                     Sign In
                   </Button>
                   <Button
@@ -185,7 +196,13 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                   <Separator />
                   <Button
                     variant="secondary"
-                    onClick={() => setState("idle")}
+                    onClick={() => {
+                      setState("idle")
+                      if (hasStartedMusic.current) {
+                        hasStartedMusic.current = false
+                        useAudioStore.getState().fadeOut("theme", { duration: 2000 })
+                      }
+                    }}
                     className="w-full"
                     size="xl"
                   >
@@ -206,17 +223,13 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
       </div>
       <Settings />
       <Leaderboard />
-      <Signup />
       <CharacterSelectDialog
         onCharacterSelect={(characterId) => {
           setCharacterId(characterId)
           onViewNext()
         }}
       />
-      <div
-        className="absolute bottom-0 right-0 p-4 z-99 flex flex-row items-center gap-2 bg-background select-none"
-        onClick={() => setActiveModal("signup")}
-      >
+      <div className="absolute bottom-0 right-0 p-4 z-99 flex flex-row items-center gap-2 bg-background select-none">
         <span className="text-xs text-muted-foreground uppercase tracking-wider">Built by</span>
         <PipecatSVG className="h-[16px] text-white" />
       </div>

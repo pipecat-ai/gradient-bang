@@ -7,7 +7,6 @@ import { useRTVIClientEvent } from "@pipecat-ai/client-react"
 
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
-import { wait } from "@/utils/animation"
 import { cn } from "@/utils/tailwind"
 
 const SHOW_BADGE_DURATION = 15_000
@@ -18,6 +17,7 @@ export const IncomingCodecBadge = ({ className }: { className?: string }) => {
   const setNotifications = useGameStore.use.setNotifications()
   const [visible, setVisible] = useState(false)
   const [entered, setEntered] = useState(false)
+  const shownCodecRef = useRef<string | null>(null)
 
   const handleClick = useCallback(() => {
     setActiveModal("quest_codec")
@@ -35,14 +35,19 @@ export const IncomingCodecBadge = ({ className }: { className?: string }) => {
   }, [setNotifications])
 
   useRTVIClientEvent(RTVIEvent.BotStoppedSpeaking, async () => {
-    if (incomingCodec) {
+    if (incomingCodec && incomingCodec !== shownCodecRef.current) {
+      shownCodecRef.current = incomingCodec
       const playSound = useAudioStore.getState().playSound
       playSound("codec1")
       setVisible(true)
-      await wait(2000)
-      playSound("codec1")
     }
   })
+
+  useEffect(() => {
+    if (!incomingCodec) {
+      shownCodecRef.current = null
+    }
+  }, [incomingCodec])
 
   useEffect(() => {
     if (visible) {

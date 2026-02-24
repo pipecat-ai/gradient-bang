@@ -417,35 +417,73 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
             ignoreLocal: boolean = false
           ): void => {
             if (!mapData) return
-            if (sectorUpdates.length === 0) return
+
+            const updates =
+              ignoreLocal ?
+                sectorUpdates.filter((s) => (s as MapSectorNode).source !== "player")
+              : sectorUpdates
 
             const existingIndex = new Map<number, number>()
             mapData.forEach((s: MapSectorNode, idx: number) => existingIndex.set(s.id, idx))
 
-            for (const sectorUpdate of sectorUpdates) {
+            const hasExistingMatch =
+              updates.length > 0 && updates.some((s) => existingIndex.has(s.id))
+            const hasNewSectors =
+              updates.length > 0 && updates.some((s) => !existingIndex.has(s.id))
+            const hasPortOnlyWork =
+              ignoreLocal &&
+              sectorUpdates.some(
+                (s) =>
+                  (s as MapSectorNode).source === "player" &&
+                  s.port !== undefined &&
+                  existingIndex.has(s.id)
+              )
+
+            if (!hasExistingMatch && !hasNewSectors && !hasPortOnlyWork) return
+
+            for (const sectorUpdate of updates) {
               const existingIdx = existingIndex.get(sectorUpdate.id)
               if (existingIdx !== undefined) {
-                // Always merge into existing sectors so field updates
-                // (e.g. port mega flag) are applied to both local and
-                // regional map data.
-                Object.assign(mapData[existingIdx], sectorUpdate)
-                if (sectorUpdate.port !== undefined) {
-                  const normalizedPort = normalizePort(
-                    (sectorUpdate as MapSectorNode).port as PortLike
-                  )
-                  mapData[existingIdx].port = normalizedPort as MapSectorNode["port"]
+                // When ignoreLocal is set (local_map_data), skip Object.assign
+                // on player-visited sectors to prevent corp-sourced updates
+                // from overwriting the player's own sector data. Unvisited or
+                // corp-only sectors can still be updated (e.g. when a probe
+                // visits a previously gray sector).
+                const existingSource = (mapData[existingIdx] as MapSectorNode).source
+                const isPlayerVisited =
+                  existingSource === "player" || existingSource === "both"
+                if (!ignoreLocal || !isPlayerVisited) {
+                  Object.assign(mapData[existingIdx], sectorUpdate)
+                  if (sectorUpdate.port !== undefined) {
+                    const normalizedPort = normalizePort(
+                      (sectorUpdate as MapSectorNode).port as PortLike
+                    )
+                    mapData[existingIdx].port = normalizedPort as MapSectorNode["port"]
+                  }
                 }
-              } else if (
-                !ignoreLocal ||
-                (sectorUpdate as MapSectorNode).source !== "player"
-              ) {
-                // Only add NEW sectors when not filtered by ignoreLocal.
-                // local_map_data gets new player sectors via setLocalMapData.
+              } else {
                 const newSector = {
                   ...sectorUpdate,
                   port: normalizePort((sectorUpdate as MapSectorNode).port as PortLike),
                 } as MapSectorNode
                 mapData.push(newSector)
+              }
+            }
+
+            // For local_map_data: merge ONLY port data from player-sourced
+            // updates that were filtered out above. This ensures port changes
+            // (e.g. mega flag) reach local_map_data without overwriting
+            // structural data like lanes.
+            if (ignoreLocal) {
+              for (const su of sectorUpdates) {
+                if ((su as MapSectorNode).source !== "player") continue
+                if (su.port === undefined) continue
+                const idx = existingIndex.get(su.id)
+                if (idx !== undefined) {
+                  mapData[idx].port = normalizePort(
+                    (su as MapSectorNode).port as PortLike
+                  ) as MapSectorNode["port"]
+                }
               }
             }
           }

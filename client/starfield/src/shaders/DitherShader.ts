@@ -11,21 +11,23 @@ uniform float luminanceMethod;
 uniform float invertColor;
 uniform float pixelSizeRatio;
 uniform float grayscaleOnly;
+uniform float dpr;
 
 /**
  * Ordered dithering matrix lookup
  * Returns true if the pixel should be colored based on its position in the dither matrix
  * @param brightness - Normalized brightness value (0.0 to 1.0)
- * @param pos - Pixel position in screen space
+ * @param pos - Pixel position in framebuffer space
+ * @param gs - Effective grid size in framebuffer pixels
  * @return boolean - Whether the pixel should be colored or not
  */
-bool getValue(float brightness, vec2 pos) {
+bool getValue(float brightness, vec2 pos, float gs) {
   // Early return for extreme values
   if (brightness > 16.0 / 17.0) return false;
   if (brightness < 1.0 / 17.0) return true;
-  
+
   // Calculate position in 4x4 dither matrix
-  vec2 pixel = floor(mod(pos.xy / gridSize, 4.0));
+  vec2 pixel = floor(mod(pos.xy / gs, 4.0));
   int x = int(pixel.x);
   int y = int(pixel.y);
   
@@ -61,29 +63,32 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   vec2 fragCoord = uv * resolution;
   vec3 baseColor;
 
+  // Scale gridSize from CSS pixels to framebuffer pixels, rounding for clean alignment
+  float effectiveGridSize = max(1.0, floor(gridSize * dpr + 0.5));
+
   // Apply pixelation effect based on grid size and ratio
-  float pixelSize = gridSize * pixelSizeRatio;
+  float pixelSize = effectiveGridSize * pixelSizeRatio;
   vec2 pixelatedUV = floor(fragCoord / pixelSize) * pixelSize / resolution;
   baseColor = texture2D(inputBuffer, pixelatedUV).rgb;
-  
+
   // Calculate luminance for each pixel (original implementation)
   float luminance = dot(baseColor, vec3(1.,1.,1.));
-  
+
   // Apply grayscale if enabled
   if (grayscaleOnly > 0.0) {
     baseColor = vec3(luminance);
   }
-      
+
   // Apply dither pattern based on pixel position and luminance
-  bool dithered = getValue(luminance, fragCoord);
-  
+  bool dithered = getValue(luminance, fragCoord, effectiveGridSize);
+
   // Create dithered version of the pixel
   vec3 ditherColor = dithered ? vec3(0.0) : baseColor;
-  
+
   // Apply dither only to the specific pixelated UV coordinate
   vec2 currentPixel = floor(fragCoord / pixelSize);
   vec2 originalPixel = floor(uv * resolution / pixelSize);
-  
+
   baseColor = (currentPixel == originalPixel) ? ditherColor : baseColor;
 
   // Invert color if requested

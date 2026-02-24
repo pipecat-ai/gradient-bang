@@ -58,15 +58,17 @@ export const zoomLevels = (() => {
   )
   // Ensure DEFAULT_MAX_BOUNDS is included as a snap point
   if (!levels.includes(DEFAULT_MAX_BOUNDS)) {
-    const closest = levels.reduce((best, val, i) =>
-      Math.abs(val - DEFAULT_MAX_BOUNDS) < Math.abs(levels[best] - DEFAULT_MAX_BOUNDS) ? i : best, 0)
+    const closest = levels.reduce(
+      (best, val, i) =>
+        Math.abs(val - DEFAULT_MAX_BOUNDS) < Math.abs(levels[best] - DEFAULT_MAX_BOUNDS) ? i : best,
+      0
+    )
     levels[closest] = DEFAULT_MAX_BOUNDS
   }
   return Array.from(new Set(levels)).sort((a, b) => a - b)
 })()
 
-export const clampZoomIndex = (index: number) =>
-  Math.max(0, Math.min(zoomLevels.length - 1, index))
+export const clampZoomIndex = (index: number) => Math.max(0, Math.min(zoomLevels.length - 1, index))
 
 export const getClosestZoomIndex = (zoomLevel: number) => {
   let closestIndex = 0
@@ -182,10 +184,7 @@ export const addCoverageRect = (existing: WorldRect[], rect: WorldRect): WorldRe
 }
 
 /** Create a WorldRect from a fetch center (world coords) and hex-distance bounds. */
-export const buildCoverageRect = (
-  centerWorld: [number, number],
-  bounds: number,
-): WorldRect => {
+export const buildCoverageRect = (centerWorld: [number, number], bounds: number): WorldRect => {
   const maxWorldDistance = bounds * SQRT3
   return {
     minX: centerWorld[0] - maxWorldDistance - COVERAGE_PADDING_WORLD,
@@ -388,4 +387,42 @@ export const computeMapFit = (
     fitBoundsWorld: bounds ? [bounds.minX, bounds.maxX, bounds.minY, bounds.maxY] : undefined,
     zoomLevel: Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, targetZoom)),
   }
+}
+
+/**
+ * Checks if a ship's current position has deviated from its plotted course.
+ * A deviation occurs when the current sector is not in the planned path.
+ *
+ * @param coursePlot - The plotted course containing the path and destination, can be null/undefined
+ * @param current_sector_id - The ID of the sector the ship is currently in
+ * @param falseIfFinished - If true, returns false when at destination (default: false)
+ * @returns true if the ship is off course, false if on course, at destination (when falseIfFinished=true), or no course is plotted
+ *
+ * @example
+ * ```ts
+ * const plot = {
+ *   from_sector: 1,
+ *   to_sector: 5,
+ *   path: [1, 2, 3, 4, 5]
+ * };
+ *
+ * hasDeviatedFromCoursePlot(plot, 3, false); // false - on course
+ * hasDeviatedFromCoursePlot(plot, 10, false); // true - off course
+ * hasDeviatedFromCoursePlot(plot, 5, true); // false - at destination
+ * hasDeviatedFromCoursePlot(plot, 5, false); // false - still on path
+ * hasDeviatedFromCoursePlot(null, 3, false); // false - no plot
+ * ```
+ */
+export const hasDeviatedFromCoursePlot = (
+  coursePlot: CoursePlot | null | undefined,
+  current_sector_id: number,
+  falseIfFinished: boolean = false
+) => {
+  if (!coursePlot) {
+    return false
+  }
+  if (falseIfFinished && coursePlot.to_sector === current_sector_id) {
+    return false
+  }
+  return !coursePlot.path.includes(current_sector_id)
 }

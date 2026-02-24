@@ -1,29 +1,24 @@
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo } from "react"
 import { button, folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 
 import { getPaletteNames } from "@/colors"
-import { DEFAULT_DPR, PANEL_ORDERING } from "@/constants"
+import { DEFAULT_DPR, MAX_RENDER_PIXELS, PANEL_ORDERING } from "@/constants"
 import { useSceneChange } from "@/hooks/useSceneChange"
 import { useShowControls } from "@/hooks/useStarfieldControls"
-import type { PerformanceProfile } from "@/types"
 import { useGameStore } from "@/useGameStore"
 import { generateRandomScene } from "@/utils/scene"
 
-function getDprForProfile(profile?: PerformanceProfile): number {
-  // Auto profile will dynamically adjust based on GPU tier
-  if (profile === "auto") return DEFAULT_DPR.high
-  // Otherwise use the default DPR for the profile
-  return profile ? DEFAULT_DPR[profile] : DEFAULT_DPR.high
+function getClampedDpr(): number {
+  // Clamp so the framebuffer doesn't exceed MAX_RENDER_PIXELS on large displays
+  const canvasPixels = window.innerWidth * window.innerHeight
+  const maxDpr = Math.sqrt(MAX_RENDER_PIXELS / canvasPixels)
+  return Math.min(DEFAULT_DPR.high, maxDpr)
 }
 
-export const useDevControls = ({
-  profile,
-}: {
-  profile?: PerformanceProfile
-}) => {
+export const useDevControls = () => {
   const showControls = useShowControls()
-  const defaultDpr = useMemo(() => getDprForProfile(profile), [profile])
+  const defaultDpr = useMemo(() => getClampedDpr(), [])
 
   const togglePause = useGameStore((state) => state.togglePause)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
@@ -34,7 +29,6 @@ export const useDevControls = ({
   const isSceneCooldownActive = useGameStore(
     (state) => state.isSceneCooldownActive
   )
-  const performanceProfile = useGameStore((state) => state.performanceProfile)
   const setLookAtTarget = useGameStore((state) => state.setLookAtTarget)
 
   const { changeScene } = useSceneChange()
@@ -129,21 +123,6 @@ export const useDevControls = ({
         : {}) as Schema
   )
   const levaDpr = (levaValues as { dpr?: number }).dpr
-
-  // Sync: profile changes -> DPR control
-  const prevProfileRef = useRef<PerformanceProfile | null>(null)
-  useEffect(() => {
-    if (!showControls) return
-    if (performanceProfile && prevProfileRef.current !== performanceProfile) {
-      const newDpr = getDprForProfile(performanceProfile)
-      try {
-        setControls({ dpr: newDpr })
-      } catch {
-        // Controls not mounted yet
-      }
-      prevProfileRef.current = performanceProfile
-    }
-  }, [performanceProfile, setControls, showControls])
 
   // Sync: store palette -> Leva controls
   useEffect(() => {

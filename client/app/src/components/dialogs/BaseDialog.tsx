@@ -28,6 +28,7 @@ const SIZE_MAP: Record<string, string> = {
   lg: "max-w-xl",
   xl: "max-w-2xl",
   "2xl": "max-w-3xl",
+  "3xl": "max-w-4xl",
   full: "w-screen",
 }
 
@@ -115,15 +116,15 @@ export const BaseDialog = ({
                   contentClassName
                 )}
                 onPointerDownOutside={
-                  dismissOnClickOutside
-                    ? undefined
-                    : (e) => {
-                        // Allow the close button to still work
-                        const target = e.detail.originalEvent.target as HTMLElement
-                        if (!target.closest("[data-modal-close]")) {
-                          e.preventDefault()
-                        }
+                  dismissOnClickOutside ? undefined : (
+                    (e) => {
+                      // Allow the close button to still work
+                      const target = e.detail.originalEvent.target as HTMLElement
+                      if (!target.closest("[data-modal-close]")) {
+                        e.preventDefault()
                       }
+                    }
+                  )
                 }
                 onOpenAutoFocus={onOpenAutoFocus}
                 onCloseAutoFocus={onCloseAutoFocus}
@@ -133,7 +134,10 @@ export const BaseDialog = ({
                   {children}
                 </motion.div>
               </Dialog.Content>
-              <motion.div {...CONTENT_ANIMATION} className="fixed top-0 right-0 z-100 pointer-events-auto">
+              <motion.div
+                {...CONTENT_ANIMATION}
+                className="fixed top-0 right-0 z-100 pointer-events-auto"
+              >
                 <ModalCloseButton handleClose={handleClose} />
               </motion.div>
             </>

@@ -13,6 +13,8 @@ import { SectorBadge } from "../SectorBadge"
 import SectorMap, { type MapConfig } from "../SectorMap"
 
 const MINIMAP_CONFIG: MapConfig = {
+  camera_viewport_mode: "viewport_rect",
+  frame_padding: 1,
   hoverable: true,
   show_sector_ids: false,
   show_sector_ids_hover: true,

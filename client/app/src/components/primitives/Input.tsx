@@ -33,10 +33,13 @@ function Input({
   type,
   variant,
   size,
+  ref,
   ...props
-}: Omit<React.ComponentProps<"input">, "size"> & VariantProps<typeof inputVariants>) {
+}: Omit<React.ComponentProps<"input">, "size"> &
+  VariantProps<typeof inputVariants> & { ref?: React.Ref<HTMLInputElement> }) {
   return (
     <input
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(inputVariants({ variant, size, className }))}

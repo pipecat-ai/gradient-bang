@@ -19,8 +19,6 @@ export interface SettingsSlice {
     renderStarfield: boolean
     soundFXVolume: number
     startMuted: boolean
-    fxBypassFlash: boolean
-    fxBypassAnimation: boolean
     qualityPreset: PerformanceProfile
     saveSettings: boolean
     showMobileWarning: boolean
@@ -51,9 +49,7 @@ const defaultSettings = {
   renderStarfield: true,
   soundFXVolume: 0.5,
   startMuted: false,
-  fxBypassFlash: false,
-  fxBypassAnimation: false,
-  qualityPreset: "high",
+  qualityPreset: "auto",
   saveSettings: true,
   showMobileWarning: true,
   bypassAssetCache: false,

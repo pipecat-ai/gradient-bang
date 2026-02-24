@@ -17,6 +17,7 @@ export type QuestCompletionData =
 export interface QuestSlice {
   quests: Quest[]
   setQuests: (quests: Quest[]) => void
+  updateQuestStepProgress: (questId: string, stepIndex: number, currentValue: number) => void
   updateQuestStepCompleted: (questId: string, stepIndex: number, nextStep?: QuestStep) => void
   completeQuest: (questId: string) => void
   getActiveQuests: () => Quest[]
@@ -40,6 +41,17 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
         )
         if (codecQuest) {
           ;(state as Record<string, any>).notifications.incomingCodec = codecQuest.quest_id
+        }
+      })
+    ),
+
+  updateQuestStepProgress: (questId: string, stepIndex: number, currentValue: number) =>
+    set(
+      produce((state) => {
+        const quest = state.quests.find((q: Quest) => q.quest_id === questId)
+        if (!quest || !quest.current_step) return
+        if (quest.current_step.step_index === stepIndex) {
+          quest.current_step.current_value = currentValue
         }
       })
     ),

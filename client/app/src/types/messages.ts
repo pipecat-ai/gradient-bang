@@ -407,6 +407,20 @@ export interface ChatHistoryMessage extends ServerMessagePayload {
   total_count: number
 }
 
+export interface ShipRenameMessage extends ServerMessagePayload {
+  ship_id: string
+  ship_name: string
+  ship_type: string
+  previous_ship_name: string
+  actor_id: string
+  actor_name: string
+  corp_id: string | null
+  owner_type: "personal" | "corporation"
+  owner_character_id: string | null
+  owner_corporation_name: string | null
+  timestamp: string
+}
+
 export interface ShipsListMessage extends ServerMessagePayload {
   ships: ShipSelf[]
 }
@@ -486,6 +500,14 @@ export interface QuestStepCompletedMessage extends ServerMessagePayload {
   step_name: string
   step_index: number
   next_step?: QuestStep
+}
+
+export interface QuestProgressMessage extends ServerMessagePayload {
+  quest_id: string
+  step_id: string
+  step_index: number
+  current_value: number
+  target_value: number
 }
 
 export interface QuestCompletedMessage extends ServerMessagePayload {

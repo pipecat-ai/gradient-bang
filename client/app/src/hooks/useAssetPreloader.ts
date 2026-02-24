@@ -24,25 +24,14 @@ const preloadImage = (url: string): Promise<void> => {
   })
 }
 
-// Preload audio
+// Preload audio (fetch into HTTP cache; audio store decodes via Web Audio API on first use)
 const preloadAudio = (url: string): Promise<void> => {
-  return new Promise((resolve) => {
-    const audio = new Audio()
-
-    const onReady = () => {
-      resolve()
-    }
-
-    const onError = (e: unknown) => {
-      console.warn(`[PRELOAD] Audio load failed: ${url}`, e)
-      resolve() // Don't block on audio failure
-    }
-
-    audio.addEventListener("canplaythrough", onReady, { once: true })
-    audio.addEventListener("error", onError, { once: true })
-    audio.src = url
-    audio.load()
-  })
+  return fetch(url)
+    .then((res) => res.arrayBuffer())
+    .then(() => undefined)
+    .catch((err) => {
+      console.warn(`[PRELOAD] Audio load failed: ${url}`, err)
+    })
 }
 
 // Preload a video (just fetch to populate cache)
