@@ -37,7 +37,7 @@ export const ShipDetailsCallout = ({ ship_type }: { ship_type: string }) => {
         <ShipDetailsItem
           label="Shields"
           icon={<ShieldIcon weight="duotone" className="size-5" />}
-          value={shipDefinition.cargo_holds}
+          value={shipDefinition.shields}
         />
         <ShipDetailsItem
           label="Fighters"
