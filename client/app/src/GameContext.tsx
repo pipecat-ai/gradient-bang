@@ -652,6 +652,18 @@ export function GameProvider({ children }: GameProviderProps) {
               }
               gameStore.updateSector(data as Sector)
 
+              // Propagate garrison changes to map data so sector nodes re-render
+              const sectorData = data as Sector
+              const mapGarrison = sectorData.garrison
+                ? {
+                    player_id: sectorData.garrison.owner_id,
+                    corporation_id: null as string | null,
+                  }
+                : null
+              gameStore.updateMapSectors([
+                { id: data.id, garrison: mapGarrison },
+              ])
+
               // Note: not updating activity log as redundant from other logs
 
               //gameStore.addActivityLogEntry({

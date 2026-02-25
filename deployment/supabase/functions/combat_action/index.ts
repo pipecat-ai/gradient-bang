@@ -423,6 +423,41 @@ async function buildActionState(params: {
       actorCombatantId: participant.combatant_id,
       targetIdRaw: targetId,
     });
+    // Prevent friendly fire against own garrison or corpmate garrison
+    const targetParticipant = encounter.participants[targetId];
+    if (targetParticipant?.combatant_type === "garrison") {
+      const actorOwnerId =
+        participant.owner_character_id ?? participant.combatant_id;
+      const garrisonOwnerId = targetParticipant.owner_character_id;
+      if (garrisonOwnerId && garrisonOwnerId === actorOwnerId) {
+        const err = new Error(
+          "Cannot attack your own garrison",
+        ) as Error & { status?: number };
+        err.status = 400;
+        throw err;
+      }
+      // Check corporation membership
+      const actorMeta = (participant.metadata ?? {}) as Record<string, unknown>;
+      const garrisonMeta = (targetParticipant.metadata ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const actorCorpId =
+        typeof actorMeta.corporation_id === "string"
+          ? actorMeta.corporation_id
+          : null;
+      const garrisonCorpId =
+        typeof garrisonMeta.owner_corporation_id === "string"
+          ? garrisonMeta.owner_corporation_id
+          : null;
+      if (actorCorpId && garrisonCorpId && actorCorpId === garrisonCorpId) {
+        const err = new Error(
+          "Cannot attack a garrison owned by your corporation",
+        ) as Error & { status?: number };
+        err.status = 400;
+        throw err;
+      }
+    }
     commit = Math.max(
       1,
       Math.min(commit || participant.fighters, participant.fighters),

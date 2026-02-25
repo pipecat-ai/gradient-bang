@@ -72,6 +72,15 @@ export async function resolveEncounterRound(options: {
     outcome.end_state = "toll_satisfied";
   }
 
+  // Check if all remaining combatants are on the same side (friendly).
+  // This handles the case where a garrison owner and their garrison are the
+  // only survivors — combat should end immediately rather than continuing.
+  if (!outcome.end_state) {
+    if (allSurvivorsAreFriendly(encounter, outcome, corpMap)) {
+      outcome.end_state = "no_hostiles";
+    }
+  }
+
   encounter.logs.push({
     round_number: outcome.round_number,
     actions: combinedActions,
@@ -260,6 +269,48 @@ function buildCorporationMap(
     }
   }
   return map;
+}
+
+/**
+ * Check if all surviving (fighters > 0, not fled) combatants are on the same
+ * side.  Two combatants are friendly when they share an owner_character_id or
+ * belong to the same corporation.
+ */
+function allSurvivorsAreFriendly(
+  encounter: CombatEncounterState,
+  outcome: CombatRoundOutcome,
+  corps: Map<string, string | null>,
+): boolean {
+  const livingIds = Object.keys(outcome.fighters_remaining).filter(
+    (pid) =>
+      (outcome.fighters_remaining[pid] ?? 0) > 0 && !outcome.flee_results[pid],
+  );
+
+  if (livingIds.length <= 1) {
+    return false; // Already handled by normal end-state logic
+  }
+
+  // Collect the effective owner for each survivor
+  const owners = new Set<string>();
+  for (const pid of livingIds) {
+    const participant = encounter.participants[pid];
+    if (!participant) continue;
+    owners.add(participant.owner_character_id ?? participant.combatant_id);
+  }
+
+  // All same owner (e.g. player + their garrison)
+  if (owners.size <= 1) {
+    return true;
+  }
+
+  // All same corporation
+  const corpIds = new Set<string>();
+  for (const ownerId of owners) {
+    const cid = corps.get(ownerId);
+    if (!cid) return false; // Owner without a corp → can't all be same corp
+    corpIds.add(cid);
+  }
+  return corpIds.size === 1;
 }
 
 function buildTimeoutActions(
