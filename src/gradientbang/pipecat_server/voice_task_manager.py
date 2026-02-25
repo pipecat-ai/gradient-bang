@@ -884,6 +884,11 @@ class VoiceTaskManager:
     ) -> Optional[str]:
         if not ctx or not character_id:
             return None
+        # Post-denormalization: reason is directly on the event context
+        ctx_reason = ctx.get("reason")
+        if isinstance(ctx_reason, str):
+            return ctx_reason
+        # Fallback: search recipient_ids/reasons arrays (backwards compat)
         recipient_ids = ctx.get("recipient_ids")
         recipient_reasons = ctx.get("recipient_reasons")
         if (
@@ -898,14 +903,6 @@ class VoiceTaskManager:
                     and isinstance(reason, str)
                 ):
                     return reason
-        ctx_character_id = ctx.get("character_id")
-        ctx_reason = ctx.get("reason")
-        if (
-            isinstance(ctx_character_id, str)
-            and ctx_character_id == character_id
-            and isinstance(ctx_reason, str)
-        ):
-            return ctx_reason
         return None
 
     def _prune_request_ids(self, now: Optional[float] = None) -> None:
