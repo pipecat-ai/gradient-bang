@@ -95,7 +95,7 @@ export const Starfield = () => {
     <Suspense fallback={null}>
       <motion.div
         className={cn(
-          "absolute inset-0 z-(--z-starfield) overflow-hidden",
+          "absolute inset-0 z-(--z-starfield) overflow-hidden bg-black",
           lookMode ? "cursor-look-mode" : ""
         )}
         initial={{ opacity: 0 }}
