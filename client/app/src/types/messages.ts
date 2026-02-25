@@ -351,6 +351,18 @@ export interface CombatEndedMessage extends CombatRoundResolvedMessage {
   ship?: CombatEndedShipSnapshot
 }
 
+export interface FighterPurchaseMessage extends ServerMessagePayload {
+  sector: { id: number }
+  units: number
+  price_per_unit: number
+  total_cost: number
+  fighters_before: number
+  fighters_after: number
+  max_fighters: number
+  credits_before: number
+  credits_after: number
+}
+
 export interface GarrisonDeployedMessage extends ServerMessagePayload {
   sector: { id: number }
   garrison: CombatGarrisonSnapshot

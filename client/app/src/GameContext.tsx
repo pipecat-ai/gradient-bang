@@ -886,6 +886,12 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "fighter.purchase": {
+              console.debug("[GAME EVENT] Fighter purchase", e.payload)
+              // Noop — status.update is dispatched immediately after fighter purchase
+              break
+            }
+
             case "warp.transfer":
             case "credits.transfer": {
               const eventType = e.event as "warp.transfer" | "credits.transfer"

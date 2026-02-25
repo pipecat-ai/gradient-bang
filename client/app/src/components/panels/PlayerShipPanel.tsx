@@ -1,9 +1,9 @@
 import { useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
-import { CircleNotchIcon, UserIcon, XIcon } from "@phosphor-icons/react"
+import { CircleNotchIcon, ShieldIcon, UserIcon, XIcon } from "@phosphor-icons/react"
 
-import { CreditsIcon, CurrentSectorIcon } from "@/icons"
+import { CreditsIcon, CurrentSectorIcon, FighterIcon, FuelIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatCurrency } from "@/utils/formatting"
 import { shipTypeVerbose } from "@/utils/game"
@@ -55,7 +55,7 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
           <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
           <div className="text-xxs text-subtle-foreground">{shipTypeVerbose(ship.ship_type)}</div>
         </div>
-        <div className="text-sm text-subtle-foreground flex flex-row gap-2 items-center min-w-0">
+        <div className="text-sm text-subtle-foreground flex flex-row gap-ui-xxs items-center min-w-0">
           <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">
             <CurrentSectorIcon weight="duotone" className="size-4" />
             <span className="min-w-9 text-right text-muted-foreground">{ship.sector}</span>
@@ -90,12 +90,25 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
               activeTask ? "gap-1.5 text-white" : "text-accent-foreground"
             )}
           >
-            <UserIcon weight="duotone" className="size-4" />
+            <UserIcon weight="duotone" className="size-4 shrink-0" />
             <span className="truncate">{activeTask ? activeTask.actor_character_name : "---"}</span>
           </div>
         </div>
       </div>
-      <div></div>
+      <dl className="grid grid-cols-[auto_1fr] text-xxs gap-y-px my-auto">
+        <div className="grid grid-cols-subgrid col-span-2 items-center gap-x-1 py-px pr-ui-xs pl-1 bg-accent-background">
+          <FuelIcon weight="bold" className="size-3 shrink-0" />
+          <dd className="tabular-nums text-right">{ship.warp_power ?? "---"}</dd>
+        </div>
+        <div className="grid grid-cols-subgrid col-span-2 items-center gap-x-1 py-px pr-ui-xs pl-1 bg-accent-background">
+          <FighterIcon weight="bold" className="size-3" />
+          <dd className="tabular-nums text-right">{ship.fighters ?? "---"}</dd>
+        </div>
+        <div className="grid grid-cols-subgrid col-span-2 items-center gap-x-1 py-px pr-ui-xs pl-1 bg-accent-background">
+          <ShieldIcon weight="bold" className="size-3" />
+          <dd className="tabular-nums text-right">{ship.shields ?? "---"}</dd>
+        </div>
+      </dl>
     </div>
   )
 }
