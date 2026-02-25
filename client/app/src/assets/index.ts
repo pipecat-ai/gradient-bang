@@ -11,6 +11,7 @@ import autonomousLightHaulerLogo from "./images/ships/autonomous_light_hauler_lo
 import autonomousProbeLogo from "./images/ships/autonomous_probe_logo.png"
 import bulwarkDestroyerLogo from "./images/ships/bulwark_destroyer_logo.png"
 import corsairRaiderLogo from "./images/ships/corsair_raider_logo.png"
+import escapePodLogo from "./images/ships/escape_pod_logo.png"
 import kestrelLogo from "./images/ships/kestrel_courier_logo.png"
 import pikeFrigateLogo from "./images/ships/pike_frigate_logo.png"
 import pioneerLifterLogo from "./images/ships/pioneer_lifter_logo.png"
@@ -68,6 +69,7 @@ export const images = {
   sovereignStarcruiserLogo,
   sparrowScoutLogo,
   wayfarerFreighterLogo,
+  escapePodLogo,
 } as const
 
 export const portImages = {

@@ -2,7 +2,7 @@
   "name": "@gradient-bang/app",
   "description": "Gradient Bang web client",
   "private": true,
-  "version": "0.2.14",
+  "version": "0.2.15",
   "type": "module",
   "scripts": {
     "dev": "vite",
