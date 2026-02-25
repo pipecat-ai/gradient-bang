@@ -77,7 +77,7 @@ export const usePerformanceProfile = ({
           targetProfile = initialProfile
         } else {
           // Use GPU detection
-          if (tier === 1 || isMobile) {
+          if (tier === 1) {
             targetProfile = "low"
           } else if (tier === 2) {
             targetProfile = "mid"
