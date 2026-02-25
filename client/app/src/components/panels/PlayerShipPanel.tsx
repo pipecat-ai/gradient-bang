@@ -14,7 +14,6 @@ import { PlayerShipCargo } from "../PlayerShipCargo"
 import { PopoverHelper } from "../PopoverHelper"
 import { Badge } from "../primitives/Badge"
 import { Button } from "../primitives/Button"
-import { Divider } from "../primitives/Divider"
 import { DotDivider } from "../primitives/DotDivider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../primitives/Tabs"
 import { ShipEquipmentPanel } from "./ShipEquipmentPanel"
@@ -172,16 +171,16 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
                           key={ship.ship_id}
                           initial={{ height: 0, x: 40, opacity: 0 }}
                           animate={
-                            isDestroying
-                              ? {
-                                  height: "auto",
-                                  x: 0,
-                                  opacity: [...blinkOpacity, 0],
-                                  transition: {
-                                    opacity: { duration: 5.5, ease: "linear" as const },
-                                  },
-                                }
-                              : { height: "auto", x: 0, opacity: 1 }
+                            isDestroying ?
+                              {
+                                height: "auto",
+                                x: 0,
+                                opacity: [...blinkOpacity, 0],
+                                transition: {
+                                  opacity: { duration: 5.5, ease: "linear" as const },
+                                },
+                              }
+                            : { height: "auto", x: 0, opacity: 1 }
                           }
                           exit={{
                             height: 0,
@@ -297,8 +296,6 @@ export const PlayerShipTabControls = () => {
             Close
             <XIcon className="shrink-0 my-auto text-subtle" />
           </Button>
-          <Divider color="secondary" />
-          <Divider variant="dashed" className="h-ui-sm text-muted" />
         </div>
       )}
     </>

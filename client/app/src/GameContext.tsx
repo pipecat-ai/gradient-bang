@@ -1149,6 +1149,13 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Garrison deployed", e.payload)
               const data = e.payload as Msg.GarrisonDeployedMessage
 
+              const deployShipId = getPayloadShipId(data)
+              if (isCorporationShipPayload(data) && deployShipId) {
+                upsertCorporationShip(deployShipId, { fighters: data.fighters_remaining })
+              } else if (gameStore.ship?.ship_id === deployShipId) {
+                gameStore.setShip({ fighters: data.fighters_remaining })
+              }
+
               gameStore.addActivityLogEntry({
                 type: "garrison.deployed",
                 message: `Garrison deployed in [sector ${data.sector.id}] with [${data.garrison.fighters}] fighters`,
@@ -1159,6 +1166,13 @@ export function GameProvider({ children }: GameProviderProps) {
             case "garrison.collected": {
               console.debug("[GAME EVENT] Garrison collected", e.payload)
               const data = e.payload as Msg.GarrisonCollectedMessage
+
+              const collectShipId = getPayloadShipId(data)
+              if (isCorporationShipPayload(data) && collectShipId) {
+                upsertCorporationShip(collectShipId, { fighters: data.fighters_on_ship })
+              } else if (gameStore.ship?.ship_id === collectShipId) {
+                gameStore.setShip({ fighters: data.fighters_on_ship })
+              }
 
               gameStore.addActivityLogEntry({
                 type: "garrison.collected",

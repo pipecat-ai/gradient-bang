@@ -70,7 +70,7 @@ export const RHSPanelContent = ({
 
   return (
     <ScrollArea className="w-full h-full">
-      <div className={cn("flex flex-col gap-ui-sm w-full pb-12", className)}>{children}</div>
+      <div className={cn("flex flex-col gap-ui-xs w-full pb-12", className)}>{children}</div>
     </ScrollArea>
   )
 }
@@ -82,7 +82,7 @@ export const RHSPanelContainer = () => {
 
   return (
     <div
-      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/40 border-t border-l"
+      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/60 border-t border-l"
       id="panel-container"
     >
       {activePanel !== "task_stream" && (
