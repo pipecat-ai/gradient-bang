@@ -4,7 +4,10 @@
   },
   "permissions":{
     "allow":[
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(set -a)",
+      "Bash(source:*)",
+      "Bash(set:*)"
     ]
   }
 }
