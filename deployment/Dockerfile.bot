@@ -11,6 +11,11 @@ ENV PCC_LOG_FEATURES_SUMMARY=true
 
 ENV PYTHONPATH=/app
 
+# Install Deno for running edge functions locally
+RUN curl -fsSL https://deno.land/install.sh | sh
+ENV DENO_DIR=/root/.deno
+ENV PATH="${DENO_DIR}/bin:${PATH}"
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
@@ -27,3 +32,9 @@ COPY src/gradientbang/prompts/ gradientbang/prompts/
 COPY src/gradientbang/pipecat_server/ gradientbang/pipecat_server/
 
 COPY src/gradientbang/pipecat_server/bot.py bot.py
+
+# Copy edge function source for local API server
+COPY deployment/supabase/functions/ /app/edge-functions/
+
+# Pre-cache Deno dependencies for faster cold starts
+RUN cd /app/edge-functions && deno cache server.ts || true
