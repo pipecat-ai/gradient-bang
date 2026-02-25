@@ -93,10 +93,10 @@ export const ActivityStream = () => {
 
   return (
     <Card
-      className="relative flex h-full w-full border-none overflow-hidden bg-transparent py-ui-md"
+      className="relative flex h-full w-full border-none overflow-hidden bg-transparent py-ui-md z-90"
       size="none"
     >
-      <CardContent className="flex flex-col gap-2 overflow-y-auto flex-1 justify-center">
+      <CardContent className="flex flex-col gap-2 overflow-y-auto flex-1 justify-end">
         <AnimatePresence mode="popLayout">
           {visibleEntries.map((item) => (
             <LogEntryRow
@@ -156,40 +156,36 @@ const LogEntryRow = React.memo(
       return () => clearTimeout(timer)
     }, [count, onExpire])
 
-    // Mark as no longer initial mount after first render
+    // Mark as no longer initial mount after slide-in completes
     React.useEffect(() => {
-      setIsInitialMount(false)
+      const timer = setTimeout(
+        () => setIsInitialMount(false),
+        (SLIDE_DELAY + SLIDE_DURATION) * 1000
+      )
+      return () => clearTimeout(timer)
     }, [])
-
-    // Calculate timing values for opacity keyframes
-    const totalOpacityDuration = SLIDE_DELAY + (FADE_DELAY_MS + FADE_OUT_DURATION * 1000) / 1000
-    const opacityTimes = [
-      0,
-      SLIDE_DELAY / totalOpacityDuration,
-      (SLIDE_DELAY + FADE_DELAY_MS / 1000) / totalOpacityDuration,
-      1,
-    ]
 
     const animate = {
       x: 0,
-      opacity: isInitialMount ? [0, 1, 1, FADE_OPACITY] : [1, 1, FADE_OPACITY],
+      opacity: isInitialMount ? 1 : [1, 1, FADE_OPACITY],
     }
 
-    const transition = isInitialMount ?
-      {
-        x: { duration: SLIDE_DURATION, delay: SLIDE_DELAY, ease: SLIDE_EASE },
-        opacity: { duration: totalOpacityDuration, times: opacityTimes, ease: FADE_EASE },
-        layout: { duration: 0.3, ease: "easeInOut" as const },
-      }
-    : {
-        x: { duration: 0 },
-        opacity: {
-          duration: (FADE_DELAY_MS + FADE_OUT_DURATION * 1000) / 1000,
-          times: [0, FADE_DELAY_MS / (FADE_DELAY_MS + FADE_OUT_DURATION * 1000), 1],
-          ease: FADE_EASE,
-        },
-        layout: { duration: 0.3, ease: "easeInOut" as const },
-      }
+    const transition =
+      isInitialMount ?
+        {
+          x: { duration: SLIDE_DURATION, delay: SLIDE_DELAY, ease: SLIDE_EASE },
+          opacity: { duration: SLIDE_DURATION, delay: SLIDE_DELAY, ease: SLIDE_EASE },
+          layout: { duration: 0.3, ease: "easeInOut" as const },
+        }
+      : {
+          x: { duration: 0 },
+          opacity: {
+            duration: (FADE_DELAY_MS + FADE_OUT_DURATION * 1000) / 1000,
+            times: [0, FADE_DELAY_MS / (FADE_DELAY_MS + FADE_OUT_DURATION * 1000), 1],
+            ease: FADE_EASE,
+          },
+          layout: { duration: 0.3, ease: "easeInOut" as const },
+        }
 
     return (
       <motion.div

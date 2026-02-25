@@ -229,7 +229,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
     <div className="group relative flex flex-row gap-3 w-full h-full">
       <div className="flex-1 relative">
         <MapNodeDetails node={hoveredNode} />
-        <header className="absolute top-ui-sm right-ui-sm flex flex-col gap-ui-xs w-fit h-fit">
+        <header className="absolute top-ui-sm right-ui-sm flex flex-col gap-ui-xs w-fit h-fit z-20">
           <MapZoomControls disabled={isFetching || !mapData} />
         </header>
 
@@ -245,28 +245,30 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
         )}
 
         {mapData ?
-          <SectorMap
-            center_sector_id={mapCenterSector ?? sector?.id}
-            current_sector_id={sector ? sector.id : undefined}
-            config={mapConfig}
-            map_data={mapData ?? []}
-            maxDistance={mapZoomLevel ?? DEFAULT_MAX_BOUNDS}
-            showLegend={false}
-            onNodeClick={updateCenterSector}
-            onNodeEnter={(node) => {
-              setHoveredNode(node)
-            }}
-            onNodeExit={() => {
-              setHoveredNode(null)
-            }}
-            onMapFetch={handleMapFetch}
-            coursePlot={coursePlot ?? null}
-            ships={shipSectors}
-            center_world={mapCenterWorld}
-            fit_bounds_world={mapFitBoundsWorld}
-            mapFitEpoch={mapFitEpoch}
-            mapResetEpoch={mapResetEpoch}
-          />
+          <div className="absolute inset-0">
+            <SectorMap
+              center_sector_id={mapCenterSector ?? sector?.id}
+              current_sector_id={sector ? sector.id : undefined}
+              config={mapConfig}
+              map_data={mapData ?? []}
+              maxDistance={mapZoomLevel ?? DEFAULT_MAX_BOUNDS}
+              showLegend={false}
+              onNodeClick={updateCenterSector}
+              onNodeEnter={(node) => {
+                setHoveredNode(node)
+              }}
+              onNodeExit={() => {
+                setHoveredNode(null)
+              }}
+              onMapFetch={handleMapFetch}
+              coursePlot={coursePlot ?? null}
+              ships={shipSectors}
+              center_world={mapCenterWorld}
+              fit_bounds_world={mapFitBoundsWorld}
+              mapFitEpoch={mapFitEpoch}
+              mapResetEpoch={mapResetEpoch}
+            />
+          </div>
         : <div className="relative w-full h-full flex items-center justify-center cross-lines-white/50 cross-lines-offset-12">
             <div className="elbow relative z-99 flex flex-col gap-3 bg-black border border-border p-6 animate-in fade-in-0 duration-300">
               <video

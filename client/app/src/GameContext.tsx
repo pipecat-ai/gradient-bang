@@ -184,14 +184,12 @@ export function GameProvider({ children }: GameProviderProps) {
             return undefined
           }
 
-          const isKnownCorporationShip = (shipId: string | undefined): boolean => {
+          const isKnownFleetShip = (shipId: string | undefined): boolean => {
             if (!shipId) {
               return false
             }
             const ships = useGameStore.getState().ships.data ?? []
-            return ships.some(
-              (ship) => ship.ship_id === shipId && ship.owner_type === "corporation"
-            )
+            return ships.some((ship) => ship.ship_id === shipId)
           }
 
           const isCorporationShipPayload = (payload: Msg.ServerMessagePayload): boolean => {
@@ -213,7 +211,7 @@ export function GameProvider({ children }: GameProviderProps) {
               return true
             }
 
-            return isKnownCorporationShip(getPayloadShipId(payload))
+            return isKnownFleetShip(getPayloadShipId(payload))
           }
 
           const upsertCorporationShip = (
@@ -346,26 +344,29 @@ export function GameProvider({ children }: GameProviderProps) {
                   ship: status.ship,
                   sector: status.sector,
                 })
-              } else if (isCorporationShipPayload(status)) {
-                const shipId = getPayloadShipId(status)
-                if (!shipId) {
-                  console.warn(
-                    "[GAME EVENT] Status update missing ship_id for corporation ship",
-                    status
-                  )
-                  break
-                }
-                const shipUpdate: Partial<ShipSelf> & { ship_id: string } = {
-                  ...status.ship,
-                  ship_id: shipId,
-                }
-                const sectorId = getPayloadSectorId(status)
-                if (typeof sectorId === "number") {
-                  shipUpdate.sector = sectorId
-                }
-                upsertCorporationShip(shipId, shipUpdate)
               } else {
-                logIgnored(e.event, `player ${status.player.id}`, status)
+                // Check if this is a fleet/corp ship status update
+                const shipId = status.ship?.ship_id ?? getPayloadShipId(status)
+                const isCorpShip = isCorporationShipPayload(status) || (shipId && isKnownFleetShip(shipId))
+
+                if (isCorpShip && shipId) {
+                  console.debug(
+                    `%c[GAME EVENT] Applying ${e.event} to fleet ship ${shipId}`,
+                    "color: #fff; background: #336",
+                    status.ship
+                  )
+                  const shipUpdate: Partial<ShipSelf> & { ship_id: string } = {
+                    ...status.ship,
+                    ship_id: shipId,
+                  }
+                  const sectorId = getPayloadSectorId(status)
+                  if (typeof sectorId === "number") {
+                    shipUpdate.sector = sectorId
+                  }
+                  upsertCorporationShip(shipId, shipUpdate)
+                } else {
+                  logIgnored(e.event, `player ${status.player.id}`, status)
+                }
               }
 
               break
@@ -533,7 +534,7 @@ export function GameProvider({ children }: GameProviderProps) {
             }
 
             case "bank.transaction": {
-              console.debug("[GAME EVENT] Deposit", e.payload)
+              console.debug("[GAME EVENT] Bank transaction", e.payload)
               const data = e.payload as Msg.BankTransactionMessage
               const payloadPlayerId = getPayloadPlayerId(data)
               const bankCharacterId = data.character_id
@@ -541,6 +542,7 @@ export function GameProvider({ children }: GameProviderProps) {
                 !!playerSessionId &&
                 ((payloadPlayerId && payloadPlayerId === playerSessionId) ||
                   (!payloadPlayerId && bankCharacterId === playerSessionId))
+
               if (!isPersonalBank) {
                 if (!payloadPlayerId && !bankCharacterId) {
                   logMissingPlayerId("bank.transaction", data)
@@ -552,8 +554,26 @@ export function GameProvider({ children }: GameProviderProps) {
                 break
               }
 
-              // Note: we do not need to update the player or ship state
-              // as status.update is dispatched immediately after
+              // Check if this is a fleet (corp) ship transaction, following
+              // the same pattern as credits.transfer
+              const bankShipId = getPayloadShipId(data)
+              if (bankShipId && isKnownFleetShip(bankShipId)) {
+                // Corp ship: update corp ship credits only. Bank balance
+                // will be updated by the subsequent status.update event.
+                upsertCorporationShip(bankShipId, { credits: data.credits_on_hand_after })
+              } else {
+                // Personal ship: update ship credits and bank balance
+                gameStore.setShip({ credits: data.credits_on_hand_after })
+                const currentPlayer = useGameStore.getState().player
+                if (currentPlayer) {
+                  gameStore.setState({
+                    player: {
+                      ...currentPlayer,
+                      credits_in_bank: data.credits_in_bank_after,
+                    },
+                  })
+                }
+              }
 
               if (data.direction === "deposit") {
                 gameStore.addActivityLogEntry({
@@ -613,6 +633,42 @@ export function GameProvider({ children }: GameProviderProps) {
               if (data.corporation) {
                 gameStore.setCorporation(data.corporation)
               }
+              gameStore.resolveFetchPromise("get-my-corporation")
+              break
+            }
+
+            case "corporation_info": {
+              console.debug("[GAME EVENT] Corporation info", e.payload)
+              const data = e.payload as Msg.CorporationInfoMessage
+              const corpData = data.result?.corporation
+              if (!corpData) {
+                break
+              }
+
+              // Update corporation data (including destroyed_ships)
+              gameStore.setCorporation(corpData)
+
+              // Update fleet ships
+              for (const ship of corpData.ships) {
+                upsertCorporationShip(ship.ship_id, {
+                  ship_id: ship.ship_id,
+                  ship_name: ship.name,
+                  ship_type: ship.ship_type,
+                  sector: ship.sector ?? undefined,
+                  owner_type: "corporation",
+                  credits: ship.credits,
+                  cargo: ship.cargo,
+                  cargo_capacity: ship.cargo_capacity,
+                  warp_power: ship.warp_power,
+                  warp_power_capacity: ship.warp_power_capacity,
+                  shields: ship.shields,
+                  max_shields: ship.max_shields,
+                  fighters: ship.fighters,
+                  max_fighters: ship.max_fighters,
+                  current_task_id: ship.current_task_id,
+                })
+              }
+
               gameStore.resolveFetchPromise("get-my-corporation")
               break
             }
@@ -886,6 +942,12 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "fighter.purchase": {
+              console.debug("[GAME EVENT] Fighter purchase", e.payload)
+              // Noop — status.update is dispatched immediately after fighter purchase
+              break
+            }
+
             case "warp.transfer":
             case "credits.transfer": {
               const eventType = e.event as "warp.transfer" | "credits.transfer"
@@ -917,8 +979,64 @@ export function GameProvider({ children }: GameProviderProps) {
                 break
               }
 
-              // Note: we do not need to update the player or ship state
-              // as status.update is dispatched immediately after
+              // Update player ship and corp ship balances
+              if (eventType === "credits.transfer") {
+                const creditsData = data as Msg.CreditsTransferMessage
+                const amount = creditsData.transfer_details.credits
+                const currentShipCredits = gameStore.ship?.credits ?? 0
+
+                if (data.transfer_direction === "sent") {
+                  gameStore.setShip({ credits: currentShipCredits - amount })
+                  const toShipId = data.to?.ship?.ship_id
+                  if (toShipId && isKnownFleetShip(toShipId)) {
+                    const corpShip = (useGameStore.getState().ships.data ?? []).find(
+                      (s) => s.ship_id === toShipId
+                    )
+                    upsertCorporationShip(toShipId, {
+                      credits: (corpShip?.credits ?? 0) + amount,
+                    })
+                  }
+                } else {
+                  gameStore.setShip({ credits: currentShipCredits + amount })
+                  const fromShipId = data.from?.ship?.ship_id
+                  if (fromShipId && isKnownFleetShip(fromShipId)) {
+                    const corpShip = (useGameStore.getState().ships.data ?? []).find(
+                      (s) => s.ship_id === fromShipId
+                    )
+                    upsertCorporationShip(fromShipId, {
+                      credits: Math.max(0, (corpShip?.credits ?? 0) - amount),
+                    })
+                  }
+                }
+              } else if (eventType === "warp.transfer") {
+                const warpData = data as Msg.WarpTransferMessage
+                const amount = warpData.transfer_details.warp_power
+                const currentWarp = gameStore.ship?.warp_power ?? 0
+
+                if (data.transfer_direction === "sent") {
+                  gameStore.setShip({ warp_power: currentWarp - amount })
+                  const toShipId = data.to?.ship?.ship_id
+                  if (toShipId && isKnownFleetShip(toShipId)) {
+                    const corpShip = (useGameStore.getState().ships.data ?? []).find(
+                      (s) => s.ship_id === toShipId
+                    )
+                    upsertCorporationShip(toShipId, {
+                      warp_power: (corpShip?.warp_power ?? 0) + amount,
+                    })
+                  }
+                } else {
+                  gameStore.setShip({ warp_power: currentWarp + amount })
+                  const fromShipId = data.from?.ship?.ship_id
+                  if (fromShipId && isKnownFleetShip(fromShipId)) {
+                    const corpShip = (useGameStore.getState().ships.data ?? []).find(
+                      (s) => s.ship_id === fromShipId
+                    )
+                    upsertCorporationShip(fromShipId, {
+                      warp_power: Math.max(0, (corpShip?.warp_power ?? 0) - amount),
+                    })
+                  }
+                }
+              }
 
               if (data.transfer_direction === "received") {
                 gameStore.triggerAlert("transfer")
@@ -1149,6 +1267,13 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Garrison deployed", e.payload)
               const data = e.payload as Msg.GarrisonDeployedMessage
 
+              const deployShipId = getPayloadShipId(data)
+              if (isCorporationShipPayload(data) && deployShipId) {
+                upsertCorporationShip(deployShipId, { fighters: data.fighters_remaining })
+              } else if (gameStore.ship?.ship_id === deployShipId) {
+                gameStore.setShip({ fighters: data.fighters_remaining })
+              }
+
               gameStore.addActivityLogEntry({
                 type: "garrison.deployed",
                 message: `Garrison deployed in [sector ${data.sector.id}] with [${data.garrison.fighters}] fighters`,
@@ -1159,6 +1284,13 @@ export function GameProvider({ children }: GameProviderProps) {
             case "garrison.collected": {
               console.debug("[GAME EVENT] Garrison collected", e.payload)
               const data = e.payload as Msg.GarrisonCollectedMessage
+
+              const collectShipId = getPayloadShipId(data)
+              if (isCorporationShipPayload(data) && collectShipId) {
+                upsertCorporationShip(collectShipId, { fighters: data.fighters_on_ship })
+              } else if (gameStore.ship?.ship_id === collectShipId) {
+                gameStore.setShip({ fighters: data.fighters_on_ship })
+              }
 
               gameStore.addActivityLogEntry({
                 type: "garrison.collected",

@@ -39,7 +39,6 @@ export const SectorPanel = () => {
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
   const setActiveModal = useGameStore.use.setActiveModal?.()
-  const player = useGameStore.use.player?.()
 
   const uiState = useGameStore.use.uiState?.()
 
@@ -66,10 +65,10 @@ export const SectorPanel = () => {
   return (
     <>
       <RHSPanelContent>
-        {sector?.garrison && sector.garrison.mode === "toll" && sector.garrison.owner_id !== player?.id && (
+        {sector?.garrison && sector.garrison.mode === "toll" && (
           <Card
             variant="stripes"
-            className="bg-warning-background m-ui-sm mb-0 stripe-frame-warning"
+            className="bg-warning-background m-ui-xs mb-0 stripe-frame-warning"
             size="xs"
           >
             <CardContent className="text-sm text-warning-foreground flex flex-col gap-ui-xs">
@@ -91,7 +90,9 @@ export const SectorPanel = () => {
           size="sm"
           className={cn(
             "border-0",
-            uiState === "combat" || sector?.garrison ? "border-b border-t" : "border-b"
+            uiState === "combat" || (sector?.garrison && sector.garrison.mode) ?
+              "border-b border-t"
+            : "border-b"
           )}
         >
           <CardHeader className="gap-0">
@@ -110,7 +111,9 @@ export const SectorPanel = () => {
                 label="Hostility"
                 value={sector?.region === "Federation Space" ? "Safe" : "Dangerous"}
                 Icon={ShieldChevronIcon}
-                valueClassName="text-success-foreground"
+                valueClassName={
+                  sector?.region === "Federation Space" ? "text-success-foreground" : "text-warning"
+                }
               />
               <RHSPanelListItem
                 label="Adjacent"

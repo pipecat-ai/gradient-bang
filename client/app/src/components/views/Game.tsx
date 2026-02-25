@@ -19,6 +19,7 @@ import { RHSPanelContainer } from "@/components/panels/RHSPanelContainer"
 import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
 import { Button } from "@/components/primitives/Button"
+import { Divider } from "@/components/primitives/Divider"
 import { QuestAcceptedOverlay } from "@/components/QuestAcceptedOverlay"
 import { QuestCompleteNotification } from "@/components/QuestCompleteNotification"
 import { ScreenContainer } from "@/components/screens/ScreenContainer"
@@ -105,12 +106,12 @@ export const Game = () => {
         <Panel className="flex flex-col">
           <TopBar />
           <main className=" @container/main relative flex-1 flex flex-col gap-0 gap-y-ui-sm">
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full pointer-events-none z-20">
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 h-60 w-full pointer-events-none z-20">
               <ActivityStream />
             </div>
 
             {uiState === "combat" && <CombatDamageVignette />}
-            <div className="flex-1">
+            <div className="flex-1 min-h-0">
               {uiState === "combat" ?
                 <CombatActionPanel />
               : <>
@@ -198,6 +199,11 @@ export const Game = () => {
             <header className="pb-separator flex flex-col gap-separator bg-black">
               <PlayerShipPanel />
             </header>
+            <div className="relative h-3 mb-(--separator)">
+              <div className="absolute -left-[calc(var(--separator)+1px)] right-0 p-(--separator) bg-background border border-r-0 shadow-[0_var(--separator)_0_0_black] mb-(--separator)">
+                <Divider variant="dashed" className="h-1 text-muted dashed-bg-horizontal-tight" />
+              </div>
+            </div>
             <div className="h-full flex-1 flex flex-col items-center justify-center overflow-hidden">
               <RHSPanelContainer />
             </div>

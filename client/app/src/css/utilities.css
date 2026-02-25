@@ -264,6 +264,16 @@
   );
 }
 
+@utility dashed-bg-horizontal-tight {
+  background-image: repeating-linear-gradient(
+    to right,
+    currentColor 0px,
+    currentColor 2px,
+    transparent 2px,
+    transparent 4px
+  );
+}
+
 @utility dashed-bg-* {
   color: --value(--color-*);
   opacity: calc(--modifier(integer) * 1%);

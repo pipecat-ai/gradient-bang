@@ -1,9 +1,9 @@
 import { useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
-import { CircleNotchIcon, UserIcon, XIcon } from "@phosphor-icons/react"
+import { CircleNotchIcon, ShieldIcon, UserIcon, XIcon } from "@phosphor-icons/react"
 
-import { CreditsIcon, CurrentSectorIcon } from "@/icons"
+import { CreditsIcon, CurrentSectorIcon, FighterIcon, FuelIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatCurrency } from "@/utils/formatting"
 import { shipTypeVerbose } from "@/utils/game"
@@ -14,7 +14,6 @@ import { PlayerShipCargo } from "../PlayerShipCargo"
 import { PopoverHelper } from "../PopoverHelper"
 import { Badge } from "../primitives/Badge"
 import { Button } from "../primitives/Button"
-import { Divider } from "../primitives/Divider"
 import { DotDivider } from "../primitives/DotDivider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../primitives/Tabs"
 import { ShipEquipmentPanel } from "./ShipEquipmentPanel"
@@ -56,7 +55,7 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
           <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
           <div className="text-xxs text-subtle-foreground">{shipTypeVerbose(ship.ship_type)}</div>
         </div>
-        <div className="text-sm text-subtle-foreground flex flex-row gap-2 items-center min-w-0">
+        <div className="text-sm text-subtle-foreground flex flex-row gap-ui-xxs items-center min-w-0">
           <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">
             <CurrentSectorIcon weight="duotone" className="size-4" />
             <span className="min-w-9 text-right text-muted-foreground">{ship.sector}</span>
@@ -91,12 +90,25 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
               activeTask ? "gap-1.5 text-white" : "text-accent-foreground"
             )}
           >
-            <UserIcon weight="duotone" className="size-4" />
+            <UserIcon weight="duotone" className="size-4 shrink-0" />
             <span className="truncate">{activeTask ? activeTask.actor_character_name : "---"}</span>
           </div>
         </div>
       </div>
-      <div></div>
+      <dl className="grid grid-cols-[auto_1fr] text-xxs gap-y-px my-auto">
+        <div className="grid grid-cols-subgrid col-span-2 items-center gap-x-1 py-px pr-ui-xs pl-1 bg-accent-background">
+          <FuelIcon weight="bold" className="size-3 shrink-0" />
+          <dd className="tabular-nums text-right">{ship.warp_power ?? "---"}</dd>
+        </div>
+        <div className="grid grid-cols-subgrid col-span-2 items-center gap-x-1 py-px pr-ui-xs pl-1 bg-accent-background">
+          <FighterIcon weight="bold" className="size-3" />
+          <dd className="tabular-nums text-right">{ship.fighters ?? "---"}</dd>
+        </div>
+        <div className="grid grid-cols-subgrid col-span-2 items-center gap-x-1 py-px pr-ui-xs pl-1 bg-accent-background">
+          <ShieldIcon weight="bold" className="size-3" />
+          <dd className="tabular-nums text-right">{ship.shields ?? "---"}</dd>
+        </div>
+      </dl>
     </div>
   )
 }
@@ -123,7 +135,7 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
   const animatingShips = destroyedShips.filter(
     (s) => s.owner_type === "corporation" && destroyingShipIds.includes(s.ship_id)
   )
-  const corpShips = [...activeCorpShips, ...animatingShips]
+  const corpShips = [...animatingShips, ...activeCorpShips]
 
   return (
     <motion.div
@@ -161,9 +173,10 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
             exit={{ opacity: 0 }}
           >
             {corpShips.length > 0 && (
-              <div className="flex flex-row gap-panel-gap px-0 py-panel-gap shrink-0">
+              <div className="relative flex flex-row gap-panel-gap px-0 py-panel-gap shrink-0">
+                <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert text-card pointer-events-none" />
                 <div className="w-2 dashed-bg-vertical-tight dashed-bg-muted ml-panel-gap"></div>
-                <div className="bg-subtle-background border border-r-0 pl-3 flex-1 overflow-hidden">
+                <div className="bg-subtle-background border border-r-0 pl-3 flex-1 overflow-y-scroll overflow-x-hidden max-h-40 @tall-lg:max-h-59 tall-lg:max-h-[23rem] pb-12">
                   <AnimatePresence initial={false}>
                     {corpShips.map((ship) => {
                       const isDestroying = destroyingShipIds.includes(ship.ship_id)
@@ -172,16 +185,16 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
                           key={ship.ship_id}
                           initial={{ height: 0, x: 40, opacity: 0 }}
                           animate={
-                            isDestroying
-                              ? {
-                                  height: "auto",
-                                  x: 0,
-                                  opacity: [...blinkOpacity, 0],
-                                  transition: {
-                                    opacity: { duration: 5.5, ease: "linear" as const },
-                                  },
-                                }
-                              : { height: "auto", x: 0, opacity: 1 }
+                            isDestroying ?
+                              {
+                                height: "auto",
+                                x: 0,
+                                opacity: [...blinkOpacity, 0],
+                                transition: {
+                                  opacity: { duration: 5.5, ease: "linear" as const },
+                                },
+                              }
+                            : { height: "auto", x: 0, opacity: 1 }
                           }
                           exit={{
                             height: 0,
@@ -199,12 +212,12 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
                         >
                           <ShipCard ship={ship} />
                           <motion.div
-                            className="absolute inset-0 cross-lines-destructive flex items-center justify-center bg-destructive-background/60"
+                            className="absolute inset-0 cross-lines-destructive cross-lines-offset-5 flex items-center justify-center bg-card/50"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: isDestroying ? 1 : 0 }}
                             transition={{ duration: 0.3 }}
                           >
-                            <span className="relative z-10 text-xs uppercase font-bold text-destructive">
+                            <span className="relative z-10 outline-1 outline-destructive text-xs uppercase font-bold bg-destructive-background text-destructive-foreground px-2 py-1">
                               Destroyed
                             </span>
                           </motion.div>
@@ -297,8 +310,6 @@ export const PlayerShipTabControls = () => {
             Close
             <XIcon className="shrink-0 my-auto text-subtle" />
           </Button>
-          <Divider color="secondary" />
-          <Divider variant="dashed" className="h-ui-sm text-muted" />
         </div>
       )}
     </>

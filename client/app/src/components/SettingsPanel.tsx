@@ -264,23 +264,6 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
 
             <Separator decorative variant="dashed" />
 
-            {/* AI */}
-            <FieldSet>
-              <FieldLegend>AI Personality</FieldLegend>
-              <FieldGroup>
-                <SettingSelect
-                  label="Voice"
-                  id="voice"
-                  value={undefined}
-                  options={["male", "female"]}
-                  placeholder="Select a voice"
-                  onChange={() => null}
-                />
-              </FieldGroup>
-            </FieldSet>
-
-            <Separator decorative variant="dashed" />
-
             {/* Visuals */}
             <FieldSet>
               <FieldLegend>Visuals</FieldLegend>
