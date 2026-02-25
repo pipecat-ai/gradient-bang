@@ -541,13 +541,24 @@ async function handleDeposit(
     sourceDisplayId,
   });
 
-  console.log("[bank_transfer.deposit] Emitting bank transaction event");
+  // For corp ships, route the bank event to the actor (the player controlling
+  // the ship). For personal ships, route to the target (the depositor).
+  const bankEventRecipient =
+    ship.owner_type === "corporation" && actorCharacterId
+      ? actorCharacterId
+      : targetCharacterId;
+
+  console.log("[bank_transfer.deposit] Emitting bank transaction event", {
+    bankEventRecipient,
+    ownerType: ship.owner_type,
+  });
   try {
     await emitBankTransaction(
       supabase,
-      targetCharacterId,
+      bankEventRecipient,
       buildDepositPayload({
         source,
+        characterId: bankEventRecipient,
         amount,
         shipId, // Use the depositing ship's ID, not the target's ship ID
         shipName: ship.ship_name,
@@ -725,6 +736,8 @@ async function handleWithdraw(
     buildWithdrawPayload({
       source,
       amount,
+      shipId: ship.ship_id,
+      shipName: ship.ship_name,
       shipCreditsBefore: ship.credits ?? 0,
       shipCreditsAfter: (ship.credits ?? 0) + amount,
       bankBefore: bankBalance,
@@ -882,6 +895,7 @@ function resolveDisplayIdFromStatus(
 
 function buildDepositPayload(params: {
   source: Record<string, unknown>;
+  characterId: string;
   amount: number;
   shipId: string;
   shipName?: string | null;
@@ -896,6 +910,7 @@ function buildDepositPayload(params: {
 }): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     source: params.source,
+    character_id: params.characterId,
     target_character_id: params.targetCharacterId,
     source_character_id: params.sourceCharacterId,
     ship_id: params.shipId,
@@ -903,8 +918,8 @@ function buildDepositPayload(params: {
     direction: "deposit",
     amount: params.amount,
     timestamp: params.timestamp,
-    ship_credits_before: params.shipCreditsBefore,
-    ship_credits_after: params.shipCreditsAfter,
+    credits_on_hand_before: params.shipCreditsBefore,
+    credits_on_hand_after: params.shipCreditsAfter,
     credits_in_bank_before: params.bankBefore,
     credits_in_bank_after: params.bankAfter,
   };
@@ -917,6 +932,8 @@ function buildDepositPayload(params: {
 function buildWithdrawPayload(params: {
   source: Record<string, unknown>;
   amount: number;
+  shipId: string;
+  shipName?: string | null;
   shipCreditsBefore: number;
   shipCreditsAfter: number;
   bankBefore: number;
@@ -928,11 +945,13 @@ function buildWithdrawPayload(params: {
   const payload: Record<string, unknown> = {
     source: params.source,
     character_id: params.characterId,
+    ship_id: params.shipId,
+    ship_name: params.shipName ?? null,
     direction: "withdraw",
     amount: params.amount,
     timestamp: params.timestamp,
-    ship_credits_before: params.shipCreditsBefore,
-    ship_credits_after: params.shipCreditsAfter,
+    credits_on_hand_before: params.shipCreditsBefore,
+    credits_on_hand_after: params.shipCreditsAfter,
     credits_in_bank_before: params.bankBefore,
     credits_in_bank_after: params.bankAfter,
   };

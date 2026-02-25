@@ -135,7 +135,7 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
   const animatingShips = destroyedShips.filter(
     (s) => s.owner_type === "corporation" && destroyingShipIds.includes(s.ship_id)
   )
-  const corpShips = [...activeCorpShips, ...animatingShips]
+  const corpShips = [...animatingShips, ...activeCorpShips]
 
   return (
     <motion.div
@@ -173,9 +173,10 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
             exit={{ opacity: 0 }}
           >
             {corpShips.length > 0 && (
-              <div className="flex flex-row gap-panel-gap px-0 py-panel-gap shrink-0">
+              <div className="relative flex flex-row gap-panel-gap px-0 py-panel-gap shrink-0">
+                <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert text-card pointer-events-none" />
                 <div className="w-2 dashed-bg-vertical-tight dashed-bg-muted ml-panel-gap"></div>
-                <div className="bg-subtle-background border border-r-0 pl-3 flex-1 overflow-hidden">
+                <div className="bg-subtle-background border border-r-0 pl-3 flex-1 overflow-y-scroll overflow-x-hidden max-h-40 @tall-lg:max-h-59 tall-lg:max-h-[23rem] pb-12">
                   <AnimatePresence initial={false}>
                     {corpShips.map((ship) => {
                       const isDestroying = destroyingShipIds.includes(ship.ship_id)
@@ -211,12 +212,12 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
                         >
                           <ShipCard ship={ship} />
                           <motion.div
-                            className="absolute inset-0 cross-lines-destructive flex items-center justify-center bg-destructive-background/60"
+                            className="absolute inset-0 cross-lines-destructive cross-lines-offset-5 flex items-center justify-center bg-card/50"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: isDestroying ? 1 : 0 }}
                             transition={{ duration: 0.3 }}
                           >
-                            <span className="relative z-10 text-xs uppercase font-bold text-destructive">
+                            <span className="relative z-10 outline-1 outline-destructive text-xs uppercase font-bold bg-destructive-background text-destructive-foreground px-2 py-1">
                               Destroyed
                             </span>
                           </motion.div>

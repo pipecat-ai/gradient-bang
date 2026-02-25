@@ -161,6 +161,8 @@ export interface KnownPortListMessage extends ServerMessagePayload {
 
 export interface BankTransactionMessage extends ServerMessagePayload {
   character_id: string
+  ship_id?: string
+  ship_name?: string
   sector: Sector
   direction: "deposit" | "withdraw"
   amount: number
@@ -475,6 +477,44 @@ export interface CorporationDisbandedMessage extends ServerMessagePayload {
   corp_id: string
   corp_name: string
   timestamp?: string
+}
+
+export interface CorporationInfoShip {
+  ship_id: string
+  ship_type: string
+  name: string
+  sector: number | null
+  owner_type: "corporation"
+  control_ready: boolean
+  credits: number
+  cargo: Record<Resource, number>
+  cargo_capacity: number
+  warp_power: number
+  warp_power_capacity: number
+  shields: number
+  max_shields: number
+  fighters: number
+  max_fighters: number
+  current_task_id: string | null
+}
+
+export interface CorporationInfoMessage extends ServerMessagePayload {
+  result: {
+    success: boolean
+    request_id: string
+    corporation: Corporation & {
+      founded: string
+      founder_id: string
+      invite_code: string
+      members: Array<{
+        character_id: string
+        name: string
+        joined_at: string
+      }>
+      ships: CorporationInfoShip[]
+      destroyed_ships: DestroyedCorporationShip[]
+    }
+  }
 }
 
 export interface CorporationShipPurchaseMessage extends ServerMessagePayload {
