@@ -137,14 +137,15 @@ export async function checkGarrisonAutoEngage(params: {
     if (!ownerId || ownerId === characterId) continue;
     if ((garrison.state.fighters ?? 0) <= 0) continue;
 
-    // Get garrison owner's corporation
-    const { data: ownerCorpData } = await supabase
-      .from("corporation_members")
-      .select("corp_id")
-      .eq("character_id", ownerId)
-      .is("left_at", null)
-      .maybeSingle();
-    const ownerCorpId = ownerCorpData?.corp_id ?? null;
+    // Get garrison owner's effective corporation (handles both player characters
+    // and corp-owned ships whose character_id won't appear in corporation_members).
+    // For corp ships, character_id = ship_id, so passing ownerId as the shipId
+    // fallback allows getEffectiveCorporationId to check ship_instances.owner_corporation_id.
+    const ownerCorpId = await getEffectiveCorporationId(
+      supabase,
+      ownerId,
+      ownerId,
+    );
 
     // Skip if same corporation
     if (charCorpId && ownerCorpId === charCorpId) continue;

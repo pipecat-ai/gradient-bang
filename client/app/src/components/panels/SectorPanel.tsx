@@ -66,7 +66,7 @@ export const SectorPanel = () => {
   return (
     <>
       <RHSPanelContent>
-        {sector?.garrison && sector.garrison.owner_id !== player?.id && (
+        {sector?.garrison && sector.garrison.mode === "toll" && sector.garrison.owner_id !== player?.id && (
           <Card
             variant="stripes"
             className="bg-warning-background m-ui-sm mb-0 stripe-frame-warning"

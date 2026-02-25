@@ -485,6 +485,17 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
                   ) as MapSectorNode["port"]
                 }
               }
+
+              // Also merge garrison data into player-visited sectors that
+              // were skipped above. Garrison placements/removals should
+              // always be reflected on the mini map.
+              for (const su of sectorUpdates) {
+                if (su.garrison === undefined) continue
+                const idx = existingIndex.get(su.id)
+                if (idx !== undefined) {
+                  mapData[idx].garrison = su.garrison
+                }
+              }
             }
           }
 

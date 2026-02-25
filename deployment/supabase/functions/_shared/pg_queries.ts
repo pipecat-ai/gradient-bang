@@ -2641,10 +2641,14 @@ export async function pgCheckGarrisonAutoEngage(
     if (!ownerId || ownerId === characterId) continue;
     if (garrison.fighters <= 0) continue;
 
-    // Get garrison owner's corporation
-    const ownerCorpResult = await pg.queryObject<{ corp_id: string }>(
-      `SELECT corp_id FROM corporation_members
-      WHERE character_id = $1 AND left_at IS NULL`,
+    // Get garrison owner's effective corporation.
+    // Check corporation_members first (player characters), then fall back to
+    // ship_instances.owner_corporation_id (corp-owned ships where character_id = ship_id).
+    const ownerCorpResult = await pg.queryObject<{ corp_id: string | null }>(
+      `SELECT COALESCE(
+        (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
+        (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $1)
+      ) as corp_id`,
       [ownerId],
     );
     const ownerCorpId = ownerCorpResult.rows[0]?.corp_id ?? null;
