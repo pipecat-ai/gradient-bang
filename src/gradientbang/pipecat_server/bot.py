@@ -57,6 +57,7 @@ from gradientbang.utils.llm_factory import (
     get_ui_agent_llm_config,
     get_voice_llm_config,
 )
+from gradientbang.utils.local_api_server import LocalApiServer
 from gradientbang.utils.prompt_loader import build_voice_agent_prompt
 
 load_dotenv(dotenv_path=".env.bot")
@@ -156,6 +157,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     if not server_url:
         raise RuntimeError("SUPABASE_URL is required to run the bot.")
     logger.info(f"Using Supabase URL: {server_url}")
+
+    # Start local API server if Postgres connection string is configured
+    local_api_server: LocalApiServer | None = None
+    if os.getenv("POSTGRES_POOLER_URL"):
+        local_api_server = LocalApiServer()
+        local_api_url = await local_api_server.start()
+        os.environ["EDGE_FUNCTIONS_URL"] = local_api_url
+        logger.info(f"Using local API server: {local_api_url}")
 
     character_id, character_display_name = await _resolve_character_identity(
         (getattr(runner_args, "body", None) or {}).get("character_id", None)
@@ -401,6 +410,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await task_manager.close()
         except Exception as exc:
             logger.error(f"Task manager close during shutdown failed: {exc}")
+
+        if local_api_server is not None:
+            try:
+                await local_api_server.stop()
+            except Exception as exc:
+                logger.error(f"Local API server stop failed: {exc}")
 
     # Patch RTVI observer to ignore LLM frames from UI branch sources.
     # This prevents UI agent inference from leaking bot-llm-text, user-llm-text,
