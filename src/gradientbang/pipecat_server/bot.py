@@ -10,17 +10,19 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     BotSpeakingFrame,
+    EndFrame,
     InterruptionFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    LLMMessagesAppendFrame,
     LLMRunFrame,
     LLMTextFrame,
     StartFrame,
     StopFrame,
+    TranscriptionFrame,
     TTSSpeakFrame,
     TTSUpdateSettingsFrame,
-    TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
@@ -44,10 +46,10 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
-from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
+from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
 
 from gradientbang.utils.llm_factory import (
@@ -263,9 +265,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 if restore_id:
                     logger.info(f"SayTextVoiceGuard: restoring voice to {restore_id}")
                     self._restore_state["voice_id"] = None
-                    await self.push_frame(
-                        TTSUpdateSettingsFrame(settings={"voice_id": restore_id})
-                    )
+                    await self.push_frame(TTSUpdateSettingsFrame(settings={"voice_id": restore_id}))
             await self.push_frame(frame, direction)
 
     say_text_voice_guard = SayTextVoiceGuard(say_text_restore_voice)
@@ -357,12 +357,26 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             enable_usage_metrics=True,
         ),
         rtvi_processor=rtvi,
+        cancel_on_idle_timeout=False,
+        idle_timeout_secs=180,
         idle_timeout_frames=(BotSpeakingFrame, UserStartedSpeakingFrame, TaskActivityFrame),
     )
 
     runner: PipelineRunner | None = None
     shutdown_lock = asyncio.Lock()
     shutdown_started = False
+
+    @task.event_handler("on_idle_timeout")
+    async def on_idle_timeout(task):
+        logger.info("Pipeline has been idle for too long")
+        messages = [
+            {
+                "role": "system",
+                "content": "The user has been idle for too long. Briefly (1-2 sentences) explain that they've been idle for too long and that you're going to disconnect in one minute.",
+            }
+        ]
+        await task.queue_frames([LLMMessagesAppendFrame(messages, run_llm=True)])
+        await task.queue_frame(EndFrame())
 
     async def _shutdown(reason: str) -> None:
         nonlocal shutdown_started
@@ -794,7 +808,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     # Best-effort restore after speak completes. If an
                     # interruption cancels this frame, SayTextVoiceGuard
                     # will restore the voice before the next LLM response.
-                    frames.append(TTSUpdateSettingsFrame(settings={"voice_id": say_text_restore_voice["voice_id"]}))
+                    frames.append(
+                        TTSUpdateSettingsFrame(
+                            settings={"voice_id": say_text_restore_voice["voice_id"]}
+                        )
+                    )
                 await task.queue_frames(frames)
             return
 
