@@ -43,14 +43,9 @@ interface EventRow {
   character_id: string | null;
   sender_id: string | null;
   ship_id: string | null;
-  event_character_recipients?: Array<{ character_id: string; reason: string }>; // joined rows
-  event_broadcast_recipients?: Array<{ event_id: number }>; // joined rows for broadcast events
-}
-
-interface EventRecipientRow {
-  event_id: number;
-  character_id: string | null;
-  reason: string | null;
+  recipient_character_id: string | null;
+  recipient_reason: string | null;
+  is_broadcast: boolean;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -131,11 +126,10 @@ async function handleEventsSinceRequest(
 }> {
   const characterIds = await resolveCharacterIds(payload);
   const corpId = optionalString(payload, "corp_id");
-  const shipIds = parseStringArray(payload, "ship_ids");
 
-  if (!characterIds.length && !corpId && !shipIds.length) {
+  if (!characterIds.length && !corpId) {
     throw new RequestValidationError(
-      "character_id, character_ids, corp_id, or ship_ids must be provided",
+      "character_id, character_ids, or corp_id must be provided",
       400,
     );
   }
@@ -153,23 +147,17 @@ async function handleEventsSinceRequest(
     return { events: [], last_event_id: lastId, has_more: false };
   }
 
-  const rows = await fetchEventsForScopes({
+  const rows = await fetchEvents({
     supabase,
     characterIds,
     corpId,
-    shipIds,
     sinceEventId,
     limit: fetchLimit,
   });
 
-  const recipientMap = await loadEventRecipients(
-    supabase,
-    rows.map((row) => row.id),
-  );
-
   const hasMore = rows.length > limit;
   const trimmed = hasMore ? rows.slice(0, limit) : rows;
-  const events = trimmed.map((row) => normalizeEventRow(row, recipientMap));
+  const events = trimmed.map((row) => normalizeEventRow(row));
   const lastEventId = events.length
     ? (events[events.length - 1].id as number)
     : sinceEventId;
@@ -257,278 +245,57 @@ async function fetchLatestEventId(
   return null;
 }
 
-async function fetchEventsForScopes(options: {
+async function fetchEvents(options: {
   supabase: SupabaseClient;
   characterIds: string[];
   corpId: string | null;
-  shipIds: string[];
   sinceEventId: number;
   limit: number;
 }): Promise<EventRow[]> {
-  const { supabase, characterIds, corpId, shipIds, sinceEventId, limit } =
-    options;
+  const { supabase, characterIds, corpId, sinceEventId, limit } = options;
 
-  const cappedLimit = Math.min(limit, 50);
-  const eventMap = new Map<number, EventRow>();
-
-  if (characterIds.length) {
-    // Fetch character-specific events (via event_character_recipients)
-    const { data: charEvents, error: charError } = await supabase
-      .from("events")
-      .select(
-        `
-          id,
-          event_type,
-          timestamp,
-          payload,
-          scope,
-          actor_character_id,
-          sector_id,
-          corp_id,
-          inserted_at,
-          task_id,
-          request_id,
-          meta,
-          direction,
-          character_id,
-          sender_id,
-          ship_id,
-          event_character_recipients!inner(character_id, reason)
-        `,
-      )
-      .in("event_character_recipients.character_id", characterIds)
-      .gt("id", sinceEventId)
-      .order("id", { ascending: true })
-      .limit(cappedLimit)
-      .returns<EventRow[]>();
-
-    if (charError) {
-      console.error("events_since.fetch_character_events", {
-        message: charError.message,
-        details: charError.details,
-        hint: charError.hint,
-        code: charError.code,
-      });
-      throw new Error(
-        `failed to load character events: ${charError.message || "unknown error"}`,
-      );
-    }
-
-    for (const event of charEvents ?? []) {
-      eventMap.set(event.id, event as EventRow);
-    }
-  }
-
-  if (corpId) {
-    const { data: corpEvents, error: corpError } = await supabase
-      .from("events")
-      .select(
-        `
-          id,
-          event_type,
-          timestamp,
-          payload,
-          scope,
-          actor_character_id,
-          sector_id,
-          corp_id,
-          inserted_at,
-          task_id,
-          request_id,
-          meta,
-          direction,
-          character_id,
-          sender_id,
-          ship_id
-        `,
-      )
-      .eq("corp_id", corpId)
-      .gt("id", sinceEventId)
-      .order("id", { ascending: true })
-      .limit(cappedLimit)
-      .returns<EventRow[]>();
-
-    if (corpError) {
-      console.error("events_since.fetch_corp_events", {
-        message: corpError.message,
-        details: corpError.details,
-        hint: corpError.hint,
-        code: corpError.code,
-      });
-      throw new Error(
-        `failed to load corp events: ${corpError.message || "unknown error"}`,
-      );
-    }
-
-    for (const event of corpEvents ?? []) {
-      if (!eventMap.has(event.id)) {
-        eventMap.set(event.id, event as EventRow);
-      }
-    }
-  }
-
-  if (shipIds.length) {
-    const { data: shipEvents, error: shipError } = await supabase
-      .from("events")
-      .select(
-        `
-          id,
-          event_type,
-          timestamp,
-          payload,
-          scope,
-          actor_character_id,
-          sector_id,
-          corp_id,
-          inserted_at,
-          task_id,
-          request_id,
-          meta,
-          direction,
-          character_id,
-          sender_id,
-          ship_id
-        `,
-      )
-      .in("ship_id", shipIds)
-      .gt("id", sinceEventId)
-      .order("id", { ascending: true })
-      .limit(cappedLimit)
-      .returns<EventRow[]>();
-
-    if (shipError) {
-      console.error("events_since.fetch_ship_events", {
-        message: shipError.message,
-        details: shipError.details,
-        hint: shipError.hint,
-        code: shipError.code,
-      });
-      throw new Error(
-        `failed to load ship events: ${shipError.message || "unknown error"}`,
-      );
-    }
-
-    for (const event of shipEvents ?? []) {
-      if (!eventMap.has(event.id)) {
-        eventMap.set(event.id, event as EventRow);
-      }
-    }
-  }
-
-  // Fetch broadcast events (via event_broadcast_recipients)
-  const { data: broadcastEvents, error: broadcastError } = await supabase
-    .from("events")
-    .select(
-      `
-        id,
-        event_type,
-        timestamp,
-        payload,
-        scope,
-        actor_character_id,
-        sector_id,
-        corp_id,
-        inserted_at,
-        task_id,
-        request_id,
-        meta,
-        direction,
-        character_id,
-        sender_id,
-        ship_id,
-        event_broadcast_recipients!inner(event_id)
-      `,
-    )
-    .gt("id", sinceEventId)
-    .order("id", { ascending: true })
-    .limit(cappedLimit)
-    .returns<EventRow[]>();
-
-  if (broadcastError) {
-    console.error("events_since.fetch_broadcast_events", {
-      message: broadcastError.message,
-      details: broadcastError.details,
-      hint: broadcastError.hint,
-      code: broadcastError.code,
-    });
-    throw new Error(
-      `failed to load broadcast events: ${broadcastError.message || "unknown error"}`,
+  const orClauses: string[] = [];
+  if (characterIds.length === 1) {
+    orClauses.push(`recipient_character_id.eq.${characterIds[0]}`);
+  } else if (characterIds.length > 1) {
+    orClauses.push(
+      `recipient_character_id.in.(${characterIds.join(",")})`,
     );
   }
-
-  for (const event of broadcastEvents ?? []) {
-    if (!eventMap.has(event.id)) {
-      // Add event_character_recipients as empty array for consistency
-      eventMap.set(event.id, {
-        ...event,
-        event_character_recipients: [],
-      } as EventRow);
-    }
+  if (corpId) {
+    orClauses.push(`corp_id.eq.${corpId}`);
   }
+  orClauses.push("is_broadcast.eq.true");
 
-  // Sort by id and apply limit
-  const merged = Array.from(eventMap.values())
-    .sort((a, b) => a.id - b.id)
-    .slice(0, limit);
-
-  return merged;
-}
-
-async function loadEventRecipients(
-  supabase: SupabaseClient,
-  eventIds: number[],
-): Promise<Map<number, Array<{ character_id: string; reason: string }>>> {
-  const recipientMap = new Map<number, Array<{ character_id: string; reason: string }>>();
-  const uniqueIds = Array.from(new Set(eventIds.filter((id) => Number.isFinite(id))));
-  if (!uniqueIds.length) {
-    return recipientMap;
-  }
   const { data, error } = await supabase
-    .from("event_character_recipients")
-    .select("event_id, character_id, reason")
-    .in("event_id", uniqueIds)
-    .returns<EventRecipientRow[]>();
+    .from("events")
+    .select(
+      "id, event_type, timestamp, payload, scope, actor_character_id, sector_id, corp_id, inserted_at, task_id, request_id, meta, direction, character_id, sender_id, ship_id, recipient_character_id, recipient_reason, is_broadcast",
+    )
+    .gt("id", sinceEventId)
+    .or(orClauses.join(","))
+    .order("id", { ascending: true })
+    .limit(limit)
+    .returns<EventRow[]>();
 
   if (error) {
-    console.error("events_since.fetch_recipients", {
+    console.error("events_since.fetch_events", {
       message: error.message,
       details: error.details,
       hint: error.hint,
       code: error.code,
     });
     throw new Error(
-      `failed to load event recipients: ${error.message || "unknown error"}`,
+      `failed to load events: ${error.message || "unknown error"}`,
     );
   }
 
-  for (const row of data ?? []) {
-    if (typeof row.event_id !== "number") {
-      continue;
-    }
-    const characterId = typeof row.character_id === "string" ? row.character_id : "";
-    const reason = typeof row.reason === "string" ? row.reason : "";
-    if (!characterId || !reason) {
-      continue;
-    }
-    const list = recipientMap.get(row.event_id);
-    if (list) {
-      list.push({ character_id: characterId, reason });
-    } else {
-      recipientMap.set(row.event_id, [{ character_id: characterId, reason }]);
-    }
-  }
-
-  return recipientMap;
+  return (data ?? []) as EventRow[];
 }
 
-function normalizeEventRow(
-  row: EventRow,
-  recipientMap: Map<number, Array<{ character_id: string; reason: string }>>,
-): JsonRecord {
-  const recipients = recipientMap.get(row.id) ?? [];
-  const recipientReason = recipients.length ? (recipients[0]?.reason ?? null) : null;
-  const recipientIds = recipients.map((recipient) => recipient.character_id);
-  const recipientReasons = recipients.map((recipient) => recipient.reason);
+function normalizeEventRow(row: EventRow): JsonRecord {
+  const recipientId = row.recipient_character_id ?? null;
+  const recipientReason = row.recipient_reason ?? null;
   const basePayload = row.payload ?? {};
   const payload =
     typeof row.task_id === "string" && row.task_id.length > 0
@@ -553,17 +320,15 @@ function normalizeEventRow(
     sender_id: row.sender_id,
     ship_id: row.ship_id,
     recipient_reason: recipientReason,
-    recipient_ids: recipientIds,
-    recipient_reasons: recipientReasons,
+    recipient_ids: recipientId ? [recipientId] : [],
+    recipient_reasons: recipientReason ? [recipientReason] : [],
     event_context: {
       event_id: row.id,
-      character_id: recipients.length
-        ? (recipients[0]?.character_id ?? null)
-        : null,
+      character_id: recipientId,
       reason: recipientReason,
       scope: row.scope,
-      recipient_ids: recipientIds,
-      recipient_reasons: recipientReasons,
+      recipient_ids: recipientId ? [recipientId] : [],
+      recipient_reasons: recipientReason ? [recipientReason] : [],
     },
   };
 }

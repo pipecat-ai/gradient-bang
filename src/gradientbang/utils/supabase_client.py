@@ -549,8 +549,6 @@ class AsyncGameClient(BaseAsyncGameClient):
         }
         if self._poll_corp_id:
             payload["corp_id"] = self._poll_corp_id
-        if self._poll_ship_ids:
-            payload["ship_ids"] = self._poll_ship_ids
         if initial_only:
             payload["initial_only"] = True
             return payload

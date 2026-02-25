@@ -46,9 +46,9 @@ interface EventRow {
   corp_id: string | null;
   task_id: string | null;
   actor_character_id: string | null;
-  event_character_recipients?:
-    | Array<{ character_id: string; reason: string }>
-    | { character_id: string; reason: string };
+  recipient_character_id: string | null;
+  recipient_reason: string | null;
+  is_broadcast: boolean;
 }
 
 interface EventQueryResult {
@@ -376,62 +376,30 @@ async function fetchEvents(options: {
     ? MAX_QUERY_RESULTS + 1
     : Math.min(limit + 1, MAX_QUERY_RESULTS + 1);
 
-  let query;
+  const selectColumns =
+    "id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta,corp_id,task_id,actor_character_id,recipient_character_id,recipient_reason,is_broadcast";
+
   const isAdminMode = !queryCharacterId && !corporationMemberIds;
 
-  // Use direct query (no recipient join) for admin mode or expanded task scope
-  // Expanded task scope queries all events matching the task_id, then post-filters
-  // for authorization (actor started it, corp member, or direct recipient)
-  const useDirectQuery = isAdminMode || expandedTaskScope;
+  let query = supabase
+    .from("events")
+    .select(selectColumns)
+    .gte("timestamp", start.toISOString())
+    .lte("timestamp", end.toISOString())
+    .order("id", { ascending })
+    .limit(dbLimit);
 
-  if (useDirectQuery) {
-    // Admin or expanded task scope mode: Query events directly without recipient filtering
-    query = supabase
-      .from("events")
-      .select(
-        "id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta,corp_id,task_id,actor_character_id",
-      )
-      .gte("timestamp", start.toISOString())
-      .lte("timestamp", end.toISOString())
-      .order("id", { ascending })
-      .limit(dbLimit);
-  } else {
-    // Character/Corporation mode: JOIN to event_character_recipients for visibility
-    query = supabase
-      .from("events")
-      .select(
-        `
-        id,
-        timestamp,
-        direction,
-        event_type,
-        character_id,
-        sender_id,
-        sector_id,
-        ship_id,
-        request_id,
-        payload,
-        meta,
-        corp_id,
-        task_id,
-        actor_character_id,
-        event_character_recipients!inner(character_id, reason)
-      `,
-      )
-      .gte("timestamp", start.toISOString())
-      .lte("timestamp", end.toISOString())
-      .order("id", { ascending })
-      .limit(dbLimit);
-
-    // Filter by recipient character_id
-    // For corporation queries, we cast a wider net and filter in post-processing
+  // For non-admin, non-expanded-scope queries: filter by recipient or corp
+  if (!isAdminMode && !expandedTaskScope) {
     if (queryCharacterId) {
-      query = query.eq(
-        "event_character_recipients.character_id",
-        queryCharacterId,
-      );
+      // Personal scope: events for this character (+ optionally broadcasts)
+      const orClauses = [`recipient_character_id.eq.${queryCharacterId}`];
+      if (includeBroadcasts) {
+        orClauses.push("is_broadcast.eq.true");
+      }
+      query = query.or(orClauses.join(","));
     }
-    // For corporation queries (corporationMemberIds is set), we don't filter recipients here
+    // For corporation queries (corporationMemberIds is set), we don't filter here
     // Instead, we'll filter in post-processing to support OR logic (member OR corp_id)
   }
 
@@ -483,105 +451,17 @@ async function fetchEvents(options: {
 
   let rows: EventRow[] = Array.isArray(data) ? (data as EventRow[]) : [];
 
-  // When include_broadcasts is enabled, fetch broadcast events separately and merge.
-  // This is needed because the main query uses an INNER JOIN on event_character_recipients
-  // which excludes broadcast events (stored in event_broadcast_recipients instead).
-  // Follows the same pattern as events_since/index.ts.
-  if (includeBroadcasts && !useDirectQuery) {
-    let broadcastQuery = supabase
-      .from("events")
-      .select(
-        `
-        id,
-        timestamp,
-        direction,
-        event_type,
-        character_id,
-        sender_id,
-        sector_id,
-        ship_id,
-        request_id,
-        payload,
-        meta,
-        corp_id,
-        task_id,
-        actor_character_id,
-        event_broadcast_recipients!inner(event_id)
-      `,
-      )
-      .gte("timestamp", start.toISOString())
-      .lte("timestamp", end.toISOString())
-      .order("id", { ascending })
-      .limit(dbLimit);
-
-    // Apply the same filters to the broadcast query
-    if (sector !== null) {
-      broadcastQuery = broadcastQuery.eq("sector_id", sector);
-    }
-    if (filterTaskId !== null) {
-      if (filterTaskId.length <= 12) {
-        broadcastQuery = broadcastQuery.ilike(
-          "task_id_prefix",
-          `${filterTaskId}%`,
-        );
-      } else {
-        broadcastQuery = broadcastQuery.eq("task_id", filterTaskId);
-      }
-    }
-    if (filterEventType !== null) {
-      broadcastQuery = broadcastQuery.eq("event_type", filterEventType);
-    }
-    if (cursor !== null) {
-      if (ascending) {
-        broadcastQuery = broadcastQuery.gt("id", cursor);
-      } else {
-        broadcastQuery = broadcastQuery.lt("id", cursor);
-      }
-    }
-
-    const { data: broadcastData, error: broadcastError } =
-      await broadcastQuery;
-    if (broadcastError) {
-      console.error("event_query.broadcast_query", broadcastError);
-      // Non-fatal: proceed with direct-message results only
-    } else {
-      // Merge broadcast events into rows, deduplicating by event ID
-      const existingIds = new Set(rows.map((r) => r.id));
-      for (const event of (broadcastData ?? []) as EventRow[]) {
-        if (!existingIds.has(event.id)) {
-          // Normalize: replace broadcast_recipients join data with empty character_recipients
-          rows.push({
-            ...event,
-            event_character_recipients: [],
-          } as EventRow);
-        }
-      }
-      // Re-sort after merge
-      rows.sort((a, b) =>
-        ascending ? a.id - b.id : b.id - a.id,
-      );
-      // Re-apply limit
-      rows = rows.slice(0, dbLimit);
-    }
-  }
-
   // For corporation queries, filter to include events where:
   // - Recipient is a corporation member OR
   // - Event is tagged with the corporation ID
   if (corporationId && corporationMemberIds && corporationMemberIds.length) {
     rows = rows.filter((row) => {
-      // Include if event is tagged with this corporation
-      if (row.corp_id === corporationId) {
+      if (row.corp_id === corporationId) return true;
+      if (
+        row.recipient_character_id &&
+        corporationMemberIds.includes(row.recipient_character_id)
+      ) {
         return true;
-      }
-      // Include if recipient is a corporation member
-      if (row.event_character_recipients) {
-        const recipients = Array.isArray(row.event_character_recipients)
-          ? row.event_character_recipients
-          : [row.event_character_recipients];
-        return recipients.some((r) =>
-          corporationMemberIds.includes(r.character_id),
-        );
       }
       return false;
     });
@@ -590,42 +470,25 @@ async function fetchEvents(options: {
   // For expanded task scope (filter_task_id provided), post-filter to events
   // the user is authorized to see: actor started it, corp member, or direct recipient
   if (expandedTaskScope && !isAdminMode && actorCharacterId) {
-    // Load actor's corporation ID for authorization check
     const authorizedCorpId = await fetchCharacterCorporationId(
       supabase,
       actorCharacterId,
     );
 
-    // Load event recipients for filtering
-    const eventIds = rows.map((r) => r.id);
-    const recipientMap = await loadEventRecipients(supabase, eventIds);
-
     rows = rows.filter((row) => {
-      // User started this action
       if (row.actor_character_id === actorCharacterId) return true;
-
-      // User's corp owns this task (event tagged with their corp_id)
       if (authorizedCorpId && row.corp_id === authorizedCorpId) return true;
-
-      // User is a direct recipient
-      const recipients = recipientMap.get(row.id) || [];
-      if (recipients.includes(actorCharacterId)) return true;
-
+      if (row.recipient_character_id === actorCharacterId) return true;
       return false;
     });
   }
 
-  // Collect all character IDs for name lookup: senders, receivers, and joined recipients
-  const allCharacterIds = rows.flatMap((row) => {
-    const ids = [row.sender_id, row.character_id];
-    if (row.event_character_recipients) {
-      const recipients = Array.isArray(row.event_character_recipients)
-        ? row.event_character_recipients
-        : [row.event_character_recipients];
-      ids.push(...recipients.map((r) => r.character_id));
-    }
-    return ids;
-  });
+  // Collect all character IDs for name lookup: senders, receivers, and recipients
+  const allCharacterIds = rows.flatMap((row) => [
+    row.sender_id,
+    row.character_id,
+    row.recipient_character_id,
+  ]);
 
   const senderLookup = await loadCharacterNames(supabase, allCharacterIds);
   const filteredRows = stringMatch
@@ -657,17 +520,12 @@ function buildEventRecord(
   const taskId = typeof row.task_id === "string" ? row.task_id : null;
   const senderId = typeof row.sender_id === "string" ? row.sender_id : null;
 
-  // Extract receiver ID from joined event_character_recipients if available
-  let receiverId: string | null = null;
-  if (row.event_character_recipients) {
-    const recipients = Array.isArray(row.event_character_recipients)
-      ? row.event_character_recipients
-      : [row.event_character_recipients];
-    receiverId = recipients.length > 0 ? recipients[0].character_id : null;
-  } else {
-    // Fallback to events.character_id for admin mode queries
-    receiverId = typeof row.character_id === "string" ? row.character_id : null;
-  }
+  const receiverId =
+    typeof row.recipient_character_id === "string"
+      ? row.recipient_character_id
+      : typeof row.character_id === "string"
+        ? row.character_id
+        : null;
 
   return {
     __event_id: row.id,
@@ -863,31 +721,6 @@ async function loadCorporationMemberIds(
   return (data as Array<{ character_id: string }>).map(
     (row) => row.character_id,
   );
-}
-
-async function loadEventRecipients(
-  supabase: SupabaseClient,
-  eventIds: number[],
-): Promise<Map<number, string[]>> {
-  if (!eventIds.length) return new Map();
-
-  const { data, error } = await supabase
-    .from("event_character_recipients")
-    .select("event_id, character_id")
-    .in("event_id", eventIds);
-
-  if (error) {
-    console.error("event_query.load_recipients", error);
-    return new Map();
-  }
-
-  const map = new Map<number, string[]>();
-  for (const row of data ?? []) {
-    const existing = map.get(row.event_id) || [];
-    existing.push(row.character_id);
-    map.set(row.event_id, existing);
-  }
-  return map;
 }
 
 function filterRowsByString(rows: EventRow[], needle: string): EventRow[] {
