@@ -27,6 +27,14 @@ declare global {
 
   // --- CORPORATION
 
+  interface DestroyedCorporationShip {
+    ship_id: string
+    ship_type: string
+    name: string
+    sector: number | null
+    destroyed_at: string
+  }
+
   interface Corporation {
     corp_id: string
     name: string
@@ -36,6 +44,7 @@ declare global {
     founder_id?: string
     invite_code?: string
     member_count?: number
+    destroyed_ships?: DestroyedCorporationShip[]
   }
 
   // --- RESOURCE
@@ -56,6 +65,7 @@ declare global {
     owner_type?: "personal" | "corporation" | "unowned"
     current_task_id?: string | null
     sector?: number
+    destroyed_at?: string | null
   }
 
   interface ShipSelf extends Ship {

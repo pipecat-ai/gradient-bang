@@ -128,10 +128,18 @@ export const CombatActionPanel = () => {
       const commit = attackCommit ? Number.parseInt(attackCommit, 10) : 0
       const selectedTargetId = selectedAttackTarget?.id ?? selectedAttackTarget?.name ?? null
 
-      const prompt =
-        selectedAction === "attack" ?
-          `In combat ${activeCombatSession.combat_id}, round ${activeCombatSession.round}, submit action attack with commit ${commit}${selectedTargetId ? ` targeting ${selectedTargetId}` : ""}.`
-        : `In combat ${activeCombatSession.combat_id}, round ${activeCombatSession.round}, submit action ${selectedAction}.`
+      let actionDetail = ""
+      if (selectedAction === "attack") {
+        actionDetail = `attack with commit ${commit}${selectedTargetId ? ` targeting ${selectedTargetId}` : ""}`
+      } else if (selectedAction === "flee") {
+        const adjacent = useGameStore.getState().sector?.adjacent_sectors ?? []
+        const toSector = adjacent.length > 0 ? adjacent[Math.floor(Math.random() * adjacent.length)] : null
+        actionDetail = toSector != null ? `flee to sector ${toSector}` : "flee"
+      } else {
+        actionDetail = selectedAction
+      }
+
+      const prompt = `In combat ${activeCombatSession.combat_id}, round ${activeCombatSession.round}, submit action ${actionDetail}.`
 
       sendUserTextInput(prompt)
     },

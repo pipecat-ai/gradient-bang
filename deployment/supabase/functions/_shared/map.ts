@@ -487,7 +487,8 @@ export async function buildSectorSnapshot(
       "ship_id, ship_type, ship_name, owner_id, owner_character_id, owner_type, former_owner_name, became_unowned, current_fighters, current_shields, cargo_qf, cargo_ro, cargo_ns",
     )
     .eq("current_sector", sectorId)
-    .eq("in_hyperspace", false);
+    .eq("in_hyperspace", false)
+    .is("destroyed_at", null);
   const garrisonsQuery = supabase
     .from("garrisons")
     .select(
@@ -2085,5 +2086,29 @@ export async function buildPathRegionPayload(
     total_sectors: sectors.length,
     known_sectors: knownCount,
     unknown_sectors: sectors.length - knownCount,
+  };
+}
+
+/**
+ * Build a minimal map.update payload for a single sector's garrison change.
+ * Uses loadSectorGarrisons to fetch current garrison state from the database,
+ * returning a LocalMapRegionPayload suitable for emitting as a map.update event.
+ */
+export async function buildSectorGarrisonMapUpdate(
+  supabase: SupabaseClient,
+  sectorId: number,
+): Promise<LocalMapRegionPayload> {
+  const garrisonsBySector = await loadSectorGarrisons(supabase, [sectorId]);
+  return {
+    center_sector: sectorId,
+    sectors: [
+      {
+        id: sectorId,
+        garrison: garrisonsBySector[sectorId] ?? null,
+      } as LocalMapSector,
+    ],
+    total_sectors: 1,
+    total_visited: 1,
+    total_unvisited: 0,
   };
 }

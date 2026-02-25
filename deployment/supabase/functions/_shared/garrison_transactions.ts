@@ -155,12 +155,31 @@ export async function runLeaveFightersTransaction(
     }
 
     const existingGarrison = garrisonRows[0] ?? null;
-    if (
-      existingGarrison &&
-      existingGarrison.owner_id !== input.characterId
-    ) {
+    if (existingGarrison && existingGarrison.owner_id !== input.characterId) {
+      // Check if the existing garrison belongs to a corp mate (including corp-owned ships).
+      // Use COALESCE to check corporation_members first, then ship_instances for corp ships.
+      const deployerCorpResult = await pg.queryObject<{ corp_id: string | null }>(
+        `SELECT COALESCE(
+          (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
+          (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $1)
+        ) as corp_id`,
+        [input.characterId],
+      );
+      const ownerCorpResult = await pg.queryObject<{ corp_id: string | null }>(
+        `SELECT COALESCE(
+          (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
+          (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $1)
+        ) as corp_id`,
+        [existingGarrison.owner_id],
+      );
+      const deployerCorpId = deployerCorpResult.rows[0]?.corp_id ?? null;
+      const ownerCorpId = ownerCorpResult.rows[0]?.corp_id ?? null;
+      const isFriendly = deployerCorpId !== null && ownerCorpId !== null && deployerCorpId === ownerCorpId;
+
       throw buildStatusError(
-        "Sector already contains another player's garrison; clear it before deploying your fighters.",
+        isFriendly
+          ? "Sector already has a friendly garrison; collect or reinforce through the existing garrison owner."
+          : "Sector already contains another player's garrison; clear it before deploying your fighters.",
         409,
       );
     }
@@ -330,24 +349,24 @@ export async function runCollectFightersTransaction(
 
     let isFriendly = garrison.owner_id === input.characterId;
     if (!isFriendly) {
+      // Resolve effective corporation for both collector and garrison owner.
+      // Uses COALESCE to check corporation_members first, then ship_instances
+      // for corp-owned ships (whose character_id = ship_id).
       const collectorCorpResult = await pg.queryObject<{ corp_id: string | null }>(
-        `SELECT corp_id
-        FROM corporation_members
-        WHERE character_id = $1
-          AND left_at IS NULL
-        LIMIT 1`,
+        `SELECT COALESCE(
+          (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
+          (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $1)
+        ) as corp_id`,
         [input.characterId],
       );
-      const membershipCorpId = collectorCorpResult.rows[0]?.corp_id ?? null;
-      const collectorCorpId = membershipCorpId ?? shipRow.owner_corporation_id;
+      const collectorCorpId = collectorCorpResult.rows[0]?.corp_id ?? shipRow.owner_corporation_id;
 
       if (collectorCorpId) {
         const ownerCorpResult = await pg.queryObject<{ corp_id: string | null }>(
-          `SELECT corp_id
-          FROM corporation_members
-          WHERE character_id = $1
-            AND left_at IS NULL
-          LIMIT 1`,
+          `SELECT COALESCE(
+            (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
+            (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $1)
+          ) as corp_id`,
           [garrison.owner_id],
         );
         const ownerCorpId = ownerCorpResult.rows[0]?.corp_id ?? null;

@@ -9,7 +9,7 @@ import { Divider } from "@/components/primitives/Divider"
 import { ShipLogoPopover } from "@/components/ShipLogoPopover"
 import useGameStore from "@/stores/game"
 
-import { MovementHistoryPanel } from "./DataTablePanels"
+import { DestroyedShipsPanel, MovementHistoryPanel } from "./DataTablePanels"
 import { RHSPanelContent, RHSSubPanel } from "./RHSPanelContainer"
 import { ShipCatalogue } from "./ShipCatalogue"
 
@@ -103,6 +103,17 @@ export const PlayerPanel = () => {
         <CardContent className="flex flex-row gap-ui-sm">
           <div className="text-xs flex flex-col flex-1">
             <MovementHistoryPanel className="max-h-70" />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card size="sm" className="border-0 border-y">
+        <CardHeader className="shrink-0">
+          <CardTitle>Destroyed Ships</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-row gap-ui-sm">
+          <div className="text-xs flex flex-col flex-1">
+            <DestroyedShipsPanel className="max-h-70" />
           </div>
         </CardContent>
       </Card>

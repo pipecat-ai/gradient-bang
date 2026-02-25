@@ -10,6 +10,7 @@ import { createServiceRoleClient } from "../_shared/client.ts";
 import {
   emitCharacterEvent,
   emitErrorEvent,
+  emitSectorEnvelope,
   buildEventSource,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
@@ -27,8 +28,7 @@ import {
   ensureActorAuthorization,
   ActorAuthorizationError,
 } from "../_shared/actors.ts";
-import { computeSectorVisibilityRecipients } from "../_shared/visibility.ts";
-import { recordEventWithRecipients } from "../_shared/events.ts";
+import { buildSectorSnapshot } from "../_shared/map.ts";
 import { loadUniverseMeta, isFedspaceSector } from "../_shared/fedspace.ts";
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -259,26 +259,19 @@ async function handleCombatSetGarrisonMode(params: {
     corpId: character.corporation_id,
   });
 
-  // Emit sector.update to all sector occupants
-  const recipients = await computeSectorVisibilityRecipients(
+  // Emit sector.update to all sector occupants with full sector snapshot
+  const sectorSnapshot = await buildSectorSnapshot(supabase, sector);
+  await emitSectorEnvelope({
     supabase,
-    sector,
-    [],
-  );
-  if (recipients.length > 0) {
-    await recordEventWithRecipients({
-      supabase,
-      eventType: "sector.update",
-      payload: {
-        source: buildEventSource("combat.set_garrison_mode", requestId),
-        sector: { id: sector },
-      },
-      recipients,
-      sectorId: sector,
-      actorCharacterId: characterId,
-      requestId,
-    });
-  }
+    sectorId: sector,
+    eventType: "sector.update",
+    payload: {
+      source: buildEventSource("combat.set_garrison_mode", requestId),
+      ...sectorSnapshot,
+    },
+    requestId,
+    actorCharacterId: characterId,
+  });
 
   return successResponse({ success: true });
 }

@@ -43,6 +43,14 @@ export interface CorporationShipSummary {
   current_task_id: string | null;
 }
 
+export interface DestroyedCorporationShip {
+  ship_id: string;
+  ship_type: string;
+  name: string;
+  sector: number | null;
+  destroyed_at: string;
+}
+
 const INVITE_BYTES = 4;
 
 export function generateInviteCode(): string {
@@ -254,6 +262,41 @@ export async function fetchCorporationShipSummaries(
   return summaries;
 }
 
+export async function fetchDestroyedCorporationShips(
+  supabase: SupabaseClient,
+  corpId: string,
+): Promise<DestroyedCorporationShip[]> {
+  const { data: shipRows, error } = await supabase
+    .from("ship_instances")
+    .select("ship_id, ship_type, ship_name, current_sector, destroyed_at")
+    .eq("owner_corporation_id", corpId)
+    .not("destroyed_at", "is", null)
+    .order("destroyed_at", { ascending: false });
+  if (error) {
+    console.error("corporations.ships.destroyed", error);
+    throw new Error("Failed to load destroyed corporation ships");
+  }
+
+  const definitionMap = await loadShipDefinitions(supabase, shipRows ?? []);
+
+  return (shipRows ?? [])
+    .filter((row) => row && typeof row.ship_id === "string")
+    .map((row) => {
+      const definition = definitionMap.get(row.ship_type ?? "") ?? null;
+      return {
+        ship_id: row.ship_id,
+        ship_type: row.ship_type ?? "unknown",
+        name:
+          typeof row.ship_name === "string" && row.ship_name.trim().length > 0
+            ? row.ship_name
+            : (definition?.display_name ?? row.ship_type ?? row.ship_id),
+        sector:
+          typeof row.current_sector === "number" ? row.current_sector : null,
+        destroyed_at: row.destroyed_at,
+      };
+    });
+}
+
 export function buildCorporationPublicPayload(
   corp: CorporationRecord,
   memberCount: number,
@@ -270,6 +313,7 @@ export function buildCorporationMemberPayload(
   corp: CorporationRecord,
   members: CorporationMemberSummary[],
   ships: CorporationShipSummary[],
+  destroyedShips: DestroyedCorporationShip[] = [],
 ): Record<string, unknown> {
   return {
     ...buildCorporationPublicPayload(corp, members.length),
@@ -279,6 +323,7 @@ export function buildCorporationMemberPayload(
     invite_code_generated_by: corp.invite_code_generated_by,
     members,
     ships,
+    destroyed_ships: destroyedShips,
   };
 }
 

@@ -61,6 +61,12 @@ export type ShipPurchasedToastData = {
   ship: Ship
 }
 
+export type ShipDestroyedToastData = {
+  ship_name: string
+  ship_type: string
+  sector?: number
+}
+
 export type CorporationCreatedToastData = {
   corporation: Corporation
 }
@@ -104,4 +110,8 @@ export type Toast =
   | (ToastBase & {
       type: "salvage.created"
       meta?: SalvageCreatedToastData
+    })
+  | (ToastBase & {
+      type: "ship.destroyed"
+      meta?: ShipDestroyedToastData
     })

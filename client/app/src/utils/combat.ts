@@ -200,9 +200,31 @@ export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDes
     })
   }
 
-  // Remove destroyed corporation ships from the fleet list
+  // Mark destroyed corporation ships so ShipCard can animate before removal.
+  // addShip first (if needed) then updateShip on next tick so React renders
+  // the alive state before the destroyed state — allowing transition detection.
   if (destroyed.player_type === "corporation_ship") {
-    gameStore.removeShip(destroyed.ship_id)
+    const existsInList = gameStore.ships.data?.some((s) => s.ship_id === destroyed.ship_id)
+    if (!existsInList) {
+      gameStore.addShip({
+        ship_id: destroyed.ship_id,
+        ship_name: destroyed.ship_name ?? destroyed.ship_type,
+        ship_type: destroyed.ship_type,
+        sector: destroyed.sector?.id ?? null,
+        owner_type: "corporation",
+      })
+      requestAnimationFrame(() => {
+        gameStore.updateShip({
+          ship_id: destroyed.ship_id,
+          destroyed_at: new Date().toISOString(),
+        })
+      })
+    } else {
+      gameStore.updateShip({
+        ship_id: destroyed.ship_id,
+        destroyed_at: new Date().toISOString(),
+      })
+    }
   }
 
   gameStore.addActivityLogEntry({
@@ -211,4 +233,15 @@ export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDes
       destroyed.salvage_created ? " - salvage created" : ""
     }`,
   })
+
+  if (destroyed.player_type === "corporation_ship" || isLocalShipDestroyed) {
+    gameStore.addToast({
+      type: "ship.destroyed",
+      meta: {
+        ship_name: destroyed.ship_name ?? destroyed.ship_type,
+        ship_type: destroyed.ship_type,
+        sector: destroyed.sector?.id,
+      },
+    })
+  }
 }

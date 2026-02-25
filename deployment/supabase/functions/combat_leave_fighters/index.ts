@@ -11,14 +11,17 @@ import { createPgClient, connectWithCleanup } from "../_shared/pg.ts";
 import {
   emitCharacterEvent,
   emitErrorEvent,
+  emitSectorEnvelope,
   buildEventSource,
   recordEventWithRecipients,
 } from "../_shared/events.ts";
+import { buildSectorSnapshot, buildSectorGarrisonMapUpdate } from "../_shared/map.ts";
 import {
   pgLoadCharacter,
   pgLoadShip,
   pgEnforceRateLimit,
   pgEnsureActorAuthorization,
+  pgComputeCorpMemberRecipients,
   RateLimitError,
   ActorAuthorizationError,
 } from "../_shared/pg_queries.ts";
@@ -293,7 +296,39 @@ async function handleCombatLeaveFighters(params: {
     corpId: character.corporation_id,
   });
 
-  // TODO: Emit sector.update to all sector occupants (omitted for initial deployment)
+  // Emit sector.update to all sector occupants with full sector snapshot
+  const sectorSnapshot = await buildSectorSnapshot(supabase, sector);
+  await emitSectorEnvelope({
+    supabase,
+    sectorId: sector,
+    eventType: "sector.update",
+    payload: {
+      source: buildEventSource("combat.leave_fighters", requestId),
+      ...sectorSnapshot,
+    },
+    requestId,
+    actorCharacterId: characterId,
+  });
+
+  // Emit map.update so the garrison appears on discovered maps
+  const mapUpdatePayload = await buildSectorGarrisonMapUpdate(supabase, sector);
+  const mapCorpRecipients = character.corporation_id
+    ? await pgComputeCorpMemberRecipients(pg, [character.corporation_id], [characterId])
+    : [];
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "map.update",
+    payload: {
+      source: buildEventSource("combat.leave_fighters", requestId),
+      ...mapUpdatePayload,
+    } as Record<string, unknown>,
+    sectorId: sector,
+    requestId,
+    taskId,
+    corpId: character.corporation_id,
+    additionalRecipients: mapCorpRecipients,
+  });
 
   // If mode is 'offensive', auto-initiate combat with sector occupants
   if (mode === "offensive") {

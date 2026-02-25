@@ -91,6 +91,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const characterId = requireString(payload, "character_id");
   const actorCharacterId = optionalString(payload, "actor_character_id");
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+  const debug = optionalBoolean(payload, "debug") ?? false;
   const taskId = optionalString(payload, "task_id");
 
   try {
@@ -118,6 +119,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       requestId,
       actorCharacterId,
       adminOverride,
+      debug,
       taskId,
     });
   } catch (err) {
@@ -156,6 +158,7 @@ async function handleCombatInitiate(params: {
   requestId: string;
   actorCharacterId: string | null;
   adminOverride: boolean;
+  debug: boolean;
   taskId: string | null;
 }): Promise<Response> {
   const {
@@ -164,6 +167,7 @@ async function handleCombatInitiate(params: {
     requestId,
     actorCharacterId,
     adminOverride,
+    debug,
     taskId,
   } = params;
   const character = await loadCharacter(supabase, characterId);
@@ -281,7 +285,7 @@ async function handleCombatInitiate(params: {
     }
   }
 
-  if (!hasTargetableOpponent) {
+  if (!hasTargetableOpponent && !debug) {
     const err = new Error(
       "No targetable opponents available to engage",
     ) as Error & { status?: number };
@@ -312,7 +316,7 @@ async function handleCombatInitiate(params: {
     for (const garrison of garrisons) {
       participants[garrison.state.combatant_id] = garrison.state;
     }
-    if (Object.keys(participants).length < MIN_PARTICIPANTS) {
+    if (Object.keys(participants).length < MIN_PARTICIPANTS && !debug) {
       const err = new Error("No opponents available to engage") as Error & {
         status?: number;
       };

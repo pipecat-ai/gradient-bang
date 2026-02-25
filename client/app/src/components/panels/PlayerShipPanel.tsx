@@ -101,9 +101,29 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
   )
 }
 
+// Blink keyframes for destroyed ship animation (~5s blink in-place)
+const BLINK_STEPS = 10
+const blinkOpacity = Array.from({ length: BLINK_STEPS }, (_, i) => (i % 2 === 0 ? 1 : 0.15))
+
+const exitTransition = {
+  height: { duration: 0.3, ease: "easeInOut" as const },
+  x: { duration: 0.25, delay: 0.3, ease: "easeOut" as const },
+  opacity: { duration: 0.2, delay: 0.3 },
+}
+
 const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
   const shipsState = useGameStore.use.ships()
   const ships = shipsState.data
+  const destroyedShips = useGameStore.use.destroyedShips()
+  const destroyingShipIds = useGameStore.use.destroyingShipIds()
+  const clearDestroyingShipId = useGameStore.use.clearDestroyingShipId()
+
+  // Active corp ships + ships mid-destruction animation (from destroyedShips)
+  const activeCorpShips = ships?.filter((s) => s.owner_type === "corporation") ?? []
+  const animatingShips = destroyedShips.filter(
+    (s) => s.owner_type === "corporation" && destroyingShipIds.includes(s.ship_id)
+  )
+  const corpShips = [...activeCorpShips, ...animatingShips]
 
   return (
     <motion.div
@@ -121,7 +141,7 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
           >
             <ShipBlankSlate fetching={ships === undefined} />
           </motion.div>
-        : ships.filter((ship) => ship.owner_type === "corporation").length === 0 ?
+        : corpShips.length === 0 ?
           <motion.div
             key="empty"
             initial={{ opacity: 0 }}
@@ -140,31 +160,61 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <div className="flex flex-row gap-panel-gap px-0 py-panel-gap shrink-0">
-              <div className="w-2 dashed-bg-vertical-tight dashed-bg-muted ml-panel-gap"></div>
-              <div className="bg-subtle-background border border-r-0 pl-3 flex-1 overflow-hidden">
-                <AnimatePresence initial={false}>
-                  {ships
-                    .filter((ship) => ship.owner_type === "corporation")
-                    .map((ship) => (
-                      <motion.div
-                        key={ship.ship_id}
-                        initial={{ height: 0, x: 40, opacity: 0 }}
-                        animate={{ height: "auto", x: 0, opacity: 1 }}
-                        exit={{ height: 0, x: 40, opacity: 0 }}
-                        transition={{
-                          height: { duration: 0.3, ease: "easeInOut" },
-                          x: { duration: 0.25, delay: 0.3, ease: "easeOut" },
-                          opacity: { duration: 0.2, delay: 0.3 },
-                        }}
-                        className="shadow-[inset_0_-1px_0_0_var(--border)] last:shadow-none"
-                      >
-                        <ShipCard ship={ship} />
-                      </motion.div>
-                    ))}
-                </AnimatePresence>
+            {corpShips.length > 0 && (
+              <div className="flex flex-row gap-panel-gap px-0 py-panel-gap shrink-0">
+                <div className="w-2 dashed-bg-vertical-tight dashed-bg-muted ml-panel-gap"></div>
+                <div className="bg-subtle-background border border-r-0 pl-3 flex-1 overflow-hidden">
+                  <AnimatePresence initial={false}>
+                    {corpShips.map((ship) => {
+                      const isDestroying = destroyingShipIds.includes(ship.ship_id)
+                      return (
+                        <motion.div
+                          key={ship.ship_id}
+                          initial={{ height: 0, x: 40, opacity: 0 }}
+                          animate={
+                            isDestroying
+                              ? {
+                                  height: "auto",
+                                  x: 0,
+                                  opacity: [...blinkOpacity, 0],
+                                  transition: {
+                                    opacity: { duration: 5.5, ease: "linear" as const },
+                                  },
+                                }
+                              : { height: "auto", x: 0, opacity: 1 }
+                          }
+                          exit={{
+                            height: 0,
+                            x: 40,
+                            opacity: 0,
+                            transition: exitTransition,
+                          }}
+                          onAnimationComplete={() => {
+                            if (isDestroying) {
+                              clearDestroyingShipId(ship.ship_id)
+                            }
+                          }}
+                          transition={exitTransition}
+                          className="relative shadow-[inset_0_-1px_0_0_var(--border)] last:shadow-none overflow-hidden"
+                        >
+                          <ShipCard ship={ship} />
+                          <motion.div
+                            className="absolute inset-0 cross-lines-destructive flex items-center justify-center bg-destructive-background/60"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: isDestroying ? 1 : 0 }}
+                            transition={{ duration: 0.3 }}
+                          >
+                            <span className="relative z-10 text-xs uppercase font-bold text-destructive">
+                              Destroyed
+                            </span>
+                          </motion.div>
+                        </motion.div>
+                      )
+                    })}
+                  </AnimatePresence>
+                </div>
               </div>
-            </div>
+            )}
           </motion.div>
         }
       </AnimatePresence>

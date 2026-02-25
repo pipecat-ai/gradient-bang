@@ -41,6 +41,7 @@ from gradientbang.utils.summary_formatters import (
     ship_renamed_summary,
     ships_list_summary,
     corporation_ship_purchased_summary,
+    ship_destroyed_summary,
     warp_purchase_summary,
 )
 
@@ -257,6 +258,7 @@ class AsyncGameClient:
             "combat.ended": combat_ended_summary,
             "salvage.created": salvage_created_summary,
             "salvage.collected": salvage_collected_summary,
+            "ship.destroyed": ship_destroyed_summary,
             "garrison.combat_alert": garrison_combat_alert_summary,
             "garrison.character_moved": garrison_character_moved_wrapper,
             "sector.update": sector_update_summary,

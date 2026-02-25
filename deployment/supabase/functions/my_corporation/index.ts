@@ -8,6 +8,7 @@ import {
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
+import { emitCharacterEvent, buildEventSource } from "../_shared/events.ts";
 import {
   parseJsonRequest,
   requireString,
@@ -19,6 +20,7 @@ import {
   buildCorporationMemberPayload,
   fetchCorporationMembers,
   fetchCorporationShipSummaries,
+  fetchDestroyedCorporationShips,
   loadCorporationById,
 } from "../_shared/corporations.ts";
 
@@ -72,6 +74,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   try {
     const result = await loadMyCorporation({ supabase, characterId });
+
+    // Emit corporation.data event so the client receives the data via WebSocket
+    const source = buildEventSource("my_corporation", requestId);
+    await emitCharacterEvent({
+      supabase,
+      characterId,
+      eventType: "corporation.data",
+      payload: { source, ...result },
+      requestId,
+    });
+
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
     if (err instanceof MyCorporationError) {
@@ -104,7 +117,11 @@ async function loadMyCorporation(params: {
     supabase,
     character.corporation_id,
   );
-  const payload = buildCorporationMemberPayload(corporation, members, ships);
+  const destroyedShips = await fetchDestroyedCorporationShips(
+    supabase,
+    character.corporation_id,
+  );
+  const payload = buildCorporationMemberPayload(corporation, members, ships, destroyedShips);
   payload.joined_at = character.corporation_joined_at;
   return { corporation: payload };
 }

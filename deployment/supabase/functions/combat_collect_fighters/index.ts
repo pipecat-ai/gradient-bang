@@ -11,6 +11,7 @@ import { createPgClient, connectWithCleanup } from "../_shared/pg.ts";
 import {
   emitCharacterEvent,
   emitErrorEvent,
+  emitSectorEnvelope,
   buildEventSource,
 } from "../_shared/events.ts";
 import {
@@ -22,13 +23,13 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
-import { computeSectorVisibilityRecipients } from "../_shared/visibility.ts";
-import { recordEventWithRecipients } from "../_shared/events.ts";
+import { buildSectorSnapshot, buildSectorGarrisonMapUpdate } from "../_shared/map.ts";
 import {
   pgLoadCharacter,
   pgLoadShip,
   pgEnforceRateLimit,
   pgEnsureActorAuthorization,
+  pgComputeCorpMemberRecipients,
   RateLimitError,
   ActorAuthorizationError,
 } from "../_shared/pg_queries.ts";
@@ -275,32 +276,39 @@ async function handleCombatCollectFighters(params: {
     corpId: character.corporation_id,
   });
 
-  // Emit sector.update to all sector occupants
-  const recipients = await computeSectorVisibilityRecipients(
+  // Emit sector.update to all sector occupants with full sector snapshot
+  const sectorSnapshot = await buildSectorSnapshot(supabase, sector);
+  await emitSectorEnvelope({
     supabase,
-    sector,
-    [],
-  );
-  if (recipients.length > 0) {
-    // Build sector update payload
-    // For now, we'll emit a simple notification that sector contents changed
-    // The full sector_contents payload would require loading all sector data
-    await recordEventWithRecipients({
-      supabase,
-      eventType: "sector.update",
-      scope: "sector",
-      payload: {
-        source: buildEventSource("combat.collect_fighters", requestId),
-        sector: { id: sector },
-        // TODO: Add full sector contents if needed
-      },
-      recipients,
-      sectorId: sector,
-      actorCharacterId: characterId,
-      requestId,
-      taskId,
-    });
-  }
+    sectorId: sector,
+    eventType: "sector.update",
+    payload: {
+      source: buildEventSource("combat.collect_fighters", requestId),
+      ...sectorSnapshot,
+    },
+    requestId,
+    actorCharacterId: characterId,
+  });
+
+  // Emit map.update so the garrison change reflects on discovered maps
+  const mapUpdatePayload = await buildSectorGarrisonMapUpdate(supabase, sector);
+  const mapCorpRecipients = character.corporation_id
+    ? await pgComputeCorpMemberRecipients(pg, [character.corporation_id], [characterId])
+    : [];
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "map.update",
+    payload: {
+      source: buildEventSource("combat.collect_fighters", requestId),
+      ...mapUpdatePayload,
+    } as Record<string, unknown>,
+    sectorId: sector,
+    requestId,
+    taskId,
+    corpId: character.corporation_id,
+    additionalRecipients: mapCorpRecipients,
+  });
 
   return successResponse({ success: true });
 }

@@ -38,7 +38,11 @@ function shareCorporation(
   if (!first || !second) {
     return false;
   }
-  return (corps.get(first) ?? null) && corps.get(first) === corps.get(second);
+  if (first === second) {
+    return true;
+  }
+  const firstCorp = corps.get(first) ?? null;
+  return Boolean(firstCorp && firstCorp === (corps.get(second) ?? null));
 }
 
 function buildGarrisonId(state: CombatantState): string {
@@ -138,6 +142,7 @@ export function buildGarrisonActions(
           encounter.participants[initiatorId] &&
           encounter.participants[initiatorId].combatant_type === 'character' &&
           encounter.participants[initiatorId].fighters > 0 &&
+          (encounter.participants[initiatorId].owner_character_id ?? initiatorId) !== participant.owner_character_id &&
           !shareCorporation(
             corps,
             encounter.participants[initiatorId].owner_character_id ?? initiatorId,

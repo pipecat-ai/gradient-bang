@@ -607,6 +607,16 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "corporation.data": {
+              console.debug("[GAME EVENT] Corporation data", e.payload)
+              const data = e.payload as { corporation: Corporation | null }
+              if (data.corporation) {
+                gameStore.setCorporation(data.corporation)
+              }
+              gameStore.resolveFetchPromise("get-my-corporation")
+              break
+            }
+
             case "corporation.ship_purchased": {
               console.debug("[GAME EVENT] Ship purchased", e.payload)
               const data = e.payload as Msg.CorporationShipPurchaseMessage
@@ -641,6 +651,18 @@ export function GameProvider({ children }: GameProviderProps) {
                 break
               }
               gameStore.updateSector(data as Sector)
+
+              // Propagate garrison changes to map data so sector nodes re-render
+              const sectorData = data as Sector
+              const mapGarrison = sectorData.garrison
+                ? {
+                    player_id: sectorData.garrison.owner_id,
+                    corporation_id: null as string | null,
+                  }
+                : null
+              gameStore.updateMapSectors([
+                { id: data.id, garrison: mapGarrison },
+              ])
 
               // Note: not updating activity log as redundant from other logs
 
@@ -929,13 +951,13 @@ export function GameProvider({ children }: GameProviderProps) {
                 logIgnored("combat.round_waiting", "personalPlayerId not set", data)
                 break
               }
-              /*const isParticipant = data.participants?.some(
+              const isParticipant = data.participants?.some(
                 (participant) => participant.id === playerSessionId
               )
               if (!isParticipant) {
                 logIgnored("combat.round_waiting", "not a participant", data)
                 break
-              }*/
+              }
 
               applyCombatRoundWaitingState(gameStore, data as CombatSession)
               break

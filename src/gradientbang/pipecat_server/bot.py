@@ -672,6 +672,20 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 )
             return
 
+        # Client requested corporation data
+        if msg_type == "get-my-corporation":
+            try:
+                await task_manager.game_client._request(
+                    "my_corporation",
+                    {"character_id": task_manager.character_id},
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to fetch corporation data")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+                )
+            return
+
         if msg_type == "get-my-map":
             try:
                 if not isinstance(msg_data, dict):
