@@ -30,7 +30,8 @@ export interface ChatSlice {
   startAssistantLlmStream: () => void
   botHasSpoken: boolean
   setBotHasSpoken: (botHasSpoken: boolean) => void
-  addToolCallMessage: (functionName: string) => void
+  addToolCallMessage: (functionName: string, args?: string) => void
+  addToolCallResultMessage: (functionName: string, result: string) => void
   removeTentativeToolMessages: () => void
 
   llmIsWorking: boolean
@@ -351,19 +352,32 @@ export const createChatSlice: StateCreator<ChatSlice> = (set) => ({
     })
   },
 
-  addToolCallMessage: (functionName) => {
+  addToolCallMessage: (functionName, args) => {
     set((state) => {
-      const lastMessage = state.chatMessages[state.chatMessages.length - 1]
-      if (lastMessage?.role === "tool" && lastMessage.parts?.[0]?.text === functionName) {
-        // Duplicate tool call - skip
-        return state
-      }
-
       const now = new Date()
       const message: ConversationMessage = {
         role: "tool",
         final: true,
         parts: [{ text: functionName, final: true, createdAt: now.toISOString() }],
+        toolArgs: args,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
+      const updatedMessages = [...state.chatMessages, message]
+      const processedMessages = pruneMessages(updatedMessages.sort(sortByCreatedAt))
+      callAllMessageCallbacks(state.chatCallbacks, message)
+      return { chatMessages: processedMessages }
+    })
+  },
+
+  addToolCallResultMessage: (functionName, result) => {
+    set((state) => {
+      const now = new Date()
+      const message: ConversationMessage = {
+        role: "tool",
+        final: true,
+        parts: [{ text: functionName, final: true, createdAt: now.toISOString() }],
+        toolResult: result,
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
       }

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
-import { PlugsIcon, WrenchIcon } from "@phosphor-icons/react"
+import { CheckCircleIcon, PlugsIcon, WrenchIcon } from "@phosphor-icons/react"
 
 import { ToggleControl } from "@/components/primitives/ToggleControl"
 import { useChat } from "@/hooks/useChat"
@@ -13,7 +13,13 @@ import { Card, CardContent } from "./primitives/Card"
 import { ScrollArea } from "./primitives/ScrollArea"
 import { ShipOSDVisualizer } from "./ShipOSDVisualizer"
 
-const ChatMessageToolCallRow = ({ message }: { message: ConversationMessage }) => {
+const ChatMessageToolCallRow = ({
+  message,
+  verbose,
+}: {
+  message: ConversationMessage
+  verbose: boolean
+}) => {
   const timeString = useMemo(
     () =>
       new Date(message.createdAt).toLocaleTimeString("en-GB", {
@@ -25,12 +31,27 @@ const ChatMessageToolCallRow = ({ message }: { message: ConversationMessage }) =
     [message.createdAt]
   )
 
+  const isResult = !!message.toolResult
+  const functionName = message.parts?.[0]?.text
+
   return (
-    <div className="text-subtle-foreground font-extrabold text-xxs uppercase inline-flex gap-1 items-center">
+    <div className="text-subtle-foreground font-extrabold text-xxs uppercase inline-flex gap-1 items-center flex-wrap">
       <span className="text-accent-foreground">[{timeString}]</span>
-      <WrenchIcon weight="fill" size={11} className="size-[11px]" />
-      <span>Tool call </span>
-      <span className="font-bold text-medium">({message.parts?.[0]?.text})</span>
+      {isResult ?
+        <CheckCircleIcon weight="fill" size={11} className="size-[11px] text-terminal" />
+      : <WrenchIcon weight="fill" size={11} className="size-[11px]" />}
+      <span>{isResult ? "Tool result" : "Tool call"} </span>
+      <span className="font-bold text-medium">
+        {functionName}
+        {verbose && !isResult && message.toolArgs && (
+          <span className="font-normal normal-case text-subtle-foreground">
+            ({message.toolArgs})
+          </span>
+        )}
+      </span>
+      {isResult && (
+        <span className="font-normal normal-case text-terminal">{message.toolResult}</span>
+      )}
     </div>
   )
 }
@@ -87,10 +108,28 @@ export const ChatPanel = () => {
   const llmIsWorking = useGameStore.use.llmIsWorking()
   const [showSystem, setShowSystem] = useState(false)
 
-  const filteredMessages = useMemo(
-    () => (showSystem ? messages : messages?.filter((m) => m.role !== "system")),
-    [messages, showSystem]
-  )
+  const filteredMessages = useMemo(() => {
+    if (showSystem) return messages
+    // Hide system messages, tool results, and deduplicate consecutive tool calls
+    // with the same function name
+    const filtered: ConversationMessage[] = []
+    let lastToolCallName: string | undefined
+    for (const m of messages ?? []) {
+      if (m.role === "system") continue
+      if (m.role === "tool") {
+        // Hide tool result rows
+        if (m.toolResult) continue
+        // Deduplicate consecutive tool calls with the same name
+        const name = m.parts?.[0]?.text as string | undefined
+        if (name && name === lastToolCallName) continue
+        lastToolCallName = name
+      } else {
+        lastToolCallName = undefined
+      }
+      filtered.push(m)
+    }
+    return filtered
+  }, [messages, showSystem])
 
   useEffect(() => {
     if (llmIsWorking) {
@@ -165,7 +204,11 @@ export const ChatPanel = () => {
                 ?.toReversed()
                 .map((message) =>
                   message.role === "tool" ?
-                    <ChatMessageToolCallRow key={message.createdAt} message={message} />
+                    <ChatMessageToolCallRow
+                      key={message.createdAt}
+                      message={message}
+                      verbose={showSystem}
+                    />
                   : <ChatMessageRow key={message.createdAt} message={message} />
                 )}
             </div>

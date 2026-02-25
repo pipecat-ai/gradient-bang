@@ -32,6 +32,7 @@ export const useChat = ({ textMode = "llm" }: Props = {}) => {
   const upsertUserTranscript = useGameStore.use.upsertUserTranscript()
   const setBotHasSpoken = useGameStore.use.setBotHasSpoken()
   const addToolCallMessage = useGameStore.use.addToolCallMessage()
+  const addToolCallResultMessage = useGameStore.use.addToolCallResultMessage()
   const playSound = useAudioStore.use.playSound()
 
   useRTVIClientEvent(RTVIEvent.Connected, () => {
@@ -46,7 +47,10 @@ export const useChat = ({ textMode = "llm" }: Props = {}) => {
 
   useRTVIClientEvent(RTVIEvent.ServerMessage, (data) => {
     if (data?.event === "llm.function_call" && data?.payload?.name) {
-      addToolCallMessage(data.payload.name)
+      addToolCallMessage(data.payload.name, data.payload.args)
+    }
+    if (data?.event === "llm.function_call_result" && data?.payload?.name) {
+      addToolCallResultMessage(data.payload.name, data.payload.result ?? "Done")
     }
   })
 

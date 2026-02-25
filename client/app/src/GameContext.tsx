@@ -1428,6 +1428,12 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "llm.function_call_result": {
+              console.debug("[GAME EVENT] LLM tool result", e.payload)
+              gameStore.setLLMIsWorking(false)
+              break
+            }
+
             case "error": {
               console.debug("[GAME EVENT] Error", e.payload)
               const data = e.payload as Msg.ErrorMessage

@@ -193,12 +193,26 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     @llm.event_handler("on_function_calls_started")
     async def on_function_calls_started(service, function_calls):
         for call in function_calls:
+            # Build a compact args summary for the UI
+            args = call.arguments if hasattr(call, "arguments") else {}
+            args_parts = []
+            if isinstance(args, dict):
+                for k, v in args.items():
+                    v_str = str(v)
+                    if len(v_str) > 40:
+                        v_str = v_str[:37] + "..."
+                    args_parts.append(f'{k}="{v_str}"')
+            args_summary = " ".join(args_parts)
+
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
                         "frame_type": "event",
                         "event": "llm.function_call",
-                        "payload": {"name": call.function_name},
+                        "payload": {
+                            "name": call.function_name,
+                            "args": args_summary,
+                        },
                     }
                 )
             )

@@ -1869,6 +1869,7 @@ class VoiceTaskManager:
         }
 
         self._tool_call_inflight += 1
+        _tool_result_summary = None  # captured for client notification
         try:
             # Gather arguments for the call
             arguments = params.arguments
@@ -1926,17 +1927,20 @@ class VoiceTaskManager:
 
             if tool_name in event_generating_tools:
                 ack_payload = {"status": "Executed."}
+                _tool_result_summary = "Executed"
                 properties = FunctionCallResultProperties(run_llm=False)
                 await params.result_callback(ack_payload, properties=properties)
             elif tool_name in {"query_task_progress", "steer_task"}:
                 if isinstance(result, dict) and result.get("success") is False:
-                    error_payload = {"error": result.get("error", "Request failed.")}
+                    _tool_result_summary = result.get("error", "Request failed.")
+                    error_payload = {"error": _tool_result_summary}
                     properties = FunctionCallResultProperties(run_llm=True)
                     await params.result_callback(error_payload, properties=properties)
                 else:
                     summary = result.get("summary") if isinstance(result, dict) else None
                     if not summary:
                         summary = f"{tool_name} completed."
+                    _tool_result_summary = summary
                     response_payload = {"summary": summary}
                     if isinstance(result, dict) and result.get("task_id"):
                         response_payload["task_id"] = result.get("task_id")
@@ -1945,7 +1949,8 @@ class VoiceTaskManager:
             elif tool_name == "load_game_info":
                 # Return the full fragment content to the LLM
                 if isinstance(result, dict) and result.get("success") is False:
-                    error_payload = {"error": result.get("error", "Failed to load info")}
+                    _tool_result_summary = result.get("error", "Failed to load info")
+                    error_payload = {"error": _tool_result_summary}
                     properties = FunctionCallResultProperties(run_llm=True)
                     await params.result_callback(error_payload, properties=properties)
                 else:
@@ -1954,6 +1959,7 @@ class VoiceTaskManager:
                     topic = (
                         result.get("topic", "unknown") if isinstance(result, dict) else "unknown"
                     )
+                    _tool_result_summary = f"Loaded {topic}"
                     response_payload = {"topic": topic, "content": content}
                     properties = FunctionCallResultProperties(run_llm=True)
                     await params.result_callback(response_payload, properties=properties)
@@ -1964,14 +1970,31 @@ class VoiceTaskManager:
                 summary = self._summarize_direct_response(tool_name, result)
                 if not summary:
                     summary = f"{tool_name} completed."
+                _tool_result_summary = summary
                 payload = {"summary": summary}
                 properties = FunctionCallResultProperties(run_llm=True)
                 await params.result_callback(payload, properties=properties)
             else:
-                # Other tools (send_message, combat_*) emit events that trigger inference
+                # Other tools (start_task, stop_task, send_message, combat_*) emit
+                # events that trigger inference.  Extract a human-readable summary
+                # from the result so the client UI shows something useful.
+                r = payload.get("result") if isinstance(payload, dict) else None
+                if isinstance(r, dict):
+                    if r.get("success") is False:
+                        _tool_result_summary = f"Error: {r.get('error', 'failed')}"
+                    else:
+                        _tool_result_summary = (
+                            r.get("message")
+                            or r.get("summary")
+                            or r.get("status")
+                            or "Done"
+                        )
+                else:
+                    _tool_result_summary = "Done"
                 await params.result_callback(payload)
         except Exception as e:
             logger.error(f"tool '{tool_name}' failed: {e}")
+            _tool_result_summary = f"Error: {e}"
             error_payload = {"error": str(e)}
             # Emit a standardized error as tool_result
             await params.result_callback(error_payload)
@@ -1981,6 +2004,26 @@ class VoiceTaskManager:
                 except Exception as emit_err:  # noqa: BLE001
                     logger.error(f"tool '{tool_name}' failed to emit result: {emit_err}")
         finally:
+            # Notify the client that the tool call completed
+            try:
+                summary_text = _tool_result_summary or "Done"
+                if len(summary_text) > 200:
+                    summary_text = summary_text[:200] + "…"
+                await self.rtvi_processor.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "llm.function_call_result",
+                            "payload": {
+                                "name": tool_name,
+                                "result": summary_text,
+                            },
+                        }
+                    )
+                )
+            except Exception:
+                logger.debug(f"Failed to emit function_call_result for {tool_name}")
+
             self._tool_call_inflight = max(0, self._tool_call_inflight - 1)
             if self._tool_call_inflight == 0:
                 await self._flush_deferred_llm_events()
