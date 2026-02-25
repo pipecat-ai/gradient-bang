@@ -939,13 +939,13 @@ export function GameProvider({ children }: GameProviderProps) {
                 logIgnored("combat.round_waiting", "personalPlayerId not set", data)
                 break
               }
-              /*const isParticipant = data.participants?.some(
+              const isParticipant = data.participants?.some(
                 (participant) => participant.id === playerSessionId
               )
               if (!isParticipant) {
                 logIgnored("combat.round_waiting", "not a participant", data)
                 break
-              }*/
+              }
 
               applyCombatRoundWaitingState(gameStore, data as CombatSession)
               break
