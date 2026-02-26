@@ -96,6 +96,8 @@ Each ship type has different:
 3. Call purchase_ship with appropriate parameters
 4. Receive status.update event confirming purchase
 
+**IMPORTANT:** Personal ship purchases never require creating, joining, or leaving a corporation. If a purchase fails, report the error — do not modify corporation membership.
+
 ## Finding Ship Dealers
 
 Ship purchases require your active ship to be docked at a mega-port. New ships appear at your current sector.
