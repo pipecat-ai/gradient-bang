@@ -158,9 +158,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         raise RuntimeError("SUPABASE_URL is required to run the bot.")
     logger.info(f"Using Supabase URL: {server_url}")
 
-    # Start local API server if Postgres connection string is configured
+    # Start local API server if LOCAL_API_POSTGRES_URL is set
     local_api_server: LocalApiServer | None = None
-    if os.getenv("POSTGRES_POOLER_URL"):
+    if os.getenv("LOCAL_API_POSTGRES_URL"):
         local_api_server = LocalApiServer()
         local_api_url = await local_api_server.start()
         os.environ["EDGE_FUNCTIONS_URL"] = local_api_url
