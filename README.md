@@ -385,6 +385,13 @@ EDGE_API_TOKEN=...
 
 BOT_USE_KRISP=1
 
+# Optional: Run edge functions locally inside the bot container instead of
+# calling Supabase Edge Functions over the network. This eliminates edge
+# function overhead (500ms avg, up to 10s). Set this to the
+# Supabase session pooler connection string (IPv4-compatible).
+# If unset, the bot connects to Supabase Edge Functions as normal.
+LOCAL_API_POSTGRES_URL=postgresql://postgres.{PROJECT_REF}:{DB_PASSWORD}@aws-0-{REGION}.pooler.supabase.com:5432/postgres
+
 # Optional: LLM provider configuration (defaults shown)
 # Supported providers: google, anthropic, openai
 VOICE_LLM_PROVIDER=google
