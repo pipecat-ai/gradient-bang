@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef } from "react"
-import { useFrame, useThree } from "@react-three/fiber"
+import { useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 import { useShallow } from "zustand/react/shallow"
 
 import { getPalette } from "@/colors"
+import { useProfiledFrame } from "@/hooks/useProfiledFrame"
 import { LAYERS, PANEL_ORDERING } from "@/constants"
 import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import {
@@ -237,7 +238,7 @@ export const Galaxy = () => {
   }, [renderTarget, bakeMaterial, displayMaterial])
 
   // Re-bake texture only when controls change
-  useFrame(() => {
+  useProfiledFrame("Galaxy", () => {
     const material = bakeMaterialRef.current
     if (!material) return
 

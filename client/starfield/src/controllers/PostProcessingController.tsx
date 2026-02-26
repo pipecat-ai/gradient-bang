@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from "react"
-import { invalidate, useFrame, useThree } from "@react-three/fiber"
+import { invalidate, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 import { BlendFunction } from "postprocessing"
 
 import { getPalette } from "@/colors"
+import { useProfiledFrame } from "@/hooks/useProfiledFrame"
 import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { useGameStore } from "@/useGameStore"
 import { useUniformStore } from "@/useUniformStore"
@@ -459,13 +460,35 @@ export const PostProcessingController = () => {
     managerRef.current?.setSize(size.width, size.height)
   }, [size.width, size.height])
 
+  // Enable profiling on the manager when in debug mode
+  useEffect(() => {
+    if (managerRef.current) {
+      const debug = useGameStore.getState().debug
+      managerRef.current.profilingEnabled = debug
+      if (debug) {
+        managerRef.current.initGPUTimer()
+      }
+    }
+  }, [])
+
   // Render loop
-  useFrame(({ camera: currentCamera }) => {
-    managerRef.current?.render(
-      currentCamera,
-      controlsRef.current.shockwave_distance
-    )
-  }, 1)
+  useProfiledFrame(
+    "PostProcessing",
+    ({ camera: currentCamera }) => {
+      const manager = managerRef.current
+      if (!manager) return
+
+      // Skip the OVERLAY render pass when tunnel is invisible (saves ~10ms GPU)
+      const tunnelOpacity = useUniformStore
+        .getState()
+        .getUniform<number>("tunnelOpacity")
+      manager.overlayPassNeeded =
+        (tunnelOpacity?.uniform?.value ?? 0) > 0
+
+      manager.render(currentCamera, controlsRef.current.shockwave_distance)
+    },
+    1
+  )
 
   return null
 }

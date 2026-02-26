@@ -36,19 +36,19 @@ const TUNNEL_OPACITY: AnimatedPropertyConfig = {
   target: 1,
   anim: {
     enter: { offset: 0.25 }, // Reaches full opacity at 25% of enter
-    exit: { delay: 0.5, offset: 0.9 },
+    exit: { delay: 0.5, offset: 0.5 },
   },
 }
 
 const TUNNEL_CONTRAST: AnimatedPropertyConfig = {
-  target: 0.7,
+  target: 1,
   anim: {
     exit: { delay: 0 },
   },
 }
 
 const TUNNEL_CENTER_HOLE: AnimatedPropertyConfig = {
-  target: 7,
+  target: 9,
   anim: {
     exit: { delay: 0, offset: 0.5 },
   },

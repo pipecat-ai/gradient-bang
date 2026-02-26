@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from "react"
-import { useFrame, useThree } from "@react-three/fiber"
+import { useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 
 import { LAYERS, PANEL_ORDERING } from "@/constants"
+import { useProfiledFrame } from "@/hooks/useProfiledFrame"
 import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import {
   tunnelFragmentShader,
@@ -12,6 +13,16 @@ import {
 } from "@/shaders/TunnelShader"
 import { useGameStore } from "@/useGameStore"
 import { useUniformStore } from "@/useUniformStore"
+import { createTunnelNoiseTexture } from "@/utils/noise"
+
+// Module-level lazy singleton — computed once outside React's lifecycle
+let tunnelNoiseTex: THREE.DataTexture | null = null
+function getTunnelNoiseTexture() {
+  if (!tunnelNoiseTex) {
+    tunnelNoiseTex = createTunnelNoiseTexture()
+  }
+  return tunnelNoiseTex
+}
 
 // Default tunnel config values
 const DEFAULT_TUNNEL_CONFIG = {
@@ -24,10 +35,10 @@ const DEFAULT_TUNNEL_CONFIG = {
   blendMode: "additive" as "additive" | "normal" | "multiply" | "screen",
   noiseAnimationSpeed: 0,
   opacity: 0,
-  contrast: 3,
+  contrast: 1,
   centerHole: 7.0,
   centerSoftness: 0.5,
-  pixelation: 4,
+  pixelation: 7,
   followCamera: true,
 }
 
@@ -267,6 +278,7 @@ export const Tunnel = () => {
         centerSoftness: { value: controls.centerSoftness },
         pixelation: { value: controls.pixelation },
         followCamera: { value: controls.followCamera },
+        noiseTex: { value: getTunnelNoiseTexture() },
       },
       vertexShader: tunnelVertexShader,
       fragmentShader: tunnelFragmentShader,
@@ -324,7 +336,7 @@ export const Tunnel = () => {
     removeUniform,
   ])
 
-  useFrame((state, delta) => {
+  useProfiledFrame("Tunnel", (state, delta) => {
     if (!meshRef.current) return
 
     const mat = meshRef.current.material as THREE.ShaderMaterial

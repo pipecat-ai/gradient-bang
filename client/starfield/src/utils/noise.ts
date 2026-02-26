@@ -463,6 +463,179 @@ export function createValueNoiseTexture(size = 256): THREE.DataTexture {
   return texture
 }
 
+// ---------------------------------------------------------------------------
+// JS port of the GLSL hash33 + simplexNoise used by the tunnel shader.
+// Must match the GLSL exactly so the pre-baked texture looks identical to the
+// old per-pixel computation.
+// ---------------------------------------------------------------------------
+
+function fract(x: number): number {
+  return x - Math.floor(x)
+}
+
+function glslMod(a: number, b: number): number {
+  return a - b * Math.floor(a / b)
+}
+
+function hash33(px: number, py: number, pz: number): [number, number, number] {
+  // p3 = fract(p3 * vec3(.1031,.11369,.13787))
+  let x = fract(px * 0.1031)
+  let y = fract(py * 0.11369)
+  let z = fract(pz * 0.13787)
+
+  // p3 += dot(p3, p3.yxz + 19.19)
+  const d = x * y + y * x + z * z + 19.19 * (x + y + z)
+  // More precisely: dot(p3, p3.yxz+19.19) = p3.x*(p3.y+19.19) + p3.y*(p3.x+19.19) + p3.z*(p3.z+19.19)
+  const dot = x * (y + 19.19) + y * (x + 19.19) + z * (z + 19.19)
+  x += dot
+  y += dot
+  z += dot
+
+  // return -1.0 + 2.0 * fract(vec3((p3.x+p3.y)*p3.z, (p3.x+p3.z)*p3.y, (p3.y+p3.z)*p3.x))
+  return [
+    -1.0 + 2.0 * fract((x + y) * z),
+    -1.0 + 2.0 * fract((x + z) * y),
+    -1.0 + 2.0 * fract((y + z) * x),
+  ]
+}
+
+function glslSimplexNoiseJS(px: number, py: number, pz: number): number {
+  const K1 = 0.333333333
+  const K2 = 0.166666667
+
+  // vec3 i = floor(p + (p.x + p.y + p.z) * K1)
+  const s = (px + py + pz) * K1
+  const ix = Math.floor(px + s)
+  const iy = Math.floor(py + s)
+  const iz = Math.floor(pz + s)
+
+  // vec3 d0 = p - (i - (i.x + i.y + i.z) * K2)
+  const t = (ix + iy + iz) * K2
+  const d0x = px - (ix - t)
+  const d0y = py - (iy - t)
+  const d0z = pz - (iz - t)
+
+  // vec3 e = step(vec3(0.0), d0 - d0.yzx)
+  const ex = d0x - d0y >= 0.0 ? 1.0 : 0.0
+  const ey = d0y - d0z >= 0.0 ? 1.0 : 0.0
+  const ez = d0z - d0x >= 0.0 ? 1.0 : 0.0
+
+  // vec3 i1 = e * (1.0 - e.zxy)
+  const i1x = ex * (1.0 - ez)
+  const i1y = ey * (1.0 - ex)
+  const i1z = ez * (1.0 - ey)
+
+  // vec3 i2 = 1.0 - e.zxy * (1.0 - e)
+  const i2x = 1.0 - ez * (1.0 - ex)
+  const i2y = 1.0 - ex * (1.0 - ey)
+  const i2z = 1.0 - ey * (1.0 - ez)
+
+  // vec3 d1 = d0 - (i1 - K2)
+  const d1x = d0x - (i1x - K2)
+  const d1y = d0y - (i1y - K2)
+  const d1z = d0z - (i1z - K2)
+
+  // vec3 d2 = d0 - (i2 - 2.0 * K2)
+  const d2x = d0x - (i2x - 2.0 * K2)
+  const d2y = d0y - (i2y - 2.0 * K2)
+  const d2z = d0z - (i2z - 2.0 * K2)
+
+  // vec3 d3 = d0 - (1.0 - 3.0 * K2)
+  const d3x = d0x - (1.0 - 3.0 * K2)
+  const d3y = d0y - (1.0 - 3.0 * K2)
+  const d3z = d0z - (1.0 - 3.0 * K2)
+
+  // vec4 h = max(0.6 - vec4(dot(d0,d0), dot(d1,d1), dot(d2,d2), dot(d3,d3)), 0.0)
+  let h0 = Math.max(0.0, 0.6 - (d0x * d0x + d0y * d0y + d0z * d0z))
+  let h1 = Math.max(0.0, 0.6 - (d1x * d1x + d1y * d1y + d1z * d1z))
+  let h2 = Math.max(0.0, 0.6 - (d2x * d2x + d2y * d2y + d2z * d2z))
+  let h3 = Math.max(0.0, 0.6 - (d3x * d3x + d3y * d3y + d3z * d3z))
+
+  // h * h * h * h (h^4)
+  h0 = h0 * h0 * h0 * h0
+  h1 = h1 * h1 * h1 * h1
+  h2 = h2 * h2 * h2 * h2
+  h3 = h3 * h3 * h3 * h3
+
+  // hash33 for each corner
+  const g0 = hash33(ix, iy, iz)
+  const g1 = hash33(ix + i1x, iy + i1y, iz + i1z)
+  const g2 = hash33(ix + i2x, iy + i2y, iz + i2z)
+  const g3 = hash33(ix + 1.0, iy + 1.0, iz + 1.0)
+
+  // dot products
+  const n0 = h0 * (d0x * g0[0] + d0y * g0[1] + d0z * g0[2])
+  const n1 = h1 * (d1x * g1[0] + d1y * g1[1] + d1z * g1[2])
+  const n2 = h2 * (d2x * g2[0] + d2y * g2[1] + d2z * g2[2])
+  const n3 = h3 * (d3x * g3[0] + d3y * g3[1] + d3z * g3[2])
+
+  // return dot(vec4(31.316), n)
+  return 31.316 * (n0 + n1 + n2 + n3)
+}
+
+/**
+ * Creates a tileable noise texture for the tunnel shader.
+ * Samples 3-octave fBM noise on a cylinder so the U axis (angle)
+ * tiles seamlessly. V axis (time scroll) tiles via RepeatWrapping.
+ * Uses a JS port of the exact GLSL hash33 + simplexNoise for identical output.
+ *
+ * @param size - Texture dimensions (size x size). Default 256.
+ * @returns THREE.DataTexture with noise in all channels
+ */
+export function createTunnelNoiseTexture(size = 256): THREE.DataTexture {
+  const TAU = Math.PI * 2
+  const circleRadius = 6.0 // matches default tunnelDepth=0.4: 1.5 * 0.4 * 10
+  const vRange = 5.0 // noise-Z range to bake into V dimension
+
+  const data = new Uint8Array(size * size * 4)
+
+  for (let vy = 0; vy < size; vy++) {
+    for (let ux = 0; ux < size; ux++) {
+      const u = ux / size
+      const v = vy / size
+
+      // Sample noise on a cylinder (tiles in U because the circle closes)
+      const rawX = Math.cos(u * TAU) * circleRadius
+      const rawY = Math.sin(u * TAU) * circleRadius
+      const rawZ = v * vRange
+
+      // Replicate GLSL fBm3: mod(p, 5.0) then 3 octaves
+      const px = glslMod(rawX, 5.0)
+      const py = glslMod(rawY, 5.0)
+      const pz = glslMod(rawZ, 5.0)
+
+      let f = 0.0
+      let scale = 5.0
+      let amp = 0.75
+
+      for (let i = 0; i < 3; i++) {
+        f += glslSimplexNoiseJS(px * scale, py * scale, pz * scale) * amp
+        amp *= 0.5
+        scale *= 2.0
+      }
+
+      // Match GLSL fBm3: return min(f, 1.0) — no lower clamp
+      const value = Math.max(0, Math.min(1, f))
+      const byte = Math.floor(value * 255)
+
+      const idx = (vy * size + ux) * 4
+      data[idx] = byte
+      data[idx + 1] = byte
+      data[idx + 2] = byte
+      data[idx + 3] = 255
+    }
+  }
+
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.minFilter = THREE.LinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.needsUpdate = true
+
+  return texture
+}
+
 /**
  * Camera shake utilities for smooth, organic motion
  * Based on Perlin noise for natural-looking shake patterns

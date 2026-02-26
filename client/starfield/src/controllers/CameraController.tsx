@@ -5,6 +5,7 @@ import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 
+import { useProfiledFrame } from "@/hooks/useProfiledFrame"
 import { useShowControls } from "@/hooks/useStarfieldControls"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
@@ -159,7 +160,7 @@ export function CameraController({
     }
   }, [config.smoothTime, config.restThreshold])
 
-  useFrame(({ camera, gl, scene }) => {
+  useProfiledFrame("Camera", ({ camera, gl, scene }) => {
     const cam = cameraControlsRef.current
 
     // Handle lookAtTarget changes
