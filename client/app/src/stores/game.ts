@@ -84,6 +84,9 @@ export interface GameState {
   leaderboard_last_updated: string | null
   setLeaderboardData: (leaderboardData: LeaderboardResponse) => void
 
+  /* Ship definitions (from DB) */
+  shipDefinitions: ShipDefinition[]
+
   /* Ship destruction */
   destroyedShips: ShipSelf[]
   destroyingShipIds: string[]
@@ -107,6 +110,7 @@ export interface GameSlice extends GameState {
   getShipSectors: (includeSelf: boolean) => number[]
   setSector: (sector: Sector) => void
   setCorporation: (corporation: Corporation | undefined) => void
+  setShipDefinitions: (definitions: ShipDefinition[]) => void
   updateSector: (sector: Partial<Sector>) => void
   addSectorPlayer: (player: Player) => void
   removeSectorPlayer: (player: Player) => void
@@ -158,6 +162,9 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
 
   starfieldReady: false,
   diamondFXInstance: undefined,
+
+  shipDefinitions: [],
+  setShipDefinitions: (definitions: ShipDefinition[]) => set({ shipDefinitions: definitions }),
 
   alertTransfer: 0,
   destroyedShips: [],

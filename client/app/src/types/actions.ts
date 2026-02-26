@@ -42,6 +42,10 @@ export interface GetMyCorporationAction {
   type: "get-my-corporation"
 }
 
+export interface GetShipDefinitionsAction {
+  type: "get-ship-definitions"
+}
+
 export interface CancelTaskAction {
   type: "cancel-task"
   payload: { task_id: string }
@@ -87,6 +91,7 @@ export type GameAction = (
   | GetTaskHistoryAction
   | GetMyShipsAction
   | GetMyCorporationAction
+  | GetShipDefinitionsAction
   | CancelTaskAction
   | RenameShipAction
   | GetChatHistoryAction

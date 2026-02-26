@@ -1,3 +1,5 @@
+import { useEffect } from "react"
+
 import {
   CargoIcon,
   CreditsIcon,
@@ -14,18 +16,23 @@ import { Badge } from "../primitives/Badge"
 import { Button } from "../primitives/Button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../primitives/ToolTip"
 
-import { SHIP_DEFINITIONS } from "@/types/ships"
-
 export const ShipCatalogue = () => {
   const setActiveScreen = useGameStore.use.setActiveScreen?.()
+  const shipDefinitions = useGameStore.use.shipDefinitions()
+  const dispatchAction = useGameStore.use.dispatchAction()
 
-  const orderedShipDefinitions = SHIP_DEFINITIONS.sort(
-    (a, b) => a.purchase_price - b.purchase_price
-  )
+  useEffect(() => {
+    if (shipDefinitions.length === 0) {
+      dispatchAction({ type: "get-ship-definitions" })
+    }
+  }, [shipDefinitions.length, dispatchAction])
+
+  const orderedShipDefinitions = [...shipDefinitions]
+    .sort((a, b) => a.purchase_price - b.purchase_price)
     .filter((ship) => ship.purchase_price > 0)
     .map((ship) => ({
       ...ship,
-      stats: JSON.parse(ship.stats),
+      stats: typeof ship.stats === "string" ? JSON.parse(ship.stats) : ship.stats,
     }))
 
   return (
@@ -33,7 +40,7 @@ export const ShipCatalogue = () => {
       <DottedTitle title="Ship Catalog" />
       {orderedShipDefinitions.map((ship) => (
         <div
-          key={ship.idx}
+          key={ship.ship_type}
           className="flex flex-row gap-ui-sm pb-ui-sm border-b border-accent justify-between"
         >
           <div className="flex flex-col gap-1.5 flex-1">
