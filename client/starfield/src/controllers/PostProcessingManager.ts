@@ -1,10 +1,10 @@
 import {
   BlendFunction,
   BrightnessContrastEffect,
+  Effect,
   EffectComposer,
   EffectPass,
   HueSaturationEffect,
-  RenderPass,
   ShockWaveEffect,
 } from "postprocessing"
 import * as THREE from "three"
@@ -199,11 +199,27 @@ export class PostProcessingManager {
     // Clear existing passes
     this.composer.removeAllPasses()
 
-    // Render pass (always present)
-    this.composer.addPass(new RenderPass(this.scene, this.camera))
+    // Scene render is handled manually in render() so we can time it
+    // separately from the effect passes. No RenderPass in the composer.
 
-    // Collect effect passes in order
+    // Collect effect passes in order.
+    // Compatible per-pixel effects are merged into shared EffectPass instances
+    // (one GPU draw call each) to reduce fullscreen texture read/write overhead.
+    //
+    // Effects are grouped into three passes by colour-space and sampling needs:
+    //   Pass A  (linear): LayerDim, Tint              — pre-grading
+    //   Pass B  (sRGB):   BrightnessContrast, HueSat  — grading (BC declares sRGB inputColorSpace)
+    //   Pass C  (linear): Dithering, Exposure          — post-grading
+    //   Pass D  (spatial): Sharpen                     — reads neighbours, needs own pass
+    //   Pass E  (UV):      Shockwave                   — distorts UVs, needs own pass
+    //
+    // Keeping BC+HS in their own pass avoids colour-space conversion
+    // interactions with the linear-only custom effects.
     const orderedEffectPasses: EffectPass[] = []
+
+    // --- Pass A: pre-grading linear effects ---------------------------------
+
+    const preGradingEffects: Effect[] = []
 
     // Layer Dim (always present)
     this.layerDim = new LayerDimEffect({
@@ -215,7 +231,7 @@ export class PostProcessingManager {
       this.layerDim.uniforms.get("dimOpacity")!,
       { initial: 1.0, meta: { effect: "layerDim" } }
     )
-    orderedEffectPasses.push(new EffectPass(this.camera, this.layerDim))
+    preGradingEffects.push(this.layerDim)
 
     // Tint (conditional)
     if (config.grading_tintEnabled) {
@@ -225,12 +241,17 @@ export class PostProcessingManager {
         tintColorPrimary: new THREE.Vector3(1, 1, 1),
         tintColorSecondary: new THREE.Vector3(1, 1, 1),
       })
-      orderedEffectPasses.push(new EffectPass(this.camera, this.tint))
+      preGradingEffects.push(this.tint)
     } else {
       this.tint = null
     }
 
-    // Grading (conditional)
+    orderedEffectPasses.push(
+      new EffectPass(this.camera, ...preGradingEffects)
+    )
+
+    // --- Pass B: grading (sRGB colour-space effects) ------------------------
+
     if (config.grading_enabled) {
       this.brightnessContrast = new BrightnessContrastEffect({
         brightness: config.grading_brightness,
@@ -240,13 +261,20 @@ export class PostProcessingManager {
         saturation: config.grading_saturation,
       })
       orderedEffectPasses.push(
-        new EffectPass(this.camera, this.brightnessContrast)
+        new EffectPass(
+          this.camera,
+          this.brightnessContrast,
+          this.hueSaturation
+        )
       )
-      orderedEffectPasses.push(new EffectPass(this.camera, this.hueSaturation))
     } else {
       this.brightnessContrast = null
       this.hueSaturation = null
     }
+
+    // --- Pass C: post-grading linear effects --------------------------------
+
+    const postGradingEffects: Effect[] = []
 
     // Dithering (conditional)
     if (config.dithering_enabled) {
@@ -270,26 +298,14 @@ export class PostProcessingManager {
           meta: { effect: "dithering" },
         }
       )
-      orderedEffectPasses.push(new EffectPass(this.camera, this.dithering))
+      postGradingEffects.push(this.dithering)
     } else {
       this.safeRemoveUniform("ppDitheringGridSize")
       this.safeRemoveUniform("ppDitheringPixelSizeRatio")
       this.dithering = null
     }
 
-    // Sharpening (conditional)
-    if (config.sharpening_enabled) {
-      this.sharpen = new SharpenEffect({
-        intensity: config.sharpening_intensity,
-        radius: config.sharpening_radius,
-        threshold: config.sharpening_threshold,
-      })
-      orderedEffectPasses.push(new EffectPass(this.camera, this.sharpen))
-    } else {
-      this.sharpen = null
-    }
-
-    // Exposure (conditional) - placed late for true fade to black
+    // Exposure (conditional) - placed last for true fade to black
     if (config.exposure_enabled) {
       const initialExposure = this.exposureInitialized
         ? DEFAULT_EXPOSURE_CONFIG.amount
@@ -306,13 +322,33 @@ export class PostProcessingManager {
         }
       )
       this.exposureInitialized = true
-      orderedEffectPasses.push(new EffectPass(this.camera, this.exposure))
+      postGradingEffects.push(this.exposure)
     } else {
       this.safeRemoveUniform("ppExposure")
       this.exposure = null
     }
 
-    // Shockwave (conditional)
+    if (postGradingEffects.length > 0) {
+      orderedEffectPasses.push(
+        new EffectPass(this.camera, ...postGradingEffects)
+      )
+    }
+
+    // --- Spatial effects (separate passes) ----------------------------------
+
+    // Sharpening (conditional) — reads neighbouring pixels, needs its own pass
+    if (config.sharpening_enabled) {
+      this.sharpen = new SharpenEffect({
+        intensity: config.sharpening_intensity,
+        radius: config.sharpening_radius,
+        threshold: config.sharpening_threshold,
+      })
+      orderedEffectPasses.push(new EffectPass(this.camera, this.sharpen))
+    } else {
+      this.sharpen = null
+    }
+
+    // Shockwave (conditional) — distorts UVs, needs its own pass
     if (config.shockwave_enabled) {
       const durationSeconds = Math.max(config.shockwave_speed, 0.001)
       const effectSpeed = config.shockwave_maxRadius / durationSeconds
@@ -543,21 +579,33 @@ export class PostProcessingManager {
     // Restore camera layers
     currentCamera.layers.mask = originalLayers
 
-    // Render the composer (excluding OVERLAY layer so tunnel isn't affected by exposure)
+    // Render the scene + effects (excluding OVERLAY layer so tunnel isn't
+    // affected by exposure).  The scene is rendered manually to the composer's
+    // input buffer so we can time scene vs effects separately.
     const originalLayersForComposer = currentCamera.layers.mask
 
     // Disable OVERLAY layer during post-processing
     currentCamera.layers.disable(LAYERS.OVERLAY)
 
-    // Render post-processed scene
+    // Render scene to composer input buffer
     t0 = this.profilingEnabled ? performance.now() : 0
-    gpu?.begin("composer")
+    gpu?.begin("scene")
+    this.gl.setRenderTarget(this.composer.inputBuffer)
+    this.gl.clear()
+    this.gl.render(this.scene, currentCamera)
+    this.gl.setRenderTarget(null)
+    gpu?.end()
+    const sceneMs = this.profilingEnabled ? performance.now() - t0 : 0
+
+    // Run effect passes only (no RenderPass in the composer)
+    t0 = this.profilingEnabled ? performance.now() : 0
+    gpu?.begin("effects")
     this.composer.render()
     gpu?.end()
     const composerMs = this.profilingEnabled ? performance.now() - t0 : 0
 
     // Render OVERLAY layer (tunnel) on top without post-processing
-    // Skip entirely when nothing on the overlay layer is visible (saves ~10ms GPU)
+    // Skip entirely when nothing on the overlay layer is visible
     let overlayMs = 0
     if (this.overlayPassNeeded) {
       t0 = this.profilingEnabled ? performance.now() : 0
@@ -577,7 +625,7 @@ export class PostProcessingManager {
     // Collect GPU query results (from previous frames) and report CPU breakdown
     if (this.profilingEnabled) {
       gpu?.collect()
-      reportPPBreakdown(maskMs, composerMs, overlayMs)
+      reportPPBreakdown(maskMs, sceneMs + composerMs, overlayMs)
     }
   }
 

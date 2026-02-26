@@ -1,6 +1,9 @@
 import type { GameObject, PerformanceProfile } from "./types"
 
-export const MAX_SHIPS = 5
+/** Max framebuffer pixels (~4.7M). Equivalent to 1080p at 1.5× DPR. */
+export const MAX_RENDER_PIXELS = 1920 * 1080
+
+export const MAX_SHIPS = 7
 
 /** NDC bounds for useObjectsInFrustum — inner 15% of the view on each axis */
 export const FRUSTUM_INNER_BOUNDS = 0.25
@@ -29,9 +32,6 @@ export const PERFORMANCE_PROFILES: PerformanceProfile[] = [
   "high",
   "extreme",
 ] as const
-
-/** Max framebuffer pixels (~4.7M). Equivalent to 1080p at 1.5× DPR. */
-export const MAX_RENDER_PIXELS = 2880 * 1620
 
 export const DEFAULT_DPR: Record<PerformanceProfile, number> = {
   auto: 1,

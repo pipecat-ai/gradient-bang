@@ -17,7 +17,7 @@ const DEFAULT_PP_CONFIG: PPConfig = {
   // Sharpening
   sharpening_enabled: true,
   sharpening_intensity: 2.0,
-  sharpening_radius: 6.0,
+  sharpening_radius: 3.0,
   sharpening_threshold: 0,
   // Dithering
   dithering_enabled: true,
@@ -482,8 +482,7 @@ export const PostProcessingController = () => {
       const tunnelOpacity = useUniformStore
         .getState()
         .getUniform<number>("tunnelOpacity")
-      manager.overlayPassNeeded =
-        (tunnelOpacity?.uniform?.value ?? 0) > 0
+      manager.overlayPassNeeded = (tunnelOpacity?.uniform?.value ?? 0) > 0
 
       manager.render(currentCamera, controlsRef.current.shockwave_distance)
     },
