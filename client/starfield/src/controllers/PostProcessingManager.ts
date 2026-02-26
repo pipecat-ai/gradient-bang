@@ -9,6 +9,11 @@ import {
 } from "postprocessing"
 import * as THREE from "three"
 
+import {
+  GPUTimer,
+  profileData,
+  reportPPBreakdown,
+} from "@/hooks/useProfiledFrame"
 import { LAYERS } from "@/constants"
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { ExposureEffect } from "@/fx/ExposureEffect"
@@ -99,6 +104,15 @@ export class PostProcessingManager {
 
   // Exposure initialization tracking
   private exposureInitialized = false
+
+  /** When true, reports per-pass timing to the FrameProfiler. Default false. */
+  profilingEnabled = false
+
+  /** When false, skips the OVERLAY render pass entirely (saves ~10ms GPU). */
+  overlayPassNeeded = false
+
+  /** GPU timer for per-pass GPU timing (created when profiling enabled) */
+  private gpuTimer: GPUTimer | null = null
 
   // Track current structure for detecting Leva toggles
   private currentStructure: StructureState
@@ -449,6 +463,20 @@ export class PostProcessingManager {
   }
 
   /**
+   * Initialize GPU timer for per-pass GPU profiling.
+   * Call once when profiling is enabled. No-op if extension unavailable.
+   */
+  initGPUTimer(): void {
+    if (this.gpuTimer) return
+    const glContext = this.gl.getContext() as WebGL2RenderingContext
+    if (!glContext.getExtension) return
+    this.gpuTimer = new GPUTimer(glContext)
+    if (!this.gpuTimer.isAvailable) {
+      this.gpuTimer = null
+    }
+  }
+
+  /**
    * Resize composer and mask target
    */
   setSize(width: number, height: number) {
@@ -501,11 +529,16 @@ export class PostProcessingManager {
     currentCamera.layers.set(LAYERS.GAMEOBJECTS)
 
     // Render to mask target with black background
+    const gpu = this.profilingEnabled ? this.gpuTimer : null
+    let t0 = this.profilingEnabled ? performance.now() : 0
+    gpu?.begin("mask")
     this.gl.setRenderTarget(this.gameObjectsMask)
     this.gl.setClearColor(0x000000, 0)
     this.gl.clear()
     this.gl.render(this.scene, currentCamera)
     this.gl.setRenderTarget(null)
+    gpu?.end()
+    const maskMs = this.profilingEnabled ? performance.now() - t0 : 0
 
     // Restore camera layers
     currentCamera.layers.mask = originalLayers
@@ -517,14 +550,35 @@ export class PostProcessingManager {
     currentCamera.layers.disable(LAYERS.OVERLAY)
 
     // Render post-processed scene
+    t0 = this.profilingEnabled ? performance.now() : 0
+    gpu?.begin("composer")
     this.composer.render()
+    gpu?.end()
+    const composerMs = this.profilingEnabled ? performance.now() - t0 : 0
 
     // Render OVERLAY layer (tunnel) on top without post-processing
-    currentCamera.layers.set(LAYERS.OVERLAY)
-    this.gl.render(this.scene, currentCamera)
+    // Skip entirely when nothing on the overlay layer is visible (saves ~10ms GPU)
+    let overlayMs = 0
+    if (this.overlayPassNeeded) {
+      t0 = this.profilingEnabled ? performance.now() : 0
+      gpu?.begin("overlay")
+      currentCamera.layers.set(LAYERS.OVERLAY)
+      this.gl.render(this.scene, currentCamera)
+      gpu?.end()
+      overlayMs = this.profilingEnabled ? performance.now() - t0 : 0
+    } else if (this.profilingEnabled) {
+      // Clear stale GPU/CPU overlay timing when pass is skipped
+      profileData.gpuTiming.overlayMs = 0
+    }
 
     // Restore camera layers
     currentCamera.layers.mask = originalLayersForComposer
+
+    // Collect GPU query results (from previous frames) and report CPU breakdown
+    if (this.profilingEnabled) {
+      gpu?.collect()
+      reportPPBreakdown(maskMs, composerMs, overlayMs)
+    }
   }
 
   /**
@@ -538,6 +592,7 @@ export class PostProcessingManager {
    * Dispose all resources
    */
   dispose() {
+    this.gpuTimer?.dispose()
     this.composer.dispose()
     this.gameObjectsMask.dispose()
 

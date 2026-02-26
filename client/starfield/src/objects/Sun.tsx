@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from "react"
-import { useFrame, useThree } from "@react-three/fiber"
+import { useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 
 import { getPalette } from "@/colors"
+import { useProfiledFrame } from "@/hooks/useProfiledFrame"
 import { LAYERS, PANEL_ORDERING } from "@/constants"
 import { useControlSync, useShowControls } from "@/hooks/useStarfieldControls"
 import { sunFragmentShader, sunVertexShader } from "@/shaders/SunShader"
@@ -175,7 +176,7 @@ export const Sun = () => {
   }, [sunMaterial])
 
   // Update shader uniforms on each frame
-  useFrame(() => {
+  useProfiledFrame("Sun", () => {
     if (!groupRef.current || !materialRef.current) return
 
     const material = materialRef.current

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef } from "react"
-import { useFrame, useThree } from "@react-three/fiber"
+import { useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 import * as THREE from "three"
 import { useShallow } from "zustand/react/shallow"
 
 import { getPalette } from "@/colors"
+import { useProfiledFrame } from "@/hooks/useProfiledFrame"
 import { LAYERS, PANEL_ORDERING } from "@/constants"
 import {
   shadowFragmentShader,
@@ -293,7 +294,7 @@ export const Planet = () => {
     }
   }, [planetTexture, controls.scale])
 
-  useFrame(() => {
+  useProfiledFrame("Planet", () => {
     if (groupRef.current) {
       groupRef.current.position.set(
         camera.position.x + controls.positionX,

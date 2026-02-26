@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react"
-import { invalidate, useFrame } from "@react-three/fiber"
+import { invalidate } from "@react-three/fiber"
 import { button, folder, useControls } from "leva"
 import type { Schema } from "leva/dist/declarations/src/types"
 
@@ -9,6 +9,7 @@ import { useHyperspaceAnimation } from "@/animations/hyperspaceAnim"
 import { useSceneChangeAnimation } from "@/animations/sceneChangeAnim"
 import { useShakeAnimation } from "@/animations/shakeAnim"
 import { useShockwaveAnimation } from "@/animations/shockwaveAnim"
+import { useProfiledFrame } from "@/hooks/useProfiledFrame"
 import { useShowControls } from "@/hooks/useStarfieldControls"
 import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
@@ -150,7 +151,7 @@ export function AnimationController() {
 
   // Keep render loop alive while any animation is running
   // Important: Read directly from store to avoid stale closure
-  useFrame(() => {
+  useProfiledFrame("Animation", () => {
     if (useAnimationStore.getState().isAnimating) {
       invalidate()
     }

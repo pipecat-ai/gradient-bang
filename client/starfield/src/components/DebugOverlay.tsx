@@ -9,6 +9,11 @@ const RenderingIndicator = lazy(() =>
     default: mod.RenderingIndicator,
   }))
 )
+const FrameProfiler = lazy(() =>
+  import("./FrameProfiler").then((mod) => ({
+    default: mod.FrameProfiler,
+  }))
+)
 
 /**
  * Debug overlay components - lazy loaded to avoid bundling in production
@@ -18,6 +23,7 @@ export function DebugOverlay() {
     <Suspense fallback={null}>
       <Stats showPanel={0} />
       <RenderingIndicator />
+      <FrameProfiler />
     </Suspense>
   )
 }
