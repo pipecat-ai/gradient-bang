@@ -35,7 +35,7 @@ const DEFAULT_TUNNEL_CONFIG = {
   blendMode: "additive" as "additive" | "normal" | "multiply" | "screen",
   noiseAnimationSpeed: 0,
   opacity: 0,
-  contrast: 1,
+  contrast: 3,
   centerHole: 7.0,
   centerSoftness: 0.5,
   pixelation: 7,
