@@ -1,5 +1,7 @@
 import { useEffect } from "react"
 
+import { CircleNotchIcon } from "@phosphor-icons/react"
+
 import {
   CargoIcon,
   CreditsIcon,
@@ -38,6 +40,12 @@ export const ShipCatalogue = () => {
   return (
     <div className="flex flex-col gap-ui-sm uppercase">
       <DottedTitle title="Ship Catalog" />
+      {orderedShipDefinitions.length === 0 && (
+        <div className="flex items-center justify-center gap-2 py-ui-md text-subtle-foreground">
+          <CircleNotchIcon weight="bold" className="size-4 animate-spin" />
+          <span className="text-xs">Loading ship data...</span>
+        </div>
+      )}
       {orderedShipDefinitions.map((ship) => (
         <div
           key={ship.ship_type}
