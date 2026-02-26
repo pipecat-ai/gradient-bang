@@ -39,5 +39,9 @@ COPY src/gradientbang/pipecat_server/bot.py bot.py
 # Copy edge function source for local API server
 COPY deployment/supabase/functions/ /app/edge-functions/
 
-# Pre-cache Deno dependencies for faster cold starts
-RUN cd /app/edge-functions && deno cache server.ts || true
+# Pre-compile all edge functions and dependencies at build time.
+# server.ts uses dynamic imports, so we also cache each function's index.ts
+# to eliminate first-request compilation latency.
+RUN cd /app/edge-functions \
+    && deno cache server.ts 2>/dev/null || true \
+    && for f in */index.ts; do deno cache "$f" 2>/dev/null || true; done
