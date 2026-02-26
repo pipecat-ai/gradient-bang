@@ -70,8 +70,10 @@ Example flow:
 ### Corporation Ship Types
 
 Special autonomous ships can only be purchased for corporations:
-- `autonomous_probe` - 1,000 credits, basic exploration
-- `autonomous_light_hauler` - 5,000 credits, small cargo capacity
+- `autonomous_probe` — basic exploration
+- `autonomous_light_hauler` — small cargo capacity
+
+Call `ship_definitions()` for current prices.
 
 ## Purchasing Corporation Ships
 
@@ -80,6 +82,7 @@ Use `purchase_ship` with `purchase_type="corporation"`:
 ```
 purchase_ship(
     ship_type="autonomous_probe",
+    expected_price=1000,  # From ship_definitions()
     purchase_type="corporation",
     ship_name="Scout Alpha",
     initial_ship_credits=500  # Optional: seed credits

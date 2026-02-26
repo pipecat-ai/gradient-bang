@@ -95,6 +95,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const purchaseType =
     purchaseTypeInput ??
     (forCorporation ? CORPORATION_PURCHASE : PERSONAL_PURCHASE);
+  const expectedPrice = optionalNumber(payload, "expected_price");
   const actorCharacterId = optionalString(payload, "actor_character_id");
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
@@ -139,6 +140,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         shipTypeRaw,
         requestId,
         taskId,
+        expectedPrice,
       );
     }
     return await handlePersonalPurchase(
@@ -148,6 +150,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       shipTypeRaw,
       requestId,
       taskId,
+      expectedPrice,
     );
   } catch (err) {
     if (err instanceof ShipPurchaseError) {
@@ -179,6 +182,7 @@ async function handlePersonalPurchase(
   shipType: string,
   requestId: string,
   taskId: string | null,
+  expectedPrice: number | null,
 ): Promise<Response> {
   if (isAutonomousShipType(shipType)) {
     throw new ShipPurchaseError(
@@ -214,6 +218,12 @@ async function handlePersonalPurchase(
   );
   const tradeInValue = calculateTradeInValue(currentShip, tradeInDefinition);
   const price = targetDefinition.purchase_price ?? 0;
+
+  if (expectedPrice !== null && expectedPrice !== price) {
+    throw new ShipPurchaseError(
+      `Price mismatch: expected ${expectedPrice} but actual price is ${price}`,
+    );
+  }
   const netCost = Math.max(0, price - tradeInValue);
 
   const shipCredits = currentShip.credits ?? 0;
@@ -326,6 +336,7 @@ async function handleCorporationPurchase(
   shipType: string,
   requestId: string,
   taskId: string | null,
+  expectedPrice: number | null,
 ): Promise<Response> {
   const initialCreditsRaw = optionalNumber(payload, "initial_ship_credits");
   const initialShipCredits =
@@ -380,6 +391,13 @@ async function handleCorporationPurchase(
     shipName = await generateUniqueShipName(supabase, shipName);
   }
   const price = shipDefinition.purchase_price ?? 0;
+
+  if (expectedPrice !== null && expectedPrice !== price) {
+    throw new ShipPurchaseError(
+      `Price mismatch: expected ${expectedPrice} but actual price is ${price}`,
+    );
+  }
+
   const totalCost = price + initialShipCredits;
   const bankBalance = character.credits_in_megabank ?? 0;
   if (bankBalance < totalCost) {

@@ -2,33 +2,13 @@
 
 ## Ship Types
 
-### Starter/Light Ships
-| Type | Price | Role |
-|------|-------|------|
-| kestrel_courier | 25,000 | Starter ship |
-| sparrow_scout | 35,000 | Recon |
+**You do NOT know ship prices.** Prices change and you must NEVER quote a price from memory. Always call `ship_definitions()` first to get current prices from the database. This returns all ship data including purchase prices, cargo capacity, warp power, shields, and fighters.
 
-### Cargo Ships
-| Type | Price | Role |
-|------|-------|------|
-| wayfarer_freighter | 120,000 | Main trader |
-| pioneer_lifter | 220,000 | Logistics |
-| atlas_hauler | 260,000 | Bulk cargo |
-
-### Combat Ships
-| Type | Price | Role |
-|------|-------|------|
-| corsair_raider | 180,000 | Pirate |
-| pike_frigate | 300,000 | Assault |
-| bulwark_destroyer | 450,000 | Line combat |
-| aegis_cruiser | 700,000 | Control/escort |
-| sovereign_starcruiser | 2,500,000 | Flagship |
-
-### Autonomous Ships (Corporation Only)
-| Type | Price | Role |
-|------|-------|------|
-| autonomous_probe | 1,000 | Basic exploration |
-| autonomous_light_hauler | 5,000 | Small cargo |
+Ship categories:
+- **Starter/Light** — cheap, low capacity
+- **Cargo** — high cargo holds for trading
+- **Combat** — strong shields, fighters, weapons
+- **Autonomous (Corporation Only)** — can only be purchased for corporations
 
 ## Personal Ship Purchase
 
@@ -37,6 +17,7 @@ Use `purchase_ship` for personal purchases:
 ```
 purchase_ship(
     ship_type="wayfarer_freighter",
+    expected_price=120000,  # From ship_definitions()
     ship_name="My Trader"  # Optional
 )
 ```
@@ -55,6 +36,7 @@ Use `purchase_ship` with `purchase_type="corporation"`:
 ```
 purchase_ship(
     ship_type="autonomous_probe",
+    expected_price=1000,  # From ship_definitions()
     purchase_type="corporation",
     ship_name="Scout Alpha",
     initial_ship_credits=500  # Optional
@@ -91,10 +73,13 @@ Each ship type has different:
 
 ## Purchasing Process
 
-1. Check your credits (personal or corp bank)
-2. Verify you can afford the ship (minus trade-in value if applicable)
-3. Call purchase_ship with appropriate parameters
-4. Receive status.update event confirming purchase
+1. **ALWAYS** call `ship_definitions()` first — never guess or assume prices
+2. Check your credits (personal or corp bank)
+3. Verify you can afford the ship (minus trade-in value if applicable)
+4. Call `purchase_ship` with `expected_price` set to the exact base price from `ship_definitions()`
+5. Receive status.update event confirming purchase
+
+**NEVER tell the pilot a ship's price without calling `ship_definitions()` first. The server rejects purchases with incorrect prices.**
 
 **IMPORTANT:** Personal ship purchases never require creating, joining, or leaving a corporation. If a purchase fails, report the error — do not modify corporation membership.
 
