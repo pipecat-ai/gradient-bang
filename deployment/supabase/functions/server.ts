@@ -129,7 +129,7 @@ if (loadedCount < FUNCTION_NAMES.length) {
 // Phase 2: Start the actual unified HTTP server
 // ---------------------------------------------------------------------------
 
-const PORT = parseInt(Deno.env.get("LOCAL_API_PORT") ?? "54321", 10);
+const PORT = parseInt(Deno.env.get("LOCAL_API_PORT") ?? "54380", 10);
 
 Deno.serve({ port: PORT }, async (req: Request): Promise<Response> => {
   const url = new URL(req.url);
