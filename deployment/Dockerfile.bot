@@ -12,9 +12,12 @@ ENV PCC_LOG_FEATURES_SUMMARY=true
 ENV PYTHONPATH=/app
 
 # Install Deno for running edge functions locally
-RUN curl -fsSL https://deno.land/install.sh | sh
-ENV DENO_DIR=/root/.deno
-ENV PATH="${DENO_DIR}/bin:${PATH}"
+ENV DENO_INSTALL=/root/.deno
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
+    && curl -fsSL https://deno.land/install.sh | sh \
+    && apt-get purge -y curl unzip && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
