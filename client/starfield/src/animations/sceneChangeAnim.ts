@@ -22,7 +22,7 @@ import {
 
 // Camera FOV - subtle zoom during transition
 const CAMERA_FOV: AnimatedPropertyConfig = {
-  target: 60, // Slight zoom in (less extreme than hyperspace's 150)
+  target: 80, // Slight zoom in (less extreme than hyperspace's 150)
   anim: {
     enter: { easing: easings.easeInCubic },
     exit: { easing: easings.easeOutExpo },
@@ -39,7 +39,7 @@ const TUNNEL_OPACITY: AnimatedPropertyConfig = {
 }
 
 const TUNNEL_CONTRAST: AnimatedPropertyConfig = {
-  target: 0.7,
+  target: 1,
   anim: {
     exit: { delay: 0 },
   },
@@ -78,7 +78,7 @@ const PP_EXPOSURE: AnimatedPropertyConfig = {
 
 // Dithering - subtle visual effect during transition
 const PP_DITHERING = {
-  gridMultiplier: 2, // Less extreme than hyperspace's 6
+  gridMultiplier: 3, // Less extreme than hyperspace's 6
   pixelMultiplier: 3,
   anim: {
     enter: { delay: 0.2, easing: easings.easeInQuad },
@@ -86,14 +86,14 @@ const PP_DITHERING = {
   },
 }
 
-const DEFAULT_ENTER_TIME = 500
-const DEFAULT_EXIT_TIME = 500
 // ============================================================================
 
 export function useSceneChangeAnimation() {
-  const { tunnel: tunnelConfig } = useGameStore(
-    (state) => state.starfieldConfig
-  )
+  const {
+    hyperspaceEnterTime = 1500,
+    hyperspaceExitTime = 1500,
+    tunnel: tunnelConfig,
+  } = useGameStore((state) => state.starfieldConfig)
 
   // Check if tunnel should be shown during transition
   const shouldShowTunnel =
@@ -111,7 +111,7 @@ export function useSceneChangeAnimation() {
   } = useAnimationSpring({
     from: 0,
     config: {
-      duration: DEFAULT_ENTER_TIME,
+      duration: hyperspaceEnterTime,
       easing: easings.easeInQuad,
     } as AnimationConfig,
   })
@@ -179,7 +179,7 @@ export function useSceneChangeAnimation() {
 
       if (direction === "enter") {
         startSpring(1, {
-          duration: DEFAULT_ENTER_TIME,
+          duration: hyperspaceEnterTime,
         } as AnimationConfig).then(() => onComplete?.())
       } else {
         // If starting exit from idle state, snap to transition first
@@ -189,11 +189,18 @@ export function useSceneChangeAnimation() {
           setSpring(1)
         }
         startSpring(0, {
-          duration: DEFAULT_EXIT_TIME,
+          duration: hyperspaceExitTime,
         } as AnimationConfig).then(() => onComplete?.())
       }
     }
-  }, [startSpring, setSpring, progress, setUniformsToTransition])
+  }, [
+    startSpring,
+    setSpring,
+    progress,
+    setUniformsToTransition,
+    hyperspaceEnterTime,
+    hyperspaceExitTime,
+  ])
 
   // Register in the animation store (once on mount)
   // The registered function delegates to the ref, so it's always current

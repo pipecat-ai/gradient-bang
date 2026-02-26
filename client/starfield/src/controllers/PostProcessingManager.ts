@@ -29,7 +29,6 @@ export interface PPConfig {
   sharpening_enabled: boolean
   sharpening_intensity: number
   sharpening_radius: number
-  sharpening_threshold: number
   // Dithering
   dithering_enabled: boolean
   dithering_gridSize: number
@@ -341,7 +340,6 @@ export class PostProcessingManager {
       this.sharpen = new SharpenEffect({
         intensity: config.sharpening_intensity,
         radius: config.sharpening_radius,
-        threshold: config.sharpening_threshold,
       })
       orderedEffectPasses.push(new EffectPass(this.camera, this.sharpen))
     } else {
@@ -446,7 +444,6 @@ export class PostProcessingManager {
     if (this.sharpen) {
       this.sharpen.intensity = config.sharpening_intensity
       this.sharpen.radius = config.sharpening_radius
-      this.sharpen.threshold = config.sharpening_threshold
     }
 
     // Shockwave

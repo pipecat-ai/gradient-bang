@@ -255,7 +255,12 @@ export function useAnimationSpring(
 ): AnimationSpringResult {
   const { from, config: defaultConfig, onStart, onComplete } = options
 
-  const setIsAnimating = useAnimationStore((state) => state.setIsAnimating)
+  const incrementAnimating = useAnimationStore(
+    (state) => state.incrementAnimating
+  )
+  const decrementAnimating = useAnimationStore(
+    (state) => state.decrementAnimating
+  )
   const isAnimatingRef = useRef(false)
 
   // Use explicit SpringRef pattern as per react-spring docs
@@ -279,7 +284,7 @@ export function useAnimationSpring(
 
       // Set animating BEFORE starting spring to ensure render loop is active
       isAnimatingRef.current = true
-      setIsAnimating(true)
+      incrementAnimating()
       onStart?.()
 
       // Kick off the first frame
@@ -302,7 +307,7 @@ export function useAnimationSpring(
               invalidate()
               requestAnimationFrame(() => {
                 isAnimatingRef.current = false
-                setIsAnimating(false)
+                decrementAnimating()
                 onComplete?.()
                 resolve()
               })
@@ -311,14 +316,16 @@ export function useAnimationSpring(
         })
       })
     },
-    [api, spring.progress, defaultConfig, onStart, onComplete, setIsAnimating]
+    [api, spring.progress, defaultConfig, onStart, onComplete, incrementAnimating, decrementAnimating]
   )
 
   const stop = useCallback(() => {
     api.stop()
-    isAnimatingRef.current = false
-    setIsAnimating(false)
-  }, [api, setIsAnimating])
+    if (isAnimatingRef.current) {
+      isAnimatingRef.current = false
+      decrementAnimating()
+    }
+  }, [api, decrementAnimating])
 
   // Immediately set progress without animating
   const set = useCallback(
