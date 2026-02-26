@@ -35,6 +35,7 @@ export function CameraController({
   const cameraControlsRef = useRef<CameraControlsImpl>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const prevLookAtTargetRef = useRef<string | null>(null)
+  const prevIsSceneChangingRef = useRef(false)
   const transitionDelayFramesRef = useRef(0)
   const pendingTargetRef = useRef<string | null>(null)
   const { cameraBaseFov } = useGameStore((state) => state.starfieldConfig)
@@ -169,6 +170,16 @@ export function CameraController({
     const prevTarget = prevLookAtTargetRef.current
 
     if (cam) {
+      // Reset camera to center when scene change exits (new scene applied)
+      const isSceneChanging = useGameStore.getState().isSceneChanging
+      if (prevIsSceneChangingRef.current && !isSceneChanging) {
+        cam.setLookAt(0, 0, config.lookAtDistance, 0, 0, 0, false)
+        prevLookAtTargetRef.current = null
+        pendingTargetRef.current = null
+        transitionDelayFramesRef.current = 0
+      }
+      prevIsSceneChangingRef.current = isSceneChanging
+
       // Reset camera when target is cleared (was something, now null)
       if (lookAtTarget === undefined && prevTarget !== null) {
         setIsCameraTransitioning(true)

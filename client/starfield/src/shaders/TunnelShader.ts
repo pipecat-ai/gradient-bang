@@ -43,6 +43,14 @@ export const tunnelFragmentShader = `
     vec3 direction = followCamera ? normalize(vViewDirection) : normalize(vWorldDirection);
 
     float radialDist = length(direction.xy);
+
+    // Early discard for center hole — skip all work for fully transparent pixels
+    float holeRadius = centerHole * 0.1;
+    float falloffStart = holeRadius * (1.0 - centerSoftness);
+    if (radialDist < falloffStart) {
+      discard;
+    }
+
     float depth = -direction.z;
     float z = depth / max(radialDist, 0.001);
 
@@ -73,9 +81,7 @@ export const tunnelFragmentShader = `
     float streak = sin(angle * 8.0 + tunnelZ * 2.0) * 0.5 + 0.5;
     val = mix(val, val * (0.7 + streak * 0.6), streakIntensity);
 
-    // Center hole: fade out towards center based on radial distance
-    float holeRadius = centerHole * 0.1;
-    float falloffStart = holeRadius * (1.0 - centerSoftness);
+    // Center hole: reuse holeRadius/falloffStart from early discard above
     float holeMask = smoothstep(falloffStart, holeRadius, radialDist);
 
     val = clamp(val, 0.0, 1.0);

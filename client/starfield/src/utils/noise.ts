@@ -483,9 +483,7 @@ function hash33(px: number, py: number, pz: number): [number, number, number] {
   let y = fract(py * 0.11369)
   let z = fract(pz * 0.13787)
 
-  // p3 += dot(p3, p3.yxz + 19.19)
-  const d = x * y + y * x + z * z + 19.19 * (x + y + z)
-  // More precisely: dot(p3, p3.yxz+19.19) = p3.x*(p3.y+19.19) + p3.y*(p3.x+19.19) + p3.z*(p3.z+19.19)
+  // p3 += dot(p3, p3.yxz+19.19) = p3.x*(p3.y+19.19) + p3.y*(p3.x+19.19) + p3.z*(p3.z+19.19)
   const dot = x * (y + 19.19) + y * (x + 19.19) + z * (z + 19.19)
   x += dot
   y += dot
@@ -587,7 +585,10 @@ export function createTunnelNoiseTexture(size = 256): THREE.DataTexture {
   const circleRadius = 6.0 // matches default tunnelDepth=0.4: 1.5 * 0.4 * 10
   const vRange = 5.0 // noise-Z range to bake into V dimension
 
-  const data = new Uint8Array(size * size * 4)
+  // Float32 preserves negative noise values through bilinear filtering.
+  // The shader's clamp(val, 0, 1) handles the lower bound per-pixel,
+  // matching the old per-pixel GLSL path exactly.
+  const data = new Float32Array(size * size * 4)
 
   for (let vy = 0; vy < size; vy++) {
     for (let ux = 0; ux < size; ux++) {
@@ -614,19 +615,24 @@ export function createTunnelNoiseTexture(size = 256): THREE.DataTexture {
         scale *= 2.0
       }
 
-      // Match GLSL fBm3: return min(f, 1.0) — no lower clamp
-      const value = Math.max(0, Math.min(1, f))
-      const byte = Math.floor(value * 255)
+      // Match GLSL fBm3: min(f, 1.0) — preserve negatives for correct filtering
+      const value = Math.min(f, 1.0)
 
       const idx = (vy * size + ux) * 4
-      data[idx] = byte
-      data[idx + 1] = byte
-      data[idx + 2] = byte
-      data[idx + 3] = 255
+      data[idx] = value
+      data[idx + 1] = value
+      data[idx + 2] = value
+      data[idx + 3] = 1.0
     }
   }
 
-  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat)
+  const texture = new THREE.DataTexture(
+    data,
+    size,
+    size,
+    THREE.RGBAFormat,
+    THREE.FloatType
+  )
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.RepeatWrapping
   texture.minFilter = THREE.LinearFilter

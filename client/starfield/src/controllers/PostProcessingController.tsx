@@ -16,9 +16,8 @@ import { PostProcessingManager, type PPConfig } from "./PostProcessingManager"
 const DEFAULT_PP_CONFIG: PPConfig = {
   // Sharpening
   sharpening_enabled: true,
-  sharpening_intensity: 2.0,
-  sharpening_radius: 6.0,
-  sharpening_threshold: 0,
+  sharpening_intensity: 0.6,
+  sharpening_radius: 3.0,
   // Dithering
   dithering_enabled: true,
   dithering_gridSize: 1.33,
@@ -52,7 +51,6 @@ const TRANSIENT_PROPERTIES = [
   "sharpening_enabled",
   "sharpening_intensity",
   "sharpening_radius",
-  "sharpening_threshold",
   "dithering_enabled",
   "dithering_gridSize",
   "dithering_pixelSizeRatio",
@@ -132,7 +130,6 @@ export const PostProcessingController = () => {
       sharpening_enabled: storedSharpening?.enabled,
       sharpening_intensity: storedSharpening?.intensity,
       sharpening_radius: storedSharpening?.radius,
-      sharpening_threshold: storedSharpening?.threshold,
       // Dithering (blendMode not stored, uses default)
       dithering_enabled: storedDithering?.enabled,
       dithering_gridSize: storedDithering?.gridSize,
@@ -189,26 +186,17 @@ export const PostProcessingController = () => {
                         DEFAULT_PP_CONFIG.sharpening_intensity,
                       label: "Intensity",
                       min: 0,
-                      max: 20,
-                      step: 0.1,
+                      max: 2,
+                      step: 0.05,
                     },
                     sharpening_radius: {
                       value:
                         storedSharpening?.radius ??
                         DEFAULT_PP_CONFIG.sharpening_radius,
                       label: "Radius",
-                      min: 0,
+                      min: 1,
                       max: 10,
-                      step: 0.1,
-                    },
-                    sharpening_threshold: {
-                      value:
-                        storedSharpening?.threshold ??
-                        DEFAULT_PP_CONFIG.sharpening_threshold,
-                      label: "Threshold",
-                      min: 0,
-                      max: 1,
-                      step: 0.01,
+                      step: 0.5,
                     },
                   },
                   { collapsed: true }
@@ -274,7 +262,7 @@ export const PostProcessingController = () => {
                         DEFAULT_PP_CONFIG.grading_brightness,
                       min: 0,
                       max: 2,
-                      step: 0.1,
+                      step: 0.01,
                       label: "Brightness",
                     },
                     grading_contrast: {
@@ -482,8 +470,7 @@ export const PostProcessingController = () => {
       const tunnelOpacity = useUniformStore
         .getState()
         .getUniform<number>("tunnelOpacity")
-      manager.overlayPassNeeded =
-        (tunnelOpacity?.uniform?.value ?? 0) > 0
+      manager.overlayPassNeeded = (tunnelOpacity?.uniform?.value ?? 0) > 0
 
       manager.render(currentCamera, controlsRef.current.shockwave_distance)
     },

@@ -18,7 +18,7 @@ export function useShockwaveAnimation() {
 
   // Track animation completion using actual start time from store
   useFrame(() => {
-    const { shockwaveStartTime, setShockwave, setIsAnimating, setShockwaveStartTime } =
+    const { shockwaveStartTime, setShockwave, decrementAnimating, setShockwaveStartTime } =
       useAnimationStore.getState()
 
     if (shockwaveStartTime === null) return
@@ -35,7 +35,7 @@ export function useShockwaveAnimation() {
     if (elapsed >= durationMs) {
       setShockwaveStartTime(null)
       setShockwave(false)
-      setIsAnimating(false)
+      decrementAnimating()
     }
   })
 
@@ -43,9 +43,9 @@ export function useShockwaveAnimation() {
   useLayoutEffect(() => {
     useAnimationStore.getState().registerAnimation("shockwave", {
       start: () => {
-        const { triggerShockwave, setIsAnimating } = useAnimationStore.getState()
+        const { triggerShockwave, incrementAnimating } = useAnimationStore.getState()
         triggerShockwave()
-        setIsAnimating(true)
+        incrementAnimating()
         invalidate()
       },
     })

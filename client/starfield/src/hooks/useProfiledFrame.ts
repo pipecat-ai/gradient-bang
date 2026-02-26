@@ -26,9 +26,10 @@ interface GPUTimingData {
   available: boolean
   /** Per-pass GPU timings (ms) — updated asynchronously, 1-2 frames behind */
   maskMs: number
-  composerMs: number
+  sceneMs: number
+  effectsMs: number
   overlayMs: number
-  /** Total GPU time for all three passes */
+  /** Total GPU time for all passes */
   totalMs: number
 }
 
@@ -56,7 +57,8 @@ export const profileData: ProfileData = {
   gpuTiming: {
     available: false,
     maskMs: 0,
-    composerMs: 0,
+    sceneMs: 0,
+    effectsMs: 0,
     overlayMs: 0,
     totalMs: 0,
   },
@@ -97,7 +99,8 @@ export function resetProfilePeaks() {
   profileData.ppBreakdown.composerMs = 0
   profileData.ppBreakdown.overlayMs = 0
   profileData.gpuTiming.maskMs = 0
-  profileData.gpuTiming.composerMs = 0
+  profileData.gpuTiming.sceneMs = 0
+  profileData.gpuTiming.effectsMs = 0
   profileData.gpuTiming.overlayMs = 0
   profileData.gpuTiming.totalMs = 0
 }
@@ -195,11 +198,13 @@ export class GPUTimer {
     // Update profileData only when new results arrive (preserves reset zeros)
     const gpu = profileData.gpuTiming
     if (this.results.has("mask")) gpu.maskMs = this.results.get("mask")!
-    if (this.results.has("composer"))
-      gpu.composerMs = this.results.get("composer")!
+    if (this.results.has("scene")) gpu.sceneMs = this.results.get("scene")!
+    if (this.results.has("effects"))
+      gpu.effectsMs = this.results.get("effects")!
     if (this.results.has("overlay"))
       gpu.overlayMs = this.results.get("overlay")!
-    gpu.totalMs = gpu.maskMs + gpu.composerMs + gpu.overlayMs
+    gpu.totalMs =
+      gpu.maskMs + gpu.sceneMs + gpu.effectsMs + gpu.overlayMs
   }
 
   dispose(): void {

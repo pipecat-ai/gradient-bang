@@ -131,12 +131,13 @@ export function FrameProfiler() {
 
     // GPU timing section
     if (gpu.available) {
-      const gpuMax = Math.max(0.01, gpu.maskMs, gpu.composerMs, gpu.overlayMs)
+      const gpuMax = Math.max(0.01, gpu.maskMs, gpu.sceneMs, gpu.effectsMs, gpu.overlayMs)
       lines.push(
         `${"─".repeat(44)}`,
         `PP GPU (ms):       total: ${fmt(gpu.totalMs)}`,
         `  ${"Mask render".padEnd(16)} ${fmt(gpu.maskMs)}        ${bar(gpu.maskMs, gpuMax)}`,
-        `  ${"Composer".padEnd(16)} ${fmt(gpu.composerMs)}        ${bar(gpu.composerMs, gpuMax)}`,
+        `  ${"Scene render".padEnd(16)} ${fmt(gpu.sceneMs)}        ${bar(gpu.sceneMs, gpuMax)}`,
+        `  ${"Effects".padEnd(16)} ${fmt(gpu.effectsMs)}        ${bar(gpu.effectsMs, gpuMax)}`,
         `  ${"Overlay".padEnd(16)} ${fmt(gpu.overlayMs)}        ${bar(gpu.overlayMs, gpuMax)}`
       )
     } else {

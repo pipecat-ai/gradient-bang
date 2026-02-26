@@ -66,8 +66,12 @@ interface AnimationStore {
   exposure: number
   setExposure: (exposure: number) => void
 
+  /** Derived from _animatingCount — true when any spring is active */
   isAnimating: boolean
-  setIsAnimating: (isAnimating: boolean) => void
+  /** Internal ref-count of active springs */
+  _animatingCount: number
+  incrementAnimating: () => void
+  decrementAnimating: () => void
 
   isShaking: boolean
   setIsShaking: (isShaking: boolean) => void
@@ -99,9 +103,17 @@ export const useAnimationStore = create<AnimationStore>((set) => ({
   exposure: 0,
   setExposure: (exposure: number) => set({ exposure }),
   isAnimating: false,
-  setIsAnimating: (isAnimating: boolean) => {
-    set({ isAnimating })
-  },
+  _animatingCount: 0,
+  incrementAnimating: () =>
+    set((state) => {
+      const count = state._animatingCount + 1
+      return { _animatingCount: count, isAnimating: count > 0 }
+    }),
+  decrementAnimating: () =>
+    set((state) => {
+      const count = Math.max(0, state._animatingCount - 1)
+      return { _animatingCount: count, isAnimating: count > 0 }
+    }),
   isShaking: false,
   setIsShaking: (isShaking: boolean) => set({ isShaking }),
 }))
