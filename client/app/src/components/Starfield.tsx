@@ -13,6 +13,9 @@ import { cn } from "@/utils/tailwind"
 // Lazy load the starfield component - this keeps all starfield deps out of main bundle
 const StarfieldLazy = lazy(() => import("./StarfieldLazy"))
 
+const WARP_SOUND_COOLDOWN_MS = 10_000
+let warpCooldownTimer: ReturnType<typeof setTimeout> | null = null
+
 const skyboxImageList = Object.values(skyboxImages)
 const portImageList = Object.values(portImages)
 
@@ -55,7 +58,13 @@ export const Starfield = () => {
     if (isInitial) {
       useAudioStore.getState().playSound("enter", { volume: 0.2 })
     } else {
-      useAudioStore.getState().playSound("warp", { volume: 0.2 })
+      if (!warpCooldownTimer) {
+        useAudioStore.getState().playSound("warp", { volume: 0.2 })
+      }
+      if (warpCooldownTimer) clearTimeout(warpCooldownTimer)
+      warpCooldownTimer = setTimeout(() => {
+        warpCooldownTimer = null
+      }, WARP_SOUND_COOLDOWN_MS)
     }
   }, [])
 

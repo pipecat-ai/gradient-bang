@@ -1164,21 +1164,42 @@ class VoiceTaskManager:
 
         is_other_player_event = bool(player_id and player_id != self.character_id)
 
+        # Route movement events for corp ships to their task agents.  The event
+        # still flows to the client (RTVI push) for position updates, but we
+        # set a flag so it is NOT appended to the local player's LLM context.
+        is_corp_ship_movement = False
+        if (
+            is_other_player_event
+            and player_id
+            and event_name in {"character.moved", "garrison.character_moved", "movement.start", "movement.complete"}
+        ):
+            corp_task_id = self._get_task_id_for_character(player_id)
+            if corp_task_id:
+                corp_task_info = self._active_tasks.get(corp_task_id)
+                if corp_task_info and corp_task_info.get("is_corp_ship"):
+                    is_corp_ship_movement = True
+                    task_agent = corp_task_info.get("task_agent")
+                    task_game_client = corp_task_info.get("task_game_client")
+                    if task_agent and task_game_client and task_game_client != self.game_client:
+                        await task_agent._handle_event(event)
+
         # map.update is emitted server-side in Supabase move handler.
 
-        # Filter out corp-visible movement events we don't want to forward
+        # Filter out movement events from other players we don't want to forward.
+        # Corp ship movements are exempt — the client needs them for position updates.
         drop_event = False
-        if event_name == "movement.start" and is_other_player_event:
-            drop_event = True
-        elif event_name == "movement.complete" and is_other_player_event:
-            drop_event = True
-        elif event_name == "character.moved" and is_other_player_event:
-            movement = payload.get("movement") if isinstance(payload, Mapping) else None
-            if movement == "depart":
-                sector_id = self._extract_sector_id(payload)
-                if self._current_sector_id is not None and sector_id is not None:
-                    if sector_id != self._current_sector_id:
-                        drop_event = True
+        if not is_corp_ship_movement:
+            if event_name == "movement.start" and is_other_player_event:
+                drop_event = True
+            elif event_name == "movement.complete" and is_other_player_event:
+                drop_event = True
+            elif event_name == "character.moved" and is_other_player_event:
+                movement = payload.get("movement") if isinstance(payload, Mapping) else None
+                if movement == "depart":
+                    sector_id = self._extract_sector_id(payload)
+                    if self._current_sector_id is not None and sector_id is not None:
+                        if sector_id != self._current_sector_id:
+                            drop_event = True
 
         if drop_event:
             return
@@ -1305,7 +1326,7 @@ class VoiceTaskManager:
                     )
                 else:
                     should_append = True
-            elif is_local_sector_movement:
+            elif is_local_sector_movement and not is_corp_ship_movement:
                 should_append = True
 
         if not should_append:

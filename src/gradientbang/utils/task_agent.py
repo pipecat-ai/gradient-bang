@@ -603,6 +603,17 @@ class TaskAgent:
             )
             return
 
+        # Drop movement events for other characters so corp ship movements
+        # don't bleed into the local player's task context.
+        if event_name in {"character.moved", "garrison.character_moved", "movement.start", "movement.complete"}:
+            payload = event.get("payload")
+            if isinstance(payload, dict):
+                player = payload.get("player")
+                if isinstance(player, dict):
+                    moving_id = player.get("id")
+                    if isinstance(moving_id, str) and moving_id != self.character_id:
+                        return
+
         if event_name == "task.finish":
             if not event_task_id:
                 logger.debug(
