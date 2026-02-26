@@ -13,6 +13,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 import json
 
+import time
+
 import httpx
 
 from gradientbang.utils.api_client import AsyncGameClient as BaseAsyncGameClient, RPCError
@@ -186,11 +188,16 @@ class AsyncGameClient(BaseAsyncGameClient):
 
         edge_endpoint = endpoint.replace('.', '_')
 
+        url = f"{self._functions_url}/{edge_endpoint}"
+        t0 = time.monotonic()
         response = await http_client.post(
-            f"{self._functions_url}/{edge_endpoint}",
+            url,
             headers=self._edge_headers(),
             json=enriched,
         )
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        from loguru import logger as _loguru
+        _loguru.info(f"API {url} {response.status_code} {elapsed_ms:.0f}ms")
 
         try:
             data = response.json()
