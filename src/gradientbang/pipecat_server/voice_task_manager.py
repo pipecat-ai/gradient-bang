@@ -181,6 +181,7 @@ class VoiceTaskManager:
             # Client history query events (relayed via event system)
             "event.query",
             "ships.list",
+            "ship.definitions",
             "task.start",
             "task.finish",
             "quest.status",
