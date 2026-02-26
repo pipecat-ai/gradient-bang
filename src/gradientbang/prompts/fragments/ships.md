@@ -48,6 +48,21 @@ purchase_ship(
 - Can seed initial ship credits for the new ship
 - Autonomous ships can ONLY be purchased for corporations
 
+## Selling Corporation Ships
+
+`sell_ship` has a built-in confirmation gate. It is a two-step process:
+
+1. Call `sell_ship(ship_id="...")` — this returns a reminder instead of executing
+2. **Speak** to the player (do NOT use send_message or any chat tool). Say the ship name, type, and trade-in value. Warn that cargo/credits on the ship will be lost.
+3. After the player explicitly confirms, call `sell_ship(ship_id="...", confirmed=true)` to execute
+
+### Selling Rules
+- You can ONLY sell corporation ships that YOU purchased — not other members' ships
+- You CANNOT sell your personal ship
+- Must be docked at a mega-port
+- Trade-in value (hull + remaining fighters) is added to your personal ship credits
+- Any cargo or credits remaining on the sold ship are lost
+
 ## Renaming Ships
 
 Use `rename_ship` to change a ship's display name:

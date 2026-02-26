@@ -107,6 +107,7 @@ from gradientbang.utils.tools_schema import (
     PlotCourse,
     PurchaseFighters,
     PurchaseShip,
+    SellShip,
     ShipDefinitions,
     RechargeWarpPower,
     RenameShip,
@@ -157,6 +158,7 @@ ASYNC_TOOL_COMPLETIONS = {
     "event_query": "event.query",  # verbose payload needs summarization for LLM
     "purchase_fighters": "fighter.purchase",
     "purchase_ship": "status.update",
+    "sell_ship": "status.update",
     "rename_ship": "ship.renamed",
     "bank_deposit": "bank.transaction",
     "bank_withdraw": "bank.transaction",
@@ -348,6 +350,7 @@ class TaskAgent:
             CorporationInfo,
             ShipDefinitions,
             PurchaseShip,
+            SellShip,
             RenameShip,
             BankDeposit,
             BankWithdraw,
@@ -399,6 +402,7 @@ class TaskAgent:
             "corporation.member_left",
             "corporation.member_kicked",
             "corporation.ship_purchased",
+            "corporation.ship_sold",
             "ship.traded_in",
             "error",
         ]

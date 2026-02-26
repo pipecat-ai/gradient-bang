@@ -172,6 +172,7 @@ class VoiceTaskManager:
             "ship.renamed",
             "corporation.created",
             "corporation.ship_purchased",
+            "corporation.ship_sold",
             "corporation.member_joined",
             "corporation.member_left",
             "corporation.member_kicked",

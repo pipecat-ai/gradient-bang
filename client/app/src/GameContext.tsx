@@ -696,6 +696,24 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "corporation.ship_sold": {
+              console.debug("[GAME EVENT] Ship sold", e.payload)
+              const data = e.payload as Msg.CorporationShipSoldMessage
+              gameStore.removeShip(data.ship_id)
+              gameStore.addToast({
+                type: "ship.sold",
+                meta: {
+                  ship: {
+                    ship_id: data.ship_id,
+                    ship_name: data.ship_name,
+                    ship_type: data.ship_type,
+                  },
+                  trade_in_value: data.trade_in_value,
+                },
+              })
+              break
+            }
+
             case "ship.definitions": {
               console.debug("[GAME EVENT] Ship definitions", e.payload)
               const data = e.payload as { definitions: ShipDefinition[] }

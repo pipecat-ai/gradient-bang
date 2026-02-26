@@ -8,6 +8,7 @@ import { SalvageCollectedToast } from "@/components/toasts/SalvageCollectedToast
 import { SalvageCreatedToast } from "@/components/toasts/SalvageCreatedToast"
 import { ShipDestroyedToast } from "@/components/toasts/ShipDestroyedToast"
 import { ShipPurchasedToast } from "@/components/toasts/ShipPurchasedToast"
+import { ShipSoldToast } from "@/components/toasts/ShipSoldToast"
 import { TradeExecutedToast } from "@/components/toasts/TradeExecutedToast"
 import { TransferToast } from "@/components/toasts/TransferToast"
 import useGameStore from "@/stores/game"
@@ -69,6 +70,8 @@ export const ToastContainer = () => {
         return <CorporationCreatedToast toast={toast} {...baseProps} />
       case "ship.purchased":
         return <ShipPurchasedToast toast={toast} {...baseProps} />
+      case "ship.sold":
+        return <ShipSoldToast toast={toast} {...baseProps} />
       case "ship.destroyed":
         return <ShipDestroyedToast toast={toast} {...baseProps} />
       case "warp.purchase":

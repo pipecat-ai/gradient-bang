@@ -530,6 +530,19 @@ export interface CorporationShipPurchaseMessage extends ServerMessagePayload {
   purchase_price: number
 }
 
+export interface CorporationShipSoldMessage extends ServerMessagePayload {
+  sector: number
+  corp_id: string
+  ship_id: string
+  seller_id: string
+  corp_name: string
+  ship_name: string
+  ship_type: string
+  timestamp: string
+  seller_name: string
+  trade_in_value: number
+}
+
 export interface LLMTaskMessage extends ServerMessagePayload {
   name: string
 }
