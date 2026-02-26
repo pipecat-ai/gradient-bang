@@ -54,6 +54,8 @@ export const Starfield = () => {
   const handleSceneChangeStart = useCallback((isInitial = false) => {
     if (isInitial) {
       useAudioStore.getState().playSound("enter", { volume: 0.2 })
+    } else {
+      useAudioStore.getState().playSound("warp", { volume: 0.2 })
     }
   }, [])
 

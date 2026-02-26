@@ -686,6 +686,17 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 )
             return
 
+        # Client requested ship definitions
+        if msg_type == "get-ship-definitions":
+            try:
+                await task_manager.game_client.get_ship_definitions()
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to fetch ship definitions")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+                )
+            return
+
         # Client requested corporation data
         if msg_type == "get-my-corporation":
             try:

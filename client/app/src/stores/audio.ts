@@ -42,6 +42,7 @@ const soundTypes: Record<SoundName, SoundType> = {
   codec1: "fx",
   codec2: "fx",
   theme: "music",
+  warp: "fx",
 }
 
 // --- Shared AudioContext singleton ---

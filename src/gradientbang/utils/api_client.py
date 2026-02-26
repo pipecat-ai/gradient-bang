@@ -1345,6 +1345,7 @@ class AsyncGameClient:
         self,
         *,
         ship_type: str,
+        expected_price: Optional[int] = None,
         character_id: Optional[str] = None,
         purchase_type: Optional[str] = None,
         ship_name: Optional[str] = None,
@@ -1370,6 +1371,8 @@ class AsyncGameClient:
             "ship_type": ship_type,
         }
 
+        if expected_price is not None:
+            payload["expected_price"] = int(expected_price)
         if purchase_type is not None:
             payload["purchase_type"] = purchase_type
         if ship_name is not None:
@@ -1382,6 +1385,10 @@ class AsyncGameClient:
             payload["initial_ship_credits"] = int(initial_ship_credits)
 
         return await self._request("ship.purchase", payload)
+
+    async def get_ship_definitions(self) -> Dict[str, Any]:
+        """Return all ship definitions from the database."""
+        return await self._request("ship.definitions", {})
 
     async def rename_ship(
         self,

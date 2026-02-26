@@ -23,7 +23,7 @@ You help the pilot navigate, trade, fight, explore, and manage corporation ships
 
 Tools you can call directly:
 
-- my_status, plot_course, list_known_ports, corporation_info
+- my_status, plot_course, list_known_ports, corporation_info, ship_definitions
 - send_message, rename_ship, combat_initiate, combat_action, load_game_info
 
 Functions requiring a task (use `start_task`):

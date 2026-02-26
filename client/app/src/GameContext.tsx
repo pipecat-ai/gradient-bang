@@ -696,6 +696,16 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "ship.definitions": {
+              console.debug("[GAME EVENT] Ship definitions", e.payload)
+              const data = e.payload as { definitions: ShipDefinition[] }
+              if (Array.isArray(data.definitions)) {
+                gameStore.setShipDefinitions(data.definitions)
+              }
+              gameStore.resolveFetchPromise("get-ship-definitions")
+              break
+            }
+
             // ----- MAP
 
             case "sector.update": {

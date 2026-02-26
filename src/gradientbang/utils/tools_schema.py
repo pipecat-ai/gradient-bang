@@ -59,6 +59,42 @@ def _format_ship_holds(ship: Dict[str, Any]) -> str:
     return "holds ?"
 
 
+def _parse_stats(raw: Any) -> Dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            import json
+            return json.loads(raw)
+        except (ValueError, TypeError):
+            pass
+    return {}
+
+
+def _summarize_ship_definitions(result: Any) -> str:
+    if not isinstance(result, dict):
+        return "Ship definitions unavailable."
+    definitions = result.get("definitions")
+    if not isinstance(definitions, list) or not definitions:
+        return "No ship definitions found."
+    lines: List[str] = []
+    for d in definitions:
+        if not isinstance(d, dict):
+            continue
+        name = d.get("display_name") or d.get("ship_type", "?")
+        price = d.get("purchase_price")
+        stats = _parse_stats(d.get("stats"))
+        trade_in = stats.get("trade_in_value")
+        if not isinstance(price, (int, float)):
+            lines.append(f"- {name}: price unknown")
+            continue
+        parts = [f"{int(price):,} credits"]
+        if isinstance(trade_in, (int, float)):
+            parts.append(f"trade-in: {int(trade_in):,}")
+        lines.append(f"- {name}: {', '.join(parts)}")
+    return "Ship definitions (purchase_price / trade-in value):\n" + "\n".join(lines)
+
+
 def _summarize_corporation_info(result: Any) -> str:
     if not isinstance(result, dict):
         return "Corporation info unavailable."
@@ -894,10 +930,32 @@ class KickCorporationMember(GameClientTool):
         )
 
 
+class ShipDefinitions(GameClientTool):
+    async def __call__(self):
+        result = await self.game_client.get_ship_definitions()
+        definitions = result.get("definitions", [])
+        return {"definitions": definitions}
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="ship_definitions",
+            description=(
+                "Get all ship type definitions from the database including current prices, "
+                "cargo capacity, warp power, shields, and fighters. "
+                "You MUST call this before quoting any ship price or purchasing a ship. "
+                "Never guess or assume prices — they come only from this tool."
+            ),
+            properties={},
+            required=[],
+        )
+
+
 class PurchaseShip(GameClientTool):
     def __call__(
         self,
         ship_type,
+        expected_price=None,
         purchase_type=None,
         ship_name=None,
         trade_in_ship_id=None,
@@ -908,6 +966,8 @@ class PurchaseShip(GameClientTool):
         payload = {
             "ship_type": ship_type,
         }
+        if expected_price is not None:
+            payload["expected_price"] = int(expected_price)
         if ship_name is not None and str(ship_name).strip():
             payload["ship_name"] = ship_name
         if purchase_type is not None:
@@ -935,29 +995,40 @@ class PurchaseShip(GameClientTool):
                 "If ship_name is omitted, the default display name is used and auto-suffixed "
                 "for uniqueness. "
                 "Note: autonomous ships (autonomous_probe, autonomous_light_hauler) can ONLY be "
-                "purchased for corporations, not for personal use."
+                "purchased for corporations, not for personal use. "
+                "IMPORTANT: You must call ship_definitions() before purchasing to get "
+                "accurate prices. Pass the exact base price as expected_price."
             ),
             properties={
                 "ship_type": {
                     "type": "string",
                     "enum": [
-                        "kestrel_courier",  # 25,000 - starter ship
-                        "sparrow_scout",  # 35,000 - recon
-                        "wayfarer_freighter",  # 120,000 - main trader
-                        "pioneer_lifter",  # 220,000 - logistics
-                        "atlas_hauler",  # 260,000 - bulk cargo
-                        "corsair_raider",  # 180,000 - pirate
-                        "pike_frigate",  # 300,000 - assault
-                        "bulwark_destroyer",  # 450,000 - line combat
-                        "aegis_cruiser",  # 700,000 - control/escort
-                        "sovereign_starcruiser",  # 2,500,000 - flagship
-                        "autonomous_probe",  # 1,000 - corp only
-                        "autonomous_light_hauler",  # 5,000 - corp only
+                        "kestrel_courier",
+                        "sparrow_scout",
+                        "wayfarer_freighter",
+                        "pioneer_lifter",
+                        "atlas_hauler",
+                        "corsair_raider",
+                        "pike_frigate",
+                        "bulwark_destroyer",
+                        "aegis_cruiser",
+                        "sovereign_starcruiser",
+                        "autonomous_probe",
+                        "autonomous_light_hauler",
                     ],
                     "description": (
                         "Ship type to purchase. Autonomous types (autonomous_probe, "
                         "autonomous_light_hauler) are corporation-only."
                     ),
+                },
+                "expected_price": {
+                    "type": "integer",
+                    "description": (
+                        "The exact base purchase price for this ship type (before trade-in). "
+                        "Get this from ship_definitions(). "
+                        "The server will reject the purchase if this does not match."
+                    ),
+                    "minimum": 0,
                 },
                 "purchase_type": {
                     "type": "string",
@@ -987,7 +1058,7 @@ class PurchaseShip(GameClientTool):
                     "description": "Character executing the purchase (defaults to the authenticated pilot)",
                 },
             },
-            required=["ship_type"],
+            required=["ship_type", "expected_price"],
         )
 
 

@@ -86,8 +86,8 @@ declare global {
     turns_per_warp: number
     shields: number
     fighters: number
-    base_value: number
-    stats: Map<string, unknown>
+    base_value?: number
+    stats: string | Record<string, unknown>
     purchase_price: number
   }
 

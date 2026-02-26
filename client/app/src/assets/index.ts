@@ -49,6 +49,7 @@ import impact4Sound from "./sounds/impact-4.wav"
 import messageSound from "./sounds/message.wav"
 import textSound from "./sounds/text.wav"
 import themeSound from "./sounds/theme.mp3"
+import warpSound from "./sounds/warp.wav"
 // Videos
 import planetLoadingVideo from "./videos/planet-loader.mp4"
 import titleVideo from "./videos/title.mp4"
@@ -116,6 +117,7 @@ export const sounds = {
   codec1: codec1Sound,
   codec2: codec2Sound,
   theme: themeSound,
+  warp: warpSound,
 } as const
 
 // JS Chunks - preload lazy-loaded components and their dependencies

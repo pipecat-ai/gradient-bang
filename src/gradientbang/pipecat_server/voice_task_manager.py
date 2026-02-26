@@ -29,6 +29,7 @@ from gradientbang.utils.tools_schema import (
     QueryTaskProgress,
     RenameShip,
     SendMessage,
+    ShipDefinitions,
     StartTask,
     SteerTask,
     StopTask,
@@ -37,6 +38,7 @@ from gradientbang.utils.tools_schema import (
     _short_id,
     _shorten_embedded_ids,
     _summarize_corporation_info,
+    _summarize_ship_definitions,
 )
 from gradientbang.utils.weave_tracing import (
     init_weave,
@@ -179,6 +181,7 @@ class VoiceTaskManager:
             # Client history query events (relayed via event system)
             "event.query",
             "ships.list",
+            "ship.definitions",
             "task.start",
             "task.finish",
             "quest.status",
@@ -264,6 +267,7 @@ class VoiceTaskManager:
             "rename_ship": lambda **kwargs: self.game_client.rename_ship(
                 character_id=self.character_id, **kwargs
             ),
+            "ship_definitions": lambda **kwargs: self.game_client.get_ship_definitions(),
         }
 
         # Initialize Weave tracing if available
@@ -1612,6 +1616,9 @@ class VoiceTaskManager:
             if isinstance(summary, str) and summary.strip():
                 return summary
 
+        if tool_name == "ship_definitions":
+            return _summarize_ship_definitions(result)
+
         return None
 
     async def _emit_tool_result(self, tool_name: str, payload: Dict[str, Any]) -> None:
@@ -1866,6 +1873,14 @@ class VoiceTaskManager:
         direct_response_tools = {
             "corporation_info",
             "leaderboard_resources",
+            "ship_definitions",
+        }
+
+        # Direct-response tools that should NOT emit RTVI results to the
+        # client (bot-internal queries only).
+        client_silent_tools = {
+            "corporation_info",
+            "ship_definitions",
         }
 
         self._tool_call_inflight += 1
@@ -1960,7 +1975,8 @@ class VoiceTaskManager:
             elif tool_name in direct_response_tools:
                 # These tools return data directly without events - trigger inference.
                 # Prefer summaries when available to avoid leaking large payloads.
-                await self._emit_tool_result(tool_name, payload)
+                if tool_name not in client_silent_tools:
+                    await self._emit_tool_result(tool_name, payload)
                 summary = self._summarize_direct_response(tool_name, result)
                 if not summary:
                     summary = f"{tool_name} completed."
@@ -1975,7 +1991,7 @@ class VoiceTaskManager:
             error_payload = {"error": str(e)}
             # Emit a standardized error as tool_result
             await params.result_callback(error_payload)
-            if tool_name in direct_response_tools:
+            if tool_name in direct_response_tools and tool_name not in client_silent_tools:
                 try:
                     await self._emit_tool_result(tool_name, error_payload)
                 except Exception as emit_err:  # noqa: BLE001
@@ -2606,6 +2622,7 @@ class VoiceTaskManager:
                 CombatAction.schema(),
                 CorporationInfo.schema(),
                 RenameShip.schema(),
+                ShipDefinitions.schema(),
                 QueryTaskProgress.schema(),
                 SteerTask.schema(),
                 StartTask.schema(),
