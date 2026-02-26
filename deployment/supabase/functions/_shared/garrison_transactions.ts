@@ -52,6 +52,11 @@ interface LockedShipCollectRow {
   current_fighters: number;
   credits: number;
   owner_corporation_id: string | null;
+  ship_type: string;
+}
+
+interface ShipDefinitionFightersRow {
+  fighters: number;
 }
 
 interface LockedGarrisonRow {
@@ -319,7 +324,8 @@ export async function runCollectFightersTransaction(
       `SELECT
         current_fighters::int AS current_fighters,
         credits::bigint AS credits,
-        owner_corporation_id
+        owner_corporation_id,
+        ship_type
       FROM ship_instances
       WHERE ship_id = $1
       FOR UPDATE`,
@@ -328,6 +334,21 @@ export async function runCollectFightersTransaction(
     const shipRow = shipResult.rows[0];
     if (!shipRow) {
       throw buildStatusError("ship not found", 404);
+    }
+
+    // Look up max fighter capacity for this ship type.
+    const defResult = await pg.queryObject<ShipDefinitionFightersRow>(
+      `SELECT fighters::int AS fighters FROM ship_definitions WHERE ship_type = $1`,
+      [shipRow.ship_type],
+    );
+    const maxFighters = defResult.rows[0]?.fighters ?? 0;
+    const currentFighters = asNumber(shipRow.current_fighters);
+    const availableCapacity = maxFighters - currentFighters;
+    if (availableCapacity <= 0) {
+      throw buildStatusError(
+        "Fighter capacity is already at maximum",
+        400,
+      );
     }
 
     const garrisonRows = await lockSectorGarrisons(pg, input.sectorId);
@@ -379,14 +400,16 @@ export async function runCollectFightersTransaction(
     }
 
     const garrisonFighters = asNumber(garrison.fighters);
-    if (input.quantity > garrisonFighters) {
+    // Cap quantity to both what the garrison has and what the ship can hold.
+    const effectiveQuantity = Math.min(input.quantity, garrisonFighters, availableCapacity);
+    if (effectiveQuantity <= 0) {
       throw buildStatusError(
-        `Cannot collect more fighters than stationed: garrison has ${garrisonFighters}, requested ${input.quantity}`,
+        `Cannot collect fighters: garrison has ${garrisonFighters}, ship capacity available ${availableCapacity}`,
         400,
       );
     }
 
-    const remainingFighters = garrisonFighters - input.quantity;
+    const remainingFighters = garrisonFighters - effectiveQuantity;
     const tollPayoutRaw = garrison.mode === "toll"
       ? asNumber(garrison.toll_balance)
       : 0;
@@ -404,7 +427,7 @@ export async function runCollectFightersTransaction(
       RETURNING
         current_fighters::int AS current_fighters,
         credits::bigint AS credits`,
-      [input.quantity, tollPayout, input.shipId],
+      [effectiveQuantity, tollPayout, input.shipId],
     );
     const updatedShip = shipUpdateResult.rows[0];
     if (!updatedShip) {

@@ -1296,10 +1296,10 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as Msg.GarrisonDeployedMessage
 
               const deployShipId = getPayloadShipId(data)
-              if (isCorporationShipPayload(data) && deployShipId) {
-                upsertCorporationShip(deployShipId, { fighters: data.fighters_remaining })
-              } else if (gameStore.ship?.ship_id === deployShipId) {
+              if (gameStore.ship?.ship_id === deployShipId) {
                 gameStore.setShip({ fighters: data.fighters_remaining })
+              } else if (isCorporationShipPayload(data) && deployShipId) {
+                upsertCorporationShip(deployShipId, { fighters: data.fighters_remaining })
               }
 
               gameStore.addActivityLogEntry({
@@ -1314,10 +1314,10 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as Msg.GarrisonCollectedMessage
 
               const collectShipId = getPayloadShipId(data)
-              if (isCorporationShipPayload(data) && collectShipId) {
-                upsertCorporationShip(collectShipId, { fighters: data.fighters_on_ship })
-              } else if (gameStore.ship?.ship_id === collectShipId) {
+              if (gameStore.ship?.ship_id === collectShipId) {
                 gameStore.setShip({ fighters: data.fighters_on_ship })
+              } else if (isCorporationShipPayload(data) && collectShipId) {
+                upsertCorporationShip(collectShipId, { fighters: data.fighters_on_ship })
               }
 
               gameStore.addActivityLogEntry({

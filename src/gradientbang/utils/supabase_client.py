@@ -102,6 +102,8 @@ class AsyncGameClient(BaseAsyncGameClient):
         self._current_sector_id: Optional[int] = None
         self._recent_event_ids: Deque[int] = deque()
         self._recent_event_ids_max = 512
+        self._recent_event_keys: Deque[tuple[str, str]] = deque()
+        self._recent_event_keys_max = 512
         self._canonical_character_id = canonicalize_character_id(character_id)
         self._canonical_actor_character_id = (
             canonicalize_character_id(actor_character_id)
@@ -648,6 +650,32 @@ class AsyncGameClient(BaseAsyncGameClient):
         event_name = row.get("event_type")
         if not isinstance(event_name, str) or not event_name:
             return
+
+        # After the events_since denormalization (one row per recipient), the
+        # corp_id OR clause can match every recipient row for the same event.
+        # Only deliver rows actually addressed to one of our polled IDs.
+        recipient_ids = row.get("recipient_ids")
+        if isinstance(recipient_ids, list) and recipient_ids:
+            allowed_ids = set(self._poll_character_ids)
+            if self._poll_ship_ids:
+                allowed_ids.update(self._poll_ship_ids)
+            if not any(rid in allowed_ids for rid in recipient_ids):
+                return
+
+        # Deduplicate by (event_type, request_id, sector_id) so that multiple
+        # recipient rows for the same logical event (e.g. garrison notifications
+        # for separate garrisons in the same sector) collapse to one delivery.
+        # sector_id keeps depart/arrive distinct (different sectors).
+        request_id = row.get("request_id")
+        if isinstance(request_id, str) and request_id:
+            sector_id = row.get("sector_id")
+            event_key = (event_name, request_id, sector_id)
+            if event_key in self._recent_event_keys:
+                return
+            self._recent_event_keys.append(event_key)
+            if len(self._recent_event_keys) > self._recent_event_keys_max:
+                self._recent_event_keys.popleft()
+
         payload = self._build_polled_event_payload(row)
 
         # Deduplicate events (same as realtime path)
