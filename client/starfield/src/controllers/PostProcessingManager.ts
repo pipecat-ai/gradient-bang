@@ -157,7 +157,8 @@ export class PostProcessingManager {
       Math.floor(initialSize.height)
     )
 
-    // Create mask render target
+    // Create mask render target and force-clear it so no uninitialized GPU
+    // memory leaks through on the first frame (shows as white noise).
     this.gameObjectsMask = new THREE.WebGLRenderTarget(
       Math.floor(initialSize.width),
       Math.floor(initialSize.height),
@@ -167,6 +168,10 @@ export class PostProcessingManager {
         format: THREE.RGBAFormat,
       }
     )
+    gl.setRenderTarget(this.gameObjectsMask)
+    gl.setClearColor(0x000000, 0)
+    gl.clear()
+    gl.setRenderTarget(null)
 
     // Initialize structure state from config
     this.currentStructure = {
@@ -249,7 +254,10 @@ export class PostProcessingManager {
       new EffectPass(this.camera, ...preGradingEffects)
     )
 
-    // --- Pass B: grading (sRGB colour-space effects) ------------------------
+    // --- Pass B/C: grading (sRGB colour-space effects) ----------------------
+    // BrightnessContrast declares inputColorSpace = sRGB. Keeping BC and HS
+    // in separate passes avoids HS running in an unexpected colour space and
+    // matches the pre-optimisation behaviour exactly.
 
     if (config.grading_enabled) {
       this.brightnessContrast = new BrightnessContrastEffect({
@@ -260,11 +268,10 @@ export class PostProcessingManager {
         saturation: config.grading_saturation,
       })
       orderedEffectPasses.push(
-        new EffectPass(
-          this.camera,
-          this.brightnessContrast,
-          this.hueSaturation
-        )
+        new EffectPass(this.camera, this.brightnessContrast)
+      )
+      orderedEffectPasses.push(
+        new EffectPass(this.camera, this.hueSaturation)
       )
     } else {
       this.brightnessContrast = null
@@ -584,13 +591,14 @@ export class PostProcessingManager {
     // Disable OVERLAY layer during post-processing
     currentCamera.layers.disable(LAYERS.OVERLAY)
 
-    // Render scene to composer input buffer
+    // Render scene to composer input buffer (don't reset render target — the
+    // composer will set its own targets, and the extra setRenderTarget(null)
+    // is an unnecessary GL state transition the old RenderPass never did).
     t0 = this.profilingEnabled ? performance.now() : 0
     gpu?.begin("scene")
     this.gl.setRenderTarget(this.composer.inputBuffer)
     this.gl.clear()
     this.gl.render(this.scene, currentCamera)
-    this.gl.setRenderTarget(null)
     gpu?.end()
     const sceneMs = this.profilingEnabled ? performance.now() - t0 : 0
 

@@ -37,8 +37,8 @@ export const nebulaFragmentShader = `
                     if (i >= iter) { break; }
                     float mag = dot(p, p);
                     p = abs(p) / max(mag, 1e-5) + warpOffset;
-                    float w = exp(-float(i) / warpDecay);
-                    accum += w * exp(-9.025 * pow(abs(mag - prev), 2.2));
+                    float w = exp(-float(i) / max(warpDecay, 0.01));
+                    accum += w * exp(-9.025 * min(pow(abs(mag - prev), 2.2), 20.0));
                     tw += w;
                     prev = mag;
                   }
