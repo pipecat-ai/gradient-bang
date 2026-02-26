@@ -5,9 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from loguru import logger
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     BotSpeakingFrame,
     EndFrame,
@@ -37,7 +35,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import (
-    RTVIConfig,
     RTVIObserver,
     RTVIProcessor,
     RTVIServerMessageFrame,
@@ -48,8 +45,6 @@ from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
-from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
-from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
 
 from gradientbang.utils.llm_factory import (
@@ -150,8 +145,8 @@ def create_chat_system_prompt() -> str:
 async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     """Main bot function that creates and runs the pipeline."""
 
-    # Create RTVI processor with config
-    rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
+    # Create RTVI processor
+    rtvi = RTVIProcessor()
 
     server_url = os.getenv("SUPABASE_URL")
     if not server_url:
@@ -230,20 +225,16 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # Create context aggregator
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
-    context_aggregator = LLMContextAggregatorPair(
+    user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
             filter_incomplete_user_turns=True,
             user_mute_strategies=[
                 TextInputBypassFirstBotMuteStrategy(),
             ],
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
-            user_turn_strategies=UserTurnStrategies(
-                stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())]
-            ),
+            vad_analyzer=SileroVADAnalyzer(),
         ),
     )
-    user_aggregator = context_aggregator.user()
     # Pipecat 0.0.102 emits UserMuteStartedFrame when mute state flips.
     # In our parallel pipeline this can happen before StartFrame reaches branch
     # sources, triggering startup errors. Seed initial mute state to avoid an
@@ -331,7 +322,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         [
             transport.input(),
             stt,
-            # rtvi,  # Add RTVI processor for transcription events
             pre_llm_gate,
             user_aggregator,
             ParallelPipeline(
@@ -342,7 +332,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     token_usage_metrics,
                     say_text_voice_guard,
                     tts,
-                    context_aggregator.assistant(),
+                    assistant_aggregator,
                     output_transport,
                     compression_consumer,  # Receives compression results
                 ],
@@ -354,14 +344,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         ]
     )
 
-    # Create task with RTVI observer
     # Configure idle_timeout_frames to include TaskActivityFrame so long-running tasks
     # don't cause the pipeline to timeout when there's no voice interaction
     logger.info("Create task…")
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
-            allow_interruptions=True,
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
@@ -442,7 +430,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             logger.info("Installed source-based LLM frame filter on RTVI observer")
             break
 
-    @rtvi.event_handler("on_client_ready")
+    @task.rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
         async def _join():
             await asyncio.sleep(2)
@@ -451,9 +439,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await task_manager.game_client.resume_event_delivery()
 
         asyncio.create_task(_join())
-        await rtvi.set_bot_ready()
 
-    @rtvi.event_handler("on_client_message")
+    @task.rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
         """Handle custom messages from the client."""
         logger.info(f"Received client message: {message}")
