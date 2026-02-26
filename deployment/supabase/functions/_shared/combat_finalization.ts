@@ -207,13 +207,16 @@ async function handleDefeatedCharacter(
 
   // Handle ship destruction differently for corp ships vs human ships
   if (isCorpShip) {
-    // Corp ships: update ship state to reflect destruction (but don't convert to escape pod)
-    // This ensures combat.ended payload shows destroyed state when loaded from DB
+    // Corp ships: mark as destroyed immediately (not converted to escape pod).
+    // We set destroyed_at here so the ship is removed from active queries even
+    // if the deferred pseudo-character cleanup in executeCorpShipDeletions fails
+    // (e.g. due to an error during combat.ended event emission).
     await supabase
       .from("ship_instances")
       .update({
         current_fighters: 0,
         current_shields: 0,
+        destroyed_at: new Date().toISOString(),
       })
       .eq("ship_id", shipId);
 

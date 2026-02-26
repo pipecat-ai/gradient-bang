@@ -148,35 +148,45 @@ export async function resolveEncounterRound(options: {
     // Send personalized combat.ended event to each participant with their own ship data
     // NO CORP VISIBILITY for combat.ended - personalized payload would corrupt client state
     // (matches legacy pattern from previous combat callbacks)
-    const { buildCombatEndedPayloadForViewer } =
-      await import("./combat_events.ts");
-    for (const recipient of recipients) {
-      const personalizedPayload = await buildCombatEndedPayloadForViewer(
-        supabase,
-        encounter,
-        outcome,
-        salvageEntries,
-        encounter.logs ?? [],
-        recipient,
-      );
-      personalizedPayload.source = buildEventSource("combat.ended", requestId);
-      const shipId =
-        typeof personalizedPayload === "object" && personalizedPayload !== null
-          ? (personalizedPayload as Record<string, unknown>)["ship"]
-          : null;
-      const shipIdValue =
-        typeof shipId === "object" && shipId !== null
-          ? (shipId as Record<string, unknown>)["ship_id"]
-          : null;
+    // Wrapped in try-catch so that deferred corp ship deletions always run even
+    // if an event emission fails (the ship is already marked destroyed_at in
+    // handleDefeatedCharacter, but we still need pseudo-character cleanup).
+    try {
+      const { buildCombatEndedPayloadForViewer } =
+        await import("./combat_events.ts");
+      for (const recipient of recipients) {
+        const personalizedPayload = await buildCombatEndedPayloadForViewer(
+          supabase,
+          encounter,
+          outcome,
+          salvageEntries,
+          encounter.logs ?? [],
+          recipient,
+        );
+        personalizedPayload.source = buildEventSource("combat.ended", requestId);
+        const shipId =
+          typeof personalizedPayload === "object" && personalizedPayload !== null
+            ? (personalizedPayload as Record<string, unknown>)["ship"]
+            : null;
+        const shipIdValue =
+          typeof shipId === "object" && shipId !== null
+            ? (shipId as Record<string, unknown>)["ship_id"]
+            : null;
 
-      await emitCharacterEvent({
-        supabase,
-        characterId: recipient,
-        eventType: "combat.ended",
-        payload: personalizedPayload,
-        sectorId: encounter.sector_id,
-        requestId,
-        shipId: typeof shipIdValue === "string" ? shipIdValue : undefined,
+        await emitCharacterEvent({
+          supabase,
+          characterId: recipient,
+          eventType: "combat.ended",
+          payload: personalizedPayload,
+          sectorId: encounter.sector_id,
+          requestId,
+          shipId: typeof shipIdValue === "string" ? shipIdValue : undefined,
+        });
+      }
+    } catch (err) {
+      console.error("combat_resolution.combat_ended_emission", {
+        combat_id: encounter.combat_id,
+        error: err,
       });
     }
 
