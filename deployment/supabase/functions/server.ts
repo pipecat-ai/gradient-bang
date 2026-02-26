@@ -13,61 +13,22 @@
  *   POSTGRES_POOLER_URL, EDGE_API_TOKEN, etc.)
  */
 
-const FUNCTION_NAMES = [
-  "bank_transfer",
-  "character_create",
-  "character_delete",
-  "character_info",
-  "character_modify",
-  "combat_action",
-  "combat_collect_fighters",
-  "combat_initiate",
-  "combat_leave_fighters",
-  "combat_set_garrison_mode",
-  "combat_tick",
-  "corporation_create",
-  "corporation_info",
-  "corporation_join",
-  "corporation_kick",
-  "corporation_leave",
-  "corporation_list",
-  "corporation_regenerate_invite_code",
-  "dump_cargo",
-  "event_query",
-  "events_since",
-  "join",
-  "leaderboard_resources",
-  "list_known_ports",
-  "list_user_ships",
-  "local_map_region",
-  "login",
-  "move",
-  "my_corporation",
-  "my_status",
-  "path_with_region",
-  "plot_course",
-  "purchase_fighters",
-  "quest_assign",
-  "quest_status",
-  "recharge_warp_power",
-  "regenerate_ports",
-  "register",
-  "reset_ports",
-  "salvage_collect",
-  "send_message",
-  "ship_purchase",
-  "ship_rename",
-  "start",
-  "task_cancel",
-  "task_lifecycle",
-  "test_reset",
-  "trade",
-  "transfer_credits",
-  "transfer_warp_power",
-  "user_character_create",
-  "user_character_list",
-  "user_confirm",
-];
+// Auto-discover edge functions: any subdirectory containing index.ts
+const SKIP = new Set(["_shared"]);
+const serverDir = new URL(".", import.meta.url).pathname;
+const functionNames: string[] = [];
+for (const entry of Deno.readDirSync(serverDir)) {
+  if (!entry.isDirectory || SKIP.has(entry.name) || entry.name.startsWith(".")) {
+    continue;
+  }
+  try {
+    Deno.statSync(`${serverDir}${entry.name}/index.ts`);
+    functionNames.push(entry.name);
+  } catch {
+    // No index.ts in this directory, skip
+  }
+}
+functionNames.sort();
 
 // ---------------------------------------------------------------------------
 // Phase 1: Capture handlers by monkey-patching Deno.serve
@@ -102,7 +63,7 @@ const realServe = Deno.serve.bind(Deno);
 
 // Dynamically import each edge function — Deno.serve inside each module
 // will call our stub, populating `routes`.
-for (const name of FUNCTION_NAMES) {
+for (const name of functionNames) {
   currentFunctionName = name;
   try {
     await import(`./${name}/index.ts`);
@@ -118,10 +79,10 @@ currentFunctionName = "";
 
 const loadedCount = Object.keys(routes).length;
 console.log(
-  `[server] Loaded ${loadedCount}/${FUNCTION_NAMES.length} functions`,
+  `[server] Loaded ${loadedCount}/${functionNames.length} functions`,
 );
-if (loadedCount < FUNCTION_NAMES.length) {
-  const missing = FUNCTION_NAMES.filter((n) => !(n in routes));
+if (loadedCount < functionNames.length) {
+  const missing = functionNames.filter((n) => !(n in routes));
   console.warn(`[server] Missing functions: ${missing.join(", ")}`);
 }
 
