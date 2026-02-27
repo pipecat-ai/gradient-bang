@@ -23,6 +23,7 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
     TTSSpeakFrame,
     TTSUpdateSettingsFrame,
+    UserSpeakingFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
@@ -367,8 +368,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         ),
         rtvi_processor=rtvi,
         cancel_on_idle_timeout=False,
-        idle_timeout_secs=180,
-        idle_timeout_frames=(BotSpeakingFrame, UserStartedSpeakingFrame, TaskActivityFrame),
+        idle_timeout_secs=600,
+        idle_timeout_frames=(BotSpeakingFrame, UserSpeakingFrame, TaskActivityFrame),
     )
 
     runner: PipelineRunner | None = None
@@ -381,7 +382,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         messages = [
             {
                 "role": "system",
-                "content": "The user has been idle for too long. Briefly (1-2 sentences) explain that they've been idle for too long and that you're going to disconnect in one minute.",
+                "content": "The player has been inactive. Say a quick goodbye — you're disconnecting due to inactivity.",
             }
         ]
         await task.queue_frames([LLMMessagesAppendFrame(messages, run_llm=True)])
