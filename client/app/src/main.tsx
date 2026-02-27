@@ -5,7 +5,6 @@ import { PipecatClient } from "@pipecat-ai/client-js"
 import { PipecatClientProvider } from "@pipecat-ai/client-react"
 
 import { FullScreenLoader } from "@/components/FullScreenLoader"
-import { TempMobileBlock } from "@/components/TempMobileBlock"
 import { Error } from "@/components/views/Error"
 import { ViewContainer } from "@/components/views/ViewContainer"
 import { AnimatedFrame } from "@/fx/frame"
@@ -155,7 +154,6 @@ createRoot(document.getElementById("root")!).render(
 
         {/* HOC renderables */}
         <AnimatedFrame />
-        {Settings.showMobileWarning && <TempMobileBlock />}
       </>
     }
   </StrictMode>

@@ -1,7 +1,9 @@
 import { useCallback, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
+import { useMediaQuery } from "@uidotdev/usehooks"
 
+import { Mobile } from "@/components/mobile"
 import { useGameContext } from "@/hooks/useGameContext"
 import useGameStore from "@/stores/game"
 import { checkAssetsAreCached } from "@/utils/cache"
@@ -18,6 +20,8 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
   const [viewState, setViewState] = useState<"title" | "preload" | "game">(
     settings.bypassTitle ? "game" : "preload"
   )
+
+  const isSmallDevice = useMediaQuery("only screen and (max-width : 768px)")
 
   const handleViewStateChange = useCallback(
     (state: "title" | "preload" | "game") => {
@@ -78,7 +82,9 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
                 </motion.div>
               )}
             </AnimatePresence>
-            <Game />
+            {isSmallDevice ?
+              <Mobile />
+            : <Game />}
           </>
         )}
       </motion.div>
