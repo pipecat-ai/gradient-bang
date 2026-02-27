@@ -8,7 +8,7 @@ import {
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { emitErrorEvent, buildEventSource } from "../_shared/events.ts";
-import { createPgClient } from "../_shared/pg.ts";
+import { acquirePg, releasePg } from "../_shared/pg.ts";
 import {
   pgEnforceRateLimit,
   pgLoadCharacter,
@@ -104,9 +104,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
-  // Create PG client for direct database access
-  const pgClient = createPgClient();
-
   // Timing trace
   const trace: Record<string, number> = {};
   const t0 = Date.now();
@@ -114,9 +111,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     trace[label] = Date.now() - t0;
   };
 
+  const pgClient = await acquirePg();
+  mark("pg_connect");
+
   try {
-    await pgClient.connect();
-    mark("pg_connect");
 
     try {
       await pgEnforceRateLimit(pgClient, characterId, "trade");
@@ -185,11 +183,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       character_id: characterId,
       trace,
     });
-    try {
-      await pgClient.end();
-    } catch {
-      // Ignore cleanup errors
-    }
+    releasePg(pgClient);
   }
 });
 

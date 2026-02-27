@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
+import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 import {
   validateApiToken,
@@ -7,7 +8,7 @@ import {
   successResponse,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
-import { createPgClient, connectWithCleanup } from "../_shared/pg.ts";
+import { acquirePg, releasePg } from "../_shared/pg.ts";
 import {
   emitCharacterEvent,
   emitErrorEvent,
@@ -90,10 +91,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return errorResponse("quantity is required", 400);
   }
 
-  const pg = createPgClient();
+  const pg = await acquirePg();
   try {
-    await connectWithCleanup(pg);
-
     try {
       await pgEnforceRateLimit(pg, characterId, "combat_collect_fighters");
     } catch (err) {
@@ -149,16 +148,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
     return errorResponse(detail, status);
   } finally {
-    try {
-      await pg.end();
-    } catch {
-      // Ignore cleanup errors
-    }
+    releasePg(pg);
   }
 });
 
 async function handleCombatCollectFighters(params: {
-  pg: Awaited<ReturnType<typeof createPgClient>>;
+  pg: Client;
   supabase: ReturnType<typeof createServiceRoleClient>;
   requestId: string;
   characterId: string;

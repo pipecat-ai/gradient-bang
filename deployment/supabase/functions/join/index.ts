@@ -7,7 +7,7 @@ import {
   successResponse,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
-import { createPgClient, connectWithCleanup } from "../_shared/pg.ts";
+import { acquirePg, releasePg } from "../_shared/pg.ts";
 import {
   pgLoadCharacterForJoin,
   pgLoadShip,
@@ -88,13 +88,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
 
-  // Create PG client for main operations
-  const pg = createPgClient();
   // Supabase client for combat operations (still REST-based)
   const supabase = createServiceRoleClient();
 
+  const pg = await acquirePg();
   try {
-    await connectWithCleanup(pg);
     const t0 = performance.now();
 
     // Load character using PG
@@ -373,11 +371,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     console.error("join.unhandled", err);
     return errorResponse("internal server error", 500);
   } finally {
-    try {
-      await pg.end();
-    } catch {
-      // Ignore close errors
-    }
+    releasePg(pg);
   }
 });
 

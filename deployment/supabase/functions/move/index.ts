@@ -13,7 +13,7 @@ import {
   emitErrorEvent,
   buildEventSource,
 } from "../_shared/events.ts";
-import { createPgClient, connectWithCleanup } from "../_shared/pg.ts";
+import { acquirePg, releasePg } from "../_shared/pg.ts";
 import {
   parseJsonRequest,
   requireString,
@@ -76,24 +76,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const supabase = createServiceRoleClient();
-  const pgClient = createPgClient();
   const tStart = performance.now();
   const trace: Record<string, number> = {};
   const mark = (label: string) => {
     trace[label] = Math.round(performance.now() - tStart);
   };
 
+  let pgClient;
   try {
-    try {
-      await pgClient.connect();
-      mark("pg_connect");
-    } catch (pgConnectError) {
-      console.error("move.pg_connect_error", pgConnectError);
-      return errorResponse(
-        `Failed to connect to database: ${pgConnectError instanceof Error ? pgConnectError.message : "unknown error"}`,
-        500,
-      );
-    }
+    pgClient = await acquirePg();
+    mark("pg_connect");
+  } catch (pgConnectError) {
+    console.error("move.pg_connect_error", pgConnectError);
+    return errorResponse(
+      `Failed to connect to database: ${pgConnectError instanceof Error ? pgConnectError.message : "unknown error"}`,
+      500,
+    );
+  }
+
+  try {
 
     let payload;
     try {
@@ -170,20 +171,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const result = await handleMove(moveContext);
     const tEnd = performance.now();
     trace["total"] = Math.round(tEnd - tStart);
+
+    // Compute deltas between consecutive marks
+    const traceKeys = Object.keys(trace);
+    const deltas: Record<string, string> = {};
+    for (let i = 0; i < traceKeys.length; i++) {
+      const key = traceKeys[i];
+      const prev = i > 0 ? trace[traceKeys[i - 1]] : 0;
+      const delta = trace[key] - prev;
+      deltas[key] = `${trace[key]}ms (+${delta}ms)`;
+    }
     console.log("move.trace", {
       request_id: requestId,
       character_id: characterId,
       destination,
-      trace,
+      deltas,
     });
     return result;
   } finally {
-    // pgClient may already be closed by completeMovement - safe to call end() anyway
-    try {
-      await pgClient.end();
-    } catch {
-      // Already closed, ignore
-    }
+    // pgClient may already be released by completeMovement — releasePg is idempotent-safe
+    releasePg(pgClient);
   }
 });
 
@@ -447,6 +454,7 @@ async function handleMove({
       source,
       requestId,
     });
+    mark("emit_movement_depart");
 
     await completeMovement({
       supabase,
@@ -468,6 +476,7 @@ async function handleMove({
       mark,
     });
 
+    mark("complete_movement_done");
     enteredHyperspace = false;
 
     return successResponse({ request_id: requestId });
@@ -498,9 +507,9 @@ async function handleMove({
     if (enteredHyperspace) {
       // Original pgClient may have been closed during completeMovement,
       // so we need a fresh connection for cleanup
-      const cleanupPg = createPgClient();
+      let cleanupPg;
       try {
-        await cleanupPg.connect();
+        cleanupPg = await acquirePg();
         await pgFinishHyperspace(cleanupPg, {
           shipId: ship.ship_id,
           destination: ship.current_sector ?? 0,
@@ -508,7 +517,7 @@ async function handleMove({
       } catch (cleanupErr) {
         console.error("move.cleanup_hyperspace", cleanupErr);
       } finally {
-        await cleanupPg.end();
+        if (cleanupPg) releasePg(cleanupPg);
       }
     }
   }
@@ -635,7 +644,7 @@ async function completeMovement({
       : character.corporation_id;
   // Release the connection BEFORE the delay to free it for other requests.
   // This is critical for connection pool efficiency under concurrent load.
-  await pgClient.end();
+  releasePg(pgClient);
   mark("pg_release_for_delay");
 
   if (hyperspaceSeconds > 0) {
@@ -645,10 +654,9 @@ async function completeMovement({
   }
   mark("delay_done");
 
-  // Reconnect AFTER the delay to complete the move
-  const pg = createPgClient();
+  // Reacquire from pool AFTER the delay — near-instant when pool has idle connections
+  const pg = await acquirePg();
   try {
-    await connectWithCleanup(pg);
     mark("pg_reconnect");
 
     await pgFinishHyperspaceAndUpdateActive(pg, {
@@ -790,6 +798,7 @@ async function completeMovement({
       requestId,
       corpIds, // Corp visibility for arrivals
     });
+    mark("emit_movement_arrive");
 
     // Check for garrison auto-combat after arrival
     // Use fast pg check first, only fall back to REST if combat initiation needed
@@ -814,9 +823,11 @@ async function completeMovement({
           requestId,
         });
       }
+      mark("garrison_check");
     } catch (garrisonError) {
       // Log but don't fail the move if garrison combat fails
       console.error("move.garrison_auto_engage", garrisonError);
+      mark("garrison_check_error");
     }
   } catch (error) {
     console.error("move.async_completion", error);
@@ -830,6 +841,6 @@ async function completeMovement({
     });
     throw error; // Re-throw so caller knows completion failed
   } finally {
-    await pg.end();
+    releasePg(pg);
   }
 }

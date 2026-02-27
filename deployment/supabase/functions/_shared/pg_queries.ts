@@ -1308,17 +1308,28 @@ export async function pgBuildStatusPayload(
   characterId: string,
   options?: Omit<PgBuildStatusPayloadOptions, "pg" | "characterId">,
 ): Promise<Record<string, unknown>> {
+  const _t0 = performance.now();
+  const _spTimings: Record<string, number> = {};
+  const _spMark = (label: string) => {
+    _spTimings[label] = Math.round(performance.now() - _t0);
+  };
+
   // Use provided data or fetch if not provided
   const character =
     options?.character ?? (await pgLoadCharacter(pg, characterId));
+  _spMark("character");
   const ship =
     options?.ship ?? (await pgLoadShip(pg, character.current_ship_id));
+  _spMark("ship");
   const definition =
     options?.shipDefinition ?? (await pgLoadShipDefinition(pg, ship.ship_type));
+  _spMark("definition");
   // Load merged knowledge (with source field set on each entry)
   const knowledge =
     options?.mapKnowledge ?? (await pgLoadMapKnowledge(pg, characterId));
+  _spMark("knowledge");
   const universeSize = await pgLoadUniverseSize(pg);
+  _spMark("universe_size");
   const playerType = resolvePlayerType(character.player_metadata);
   const player = buildPlayerSnapshot(
     character,
@@ -1330,6 +1341,7 @@ export async function pgBuildStatusPayload(
   const sectorSnapshot =
     options?.sectorSnapshot ??
     (await pgBuildSectorSnapshot(pg, ship.current_sector ?? 0, characterId));
+  _spMark("sector_snapshot");
 
   // Load corporation info with member count in a single query
   let corporationPayload: Record<string, unknown> | null = null;
@@ -1356,6 +1368,18 @@ export async function pgBuildStatusPayload(
       };
     }
   }
+  _spMark("corporation");
+
+  console.log("pgBuildStatusPayload.trace", {
+    preloaded: {
+      character: !!options?.character,
+      ship: !!options?.ship,
+      definition: !!options?.shipDefinition,
+      knowledge: !!options?.mapKnowledge,
+      sector: !!options?.sectorSnapshot,
+    },
+    ..._spTimings,
+  });
 
   return convertBigInts({
     player,
@@ -1562,13 +1586,21 @@ export async function pgBuildLocalMapRegion(
   const maxHops = params.maxHops ?? 4;
   const maxSectors = params.maxSectors ?? 28;
 
+  const _t0 = performance.now();
+  const _lmrTimings: Record<string, number> = {};
+  const _lmrMark = (label: string) => {
+    _lmrTimings[label] = Math.round(performance.now() - _t0);
+  };
+
   let knowledge = params.mapKnowledge;
   if (!knowledge) {
     knowledge = await pgLoadMapKnowledge(pg, characterId);
+    _lmrMark("load_knowledge");
   }
 
   // Phase 1: Synchronous BFS using knowledge adjacency data (0 queries)
   const bfs = runBFS(centerSector, maxHops, maxSectors, knowledge);
+  _lmrMark("bfs");
   const { distanceMap, unvisitedFrontier, unvisitedSeenFrom } = bfs;
 
   const visitedSet = new Set<number>(
@@ -1650,6 +1682,8 @@ export async function pgBuildLocalMapRegion(
     }
   }
 
+  _lmrMark("pre_batch");
+
   const [universeRowMap, portCodes, universeMeta, garrisonsBySector] =
     await Promise.all([
       pgFetchUniverseRows(pg, allSectorIds),
@@ -1659,6 +1693,7 @@ export async function pgBuildLocalMapRegion(
       needsUniverseMeta ? pgLoadUniverseMeta(pg) : Promise.resolve(null),
       pgLoadSectorGarrisons(pg, visitedSectorIds),
     ]);
+  _lmrMark("batch_fetch");
 
   // Build adjacency lookup from knowledge + universe data
   const adjacencyCache = new Map<number, number[]>();
@@ -1743,6 +1778,15 @@ export async function pgBuildLocalMapRegion(
 
   const totalVisited = resultSectors.filter((sector) => sector.visited).length;
   const totalUnvisited = resultSectors.length - totalVisited;
+
+  _lmrMark("build_output");
+  console.log("pgBuildLocalMapRegion.trace", {
+    center: centerSector,
+    maxHops,
+    sectors: resultSectors.length,
+    allSectorIds: allSectorIds.length,
+    ..._lmrTimings,
+  });
 
   return convertBigInts({
     center_sector: centerSector,
@@ -1978,6 +2022,7 @@ function dedupeRecipients(
 export async function pgRecordEvent(
   options: PgRecordEventOptions,
 ): Promise<number | null> {
+  const _t0 = performance.now();
   const {
     pg,
     eventType,
@@ -2029,6 +2074,11 @@ export async function pgRecordEvent(
       taskId ?? null,
     ],
   );
+
+  const _ms = Math.round(performance.now() - _t0);
+  if (_ms > 50) {
+    console.log("pgRecordEvent.slow", { eventType, ms: _ms, recipients: normalizedRecipients.length });
+  }
 
   const returnVal = result.rows[0]?.record_event_with_recipients;
   if (typeof returnVal === "string") {
@@ -2334,6 +2384,7 @@ export async function pgComputeCorpMemberRecipients(
 export async function pgEmitMovementObservers(
   options: PgMovementObserverOptions,
 ): Promise<MovementObserverResult> {
+  const _t0 = performance.now();
   const {
     pg,
     sectorId,
@@ -2458,17 +2509,15 @@ export async function pgEmitMovementObservers(
   }
 
   const corpMemberCount = corpMemberRecipients.length;
-  if (observers.length || garrisonRecipients > 0 || corpMemberCount > 0) {
-    console.log("movement.observers.emitted", {
-      sector_id: sectorId,
-      movement,
-      character_id: metadata.characterId,
-      character_observers: observers.length,
-      garrison_recipients: garrisonRecipients,
-      corp_member_recipients: corpMemberCount,
-      request_id: requestId,
-    });
-  }
+  const _ms = Math.round(performance.now() - _t0);
+  console.log("pgEmitMovementObservers.trace", {
+    sector_id: sectorId,
+    movement,
+    character_observers: observers.length,
+    garrison_recipients: garrisonRecipients,
+    corp_member_recipients: corpMemberCount,
+    ms: _ms,
+  });
 
   return {
     characterObservers: observers.length,
@@ -2513,10 +2562,21 @@ export interface PgCheckGarrisonAutoEngageOptions {
 export async function pgCheckGarrisonAutoEngage(
   options: PgCheckGarrisonAutoEngageOptions,
 ): Promise<boolean> {
+  const _t0 = performance.now();
+  const _logGarrison = (reason: string, result: boolean) => {
+    console.log("pgCheckGarrisonAutoEngage.trace", {
+      reason,
+      result,
+      preloaded: { character: !!options.character, ship: !!options.ship },
+      ms: Math.round(performance.now() - _t0),
+    });
+    return result;
+  };
+
   const { pg, characterId, sectorId, character, ship } = options;
   const meta = await pgLoadUniverseMeta(pg);
   if (await pgIsFedspaceSector(pg, sectorId, meta)) {
-    return false;
+    return _logGarrison("fedspace", false);
   }
 
   // Use pre-loaded data when available, otherwise query
@@ -2529,18 +2589,18 @@ export async function pgCheckGarrisonAutoEngage(
       [characterId],
     );
     const charRow = charResult.rows[0];
-    if (!charRow?.current_ship_id) return false;
+    if (!charRow?.current_ship_id) return _logGarrison("no_ship", false);
     currentShipId = charRow.current_ship_id;
   }
 
   if (ship) {
-    if (ship.in_hyperspace) return false;
+    if (ship.in_hyperspace) return _logGarrison("in_hyperspace", false);
   } else {
     const shipResult = await pg.queryObject<{ in_hyperspace: boolean }>(
       `SELECT in_hyperspace FROM ship_instances WHERE ship_id = $1`,
       [currentShipId],
     );
-    if (shipResult.rows[0]?.in_hyperspace) return false;
+    if (shipResult.rows[0]?.in_hyperspace) return _logGarrison("in_hyperspace", false);
   }
 
   // Fetch combat state and garrisons in a single combined query
@@ -2562,7 +2622,7 @@ export async function pgCheckGarrisonAutoEngage(
       string,
       unknown
     > | null;
-    if (combat && !combat.ended) return false; // Already in combat
+    if (combat && !combat.ended) return _logGarrison("active_combat", false);
   } else {
     // No garrisons with fighters — also need to check combat in case there are 0 garrisons
     const combatResult = await pg.queryObject<{ combat: unknown }>(
@@ -2572,9 +2632,9 @@ export async function pgCheckGarrisonAutoEngage(
     const combatRow = combatResult.rows[0];
     if (combatRow?.combat) {
       const combat = combatRow.combat as Record<string, unknown>;
-      if (combat && !combat.ended) return false;
+      if (combat && !combat.ended) return _logGarrison("active_combat_no_garrison", false);
     }
-    return false; // No garrisons with fighters
+    return _logGarrison("no_garrisons", false);
   }
 
   const garrisons = combatAndGarrisonResult.rows;
@@ -2583,7 +2643,7 @@ export async function pgCheckGarrisonAutoEngage(
   const autoEngagingGarrisons = garrisons.filter(
     (g) => g.mode === "offensive" || g.mode === "toll",
   );
-  if (autoEngagingGarrisons.length === 0) return false;
+  if (autoEngagingGarrisons.length === 0) return _logGarrison("no_auto_engage", false);
 
   // Use pre-loaded corporation_id when available, otherwise query
   let charCorpId: string | null;
@@ -2608,7 +2668,7 @@ export async function pgCheckGarrisonAutoEngage(
         .filter((id): id is string => !!id && id !== characterId),
     ),
   ];
-  if (ownerIds.length === 0) return false;
+  if (ownerIds.length === 0) return _logGarrison("own_garrisons_only", false);
 
   // Batch-load all garrison owners' corporations in a single query
   const ownerCorpResult = await pg.queryObject<{
@@ -2639,10 +2699,10 @@ export async function pgCheckGarrisonAutoEngage(
     if (charCorpId && ownerCorpId === charCorpId) continue;
 
     // Found an enemy garrison - combat should be initiated
-    return true;
+    return _logGarrison("enemy_garrison", true);
   }
 
-  return false; // All garrisons are friendly
+  return _logGarrison("all_friendly", false);
 }
 
 // ============================================================================
