@@ -22,9 +22,9 @@ export const AllDialogs: Story = () => {
           <p className="text-sm text-muted-foreground">
             Click any button to open a modal dialog
           </p>
-          {activeModal && (
+          {activeModal?.modal && (
             <p className="text-xs text-accent-foreground">
-              Active modal: <code className="bg-card px-2 py-1">{activeModal}</code>
+              Active modal: <code className="bg-card px-2 py-1">{activeModal.modal}</code>
             </p>
           )}
         </div>

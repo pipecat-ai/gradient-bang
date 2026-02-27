@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react"
+import { useCallback, useMemo, useRef } from "react"
 
 import { cva } from "class-variance-authority"
 import { motion } from "motion/react"
@@ -157,6 +157,7 @@ export const QuestList = () => {
   const dispatchAction = useGameStore.use.dispatchAction()
   const setActiveModal = useGameStore.use.setActiveModal()
   const setNotifications = useGameStore.use.setNotifications()
+  const diamondRef = useRef<HTMLDivElement>(null)
 
   const questStatusMap = useMemo(() => {
     const map = new Map<string, QuestStatus>()
@@ -166,11 +167,14 @@ export const QuestList = () => {
     return map
   }, [quests])
 
-  const getStatus = (questGiver: (typeof QUEST_GIVERS)[number]): QuestStatus => {
-    if (questGiver.locked) return "locked"
-    if (!questGiver.questCode) return "available"
-    return questStatusMap.get(questGiver.questCode) ?? "available"
-  }
+  const getStatus = useCallback(
+    (questGiver: (typeof QUEST_GIVERS)[number]): QuestStatus => {
+      if (questGiver.locked) return "locked"
+      if (!questGiver.questCode) return "available"
+      return questStatusMap.get(questGiver.questCode) ?? "available"
+    },
+    [questStatusMap]
+  )
 
   const handleSelect = useCallback(
     (questGiver: (typeof QUEST_GIVERS)[number]) => {
@@ -182,12 +186,12 @@ export const QuestList = () => {
       setActiveModal(undefined)
       setNotifications({ questAccepted: true })
     },
-    [dispatchAction, setActiveModal, setNotifications]
+    [dispatchAction, setActiveModal, setNotifications, getStatus]
   )
 
   return (
-    <BaseDialog modalName="quest_list" title="Quests" size="lg">
-      <div className="flex flex-row gap-6 justify-center">
+    <BaseDialog modalName="quest_list" title="Quests" size="lg" useDiamondFX diamondRef={diamondRef}>
+      <div ref={diamondRef} className="flex flex-row gap-6 justify-center">
         {QUEST_GIVERS.map((questGiver, index) => (
           <QuestGiverCard
             key={questGiver.id}

@@ -19,7 +19,7 @@ export const Leaderboard = () => {
   const activeModal = useGameStore.use.activeModal?.()
 
   useEffect(() => {
-    if (activeModal !== "leaderboard") return
+    if (activeModal?.modal !== "leaderboard") return
 
     const fetchLeaderboard = async () => {
       console.debug("[LEADERBOARD] Fetching leaderboard data...")

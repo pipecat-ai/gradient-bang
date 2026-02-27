@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 import { ArrowRightIcon, CaretLeftIcon, WaveSineIcon } from "@phosphor-icons/react"
@@ -28,10 +28,10 @@ export const QuestCodec = () => {
   const setNotifications = useGameStore.use.setNotifications()
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
-  const diamondFXInstance = useGameStore.use.diamondFXInstance?.()
   const dispatchAction = useGameStore.use.dispatchAction()
 
-  const isOpen = activeModal === "quest_codec"
+  const isOpen = activeModal?.modal === "quest_codec"
+  const diamondRef = useRef<HTMLDivElement>(null)
 
   const [page, setPage] = useState(0)
 
@@ -40,15 +40,6 @@ export const QuestCodec = () => {
   const pages = useMemo(() => codec?.pages ?? [], [codec?.pages])
   const totalPages = pages.length
   const isLastPage = page >= totalPages - 1
-
-  // Fire diamond FX only on initial open
-  useEffect(() => {
-    if (isOpen) {
-      useGameStore.getState().diamondFXInstance?.start("quest-dialog", false, true, {
-        half: true,
-      })
-    }
-  }, [isOpen])
 
   // Read back the current page text via TTS whenever the page changes
   useEffect(() => {
@@ -65,7 +56,6 @@ export const QuestCodec = () => {
   }, [isOpen, page, pages, giverId, dispatchAction])
 
   function dismiss() {
-    diamondFXInstance?.clear()
     setActiveModal(undefined)
     setPage(0)
     setViewCodec(null)
@@ -92,11 +82,13 @@ export const QuestCodec = () => {
       modalName="quest_codec"
       title="Incoming Codec"
       size="4xl"
+      useDiamondFX
+      diamondRef={diamondRef}
       dismissOnClickOutside={false}
       onClose={dismiss}
     >
       {codec && (
-        <div id="quest-dialog" className="relative flex flex-row items-end gap-0 w-3xl">
+        <div className="relative flex flex-row items-end gap-0 w-3xl">
           {/* Portrait — full size, anchored to bottom */}
           <motion.div
             initial={{ opacity: 0, x: -50 }}
@@ -121,7 +113,7 @@ export const QuestCodec = () => {
           </motion.div>
 
           {/* Dialog panel */}
-          <div className="w-full shadow-xlong">
+          <div ref={diamondRef} className="w-full shadow-xlong">
             <Card className="px-ui-md pl-70 mask-[linear-gradient(to_right,transparent_20%,black_calc(var(--spacing)*70))] elbow elbow-offset-1 gap-ui-md">
               {/* Header */}
 
