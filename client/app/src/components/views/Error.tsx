@@ -1,17 +1,16 @@
-import { Button } from "@/components/primitives/Button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/primitives/Card";
+import { Button } from "@/components/primitives/Button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/primitives/Card"
 
 export const Error = ({
   children,
+  title,
+  noButton = false,
   onRetry,
 }: {
-  children: React.ReactNode;
-  onRetry?: () => void;
+  children: React.ReactNode
+  title?: string
+  noButton?: boolean
+  onRetry?: () => void
 }) => {
   return (
     <Card
@@ -20,20 +19,20 @@ export const Error = ({
       size="lg"
     >
       <CardHeader>
-        <CardTitle className="text-5xl animate-pulse">
-          Connection Error
-        </CardTitle>
+        <CardTitle className="text-5xl animate-pulse">{title || "Connection Error"}</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="normal-case">{children}</p>
       </CardContent>
-      <CardContent className="mt-auto">
-        <Button size="xl" onClick={onRetry}>
-          Try again
-        </Button>
-      </CardContent>
+      {!noButton && (
+        <CardContent className="mt-auto">
+          <Button size="xl" onClick={onRetry}>
+            Try again
+          </Button>
+        </CardContent>
+      )}
     </Card>
-  );
-};
+  )
+}
 
-export default Error;
+export default Error

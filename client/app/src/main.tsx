@@ -5,7 +5,6 @@ import { PipecatClient } from "@pipecat-ai/client-js"
 import { PipecatClientProvider } from "@pipecat-ai/client-react"
 
 import { FullScreenLoader } from "@/components/FullScreenLoader"
-import { TempMobileBlock } from "@/components/TempMobileBlock"
 import { Error } from "@/components/views/Error"
 import { ViewContainer } from "@/components/views/ViewContainer"
 import { AnimatedFrame } from "@/fx/frame"
@@ -17,9 +16,10 @@ import "./css/index.css"
 
 import "./sw-update"
 
+const isFirefox = /firefox/i.test(navigator.userAgent)
+
 const maintenanceMode =
-  import.meta.env.VITE_MAINTENANCE_MODE &&
-  import.meta.env.VITE_MAINTENANCE_MODE !== "0"
+  import.meta.env.VITE_MAINTENANCE_MODE && import.meta.env.VITE_MAINTENANCE_MODE !== "0"
 
 // Prevent browser-level zoom (Ctrl/Cmd +/-, Ctrl/Cmd scroll, pinch)
 document.addEventListener("keydown", (e) => {
@@ -27,11 +27,15 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault()
   }
 })
-document.addEventListener("wheel", (e) => {
-  if (e.ctrlKey || e.metaKey) {
-    e.preventDefault()
-  }
-}, { passive: false })
+document.addEventListener(
+  "wheel",
+  (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+    }
+  },
+  { passive: false }
+)
 
 // Get settings from the initialized store (not from JSON directly)
 const Settings = useGameStore.getState().settings
@@ -116,7 +120,7 @@ const App = lazy(async () => {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {maintenanceMode ? (
+    {maintenanceMode ?
       <div
         style={{
           display: "flex",
@@ -137,16 +141,20 @@ createRoot(document.getElementById("root")!).render(
           Gradient Bang is currently undergoing maintenance. Please check back soon.
         </p>
       </div>
-    ) : (
-      <>
+    : isFirefox ?
+      <Error noButton title="Firefox Not Support">
+        We're sorry, your browser is not currently supported. Gradient Bang relies on advanced web
+        technologies that are best supported in Chromium-based browsers like Chrome and Edge, or
+        Safari on macOS. Please switch to a supported browser for the best experience.
+      </Error>
+    : <>
         <Suspense fallback={<FullScreenLoader />}>
           <App />
         </Suspense>
 
         {/* HOC renderables */}
         <AnimatedFrame />
-        {Settings.showMobileWarning && <TempMobileBlock />}
       </>
-    )}
+    }
   </StrictMode>
 )

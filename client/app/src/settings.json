@@ -1,7 +1,6 @@
 {
     "startMuted": false,
     "enableMic": true,
-    "showMobileWarning": true,
     "disableRemoteAudio": false,
     "saveSettings": true,
     "bypassAssetCache": false,

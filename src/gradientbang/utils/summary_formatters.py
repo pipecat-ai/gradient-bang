@@ -1254,6 +1254,27 @@ def corporation_ship_purchased_summary(event: Dict[str, Any]) -> str:
     return f'Purchased corp ship \"{name}\"{id_suffix} ({ship_type}){price_clause}.'
 
 
+def corporation_ship_sold_summary(event: Dict[str, Any]) -> str:
+    """Summarize corporation.ship_sold events."""
+    if not isinstance(event, dict):
+        return "Corporation ship sold."
+
+    name = event.get("ship_name") or event.get("name") or "Unnamed Vessel"
+    if isinstance(name, str):
+        name = _shorten_embedded_ids(name)
+    else:
+        name = "Unnamed Vessel"
+
+    ship_type = _friendly_ship_type(event.get("ship_type"))
+
+    trade_in = event.get("trade_in_value")
+    value_clause = ""
+    if isinstance(trade_in, (int, float)):
+        value_clause = f" for {int(trade_in):,} credits"
+
+    return f'Sold corp ship \"{name}\" ({ship_type}){value_clause}.'
+
+
 def ship_destroyed_summary(event: Dict[str, Any]) -> str:
     """Summarize ship.destroyed events."""
     if not isinstance(event, dict):

@@ -210,7 +210,9 @@ export async function fetchCorporationShipSummaries(
     .select(
       "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters",
     )
-    .in("ship_id", shipIds);
+    .in("ship_id", shipIds)
+    .neq("owner_type", "unowned")
+    .is("destroyed_at", null);
   if (shipError) {
     console.error("corporations.ships.instances", shipError);
     throw new Error("Failed to load ship instances");

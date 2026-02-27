@@ -696,6 +696,24 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "corporation.ship_sold": {
+              console.debug("[GAME EVENT] Ship sold", e.payload)
+              const data = e.payload as Msg.CorporationShipSoldMessage
+              gameStore.removeShip(data.ship_id)
+              gameStore.addToast({
+                type: "ship.sold",
+                meta: {
+                  ship: {
+                    ship_id: data.ship_id,
+                    ship_name: data.ship_name,
+                    ship_type: data.ship_type,
+                  },
+                  trade_in_value: data.trade_in_value,
+                },
+              })
+              break
+            }
+
             case "ship.definitions": {
               console.debug("[GAME EVENT] Ship definitions", e.payload)
               const data = e.payload as { definitions: ShipDefinition[] }
@@ -1278,10 +1296,10 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as Msg.GarrisonDeployedMessage
 
               const deployShipId = getPayloadShipId(data)
-              if (isCorporationShipPayload(data) && deployShipId) {
-                upsertCorporationShip(deployShipId, { fighters: data.fighters_remaining })
-              } else if (gameStore.ship?.ship_id === deployShipId) {
+              if (gameStore.ship?.ship_id === deployShipId) {
                 gameStore.setShip({ fighters: data.fighters_remaining })
+              } else if (isCorporationShipPayload(data) && deployShipId) {
+                upsertCorporationShip(deployShipId, { fighters: data.fighters_remaining })
               }
 
               gameStore.addActivityLogEntry({
@@ -1296,10 +1314,10 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as Msg.GarrisonCollectedMessage
 
               const collectShipId = getPayloadShipId(data)
-              if (isCorporationShipPayload(data) && collectShipId) {
-                upsertCorporationShip(collectShipId, { fighters: data.fighters_on_ship })
-              } else if (gameStore.ship?.ship_id === collectShipId) {
+              if (gameStore.ship?.ship_id === collectShipId) {
                 gameStore.setShip({ fighters: data.fighters_on_ship })
+              } else if (isCorporationShipPayload(data) && collectShipId) {
+                upsertCorporationShip(collectShipId, { fighters: data.fighters_on_ship })
               }
 
               gameStore.addActivityLogEntry({

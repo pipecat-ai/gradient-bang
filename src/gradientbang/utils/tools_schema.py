@@ -1062,6 +1062,57 @@ class PurchaseShip(GameClientTool):
         )
 
 
+class SellShip(GameClientTool):
+    def __call__(self, ship_id, confirmed=False, character_id=None):
+        if not confirmed:
+            return "CONFIRMATION REQUIRED: STOP — do NOT call any more tools or take any further actions this turn. Just respond to the player by speaking (do NOT use send_message). Say the ship name, type, and trade-in value, and ask if they are sure. Only call sell_ship with confirmed=true after the player explicitly agrees in a new message."
+        payload = {"ship_id": ship_id}
+        if character_id is not None:
+            payload["character_id"] = character_id
+        else:
+            payload["character_id"] = self.game_client.character_id
+        return self.game_client.sell_ship(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="sell_ship",
+            description=(
+                "Sell a corporation ship that you purchased. Returns the trade-in value "
+                "as credits to your personal ship. Only works at a mega-port. "
+                "You cannot sell your personal ship. "
+                "BEFORE calling this tool you MUST: "
+                "1. Call corporation_info() to find the ship and its short ID shown in brackets (e.g. [5606a3]). "
+                "2. Call ship_definitions() to look up the ship type's purchase_price so you can estimate trade-in value. "
+                "3. Tell the player the ship name, type, and approximate trade-in value, and ask them to confirm. "
+                "4. Only after the player says yes, call sell_ship with the short ID from corporation_info() and confirmed=true. "
+                "The confirmed parameter MUST be true or the sale will not execute."
+            ),
+            properties={
+                "ship_id": {
+                    "type": "string",
+                    "description": (
+                        "Ship ID to sell. Use the short hex prefix shown in brackets "
+                        "by corporation_info() (e.g. '5606a3')."
+                    ),
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": (
+                        "Must be true to execute the sale. If false or omitted, "
+                        "the tool returns a reminder to confirm with the player first. "
+                        "Do not set to true until the player has explicitly agreed."
+                    ),
+                },
+                "character_id": {
+                    "type": "string",
+                    "description": "Character executing the sale (defaults to the authenticated pilot)",
+                },
+            },
+            required=["ship_id", "confirmed"],
+        )
+
+
 class RenameShip(GameClientTool):
     def __call__(self, ship_name, ship_id=None):
         payload = {"ship_name": ship_name}

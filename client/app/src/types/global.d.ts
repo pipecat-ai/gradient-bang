@@ -253,7 +253,7 @@ declare global {
 
   type UIState = "idle" | "moving" | "combat" | "paused"
   type UIMode = "tasks" | "map"
-  type UIScreen = "ship-details" | "combat-results"
+  type UIScreen = "combat-results"
   type UIPanel = (typeof import("./constants"))["UI_PANELS"][number]
   type UIModal =
     | "settings"
@@ -263,7 +263,7 @@ declare global {
     | "disconnect"
     | "quest_codec"
     | "quest_list"
-    | undefined
+    | "ship_details"
 
   // --- COMBAT
 

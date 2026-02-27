@@ -41,6 +41,7 @@ from gradientbang.utils.summary_formatters import (
     ship_renamed_summary,
     ships_list_summary,
     corporation_ship_purchased_summary,
+    corporation_ship_sold_summary,
     ship_destroyed_summary,
     warp_purchase_summary,
 )
@@ -252,6 +253,7 @@ class AsyncGameClient:
             "character.moved": character_moved_wrapper,
             "ship.renamed": ship_renamed_summary,
             "corporation.ship_purchased": corporation_ship_purchased_summary,
+            "corporation.ship_sold": corporation_ship_sold_summary,
             "combat.round_waiting": combat_round_waiting_summary,
             "combat.action_accepted": combat_action_accepted_summary,
             "combat.round_resolved": combat_round_resolved_summary,
@@ -1385,6 +1387,32 @@ class AsyncGameClient:
             payload["initial_ship_credits"] = int(initial_ship_credits)
 
         return await self._request("ship.purchase", payload)
+
+    async def sell_ship(
+        self,
+        *,
+        ship_id: str,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Sell a corporation ship and receive trade-in value on personal ship."""
+
+        if not isinstance(ship_id, str) or not ship_id:
+            raise ValueError("ship_id must be a non-empty string")
+
+        if character_id is None:
+            character_id = self._character_id
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "ship_id": ship_id,
+        }
+
+        return await self._request("ship.sell", payload)
 
     async def get_ship_definitions(self) -> Dict[str, Any]:
         """Return all ship definitions from the database."""
