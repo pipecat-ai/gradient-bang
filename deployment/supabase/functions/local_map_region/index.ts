@@ -17,7 +17,7 @@ import {
   buildLocalMapRegion,
   buildLocalMapRegionByBounds,
   computeMapFitBySectors,
-  loadMapKnowledge,
+  loadMapKnowledgeParallel,
 } from "../_shared/map.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
@@ -149,7 +149,10 @@ async function handleLocalMapRegion(
 ): Promise<Response> {
   const source = buildEventSource("local_map_region", requestId);
   const character = await loadCharacter(supabase, characterId);
-  const ship = await loadShip(supabase, character.current_ship_id);
+  const [ship, knowledge] = await Promise.all([
+    loadShip(supabase, character.current_ship_id),
+    loadMapKnowledgeParallel(supabase, characterId, character.corporation_id),
+  ]);
   await ensureActorAuthorization({
     supabase,
     ship,
@@ -157,7 +160,6 @@ async function handleLocalMapRegion(
     adminOverride,
     targetCharacterId: characterId,
   });
-  const knowledge = await loadMapKnowledge(supabase, characterId);
 
   let fitSectors: number[] | null = null;
   const fitRaw = payload["fit_sectors"];

@@ -16,7 +16,7 @@ import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
   findShortestPath,
   PathNotFoundError,
-  loadMapKnowledge,
+  loadMapKnowledgeParallel,
   buildPathRegionPayload,
 } from "../_shared/map.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
@@ -157,7 +157,10 @@ async function handlePathWithRegion(
   const source = buildEventSource("path_with_region", requestId);
 
   const character = await loadCharacter(supabase, characterId);
-  const ship = await loadShip(supabase, character.current_ship_id);
+  const [ship, knowledge] = await Promise.all([
+    loadShip(supabase, character.current_ship_id),
+    loadMapKnowledgeParallel(supabase, characterId, character.corporation_id),
+  ]);
 
   await ensureActorAuthorization({
     supabase,
@@ -207,7 +210,6 @@ async function handlePathWithRegion(
     toSector,
   });
 
-  const knowledge = await loadMapKnowledge(supabase, characterId);
   const regionPayload = await buildPathRegionPayload(supabase, {
     characterId,
     knowledge,

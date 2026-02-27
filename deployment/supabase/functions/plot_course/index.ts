@@ -17,7 +17,7 @@ import {
   findShortestPath,
   PathNotFoundError,
   fetchSectorRow,
-  loadMapKnowledge,
+  loadMapKnowledgeParallel,
 } from "../_shared/map.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
@@ -178,7 +178,7 @@ async function handlePlotCourse(
   toSector = Math.floor(toSector);
 
   if (!adminOverride && fromSector !== ship.current_sector) {
-    const knowledge = await loadMapKnowledge(supabase, characterId);
+    const knowledge = await loadMapKnowledgeParallel(supabase, characterId, character.corporation_id);
     const isDiscovered = Boolean(knowledge.sectors_visited[String(fromSector)]);
     if (!isDiscovered) {
       throw new PlotCourseError(

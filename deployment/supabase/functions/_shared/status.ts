@@ -3,8 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildSectorSnapshot,
   MapKnowledge,
-  normalizeMapKnowledge,
-  loadMapKnowledge,
+  loadMapKnowledgeParallel,
 } from "./map.ts";
 
 export interface CharacterRow {
@@ -290,7 +289,7 @@ export function buildPublicPlayerSnapshotFromStatus(
   };
 }
 
-function buildShipSnapshot(
+export function buildShipSnapshot(
   ship: ShipRow,
   definition: ShipDefinitionRow,
 ): Record<string, unknown> {
@@ -324,12 +323,25 @@ export async function buildStatusPayload(
   supabase: SupabaseClient,
   characterId: string,
 ): Promise<Record<string, unknown>> {
+  // Phase 1: load character (needed for ship_id, corporation_id)
   const character = await loadCharacter(supabase, characterId);
-  const ship = await loadShip(supabase, character.current_ship_id);
-  const definition = await loadShipDefinition(supabase, ship.ship_type);
-  // Load merged knowledge (with source field set on each entry)
-  const knowledge = await loadMapKnowledge(supabase, characterId);
-  const universeSize = await loadUniverseSize(supabase);
+
+  // Phase 2: parallelize 4 independent loads
+  const [ship, knowledge, universeSize, corpSummary] = await Promise.all([
+    loadShip(supabase, character.current_ship_id),
+    loadMapKnowledgeParallel(supabase, characterId, character.corporation_id),
+    loadUniverseSize(supabase),
+    character.corporation_id
+      ? loadCorporationSummary(supabase, character.corporation_id)
+      : Promise.resolve(null),
+  ]);
+
+  // Phase 3: loads that depend on ship (parallelize definition + sector)
+  const [definition, sectorSnapshot] = await Promise.all([
+    loadShipDefinition(supabase, ship.ship_type),
+    buildSectorSnapshot(supabase, ship.current_sector ?? 0, characterId),
+  ]);
+
   const playerType = resolvePlayerType(character.player_metadata);
   const player = buildPlayerSnapshot(
     character,
@@ -338,24 +350,13 @@ export async function buildStatusPayload(
     universeSize,
   );
   const shipSnapshot = buildShipSnapshot(ship, definition);
-  const sectorSnapshot = await buildSectorSnapshot(
-    supabase,
-    ship.current_sector ?? 0,
-    characterId,
-  );
 
   let corporationPayload: Record<string, unknown> | null = null;
-  if (character.corporation_id) {
-    const summary = await loadCorporationSummary(
-      supabase,
-      character.corporation_id,
-    );
-    if (summary) {
-      corporationPayload = {
-        ...summary,
-        joined_at: character.corporation_joined_at,
-      };
-    }
+  if (corpSummary) {
+    corporationPayload = {
+      ...corpSummary,
+      joined_at: character.corporation_joined_at,
+    };
   }
 
   return {
