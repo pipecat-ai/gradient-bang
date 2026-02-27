@@ -9,7 +9,6 @@ import { cn } from "@/utils/tailwind"
 
 import { Button } from "../primitives/Button"
 import { CombatResultsScreen } from "./CombatResultsScreen"
-import { ShipDetails } from "./ShipDetails"
 
 const variants = {
   enter: {
@@ -117,11 +116,6 @@ export const ScreenContainer = () => {
                 exit="exit"
                 className="w-full h-full"
               >
-                {displayedScreen.screen === "ship-details" && (
-                  <ScreenBase>
-                    <ShipDetails ship={displayedScreen.data as ShipDefinition} />
-                  </ScreenBase>
-                )}
                 {displayedScreen.screen === "combat-results" && (
                   <ScreenBase>
                     <CombatResultsScreen

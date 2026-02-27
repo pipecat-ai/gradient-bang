@@ -19,7 +19,7 @@ import { Button } from "../primitives/Button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../primitives/ToolTip"
 
 export const ShipCatalogue = () => {
-  const setActiveScreen = useGameStore.use.setActiveScreen?.()
+  const setActiveModal = useGameStore.use.setActiveModal()
   const shipDefinitions = useGameStore.use.shipDefinitions()
   const dispatchAction = useGameStore.use.dispatchAction()
 
@@ -117,7 +117,7 @@ export const ShipCatalogue = () => {
               size="sm"
               variant="ghost"
               className="bg-accent-background/50 text-foreground hover:bg-accent-background"
-              onClick={() => setActiveScreen("ship-details", { ...ship })}
+              onClick={() => setActiveModal("ship_details", { ...ship })}
             >
               View
             </Button>

@@ -47,6 +47,8 @@ export interface BaseDialogProps {
   contentClassName?: string
   noPadding?: boolean
   playOpenSound?: boolean
+  useDiamondFX?: boolean
+  diamondRef?: React.RefObject<HTMLElement | null>
   dismissOnClickOutside?: boolean
   onClose?: () => void
   onOpenAutoFocus?: (e: Event) => void
@@ -62,6 +64,8 @@ export const BaseDialog = ({
   contentClassName,
   noPadding = false,
   playOpenSound = true,
+  useDiamondFX = false,
+  diamondRef,
   dismissOnClickOutside = true,
   onClose,
   onOpenAutoFocus,
@@ -69,10 +73,12 @@ export const BaseDialog = ({
 }: BaseDialogProps) => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
+  const diamondFXInstance = useGameStore.use.diamondFXInstance?.()
   const playSound = useAudioStore.use.playSound()
   const wasOpenRef = useRef(false)
 
-  const isOpen = activeModal === modalName
+  const isOpen = activeModal?.modal === modalName
+  const dialogId = `dialog-${modalName}`
 
   // Play sound when modal opens
   useEffect(() => {
@@ -82,7 +88,19 @@ export const BaseDialog = ({
     wasOpenRef.current = isOpen
   }, [isOpen, playOpenSound, playSound])
 
+  // Fire diamond FX on open
+  useEffect(() => {
+    if (!isOpen || !useDiamondFX) return
+    const el = diamondRef?.current
+    if (el && !el.id) el.id = dialogId
+    const targetId = el?.id ?? dialogId
+    diamondFXInstance?.start(targetId, false, true, { half: true })
+  }, [isOpen, useDiamondFX, diamondFXInstance, diamondRef, dialogId])
+
   const handleClose = () => {
+    if (useDiamondFX) {
+      diamondFXInstance?.clear()
+    }
     onClose?.()
     setActiveModal(undefined)
   }
@@ -129,7 +147,7 @@ export const BaseDialog = ({
                 onOpenAutoFocus={onOpenAutoFocus}
                 onCloseAutoFocus={onCloseAutoFocus}
               >
-                <motion.div {...CONTENT_ANIMATION}>
+                <motion.div id={!diamondRef ? dialogId : undefined} {...CONTENT_ANIMATION}>
                   <Dialog.Title className="sr-only">{title}</Dialog.Title>
                   {children}
                 </motion.div>

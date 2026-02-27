@@ -3,6 +3,7 @@ import { Leaderboard } from "./Leaderboard"
 import { QuestCodec } from "./QuestCodec"
 import { QuestList } from "./QuestList"
 import { Settings } from "./Settings"
+import { ShipDetails } from "./ShipDetails"
 
 export const GameDialogs = () => (
   <>
@@ -11,5 +12,6 @@ export const GameDialogs = () => (
     <Disconnect />
     <QuestCodec />
     <QuestList />
+    <ShipDetails />
   </>
 )
