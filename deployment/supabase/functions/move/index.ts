@@ -48,8 +48,9 @@ import {
   pgStartHyperspace,
   pgFinishHyperspace,
   pgUpdateCharacterLastActive,
+  pgFinishHyperspaceAndUpdateActive,
   pgBuildStatusPayload,
-  pgLoadMapKnowledge,
+  pgLoadMapKnowledgeComponents,
   pgMarkSectorVisited,
   pgBuildLocalMapRegion,
   pgEmitCharacterEvent,
@@ -60,6 +61,7 @@ import {
   MoveError,
   type ObserverMetadata,
 } from "../_shared/pg_queries.ts";
+import { buildPostMoveShip } from "./move_helpers.ts";
 
 const BASE_MOVE_DELAY = Number(
   Deno.env.get("MOVE_DELAY_SECONDS_PER_TURN") ?? 2 / 3,
@@ -455,6 +457,7 @@ async function handleMove({
       characterId,
       shipId: ship.ship_id,
       destination,
+      warpCost,
       requestId,
       taskId,
       source,
@@ -598,6 +601,7 @@ async function completeMovement({
   characterId,
   shipId,
   destination,
+  warpCost,
   requestId,
   taskId,
   source,
@@ -615,6 +619,7 @@ async function completeMovement({
   characterId: string;
   shipId: string;
   destination: number;
+  warpCost: number;
   requestId: string;
   taskId: string | null;
   source: ReturnType<typeof buildEventSource>;
@@ -646,36 +651,47 @@ async function completeMovement({
     await connectWithCleanup(pg);
     mark("pg_reconnect");
 
-    await pgFinishHyperspace(pg, { shipId, destination });
-    mark("finish_hyperspace");
+    await pgFinishHyperspaceAndUpdateActive(pg, {
+      shipId,
+      destination,
+      characterId,
+    });
+    mark("finish_hyperspace_and_update_active");
 
-    await pgUpdateCharacterLastActive(pg, characterId);
-    mark("update_character_last_active");
+    // Build updated ship state in memory — all changes are known (sector, warp, hyperspace cleared)
+    const updatedShip = buildPostMoveShip(ship, destination, warpCost);
 
-    // Re-load ship to get updated warp_power after move, but reuse character and definition
-    const updatedShip = await pgLoadShip(pg, shipId);
-    // Update ship's current_sector to destination for status payload
-    updatedShip.current_sector = destination;
+    // Load map knowledge ONCE — personal, corp, and merged
+    const knowledgeComponents = await pgLoadMapKnowledgeComponents(
+      pg,
+      characterId,
+    );
+    mark("load_map_knowledge");
 
     const statusPayload = await pgBuildStatusPayload(pg, characterId, {
       character,
       ship: updatedShip,
       shipDefinition,
       sectorSnapshot: destinationSnapshot,
+      mapKnowledge: knowledgeComponents.merged,
     });
     mark("build_status_complete");
 
     // Mark sector visited (updates personal or corp knowledge depending on player type)
-    const { firstPersonalVisit, knownToCorp } = await pgMarkSectorVisited(pg, {
-      characterId,
-      sectorId: destination,
-      sectorSnapshot: destinationSnapshot,
-    });
+    // Returns merged knowledge so we don't need a separate pgLoadMapKnowledge call
+    const { firstPersonalVisit, knownToCorp, knowledge: mergedKnowledge } =
+      await pgMarkSectorVisited(pg, {
+        characterId,
+        sectorId: destination,
+        sectorSnapshot: destinationSnapshot,
+        playerMetadata: character.player_metadata,
+        corporationId: character.corporation_id,
+        knowledgeComponents: {
+          personal: knowledgeComponents.personal,
+          corp: knowledgeComponents.corp,
+        },
+      });
     mark("mark_sector_visited");
-
-    // Load merged knowledge for local map (personal + corp)
-    const mergedKnowledge = await pgLoadMapKnowledge(pg, characterId);
-    mark("load_map_knowledge");
 
     const sectorPayload = statusPayload.sector as Record<string, unknown>;
     const portPayload = sectorPayload?.port as Record<string, unknown> | null;
@@ -713,24 +729,24 @@ async function completeMovement({
     (mapRegion as Record<string, unknown>)["source"] = source;
 
     if (firstPersonalVisit && !knownToCorp) {
-      const mapUpdateRegion = await pgBuildLocalMapRegion(pg, {
-        characterId,
-        centerSector: destination,
-        mapKnowledge: mergedKnowledge,
-        maxHops: 1,
-        maxSectors: MAX_LOCAL_MAP_NODES,
-      });
+      // Filter the full map region to 1-hop sectors instead of a second DB call
+      const fullSectors = (mapRegion as Record<string, unknown>)
+        .sectors as Array<{ hops_from_center: number; visited: boolean }>;
+      const nearSectors = fullSectors.filter(
+        (s) => s.hops_from_center >= 0 && s.hops_from_center <= 1,
+      );
+      const nearVisited = nearSectors.filter((s) => s.visited).length;
       mark("build_map_update_region");
 
       const mapUpdateRecipients = corpId
         ? await pgComputeCorpMemberRecipients(pg, [corpId], [characterId])
         : [];
       const mapUpdatePayload: Record<string, unknown> = {
-        center_sector: mapUpdateRegion.center_sector,
-        sectors: mapUpdateRegion.sectors,
-        total_sectors: mapUpdateRegion.total_sectors,
-        total_visited: mapUpdateRegion.total_visited,
-        total_unvisited: mapUpdateRegion.total_unvisited,
+        center_sector: destination,
+        sectors: nearSectors,
+        total_sectors: nearSectors.length,
+        total_visited: nearVisited,
+        total_unvisited: nearSectors.length - nearVisited,
         source,
       };
       await pgEmitCharacterEvent({
@@ -783,6 +799,11 @@ async function completeMovement({
         characterId,
         sectorId: destination,
         requestId,
+        character: {
+          current_ship_id: shipId,
+          corporation_id: character.corporation_id,
+        },
+        ship: updatedShip,
       });
       if (needsCombat) {
         // Combat initiation needed - use REST version for full combat setup

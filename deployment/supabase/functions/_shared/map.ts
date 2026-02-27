@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolvePlayerType } from "./status.ts";
 import { isMegaPortSector, loadUniverseMeta } from "./fedspace.ts";
 import { buildPortData, getPortPrices, getPortStock } from "./trading.ts";
+import { runBFS, findDisconnectedSectors } from "./local_map_bfs.ts";
 
 function formatShipDisplayName(shipType: string): string {
   if (!shipType) {
@@ -893,8 +894,8 @@ async function loadPortCodes(
   }
   const uniqueIds = Array.from(new Set(sectorIds));
   const { data, error } = await supabase
-    .from("sector_contents")
-    .select("sector_id, ports!inner(port_code)")
+    .from("ports")
+    .select("sector_id, port_code")
     .in("sector_id", uniqueIds);
   if (error) {
     throw new Error(`failed to load port codes: ${error.message}`);
@@ -902,25 +903,8 @@ async function loadPortCodes(
 
   const result: Record<number, string> = {};
   for (const row of data ?? []) {
-    const sectorIdValue = row.sector_id;
-    const sectorId =
-      typeof sectorIdValue === "number"
-        ? sectorIdValue
-        : typeof sectorIdValue === "string"
-          ? Number(sectorIdValue)
-          : null;
-    if (sectorId === null || !Number.isFinite(sectorId)) {
-      continue;
-    }
-
-    const portsValue = (row as { ports?: unknown }).ports;
-    const portRow = Array.isArray(portsValue) ? portsValue[0] : portsValue;
-    const portCode =
-      portRow && typeof (portRow as { port_code?: unknown }).port_code === "string"
-        ? (portRow as { port_code: string }).port_code
-        : null;
-    if (portCode) {
-      result[sectorId] = portCode;
+    if (typeof row.sector_id === "number" && typeof row.port_code === "string") {
+      result[row.sector_id] = row.port_code;
     }
   }
 
@@ -1180,239 +1164,70 @@ export async function buildLocalMapRegion(
     knowledge = normalizeMapKnowledge(data?.map_knowledge ?? null);
   }
 
+  // Phase 1: Synchronous BFS using knowledge adjacency data (0 queries)
+  const bfs = runBFS(centerSector, maxHops, maxSectors, knowledge);
+  const { distanceMap, unvisitedFrontier, unvisitedSeenFrom } = bfs;
+
   const visitedSet = new Set<number>(
     Object.keys(knowledge.sectors_visited).map((key) => Number(key)),
   );
+  visitedSet.add(centerSector);
 
-  if (!visitedSet.has(centerSector)) {
-    visitedSet.add(centerSector);
-  }
-
-  const distanceMap = new Map<number, number>([[centerSector, 0]]);
-  const explored = new Set<number>([centerSector]);
-  const unvisitedSeen = new Map<number, Set<number>>();
-  const adjacencyCache = new Map<number, number[]>();
-  const universeAdjacencyCache = new Map<number, number[]>();
-  const universeRowCache = new Map<
-    number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
-  >();
-
-  const hydrateUniverseRows = async (sectorIds: number[]): Promise<void> => {
-    const missing = sectorIds.filter((id) => !universeRowCache.has(id));
-    if (missing.length === 0) {
-      return;
-    }
-    const rows = await fetchUniverseRows(supabase, missing);
-    for (const [id, row] of rows) {
-      universeRowCache.set(id, row);
-    }
-  };
-
-  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (adjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
-      if (knowledgeEntry?.adjacent_sectors) {
-        adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
-        continue;
-      }
-      toFetch.push(sectorId);
-    }
-    if (toFetch.length === 0) {
-      return;
-    }
-    await hydrateUniverseRows(toFetch);
-    for (const sectorId of toFetch) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      adjacencyCache.set(sectorId, neighbors);
-      universeAdjacencyCache.set(sectorId, neighbors);
-    }
-  };
-
-  const ensureUniverseAdjacency = async (
-    sectorIds: number[],
-  ): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (universeAdjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const row = universeRowCache.get(sectorId);
-      if (row) {
-        universeAdjacencyCache.set(
-          sectorId,
-          row.warps.map((edge) => edge.to),
-        );
-      } else {
-        toFetch.push(sectorId);
-      }
-    }
-    if (toFetch.length === 0) {
-      return;
-    }
-    await hydrateUniverseRows(toFetch);
-    for (const sectorId of toFetch) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      universeAdjacencyCache.set(sectorId, neighbors);
-    }
-  };
-
-  let frontier: number[] = [centerSector];
-  let hops = 0;
-  let capacityReached = false;
-  while (
-    frontier.length > 0 &&
-    hops < maxHops &&
-    distanceMap.size < maxSectors &&
-    !capacityReached
-  ) {
-    await ensureAdjacency(frontier);
-    const next: number[] = [];
-    for (const sectorId of frontier) {
-      const neighbors = adjacencyCache.get(sectorId) ?? [];
+  // Phase 2: Handle missing adjacency (rare — fetch + re-expand)
+  if (bfs.missingAdjacency.length > 0) {
+    const rows = await fetchUniverseRows(supabase, bfs.missingAdjacency);
+    for (const sectorId of bfs.missingAdjacency) {
+      const row = rows.get(sectorId);
+      if (!row) continue;
+      const neighbors = row.warps.map((e) => e.to);
       for (const neighbor of neighbors) {
         if (!distanceMap.has(neighbor)) {
-          distanceMap.set(neighbor, hops + 1);
+          distanceMap.set(neighbor, (distanceMap.get(sectorId) ?? 0) + 1);
         }
-        // Only traverse through visited sectors; unvisited are added for fog-of-war only.
-        if (!explored.has(neighbor)) {
-          explored.add(neighbor);
-          if (visitedSet.has(neighbor)) {
-            next.push(neighbor);
-          }
-        }
-        // Track unvisited neighbors for fog-of-war rendering
         if (!visitedSet.has(neighbor)) {
-          if (!unvisitedSeen.has(neighbor)) {
-            unvisitedSeen.set(neighbor, new Set());
+          unvisitedFrontier.add(neighbor);
+          let seenFrom = unvisitedSeenFrom.get(neighbor);
+          if (!seenFrom) {
+            seenFrom = new Set();
+            unvisitedSeenFrom.set(neighbor, seenFrom);
           }
-          unvisitedSeen.get(neighbor)!.add(sectorId);
-        }
-        if (distanceMap.size >= maxSectors) {
-          capacityReached = true;
-          break;
-        }
-      }
-      if (capacityReached) {
-        break;
-      }
-    }
-    frontier = next;
-    hops += 1;
-  }
-
-  // Calculate bounding box from BFS results to find disconnected visited sectors
-  let minX = Infinity,
-    maxX = -Infinity,
-    minY = Infinity,
-    maxY = -Infinity;
-  const bfsVisitedSectorIds: number[] = [];
-  for (const [sectorId] of distanceMap) {
-    if (visitedSet.has(sectorId)) {
-      bfsVisitedSectorIds.push(sectorId);
-      const entry = knowledge.sectors_visited[String(sectorId)];
-      if (entry?.position) {
-        minX = Math.min(minX, entry.position[0]);
-        maxX = Math.max(maxX, entry.position[0]);
-        minY = Math.min(minY, entry.position[1]);
-        maxY = Math.max(maxY, entry.position[1]);
-      }
-    }
-  }
-
-  // Find visited sectors within the bounding box that weren't found by BFS
-  const disconnectedSectors: number[] = [];
-  if (minX !== Infinity) {
-    for (const [sectorIdStr, entry] of Object.entries(
-      knowledge.sectors_visited,
-    )) {
-      const sectorId = Number(sectorIdStr);
-      if (distanceMap.has(sectorId)) continue; // Already found by BFS
-      const pos = entry.position;
-      if (
-        pos &&
-        pos[0] >= minX &&
-        pos[0] <= maxX &&
-        pos[1] >= minY &&
-        pos[1] <= maxY
-      ) {
-        disconnectedSectors.push(sectorId);
-      }
-    }
-  }
-
-  // Calculate hop distances for disconnected sectors with a single BFS
-  const disconnectedDistances = new Map<number, number>();
-  if (disconnectedSectors.length > 0) {
-    const targetSet = new Set(disconnectedSectors);
-    const seen = new Set<number>([centerSector]);
-    let bfsFrontier: number[] = [centerSector];
-    let bfsHops = 0;
-    while (
-      bfsFrontier.length > 0 &&
-      disconnectedDistances.size < targetSet.size
-    ) {
-      await ensureUniverseAdjacency(bfsFrontier);
-      const next: number[] = [];
-      for (const sectorId of bfsFrontier) {
-        const neighbors = universeAdjacencyCache.get(sectorId) ?? [];
-        for (const neighbor of neighbors) {
-          if (seen.has(neighbor)) {
-            continue;
-          }
-          seen.add(neighbor);
-          if (targetSet.has(neighbor)) {
-            disconnectedDistances.set(neighbor, bfsHops + 1);
-          }
-          next.push(neighbor);
+          seenFrom.add(sectorId);
         }
       }
-      bfsFrontier = next;
-      bfsHops += 1;
-    }
-    for (const sectorId of targetSet) {
-      if (!disconnectedDistances.has(sectorId)) {
-        // Unreachable (shouldn't happen in connected universe, but handle gracefully)
-        disconnectedDistances.set(sectorId, -1);
-      }
     }
   }
 
+  // Phase 3: Find disconnected sectors (0 queries — knowledge positions only)
+  const disconnectedSectors = findDisconnectedSectors(distanceMap, knowledge);
+  const disconnectedSet = new Set(disconnectedSectors);
+
+  // Discover unvisited neighbors of disconnected sectors from knowledge
   const disconnectedUnvisitedNeighbors = new Set<number>();
-  if (disconnectedSectors.length > 0) {
-    await hydrateUniverseRows(disconnectedSectors);
-    for (const sectorId of disconnectedSectors) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      for (const neighbor of neighbors) {
-        if (visitedSet.has(neighbor)) {
-          continue;
-        }
-        let seenFrom = unvisitedSeen.get(neighbor);
-        if (!seenFrom) {
-          seenFrom = new Set();
-          unvisitedSeen.set(neighbor, seenFrom);
-        }
-        seenFrom.add(sectorId);
-        if (!distanceMap.has(neighbor)) {
-          disconnectedUnvisitedNeighbors.add(neighbor);
-        }
+  for (const sectorId of disconnectedSectors) {
+    const entry = knowledge.sectors_visited[String(sectorId)];
+    const neighbors = entry?.adjacent_sectors ?? [];
+    for (const neighbor of neighbors) {
+      if (visitedSet.has(neighbor)) continue;
+      disconnectedUnvisitedNeighbors.add(neighbor);
+      unvisitedFrontier.add(neighbor);
+      let seenFrom = unvisitedSeenFrom.get(neighbor);
+      if (!seenFrom) {
+        seenFrom = new Set();
+        unvisitedSeenFrom.set(neighbor, seenFrom);
       }
+      seenFrom.add(sectorId);
     }
   }
 
-  // Combine all sector IDs
-  const sectorIds = Array.from(distanceMap.keys())
-    .concat(disconnectedSectors)
-    .concat(Array.from(disconnectedUnvisitedNeighbors));
-  const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
-  await hydrateUniverseRows(sectorIds);
+  // Phase 4: Batch-fetch all needed data in parallel (1 round trip)
+  const allSectorIds = [
+    ...distanceMap.keys(),
+    ...disconnectedSectors,
+    ...disconnectedUnvisitedNeighbors,
+  ];
+  const visitedSectorIds = allSectorIds.filter((id) => visitedSet.has(id));
+
+  // Check which data we need
   let needsPortCodes = false;
   let needsUniverseMeta = false;
   for (const sectorId of visitedSectorIds) {
@@ -1432,22 +1247,38 @@ export async function buildLocalMapRegion(
     }
   }
 
-  const [portCodes, universeMeta, garrisonsBySector] = await Promise.all([
-    needsPortCodes ? loadPortCodes(supabase, visitedSectorIds) : Promise.resolve({}),
-    needsUniverseMeta ? loadUniverseMeta(supabase) : Promise.resolve(null),
-    loadSectorGarrisons(supabase, visitedSectorIds),
-  ]);
+  const [universeRowMap, portCodes, universeMeta, garrisonsBySector] =
+    await Promise.all([
+      fetchUniverseRows(supabase, allSectorIds),
+      needsPortCodes
+        ? loadPortCodes(supabase, visitedSectorIds)
+        : Promise.resolve({}),
+      needsUniverseMeta ? loadUniverseMeta(supabase) : Promise.resolve(null),
+      loadSectorGarrisons(supabase, visitedSectorIds),
+    ]);
 
+  // Build adjacency lookup from knowledge + universe data
+  const adjacencyCache = new Map<number, number[]>();
+  for (const sectorId of allSectorIds) {
+    const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+    if (knowledgeEntry?.adjacent_sectors) {
+      adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
+    } else {
+      const row = universeRowMap.get(sectorId);
+      adjacencyCache.set(sectorId, row?.warps.map((e) => e.to) ?? []);
+    }
+  }
+
+  // Phase 5: Build output (0 queries)
   const resultSectors: LocalMapSector[] = [];
-  const disconnectedSet = new Set(disconnectedSectors);
-  for (const sectorId of sectorIds.sort((a, b) => a - b)) {
+  for (const sectorId of allSectorIds.sort((a, b) => a - b)) {
     const isDisconnected = disconnectedSet.has(sectorId);
     const hops = isDisconnected
-      ? (disconnectedDistances.get(sectorId) ?? -1)
+      ? -1
       : disconnectedUnvisitedNeighbors.has(sectorId)
         ? -1
         : (distanceMap.get(sectorId) ?? 0);
-    const universeRow = universeRowCache.get(sectorId);
+    const universeRow = universeRowMap.get(sectorId);
     const position = universeRow?.position ?? [0, 0];
     const warps = universeRow?.warps ?? [];
 
@@ -1465,11 +1296,7 @@ export async function buildLocalMapRegion(
           ? isMegaPortSector(universeMeta, sectorId)
           : undefined
         : undefined;
-      const portPayload = buildLocalMapPort(
-        portValue,
-        fallbackCode,
-        mega,
-      );
+      const portPayload = buildLocalMapPort(portValue, fallbackCode, mega);
       resultSectors.push({
         id: sectorId,
         visited: true,
@@ -1484,10 +1311,10 @@ export async function buildLocalMapRegion(
         garrison: garrisonsBySector[sectorId] ?? null,
       });
     } else {
-      const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
+      const seenFrom = Array.from(unvisitedSeenFrom.get(sectorId) ?? []);
       const derivedLanes: WarpEdge[] = [];
       for (const source of seenFrom) {
-        const sourceRow = universeRowCache.get(source);
+        const sourceRow = universeRowMap.get(source);
         const match = sourceRow?.warps.find((warp) => warp.to === sectorId);
         if (match) {
           derivedLanes.push({

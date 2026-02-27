@@ -19,6 +19,7 @@ import {
 } from "./map.ts";
 import { resolvePlayerType } from "./status.ts";
 import { ActorAuthorizationError } from "./actors.ts";
+import { runBFS, findDisconnectedSectors } from "./local_map_bfs.ts";
 import { getPortPrices, getPortStock, type PortData } from "./trading.ts";
 import { injectCharacterEventIdentity } from "./event_identity.ts";
 
@@ -519,6 +520,37 @@ export async function pgFinishHyperspace(
   }
 }
 
+/**
+ * Combined finish hyperspace + update last active in a single round trip.
+ * Used by completeMovement to save 1 query.
+ */
+export async function pgFinishHyperspaceAndUpdateActive(
+  pg: Client,
+  params: {
+    shipId: string;
+    destination: number;
+    characterId: string;
+  },
+): Promise<void> {
+  const { shipId, destination, characterId } = params;
+
+  const result = await pg.queryObject(
+    `WITH finish AS (
+      UPDATE ship_instances
+      SET current_sector = $1, in_hyperspace = false,
+          hyperspace_destination = NULL, hyperspace_eta = NULL
+      WHERE ship_id = $2
+    )
+    UPDATE characters SET last_active = NOW() WHERE character_id = $3`,
+    [destination, shipId, characterId],
+  );
+
+  // The CTE rowCount reflects the outer UPDATE; check it ran
+  if (result.rowCount === 0) {
+    throw new MoveError("failed to complete movement (character update)", 500);
+  }
+}
+
 // ============================================================================
 // Character Updates
 // ============================================================================
@@ -552,10 +584,20 @@ function setPlayerSource(knowledge: MapKnowledge): MapKnowledge {
   return result;
 }
 
-export async function pgLoadMapKnowledge(
+export interface MapKnowledgeComponents {
+  personal: MapKnowledge;
+  corp: MapKnowledge | null;
+  merged: MapKnowledge;
+}
+
+/**
+ * Load personal and corp map knowledge, returning both separately and merged.
+ * Use this when you need the individual components (e.g., to pass to pgMarkSectorVisited).
+ */
+export async function pgLoadMapKnowledgeComponents(
   pg: Client,
   characterId: string,
-): Promise<MapKnowledge> {
+): Promise<MapKnowledgeComponents> {
   const result = await pg.queryObject<{
     map_knowledge: unknown;
     corporation_id: string | null;
@@ -577,8 +619,18 @@ export async function pgLoadMapKnowledge(
     ? normalizeMapKnowledge(row.corp_map_knowledge)
     : null;
 
-  // Merge with source field, or set source='player' if no corp
-  return corp ? mergeMapKnowledge(personal, corp) : setPlayerSource(personal);
+  const merged = corp
+    ? mergeMapKnowledge(personal, corp)
+    : setPlayerSource(personal);
+  return { personal, corp, merged };
+}
+
+export async function pgLoadMapKnowledge(
+  pg: Client,
+  characterId: string,
+): Promise<MapKnowledge> {
+  const { merged } = await pgLoadMapKnowledgeComponents(pg, characterId);
+  return merged;
 }
 
 export async function pgUpdateMapKnowledge(
@@ -1248,6 +1300,7 @@ export interface PgBuildStatusPayloadOptions {
   ship?: ShipRow;
   shipDefinition?: ShipDefinitionRow;
   sectorSnapshot?: SectorSnapshot;
+  mapKnowledge?: MapKnowledge;
 }
 
 export async function pgBuildStatusPayload(
@@ -1263,7 +1316,8 @@ export async function pgBuildStatusPayload(
   const definition =
     options?.shipDefinition ?? (await pgLoadShipDefinition(pg, ship.ship_type));
   // Load merged knowledge (with source field set on each entry)
-  const knowledge = await pgLoadMapKnowledge(pg, characterId);
+  const knowledge =
+    options?.mapKnowledge ?? (await pgLoadMapKnowledge(pg, characterId));
   const universeSize = await pgLoadUniverseSize(pg);
   const playerType = resolvePlayerType(character.player_metadata);
   const player = buildPlayerSnapshot(
@@ -1366,10 +1420,9 @@ async function pgLoadPortCodes(
   }
   const uniqueIds = Array.from(new Set(sectorIds));
   const result = await pg.queryObject<{ sector_id: number; port_code: string }>(
-    `SELECT sc.sector_id::int, p.port_code
-    FROM sector_contents sc
-    JOIN ports p ON p.port_id = sc.port_id
-    WHERE sc.sector_id = ANY($1::int[])`,
+    `SELECT sector_id::int, port_code
+    FROM ports
+    WHERE sector_id = ANY($1::int[])`,
     [uniqueIds],
   );
 
@@ -1514,237 +1567,70 @@ export async function pgBuildLocalMapRegion(
     knowledge = await pgLoadMapKnowledge(pg, characterId);
   }
 
+  // Phase 1: Synchronous BFS using knowledge adjacency data (0 queries)
+  const bfs = runBFS(centerSector, maxHops, maxSectors, knowledge);
+  const { distanceMap, unvisitedFrontier, unvisitedSeenFrom } = bfs;
+
   const visitedSet = new Set<number>(
     Object.keys(knowledge.sectors_visited).map((key) => Number(key)),
   );
+  visitedSet.add(centerSector);
 
-  if (!visitedSet.has(centerSector)) {
-    visitedSet.add(centerSector);
-  }
-
-  const distanceMap = new Map<number, number>([[centerSector, 0]]);
-  const explored = new Set<number>([centerSector]);
-  const unvisitedSeen = new Map<number, Set<number>>();
-  const adjacencyCache = new Map<number, number[]>();
-  const universeAdjacencyCache = new Map<number, number[]>();
-  const universeRowCache = new Map<
-    number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
-  >();
-
-  const hydrateUniverseRows = async (sectorIds: number[]): Promise<void> => {
-    const missing = sectorIds.filter((id) => !universeRowCache.has(id));
-    if (missing.length === 0) {
-      return;
-    }
-    const rows = await pgFetchUniverseRows(pg, missing);
-    for (const [id, row] of rows) {
-      universeRowCache.set(id, row);
-    }
-  };
-
-  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (adjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
-      if (knowledgeEntry?.adjacent_sectors) {
-        adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
-        continue;
-      }
-      toFetch.push(sectorId);
-    }
-    if (toFetch.length === 0) {
-      return;
-    }
-    await hydrateUniverseRows(toFetch);
-    for (const sectorId of toFetch) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      adjacencyCache.set(sectorId, neighbors);
-      universeAdjacencyCache.set(sectorId, neighbors);
-    }
-  };
-
-  const ensureUniverseAdjacency = async (
-    sectorIds: number[],
-  ): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (universeAdjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const row = universeRowCache.get(sectorId);
-      if (row) {
-        universeAdjacencyCache.set(
-          sectorId,
-          row.warps.map((edge) => edge.to),
-        );
-      } else {
-        toFetch.push(sectorId);
-      }
-    }
-    if (toFetch.length === 0) {
-      return;
-    }
-    await hydrateUniverseRows(toFetch);
-    for (const sectorId of toFetch) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      universeAdjacencyCache.set(sectorId, neighbors);
-    }
-  };
-
-  let frontier: number[] = [centerSector];
-  let hops = 0;
-  let capacityReached = false;
-  while (
-    frontier.length > 0 &&
-    hops < maxHops &&
-    distanceMap.size < maxSectors &&
-    !capacityReached
-  ) {
-    await ensureAdjacency(frontier);
-    const next: number[] = [];
-    for (const sectorId of frontier) {
-      const neighbors = adjacencyCache.get(sectorId) ?? [];
+  // Phase 2: Handle missing adjacency (rare — fetch + re-expand)
+  if (bfs.missingAdjacency.length > 0) {
+    const rows = await pgFetchUniverseRows(pg, bfs.missingAdjacency);
+    for (const sectorId of bfs.missingAdjacency) {
+      const row = rows.get(sectorId);
+      if (!row) continue;
+      const neighbors = row.warps.map((e) => e.to);
       for (const neighbor of neighbors) {
         if (!distanceMap.has(neighbor)) {
-          distanceMap.set(neighbor, hops + 1);
+          distanceMap.set(neighbor, (distanceMap.get(sectorId) ?? 0) + 1);
         }
-        // Only traverse through visited sectors; unvisited are added for fog-of-war only.
-        if (!explored.has(neighbor)) {
-          explored.add(neighbor);
-          if (visitedSet.has(neighbor)) {
-            next.push(neighbor);
-          }
-        }
-        // Track unvisited neighbors for fog-of-war rendering
         if (!visitedSet.has(neighbor)) {
-          if (!unvisitedSeen.has(neighbor)) {
-            unvisitedSeen.set(neighbor, new Set());
+          unvisitedFrontier.add(neighbor);
+          let seenFrom = unvisitedSeenFrom.get(neighbor);
+          if (!seenFrom) {
+            seenFrom = new Set();
+            unvisitedSeenFrom.set(neighbor, seenFrom);
           }
-          unvisitedSeen.get(neighbor)!.add(sectorId);
-        }
-        if (distanceMap.size >= maxSectors) {
-          capacityReached = true;
-          break;
-        }
-      }
-      if (capacityReached) {
-        break;
-      }
-    }
-    frontier = next;
-    hops += 1;
-  }
-
-  // Calculate bounding box from BFS results to find disconnected visited sectors
-  let minX = Infinity,
-    maxX = -Infinity,
-    minY = Infinity,
-    maxY = -Infinity;
-  for (const [sectorId] of distanceMap) {
-    if (visitedSet.has(sectorId)) {
-      const entry = knowledge.sectors_visited[String(sectorId)];
-      if (entry?.position) {
-        minX = Math.min(minX, entry.position[0]);
-        maxX = Math.max(maxX, entry.position[0]);
-        minY = Math.min(minY, entry.position[1]);
-        maxY = Math.max(maxY, entry.position[1]);
-      }
-    }
-  }
-
-  // Find visited sectors within the bounding box that weren't found by BFS
-  const disconnectedSectors: number[] = [];
-  if (minX !== Infinity) {
-    for (const [sectorIdStr, entry] of Object.entries(
-      knowledge.sectors_visited,
-    )) {
-      const sectorId = Number(sectorIdStr);
-      if (distanceMap.has(sectorId)) continue; // Already found by BFS
-      const pos = entry.position;
-      if (
-        pos &&
-        pos[0] >= minX &&
-        pos[0] <= maxX &&
-        pos[1] >= minY &&
-        pos[1] <= maxY
-      ) {
-        disconnectedSectors.push(sectorId);
-      }
-    }
-  }
-
-  // Calculate hop distances for disconnected sectors with a single BFS
-  const disconnectedDistances = new Map<number, number>();
-  if (disconnectedSectors.length > 0) {
-    const targetSet = new Set(disconnectedSectors);
-    const seen = new Set<number>([centerSector]);
-    let bfsFrontier: number[] = [centerSector];
-    let bfsHops = 0;
-    while (
-      bfsFrontier.length > 0 &&
-      disconnectedDistances.size < targetSet.size
-    ) {
-      await ensureUniverseAdjacency(bfsFrontier);
-      const next: number[] = [];
-      for (const sectorId of bfsFrontier) {
-        const neighbors = universeAdjacencyCache.get(sectorId) ?? [];
-        for (const neighbor of neighbors) {
-          if (seen.has(neighbor)) {
-            continue;
-          }
-          seen.add(neighbor);
-          if (targetSet.has(neighbor)) {
-            disconnectedDistances.set(neighbor, bfsHops + 1);
-          }
-          next.push(neighbor);
+          seenFrom.add(sectorId);
         }
       }
-      bfsFrontier = next;
-      bfsHops += 1;
-    }
-    for (const sectorId of targetSet) {
-      if (!disconnectedDistances.has(sectorId)) {
-        // Unreachable (shouldn't happen in connected universe, but handle gracefully)
-        disconnectedDistances.set(sectorId, -1);
-      }
     }
   }
 
+  // Phase 3: Find disconnected sectors (0 queries — knowledge positions only)
+  const disconnectedSectors = findDisconnectedSectors(distanceMap, knowledge);
+  const disconnectedSet = new Set(disconnectedSectors);
+
+  // Discover unvisited neighbors of disconnected sectors from knowledge
   const disconnectedUnvisitedNeighbors = new Set<number>();
-  if (disconnectedSectors.length > 0) {
-    await hydrateUniverseRows(disconnectedSectors);
-    for (const sectorId of disconnectedSectors) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      for (const neighbor of neighbors) {
-        if (visitedSet.has(neighbor)) {
-          continue;
-        }
-        let seenFrom = unvisitedSeen.get(neighbor);
-        if (!seenFrom) {
-          seenFrom = new Set();
-          unvisitedSeen.set(neighbor, seenFrom);
-        }
-        seenFrom.add(sectorId);
-        if (!distanceMap.has(neighbor)) {
-          disconnectedUnvisitedNeighbors.add(neighbor);
-        }
+  for (const sectorId of disconnectedSectors) {
+    const entry = knowledge.sectors_visited[String(sectorId)];
+    const neighbors = entry?.adjacent_sectors ?? [];
+    for (const neighbor of neighbors) {
+      if (visitedSet.has(neighbor)) continue;
+      disconnectedUnvisitedNeighbors.add(neighbor);
+      unvisitedFrontier.add(neighbor);
+      let seenFrom = unvisitedSeenFrom.get(neighbor);
+      if (!seenFrom) {
+        seenFrom = new Set();
+        unvisitedSeenFrom.set(neighbor, seenFrom);
       }
+      seenFrom.add(sectorId);
     }
   }
 
-  // Combine all sector IDs
-  const sectorIds = Array.from(distanceMap.keys())
-    .concat(disconnectedSectors)
-    .concat(Array.from(disconnectedUnvisitedNeighbors));
-  const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
-  await hydrateUniverseRows(sectorIds);
+  // Phase 4: Batch-fetch all needed data in parallel (1 round trip)
+  const allSectorIds = [
+    ...distanceMap.keys(),
+    ...disconnectedSectors,
+    ...disconnectedUnvisitedNeighbors,
+  ];
+  const visitedSectorIds = allSectorIds.filter((id) => visitedSet.has(id));
+
+  // Check which data we need
   let needsPortCodes = false;
   let needsUniverseMeta = false;
   for (const sectorId of visitedSectorIds) {
@@ -1764,22 +1650,38 @@ export async function pgBuildLocalMapRegion(
     }
   }
 
-  const [portCodes, universeMeta, garrisonsBySector] = await Promise.all([
-    needsPortCodes ? pgLoadPortCodes(pg, visitedSectorIds) : Promise.resolve({}),
-    needsUniverseMeta ? pgLoadUniverseMeta(pg) : Promise.resolve(null),
-    pgLoadSectorGarrisons(pg, visitedSectorIds),
-  ]);
+  const [universeRowMap, portCodes, universeMeta, garrisonsBySector] =
+    await Promise.all([
+      pgFetchUniverseRows(pg, allSectorIds),
+      needsPortCodes
+        ? pgLoadPortCodes(pg, visitedSectorIds)
+        : Promise.resolve({}),
+      needsUniverseMeta ? pgLoadUniverseMeta(pg) : Promise.resolve(null),
+      pgLoadSectorGarrisons(pg, visitedSectorIds),
+    ]);
 
+  // Build adjacency lookup from knowledge + universe data
+  const adjacencyCache = new Map<number, number[]>();
+  for (const sectorId of allSectorIds) {
+    const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+    if (knowledgeEntry?.adjacent_sectors) {
+      adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
+    } else {
+      const row = universeRowMap.get(sectorId);
+      adjacencyCache.set(sectorId, row?.warps.map((e) => e.to) ?? []);
+    }
+  }
+
+  // Phase 5: Build output (0 queries)
   const resultSectors: LocalMapSector[] = [];
-  const disconnectedSet = new Set(disconnectedSectors);
-  for (const sectorId of sectorIds.sort((a, b) => a - b)) {
+  for (const sectorId of allSectorIds.sort((a, b) => a - b)) {
     const isDisconnected = disconnectedSet.has(sectorId);
     const hops = isDisconnected
-      ? (disconnectedDistances.get(sectorId) ?? -1)
+      ? -1
       : disconnectedUnvisitedNeighbors.has(sectorId)
         ? -1
         : (distanceMap.get(sectorId) ?? 0);
-    const universeRow = universeRowCache.get(sectorId);
+    const universeRow = universeRowMap.get(sectorId);
     const position = universeRow?.position ?? [0, 0];
     const warps = universeRow?.warps ?? [];
 
@@ -1797,11 +1699,7 @@ export async function pgBuildLocalMapRegion(
           ? pgIsMegaPortSector(universeMeta, sectorId)
           : undefined
         : undefined;
-      const portPayload = buildLocalMapPort(
-        portValue,
-        fallbackCode,
-        mega,
-      );
+      const portPayload = buildLocalMapPort(portValue, fallbackCode, mega);
       resultSectors.push({
         id: sectorId,
         visited: true,
@@ -1816,10 +1714,10 @@ export async function pgBuildLocalMapRegion(
         garrison: garrisonsBySector[sectorId] ?? null,
       });
     } else {
-      const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
+      const seenFrom = Array.from(unvisitedSeenFrom.get(sectorId) ?? []);
       const derivedLanes: WarpEdge[] = [];
       for (const source of seenFrom) {
-        const sourceRow = universeRowCache.get(source);
+        const sourceRow = universeRowMap.get(source);
         const match = sourceRow?.warps.find((warp) => warp.to === sectorId);
         if (match) {
           derivedLanes.push({
@@ -1902,38 +1800,65 @@ export async function pgMarkSectorVisited(
     characterId: string;
     sectorId: number;
     sectorSnapshot: SectorSnapshot;
+    // Optional pre-loaded data to skip the character query entirely.
+    // When all three are provided, no SELECT is needed — only the UPDATE.
+    playerMetadata?: Record<string, unknown> | null;
+    corporationId?: string | null;
+    knowledgeComponents?: { personal: MapKnowledge; corp: MapKnowledge | null };
   },
 ): Promise<MarkSectorVisitedResult> {
   const { characterId, sectorId, sectorSnapshot } = params;
   const sectorKey = String(sectorId);
   const timestamp = new Date().toISOString();
 
-  // Load character info with player_metadata, corporation_id, and both knowledge sources
-  const charResult = await pg.queryObject<{
-    player_metadata: Record<string, unknown> | null;
-    corporation_id: string | null;
-    map_knowledge: unknown;
-    corp_map_knowledge: unknown | null;
-  }>(
-    `SELECT
-      c.player_metadata,
-      c.corporation_id,
-      c.map_knowledge,
-      cmk.map_knowledge as corp_map_knowledge
-    FROM characters c
-    LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
-    WHERE c.character_id = $1`,
-    [characterId],
-  );
+  let playerMetadata: Record<string, unknown> | null;
+  let corpId: string | null;
+  let personalKnowledge: MapKnowledge;
+  let corpKnowledge: MapKnowledge | null;
 
-  const charRow = charResult.rows[0];
-  if (!charRow) {
-    throw new Error(`character ${characterId} not found`);
+  if (
+    params.playerMetadata !== undefined &&
+    params.corporationId !== undefined &&
+    params.knowledgeComponents !== undefined
+  ) {
+    // All pre-loaded data provided — skip character query
+    playerMetadata = params.playerMetadata;
+    corpId = params.corporationId;
+    personalKnowledge = params.knowledgeComponents.personal;
+    corpKnowledge = params.knowledgeComponents.corp;
+  } else {
+    // Load character info with player_metadata, corporation_id, and both knowledge sources
+    const charResult = await pg.queryObject<{
+      player_metadata: Record<string, unknown> | null;
+      corporation_id: string | null;
+      map_knowledge: unknown;
+      corp_map_knowledge: unknown | null;
+    }>(
+      `SELECT
+        c.player_metadata,
+        c.corporation_id,
+        c.map_knowledge,
+        cmk.map_knowledge as corp_map_knowledge
+      FROM characters c
+      LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
+      WHERE c.character_id = $1`,
+      [characterId],
+    );
+
+    const charRow = charResult.rows[0];
+    if (!charRow) {
+      throw new Error(`character ${characterId} not found`);
+    }
+    playerMetadata = charRow.player_metadata;
+    corpId = charRow.corporation_id;
+    personalKnowledge = normalizeMapKnowledge(charRow.map_knowledge);
+    corpKnowledge = charRow.corp_map_knowledge
+      ? normalizeMapKnowledge(charRow.corp_map_knowledge)
+      : null;
   }
 
-  const playerType = resolvePlayerType(charRow.player_metadata);
+  const playerType = resolvePlayerType(playerMetadata);
   const isCorporationShip = playerType === "corporation_ship";
-  const corpId = charRow.corporation_id;
 
   // Corporation ship: update corp knowledge only
   if (isCorporationShip) {
@@ -1956,18 +1881,19 @@ export async function pgMarkSectorVisited(
       sectorSnapshot,
     });
 
+    // Merge personal + updated corp knowledge for the return value
+    const mergedKnowledge = mergeMapKnowledge(
+      personalKnowledge,
+      result.knowledge,
+    );
     return {
       firstPersonalVisit: result.firstVisit, // First time corp learned this sector
       knownToCorp: false, // N/A for corp ships
-      knowledge: result.knowledge,
+      knowledge: mergedKnowledge,
     };
   }
 
   // Human player: update personal knowledge
-  const personalKnowledge = normalizeMapKnowledge(charRow.map_knowledge);
-  const corpKnowledge = charRow.corp_map_knowledge
-    ? normalizeMapKnowledge(charRow.corp_map_knowledge)
-    : null;
 
   // Check if corp already knew about this sector BEFORE we update personal knowledge
   const knownToCorp = corpKnowledge
@@ -1993,10 +1919,15 @@ export async function pgMarkSectorVisited(
 
   await pgUpdateMapKnowledge(pg, characterId, nextKnowledge);
 
+  // Return merged knowledge (personal + corp) to avoid a separate pgLoadMapKnowledge call
+  const mergedKnowledge = corpKnowledge
+    ? mergeMapKnowledge(nextKnowledge, corpKnowledge)
+    : setPlayerSource(nextKnowledge);
+
   return {
     firstPersonalVisit: !visitedBefore,
     knownToCorp,
-    knowledge: nextKnowledge,
+    knowledge: mergedKnowledge,
   };
 }
 
@@ -2565,6 +2496,10 @@ export interface PgCheckGarrisonAutoEngageOptions {
   characterId: string;
   sectorId: number;
   requestId: string;
+  /** Pre-loaded character — skips character query when provided */
+  character?: { current_ship_id: string; corporation_id: string | null };
+  /** Pre-loaded ship — skips ship hyperspace query when provided */
+  ship?: { in_hyperspace: boolean };
 }
 
 /**
@@ -2578,46 +2513,71 @@ export interface PgCheckGarrisonAutoEngageOptions {
 export async function pgCheckGarrisonAutoEngage(
   options: PgCheckGarrisonAutoEngageOptions,
 ): Promise<boolean> {
-  const { pg, characterId, sectorId } = options;
+  const { pg, characterId, sectorId, character, ship } = options;
   const meta = await pgLoadUniverseMeta(pg);
   if (await pgIsFedspaceSector(pg, sectorId, meta)) {
     return false;
   }
 
-  // Check if character's ship is in hyperspace
-  const charResult = await pg.queryObject<{ current_ship_id: string }>(
-    `SELECT current_ship_id FROM characters WHERE character_id = $1`,
-    [characterId],
-  );
-  const charRow = charResult.rows[0];
-  if (!charRow?.current_ship_id) return false;
-
-  const shipResult = await pg.queryObject<{ in_hyperspace: boolean }>(
-    `SELECT in_hyperspace FROM ship_instances WHERE ship_id = $1`,
-    [charRow.current_ship_id],
-  );
-  if (shipResult.rows[0]?.in_hyperspace) return false;
-
-  // Check if there's existing active combat
-  const combatResult = await pg.queryObject<{ combat: unknown }>(
-    `SELECT combat FROM sector_contents WHERE sector_id = $1`,
-    [sectorId],
-  );
-  const combatRow = combatResult.rows[0];
-  if (combatRow?.combat) {
-    const combat = combatRow.combat as Record<string, unknown>;
-    if (combat && !combat.ended) return false; // Already in combat
+  // Use pre-loaded data when available, otherwise query
+  let currentShipId: string;
+  if (character) {
+    currentShipId = character.current_ship_id;
+  } else {
+    const charResult = await pg.queryObject<{ current_ship_id: string }>(
+      `SELECT current_ship_id FROM characters WHERE character_id = $1`,
+      [characterId],
+    );
+    const charRow = charResult.rows[0];
+    if (!charRow?.current_ship_id) return false;
+    currentShipId = charRow.current_ship_id;
   }
 
-  // Load garrisons with fighters
-  const garrisonResult = await pg.queryObject<GarrisonAutoEngageRow>(
-    `SELECT sector_id::int, owner_id, fighters::int, mode,
-            toll_amount::numeric, toll_balance::numeric, deployed_at
-    FROM garrisons
-    WHERE sector_id = $1 AND fighters > 0`,
+  if (ship) {
+    if (ship.in_hyperspace) return false;
+  } else {
+    const shipResult = await pg.queryObject<{ in_hyperspace: boolean }>(
+      `SELECT in_hyperspace FROM ship_instances WHERE ship_id = $1`,
+      [currentShipId],
+    );
+    if (shipResult.rows[0]?.in_hyperspace) return false;
+  }
+
+  // Fetch combat state and garrisons in a single combined query
+  const combatAndGarrisonResult = await pg.queryObject<
+    GarrisonAutoEngageRow & { combat: unknown }
+  >(
+    `SELECT g.sector_id::int, g.owner_id, g.fighters::int, g.mode,
+            g.toll_amount::numeric, g.toll_balance::numeric, g.deployed_at,
+            sc.combat
+    FROM garrisons g
+    JOIN sector_contents sc ON sc.sector_id = g.sector_id
+    WHERE g.sector_id = $1 AND g.fighters > 0`,
     [sectorId],
   );
-  const garrisons = garrisonResult.rows;
+
+  // Check combat state from first row (same for all rows since it's per-sector)
+  if (combatAndGarrisonResult.rows.length > 0) {
+    const combat = combatAndGarrisonResult.rows[0].combat as Record<
+      string,
+      unknown
+    > | null;
+    if (combat && !combat.ended) return false; // Already in combat
+  } else {
+    // No garrisons with fighters — also need to check combat in case there are 0 garrisons
+    const combatResult = await pg.queryObject<{ combat: unknown }>(
+      `SELECT combat FROM sector_contents WHERE sector_id = $1`,
+      [sectorId],
+    );
+    const combatRow = combatResult.rows[0];
+    if (combatRow?.combat) {
+      const combat = combatRow.combat as Record<string, unknown>;
+      if (combat && !combat.ended) return false;
+    }
+    return false; // No garrisons with fighters
+  }
+
+  const garrisons = combatAndGarrisonResult.rows;
 
   // Check for auto-engaging garrisons (offensive or toll mode)
   const autoEngagingGarrisons = garrisons.filter(
@@ -2625,33 +2585,55 @@ export async function pgCheckGarrisonAutoEngage(
   );
   if (autoEngagingGarrisons.length === 0) return false;
 
-  // Get character's effective corporation (membership first, then ship ownership)
-  const charCorpResult = await pg.queryObject<{ corp_id: string | null }>(
-    `SELECT COALESCE(
-      (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
-      (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $2)
-    ) as corp_id`,
-    [characterId, charRow.current_ship_id],
-  );
-  const charCorpId = charCorpResult.rows[0]?.corp_id ?? null;
+  // Use pre-loaded corporation_id when available, otherwise query
+  let charCorpId: string | null;
+  if (character) {
+    charCorpId = character.corporation_id;
+  } else {
+    const charCorpResult = await pg.queryObject<{ corp_id: string | null }>(
+      `SELECT COALESCE(
+        (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
+        (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $2)
+      ) as corp_id`,
+      [characterId, currentShipId],
+    );
+    charCorpId = charCorpResult.rows[0]?.corp_id ?? null;
+  }
 
-  // Check if any garrison is not owned by same corporation
+  // Collect unique garrison owner IDs (excluding self and empty)
+  const ownerIds = [
+    ...new Set(
+      autoEngagingGarrisons
+        .map((g) => g.owner_id)
+        .filter((id): id is string => !!id && id !== characterId),
+    ),
+  ];
+  if (ownerIds.length === 0) return false;
+
+  // Batch-load all garrison owners' corporations in a single query
+  const ownerCorpResult = await pg.queryObject<{
+    owner_id: string;
+    corp_id: string | null;
+  }>(
+    `SELECT
+      o.id as owner_id,
+      COALESCE(cm.corp_id, si.owner_corporation_id) as corp_id
+    FROM unnest($1::text[]) AS o(id)
+    LEFT JOIN corporation_members cm ON cm.character_id = o.id AND cm.left_at IS NULL
+    LEFT JOIN ship_instances si ON si.ship_id = o.id`,
+    [ownerIds],
+  );
+  const ownerCorpMap = new Map(
+    ownerCorpResult.rows.map((r) => [r.owner_id, r.corp_id]),
+  );
+
+  // Check if any garrison is owned by a different (or no) corporation
   for (const garrison of autoEngagingGarrisons) {
     const ownerId = garrison.owner_id;
     if (!ownerId || ownerId === characterId) continue;
     if (garrison.fighters <= 0) continue;
 
-    // Get garrison owner's effective corporation.
-    // Check corporation_members first (player characters), then fall back to
-    // ship_instances.owner_corporation_id (corp-owned ships where character_id = ship_id).
-    const ownerCorpResult = await pg.queryObject<{ corp_id: string | null }>(
-      `SELECT COALESCE(
-        (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
-        (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $1)
-      ) as corp_id`,
-      [ownerId],
-    );
-    const ownerCorpId = ownerCorpResult.rows[0]?.corp_id ?? null;
+    const ownerCorpId = ownerCorpMap.get(ownerId) ?? null;
 
     // Skip if same corporation
     if (charCorpId && ownerCorpId === charCorpId) continue;
