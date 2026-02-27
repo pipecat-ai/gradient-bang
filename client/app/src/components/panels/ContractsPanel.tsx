@@ -2,7 +2,12 @@ import { CheckerboardIcon, CheckIcon } from "@phosphor-icons/react"
 
 import { BlankSlateTile } from "@/components/BlankSlates"
 import { RHSPanelContent } from "@/components/panels/RHSPanelContainer"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/primitives/Accordion"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/primitives/Accordion"
 import { Badge } from "@/components/primitives/Badge"
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/primitives/Card"
@@ -131,12 +136,15 @@ export const ContractsPanel = () => {
         onClick={() => setActiveModal("quest_list")}
         className={cn(
           "mx-ui-xs mt-ui-xs text-xxs uppercase w-auto relative",
-          isMegaPort
-            ? "bg-fuel-background/60 text-fuel-foreground border border-fuel hover:bg-fuel-background/40"
-            : "disabled:opacity-100 text-subtle-background after:content-[''] after:absolute after:inset-0 after:bg-stripes-sm after:bg-stripes-accent-background"
+          isMegaPort ?
+            "bg-fuel-background/60 text-fuel-foreground border border-fuel hover:bg-fuel-background/40"
+          : "disabled:opacity-100 text-subtle-background after:content-[''] after:absolute after:inset-0 after:bg-stripes-sm after:bg-stripes-accent-background"
         )}
       >
-        <CheckerboardIcon weight="bold" className={cn("size-3.5 z-10", isMegaPort ? "text-fuel" : "text-subtle")} />
+        <CheckerboardIcon
+          weight="bold"
+          className={cn("size-3.5 z-10", isMegaPort ? "text-fuel" : "text-subtle")}
+        />
         <span className={cn("z-10", isMegaPort ? "text-fuel-foreground font-bold" : "text-subtle")}>
           Contract Board
         </span>
@@ -151,9 +159,7 @@ export const ContractsPanel = () => {
           {hasContracts && (
             <Accordion
               type="multiple"
-              defaultValue={contracts
-                .filter((c) => c.status === "active")
-                .map((c) => c.quest_id)}
+              defaultValue={contracts.filter((c) => c.status === "active").map((c) => c.quest_id)}
             >
               {contracts.map((contract) => {
                 const allSteps = [
@@ -186,12 +192,12 @@ export const ContractsPanel = () => {
                     </AccordionTrigger>
                     <AccordionContent className="pb-0">
                       {contract.meta.giver && (
-                        <span className="text-xxs text-subtle-foreground uppercase">
+                        <div className="text-xxs text-subtle-foreground uppercase">
                           Issued by: {contract.meta.giver}
-                        </span>
+                        </div>
                       )}
                       {allSteps.length > 0 && (
-                        <div className="flex flex-col">
+                        <div className="flex flex-col pt-2">
                           {allSteps.map((step, i) => (
                             <ContractStepRow
                               key={step.step_index}
