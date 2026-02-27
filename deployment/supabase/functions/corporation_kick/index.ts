@@ -212,18 +212,10 @@ async function handleKick(params: {
     timestamp,
   };
 
-  const recipients = Array.from(
-    new Set([
-      ...remainingMembers.map((member) => member.character_id),
-      targetId,
-    ]),
-  );
-
   await emitCorporationEvent(supabase, corpId, {
     eventType: "corporation.member_kicked",
     payload,
     requestId,
-    memberIds: recipients,
     taskId,
   });
 }

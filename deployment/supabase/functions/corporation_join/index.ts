@@ -190,7 +190,6 @@ async function handleJoin(params: {
     eventType: "corporation.member_joined",
     payload: eventPayload,
     requestId,
-    memberIds: members.map((member) => member.character_id),
     taskId,
   });
 

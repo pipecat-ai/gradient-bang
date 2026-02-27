@@ -334,33 +334,11 @@ export async function emitCorporationEvent(
     eventType: string;
     payload: Record<string, unknown>;
     requestId: string;
-    memberIds?: string[];
     actorCharacterId?: string | null;
     taskId?: string | null;
   },
 ): Promise<void> {
-  let recipients = options.memberIds;
-  if (!recipients) {
-    try {
-      recipients = await listCorporationMemberIds(supabase, corpId);
-    } catch (err) {
-      console.error("corporations.event.members", err);
-      return;
-    }
-  }
-  const uniqueRecipients = Array.from(
-    new Set(
-      (recipients ?? []).filter(
-        (value): value is string =>
-          typeof value === "string" && value.length > 0,
-      ),
-    ),
-  );
-  if (!uniqueRecipients.length) {
-    return;
-  }
-
-  const eventId = await recordEventWithRecipients({
+  await recordEventWithRecipients({
     supabase,
     eventType: options.eventType,
     scope: "corp",
@@ -369,10 +347,6 @@ export async function emitCorporationEvent(
     corpId,
     actorCharacterId: options.actorCharacterId ?? null,
     taskId: options.taskId ?? null,
-    recipients: uniqueRecipients.map((characterId) => ({
-      characterId,
-      reason: "corp_snapshot",
-    })),
   });
 }
 

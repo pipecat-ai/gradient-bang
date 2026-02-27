@@ -188,7 +188,6 @@ async function handleLeave(params: {
     eventType: "corporation.member_left",
     payload,
     requestId,
-    memberIds: remainingMembers.map((member) => member.character_id),
     taskId,
   });
 }

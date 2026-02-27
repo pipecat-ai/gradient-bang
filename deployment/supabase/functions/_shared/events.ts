@@ -66,7 +66,7 @@ export async function recordEventWithRecipients(
   } = options;
 
   const normalizedRecipients = dedupeRecipientSnapshots(recipients);
-  if (!normalizedRecipients.length && !broadcast) {
+  if (!normalizedRecipients.length && !broadcast && !corpId) {
     return null;
   }
 
