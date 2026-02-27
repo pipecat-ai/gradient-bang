@@ -121,7 +121,7 @@ export async function emitCharacterMovedEvents({
       reason: "sector_snapshot",
     })),
   );
-  if (!recipients.length) {
+  if (!recipients.length && !corpId) {
     return;
   }
 

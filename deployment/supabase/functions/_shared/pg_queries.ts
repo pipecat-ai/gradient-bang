@@ -2067,7 +2067,7 @@ export async function pgRecordEvent(
   } = options;
 
   const normalizedRecipients = dedupeRecipients(recipients);
-  if (!normalizedRecipients.length && !broadcast) {
+  if (!normalizedRecipients.length && !broadcast && !corpId) {
     return null;
   }
 
