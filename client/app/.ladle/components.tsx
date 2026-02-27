@@ -5,15 +5,12 @@ import { PipecatClient } from "@pipecat-ai/client-js"
 import { PipecatClientProvider } from "@pipecat-ai/client-react"
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport"
 
-import { Button } from "@/components/primitives/Button"
-import { UserMicControl } from "@/components/UserMicControl"
 import Error from "@/components/views/Error"
 import { GameProvider } from "@/GameContext"
 import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
 import usePipecatClientStore from "@/stores/client"
 import useGameStore from "@/stores/game"
 
-import { BasicDevTools } from "./BasicDevTools"
 import { LevaControls } from "./LevaControls"
 
 import "./global.css"
@@ -29,7 +26,7 @@ const StoryWrapper = ({
   client: PipecatClient
   storyMeta?: Meta
 }) => {
-  const { isConnected, isConnecting } = usePipecatConnectionState()
+  const { isConnected } = usePipecatConnectionState()
   const setGameState = useGameStore.use.setGameState()
 
   useEffect(() => {
@@ -45,39 +42,7 @@ const StoryWrapper = ({
 
   return (
     <>
-      {!storyMeta?.disconnectedStory && (
-        <>
-          <div className="story-connect-bar">
-            <div>
-              {!isConnected ?
-                <Button
-                  onClick={() =>
-                    client.startBotAndConnect({
-                      endpoint,
-                    })
-                  }
-                  disabled={isConnecting}
-                >
-                  {isConnecting ? "Connecting..." : "Connect"}
-                </Button>
-              : <Button onClick={() => client.disconnect()} variant="secondary">
-                  Disconnect
-                </Button>
-              }
-            </div>
-            <div className="flex flex-row gap-2 items-center">
-              {storyMeta?.enableMic ?
-                <UserMicControl />
-              : <UserMicControl disabled />}
-            </div>
-          </div>
-        </>
-      )}
-
-      {storyMeta?.useDevTools && storyMeta?.useChatControls && <BasicDevTools />}
-
       {children}
-
       <div className="pointer-events-auto">
         <LevaControls client={client} endpoint={endpoint} hidden={!storyMeta?.useDevTools} />
       </div>
