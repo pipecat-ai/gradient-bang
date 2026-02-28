@@ -1,18 +1,19 @@
-# Gradient Bang Client Packages
+# Gradient Bang Client
 
-<img width="640" src="image.png" style="margin-bottom:20px;" />
+Monorepo workspace containing the game client and 3D starfield library, built with pnpm and Turbo.
 
-> [!WARNING]
-> **Client is in active development and does not yet support smaller screens / mobile viewports.**
-
-> [!WARNING]
-> **3D FX / starfield is very resource intensive!** A refactor will be merged soon which dramatically reduces overhead. If your CPU is throttling or computer fans are at full spin, please disable the Starfield in settings (or set `bypassStarfield` in `settings.json`).
-
+```
+client/
+├── app/         # Web client (React, Zustand, Tailwind CSS)
+├── starfield/   # 3D space visualization library (Three.js, React Three Fiber)
+├── turbo.json   # Build pipeline config
+└── pnpm-workspace.yaml
+```
 
 ## Quickstart
 
 > [!NOTE]
-> The game client looks best with the beautiful [TX-02 Berkeley Mono](https://usgraphics.com/products/berkeley-mono) typeface. We recommend you grab a license and place it in `app/src/assets/fonts/tx-02.woff2`
+> The game client looks best with the [TX-02 Berkeley Mono](https://usgraphics.com/products/berkeley-mono) typeface. Grab a license and place it in `app/src/assets/fonts/tx-02.woff2`.
 
 ```bash
 # Install and configure
@@ -27,117 +28,52 @@ pnpm run preview
 ```
 
 > [!NOTE]
-> **Prerequisites:** The game client requires the local Supabase stack (edge functions) and the Pipecat bot to be running. See the root README for setup instructions.
+> The game client requires the local Supabase stack (edge functions) and the Pipecat bot to be running. See the root README for setup instructions.
 
 ### Dev vs Preview
 
-- **Dev mode**: Hot reload, Leva devtools, no PWA, unoptimized profiles
-- **Preview mode**: Production build, asset caching enabled, optimized
+- **Dev mode**: Hot reload, Leva devtools, no PWA
+- **Preview mode**: Production build, asset caching, PWA enabled
 
-Leva dev tools provide triggers for mock events / local store mutations. Disable by setting `useDevTools: false` in `app/src/settings.json` (removes Leva from bundle).
+## Packages
 
-## Transport Options
+### `/app`
 
-The client uses WebRTC to connect to the Pipecat bot. Default is **SmallWebRTC** (recommended for local dev).
+Browser game client built with Vite, React 19, and TypeScript.
 
-### SmallWebRTC (default)
+- Connects via WebRTC to the Pipecat bot for voice-driven gameplay
+- Fetches data from Supabase edge functions
+- State managed via Zustand
+- UI built with Radix primitives and Tailwind CSS 4
+- Animation via React Spring and Motion
 
-```bash
-# Start bot (from repo root)
-uv run pipecat_server/bot.py
-```
+### `/starfield`
 
-> [!NOTE]
-> **Troubleshooting CORS errors:** Try connecting to `http://0.0.0.0:5173` or modify the proxy target in `app/vite.config.ts`.
+3D space graphics library using Three.js and React Three Fiber. Bundled as an ES module consumed by the app as a workspace dependency (not published to npm).
 
-### Daily (alternative)
+- Custom GLSL shaders (galaxy, nebula, sun, tunnel, planets)
+- Post-processing pipeline (dithering, exposure, color grading, shockwave)
+- Performance profiles (low/mid/high/extreme) with GPU auto-detection
+- Frame-on-demand rendering
 
-Requires a Daily API key. First install the transport package:
+## Environment Variables
 
-```bash
-pnpm i @pipecat-ai/daily-transport
-```
+Configure in `app/.env` (see `app/env.example`). All are optional.
 
-Then configure via environment variable:
+| Variable                           | Default                               | Description                                                                               |
+| ---------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `VITE_SERVER_URL`                  | `http://localhost:54321/functions/v1` | Supabase edge functions URL                                                               |
+| `VITE_PIPECAT_TRANSPORT`           | `smallwebrtc`                         | WebRTC transport (`smallwebrtc` or `daily`). Also settable via `?transport=` query string |
+| `VITE_BOT_URL`                     | `http://localhost:7860`               | Bot start URL (SmallWebRTC direct connect). Also used in Ladle                            |
+| `VITE_MAINTENANCE_MODE`            | —                                     | Set to any truthy value to show maintenance screen                                        |
+| `VITE_SERVER_LEADERBOARD_ENDPOINT` | `/leaderboard_resources`              | Leaderboard edge function path                                                            |
+| `VITE_APP_VERSION`                 | from `package.json`                   | Injected at build time via `vite.config.ts` — not user-set                                |
 
-```bash
-# client/app/.env
-VITE_PIPECAT_TRANSPORT=daily
-```
-
-Or via query string: `http://localhost:5173/?transport=daily`
-
-Start the bot with Daily:
-
-```bash
-# Requires DAILY_API_KEY in environment
-uv run pipecat_server/bot.py -t daily
-```
-
-See [transport guide](https://docs.pipecat.ai/guides/learn/transports) for more details.
-
-## Development Guide
-
-### Packages
-
-#### `/app`
-
-Browser game client (Vite, React, TypeScript)
-
-- Fetches data from Supabase edge functions / REST (leaderboard, etc)
-- Connects via WebRTC to the Pipecat Bot for voice-driven gameplay
-- Implements the Pipecat [Voice UI Kit](https://github.com/pipecat-ai/voice-ui-kit)
-- Handles and syncs client state via websocket data messages
-- State managed via [Zustand](https://zustand-demo.pmnd.rs/)
-
-#### `/starfield`
-
-3D (ThreeJS) space graphics used by the game client. Bundled via Rollup.
-
-> [!NOTE]
-> This package is not published to NPM, so you will need to build it first in order to use it in game client app. Built automatically by Turbo workflow.
-
-### Player Settings / Preferences
-
-Settings made at runtime via the client are retained in local storage. Overrides can be hardcoded in `app/src/settings.json` which take priority over any locally stored settings, and replace defaults in the store's setting slice.
-
-The following can not be changed at runtime:
-
-```ts
-    // Audio - SFX / Music / Voice
-    disabledAmbience: false
-    disabledSoundFX: false
-    disableMusic: false
-    disableRemoteAudio: false
-    ambienceVolume: 0.5
-    musicVolume: 0.2
-    soundFXVolume: 0.5
-    remoteAudioVolume: 1 // Bot voice volume
-
-    // User device control
-    enableMic: false // disable user mic access (for text mode)
-    startMuted: false // join game with mic muted
-
-    // Performance
-    qualityPreset: "auto" // "text" | "low" | "high" | "auto"
-    // Note: "text" and "low" enables prefers-reduced-motion
-
-    // 3D / ThreeJS Starfield (requires high performance device)
-    renderStarfield: true // disable entirely
-    fxBypassFlash: false // reduces flash effects (e.g. during warp)
-    fxBypassAnimation: false // no warp animation
-
-    saveSettings: true // disable local storage
-    bypassAssetCache: false // runtime asset preloading / caching
-
-```
-
-> [!NOTE]
-> `settings.json` overrides apply when building too.
+## Development
 
 ### Storybook
 
-The `app` project uses [Ladle](https://ladle.dev) as a sandbox for testing components in isolation.
+Component sandbox using [Ladle](https://ladle.dev):
 
 ```bash
 pnpm run dev:stories
@@ -146,71 +82,43 @@ pnpm run dev:stories
 pnpm run dev:all
 ```
 
-Stories can optionally run in a connected state, configured via Story meta flags. All stories are mounted within the `GameContext` and `PipecatAppBase`:
+### Settings
 
-```ts
-MyStory.meta = {
-  disconnectedStory: false, // Show connect to bot UI
-  enableMic: false, // Enable or disable user mic input
-  disableAudioOutput: true, // Muted bot TTS output
-  messages: [], // Array of action objects for quick dispatch
-};
-```
+Runtime settings are stored in local storage. Hardcoded overrides can be set in `app/src/settings.json` (takes priority over local storage). Covers audio, performance presets, 3D rendering, mic input, and asset caching.
 
-### Tests
+### Directory Structure (app)
 
-TBD
+| Directory                | Description                                                |
+| ------------------------ | ---------------------------------------------------------- |
+| `assets/`                | Bundled game assets and preload/cache manifest             |
+| `components/views/`      | Full-page views (title, join, game, preload, error)        |
+| `components/panels/`     | Data tables and reusable info composites                   |
+| `components/dialogs/`    | Modal popover windows                                      |
+| `components/hud/`        | Always-visible gameplay UI elements                        |
+| `components/primitives/` | Headless UI / ShadCN base components                       |
+| `components/toasts/`     | Dismissible notifications                                  |
+| `css/`                   | Tailwind 4 theme and custom utilities                      |
+| `fx/`                    | Standalone effect components (mini map, glitch text, etc.) |
+| `hooks/`                 | Reusable React hooks                                       |
+| `stores/`                | Zustand store slices                                       |
+| `types/`                 | TypeScript types and interfaces                            |
+| `utils/`                 | Helpers and utilities                                      |
+| `stories/`               | Ladle stories (excluded from build)                        |
 
-### Asset Caching / PWA
+## CI / CD
 
-Core game assets are preloaded and cached when a user first loads the client or cache is stale. This ensures smooth gameplay and prevents render blocking as players hop between sectors or trigger lazy-loaded UI elements.
+Automated via GitHub Actions (`.github/workflows/`):
 
-- Assets to preload are specified in `app/src/assets/index.ts`
-- Vite generates a manifest and PWA service worker
-- Asset filenames are hashed
+- **CI** (`ci.yml`): Runs lint + build on PRs targeting `main` (when `client/` files change)
+- **Deploy** (`deploy.yml`): Vercel preview on PR, production deploy on merge to `main`
 
-PWA caching is disabled when running in dev. You can also bypass runtime preloading by setting `bypassAssetCache` in `settings.json`.
+The licensed font is fetched from private Supabase Storage during CI.
 
-## Architecture Reference
+### Pre-commit Hooks
 
-### Entry Point
+[Husky](https://typicode.github.io/husky/) runs [lint-staged](https://github.com/lint-staged/lint-staged) on every commit, auto-fixing ESLint and Prettier issues on staged `.ts`/`.tsx` files.
 
-**`main.tsx`** — Application entry point. Applies any initial settings or query string overrides. Wraps app in `PipecatAppBase` and the `GameContext`.
+### Notes
 
-### Directory Structure
-
-| Directory | Description |
-|-----------|-------------|
-| `/assets` | Bundled game assets and preload / cache manifest |
-| `/components` | React components |
-| `/components/views` | Game state 'pages', e.g. title screen view, join view, game view |
-| `/components/dialogs` | Modal popover windows |
-| `/components/hud` | Game view UI elements rendered at the top level and always on-screen during gameplay |
-| `/components/panels` | Data tables and re-usable info composites. The Pipecat UI agent can reference these by their unique ID to build dynamic, contextual screens |
-| `/components/primitives` | Headless UI components / ShadCN |
-| `/components/screens` | Primary UI composites that the Pipecat UI Agent can request to show. Displayed one at a time, e.g. ship / player info, universe map, trading info, corporation details etc. |
-| `/components/toasts` | Dismissible contextual notifications overlaid on the HUD |
-| `/css` | Tailwind 4 theme and custom utilities. Note: custom `cva` / Tailwind merge script found in `utils/tailwind.ts` |
-| `/fx` | Standalone / wrapper effect components. Often created as singleton instances (e.g. mini map, swooshy lines, glitch text effect etc). These are self-contained and don't use other components |
-| `/hooks` | Functional React hooks used app-wide |
-| `/store` | Zustand store and slices |
-| `/stories` | Ladle / Storybook stories for testing features in isolation. Note: excluded from build |
-| `/types` | TypeScript typings and interfaces. Primary game object typings are set globally (`global.d.ts`) |
-| `/utils` | Misc helpers and utils. Note: `tailwind.ts` replaces the typical `cn/utils` file created by ShadCN |
-| `/mocks` | Mock data objects and test stubs |
-
-### Key Files
-
-**`GameContext.tsx`** — Primary context for managing game state, initialization flow and handling Pipecat connection. All incoming server data messages are handled here (for now!)
-
-**`icons.ts`** — Exported references to icons within our chosen library [Phosphor Icons](https://phosphoricons.com/). Referencing here makes it easier to modify app-wide changes for game-centric iconography (such as cargo resources, HUD elements etc.)
-
-**To be deprecated:**
-
- **`GameInstanceManager.tsx`** — Singleton class that manages lifecycle of core game elements, such as the Starfield. Subscribes to any changes in the settings store and constructs / destroys accordingly. Soon to be removed!
-
-## Deployment
-
-`app` depends the `starfield` package. If you are building as part of a CI workflow outside of the workspace, you must specify a location to this package in `app/package.json`. 
-
-The Starfield package is not publicly distributed / available via npm.
+- `app` depends on the `starfield` package. Turbo handles build order automatically.
+- Do **not** enable the Vercel GitHub integration — deploys are handled entirely via GitHub Actions.
