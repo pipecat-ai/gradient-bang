@@ -36,7 +36,7 @@ const MAP_CONFIG: MapConfig = {
       color: "rgba(0,0,0,0.90)",
     },
     edgeFeather: {
-      size: 180,
+      size: 140,
       falloff: 3,
     },
   },

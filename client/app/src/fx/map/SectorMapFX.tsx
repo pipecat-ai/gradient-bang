@@ -2189,7 +2189,7 @@ function renderWithCameraStateAndInteraction(
   ctx.translate(cameraState.offsetX, cameraState.offsetY)
 
   if (config.show_grid) {
-    renderHexGridCached(
+    renderHexGrid(
       ctx,
       width,
       height,
@@ -2480,9 +2480,7 @@ export function createSectorMapController(
     if (!currentCameraState) return null
 
     const { width, height, config } = currentProps
-    const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
-    const hexSize = config.hex_size ?? gridSpacing * 0.85
-    const scale = gridSpacing
+    const { hexSize, scale } = getGridMetrics(config, width, height)
 
     const effective = getEffectiveCameraState(currentCameraState)
     const worldPos = screenToWorld(screenX, screenY, width, height, effective)
@@ -2745,9 +2743,7 @@ export function createSectorMapController(
 
   const render = () => {
     const { width, height, data, config, maxDistance = 3, coursePlot } = currentProps
-    const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
-    const hexSize = config.hex_size ?? gridSpacing * 0.85
-    const scale = gridSpacing
+    const { hexSize, scale } = getGridMetrics(config, width, height)
 
     const coursePlotForCamera =
       config.coursePlotZoomEnabled !== false && !userOverrodeCoursePlotZoom ? coursePlot : undefined
@@ -2800,9 +2796,7 @@ export function createSectorMapController(
     }
 
     const { width, height, data, config, maxDistance = 3, coursePlot } = currentProps
-    const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10
-    const hexSize = config.hex_size ?? gridSpacing * 0.85
-    const scale = gridSpacing
+    const { hexSize, scale } = getGridMetrics(config, width, height)
 
     const coursePlotForCamera =
       config.coursePlotZoomEnabled !== false && !userOverrodeCoursePlotZoom ? coursePlot : undefined
@@ -3201,9 +3195,9 @@ export function createSectorMapController(
       const visibleRadius = Math.max(visibleWorldW, visibleWorldH) / 2
       const hexRadius = visibleRadius / (scale * Math.sqrt(3))
 
-      // Use same formula as getViewportFetchBounds: ceil(radius * FETCH_BOUNDS_MULTIPLIER)
-      // FETCH_BOUNDS_MULTIPLIER = 2, capped at 100
-      const bounds = Math.max(0, Math.min(100, Math.ceil(hexRadius * 2)))
+      // Quantize to multiples of 5 to avoid jitter from floating-point variance
+      const raw = Math.ceil(hexRadius * 2)
+      const bounds = Math.max(0, Math.min(100, Math.ceil(raw / 5) * 5))
       onViewportChangeCallback(nearest.id, bounds)
     }, VIEWPORT_CHANGE_DEBOUNCE)
   }
