@@ -103,6 +103,27 @@ const PINNED_SECTORS: Record<string, number> = {
   test_explore_p1: 0,
   test_explore_p2: 0,
   test_explore_p3: 0,
+  // Combat destruction tests: sector 3 (non-fedspace)
+  test_destroy_p1: 3,
+  test_destroy_p2: 3,
+  test_destroy_p3: 4,
+  // Bank transfer tests: sector 0 (mega-port)
+  test_bank_p1: 0,
+  test_bank_p2: 0,
+  test_bank_p3: 0,
+  // Ship purchase tests: sector 0 (mega-port)
+  test_shoppurch_p1: 0,
+  test_shoppurch_p2: 0,
+  // Salvage economy tests: sector 3
+  test_salvage_p1: 3,
+  test_salvage_p2: 3,
+  // Megaport services tests: sector 0
+  test_megaport_p1: 0,
+  test_megaport_p2: 0,
+  test_megaport_p3: 0,
+  // Query endpoint tests: sector 0
+  test_query_p1: 0,
+  test_query_p2: 0,
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");

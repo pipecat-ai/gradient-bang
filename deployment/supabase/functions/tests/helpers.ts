@@ -397,7 +397,7 @@ export async function createCorpShip(
         $1, $2, $1, 0,
         '{"sectors_visited": {}, "total_sectors_visited": 0}'::jsonb,
         '{"player_type": "corporation_ship"}'::jsonb,
-        false, $3
+        true, $3
       )`,
       [shipId, `corp-ship-${shipName}`, corpId],
     );
@@ -423,5 +423,103 @@ export async function setShipCargo(
       `UPDATE ship_instances SET cargo_qf = $1, cargo_ro = $2, cargo_ns = $3 WHERE ship_id = $4`,
       [cargo.qf ?? 0, cargo.ro ?? 0, cargo.ns ?? 0, shipId],
     );
+  });
+}
+
+/** Set a character's megabank balance directly in the database. */
+export async function setMegabankBalance(
+  characterId: string,
+  balance: number,
+): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE characters SET credits_in_megabank = $1 WHERE character_id = $2`,
+      [balance, characterId],
+    );
+  });
+}
+
+/** Query combat state from sector_contents for a given sector. */
+export async function queryCombatState(
+  sectorId: number,
+): Promise<Record<string, unknown> | null> {
+  return await withPg(async (pg) => {
+    const result = await pg.queryObject<{ combat: Record<string, unknown> | null }>(
+      `SELECT combat FROM sector_contents WHERE sector_id = $1`,
+      [sectorId],
+    );
+    return result.rows[0]?.combat ?? null;
+  });
+}
+
+/** Query salvage entries from sector_contents for a given sector. */
+export async function querySectorSalvage(
+  sectorId: number,
+): Promise<Record<string, unknown>[]> {
+  return await withPg(async (pg) => {
+    const result = await pg.queryObject<{ salvage: Record<string, unknown>[] | null }>(
+      `SELECT salvage FROM sector_contents WHERE sector_id = $1`,
+      [sectorId],
+    );
+    return result.rows[0]?.salvage ?? [];
+  });
+}
+
+/**
+ * Expire the combat deadline in sector_contents so combat_tick resolves immediately.
+ * Sets the deadline to 1 second in the past.
+ */
+export async function expireCombatDeadline(
+  sectorId: number,
+): Promise<void> {
+  await withPg(async (pg) => {
+    const pastDeadline = new Date(Date.now() - 1000).toISOString();
+    await pg.queryObject(
+      `UPDATE sector_contents
+       SET combat = jsonb_set(combat, '{deadline}', to_jsonb($1::text))
+       WHERE sector_id = $2 AND combat IS NOT NULL`,
+      [pastDeadline, sectorId],
+    );
+  });
+}
+
+/** Insert a salvage entry directly into sector_contents for testing. */
+export async function insertSalvageEntry(
+  sectorId: number,
+  salvage: Record<string, unknown>,
+): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE sector_contents
+       SET salvage = COALESCE(salvage, '[]'::jsonb) || $1::jsonb
+       WHERE sector_id = $2`,
+      [JSON.stringify([salvage]), sectorId],
+    );
+  });
+}
+
+/** Set a ship's escape pod status directly in the database. */
+export async function setShipType(
+  shipId: string,
+  shipType: string,
+): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE ship_instances SET ship_type = $1 WHERE ship_id = $2`,
+      [shipType, shipId],
+    );
+  });
+}
+
+/** Query a garrison row directly from the database. */
+export async function queryGarrison(
+  sectorId: number,
+): Promise<Record<string, unknown> | null> {
+  return await withPg(async (pg) => {
+    const result = await pg.queryObject<Record<string, unknown>>(
+      `SELECT * FROM garrisons WHERE sector_id = $1`,
+      [sectorId],
+    );
+    return result.rows[0] ?? null;
   });
 }
