@@ -246,6 +246,28 @@ gb start
 
 ---
 
+## Running tests
+
+Integration tests for the game server (edge functions) live in `deployment/supabase/functions/tests/`.
+
+### Dependencies
+
+- **Docker**: The test runner spins up an isolated Supabase instance
+- **Deno**: Tests run under `deno test` (installed automatically by the Supabase CLI)
+- **Node.js / npx**: Used to invoke the Supabase CLI
+
+No `.env` file is needed — the test runner creates its own isolated Supabase stack on ephemeral ports and extracts credentials automatically.
+
+### Run tests
+
+```bash
+bash deployment/supabase/functions/tests/run_tests.sh
+```
+
+The runner starts an isolated Supabase instance, runs the tests with coverage, prints a coverage report, and tears everything down automatically.
+
+---
+
 ## Deployment
 
 If you want to run your own game world in the cloud, you will need a Supabase project.
