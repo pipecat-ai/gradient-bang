@@ -8,6 +8,8 @@
       "Bash(set -a)",
       "Bash(source:*)",
       "Bash(set:*)",
+      "Bash(grep:*)",
+      "Bash(ls -la:*)",
       "Bash(docker build:*)",
       "Bash(docker manifest inspect:*)"
     ]
