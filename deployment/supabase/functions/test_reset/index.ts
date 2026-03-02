@@ -72,6 +72,33 @@ const PINNED_SECTORS: Record<string, number> = {
   test_2p_player2: 0,
   test_api_list_ports: 0,
   test_api_garrison: 4,
+  // Movement tests: P1+P2 in sector 0, P3 in sector 1
+  test_move_p1: 0,
+  test_move_p2: 0,
+  test_move_p3: 1,
+  // Corporation tests: all in sector 0
+  test_corp_p1: 0,
+  test_corp_p2: 0,
+  test_corp_p3: 0,
+  // Trade tests: both in sector 1 (has BBS port)
+  test_trade_p1: 1,
+  test_trade_p2: 1,
+  // Transfer tests: both in sector 0
+  test_xfer_p1: 0,
+  test_xfer_p2: 0,
+  // Combat tests: sector 3 (non-fedspace)
+  test_combat_p1: 3,
+  test_combat_p2: 3,
+  test_combat_p3: 4,
+  // Messaging tests: sector 0
+  test_msg_p1: 0,
+  test_msg_p2: 0,
+  test_msg_p3: 0,
+  // Ship tests: sector 1
+  test_ship_p1: 1,
+  // Quest tests: sector 0
+  test_quest_p1: 0,
+  test_quest_p2: 0,
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");

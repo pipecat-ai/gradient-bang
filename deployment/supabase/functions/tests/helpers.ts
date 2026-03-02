@@ -136,15 +136,21 @@ interface EventsSinceResponse {
 
 /**
  * Fetch all events visible to a character since a given event ID.
+ * Optionally include corp_id to also fetch corporation-scoped events.
  */
 export async function eventsSince(
   characterId: string,
   sinceEventId: number = 0,
+  corpId?: string,
 ): Promise<{ events: EventRow[]; lastEventId: number | null }> {
-  const result = await apiOk<EventsSinceResponse>("events_since", {
+  const payload: Record<string, unknown> = {
     character_id: characterId,
     since_event_id: sinceEventId,
-  });
+  };
+  if (corpId) {
+    payload.corp_id = corpId;
+  }
+  const result = await apiOk<EventsSinceResponse>("events_since", payload);
   return {
     events: (result.events ?? []) as EventRow[],
     lastEventId: result.last_event_id ?? null,
@@ -165,13 +171,15 @@ export async function getEventCursor(characterId: string): Promise<number> {
 
 /**
  * Fetch events of a specific type for a character since a cursor.
+ * Optionally include corpId to also fetch corporation-scoped events.
  */
 export async function eventsOfType(
   characterId: string,
   eventType: string,
   sinceEventId: number = 0,
+  corpId?: string,
 ): Promise<EventRow[]> {
-  const { events } = await eventsSince(characterId, sinceEventId);
+  const { events } = await eventsSince(characterId, sinceEventId, corpId);
   return events.filter((e) => e.event_type === eventType);
 }
 
@@ -243,5 +251,106 @@ export async function countEvents(
       params,
     );
     return Number(result.rows[0]?.count ?? 0);
+  });
+}
+
+// ============================================================================
+// Convenience helpers for multi-suite test setup
+// ============================================================================
+
+/**
+ * Assert that a character has NO events of a given type since a cursor.
+ * Useful for verifying event isolation (e.g., P3 should not see P1's events).
+ */
+export async function assertNoEventsOfType(
+  characterId: string,
+  eventType: string,
+  sinceEventId: number = 0,
+): Promise<void> {
+  const events = await eventsOfType(characterId, eventType, sinceEventId);
+  if (events.length > 0) {
+    throw new Error(
+      `Expected 0 ${eventType} events for ${characterId}, got ${events.length}: ` +
+        JSON.stringify(events.map((e) => e.id)),
+    );
+  }
+}
+
+/** Set a ship's credits directly in the database. */
+export async function setShipCredits(
+  shipId: string,
+  credits: number,
+): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE ship_instances SET credits = $1 WHERE ship_id = $2`,
+      [credits, shipId],
+    );
+  });
+}
+
+/** Set a ship's warp power directly in the database. */
+export async function setShipWarpPower(
+  shipId: string,
+  warpPower: number,
+): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE ship_instances SET current_warp_power = $1 WHERE ship_id = $2`,
+      [warpPower, shipId],
+    );
+  });
+}
+
+/** Set a ship's fighter count directly in the database. */
+export async function setShipFighters(
+  shipId: string,
+  fighters: number,
+): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE ship_instances SET current_fighters = $1 WHERE ship_id = $2`,
+      [fighters, shipId],
+    );
+  });
+}
+
+/** Set a ship's hyperspace state directly in the database. */
+export async function setShipHyperspace(
+  shipId: string,
+  inHyperspace: boolean,
+  destination: number | null = null,
+): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE ship_instances SET in_hyperspace = $1, hyperspace_destination = $2 WHERE ship_id = $3`,
+      [inHyperspace, destination, shipId],
+    );
+  });
+}
+
+/** Move a ship to a specific sector directly in the database. */
+export async function setShipSector(
+  shipId: string,
+  sector: number,
+): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE ship_instances SET current_sector = $1, in_hyperspace = false, hyperspace_destination = NULL WHERE ship_id = $2`,
+      [sector, shipId],
+    );
+  });
+}
+
+/** Set cargo on a ship directly in the database. */
+export async function setShipCargo(
+  shipId: string,
+  cargo: { qf?: number; ro?: number; ns?: number },
+): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE ship_instances SET cargo_qf = $1, cargo_ro = $2, cargo_ns = $3 WHERE ship_id = $4`,
+      [cargo.qf ?? 0, cargo.ro ?? 0, cargo.ns ?? 0, shipId],
+    );
   });
 }
