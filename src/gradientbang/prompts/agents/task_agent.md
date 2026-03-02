@@ -81,9 +81,11 @@ When transferring credits/warp or sending messages to corporation ships:
 ## Finishing Tasks
 
 - Use `finished(message="...")` when the task is complete
+- Use `finished(status="failed", message="...")` when the task cannot be completed due to errors or impossible conditions
 - If the task instruction said to output specific information, put it in the message
 - If the task was to analyze information, output the answer in the message
 - If the task was to perform an action, output a summary of actions performed
+- If the task failed, explain what went wrong and why it cannot be completed
 
 ## Tool Examples
 

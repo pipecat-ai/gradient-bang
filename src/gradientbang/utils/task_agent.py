@@ -130,6 +130,7 @@ DEFAULT_INCLUDE_THOUGHTS = True
 EVENT_BATCH_INFERENCE_DELAY = 1.0
 ASYNC_COMPLETION_TIMEOUT = 5.0  # Timeout for waiting for async tool completion events
 MAX_NO_TOOL_NUDGES = 3  # Max times to nudge LLM when it responds without tool calls
+MAX_CONSECUTIVE_ERRORS = 3  # Max consecutive error events before force-finishing task as failed
 NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
 TASK_LOG_TTL_SECONDS = 15 * 60
 PIPELINE_GRACEFUL_SHUTDOWN_TIMEOUT = 3.0
@@ -301,6 +302,9 @@ class TaskAgent:
         self.cancelled = False
         self.finished = False
         self.finished_message: Optional[str] = None
+        self._finished_status: str = "completed"
+        self._consecutive_error_count: int = 0
+        self._max_consecutive_errors: int = MAX_CONSECUTIVE_ERRORS
         self._active_pipeline_task: Optional[PipelineTask] = None
         self._step_counter: int = 0
         self._max_iterations: Optional[int] = None
@@ -554,6 +558,8 @@ class TaskAgent:
         self.cancelled = False
         self.finished = False
         self.finished_message = None
+        self._finished_status = "completed"
+        self._consecutive_error_count = 0
         self._task_id = None
         self._task_description = None
         self._finish_emitted = False
@@ -684,6 +690,49 @@ class TaskAgent:
             error_message = self._serialize_output(error_payload)
             error_text = self._timestamped_text(error_message)
             self._output(error_text, TaskOutputType.ERROR)
+
+            # Track consecutive errors and force-finish if limit reached
+            self._consecutive_error_count += 1
+            if self._consecutive_error_count >= self._max_consecutive_errors:
+                logger.warning(
+                    "Task {} hit consecutive error limit ({}/{}), force-finishing as failed",
+                    self._task_id,
+                    self._consecutive_error_count,
+                    self._max_consecutive_errors,
+                )
+                self.finished = True
+                self._finished_status = "failed"
+                self.finished_message = (
+                    f"Task stopped after {self._consecutive_error_count} consecutive errors. "
+                    f"Last error: {error_message}"
+                )
+                finished_text = self._timestamped_text(self.finished_message)
+                self._output(finished_text, TaskOutputType.FINISHED)
+                self._quench_inference_state()
+
+                if self._task_id and not self._finish_emitted:
+                    try:
+                        await self.game_client.task_lifecycle(
+                            task_id=self._task_id,
+                            event_type="finish",
+                            task_summary=self.finished_message,
+                            task_status="failed",
+                            task_metadata=self._task_metadata,
+                        )
+                        self._finish_emitted = True
+                    except Exception as exc:
+                        logger.warning(f"Failed to emit task.finish (error limit): {exc}")
+
+                if self._active_pipeline_task and not self._active_pipeline_task.has_finished():
+                    try:
+                        await self._active_pipeline_task.queue_frames([EndFrame()])
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("Failed to queue EndFrame after error limit: {}", exc)
+                return
+        else:
+            # Any non-error, non-lifecycle event resets the consecutive error counter
+            if event_name not in {"task.start", "task.finish"}:
+                self._consecutive_error_count = 0
 
         # task.finish is terminal for the task agent. Do not schedule another
         # inference cycle from this event; instead, close out the pipeline.
@@ -867,6 +916,7 @@ class TaskAgent:
         initial_state: Optional[Dict[str, Any]] = None,
         max_iterations: int = 100,
         task_id: Optional[str] = None,
+        max_errors: Optional[int] = None,
     ) -> bool:
         """Run a task to completion.
 
@@ -877,6 +927,8 @@ class TaskAgent:
             task_id: Optional task ID (UUID string). If not provided, a new UUID is generated.
                     Callers like VoiceTaskManager can provide a pre-generated task_id to
                     enable correlation between the voice UI and the TaskAgent.
+            max_errors: Max consecutive error events before force-finishing as failed.
+                    Defaults to MAX_CONSECUTIVE_ERRORS if not provided.
 
         Returns:
             True if task completed successfully, False otherwise
@@ -884,6 +936,9 @@ class TaskAgent:
         self.reset_cancellation()
         self.finished = False
         self.finished_message = None
+        self._finished_status = "completed"
+        self._consecutive_error_count = 0
+        self._max_consecutive_errors = max_errors if max_errors is not None else MAX_CONSECUTIVE_ERRORS
         self.clear_messages()
         self._step_counter = 0
         self._no_tool_nudge_count = 0
@@ -982,7 +1037,7 @@ class TaskAgent:
                     return False
 
                 if self.finished:
-                    success = True
+                    success = self._finished_status == "completed"
                     break
         finally:
             if self.cancelled and self._task_id and not self._finish_emitted:
@@ -1186,13 +1241,17 @@ class TaskAgent:
         if tool_name == "finished":
             self.finished = True
             self.finished_message = arguments.get("message", "Done")
+            finished_status = arguments.get("status", "completed")
+            if finished_status not in ("completed", "failed"):
+                finished_status = "completed"
+            self._finished_status = finished_status
             finished_text = self._timestamped_text(self.finished_message)
             self._output(finished_text, TaskOutputType.FINISHED)
             self._quench_inference_state()
 
             properties = FunctionCallResultProperties(run_llm=False)
             await params.result_callback(
-                {"status": "completed", "message": self.finished_message},
+                {"status": finished_status, "message": self.finished_message},
                 properties=properties,
             )
 
@@ -1203,7 +1262,7 @@ class TaskAgent:
                         task_id=self._task_id,
                         event_type="finish",
                         task_summary=self.finished_message,
-                        task_status="completed",
+                        task_status=finished_status,
                         task_metadata=self._task_metadata,
                     )
                     self._finish_emitted = True
@@ -1224,6 +1283,7 @@ class TaskAgent:
 
         self._emit_step()
         self._no_tool_nudge_count = 0  # Reset nudge counter on successful tool call
+        self._consecutive_error_count = 0  # Reset error counter on successful tool call
         if self._no_tool_watchdog_handle:
             self._no_tool_watchdog_handle.cancel()
             self._no_tool_watchdog_handle = None
@@ -1597,9 +1657,27 @@ class TaskAgent:
                 self._no_tool_nudge_count,
             )
             self.finished = True
+            self._finished_status = "failed"
             self.finished_message = "Task stopped: LLM failed to call required tools"
             finished_text = self._timestamped_text(self.finished_message)
             self._output(finished_text, TaskOutputType.FINISHED)
+
+            # Emit task.finish event
+            if self._task_id and not self._finish_emitted:
+                async def _emit_lifecycle() -> None:
+                    try:
+                        await self.game_client.task_lifecycle(
+                            task_id=self._task_id,
+                            event_type="finish",
+                            task_summary=self.finished_message,
+                            task_status="failed",
+                            task_metadata=self._task_metadata,
+                        )
+                        self._finish_emitted = True
+                    except Exception as exc:
+                        logger.warning(f"Failed to emit task.finish (no-tool limit): {exc}")
+                asyncio.create_task(_emit_lifecycle())
+
             asyncio.create_task(self._active_pipeline_task.queue_frames([EndFrame()]))
             return
 

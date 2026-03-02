@@ -1729,8 +1729,8 @@ class WaitInIdleState(Tool):
 
 
 class TaskFinished(Tool):
-    def __call__(self, message="Done"):
-        return {"success": True, "message": message}
+    def __call__(self, message="Done", status="completed"):
+        return {"success": True, "message": message, "status": status}
 
     @classmethod
     def schema(cls):
@@ -1742,7 +1742,13 @@ class TaskFinished(Tool):
                     "type": "string",
                     "description": "Completion message describing what was accomplished",
                     "default": "Task completed",
-                }
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["completed", "failed"],
+                    "description": "Set to 'failed' if the task could not be completed due to errors or impossible conditions. Defaults to 'completed'.",
+                    "default": "completed",
+                },
             },
             required=["message"],
         )
