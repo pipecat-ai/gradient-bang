@@ -99,6 +99,10 @@ const PINNED_SECTORS: Record<string, number> = {
   // Quest tests: sector 0
   test_quest_p1: 0,
   test_quest_p2: 0,
+  // Exploration tests: all in sector 0 (mega-port for corp creation)
+  test_explore_p1: 0,
+  test_explore_p2: 0,
+  test_explore_p3: 0,
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");

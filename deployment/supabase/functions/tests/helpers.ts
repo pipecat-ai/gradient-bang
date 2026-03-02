@@ -342,6 +342,77 @@ export async function setShipSector(
   });
 }
 
+/** Read corporation map knowledge directly from the database. */
+export async function queryCorpMapKnowledge(
+  corpId: string,
+): Promise<Record<string, unknown> | null> {
+  return await withPg(async (pg) => {
+    const result = await pg.queryObject<Record<string, unknown>>(
+      `SELECT * FROM corporation_map_knowledge WHERE corp_id = $1`,
+      [corpId],
+    );
+    return result.rows[0] ?? null;
+  });
+}
+
+/**
+ * Create a corporation ship with its pseudo-character for testing.
+ * Returns { shipId, pseudoCharacterId } where pseudoCharacterId === shipId.
+ */
+export async function createCorpShip(
+  corpId: string,
+  sectorId: number,
+  shipName: string = "Corp Scout",
+): Promise<{ shipId: string; pseudoCharacterId: string }> {
+  return await withPg(async (pg) => {
+    const result = await pg.queryObject<{ id: string }>(
+      `SELECT gen_random_uuid()::text AS id`,
+    );
+    const shipId = result.rows[0].id;
+
+    // 1. Insert ship_instances row (corporation-owned)
+    await pg.queryObject(
+      `INSERT INTO ship_instances (
+        ship_id, owner_id, owner_type, owner_character_id, owner_corporation_id,
+        ship_type, ship_name, current_sector, in_hyperspace,
+        credits, cargo_qf, cargo_ro, cargo_ns,
+        current_warp_power, current_shields, current_fighters,
+        metadata
+      ) VALUES (
+        $1, $2, 'corporation', NULL, $2,
+        'kestrel_courier', $3, $4, false,
+        1000, 0, 0, 0,
+        500, 150, 300,
+        '{}'::jsonb
+      )`,
+      [shipId, corpId, shipName, sectorId],
+    );
+
+    // 2. Insert pseudo-character row (character_id = ship_id)
+    await pg.queryObject(
+      `INSERT INTO characters (
+        character_id, name, current_ship_id, credits_in_megabank,
+        map_knowledge, player_metadata, is_npc, corporation_id
+      ) VALUES (
+        $1, $2, $1, 0,
+        '{"sectors_visited": {}, "total_sectors_visited": 0}'::jsonb,
+        '{"player_type": "corporation_ship"}'::jsonb,
+        false, $3
+      )`,
+      [shipId, `corp-ship-${shipName}`, corpId],
+    );
+
+    // 3. Insert corporation_ships linkage row
+    await pg.queryObject(
+      `INSERT INTO corporation_ships (corp_id, ship_id)
+       VALUES ($1, $2)`,
+      [corpId, shipId],
+    );
+
+    return { shipId, pseudoCharacterId: shipId };
+  });
+}
+
 /** Set cargo on a ship directly in the database. */
 export async function setShipCargo(
   shipId: string,
