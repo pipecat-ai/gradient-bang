@@ -19,7 +19,7 @@ import {
   assertExists,
 } from "https://deno.land/std@0.197.0/testing/asserts.ts";
 
-import { resetDatabase, clearEvents } from "./harness.ts";
+import { resetDatabase, clearEvents, startServerInProcess } from "./harness.ts";
 import {
   api,
   apiOk,
@@ -41,6 +41,19 @@ let player1Id: string;
 let player2Id: string;
 let player1ShipId: string;
 let player2ShipId: string;
+
+// ============================================================================
+// Group 0: Start server in-process (enables code coverage)
+// ============================================================================
+
+Deno.test({
+  name: "start server",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await startServerInProcess();
+  },
+});
 
 // ============================================================================
 // Group 1: Single player join basics

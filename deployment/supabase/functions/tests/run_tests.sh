@@ -29,8 +29,7 @@ fi
 
 PROJECT_ID="gb-test-runner"
 SERVER_PORT=54390
-SERVER_LOG="/tmp/gb-test-server.log"
-SERVER_PID=""
+COVERAGE_DIR="/tmp/gb-test-coverage"
 
 # Ports for the isolated test instance (offset from dev ports to avoid conflicts)
 TEST_API_PORT=54331
@@ -48,11 +47,6 @@ TEST_WORKDIR=""
 cleanup() {
   echo ""
   echo "==> Cleaning up..."
-
-  if [ -n "$SERVER_PID" ]; then
-    kill "$SERVER_PID" 2>/dev/null && echo "    Stopped server.ts (PID $SERVER_PID)" || true
-    wait "$SERVER_PID" 2>/dev/null || true
-  fi
 
   if [ -n "$TEST_WORKDIR" ] && [ -d "$TEST_WORKDIR" ]; then
     echo "    Stopping Supabase (project: $PROJECT_ID)..."
@@ -132,40 +126,20 @@ export SUPABASE_ALLOW_LEGACY_IDS=1
 export MOVE_DELAY_SCALE=0
 # No EDGE_API_TOKEN — auth bypassed in local dev mode
 
-# ── 4. Start server.ts ─────────────────────────────────────────────────
+# ── 4. Run tests (server starts in-process for coverage) ──────────────
+# server.ts is imported inside the test process so that deno test --coverage
+# can measure coverage of all edge function code.
 echo ""
-echo "==> Starting server.ts on port $SERVER_PORT..."
-deno run -A "$FUNCTIONS_DIR/server.ts" > "$SERVER_LOG" 2>&1 &
-SERVER_PID=$!
-
-echo "    PID: $SERVER_PID"
-echo "    Log: $SERVER_LOG"
-
-# Wait for server health
-echo "==> Waiting for server health..."
-for i in $(seq 1 60); do
-  if curl -sf "http://localhost:$SERVER_PORT/health" > /dev/null 2>&1; then
-    echo "    Server is healthy."
-    break
-  fi
-  if [ "$i" -eq 60 ]; then
-    echo "ERROR: Server failed to start within 60 seconds."
-    echo "--- server.ts log (last 50 lines) ---"
-    tail -50 "$SERVER_LOG"
-    exit 1
-  fi
-  sleep 1
-done
-
-# ── 5. Run tests ────────────────────────────────────────────────────────
+echo "==> Running integration tests (with coverage)..."
 echo ""
-echo "==> Running integration tests..."
-echo ""
+
+rm -rf "$COVERAGE_DIR"
 
 set +e
 deno test \
   --config "$FUNCTIONS_DIR/deno.json" \
-  --allow-net --allow-env --allow-read \
+  --allow-all \
+  --coverage="$COVERAGE_DIR" \
   "$SCRIPT_DIR/" \
   2>&1
 TEST_EXIT=$?
@@ -176,9 +150,19 @@ if [ "$TEST_EXIT" -eq 0 ]; then
   echo "==> All tests passed."
 else
   echo "==> Tests failed (exit code: $TEST_EXIT)."
+fi
+
+# ── 5. Coverage report ────────────────────────────────────────────────
+# deno test --coverage writes V8 coverage profiles on exit. We use
+# deno coverage to generate a summary filtered to the edge function code.
+if [ -d "$COVERAGE_DIR" ]; then
   echo ""
-  echo "--- server.ts log (last 30 lines) ---"
-  tail -30 "$SERVER_LOG"
+  echo "==> Code coverage report (edge functions)"
+  echo ""
+  deno coverage "$COVERAGE_DIR" \
+    --include="^file://.*/deployment/supabase/functions/" \
+    --exclude="(tests/|server\.ts)" \
+    2>&1 || true
 fi
 
 exit $TEST_EXIT
