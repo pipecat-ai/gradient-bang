@@ -21,8 +21,9 @@ jobs:
         with:
           deno-version: "~2.6"
 
-      - name: Install Supabase CLI
-        run: npm install -g supabase
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
 
       - name: Run integration tests
         run: bash deployment/supabase/functions/tests/run_tests.sh
