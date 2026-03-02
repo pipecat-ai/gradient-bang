@@ -1,8 +1,8 @@
 /**
  * Test harness for Gradient Bang integration tests.
  *
- * Provides comprehensive database reset (TRUNCATE CASCADE + test_reset re-seed)
- * and environment helpers.
+ * Provides comprehensive database reset (TRUNCATE CASCADE + test_reset re-seed),
+ * environment helpers, and in-process server startup for code coverage.
  */
 
 import { Client } from "postgres";
@@ -125,4 +125,43 @@ export async function clearEvents(): Promise<void> {
   } finally {
     await pg.end();
   }
+}
+
+// ---------------------------------------------------------------------------
+// In-process server startup (for code coverage)
+// ---------------------------------------------------------------------------
+
+let _serverStarted = false;
+
+/**
+ * Start the unified server in-process by importing server.ts.
+ *
+ * This runs server.ts inside the test's V8 isolate so that `deno test --coverage`
+ * can measure coverage of all edge function code. The server monkey-patches
+ * Deno.serve() to capture handlers, then calls the real Deno.serve() on the
+ * configured port.
+ *
+ * Call this once before tests run. It's idempotent — subsequent calls are no-ops.
+ */
+export async function startServerInProcess(): Promise<void> {
+  if (_serverStarted) return;
+  _serverStarted = true;
+
+  const functionsDir = new URL("..", import.meta.url).pathname;
+  const serverPath = `${functionsDir}server.ts`;
+
+  await import(serverPath);
+
+  // Wait for the server to be healthy
+  const baseUrl = getBaseUrl();
+  for (let i = 0; i < 60; i++) {
+    try {
+      const resp = await fetch(`${baseUrl}/health`);
+      if (resp.ok) return;
+    } catch {
+      // not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error("In-process server failed to start within 6 seconds");
 }
