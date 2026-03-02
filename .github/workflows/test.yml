@@ -1,0 +1,28 @@
+name: Backend Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "~2.6"
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+
+      - name: Run integration tests
+        run: bash deployment/supabase/functions/tests/run_tests.sh
