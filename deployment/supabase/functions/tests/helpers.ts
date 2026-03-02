@@ -62,6 +62,25 @@ export async function api<T = Record<string, unknown>>(
   };
 }
 
+/** Make a raw API call (for sending non-JSON bodies like invalid payloads). */
+export async function apiRaw(
+  endpoint: string,
+  rawBody: string,
+): Promise<ApiResponse> {
+  const baseUrl = getBaseUrl();
+  const resp = await fetch(`${baseUrl}/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: rawBody,
+  });
+  const body = await resp.json();
+  return {
+    status: resp.status,
+    ok: resp.ok,
+    body: body as Record<string, unknown> & { success: boolean; error?: string },
+  };
+}
+
 /** Call API and assert success. Throws on non-success responses. */
 export async function apiOk<T = Record<string, unknown>>(
   endpoint: string,

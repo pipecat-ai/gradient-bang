@@ -23,6 +23,7 @@ import { resetDatabase, clearEvents, startServerInProcess } from "./harness.ts";
 import {
   api,
   apiOk,
+  apiRaw,
   characterIdFor,
   shipIdFor,
   eventsSince,
@@ -30,6 +31,7 @@ import {
   getEventCursor,
   queryCharacter,
   queryShip,
+  withPg,
 } from "./helpers.ts";
 
 // Test character names (resolved to UUIDs by test_reset via legacy ID)
@@ -631,6 +633,343 @@ Deno.test({
         result.status === 400 || result.status === 500,
         `Expected 400 or 500, got ${result.status}`,
       );
+    });
+  },
+});
+
+// ============================================================================
+// Group 9: Healthcheck branch
+// ============================================================================
+
+Deno.test({
+  name: "join — healthcheck branch",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const result = await apiOk("join", { healthcheck: true });
+    assert(result.success);
+    assertEquals(
+      (result as Record<string, unknown>).status,
+      "ok",
+    );
+  },
+});
+
+// ============================================================================
+// Group 10: Invalid JSON body
+// ============================================================================
+
+Deno.test({
+  name: "join — invalid JSON body",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const result = await apiRaw("join", "not valid json!!");
+    assert(!result.body.success);
+    assert(
+      result.status === 400 || result.status === 500,
+      `Expected 400 or 500 for invalid JSON, got ${result.status}`,
+    );
+  },
+});
+
+// ============================================================================
+// Group 11: Rate limiting (429)
+// ============================================================================
+
+Deno.test({
+  name: "join — rate limiting returns 429",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    player1Id = await characterIdFor(PLAYER_1);
+
+    await t.step("reset and create player 1", async () => {
+      await resetDatabase([PLAYER_1]);
+    });
+
+    await t.step("pre-fill rate_limits to exceed threshold", async () => {
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `INSERT INTO rate_limits (character_id, endpoint, window_start, request_count)
+           VALUES ($1, 'join', date_trunc('minute', NOW()), 201)
+           ON CONFLICT (character_id, endpoint, window_start)
+           DO UPDATE SET request_count = 201`,
+          [player1Id],
+        );
+      });
+    });
+
+    await t.step("join returns 429", async () => {
+      const result = await api("join", { character_id: player1Id });
+      assert(!result.body.success);
+      assertEquals(result.status, 429);
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: Character with no ship
+// ============================================================================
+
+Deno.test({
+  name: "join — character with no ship",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    player1Id = await characterIdFor(PLAYER_1);
+
+    await t.step("reset and create player 1", async () => {
+      await resetDatabase([PLAYER_1]);
+    });
+
+    await t.step("remove ship link from character", async () => {
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `UPDATE characters SET current_ship_id = NULL WHERE character_id = $1`,
+          [player1Id],
+        );
+      });
+    });
+
+    await t.step("join returns error about no ship", async () => {
+      const result = await api("join", { character_id: player1Id });
+      assert(!result.body.success);
+      assert(
+        result.status === 500 || result.status === 404,
+        `Expected 500 or 404, got ${result.status}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 13: Actor character_id (matching — success path)
+// ============================================================================
+
+Deno.test({
+  name: "join — actor_character_id matching succeeds",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    player1Id = await characterIdFor(PLAYER_1);
+
+    await t.step("reset and create player 1", async () => {
+      await resetDatabase([PLAYER_1]);
+    });
+
+    await t.step("join with matching actor_character_id succeeds", async () => {
+      const result = await apiOk("join", {
+        character_id: player1Id,
+        actor_character_id: player1Id,
+      });
+      assert(result.success);
+    });
+  },
+});
+
+// ============================================================================
+// Group 14: Actor authorization error (mismatch)
+// ============================================================================
+
+Deno.test({
+  name: "join — actor_character_id mismatch returns 403",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    player1Id = await characterIdFor(PLAYER_1);
+    player2Id = await characterIdFor(PLAYER_2);
+
+    await t.step("reset and create both players", async () => {
+      await resetDatabase([PLAYER_1, PLAYER_2]);
+    });
+
+    await t.step("join player 1 with player 2 as actor returns 403", async () => {
+      const result = await api("join", {
+        character_id: player1Id,
+        actor_character_id: player2Id,
+      });
+      assert(!result.body.success);
+      assertEquals(result.status, 403);
+    });
+  },
+});
+
+// ============================================================================
+// Group 15: Ship with null ship_name (fallback to display_name)
+// ============================================================================
+
+Deno.test({
+  name: "join — null ship_name uses display_name fallback",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    player1Id = await characterIdFor(PLAYER_1);
+    player1ShipId = await shipIdFor(PLAYER_1);
+
+    await t.step("reset and create player 1", async () => {
+      await resetDatabase([PLAYER_1]);
+    });
+
+    await t.step("set ship_name to NULL", async () => {
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `UPDATE ship_instances SET ship_name = NULL WHERE ship_id = $1`,
+          [player1ShipId],
+        );
+      });
+    });
+
+    await t.step("join succeeds and snapshot has ship type name", async () => {
+      await clearEvents();
+      await apiOk("join", { character_id: player1Id });
+
+      const snapshots = await eventsOfType(player1Id, "status.snapshot");
+      assert(snapshots.length >= 1);
+      const payload = snapshots[0].payload;
+      const ship = payload.ship as Record<string, unknown>;
+      assertExists(ship, "payload.ship");
+      // ship_name should be populated from shipDefinition.display_name
+      assert(
+        typeof ship.ship_name === "string" && ship.ship_name.length > 0,
+        `ship_name should be a non-empty string from display_name, got: ${ship.ship_name}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 16: Combat auto-join + combat.round_waiting
+// ============================================================================
+
+Deno.test({
+  name: "join — auto-join existing combat emits combat.round_waiting",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    player1Id = await characterIdFor(PLAYER_1);
+    player2Id = await characterIdFor(PLAYER_2);
+    player1ShipId = await shipIdFor(PLAYER_1);
+
+    await t.step("reset and join both players to sector 0", async () => {
+      await resetDatabase([PLAYER_1, PLAYER_2]);
+      await apiOk("join", { character_id: player1Id, sector: 0 });
+      await apiOk("join", { character_id: player2Id, sector: 0 });
+    });
+
+    await t.step("insert combat state with player 1 as participant", async () => {
+      await withPg(async (pg) => {
+        const combatState = JSON.stringify({
+          combat_id: "test-combat-001",
+          sector_id: 0,
+          round: 1,
+          deadline: null,
+          participants: {
+            [player1Id]: {
+              combatant_id: player1Id,
+              combatant_type: "character",
+              name: PLAYER_1,
+              fighters: 10,
+              shields: 100,
+              turns_per_warp: 3,
+              max_fighters: 50,
+              max_shields: 100,
+              is_escape_pod: false,
+              owner_character_id: player1Id,
+              ship_type: "merchant_cruiser",
+            },
+          },
+          pending_actions: {},
+          logs: [],
+          context: {},
+          awaiting_resolution: false,
+          ended: false,
+          end_state: null,
+          base_seed: 42,
+          last_updated: new Date().toISOString(),
+        });
+        await pg.queryObject(
+          `UPDATE sector_contents SET combat = $1::jsonb WHERE sector_id = 0`,
+          [combatState],
+        );
+      });
+    });
+
+    await t.step("player 2 re-joins and receives combat.round_waiting", async () => {
+      await clearEvents();
+      const cursor = await getEventCursor(player2Id);
+
+      await apiOk("join", { character_id: player2Id, sector: 0 });
+
+      const { events } = await eventsSince(player2Id, cursor);
+      const combatEvents = events.filter(
+        (e) => e.event_type === "combat.round_waiting",
+      );
+
+      assert(
+        combatEvents.length >= 1,
+        `Expected combat.round_waiting event. Events: ${JSON.stringify(events.map((e) => e.event_type))}`,
+      );
+
+      const payload = combatEvents[0].payload;
+      assertEquals(payload.combat_id, "test-combat-001");
+      assertEquals(payload.round, 1);
+      assertExists(payload.participants, "payload should have participants");
+    });
+
+    await t.step("player 1 re-joins: already in combat, still gets combat.round_waiting", async () => {
+      // Player 1 is already a participant in the combat — covers autoJoinExistingCombat
+      // "Character already in combat" path (lines 413-416)
+      await clearEvents();
+      const cursor = await getEventCursor(player1Id);
+
+      await apiOk("join", { character_id: player1Id, sector: 0 });
+
+      const { events } = await eventsSince(player1Id, cursor);
+      const combatEvents = events.filter(
+        (e) => e.event_type === "combat.round_waiting",
+      );
+      assert(
+        combatEvents.length >= 1,
+        `Player already in combat should still get combat.round_waiting. Events: ${JSON.stringify(events.map((e) => e.event_type))}`,
+      );
+    });
+
+    await t.step("clean up combat state", async () => {
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `UPDATE sector_contents SET combat = NULL WHERE sector_id = 0`,
+        );
+      });
+    });
+  },
+});
+
+// ============================================================================
+// Group 17: Auth token validation
+// ============================================================================
+
+Deno.test({
+  name: "join — auth token validation returns 401",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    const originalToken = Deno.env.get("EDGE_API_TOKEN");
+
+    await t.step("set EDGE_API_TOKEN and send unauthenticated request", async () => {
+      Deno.env.set("EDGE_API_TOKEN", "test-secret-123");
+
+      const result = await api("join", { character_id: "anything" });
+      assert(!result.body.success);
+      assertEquals(result.status, 401);
+    });
+
+    await t.step("restore original env", () => {
+      if (originalToken) {
+        Deno.env.set("EDGE_API_TOKEN", originalToken);
+      } else {
+        Deno.env.delete("EDGE_API_TOKEN");
+      }
     });
   },
 });
