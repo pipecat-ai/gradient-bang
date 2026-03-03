@@ -245,9 +245,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       requestId,
       taskId,
       shipId: shipId ?? undefined,
+      corpId: effectiveCorpId ?? undefined,
       recipientReason: "task_owner",
       scope: "self",
-      additionalRecipients, // Corp members added here
+      additionalRecipients,
     });
 
     return successResponse({

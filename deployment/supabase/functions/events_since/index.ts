@@ -126,10 +126,14 @@ async function handleEventsSinceRequest(
 }> {
   const characterIds = await resolveCharacterIds(payload);
   const corpId = optionalString(payload, "corp_id");
+  // ship_ids are merged into characterIds for querying — corp ships have
+  // character_id == ship_id, so recipient_character_id matches either way.
+  const shipIds = parseStringArray(payload, "ship_ids");
+  const allCharacterIds = Array.from(new Set([...characterIds, ...shipIds]));
 
-  if (!characterIds.length && !corpId) {
+  if (!allCharacterIds.length && !corpId) {
     throw new RequestValidationError(
-      "character_id, character_ids, or corp_id must be provided",
+      "character_id, character_ids, corp_id, or ship_ids must be provided",
       400,
     );
   }
@@ -149,7 +153,7 @@ async function handleEventsSinceRequest(
 
   const rows = await fetchEvents({
     supabase,
-    characterIds,
+    characterIds: allCharacterIds,
     corpId,
     sinceEventId,
     limit: fetchLimit,

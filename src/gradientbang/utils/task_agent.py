@@ -620,15 +620,16 @@ class TaskAgent:
             )
             return
 
-        # Drop movement events for other characters so corp ship movements
-        # don't bleed into the local player's task context.
-        if event_name in {"character.moved", "garrison.character_moved", "movement.start", "movement.complete"}:
-            payload = event.get("payload")
-            if isinstance(payload, dict):
-                player = payload.get("player")
-                if isinstance(player, dict):
-                    moving_id = player.get("id")
-                    if isinstance(moving_id, str) and moving_id != self.character_id:
+        # Drop events whose subject is a different character and has no task_id.
+        # This prevents untagged corp ship events from entering our context.
+        # (Task-tagged events are already filtered by the task_id check above.)
+        if not event_task_id:
+            raw_payload = event.get("payload")
+            if isinstance(raw_payload, dict):
+                ectx = raw_payload.get("__event_context") or raw_payload.get("event_context")
+                if isinstance(ectx, dict):
+                    subject = ectx.get("character_id")
+                    if isinstance(subject, str) and subject != self.character_id:
                         return
 
         if event_name == "task.finish":
@@ -897,6 +898,13 @@ class TaskAgent:
                     },
                 }
             )
+            # Auto-refresh status so the LLM sees what changed during the wait
+            try:
+                await self.game_client.my_status(
+                    character_id=self.game_client.character_id
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to refresh status after idle: {exc}")
             return {
                 "status": "idle_complete",
                 "elapsed_seconds": round(elapsed, 2),
@@ -990,7 +998,6 @@ class TaskAgent:
 
         self.add_message({"role": "system", "content": build_task_agent_prompt()})
         self.add_message({"role": "user", "content": create_task_instruction_user_message(task)})
-        # Note: initial_state parameter kept for API compatibility but not used
 
         context = self._create_context()
         runner_task = self._setup_pipeline(context)
@@ -1292,7 +1299,6 @@ class TaskAgent:
 
         self._emit_step()
         self._no_tool_nudge_count = 0  # Reset nudge counter on successful tool call
-        self._consecutive_error_count = 0  # Reset error counter on successful tool call
         if self._no_tool_watchdog_handle:
             self._no_tool_watchdog_handle.cancel()
             self._no_tool_watchdog_handle = None

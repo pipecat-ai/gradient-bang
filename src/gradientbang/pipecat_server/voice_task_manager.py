@@ -353,7 +353,9 @@ class VoiceTaskManager:
         return sum(
             1
             for task_info in self._active_tasks.values()
-            if task_info.get("is_corp_ship") and not task_info["asyncio_task"].done()
+            if task_info.get("is_corp_ship")
+            and task_info.get("asyncio_task") is not None
+            and not task_info["asyncio_task"].done()
         )
 
     def _update_display_name(self, payload: Mapping[str, Any]) -> None:
@@ -1145,6 +1147,22 @@ class VoiceTaskManager:
                     delivery_event.set()
                 if task_agent and task_game_client and task_game_client != self.game_client:
                     await task_agent._handle_event(event)
+
+        # Block corp-routed events that aren't for the local player.
+        # After denormalization, the corp row has recipient_character_id = subject.
+        # If the subject is NOT the player and the event has no task_id, block it.
+        # Task-scoped events and lifecycle events pass through for fan-out and UI.
+        if event_context:
+            ctx_char = event_context.get("character_id")
+            ctx_reason = event_context.get("reason")
+            if (
+                isinstance(ctx_char, str)
+                and ctx_char != self.character_id
+                and ctx_reason == "corp_broadcast"
+                and not payload_task_id
+                and event_name not in {"task.start", "task.finish"}
+            ):
+                return
 
         # Onboarding: intercept mega-port check result (don't relay to UI or LLM)
         if (
@@ -2172,6 +2190,7 @@ class VoiceTaskManager:
     async def _handle_start_task(self, params: FunctionCallParams):
         task_game_client = None
         task_agent: Optional[TaskAgent] = None
+        short_task_id: Optional[str] = None
         try:
             task_desc = params.arguments.get("task_description", "")
             ship_id = params.arguments.get("ship_id")
@@ -2202,9 +2221,10 @@ class VoiceTaskManager:
 
             # Check if this specific ship already has a running task
             for task_id, task_info in self._active_tasks.items():
+                at = task_info.get("asyncio_task")
                 if (
                     task_info["target_character_id"] == target_character_id
-                    and not task_info["asyncio_task"].done()
+                    and (at is None or not at.done())
                 ):
                     return {
                         "success": False,
@@ -2272,28 +2292,53 @@ class VoiceTaskManager:
                 task_agent.set_task_metadata(task_metadata)
                 task_agent.reset_task_state()
 
-            # call my_status so the first thing the task gets is a status.snapshot event
-            # Note: my_status will automatically recover ships stuck in hyperspace
-            try:
-                if ship_id:
-                    logger.debug(
-                        f"Corp task {short_task_id} requesting initial status.snapshot (ship_id={target_character_id})"
+            # Register task early so _update_polling_scope includes the ship
+            # before the pipeline starts. This ensures the poller picks up
+            # corp ship events and fan-out can route them to the task agent.
+            #
+            # Track the task using short_task_id as the key.
+            # For corp ships this MUST happen before _await_status_snapshot so that
+            # _update_polling_scope includes the ship and fan-out can route events.
+            # asyncio_task is set to None and updated after create_task below.
+            self._active_tasks[short_task_id] = {
+                "task_id": short_task_id,
+                "full_task_id": full_task_id,  # Store full UUID for event queries
+                "task_type": task_type,
+                "target_character_id": target_character_id,
+                "actor_character_id": actor_character_id,
+                "task_agent": task_agent,
+                "task_game_client": task_game_client,
+                "asyncio_task": None,  # Updated after create_task
+                "description": task_desc,
+                "is_corp_ship": (ship_id is not None),
+                "finished_at": None,
+                "expires_at": None,
+                "event_delivery_check": asyncio.Event() if ship_id else None,
+            }
+            self._update_polling_scope()
+
+            # For player ships: pre-fetch status so it's buffered by pause/resume.
+            # The event lives in the game client's buffer, survives run_task's
+            # clear_messages(), and flushes into context on resume_event_delivery().
+            #
+            # For corp ships: skip pre-fetch. Corp events arrive via fan-out
+            # (bypassing the game client buffer), so they'd land in messages and
+            # get wiped by clear_messages(). Instead, the LLM calls my_status
+            # itself as its first action — by then the pipeline is running, context
+            # exists, and fan-out delivers the event directly into context.
+            if not ship_id:
+                try:
+                    await self._await_status_snapshot(
+                        task_game_client,
+                        target_character_id,
+                        retry_interval_seconds=4.0,
                     )
-                await self._await_status_snapshot(
-                    task_game_client,
-                    target_character_id,
-                    retry_interval_seconds=4.0,
-                )
-                if ship_id:
-                    logger.debug(
-                        f"Corp task {short_task_id} initial status.snapshot request completed (ship_id={target_character_id})"
-                    )
-            except Exception:
-                if task_game_client != self.game_client:
-                    await task_game_client.close()
-                else:
+                except Exception:
+                    # Clean up early registration on failure
+                    self._active_tasks.pop(short_task_id, None)
+                    self._update_polling_scope()
                     await self.game_client.resume_event_delivery()
-                raise
+                    raise
 
             # Start the task - pass full_task_id so events are tagged with the UUID
             asyncio_task = asyncio.create_task(
@@ -2308,24 +2353,7 @@ class VoiceTaskManager:
                     max_errors=None,
                 )
             )
-
-            # Track the task using short_task_id as the key
-            self._active_tasks[short_task_id] = {
-                "task_id": short_task_id,
-                "full_task_id": full_task_id,  # Store full UUID for event queries
-                "task_type": task_type,
-                "target_character_id": target_character_id,
-                "actor_character_id": actor_character_id,
-                "task_agent": task_agent,
-                "task_game_client": task_game_client,
-                "asyncio_task": asyncio_task,
-                "description": task_desc,
-                "is_corp_ship": (ship_id is not None),
-                "finished_at": None,
-                "expires_at": None,
-                "event_delivery_check": asyncio.Event() if ship_id else None,
-            }
-            self._update_polling_scope()
+            self._active_tasks[short_task_id]["asyncio_task"] = asyncio_task
             if ship_id:
                 asyncio.create_task(self._validate_corp_task_event_delivery(short_task_id))
 
@@ -2342,6 +2370,10 @@ class VoiceTaskManager:
             }
         except Exception as e:
             logger.error(f"start_task failed: {e}")
+            # Clean up early registration if it exists
+            if short_task_id and short_task_id in self._active_tasks:
+                self._active_tasks.pop(short_task_id, None)
+                self._update_polling_scope()
             if task_agent and ship_id:
                 await task_agent.close()
             elif task_agent and not ship_id:
@@ -2372,7 +2404,10 @@ class VoiceTaskManager:
             return
 
         task_info = self._active_tasks[matching_task_id]
-        asyncio_task = task_info["asyncio_task"]
+        asyncio_task = task_info.get("asyncio_task")
+        if asyncio_task is None:
+            # Task is still setting up (between registration and pipeline start)
+            return
         if asyncio_task.done():
             return
 
@@ -2408,7 +2443,12 @@ class VoiceTaskManager:
                         "error": f"Task {task_id} not found",
                     }
 
-                asyncio_task = task_info["asyncio_task"]
+                asyncio_task = task_info.get("asyncio_task")
+                if asyncio_task is None:
+                    return {
+                        "success": False,
+                        "error": f"Task {task_id} is still starting up",
+                    }
                 if asyncio_task.done():
                     return {
                         "success": False,
@@ -2427,9 +2467,11 @@ class VoiceTaskManager:
                 # Cancel player ship task (backwards compatibility)
                 player_ship_task_id = None
                 for tid, task_info in self._active_tasks.items():
+                    at = task_info.get("asyncio_task")
                     if (
                         task_info["target_character_id"] == self.character_id
-                        and not task_info["asyncio_task"].done()
+                        and at is not None
+                        and not at.done()
                     ):
                         player_ship_task_id = tid
                         break
