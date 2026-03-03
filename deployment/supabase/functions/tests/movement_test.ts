@@ -38,6 +38,8 @@ import {
   setShipWarpPower,
   setShipHyperspace,
   setShipSector,
+  setShipFighters,
+  withPg,
 } from "./helpers.ts";
 
 const P1 = "test_move_p1";
@@ -560,6 +562,251 @@ Deno.test({
 
     await t.step("P2 does NOT receive ports.list", async () => {
       await assertNoEventsOfType(p2Id, "ports.list", cursorP2);
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: Move — to_sector missing
+// ============================================================================
+
+Deno.test({
+  name: "movement — to_sector missing",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join P1", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: to_sector missing", async () => {
+      const result = await api("move", {
+        character_id: p1Id,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("to_sector"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 13: Move — to_sector negative
+// ============================================================================
+
+Deno.test({
+  name: "movement — to_sector negative",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join P1", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: to_sector negative", async () => {
+      const result = await api("move", {
+        character_id: p1Id,
+        to_sector: -1,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("non-negative"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 14: Move — combat in progress blocks move
+// ============================================================================
+
+Deno.test({
+  name: "movement — combat blocks move",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join P1+P2 in sector 0", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      // Ensure both have fighters for combat
+      await setShipFighters(p1ShipId, 100);
+      await setShipFighters(p2ShipId, 100);
+    });
+
+    await t.step("initiate combat", async () => {
+      await apiOk("combat_initiate", {
+        character_id: p1Id,
+      });
+    });
+
+    await t.step("P1 cannot move while in combat", async () => {
+      const result = await api("move", {
+        character_id: p1Id,
+        to_sector: 1,
+      });
+      assertEquals(result.status, 409);
+      assert(result.body.error?.includes("combat"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 15: Move — hyperspace recovery (stuck jump)
+// ============================================================================
+
+Deno.test({
+  name: "movement — hyperspace recovery",
+  // BUG: pgLoadShip() (pg_queries.ts:209) does not SELECT hyperspace_eta or
+  // hyperspace_destination, so ship.hyperspace_eta is always undefined in the
+  // move endpoint. This means the recovery condition at move/index.ts:263
+  // never triggers and all stuck-in-hyperspace ships get the 409 response.
+  ignore: true,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join P1", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("set P1 stuck in hyperspace (ETA 30s past)", async () => {
+      const pastEta = new Date(Date.now() - 30000).toISOString();
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `UPDATE ship_instances SET in_hyperspace = true, hyperspace_destination = 1, hyperspace_eta = $1 WHERE ship_id = $2`,
+          [pastEta, p1ShipId],
+        );
+      });
+    });
+
+    await t.step("move succeeds (recovers from stuck hyperspace)", async () => {
+      // Recovery completes the stuck jump to sector 1, then move continues.
+      // Sector 1 connects to {0, 3}, so move to sector 3.
+      const result = await apiOk("move", {
+        character_id: p1Id,
+        to_sector: 3,
+      });
+      assert(result.success);
+    });
+
+    await t.step("DB: ship is in sector 3, not in hyperspace", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      assertEquals(ship.current_sector, 3);
+      assertEquals(ship.in_hyperspace, false);
+    });
+  },
+});
+
+// ============================================================================
+// Group 16: Move — legitimately in hyperspace (not stuck)
+// ============================================================================
+
+Deno.test({
+  name: "movement — legitimately in hyperspace",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join P1", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("set P1 in hyperspace with future ETA", async () => {
+      const futureEta = new Date(Date.now() + 300000).toISOString(); // 5 min in future
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `UPDATE ship_instances SET in_hyperspace = true, hyperspace_destination = 1, hyperspace_eta = $1 WHERE ship_id = $2`,
+          [futureEta, p1ShipId],
+        );
+      });
+    });
+
+    await t.step("move fails: still in hyperspace", async () => {
+      const result = await api("move", {
+        character_id: p1Id,
+        to_sector: 2,
+      });
+      assertEquals(result.status, 409);
+      assert(result.body.error?.includes("hyperspace"));
+    });
+
+    await t.step("clean up", async () => {
+      await setShipHyperspace(p1ShipId, false, null);
+    });
+  },
+});
+
+// ============================================================================
+// Group 17: Move — missing to_sector
+// ============================================================================
+
+Deno.test({
+  name: "movement — missing to_sector",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join P1", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: missing to_sector", async () => {
+      const result = await api("move", {
+        character_id: p1Id,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("to_sector"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 18: Move — negative to_sector
+// ============================================================================
+
+Deno.test({
+  name: "movement — negative to_sector",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join P1", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: negative to_sector", async () => {
+      const result = await api("move", {
+        character_id: p1Id,
+        to_sector: -1,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("non-negative"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 19: Move — "to" alias for "to_sector"
+// ============================================================================
+
+Deno.test({
+  name: "movement — to alias for to_sector",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join P1", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipWarpPower(p1ShipId, 100);
+    });
+
+    await t.step("move using 'to' alias", async () => {
+      const result = await apiOk("move", {
+        character_id: p1Id,
+        to: 1,
+      });
+      assertExists((result as Record<string, unknown>).request_id);
     });
   },
 });

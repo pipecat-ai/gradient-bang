@@ -44,6 +44,7 @@ import {
   setGarrisonTollBalance,
   expireCombatDeadline,
   setShipType,
+  setShipHyperspace,
   queryCombatState,
   withPg,
 } from "./helpers.ts";
@@ -2025,6 +2026,468 @@ Deno.test({
       assert(
         (result.body.error ?? "").includes("Escape pods cannot flee"),
         `Expected escape pod error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 38: combat_initiate — in hyperspace
+// ============================================================================
+
+Deno.test({
+  name: "combat — initiate in hyperspace",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipHyperspace(p1ShipId, true, 4);
+    });
+
+    await t.step("fails: in hyperspace", async () => {
+      const result = await api("combat_initiate", {
+        character_id: p1Id,
+      });
+      assert(!result.ok, "Expected initiate to fail while in hyperspace");
+      assert(
+        result.body.error?.includes("hyperspace"),
+        `Expected hyperspace error, got: ${result.body.error}`,
+      );
+    });
+
+    await t.step("cleanup", async () => {
+      await setShipHyperspace(p1ShipId, false, null);
+    });
+  },
+});
+
+// ============================================================================
+// Group 39: combat_initiate — in FedSpace
+// ============================================================================
+
+Deno.test({
+  name: "combat — initiate in FedSpace",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and move both to FedSpace sector 8", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipSector(p1ShipId, 8);
+      await setShipSector(p2ShipId, 8);
+      await setShipFighters(p1ShipId, 100);
+      await setShipFighters(p2ShipId, 100);
+    });
+
+    await t.step("fails: FedSpace", async () => {
+      const result = await api("combat_initiate", {
+        character_id: p1Id,
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("Federation Space"),
+        `Expected FedSpace error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 40: combat_initiate — no fighters
+// ============================================================================
+
+Deno.test({
+  name: "combat — initiate no fighters",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and drain fighters", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipFighters(p1ShipId, 0);
+    });
+
+    await t.step("fails: no fighters", async () => {
+      const result = await api("combat_initiate", {
+        character_id: p1Id,
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("no fighters"),
+        `Expected no-fighters error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 41: combat_initiate — alone in sector
+// ============================================================================
+
+Deno.test({
+  name: "combat — initiate alone in sector",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and move P2 away", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipFighters(p1ShipId, 100);
+      // Move P2 away from P1's sector
+      await setShipSector(p2ShipId, 4);
+    });
+
+    await t.step("fails: no targetable opponents", async () => {
+      const result = await api("combat_initiate", {
+        character_id: p1Id,
+      });
+      assertEquals(result.status, 409);
+      assert(
+        result.body.error?.includes("targetable") || result.body.error?.includes("opponents"),
+        `Expected no-targets error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 42: combat_initiate — corpmates not targetable
+// ============================================================================
+
+Deno.test({
+  name: "combat — initiate corpmates not targetable",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and create corp with P1+P2", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      await setShipFighters(p1ShipId, 100);
+      await setShipFighters(p2ShipId, 100);
+
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Combat Corp",
+      });
+      const corpId = (createResult as Record<string, unknown>).corp_id as string;
+      const inviteCode = (createResult as Record<string, unknown>).invite_code as string;
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: inviteCode,
+      });
+    });
+
+    await t.step("fails: corpmates not targetable", async () => {
+      const result = await api("combat_initiate", {
+        character_id: p1Id,
+      });
+      assertEquals(result.status, 409);
+      assert(
+        result.body.error?.includes("targetable") || result.body.error?.includes("opponents"),
+        `Expected no-targets error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 43: Set garrison mode — missing sector
+// ============================================================================
+
+Deno.test({
+  name: "combat — set garrison mode: missing sector",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: sector is required", async () => {
+      const result = await api("combat_set_garrison_mode", {
+        character_id: p1Id,
+        mode: "defensive",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("sector"),
+        `Expected sector-required error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 44: combat_collect_fighters — missing sector
+// ============================================================================
+
+Deno.test({
+  name: "combat — collect fighters: missing sector",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: sector is required", async () => {
+      const result = await api("combat_collect_fighters", {
+        character_id: p1Id,
+        quantity: 10,
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("sector"),
+        `Expected sector-required error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 45: combat_collect_fighters — missing quantity
+// ============================================================================
+
+Deno.test({
+  name: "combat — collect fighters: missing quantity",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: quantity is required", async () => {
+      const result = await api("combat_collect_fighters", {
+        character_id: p1Id,
+        sector: 3,
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("quantity"),
+        `Expected quantity-required error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 46: combat_collect_fighters — negative quantity
+// ============================================================================
+
+Deno.test({
+  name: "combat — collect fighters: negative quantity",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and deploy garrison", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipFighters(p1ShipId, 200);
+      await apiOk("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 50,
+        mode: "defensive",
+      });
+    });
+
+    await t.step("fails: negative quantity", async () => {
+      const result = await api("combat_collect_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: -10,
+      });
+      assert(!result.ok || !result.body.success, "Expected negative quantity to fail");
+      assertEquals(result.status, 400);
+    });
+  },
+});
+
+// ============================================================================
+// Group 47: combat_leave_fighters — missing sector
+// ============================================================================
+
+Deno.test({
+  name: "combat — leave fighters: missing sector",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: sector is required", async () => {
+      const result = await api("combat_leave_fighters", {
+        character_id: p1Id,
+        quantity: 10,
+        mode: "offensive",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("sector"),
+        `Expected sector-required error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 48: combat_leave_fighters — missing quantity
+// ============================================================================
+
+Deno.test({
+  name: "combat — leave fighters: missing quantity",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: quantity is required", async () => {
+      const result = await api("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        mode: "offensive",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("quantity"),
+        `Expected quantity-required error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 49: combat_leave_fighters — negative quantity
+// ============================================================================
+
+Deno.test({
+  name: "combat — leave fighters: negative quantity",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipFighters(p1ShipId, 200);
+    });
+
+    await t.step("fails: negative quantity", async () => {
+      const result = await api("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: -5,
+        mode: "offensive",
+      });
+      assert(!result.ok || !result.body.success, "Expected negative quantity to fail");
+      assertEquals(result.status, 400);
+    });
+  },
+});
+
+// ============================================================================
+// Group 50: combat_leave_fighters — invalid mode
+// ============================================================================
+
+Deno.test({
+  name: "combat — leave fighters: invalid mode",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipFighters(p1ShipId, 200);
+    });
+
+    await t.step("fails: invalid garrison mode", async () => {
+      const result = await api("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 50,
+        mode: "invalid_mode",
+      });
+      assert(!result.ok || !result.body.success, "Expected invalid mode to fail");
+      assertEquals(result.status, 400);
+    });
+  },
+});
+
+// ============================================================================
+// Group 51: combat_leave_fighters — sector mismatch
+// ============================================================================
+
+Deno.test({
+  name: "combat — leave fighters: sector mismatch",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset — P1 in sector 3", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipFighters(p1ShipId, 200);
+    });
+
+    await t.step("fails: wrong sector", async () => {
+      const result = await api("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 7,
+        quantity: 50,
+        mode: "offensive",
+      });
+      assertEquals(result.status, 409);
+    });
+  },
+});
+
+// ============================================================================
+// Group 52: combat_leave_fighters — FedSpace rejected
+// ============================================================================
+
+Deno.test({
+  name: "combat — leave fighters: FedSpace rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset — P1 in FedSpace sector 8", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 8);
+      await setShipFighters(p1ShipId, 200);
+    });
+
+    await t.step("fails: FedSpace", async () => {
+      const result = await api("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 8,
+        quantity: 50,
+        mode: "defensive",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("Federation Space") || result.body.error?.includes("leave fighters"),
+        `Expected FedSpace error, got: ${result.body.error}`,
       );
     });
   },

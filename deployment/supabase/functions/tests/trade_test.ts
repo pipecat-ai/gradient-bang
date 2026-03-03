@@ -35,6 +35,7 @@ import {
   setShipSector,
   setShipWarpPower,
   setShipFighters,
+  setShipHyperspace,
 } from "./helpers.ts";
 
 const P1 = "test_trade_p1";
@@ -451,6 +452,169 @@ Deno.test({
     await t.step("P1 receives sector.update", async () => {
       const events = await eventsOfType(p1Id, "sector.update", cursorP1);
       assert(events.length >= 1, `Expected >= 1 sector.update for P1, got ${events.length}`);
+    });
+  },
+});
+
+// ============================================================================
+// Group 9: Trade — in hyperspace
+// ============================================================================
+
+Deno.test({
+  name: "trade — fails in hyperspace",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and put P1 in hyperspace", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+      await setShipHyperspace(p1ShipId, true, 1);
+    });
+
+    await t.step("fails: in hyperspace", async () => {
+      const result = await api("trade", {
+        character_id: p1Id,
+        commodity: "neuro_symbolics",
+        trade_type: "buy",
+        quantity: 5,
+      });
+      assertEquals(result.status, 409);
+      assert(result.body.error?.includes("hyperspace"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 10: Trade — invalid commodity
+// ============================================================================
+
+Deno.test({
+  name: "trade — invalid commodity",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+    });
+
+    await t.step("fails: invalid commodity", async () => {
+      const result = await api("trade", {
+        character_id: p1Id,
+        commodity: "unobtanium",
+        trade_type: "buy",
+        quantity: 5,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("commodity"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 11: Trade — invalid trade_type
+// ============================================================================
+
+Deno.test({
+  name: "trade — invalid trade_type",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+    });
+
+    await t.step("fails: invalid trade_type", async () => {
+      const result = await api("trade", {
+        character_id: p1Id,
+        commodity: "neuro_symbolics",
+        trade_type: "barter",
+        quantity: 5,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("buy") || result.body.error?.includes("sell"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: Trade — invalid quantity
+// ============================================================================
+
+Deno.test({
+  name: "trade — invalid quantity",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+    });
+
+    await t.step("fails: quantity = 0", async () => {
+      const result = await api("trade", {
+        character_id: p1Id,
+        commodity: "neuro_symbolics",
+        trade_type: "buy",
+        quantity: 0,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+
+    await t.step("fails: quantity negative", async () => {
+      const result = await api("trade", {
+        character_id: p1Id,
+        commodity: "neuro_symbolics",
+        trade_type: "buy",
+        quantity: -5,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+
+    await t.step("fails: quantity missing", async () => {
+      const result = await api("trade", {
+        character_id: p1Id,
+        commodity: "neuro_symbolics",
+        trade_type: "buy",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("quantity"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 13: Trade — sell commodity that port doesn't buy
+// ============================================================================
+
+Deno.test({
+  name: "trade — sell to port that doesn't buy",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and give P1 cargo", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      // Sector 1 port (BBS) buys QF+RO, sells NS
+      // Try to sell NS (which the port sells, not buys)
+      await setShipCargo(p1ShipId, { qf: 0, ro: 0, ns: 20 });
+    });
+
+    await t.step("fails: port does not buy this commodity", async () => {
+      const result = await api("trade", {
+        character_id: p1Id,
+        commodity: "neuro_symbolics",
+        trade_type: "sell",
+        quantity: 5,
+      });
+      assertEquals(result.status, 400);
     });
   },
 });

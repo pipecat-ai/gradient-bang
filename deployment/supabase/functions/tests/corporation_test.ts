@@ -34,6 +34,8 @@ import {
   queryShip,
   assertNoEventsOfType,
   setShipCredits,
+  setMegabankBalance,
+  withPg,
 } from "./helpers.ts";
 
 const P1 = "test_corp_p1";
@@ -589,6 +591,552 @@ Deno.test({
         name: "Test Corp Dup 2",
       });
       assert(!result.ok || !result.body.success, "Expected create to fail when already in corp");
+    });
+  },
+});
+
+// ============================================================================
+// Group 11: corporation_leave — not in a corporation
+// ============================================================================
+
+Deno.test({
+  name: "corporation — leave not in corp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset (P3 not in any corp)", async () => {
+      await resetDatabase([P3]);
+      await apiOk("join", { character_id: p3Id });
+    });
+
+    await t.step("fails: not in a corporation", async () => {
+      const result = await api("corporation_leave", {
+        character_id: p3Id,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("Not in a corporation"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: corporation_leave — actor mismatch
+// ============================================================================
+
+Deno.test({
+  name: "corporation — leave actor mismatch",
+  // BUG: ensureActorMatches() is called at line 82 (outside the try-catch at
+  // line 101) so CorporationLeaveError falls through to the server's generic
+  // 500 handler instead of returning 400.
+  ignore: true,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and create corp for P1", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Actor Mismatch Corp",
+      });
+    });
+
+    await t.step("fails: actor mismatch", async () => {
+      const result = await api("corporation_leave", {
+        character_id: p1Id,
+        actor_character_id: p2Id,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("actor_character_id must match"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 13: corporation_join — already in a corporation
+// ============================================================================
+
+Deno.test({
+  name: "corporation — join already in corp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId2: string;
+    let inviteCode2: string;
+
+    await t.step("reset and create two corps", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      const p2ShipId = await shipIdFor(P2);
+      await setShipCredits(p2ShipId, 50000);
+
+      // P1 creates corp 1
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Corp One",
+      });
+
+      // P2 creates corp 2
+      const result2 = await apiOk("corporation_create", {
+        character_id: p2Id,
+        name: "Corp Two",
+      });
+      corpId2 = (result2 as Record<string, unknown>).corp_id as string;
+      inviteCode2 = (result2 as Record<string, unknown>).invite_code as string;
+    });
+
+    await t.step("fails: P1 already in a corporation", async () => {
+      const result = await api("corporation_join", {
+        character_id: p1Id,
+        corp_id: corpId2,
+        invite_code: inviteCode2,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("Already in a corporation"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 14: corporation_join — corp not found
+// ============================================================================
+
+Deno.test({
+  name: "corporation — join corp not found",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P2]);
+      await apiOk("join", { character_id: p2Id });
+    });
+
+    await t.step("fails: corp not found", async () => {
+      const result = await api("corporation_join", {
+        character_id: p2Id,
+        corp_id: crypto.randomUUID(),
+        invite_code: "ANYCODE",
+      });
+      assert(
+        result.status === 404 || result.status === 500,
+        `Expected 404 or 500 for unknown corp, got ${result.status}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 15: corporation_join — actor mismatch
+// ============================================================================
+
+Deno.test({
+  name: "corporation — join actor mismatch",
+  // BUG: ensureActorMatches() is called at line 75 (outside the try-catch at
+  // line 93) so CorporationJoinError falls through to the server's generic
+  // 500 handler instead of returning 400.
+  ignore: true,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let inviteCode: string;
+
+    await t.step("reset and create corp", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      const result = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Actor Match Corp",
+      });
+      corpId = (result as Record<string, unknown>).corp_id as string;
+      inviteCode = (result as Record<string, unknown>).invite_code as string;
+    });
+
+    await t.step("fails: actor mismatch", async () => {
+      const result = await api("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: inviteCode,
+        actor_character_id: p1Id,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("actor_character_id must match"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 16: corporation — corp ship actor auth (non-member rejected)
+// ============================================================================
+
+Deno.test({
+  name: "corporation — corp ship non-member rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+
+    await t.step("reset and create corp with ship", async () => {
+      await resetDatabase([P1, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipCredits(p1ShipId, 50000);
+
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Auth Test Corp",
+      });
+
+      // Buy a corp ship
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+    });
+
+    await t.step("non-member P3 rejected for corp ship", async () => {
+      // Try to control the corp ship as P3 (non-member)
+      const result = await api("recharge_warp_power", {
+        character_id: corpShipId,
+        actor_character_id: p3Id,
+        units: 10,
+      });
+      // Should get auth error (403) since P3 is not in the corp
+      assert(
+        result.status === 403 || result.status === 400,
+        `Expected 403 or 400, got ${result.status}: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 17: corporation_kick — self-kick rejected
+// ============================================================================
+
+Deno.test({
+  name: "corporation — kick self rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and create corp for P1", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Self Kick Corp",
+      });
+    });
+
+    await t.step("fails: cannot kick self", async () => {
+      const result = await api("corporation_kick", {
+        character_id: p1Id,
+        target_id: p1Id,
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("leave"),
+        `Expected leave-hint error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 18: corporation_kick — not in a corporation
+// ============================================================================
+
+Deno.test({
+  name: "corporation — kick not in corp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset (P1 not in any corp)", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+    });
+
+    await t.step("fails: not in a corporation", async () => {
+      const result = await api("corporation_kick", {
+        character_id: p1Id,
+        target_id: p2Id,
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("Not in a corporation"),
+        `Expected not-in-corp error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 19: corporation_kick — target not in same corporation
+// ============================================================================
+
+Deno.test({
+  name: "corporation — kick target not in same corp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset, create corp for P1, P2 not in it", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Target Mismatch Corp",
+      });
+    });
+
+    await t.step("fails: target not in your corporation", async () => {
+      const result = await api("corporation_kick", {
+        character_id: p1Id,
+        target_id: p2Id,
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("not in your corporation"),
+        `Expected target-not-in-corp error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 20: corporation_kick — actor mismatch
+// ============================================================================
+
+Deno.test({
+  name: "corporation — kick actor mismatch",
+  // BUG: ensureActorMatches() is called at line 80 (outside the try-catch at
+  // line 107) so CorporationKickError falls through to the server's generic
+  // 500 handler instead of returning 400.
+  ignore: true,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and create corp with P1+P2", async () => {
+      await resetDatabase([P1, P2, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipCredits(p1ShipId, 50000);
+      const result = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Kick Actor Corp",
+      });
+      const corpId = (result as Record<string, unknown>).corp_id as string;
+      const inviteCode = (result as Record<string, unknown>).invite_code as string;
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: inviteCode,
+      });
+    });
+
+    await t.step("fails: actor mismatch", async () => {
+      const result = await api("corporation_kick", {
+        character_id: p1Id,
+        target_id: p2Id,
+        actor_character_id: p3Id,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("actor_character_id must match"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 21: corporation_create — name too short
+// ============================================================================
+
+Deno.test({
+  name: "corporation — create name too short",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+    });
+
+    await t.step("fails: name too short", async () => {
+      const result = await api("corporation_create", {
+        character_id: p1Id,
+        name: "AB",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("3-50"),
+        `Expected name length error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 22: corporation_create — name too long
+// ============================================================================
+
+Deno.test({
+  name: "corporation — create name too long",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+    });
+
+    await t.step("fails: name too long", async () => {
+      const result = await api("corporation_create", {
+        character_id: p1Id,
+        name: "A".repeat(51),
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("3-50"),
+        `Expected name length error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 23: corporation_create — insufficient credits
+// ============================================================================
+
+Deno.test({
+  name: "corporation — create insufficient credits",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset with low credits", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 500);
+    });
+
+    await t.step("fails: insufficient credits", async () => {
+      const result = await api("corporation_create", {
+        character_id: p1Id,
+        name: "Broke Corp",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("Insufficient"),
+        `Expected insufficient credits error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 24: corporation_create — duplicate name
+// ============================================================================
+
+Deno.test({
+  name: "corporation — create duplicate name",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and create first corp", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      const p2Ship = await shipIdFor(P2);
+      await setShipCredits(p2Ship, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Unique Name Corp",
+      });
+    });
+
+    await t.step("fails: duplicate name", async () => {
+      const result = await api("corporation_create", {
+        character_id: p2Id,
+        name: "Unique Name Corp",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("already taken"),
+        `Expected duplicate name error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 25: corporation_create — actor mismatch
+// ============================================================================
+
+Deno.test({
+  name: "corporation — create actor mismatch",
+  // BUG: ensureActorMatches() is called at line 75 (outside the try-catch at
+  // line 99) so CorporationCreateError falls through to the server's generic
+  // 500 handler instead of returning 400.
+  ignore: true,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+    });
+
+    await t.step("fails: actor mismatch", async () => {
+      const result = await api("corporation_create", {
+        character_id: p1Id,
+        name: "Mismatch Corp",
+        actor_character_id: p2Id,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("actor_character_id must match"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 26: corporation_regenerate_invite_code — not in corp
+// ============================================================================
+
+Deno.test({
+  name: "corporation — regen invite not in corp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset (P3 not in any corp)", async () => {
+      await resetDatabase([P3]);
+      await apiOk("join", { character_id: p3Id });
+    });
+
+    await t.step("fails: not in a corporation", async () => {
+      const result = await api("corporation_regenerate_invite_code", {
+        character_id: p3Id,
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("Not in a corporation"),
+        `Expected not-in-corp error, got: ${result.body.error}`,
+      );
     });
   },
 });

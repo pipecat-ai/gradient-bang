@@ -229,14 +229,198 @@ Deno.test({
       await apiOk("join", { character_id: p1Id });
     });
 
-    await t.step("empty content fails", async () => {
+    await t.step("empty content fails with 400", async () => {
       const result = await api("send_message", {
         character_id: p1Id,
         type: "broadcast",
         content: "",
       });
-      // Should reject or handle gracefully
-      assert(result.status !== 500, "Should not crash on empty content");
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("Empty content"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 6: Invalid message type
+// ============================================================================
+
+Deno.test({
+  name: "messaging — invalid type",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: invalid type", async () => {
+      const result = await api("send_message", {
+        character_id: p1Id,
+        type: "whisper",
+        content: "Hello",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("broadcast or direct"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 7: Direct message — missing recipient
+// ============================================================================
+
+Deno.test({
+  name: "messaging — direct message missing recipient",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: no recipient for DM", async () => {
+      const result = await api("send_message", {
+        character_id: p1Id,
+        type: "direct",
+        content: "Hello no one",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("recipient"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 8: Content too long — exact status
+// ============================================================================
+
+Deno.test({
+  name: "messaging — content too long returns 400",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: content exceeds 512 chars", async () => {
+      const longContent = "A".repeat(600);
+      const result = await api("send_message", {
+        character_id: p1Id,
+        type: "broadcast",
+        content: longContent,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("too long"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 9: Invalid message type
+// ============================================================================
+
+Deno.test({
+  name: "messaging — invalid message type",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: invalid type", async () => {
+      const result = await api("send_message", {
+        character_id: p1Id,
+        type: "whisper",
+        content: "Hello",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("type"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 10: Empty content
+// ============================================================================
+
+Deno.test({
+  name: "messaging — empty content rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: empty content", async () => {
+      const result = await api("send_message", {
+        character_id: p1Id,
+        type: "broadcast",
+        content: "",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("Empty"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 11: Direct message — recipient not found
+// ============================================================================
+
+Deno.test({
+  name: "messaging — DM recipient not found",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: unknown recipient", async () => {
+      const result = await api("send_message", {
+        character_id: p1Id,
+        type: "direct",
+        content: "Hello stranger",
+        to_name: "NonExistentPlayer12345",
+      });
+      assertEquals(result.status, 404);
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: Invalid to_ship_id format
+// ============================================================================
+
+Deno.test({
+  name: "messaging — invalid to_ship_id format",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: invalid to_ship_id format", async () => {
+      const result = await api("send_message", {
+        character_id: p1Id,
+        type: "direct",
+        content: "Hello",
+        to_ship_id: "xyz",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("UUID or 6-8 hex"));
     });
   },
 });

@@ -458,3 +458,281 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 8: dump_cargo — empty manifest
+// ============================================================================
+
+Deno.test({
+  name: "salvage_economy — dump_cargo empty manifest",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipCargo(p1ShipId, { qf: 10, ro: 0, ns: 0 });
+    });
+
+    await t.step("fails: empty items object", async () => {
+      const result = await api("dump_cargo", {
+        character_id: p1Id,
+        items: {},
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("No cargo") ||
+          result.body.error?.includes("manifest"),
+      );
+    });
+
+    await t.step("fails: missing items entirely", async () => {
+      const result = await api("dump_cargo", {
+        character_id: p1Id,
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("manifest") ||
+          result.body.error?.includes("Missing"),
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 9: dump_cargo — non-integer units
+// ============================================================================
+
+Deno.test({
+  name: "salvage_economy — dump_cargo non-integer units",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipCargo(p1ShipId, { qf: 10, ro: 0, ns: 0 });
+    });
+
+    await t.step("fails: non-integer units", async () => {
+      const result = await api("dump_cargo", {
+        character_id: p1Id,
+        items: { quantum_foam: 2.5 },
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+
+    await t.step("fails: zero units", async () => {
+      const result = await api("dump_cargo", {
+        character_id: p1Id,
+        items: { quantum_foam: 0 },
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 10: dump_cargo — no cargo available
+// ============================================================================
+
+Deno.test({
+  name: "salvage_economy — dump_cargo no cargo available",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup (empty cargo)", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipCargo(p1ShipId, { qf: 0, ro: 0, ns: 0 });
+    });
+
+    await t.step("fails: no cargo to dump", async () => {
+      const result = await api("dump_cargo", {
+        character_id: p1Id,
+        items: { quantum_foam: 5 },
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("No cargo available"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 11: salvage_collect — partial collection (cargo full)
+// ============================================================================
+
+Deno.test({
+  name: "salvage_economy — salvage_collect partial collection",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let salvageId: string;
+
+    await t.step("reset and fill ship cargo near capacity", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      // kestrel_courier has cargo_holds=30
+      // Fill with 28 units, leaving only 2 slots
+      await setShipCargo(p1ShipId, { qf: 20, ro: 8, ns: 0 });
+
+      salvageId = crypto.randomUUID();
+      await insertSalvageEntry(3, {
+        salvage_id: salvageId,
+        cargo: { quantum_foam: 10 },
+        scrap: 0,
+        credits: 50,
+        source_ship_name: "Partial Wreck",
+        source_ship_type: "kestrel_courier",
+        created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 3600000).toISOString(),
+      });
+    });
+
+    await t.step("collect salvage (partial)", async () => {
+      const result = await apiOk("salvage_collect", {
+        character_id: p1Id,
+        salvage_id: salvageId,
+      });
+      const body = result as Record<string, unknown>;
+      assertEquals(body.fully_collected, false, "Should be partial collection");
+    });
+
+    await t.step("DB: ship cargo increased by available space only", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      // Only 2 slots available, so only 2 QF should be collected
+      assertEquals(ship.cargo_qf, 22, "20 + 2 = 22");
+    });
+
+    await t.step("DB: remaining salvage still in sector", async () => {
+      const salvage = await querySectorSalvage(3);
+      const found = salvage.find(
+        (s) => (s as Record<string, unknown>).salvage_id === salvageId,
+      );
+      assertExists(found, "Partial salvage should still exist");
+      const cargo = (found as Record<string, unknown>).cargo as Record<string, number>;
+      assertEquals(cargo.quantum_foam, 8, "10 - 2 = 8 remaining");
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: dump_cargo — cargo key alias
+// ============================================================================
+
+Deno.test({
+  name: "salvage_economy — dump_cargo using cargo key",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and load cargo", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipCargo(p1ShipId, { qf: 10, ro: 0, ns: 0 });
+    });
+
+    await t.step("dump using 'cargo' key instead of 'items'", async () => {
+      const result = await apiOk("dump_cargo", {
+        character_id: p1Id,
+        cargo: { quantum_foam: 5 },
+      });
+      assert(result.success);
+    });
+
+    await t.step("DB: cargo reduced", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      assertEquals(ship.cargo_qf, 5, "10 - 5 = 5");
+    });
+  },
+});
+
+// ============================================================================
+// Group 13: dump_cargo — manifest type validation
+// ============================================================================
+
+Deno.test({
+  name: "salvage_economy — dump_cargo manifest type validation",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipCargo(p1ShipId, { qf: 10, ro: 0, ns: 0 });
+    });
+
+    await t.step("fails: items as string", async () => {
+      const result = await api("dump_cargo", {
+        character_id: p1Id,
+        items: "quantum_foam",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("object") || result.body.error?.includes("list"),
+        `Expected manifest type error, got: ${result.body.error}`,
+      );
+    });
+
+    await t.step("fails: items as number", async () => {
+      const result = await api("dump_cargo", {
+        character_id: p1Id,
+        items: 42,
+      });
+      assertEquals(result.status, 400);
+    });
+  },
+});
+
+// ============================================================================
+// Group 14: salvage_collect — already claimed
+// ============================================================================
+
+Deno.test({
+  name: "salvage_economy — salvage_collect already claimed",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let salvageId: string;
+
+    await t.step("reset and insert pre-claimed salvage", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+
+      salvageId = crypto.randomUUID();
+      await insertSalvageEntry(3, {
+        salvage_id: salvageId,
+        cargo: { quantum_foam: 5 },
+        scrap: 0,
+        credits: 100,
+        source_ship_name: "Claimed Wreck",
+        source_ship_type: "kestrel_courier",
+        created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 3600000).toISOString(),
+        claimed: true,
+      });
+    });
+
+    await t.step("fails: already claimed", async () => {
+      const result = await api("salvage_collect", {
+        character_id: p1Id,
+        salvage_id: salvageId,
+      });
+      assertEquals(result.status, 409);
+      assert(
+        result.body.error?.includes("claimed") || result.body.error?.includes("Salvage"),
+        `Expected already-claimed error, got: ${result.body.error}`,
+      );
+    });
+  },
+});

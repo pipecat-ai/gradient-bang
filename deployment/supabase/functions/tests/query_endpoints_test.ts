@@ -24,6 +24,8 @@ import {
   shipIdFor,
   queryShip,
   setShipCredits,
+  setShipHyperspace,
+  setShipSector,
   setMegabankBalance,
   createCorpShip,
   withPg,
@@ -456,6 +458,711 @@ Deno.test({
       });
       const body = result as Record<string, unknown>;
       assertExists(body.request_id, "Should have request_id");
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: my_status — with corporation membership
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — my_status with corp membership",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset, create corp", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Status Corp",
+      });
+    });
+
+    await t.step("my_status includes corporation info", async () => {
+      const result = await apiOk("my_status", {
+        character_id: p1Id,
+      });
+      const body = result as Record<string, unknown>;
+      assertExists(body.request_id, "Should have request_id");
+    });
+  },
+});
+
+// ============================================================================
+// Group 13: corporation_info — corp not found
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — corporation_info not found",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: corp not found", async () => {
+      const result = await api("corporation_info", {
+        character_id: p1Id,
+        corp_id: crypto.randomUUID(),
+      });
+      assert(
+        result.status === 404 || result.status === 500,
+        `Expected 404 or 500 for unknown corp, got ${result.status}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 14: local_map_region — invalid center sector (renumbered from 15)
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — local_map_region invalid center",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: negative sector", async () => {
+      const result = await api("local_map_region", {
+        character_id: p1Id,
+        center_sector: -1,
+      });
+      assert(
+        !result.ok || !result.body.success,
+        "Expected negative sector to fail",
+      );
+    });
+
+    await t.step("fails: sector out of range", async () => {
+      const result = await api("local_map_region", {
+        character_id: p1Id,
+        center_sector: 99999,
+      });
+      assert(
+        !result.ok || !result.body.success,
+        "Expected out-of-range sector to fail",
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 15: corporation_list — basic call
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — corporation_list basic",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("list returns array (with character_id)", async () => {
+      const result = await apiOk("corporation_list", {
+        character_id: p1Id,
+      });
+      const body = result as Record<string, unknown>;
+      assert(Array.isArray(body.corporations), "corporations should be array");
+    });
+
+    await t.step("list returns array (without character_id)", async () => {
+      const result = await apiOk("corporation_list", {});
+      const body = result as Record<string, unknown>;
+      assert(Array.isArray(body.corporations), "corporations should be array");
+    });
+  },
+});
+
+// ============================================================================
+// Group 16: my_corporation — not in corp (null result)
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — my_corporation not in corp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset (no corp membership)", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("returns null corporation", async () => {
+      const result = await apiOk("my_corporation", {
+        character_id: p1Id,
+      });
+      const body = result as Record<string, unknown>;
+      assertEquals(body.corporation, null, "Should be null when not in corp");
+    });
+  },
+});
+
+// ============================================================================
+// Group 17: my_corporation — with corp membership
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — my_corporation with membership",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset, create corp", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "MyCorp Test",
+      });
+    });
+
+    await t.step("returns corporation data", async () => {
+      const result = await apiOk("my_corporation", {
+        character_id: p1Id,
+      });
+      const body = result as Record<string, unknown>;
+      assertExists(body.corporation, "Should return corporation");
+      const corp = body.corporation as Record<string, unknown>;
+      assertEquals(corp.name, "MyCorp Test");
+    });
+  },
+});
+
+// ============================================================================
+// Group 18: ship_definitions — basic call
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — ship_definitions basic",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("returns definitions without character_id", async () => {
+      const result = await apiOk("ship_definitions", {});
+      const body = result as Record<string, unknown>;
+      assert(Array.isArray(body.definitions), "definitions should be array");
+      assert(
+        (body.definitions as unknown[]).length > 0,
+        "should have at least one definition",
+      );
+    });
+
+    await t.step("reset and call with character_id", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("returns definitions with character_id (emits event)", async () => {
+      const result = await apiOk("ship_definitions", {
+        character_id: p1Id,
+      });
+      const body = result as Record<string, unknown>;
+      assert(Array.isArray(body.definitions), "definitions should be array");
+    });
+  },
+});
+
+// ============================================================================
+// Group 19: path_with_region — missing to_sector
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — path_with_region missing to_sector",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: missing to_sector", async () => {
+      const result = await api("path_with_region", {
+        character_id: p1Id,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("to_sector"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 20: path_with_region — invalid region_hops
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — path_with_region invalid region_hops",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: negative region_hops", async () => {
+      const result = await api("path_with_region", {
+        character_id: p1Id,
+        to_sector: 1,
+        region_hops: -1,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("region_hops"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 21: path_with_region — invalid max_sectors
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — path_with_region invalid max_sectors",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: max_sectors out of range", async () => {
+      const result = await api("path_with_region", {
+        character_id: p1Id,
+        to_sector: 1,
+        max_sectors: 999,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("max_sectors"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 22: path_with_region — happy path
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — path_with_region happy path",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("returns path result", async () => {
+      const result = await apiOk("path_with_region", {
+        character_id: p1Id,
+        to_sector: 1,
+      });
+      assertExists((result as Record<string, unknown>).request_id);
+    });
+  },
+});
+
+// ============================================================================
+// Group 23: local_map_region — invalid fit_sectors
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — local_map_region invalid fit_sectors",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: fit_sectors not an array", async () => {
+      const result = await api("local_map_region", {
+        character_id: p1Id,
+        fit_sectors: "not-an-array",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("fit_sectors"));
+    });
+
+    await t.step("fails: fit_sectors empty array", async () => {
+      const result = await api("local_map_region", {
+        character_id: p1Id,
+        fit_sectors: [],
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("fit_sectors"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 24: local_map_region — invalid max_hops
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — local_map_region invalid max_hops",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: max_hops negative", async () => {
+      const result = await api("local_map_region", {
+        character_id: p1Id,
+        max_hops: -1,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("max_hops"));
+    });
+
+    await t.step("fails: max_sectors zero", async () => {
+      const result = await api("local_map_region", {
+        character_id: p1Id,
+        max_sectors: 0,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("max_sectors"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 25: local_map_region — bounds mode
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — local_map_region bounds mode",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("works: bounds-only mode", async () => {
+      const result = await apiOk("local_map_region", {
+        character_id: p1Id,
+        bounds: 2,
+      });
+      assertExists((result as Record<string, unknown>).request_id);
+    });
+
+    await t.step("fails: bounds out of range", async () => {
+      const result = await api("local_map_region", {
+        character_id: p1Id,
+        bounds: 200,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("bounds"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 26: list_known_ports — filter validation
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — list_known_ports filter validation",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: commodity without trade_type", async () => {
+      const result = await api("list_known_ports", {
+        character_id: p1Id,
+        commodity: "quantum_foam",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("commodity and trade_type"));
+    });
+
+    await t.step("fails: trade_type without commodity", async () => {
+      const result = await api("list_known_ports", {
+        character_id: p1Id,
+        trade_type: "buy",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("commodity and trade_type"));
+    });
+
+    await t.step("fails: invalid trade_type", async () => {
+      const result = await api("list_known_ports", {
+        character_id: p1Id,
+        commodity: "quantum_foam",
+        trade_type: "barter",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("trade_type"));
+    });
+
+    await t.step("fails: invalid commodity", async () => {
+      const result = await api("list_known_ports", {
+        character_id: p1Id,
+        commodity: "unobtanium",
+        trade_type: "buy",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("commodity") || result.body.error?.includes("Unknown"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 27: list_known_ports — invalid max_hops
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — list_known_ports invalid max_hops",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: negative max_hops", async () => {
+      const result = await api("list_known_ports", {
+        character_id: p1Id,
+        max_hops: -1,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("max_hops"));
+    });
+
+    await t.step("fails: max_hops too large", async () => {
+      const result = await api("list_known_ports", {
+        character_id: p1Id,
+        max_hops: 999,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("max_hops"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 28: list_known_ports — from_sector not visited
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — list_known_ports from_sector not visited",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: from_sector not visited", async () => {
+      const result = await api("list_known_ports", {
+        character_id: p1Id,
+        from_sector: 999,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("visited"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 29: list_known_ports — happy path with filters
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — list_known_ports with valid filters",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("list with commodity + trade_type filter", async () => {
+      const result = await apiOk("list_known_ports", {
+        character_id: p1Id,
+        commodity: "quantum_foam",
+        trade_type: "buy",
+      });
+      assertExists((result as Record<string, unknown>).request_id);
+    });
+
+    await t.step("list with mega filter", async () => {
+      const result = await apiOk("list_known_ports", {
+        character_id: p1Id,
+        mega: true,
+        max_hops: 100,
+      });
+      assertExists((result as Record<string, unknown>).request_id);
+    });
+  },
+});
+
+// ============================================================================
+// Group 30: my_status — in hyperspace → 409
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — my_status in hyperspace",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset, enter hyperspace", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipHyperspace(p1ShipId, true, 1);
+    });
+
+    await t.step("fails: in hyperspace → 409", async () => {
+      const result = await api("my_status", {
+        character_id: p1Id,
+      });
+      assertEquals(result.status, 409);
+      assert(result.body.error?.includes("hyperspace"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 31: corporation_info — member vs non-member view
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — corporation_info member view",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+
+    await t.step("reset, create corp with P1", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "InfoTest Corp",
+      });
+      const body = createResult as Record<string, unknown>;
+      corpId = body.corp_id as string;
+    });
+
+    await t.step("P1 (member) gets full info", async () => {
+      const result = await apiOk("corporation_info", {
+        character_id: p1Id,
+        corp_id: corpId,
+      });
+      const body = result as Record<string, unknown>;
+      assertExists(body.members, "Member should see members list");
+    });
+
+    await t.step("P2 (non-member) gets public info", async () => {
+      const result = await apiOk("corporation_info", {
+        character_id: p2Id,
+        corp_id: corpId,
+      });
+      const body = result as Record<string, unknown>;
+      assertExists(body.name, "Non-member should see corp name");
+    });
+  },
+});
+
+// ============================================================================
+// Group 32: list_known_ports — port_type filter
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — list_known_ports port_type filter",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("list with port_type filter", async () => {
+      const result = await apiOk("list_known_ports", {
+        character_id: p1Id,
+        port_type: "BBS",
+      });
+      assertExists((result as Record<string, unknown>).request_id);
+    });
+  },
+});
+
+// ============================================================================
+// Group 33: list_known_ports — from_sector integer validation
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — list_known_ports from_sector non-integer",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: from_sector non-integer", async () => {
+      const result = await api("list_known_ports", {
+        character_id: p1Id,
+        from_sector: 1.5,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("integer"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 34: local_map_region — fit_sectors with valid sectors
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — local_map_region fit_sectors valid",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fit_sectors with visited sectors", async () => {
+      // sector 0 is visited after join
+      const result = await apiOk("local_map_region", {
+        character_id: p1Id,
+        fit_sectors: [0],
+      });
+      const body = result as Record<string, unknown>;
+      assertExists(body.request_id);
     });
   },
 });

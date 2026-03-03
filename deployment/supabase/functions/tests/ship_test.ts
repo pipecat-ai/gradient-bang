@@ -30,6 +30,8 @@ import {
   queryShip,
   setShipCredits,
   setShipSector,
+  setShipHyperspace,
+  setMegabankBalance,
 } from "./helpers.ts";
 
 const P1 = "test_ship_p1";
@@ -372,6 +374,329 @@ Deno.test({
       });
       assert(!result.ok || !result.body.success, "Expected personal ship sell to fail");
       assertEquals(result.status, 400, "Expected 400");
+    });
+  },
+});
+
+// ============================================================================
+// Group 9: Ship sell — not at mega-port
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell fails not at mega-port",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+
+    await t.step("reset and create corp ship", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Sell Test Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      // Move player to non-mega-port sector
+      await setShipSector(p1ShipId, 3);
+    });
+
+    await t.step("fails: not at mega-port", async () => {
+      const result = await api("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("mega-port"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 10: Ship sell — in hyperspace
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell fails in hyperspace",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+
+    await t.step("reset, create corp ship, go to hyperspace", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Hyper Sell Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      await setShipHyperspace(p1ShipId, true, 1);
+    });
+
+    await t.step("fails: in hyperspace", async () => {
+      const result = await api("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+      });
+      assertEquals(result.status, 409);
+      assert(result.body.error?.includes("hyperspace"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 11: Ship rename — empty name
+// ============================================================================
+
+Deno.test({
+  name: "ship — rename empty name rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: empty ship_name", async () => {
+      const result = await api("ship_rename", {
+        character_id: p1Id,
+        ship_name: "",
+      });
+      assertEquals(result.status, 400);
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: Ship sell — invalid ship_id format
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell invalid ship_id format",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+    });
+
+    await t.step("fails: invalid ship_id format", async () => {
+      const result = await api("ship_sell", {
+        character_id: p1Id,
+        ship_id: "not-a-valid-id",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("UUID or 6-8 hex"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 13: Ship rename — invalid ship_id format
+// ============================================================================
+
+Deno.test({
+  name: "ship — rename invalid ship_id format",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: invalid ship_id format", async () => {
+      const result = await api("ship_rename", {
+        character_id: p1Id,
+        ship_id: "xyz",
+        ship_name: "Test Name",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("UUID or 6-8 hex"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 14: Ship rename — empty name
+// ============================================================================
+
+Deno.test({
+  name: "ship — rename empty name",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("fails: empty ship_name", async () => {
+      const result = await api("ship_rename", {
+        character_id: p1Id,
+        ship_name: "   ",
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("empty"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 15: Ship rename — duplicate name
+// ============================================================================
+
+Deno.test({
+  name: "ship — rename duplicate name",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let currentName: string;
+
+    await t.step("reset and get current name", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      const ship = await queryShip(p1ShipId);
+      currentName = ship!.ship_name as string;
+    });
+
+    await t.step("rename to a new name", async () => {
+      await apiOk("ship_rename", {
+        character_id: p1Id,
+        ship_name: "UniqueTestShip123",
+      });
+    });
+
+    await t.step("rename back — no change (same name)", async () => {
+      const result = await apiOk("ship_rename", {
+        character_id: p1Id,
+        ship_name: "UniqueTestShip123",
+      });
+      const body = result as Record<string, unknown>;
+      assertEquals(body.changed, false, "Same name should not trigger change");
+    });
+  },
+});
+
+// ============================================================================
+// Group 16: Ship sell — cannot sell personal ship
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell personal ship rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+    });
+
+    await t.step("fails: cannot sell personal ship", async () => {
+      const result = await api("ship_sell", {
+        character_id: p1Id,
+        ship_id: p1ShipId,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("personal ship"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 17: Ship sell — in hyperspace rejected
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell in hyperspace rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset, put in hyperspace", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipHyperspace(p1ShipId, true, 1);
+    });
+
+    await t.step("fails: in hyperspace", async () => {
+      const result = await api("ship_sell", {
+        character_id: p1Id,
+        ship_id: crypto.randomUUID(),
+      });
+      assertEquals(result.status, 409);
+      assert(result.body.error?.includes("hyperspace"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 18: Ship sell — not at mega-port rejected
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell not at mega-port rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset, move to non-mega sector", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+    });
+
+    await t.step("fails: not at mega-port", async () => {
+      const result = await api("ship_sell", {
+        character_id: p1Id,
+        ship_id: crypto.randomUUID(),
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("mega-port"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 19: Ship sell — target not found
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell target not found",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset at mega-port", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+    });
+
+    await t.step("fails: ship not found", async () => {
+      const result = await api("ship_sell", {
+        character_id: p1Id,
+        ship_id: crypto.randomUUID(),
+      });
+      assertEquals(result.status, 404);
     });
   },
 });

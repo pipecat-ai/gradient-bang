@@ -33,6 +33,8 @@ import {
   setShipCredits,
   setShipSector,
   setShipWarpPower,
+  setShipHyperspace,
+  setShipFighters,
 } from "./helpers.ts";
 
 const P1 = "test_xfer_p1";
@@ -483,6 +485,496 @@ Deno.test({
       });
       assert(!result.ok || !result.body.success, "Expected missing recipient to fail");
       assertEquals(result.status, 400, "Expected 400");
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: Credits — invalid amount (0, negative, missing)
+// ============================================================================
+
+Deno.test({
+  name: "transfer — credits invalid amount",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 5000);
+    });
+
+    await t.step("fails: amount = 0", async () => {
+      const result = await api("transfer_credits", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        amount: 0,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+
+    await t.step("fails: amount negative", async () => {
+      const result = await api("transfer_credits", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        amount: -100,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+
+    await t.step("fails: amount missing", async () => {
+      const result = await api("transfer_credits", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 13: Credits — no recipient identifier
+// ============================================================================
+
+Deno.test({
+  name: "transfer — credits fails without recipient",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 5000);
+    });
+
+    await t.step("fails: no recipient", async () => {
+      const result = await api("transfer_credits", {
+        from_character_id: p1Id,
+        amount: 100,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("to_player_name"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 14: Credits — self-transfer rejected
+// ============================================================================
+
+Deno.test({
+  name: "transfer — credits self-transfer rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 5000);
+    });
+
+    await t.step("self-transfer fails", async () => {
+      const result = await api("transfer_credits", {
+        from_character_id: p1Id,
+        to_player_name: P1,
+        amount: 100,
+      });
+      assert(
+        result.status === 400 || result.status === 404,
+        `Expected 400 or 404, got ${result.status}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 15: Credits — sender in hyperspace
+// ============================================================================
+
+Deno.test({
+  name: "transfer — credits fails when sender in hyperspace",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and put P1 in hyperspace", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 5000);
+      await setShipHyperspace(p1ShipId, true, 1);
+    });
+
+    await t.step("fails: sender in hyperspace", async () => {
+      const result = await api("transfer_credits", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        amount: 100,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("hyperspace"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 16: Credits — in combat blocked
+// ============================================================================
+
+Deno.test({
+  name: "transfer — credits fails when in combat",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and initiate combat", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 5000);
+      // Move both to sector 3 (non-fedspace, non-megaport)
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 3);
+      await setShipFighters(p1ShipId, 50);
+      await setShipFighters(p2ShipId, 50);
+      await apiOk("combat_initiate", { character_id: p1Id });
+    });
+
+    await t.step("fails: sender in combat", async () => {
+      const result = await api("transfer_credits", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        amount: 100,
+      });
+      assertEquals(result.status, 409);
+      assert(result.body.error?.includes("combat"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 17: Credits — invalid to_ship_id format
+// ============================================================================
+
+Deno.test({
+  name: "transfer — credits invalid to_ship_id format",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 5000);
+    });
+
+    await t.step("fails: to_ship_id too short", async () => {
+      const result = await api("transfer_credits", {
+        from_character_id: p1Id,
+        to_ship_id: "abc",
+        amount: 100,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("UUID or 6-8 hex"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 18: Credits — transfer by ship_id
+// ============================================================================
+
+Deno.test({
+  name: "transfer — credits by ship_id",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 5000);
+      await setShipCredits(p2ShipId, 1000);
+    });
+
+    await t.step("transfer by to_ship_id succeeds", async () => {
+      const result = await apiOk("transfer_credits", {
+        from_character_id: p1Id,
+        to_ship_id: p2ShipId,
+        amount: 200,
+      });
+      assert(result.success);
+    });
+
+    await t.step("DB: credits moved", async () => {
+      const ship1 = await queryShip(p1ShipId);
+      const ship2 = await queryShip(p2ShipId);
+      assertExists(ship1);
+      assertExists(ship2);
+      assertEquals(ship1.credits, 4800);
+      assertEquals(ship2.credits, 1200);
+    });
+  },
+});
+
+// ============================================================================
+// Group 19: Warp — invalid units (0, negative, missing)
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp invalid units",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipWarpPower(p1ShipId, 400);
+    });
+
+    await t.step("fails: units = 0", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        units: 0,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+
+    await t.step("fails: units negative", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        units: -10,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+
+    await t.step("fails: units missing", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("positive integer"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 20: Warp — sender in hyperspace
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp fails when sender in hyperspace",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and put P1 in hyperspace", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipWarpPower(p1ShipId, 400);
+      await setShipHyperspace(p1ShipId, true, 1);
+    });
+
+    await t.step("fails: sender in hyperspace", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        units: 50,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("hyperspace"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 21: Warp — receiver at max capacity
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp fails when receiver at max capacity",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and max out P2 warp", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipWarpPower(p1ShipId, 400);
+      // kestrel_courier warp_power_capacity=500 (updated in migration)
+      await setShipWarpPower(p2ShipId, 500);
+    });
+
+    await t.step("fails: receiver at max capacity", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        units: 50,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("maximum"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 22: Warp — missing target
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp fails when no target specified",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipWarpPower(p1ShipId, 400);
+    });
+
+    await t.step("fails: no target specified", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        units: 50,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("Must provide"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 23: Warp — units validation
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp fails with invalid units",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipWarpPower(p1ShipId, 400);
+    });
+
+    await t.step("fails: zero units", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        units: 0,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("units"));
+    });
+
+    await t.step("fails: negative units", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        units: -10,
+      });
+      assertEquals(result.status, 400);
+    });
+
+    await t.step("fails: missing units", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+      });
+      assertEquals(result.status, 400);
+    });
+  },
+});
+
+// ============================================================================
+// Group 24: Warp — self-transfer rejected
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp self-transfer rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipWarpPower(p1ShipId, 400);
+    });
+
+    await t.step("fails: cannot transfer to self", async () => {
+      // Use to_ship_id to bypass the name-lookup exclusion filter
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_ship_id: p1ShipId,
+        units: 50,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("yourself"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 25: Warp — target not found in sector
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp target not found",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset, move P2 to different sector", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipWarpPower(p1ShipId, 400);
+      await setShipSector(p2ShipId, 3);
+    });
+
+    await t.step("fails: target not found in sector", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        units: 50,
+      });
+      assertEquals(result.status, 404);
+    });
+  },
+});
+
+// ============================================================================
+// Group 26: Warp — invalid to_ship_id format
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp invalid ship_id format",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+    });
+
+    await t.step("fails: invalid to_ship_id format", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_ship_id: "xyz",
+        units: 50,
+      });
+      assertEquals(result.status, 400);
+      assert(result.body.error?.includes("UUID or 6-8 hex"));
     });
   },
 });
