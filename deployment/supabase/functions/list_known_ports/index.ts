@@ -14,7 +14,7 @@ import {
 } from "../_shared/events.ts";
 import { isMegaPortSector, loadUniverseMeta } from "../_shared/fedspace.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
-import { loadMapKnowledge, parseWarpEdges } from "../_shared/map.ts";
+import { loadMapKnowledge, fetchAllAdjacencies } from "../_shared/map.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
@@ -31,6 +31,7 @@ import {
   respondWithError,
 } from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
+import type { WeaveSpan } from "../_shared/weave.ts";
 
 const MAX_HOPS_DEFAULT = 5;
 const MAX_HOPS_LIMIT = 100;
@@ -159,15 +160,21 @@ function getPortPrices(
 }
 
 Deno.serve(traced("list_known_ports", async (req, trace) => {
+  const sAuth = trace.span("auth_check");
   if (!validateApiToken(req)) {
+    sAuth.end({ error: "unauthorized" });
     return unauthorizedResponse();
   }
+  sAuth.end();
 
   const supabase = createServiceRoleClient();
   let payload;
+  const sParse = trace.span("parse_request");
   try {
     payload = await parseJsonRequest(req);
+    sParse.end();
   } catch (err) {
+    sParse.end({ error: err instanceof Error ? err.message : String(err) });
     const response = respondWithError(err);
     if (response) {
       return response;
@@ -196,8 +203,9 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "list_known_ports");
-  } catch (err) {
     sRateLimit.end();
+  } catch (err) {
+    sRateLimit.end({ error: err instanceof Error ? err.message : String(err) });
     if (err instanceof RateLimitError) {
       await emitErrorEvent(supabase, {
         characterId,
@@ -211,9 +219,8 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
     console.error("list_known_ports.rate_limit", err);
     return errorResponse("rate limit error", 500);
   }
-  sRateLimit.end();
 
-  const sHandle = trace.span("handle_list_known_ports");
+  const sHandle = trace.span("handle_list_known_ports", { characterId });
   try {
     const result = await handleListKnownPorts(
       supabase,
@@ -223,11 +230,12 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
       actorCharacterId,
       adminOverride,
       taskId,
+      sHandle,
     );
     sHandle.end();
     return result;
   } catch (err) {
-    sHandle.end();
+    sHandle.end({ error: err instanceof Error ? err.message : String(err) });
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
         characterId,
@@ -278,11 +286,19 @@ async function handleListKnownPorts(
   actorCharacterId: string | null,
   adminOverride: boolean,
   taskId: string | null,
+  ws: WeaveSpan,
 ): Promise<Response> {
   const source = buildEventSource("list_known_ports", requestId);
 
+  const sLoadChar = ws.span("load_character", { characterId });
   const character = await loadCharacter(supabase, characterId);
+  sLoadChar.end({ name: character.name });
+
+  const sLoadShip = ws.span("load_ship", { shipId: character.current_ship_id });
   const ship = await loadShip(supabase, character.current_ship_id);
+  sLoadShip.end({ sector: ship.current_sector });
+
+  const sActorAuth = ws.span("actor_authorization");
   await ensureActorAuthorization({
     supabase,
     ship,
@@ -290,8 +306,16 @@ async function handleListKnownPorts(
     adminOverride,
     targetCharacterId: characterId,
   });
+  sActorAuth.end();
+
+  const sMapKnowledge = ws.span("load_map_knowledge");
   const knowledge = await loadMapKnowledge(supabase, characterId);
+  const visitedCount = Object.keys(knowledge.sectors_visited).length;
+  sMapKnowledge.end({ visitedSectors: visitedCount });
+
+  const sUniverseMeta = ws.span("load_universe_meta");
   const universeMeta = await loadUniverseMeta(supabase);
+  sUniverseMeta.end();
 
   const requestedFromSector = optionalNumber(payload, "from_sector");
   let fromSector: number | null = null;
@@ -386,37 +410,22 @@ async function handleListKnownPorts(
   const visitedIds = Object.keys(knowledge.sectors_visited).map((key) =>
     Number(key),
   );
-  const portRows = await fetchPortRows(supabase, visitedIds);
+
+  // Fetch port data and full adjacency graph in parallel (2 queries total)
+  const sParallelLoad = ws.span("parallel_load_ports_and_adjacencies");
+  const [portRows, adjacency] = await Promise.all([
+    fetchPortRows(supabase, visitedIds),
+    fetchAllAdjacencies(supabase),
+  ]);
   const portMap = new Map(portRows.map((row) => [row.sector_id, row]));
+  sParallelLoad.end({
+    portCount: portRows.length,
+    sectorCount: adjacency.size,
+    visitedSectorCount: visitedIds.length,
+  });
 
-  const adjacencyCache = new Map<number, number[]>();
+  // Pure in-memory BFS
   const visitedBfs = new Set<number>([fromSector]);
-
-  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (adjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const entry = knowledge.sectors_visited[String(sectorId)];
-      if (entry?.adjacent_sectors && entry.adjacent_sectors.length > 0) {
-        adjacencyCache.set(sectorId, entry.adjacent_sectors);
-        continue;
-      }
-      toFetch.push(sectorId);
-    }
-    if (toFetch.length === 0) {
-      return;
-    }
-    const adjacencyMap = await fetchAdjacencyBatch(supabase, toFetch);
-    for (const sectorId of toFetch) {
-      const neighbors = adjacencyMap.get(sectorId);
-      if (!neighbors) {
-        throw new Error(`sector ${sectorId} does not exist`);
-      }
-      adjacencyCache.set(sectorId, neighbors);
-    }
-  };
   let sectorsSearched = 0;
   const results: Array<PortResult> = [];
   const rpcTimestamp = source.timestamp;
@@ -424,8 +433,8 @@ async function handleListKnownPorts(
   let frontier: number[] = [fromSector];
   let hops = 0;
 
+  const sBfs = ws.span("bfs_port_search", { fromSector, maxHops });
   while (frontier.length > 0) {
-    await ensureAdjacency(frontier);
     const next: number[] = [];
     for (const sectorId of frontier) {
       const current = { sector: sectorId, hops };
@@ -467,8 +476,8 @@ async function handleListKnownPorts(
         continue;
       }
 
-      const adjacency = adjacencyCache.get(current.sector) ?? [];
-      for (const neighbor of adjacency) {
+      const neighbors = adjacency.get(current.sector) ?? [];
+      for (const neighbor of neighbors) {
         if (!visitedBfs.has(neighbor)) {
           visitedBfs.add(neighbor);
           next.push(neighbor);
@@ -481,6 +490,11 @@ async function handleListKnownPorts(
     frontier = next;
     hops += 1;
   }
+  sBfs.end({
+    rounds: hops,
+    sectorsSearched,
+    portsFound: results.length,
+  });
 
   results.sort((a, b) => {
     if (a.hops_from_start !== b.hops_from_start) {
@@ -502,6 +516,7 @@ async function handleListKnownPorts(
     source,
   };
 
+  const sEmitEvent = ws.span("emit_ports_list");
   await emitCharacterEvent({
     supabase,
     characterId,
@@ -513,6 +528,7 @@ async function handleListKnownPorts(
     shipId: ship.ship_id,
     scope: "direct",
   });
+  sEmitEvent.end();
 
   return successResponse({ request_id: requestId });
 }
@@ -633,31 +649,6 @@ async function fetchPortRows(
     });
   }
   return results;
-}
-
-async function fetchAdjacencyBatch(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  sectorIds: number[],
-): Promise<Map<number, number[]>> {
-  if (sectorIds.length === 0) {
-    return new Map();
-  }
-  const uniqueIds = Array.from(new Set(sectorIds));
-  const { data, error } = await supabase
-    .from("universe_structure")
-    .select("sector_id, warps")
-    .in("sector_id", uniqueIds);
-  if (error) {
-    throw new Error(`failed to load universe rows: ${error.message}`);
-  }
-  const adjacencyMap = new Map<number, number[]>();
-  for (const row of data ?? []) {
-    adjacencyMap.set(
-      row.sector_id,
-      parseWarpEdges(row.warps ?? []).map((edge) => edge.to),
-    );
-  }
-  return adjacencyMap;
 }
 
 function portMatchesFilters(

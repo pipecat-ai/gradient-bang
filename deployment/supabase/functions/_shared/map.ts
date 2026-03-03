@@ -1125,7 +1125,7 @@ export async function findShortestPath(
  * Load all sector adjacencies from universe_structure in a single query.
  * Returns a Map from sector_id to an array of neighbor sector_ids.
  */
-async function fetchAllAdjacencies(
+export async function fetchAllAdjacencies(
   supabase: SupabaseClient,
 ): Promise<Map<number, number[]>> {
   const { data, error } = await supabase
