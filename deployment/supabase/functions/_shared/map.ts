@@ -1181,11 +1181,13 @@ export async function buildLocalMapRegion(
   const explored = new Set<number>([centerSector]);
   const unvisitedSeen = new Map<number, Set<number>>();
   const adjacencyCache = new Map<number, number[]>();
-  const universeAdjacencyCache = new Map<number, number[]>();
   const universeRowCache = new Map<
     number,
     { position: [number, number]; region: string | null; warps: WarpEdge[] }
   >();
+
+  // Load all universe adjacencies upfront for pure in-memory BFS
+  const allAdjacencies = await fetchAllAdjacencies(supabase);
 
   const hydrateUniverseRows = async (sectorIds: number[]): Promise<void> => {
     const missing = sectorIds.filter((id) => !universeRowCache.has(id));
@@ -1198,58 +1200,18 @@ export async function buildLocalMapRegion(
     }
   };
 
-  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (adjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
-      if (knowledgeEntry?.adjacent_sectors) {
-        adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
-        continue;
-      }
-      toFetch.push(sectorId);
+  const getAdjacency = (sectorId: number): number[] => {
+    if (adjacencyCache.has(sectorId)) {
+      return adjacencyCache.get(sectorId)!;
     }
-    if (toFetch.length === 0) {
-      return;
+    const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
+    if (knowledgeEntry?.adjacent_sectors) {
+      adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
+      return knowledgeEntry.adjacent_sectors;
     }
-    await hydrateUniverseRows(toFetch);
-    for (const sectorId of toFetch) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      adjacencyCache.set(sectorId, neighbors);
-      universeAdjacencyCache.set(sectorId, neighbors);
-    }
-  };
-
-  const ensureUniverseAdjacency = async (
-    sectorIds: number[],
-  ): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (universeAdjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const row = universeRowCache.get(sectorId);
-      if (row) {
-        universeAdjacencyCache.set(
-          sectorId,
-          row.warps.map((edge) => edge.to),
-        );
-      } else {
-        toFetch.push(sectorId);
-      }
-    }
-    if (toFetch.length === 0) {
-      return;
-    }
-    await hydrateUniverseRows(toFetch);
-    for (const sectorId of toFetch) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      universeAdjacencyCache.set(sectorId, neighbors);
-    }
+    const neighbors = allAdjacencies.get(sectorId) ?? [];
+    adjacencyCache.set(sectorId, neighbors);
+    return neighbors;
   };
 
   let frontier: number[] = [centerSector];
@@ -1261,10 +1223,9 @@ export async function buildLocalMapRegion(
     distanceMap.size < maxSectors &&
     !capacityReached
   ) {
-    await ensureAdjacency(frontier);
     const next: number[] = [];
     for (const sectorId of frontier) {
-      const neighbors = adjacencyCache.get(sectorId) ?? [];
+      const neighbors = getAdjacency(sectorId);
       for (const neighbor of neighbors) {
         if (!distanceMap.has(neighbor)) {
           distanceMap.set(neighbor, hops + 1);
@@ -1347,10 +1308,9 @@ export async function buildLocalMapRegion(
       bfsFrontier.length > 0 &&
       disconnectedDistances.size < targetSet.size
     ) {
-      await ensureUniverseAdjacency(bfsFrontier);
       const next: number[] = [];
       for (const sectorId of bfsFrontier) {
-        const neighbors = universeAdjacencyCache.get(sectorId) ?? [];
+        const neighbors = allAdjacencies.get(sectorId) ?? [];
         for (const neighbor of neighbors) {
           if (seen.has(neighbor)) {
             continue;
@@ -1947,20 +1907,16 @@ export async function buildPathRegionPayload(
   const pathSet = new Set(path);
   const distanceMap = new Map<number, number>();
   const unvisitedSeen = new Map<number, Set<number>>();
-  const adjacencyCache = new Map<number, number[]>();
 
-  const resolveAdjacency = async (sectorId: number): Promise<number[]> => {
-    if (adjacencyCache.has(sectorId)) {
-      return adjacencyCache.get(sectorId)!;
-    }
+  // Load all universe adjacencies upfront for pure in-memory BFS
+  const allAdjacencies = await fetchAllAdjacencies(supabase);
+
+  const getAdjacency = (sectorId: number): number[] => {
     const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
-    let neighbors: number[] | undefined = knowledgeEntry?.adjacent_sectors;
-    if (!neighbors || neighbors.length === 0) {
-      const row = await fetchSectorRow(supabase, sectorId);
-      neighbors = parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
+    if (knowledgeEntry?.adjacent_sectors && knowledgeEntry.adjacent_sectors.length > 0) {
+      return knowledgeEntry.adjacent_sectors;
     }
-    adjacencyCache.set(sectorId, neighbors ?? []);
-    return adjacencyCache.get(sectorId)!;
+    return allAdjacencies.get(sectorId) ?? [];
   };
 
   const bfsQueue: Array<{ sector: number; hops: number }> = [];
@@ -1977,7 +1933,7 @@ export async function buildPathRegionPayload(
     if (current.hops >= regionHops) {
       continue;
     }
-    const neighbors = await resolveAdjacency(current.sector);
+    const neighbors = getAdjacency(current.sector);
     for (const neighbor of neighbors) {
       const nextDistance = current.hops + 1;
       if (

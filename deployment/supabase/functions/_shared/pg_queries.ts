@@ -347,109 +347,6 @@ export async function pgGetAdjacentSectors(
   return parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
 }
 
-export interface ShortestPathResult {
-  path: number[];
-  distance: number;
-}
-
-export async function pgFindShortestPath(
-  pg: QueryClient,
-  params: { fromSector: number; toSector: number },
-): Promise<ShortestPathResult | null> {
-  const { fromSector, toSector } = params;
-  if (fromSector === toSector) {
-    return { path: [fromSector], distance: 0 };
-  }
-
-  const adjacencyCache = new Map<number, number[]>();
-  const universeRowCache = new Map<
-    number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
-  >();
-
-  const hydrateUniverseRows = async (sectorIds: number[]): Promise<void> => {
-    const missing = sectorIds.filter((id) => !universeRowCache.has(id));
-    if (missing.length === 0) {
-      return;
-    }
-    const rows = await pgFetchUniverseRows(pg, missing);
-    for (const [id, row] of rows) {
-      universeRowCache.set(id, row);
-    }
-    for (const id of missing) {
-      if (!universeRowCache.has(id)) {
-        throw new Error(`sector ${id} does not exist`);
-      }
-    }
-  };
-
-  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (adjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const row = universeRowCache.get(sectorId);
-      if (row) {
-        adjacencyCache.set(
-          sectorId,
-          row.warps.map((edge) => edge.to),
-        );
-      } else {
-        toFetch.push(sectorId);
-      }
-    }
-    if (toFetch.length === 0) {
-      return;
-    }
-    await hydrateUniverseRows(toFetch);
-    for (const sectorId of toFetch) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      adjacencyCache.set(sectorId, neighbors);
-    }
-  };
-
-  await hydrateUniverseRows([fromSector, toSector]);
-
-  const visited = new Set<number>([fromSector]);
-  const parents = new Map<number, number | null>([[fromSector, null]]);
-  let frontier: number[] = [fromSector];
-
-  const buildPath = (target: number): number[] => {
-    const path: number[] = [];
-    let current: number | null | undefined = target;
-    while (current !== null && current !== undefined) {
-      path.unshift(current);
-      current = parents.get(current) ?? null;
-    }
-    return path;
-  };
-
-  while (frontier.length > 0) {
-    await ensureAdjacency(frontier);
-    const next: number[] = [];
-    for (const current of frontier) {
-      const neighbors = adjacencyCache.get(current) ?? [];
-      for (const neighbor of neighbors) {
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor);
-          parents.set(neighbor, current);
-          if (neighbor === toSector) {
-            const path = buildPath(neighbor);
-            return { path, distance: path.length - 1 };
-          }
-          next.push(neighbor);
-        }
-      }
-    }
-    frontier = next;
-  }
-
-  // No path found
-  return null;
-}
-
 // ============================================================================
 // Hyperspace Operations
 // ============================================================================
@@ -1377,6 +1274,20 @@ async function pgFetchUniverseRows(
   return map;
 }
 
+async function pgFetchAllAdjacencies(
+  pg: QueryClient,
+): Promise<Map<number, number[]>> {
+  const result = await pg.queryObject<{ sector_id: number; warps: unknown }>(
+    `SELECT sector_id::int, warps FROM universe_structure`,
+  );
+  const map = new Map<number, number[]>();
+  for (const row of result.rows) {
+    const edges = parseWarpEdges(row.warps);
+    map.set(row.sector_id, edges.map((e) => e.to));
+  }
+  return map;
+}
+
 async function pgLoadPortCodes(
   pg: QueryClient,
   sectorIds: number[],
@@ -1551,11 +1462,13 @@ export async function pgBuildLocalMapRegion(
   const explored = new Set<number>([centerSector]);
   const unvisitedSeen = new Map<number, Set<number>>();
   const adjacencyCache = new Map<number, number[]>();
-  const universeAdjacencyCache = new Map<number, number[]>();
   const universeRowCache = new Map<
     number,
     { position: [number, number]; region: string | null; warps: WarpEdge[] }
   >();
+
+  // Load all universe adjacencies upfront for pure in-memory BFS
+  const allAdjacencies = await pgFetchAllAdjacencies(pg);
 
   const hydrateUniverseRows = async (sectorIds: number[]): Promise<void> => {
     const missing = sectorIds.filter((id) => !universeRowCache.has(id));
@@ -1568,58 +1481,18 @@ export async function pgBuildLocalMapRegion(
     }
   };
 
-  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (adjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
-      if (knowledgeEntry?.adjacent_sectors) {
-        adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
-        continue;
-      }
-      toFetch.push(sectorId);
+  const getAdjacency = (sectorId: number): number[] => {
+    if (adjacencyCache.has(sectorId)) {
+      return adjacencyCache.get(sectorId)!;
     }
-    if (toFetch.length === 0) {
-      return;
+    const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
+    if (knowledgeEntry?.adjacent_sectors) {
+      adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
+      return knowledgeEntry.adjacent_sectors;
     }
-    await hydrateUniverseRows(toFetch);
-    for (const sectorId of toFetch) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      adjacencyCache.set(sectorId, neighbors);
-      universeAdjacencyCache.set(sectorId, neighbors);
-    }
-  };
-
-  const ensureUniverseAdjacency = async (
-    sectorIds: number[],
-  ): Promise<void> => {
-    const toFetch: number[] = [];
-    for (const sectorId of sectorIds) {
-      if (universeAdjacencyCache.has(sectorId)) {
-        continue;
-      }
-      const row = universeRowCache.get(sectorId);
-      if (row) {
-        universeAdjacencyCache.set(
-          sectorId,
-          row.warps.map((edge) => edge.to),
-        );
-      } else {
-        toFetch.push(sectorId);
-      }
-    }
-    if (toFetch.length === 0) {
-      return;
-    }
-    await hydrateUniverseRows(toFetch);
-    for (const sectorId of toFetch) {
-      const row = universeRowCache.get(sectorId);
-      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
-      universeAdjacencyCache.set(sectorId, neighbors);
-    }
+    const neighbors = allAdjacencies.get(sectorId) ?? [];
+    adjacencyCache.set(sectorId, neighbors);
+    return neighbors;
   };
 
   let frontier: number[] = [centerSector];
@@ -1632,10 +1505,9 @@ export async function pgBuildLocalMapRegion(
     distanceMap.size < maxSectors &&
     !capacityReached
   ) {
-    await ensureAdjacency(frontier);
     const next: number[] = [];
     for (const sectorId of frontier) {
-      const neighbors = adjacencyCache.get(sectorId) ?? [];
+      const neighbors = getAdjacency(sectorId);
       for (const neighbor of neighbors) {
         if (!distanceMap.has(neighbor)) {
           distanceMap.set(neighbor, hops + 1);
@@ -1718,10 +1590,9 @@ export async function pgBuildLocalMapRegion(
       bfsFrontier.length > 0 &&
       disconnectedDistances.size < targetSet.size
     ) {
-      await ensureUniverseAdjacency(bfsFrontier);
       const next: number[] = [];
       for (const sectorId of bfsFrontier) {
-        const neighbors = universeAdjacencyCache.get(sectorId) ?? [];
+        const neighbors = allAdjacencies.get(sectorId) ?? [];
         for (const neighbor of neighbors) {
           if (seen.has(neighbor)) {
             continue;
