@@ -4,6 +4,7 @@
  */
 
 import type { QueryClient } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
+import type { WeaveSpan } from "./weave.ts";
 import { RATE_LIMITS } from "./constants.ts";
 import type { CharacterRow, ShipRow, ShipDefinitionRow } from "./status.ts";
 import type {
@@ -1253,18 +1254,32 @@ export interface PgBuildStatusPayloadOptions {
 export async function pgBuildStatusPayload(
   pg: QueryClient,
   characterId: string,
-  options?: Omit<PgBuildStatusPayloadOptions, "pg" | "characterId">,
+  options?: Omit<PgBuildStatusPayloadOptions, "pg" | "characterId"> & {
+    parentSpan?: WeaveSpan;
+  },
 ): Promise<Record<string, unknown>> {
+  const noopSpan: WeaveSpan = { span() { return noopSpan; }, end() {} };
+  const ws = options?.parentSpan ?? noopSpan;
+
   // Use provided data or fetch if not provided
+  const sLoadState = ws.span("load_character_ship_definition");
   const character =
     options?.character ?? (await pgLoadCharacter(pg, characterId));
   const ship =
     options?.ship ?? (await pgLoadShip(pg, character.current_ship_id));
   const definition =
     options?.shipDefinition ?? (await pgLoadShipDefinition(pg, ship.ship_type));
+  sLoadState.end();
+
   // Load merged knowledge (with source field set on each entry)
+  const sKnowledge = ws.span("load_map_knowledge");
   const knowledge = await pgLoadMapKnowledge(pg, characterId);
+  sKnowledge.end({ visitedCount: Object.keys(knowledge.sectors_visited).length });
+
+  const sUniverseSize = ws.span("load_universe_size");
   const universeSize = await pgLoadUniverseSize(pg);
+  sUniverseSize.end({ universeSize });
+
   const playerType = resolvePlayerType(character.player_metadata);
   const player = buildPlayerSnapshot(
     character,
@@ -1273,13 +1288,17 @@ export async function pgBuildStatusPayload(
     universeSize,
   );
   const shipSnapshot = buildShipSnapshot(ship, definition);
+
+  const sSector = ws.span("build_sector_snapshot", { sectorId: ship.current_sector });
   const sectorSnapshot =
     options?.sectorSnapshot ??
     (await pgBuildSectorSnapshot(pg, ship.current_sector ?? 0, characterId));
+  sSector.end();
 
   // Load corporation info with member count in a single query
   let corporationPayload: Record<string, unknown> | null = null;
   if (character.corporation_id) {
+    const sCorp = ws.span("load_corporation_info");
     const corpResult = await pg.queryObject<{
       corp_id: string;
       name: string;
@@ -1301,6 +1320,7 @@ export async function pgBuildStatusPayload(
         joined_at: character.corporation_joined_at,
       };
     }
+    sCorp.end();
   }
 
   return convertBigInts({
@@ -1503,15 +1523,20 @@ export async function pgBuildLocalMapRegion(
     mapKnowledge?: MapKnowledge;
     maxHops?: number;
     maxSectors?: number;
+    parentSpan?: WeaveSpan;
   },
 ): Promise<LocalMapRegionPayload> {
+  const noopSpan: WeaveSpan = { span() { return noopSpan; }, end() {} };
+  const ws = params.parentSpan ?? noopSpan;
   const { characterId, centerSector } = params;
   const maxHops = params.maxHops ?? 4;
   const maxSectors = params.maxSectors ?? 28;
 
   let knowledge = params.mapKnowledge;
   if (!knowledge) {
+    const sKnowledge = ws.span("load_map_knowledge");
     knowledge = await pgLoadMapKnowledge(pg, characterId);
+    sKnowledge.end({ visitedCount: Object.keys(knowledge.sectors_visited).length });
   }
 
   const visitedSet = new Set<number>(
@@ -1600,6 +1625,7 @@ export async function pgBuildLocalMapRegion(
   let frontier: number[] = [centerSector];
   let hops = 0;
   let capacityReached = false;
+  const sBfsMain = ws.span("bfs_main", { centerSector, maxHops, maxSectors });
   while (
     frontier.length > 0 &&
     hops < maxHops &&
@@ -1640,6 +1666,7 @@ export async function pgBuildLocalMapRegion(
     frontier = next;
     hops += 1;
   }
+  sBfsMain.end({ hops, sectorsFound: distanceMap.size });
 
   // Calculate bounding box from BFS results to find disconnected visited sectors
   let minX = Infinity,
@@ -1682,6 +1709,7 @@ export async function pgBuildLocalMapRegion(
   // Calculate hop distances for disconnected sectors with a single BFS
   const disconnectedDistances = new Map<number, number>();
   if (disconnectedSectors.length > 0) {
+    const sBfsDisconnected = ws.span("bfs_disconnected", { targetCount: disconnectedSectors.length });
     const targetSet = new Set(disconnectedSectors);
     const seen = new Set<number>([centerSector]);
     let bfsFrontier: number[] = [centerSector];
@@ -1714,6 +1742,7 @@ export async function pgBuildLocalMapRegion(
         disconnectedDistances.set(sectorId, -1);
       }
     }
+    sBfsDisconnected.end({ hops: bfsHops, found: disconnectedDistances.size, visited: seen.size });
   }
 
   const disconnectedUnvisitedNeighbors = new Set<number>();
@@ -1764,11 +1793,18 @@ export async function pgBuildLocalMapRegion(
     }
   }
 
+  const sLoadSectorData = ws.span("load_sector_data", {
+    sectorCount: sectorIds.length,
+    visitedCount: visitedSectorIds.length,
+    needsPortCodes,
+    needsUniverseMeta,
+  });
   const [portCodes, universeMeta, garrisonsBySector] = await Promise.all([
     needsPortCodes ? pgLoadPortCodes(pg, visitedSectorIds) : Promise.resolve({}),
     needsUniverseMeta ? pgLoadUniverseMeta(pg) : Promise.resolve(null),
     pgLoadSectorGarrisons(pg, visitedSectorIds),
   ]);
+  sLoadSectorData.end();
 
   const resultSectors: LocalMapSector[] = [];
   const disconnectedSet = new Set(disconnectedSectors);
@@ -3168,19 +3204,24 @@ export async function pgUpsertKnowledgeEntry(
     characterId: string;
     sectorId: number;
     existingKnowledge?: MapKnowledge;
+    parentSpan?: WeaveSpan;
   },
 ): Promise<void> {
+  const noopSpan: WeaveSpan = { span() { return noopSpan; }, end() {} };
+  const ws = params.parentSpan ?? noopSpan;
   const { characterId, sectorId } = params;
 
   // Fetch sector structure
+  const sStruct = ws.span("fetch_sector_structure", { sectorId });
   const structResult = await pg.queryObject<UniverseSectorRow>(
     `SELECT sector_id::int, position_x::int, position_y::int, warps
     FROM universe_structure
     WHERE sector_id = $1`,
     [sectorId],
   );
-
   const structure = structResult.rows[0];
+  sStruct.end({ found: !!structure });
+
   if (!structure) {
     return; // Sector not found, skip update
   }
@@ -3188,6 +3229,7 @@ export async function pgUpsertKnowledgeEntry(
   // Load existing personal knowledge if not provided
   let knowledge = params.existingKnowledge;
   if (!knowledge) {
+    const sLoadKnowledge = ws.span("load_existing_knowledge");
     // Load personal knowledge directly (not merged) since we're updating the character's map_knowledge
     const charResult = await pg.queryObject<{ map_knowledge: unknown }>(
       `SELECT map_knowledge FROM characters WHERE character_id = $1`,
@@ -3196,6 +3238,7 @@ export async function pgUpsertKnowledgeEntry(
     knowledge = normalizeMapKnowledge(
       charResult.rows[0]?.map_knowledge ?? null,
     );
+    sLoadKnowledge.end({ visitedCount: Object.keys(knowledge.sectors_visited).length });
   }
 
   const adjacent = parseAdjacentIds(structure);
@@ -3228,7 +3271,9 @@ export async function pgUpsertKnowledgeEntry(
   );
 
   // Persist
+  const sPersist = ws.span("persist_map_knowledge", { totalSectors: total });
   await pgUpdateMapKnowledge(pg, characterId, knowledge);
+  sPersist.end();
 }
 
 /**

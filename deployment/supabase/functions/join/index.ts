@@ -46,6 +46,7 @@ import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import { ActorAuthorizationError } from "../_shared/actors.ts";
 import { normalizeMapKnowledge } from "../_shared/map.ts";
 import { traced } from "../_shared/weave.ts";
+import type { WeaveSpan } from "../_shared/weave.ts";
 
 const DEFAULT_START_SECTOR = 0;
 
@@ -213,6 +214,7 @@ Deno.serve(traced("join", async (req, trace) => {
       characterId: character.character_id,
       sectorId: targetSector,
       existingKnowledge: knowledge,
+      parentSpan: sMapKnowledge,
     });
     sMapKnowledge.end();
     console.log(
@@ -225,12 +227,16 @@ Deno.serve(traced("join", async (req, trace) => {
     const sStatusSnapshot = trace.span("emit_status_snapshot");
     const t9 = performance.now();
     console.log(`[join] Emitting status.snapshot for ${characterId}`);
+    const sBuildStatus = sStatusSnapshot.span("build_status_payload");
     const statusPayload = await pgBuildStatusPayload(pg, characterId, {
       character,
       ship,
       shipDefinition,
+      parentSpan: sBuildStatus,
     });
+    sBuildStatus.end();
     statusPayload["source"] = source;
+    const sEmitStatus = sStatusSnapshot.span("emit_event");
     await pgEmitCharacterEvent({
       pg,
       characterId,
@@ -241,6 +247,7 @@ Deno.serve(traced("join", async (req, trace) => {
       requestId,
       corpId: character.corporation_id,
     });
+    sEmitStatus.end();
     sStatusSnapshot.end();
     console.log(
       `[join] status.snapshot emitted: ${(performance.now() - t9).toFixed(1)}ms`,
@@ -250,13 +257,17 @@ Deno.serve(traced("join", async (req, trace) => {
     const sMapLocal = trace.span("emit_map_local");
     const t10 = performance.now();
     console.log(`[join] Emitting map.local for ${characterId}`);
+    const sBuildMap = sMapLocal.span("build_local_map_region");
     const mapPayload = await pgBuildLocalMapRegion(pg, {
       characterId,
       centerSector: targetSector,
       maxHops: 4,
       maxSectors: 28,
+      parentSpan: sBuildMap,
     });
+    sBuildMap.end();
     mapPayload["source"] = source;
+    const sEmitMap = sMapLocal.span("emit_event");
     await pgEmitCharacterEvent({
       pg,
       characterId,
@@ -266,6 +277,7 @@ Deno.serve(traced("join", async (req, trace) => {
       requestId,
       corpId: character.corporation_id,
     });
+    sEmitMap.end();
     sMapLocal.end();
     console.log(
       `[join] map.local emitted: ${(performance.now() - t10).toFixed(1)}ms`,
