@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WeaveSpan } from "./weave.ts";
 
-import { acquirePgClient } from "./pg.ts";
+import { acquirePgClient, getCachedAdjacencies } from "./pg.ts";
 import { resolvePlayerType } from "./status.ts";
 import { isMegaPortSector, loadUniverseMeta } from "./fedspace.ts";
 import { buildPortData, getPortPrices, getPortStock } from "./trading.ts";
@@ -1127,20 +1127,22 @@ export async function findShortestPath(
  * Returns a Map from sector_id to an array of neighbor sector_ids.
  */
 export async function fetchAllAdjacencies(): Promise<Map<number, number[]>> {
-  const pg = await acquirePgClient();
-  try {
-    const result = await pg.queryObject<{ sector_id: number; warps: unknown }>(
-      `SELECT sector_id::int, warps FROM universe_structure`,
-    );
-    const map = new Map<number, number[]>();
-    for (const row of result.rows) {
-      const edges = parseWarpEdges(row.warps);
-      map.set(row.sector_id, edges.map((e) => e.to));
+  return getCachedAdjacencies(async () => {
+    const pg = await acquirePgClient();
+    try {
+      const result = await pg.queryObject<{ sector_id: number; warps: unknown }>(
+        `SELECT sector_id::int, warps FROM universe_structure`,
+      );
+      const map = new Map<number, number[]>();
+      for (const row of result.rows) {
+        const edges = parseWarpEdges(row.warps);
+        map.set(row.sector_id, edges.map((e) => e.to));
+      }
+      return map;
+    } finally {
+      pg.release();
     }
-    return map;
-  } finally {
-    pg.release();
-  }
+  });
 }
 
 export async function buildLocalMapRegion(

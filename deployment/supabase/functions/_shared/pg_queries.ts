@@ -22,6 +22,7 @@ import { resolvePlayerType } from "./status.ts";
 import { ActorAuthorizationError } from "./actors.ts";
 import { getPortPrices, getPortStock, type PortData } from "./trading.ts";
 import { injectCharacterEventIdentity } from "./event_identity.ts";
+import { getCachedAdjacencies } from "./pg.ts";
 
 // Helper to convert BigInt values to numbers recursively
 // deno-postgres returns BigInt for int8 columns even with ::int cast
@@ -265,6 +266,224 @@ export async function pgLoadShipDefinition(
     throw new Error(`ship definition ${shipType} missing`);
   }
   return convertBigInts(row);
+}
+
+// ============================================================================
+// Combined Character Context Loading
+// ============================================================================
+
+interface CharacterContextRow {
+  // character fields
+  character_id: string;
+  name: string;
+  current_ship_id: string;
+  credits_in_megabank: number;
+  map_knowledge: unknown;
+  player_metadata: Record<string, unknown> | null;
+  first_visit: string;
+  last_active: string;
+  corporation_id: string | null;
+  corporation_joined_at: string | null;
+  // ship fields
+  ship_id: string;
+  owner_id: string | null;
+  owner_type: string;
+  owner_character_id: string | null;
+  owner_corporation_id: string | null;
+  acquired: string | null;
+  became_unowned: string | null;
+  former_owner_name: string | null;
+  ship_type: string;
+  ship_name: string | null;
+  current_sector: number;
+  in_hyperspace: boolean;
+  ship_credits: number;
+  cargo_qf: number;
+  cargo_ro: number;
+  cargo_ns: number;
+  current_warp_power: number;
+  current_shields: number;
+  current_fighters: number;
+  // ship definition fields
+  def_ship_type: string;
+  display_name: string;
+  cargo_holds: number;
+  warp_power_capacity: number;
+  turns_per_warp: number;
+  def_shields: number;
+  def_fighters: number;
+  purchase_price: number;
+  // meta fields
+  rate_limit_allowed: boolean;
+  sector_valid: boolean;
+  target_sector: number;
+}
+
+export interface CharacterContext {
+  character: CharacterRow;
+  ship: ShipRow;
+  shipDefinition: ShipDefinitionRow;
+  targetSector: number;
+}
+
+/**
+ * Load character + ship + ship definition + rate limit + sector validation
+ * in a single database round-trip using CTEs.
+ */
+export async function pgLoadCharacterContext(
+  pg: QueryClient,
+  characterId: string,
+  params: {
+    endpoint: string;
+    sectorOverride?: number | null;
+  },
+): Promise<CharacterContext> {
+  const rule = RATE_LIMITS[params.endpoint] ?? RATE_LIMITS.default;
+  const sectorParam = params.sectorOverride ?? null;
+
+  const result = await pg.queryObject<CharacterContextRow>(
+    `WITH rate_check AS (
+      SELECT check_and_increment_rate_limit($1, $2, $3, $4) as allowed
+    ),
+    ctx AS (
+      SELECT
+        c.character_id,
+        c.name,
+        c.current_ship_id,
+        c.credits_in_megabank::bigint as credits_in_megabank,
+        c.map_knowledge,
+        c.player_metadata,
+        c.first_visit,
+        c.last_active,
+        c.corporation_id,
+        c.corporation_joined_at,
+        si.ship_id,
+        si.owner_id,
+        si.owner_type,
+        si.owner_character_id,
+        si.owner_corporation_id,
+        si.acquired,
+        si.became_unowned,
+        si.former_owner_name,
+        si.ship_type,
+        si.ship_name,
+        si.current_sector::int as current_sector,
+        si.in_hyperspace,
+        si.credits::bigint as ship_credits,
+        si.cargo_qf::int as cargo_qf,
+        si.cargo_ro::int as cargo_ro,
+        si.cargo_ns::int as cargo_ns,
+        si.current_warp_power::int as current_warp_power,
+        si.current_shields::int as current_shields,
+        si.current_fighters::int as current_fighters,
+        sd.ship_type as def_ship_type,
+        sd.display_name,
+        sd.cargo_holds::int as cargo_holds,
+        sd.warp_power_capacity::int as warp_power_capacity,
+        sd.turns_per_warp::int as turns_per_warp,
+        sd.shields::int as def_shields,
+        sd.fighters::int as def_fighters,
+        sd.purchase_price::numeric as purchase_price
+      FROM characters c
+      JOIN ship_instances si ON si.ship_id = c.current_ship_id
+      JOIN ship_definitions sd ON sd.ship_type = si.ship_type
+      WHERE c.character_id = $1
+    ),
+    sector_check AS (
+      SELECT
+        EXISTS(
+          SELECT 1 FROM universe_structure
+          WHERE sector_id = COALESCE($5::int, (SELECT current_sector FROM ctx), 0)
+        ) as valid,
+        COALESCE($5::int, (SELECT current_sector FROM ctx), 0)::int as target_sector
+    )
+    SELECT ctx.*, rc.allowed as rate_limit_allowed, sc.valid as sector_valid, sc.target_sector
+    FROM rate_check rc
+    LEFT JOIN ctx ON true
+    LEFT JOIN sector_check sc ON true`,
+    [characterId, params.endpoint, rule.max, rule.window, sectorParam],
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`character ${characterId} not found`);
+  }
+
+  // rate_limit_allowed is returned even if character not found
+  if (row.rate_limit_allowed === false) {
+    throw new RateLimitError();
+  }
+
+  // If character not found, ctx columns will be null due to LEFT JOIN
+  if (!row.character_id) {
+    throw new Error(`character ${characterId} not found`);
+  }
+
+  if (!row.current_ship_id) {
+    throw new Error(`character ${characterId} does not have an assigned ship`);
+  }
+
+  if (row.sector_valid === false) {
+    const target = params.sectorOverride ?? row.current_sector ?? 0;
+    throw new JoinError(`invalid sector: ${target}`, 400);
+  }
+
+  const converted = convertBigInts(row);
+
+  const character: CharacterRow = {
+    character_id: converted.character_id,
+    name: converted.name,
+    current_ship_id: converted.current_ship_id,
+    credits_in_megabank: converted.credits_in_megabank,
+    map_knowledge: converted.map_knowledge,
+    player_metadata: converted.player_metadata,
+    first_visit: converted.first_visit,
+    last_active: converted.last_active,
+    corporation_id: converted.corporation_id,
+    corporation_joined_at: converted.corporation_joined_at,
+  };
+
+  const ship: ShipRow = {
+    ship_id: converted.ship_id,
+    owner_id: converted.owner_id,
+    owner_type: converted.owner_type as ShipRow["owner_type"],
+    owner_character_id: converted.owner_character_id,
+    owner_corporation_id: converted.owner_corporation_id,
+    acquired: converted.acquired,
+    became_unowned: converted.became_unowned,
+    former_owner_name: converted.former_owner_name,
+    ship_type: converted.ship_type,
+    ship_name: converted.ship_name,
+    current_sector: converted.current_sector,
+    hyperspace_destination: null,
+    hyperspace_eta: null,
+    in_hyperspace: converted.in_hyperspace,
+    credits: converted.ship_credits,
+    cargo_qf: converted.cargo_qf,
+    cargo_ro: converted.cargo_ro,
+    cargo_ns: converted.cargo_ns,
+    current_warp_power: converted.current_warp_power,
+    current_shields: converted.current_shields,
+    current_fighters: converted.current_fighters,
+  };
+
+  const shipDefinition: ShipDefinitionRow = {
+    ship_type: converted.def_ship_type,
+    display_name: converted.display_name,
+    cargo_holds: converted.cargo_holds,
+    warp_power_capacity: converted.warp_power_capacity,
+    turns_per_warp: converted.turns_per_warp,
+    shields: converted.def_shields,
+    fighters: converted.def_fighters,
+    purchase_price: converted.purchase_price,
+  };
+
+  return {
+    character,
+    ship,
+    shipDefinition,
+    targetSector: converted.target_sector,
+  };
 }
 
 // ============================================================================
@@ -1148,6 +1367,33 @@ export interface PgBuildStatusPayloadOptions {
   sectorSnapshot?: SectorSnapshot;
 }
 
+async function pgLoadCorporationInfo(
+  pg: QueryClient,
+  corpId: string,
+  joinedAt: string | null,
+): Promise<Record<string, unknown> | null> {
+  const corpResult = await pg.queryObject<{
+    corp_id: string;
+    name: string;
+    member_count: number;
+  }>(
+    `SELECT c.corp_id, c.name, COUNT(cm.character_id)::int as member_count
+    FROM corporations c
+    LEFT JOIN corporation_members cm ON cm.corp_id = c.corp_id AND cm.left_at IS NULL
+    WHERE c.corp_id = $1
+    GROUP BY c.corp_id, c.name`,
+    [corpId],
+  );
+  const corp = corpResult.rows[0];
+  if (!corp) return null;
+  return {
+    corp_id: corp.corp_id,
+    name: corp.name,
+    member_count: corp.member_count ?? 0,
+    joined_at: joinedAt,
+  };
+}
+
 export async function pgBuildStatusPayload(
   pg: QueryClient,
   characterId: string,
@@ -1168,14 +1414,23 @@ export async function pgBuildStatusPayload(
     options?.shipDefinition ?? (await pgLoadShipDefinition(pg, ship.ship_type));
   sLoadState.end();
 
-  // Load merged knowledge (with source field set on each entry)
-  const sKnowledge = ws.span("load_map_knowledge");
-  const knowledge = await pgLoadMapKnowledge(pg, characterId);
-  sKnowledge.end({ visitedCount: Object.keys(knowledge.sectors_visited).length });
-
-  const sUniverseSize = ws.span("load_universe_size");
-  const universeSize = await pgLoadUniverseSize(pg);
-  sUniverseSize.end({ universeSize });
+  // Run independent queries in parallel
+  const sParallel = ws.span("parallel_loads");
+  const [knowledge, universeSize, sectorSnapshot, corporationPayload] =
+    await Promise.all([
+      pgLoadMapKnowledge(pg, characterId),
+      pgLoadUniverseSize(pg),
+      options?.sectorSnapshot ??
+        pgBuildSectorSnapshot(pg, ship.current_sector ?? 0, characterId),
+      character.corporation_id
+        ? pgLoadCorporationInfo(
+            pg,
+            character.corporation_id,
+            character.corporation_joined_at,
+          )
+        : Promise.resolve(null),
+    ]);
+  sParallel.end();
 
   const playerType = resolvePlayerType(character.player_metadata);
   const player = buildPlayerSnapshot(
@@ -1185,40 +1440,6 @@ export async function pgBuildStatusPayload(
     universeSize,
   );
   const shipSnapshot = buildShipSnapshot(ship, definition);
-
-  const sSector = ws.span("build_sector_snapshot", { sectorId: ship.current_sector });
-  const sectorSnapshot =
-    options?.sectorSnapshot ??
-    (await pgBuildSectorSnapshot(pg, ship.current_sector ?? 0, characterId));
-  sSector.end();
-
-  // Load corporation info with member count in a single query
-  let corporationPayload: Record<string, unknown> | null = null;
-  if (character.corporation_id) {
-    const sCorp = ws.span("load_corporation_info");
-    const corpResult = await pg.queryObject<{
-      corp_id: string;
-      name: string;
-      member_count: number;
-    }>(
-      `SELECT c.corp_id, c.name, COUNT(cm.character_id)::int as member_count
-      FROM corporations c
-      LEFT JOIN corporation_members cm ON cm.corp_id = c.corp_id AND cm.left_at IS NULL
-      WHERE c.corp_id = $1
-      GROUP BY c.corp_id, c.name`,
-      [character.corporation_id],
-    );
-    const corp = corpResult.rows[0];
-    if (corp) {
-      corporationPayload = {
-        corp_id: corp.corp_id,
-        name: corp.name,
-        member_count: corp.member_count ?? 0,
-        joined_at: character.corporation_joined_at,
-      };
-    }
-    sCorp.end();
-  }
 
   return convertBigInts({
     player,
@@ -1277,15 +1498,17 @@ async function pgFetchUniverseRows(
 async function pgFetchAllAdjacencies(
   pg: QueryClient,
 ): Promise<Map<number, number[]>> {
-  const result = await pg.queryObject<{ sector_id: number; warps: unknown }>(
-    `SELECT sector_id::int, warps FROM universe_structure`,
-  );
-  const map = new Map<number, number[]>();
-  for (const row of result.rows) {
-    const edges = parseWarpEdges(row.warps);
-    map.set(row.sector_id, edges.map((e) => e.to));
-  }
-  return map;
+  return getCachedAdjacencies(async () => {
+    const result = await pg.queryObject<{ sector_id: number; warps: unknown }>(
+      `SELECT sector_id::int, warps FROM universe_structure`,
+    );
+    const map = new Map<number, number[]>();
+    for (const row of result.rows) {
+      const edges = parseWarpEdges(row.warps);
+      map.set(row.sector_id, edges.map((e) => e.to));
+    }
+    return map;
+  });
 }
 
 async function pgLoadPortCodes(
@@ -1468,7 +1691,9 @@ export async function pgBuildLocalMapRegion(
   >();
 
   // Load all universe adjacencies upfront for pure in-memory BFS
+  const sAdj = ws.span("fetch_all_adjacencies");
   const allAdjacencies = await pgFetchAllAdjacencies(pg);
+  sAdj.end({ sectorCount: allAdjacencies.size });
 
   const hydrateUniverseRows = async (sectorIds: number[]): Promise<void> => {
     const missing = sectorIds.filter((id) => !universeRowCache.has(id));
@@ -1618,7 +1843,9 @@ export async function pgBuildLocalMapRegion(
 
   const disconnectedUnvisitedNeighbors = new Set<number>();
   if (disconnectedSectors.length > 0) {
+    const sHydDis = ws.span("hydrate_disconnected_rows", { count: disconnectedSectors.length });
     await hydrateUniverseRows(disconnectedSectors);
+    sHydDis.end();
     for (const sectorId of disconnectedSectors) {
       const row = universeRowCache.get(sectorId);
       const neighbors = row?.warps.map((edge) => edge.to) ?? [];
@@ -1644,7 +1871,9 @@ export async function pgBuildLocalMapRegion(
     .concat(disconnectedSectors)
     .concat(Array.from(disconnectedUnvisitedNeighbors));
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
+  const sHydAll = ws.span("hydrate_all_rows", { count: sectorIds.length });
   await hydrateUniverseRows(sectorIds);
+  sHydAll.end();
   let needsPortCodes = false;
   let needsUniverseMeta = false;
   for (const sectorId of visitedSectorIds) {
@@ -3147,36 +3376,3 @@ export async function pgUpsertKnowledgeEntry(
   sPersist.end();
 }
 
-/**
- * Load a character with corporation info for join operations.
- * Returns null if character not found.
- */
-export async function pgLoadCharacterForJoin(
-  pg: QueryClient,
-  characterId: string,
-): Promise<(CharacterRow & { corporation_id: string | null }) | null> {
-  const result = await pg.queryObject<
-    CharacterRow & { corporation_id: string | null }
-  >(
-    `SELECT
-      character_id,
-      name,
-      current_ship_id,
-      credits_in_megabank::bigint as credits_in_megabank,
-      map_knowledge,
-      player_metadata,
-      first_visit,
-      last_active,
-      corporation_id,
-      corporation_joined_at
-    FROM characters
-    WHERE character_id = $1`,
-    [characterId],
-  );
-
-  const row = result.rows[0];
-  if (!row) {
-    return null;
-  }
-  return convertBigInts(row);
-}

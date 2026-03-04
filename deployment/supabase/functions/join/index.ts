@@ -7,15 +7,11 @@ import {
   successResponse,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
-import { acquirePgClient } from "../_shared/pg.ts";
+import { acquirePgClient, warmupAdjacencyCache } from "../_shared/pg.ts";
 import {
-  pgLoadCharacterForJoin,
-  pgLoadShip,
-  pgLoadShipDefinition,
-  pgEnforceRateLimit,
+  pgLoadCharacterContext,
   RateLimitError,
   pgEnsureActorAuthorization,
-  pgResolveTargetSector,
   pgUpdateShipState,
   pgEnsureCharacterShipLink,
   pgUpsertKnowledgeEntry,
@@ -44,11 +40,14 @@ import {
 } from "../_shared/request.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import { ActorAuthorizationError } from "../_shared/actors.ts";
-import { normalizeMapKnowledge } from "../_shared/map.ts";
+import { normalizeMapKnowledge, fetchAllAdjacencies } from "../_shared/map.ts";
 import { traced } from "../_shared/weave.ts";
 import type { WeaveSpan } from "../_shared/weave.ts";
 
 const DEFAULT_START_SECTOR = 0;
+
+// Warm up the adjacency cache on cold start (non-blocking)
+warmupAdjacencyCache(fetchAllAdjacencies);
 
 Deno.serve(traced("join", async (req, trace) => {
   const sAuth = trace.span("auth_check");
@@ -103,46 +102,32 @@ Deno.serve(traced("join", async (req, trace) => {
   try {
     const t0 = performance.now();
 
-    // Load character using PG
-    const sLoadChar = trace.span("load_character", { characterId });
-    const character = await pgLoadCharacterForJoin(pg, characterId);
-    if (!character) {
-      sLoadChar.end({ error: "not found" });
-      throw new JoinError("Character is not registered", 404);
-    }
-    sLoadChar.end({ name: character.name });
-    console.log(
-      `[join] pgLoadCharacter: ${(performance.now() - t0).toFixed(1)}ms`,
-    );
-
-    // Rate limiting
-    const sRateLimit = trace.span("rate_limit");
-    const t1 = performance.now();
+    // Load character context (character + rate limit + ship + definition + sector) in one query
+    const sLoadCtx = trace.span("load_character_context", { characterId });
+    let character, ship, shipDefinition, targetSector;
     try {
-      await pgEnforceRateLimit(pg, characterId, "join");
-      sRateLimit.end();
+      const ctx = await pgLoadCharacterContext(pg, characterId, {
+        endpoint: "join",
+        sectorOverride,
+      });
+      character = ctx.character;
+      ship = ctx.ship;
+      shipDefinition = ctx.shipDefinition;
+      targetSector = ctx.targetSector;
+      sLoadCtx.end({ name: character.name, ship_id: ship.ship_id, targetSector });
     } catch (err) {
-      sRateLimit.end({ error: err instanceof Error ? err.message : String(err) });
+      sLoadCtx.end({ error: err instanceof Error ? err.message : String(err) });
       if (err instanceof RateLimitError) {
         return errorResponse("Too many join requests", 429);
       }
-      console.error("join.rate_limit", err);
-      throw new JoinError("rate limit error", 500);
+      if (err instanceof Error && err.message.includes("not found")) {
+        throw new JoinError("Character is not registered", 404);
+      }
+      throw err;
     }
     console.log(
-      `[join] pgEnforceRateLimit: ${(performance.now() - t1).toFixed(1)}ms`,
+      `[join] pgLoadCharacterContext: ${(performance.now() - t0).toFixed(1)}ms`,
     );
-
-    if (!character.current_ship_id) {
-      throw new JoinError("character has no ship", 500);
-    }
-
-    // Load ship using PG
-    const sLoadShip = trace.span("load_ship");
-    const t2 = performance.now();
-    const ship = await pgLoadShip(pg, character.current_ship_id);
-    sLoadShip.end({ ship_id: ship.ship_id });
-    console.log(`[join] pgLoadShip: ${(performance.now() - t2).toFixed(1)}ms`);
 
     // Actor authorization using PG
     const sActorAuth = trace.span("actor_authorization");
@@ -158,28 +143,7 @@ Deno.serve(traced("join", async (req, trace) => {
       `[join] pgEnsureActorAuthorization: ${(performance.now() - t3).toFixed(1)}ms`,
     );
 
-    // Load ship definition using PG
-    const sShipDef = trace.span("load_ship_definition");
-    const t4 = performance.now();
-    const shipDefinition = await pgLoadShipDefinition(pg, ship.ship_type);
-    sShipDef.end({ ship_type: ship.ship_type });
-    console.log(
-      `[join] pgLoadShipDefinition: ${(performance.now() - t4).toFixed(1)}ms`,
-    );
-
     const previousSector = ship.current_sector;
-
-    // Resolve target sector using PG
-    const sResolveSector = trace.span("resolve_target_sector");
-    const t5 = performance.now();
-    const targetSector = await pgResolveTargetSector(pg, {
-      sectorOverride,
-      fallbackSector: ship.current_sector ?? DEFAULT_START_SECTOR,
-    });
-    sResolveSector.end({ targetSector });
-    console.log(
-      `[join] pgResolveTargetSector: ${(performance.now() - t5).toFixed(1)}ms`,
-    );
 
     // Update ship state using PG
     const sUpdateShip = trace.span("update_ship_state");
@@ -223,20 +187,35 @@ Deno.serve(traced("join", async (req, trace) => {
 
     const source = buildEventSource("join", requestId);
 
-    // Emit status.snapshot FIRST using PG
-    const sStatusSnapshot = trace.span("emit_status_snapshot");
+    // Build status and map payloads in parallel
+    const sBuildPayloads = trace.span("build_payloads");
     const t9 = performance.now();
-    console.log(`[join] Emitting status.snapshot for ${characterId}`);
-    const sBuildStatus = sStatusSnapshot.span("build_status_payload");
-    const statusPayload = await pgBuildStatusPayload(pg, characterId, {
-      character,
-      ship,
-      shipDefinition,
-      parentSpan: sBuildStatus,
-    });
-    sBuildStatus.end();
+    console.log(`[join] Building status + map payloads for ${characterId}`);
+    const sBuildStatus = sBuildPayloads.span("build_status_payload");
+    const sBuildMap = sBuildPayloads.span("build_local_map_region");
+    const [statusPayload, mapPayload] = await Promise.all([
+      pgBuildStatusPayload(pg, characterId, {
+        character,
+        ship,
+        shipDefinition,
+        parentSpan: sBuildStatus,
+      }).then((p) => { sBuildStatus.end(); return p; }),
+      pgBuildLocalMapRegion(pg, {
+        characterId,
+        centerSector: targetSector,
+        maxHops: 4,
+        maxSectors: 28,
+        parentSpan: sBuildMap,
+      }).then((p) => { sBuildMap.end(); return p; }),
+    ]);
+    sBuildPayloads.end();
+    console.log(
+      `[join] payloads built: ${(performance.now() - t9).toFixed(1)}ms`,
+    );
+
+    // Emit status.snapshot FIRST (preserve ordering)
+    const sStatusSnapshot = trace.span("emit_status_snapshot");
     statusPayload["source"] = source;
-    const sEmitStatus = sStatusSnapshot.span("emit_event");
     await pgEmitCharacterEvent({
       pg,
       characterId,
@@ -247,27 +226,11 @@ Deno.serve(traced("join", async (req, trace) => {
       requestId,
       corpId: character.corporation_id,
     });
-    sEmitStatus.end();
     sStatusSnapshot.end();
-    console.log(
-      `[join] status.snapshot emitted: ${(performance.now() - t9).toFixed(1)}ms`,
-    );
 
-    // Emit map.local SECOND using PG
+    // Emit map.local SECOND
     const sMapLocal = trace.span("emit_map_local");
-    const t10 = performance.now();
-    console.log(`[join] Emitting map.local for ${characterId}`);
-    const sBuildMap = sMapLocal.span("build_local_map_region");
-    const mapPayload = await pgBuildLocalMapRegion(pg, {
-      characterId,
-      centerSector: targetSector,
-      maxHops: 4,
-      maxSectors: 28,
-      parentSpan: sBuildMap,
-    });
-    sBuildMap.end();
     mapPayload["source"] = source;
-    const sEmitMap = sMapLocal.span("emit_event");
     await pgEmitCharacterEvent({
       pg,
       characterId,
@@ -277,10 +240,9 @@ Deno.serve(traced("join", async (req, trace) => {
       requestId,
       corpId: character.corporation_id,
     });
-    sEmitMap.end();
     sMapLocal.end();
     console.log(
-      `[join] map.local emitted: ${(performance.now() - t10).toFixed(1)}ms`,
+      `[join] events emitted: ${(performance.now() - t9).toFixed(1)}ms`,
     );
 
     const observerCorpId =
@@ -361,6 +323,9 @@ Deno.serve(traced("join", async (req, trace) => {
       characterId,
       sectorId: targetSector,
       requestId,
+      character,
+      ship,
+      parentSpan: sGarrison,
     });
     sGarrison.end();
     console.log(

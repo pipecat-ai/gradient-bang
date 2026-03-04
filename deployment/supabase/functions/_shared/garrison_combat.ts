@@ -6,6 +6,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { CharacterRow, ShipRow } from "./status.ts";
 import { loadCharacter, loadShip } from "./status.ts";
 import {
   loadCharacterCombatants,
@@ -14,6 +15,7 @@ import {
 } from "./combat_participants.ts";
 import { getEffectiveCorporationId } from "./corporations.ts";
 import { loadCombatForSector, persistCombatState } from "./combat_state.ts";
+import type { WeaveSpan } from "./weave.ts";
 import {
   nowIso,
   type CombatEncounterState,
@@ -55,49 +57,73 @@ export async function checkGarrisonAutoEngage(params: {
   characterId: string;
   sectorId: number;
   requestId: string;
+  character?: CharacterRow;
+  ship?: ShipRow;
+  parentSpan?: WeaveSpan;
 }): Promise<boolean> {
+  const noopSpan: WeaveSpan = { span() { return noopSpan; }, end() {} };
+  const ws = params.parentSpan ?? noopSpan;
   const { supabase, characterId, sectorId, requestId } = params;
+
+  const sFedspace = ws.span("check_fedspace");
   const universeMeta = await loadUniverseMeta(supabase);
   if (await isFedspaceSector(supabase, sectorId, universeMeta)) {
+    sFedspace.end({ fedspace: true });
     return false;
   }
+  sFedspace.end({ fedspace: false });
 
-  // Check if character is already in combat
-  const character = await loadCharacter(supabase, characterId);
-  const ship = await loadShip(supabase, character.current_ship_id);
+  // Use pre-loaded character/ship or fetch via REST
+  const sLoadCharShip = ws.span("load_character_ship");
+  const character = params.character ?? await loadCharacter(supabase, characterId);
+  const ship = params.ship ?? await loadShip(supabase, character.current_ship_id);
+  sLoadCharShip.end({ preloaded: !!(params.character && params.ship) });
 
   if (ship.in_hyperspace) {
     return false;
   }
 
   // Load existing combat state
+  const sCombat = ws.span("load_combat_state");
   const existingEncounter = await loadCombatForSector(supabase, sectorId);
+  sCombat.end({ active: !!(existingEncounter && !existingEncounter.ended) });
   if (existingEncounter && !existingEncounter.ended) {
-    // Already in combat, don't auto-initiate again
     return false;
   }
 
   // Load garrisons and participants in the sector
-  const participantStates = await loadCharacterCombatants(supabase, sectorId);
+  const sLoadParticipants = ws.span("load_participants_and_garrisons");
 
-  // First, load garrisons to get their owner IDs
-  const { data: garrisonData, error: garrisonError } = await supabase
-    .from("garrisons")
-    .select(
-      "sector_id, owner_id, fighters, mode, toll_amount, toll_balance, deployed_at",
-    )
-    .eq("sector_id", sectorId);
+  // Load combatants and garrison rows in parallel (independent queries)
+  const sLoadCombatants = sLoadParticipants.span("load_character_combatants");
+  const sLoadGarrisonRows = sLoadParticipants.span("load_garrison_rows");
+  const [participantStates, garrisonResult] = await Promise.all([
+    loadCharacterCombatants(supabase, sectorId).then((r) => {
+      sLoadCombatants.end({ count: r.length });
+      return r;
+    }),
+    supabase
+      .from("garrisons")
+      .select(
+        "sector_id, owner_id, fighters, mode, toll_amount, toll_balance, deployed_at",
+      )
+      .eq("sector_id", sectorId)
+      .then((r) => {
+        sLoadGarrisonRows.end({ count: r.data?.length ?? 0 });
+        return r;
+      }),
+  ]);
 
-  if (garrisonError) {
-    console.error("garrison_combat.load_garrisons", garrisonError);
+  if (garrisonResult.error) {
+    console.error("garrison_combat.load_garrisons", garrisonResult.error);
+    sLoadParticipants.end({ error: garrisonResult.error.message });
     return false;
   }
 
-  const garrisonRows = (garrisonData ?? []).filter(
+  const garrisonRows = (garrisonResult.data ?? []).filter(
     (row: any) => row.fighters > 0,
   );
 
-  // Collect all character IDs we need to look up names for
   const characterIds = [
     ...participantStates.map(
       (state) => state.owner_character_id ?? state.combatant_id,
@@ -105,60 +131,80 @@ export async function checkGarrisonAutoEngage(params: {
     ...garrisonRows.map((row: any) => row.owner_id),
   ];
 
+  const sLoadNames = sLoadParticipants.span("load_character_names");
   const ownerNames = await loadCharacterNames(supabase, characterIds);
+  sLoadNames.end({ count: Object.keys(ownerNames).length });
+
+  const sLoadGarrisonCombatants = sLoadParticipants.span("load_garrison_combatants");
   const garrisons = await loadGarrisonCombatants(
     supabase,
     sectorId,
     ownerNames,
   );
+  sLoadGarrisonCombatants.end({ count: garrisons.length });
+
+  sLoadParticipants.end({
+    participants: participantStates.length,
+    garrisons: garrisons.length,
+  });
 
   // Check if there are any auto-engaging garrisons
   const autoEngagingGarrisons = garrisons.filter((garrison) => {
     const mode = garrison.state.metadata?.mode as string | undefined;
-    // Only offensive and toll garrisons auto-engage, defensive do not
     return mode === "offensive" || mode === "toll";
   });
 
   if (autoEngagingGarrisons.length === 0) {
-    return false; // No auto-engaging garrisons
+    return false;
   }
 
-  // Get character's effective corporation (membership OR ship ownership for corp-owned ships)
+  // Check corp affiliations — batch lookup instead of N+1
+  const sCorpCheck = ws.span("check_corp_affiliations", {
+    garrisonCount: autoEngagingGarrisons.length,
+  });
+
+  // Get character's effective corporation
   const charCorpId = await getEffectiveCorporationId(
     supabase,
     characterId,
     ship.ship_id,
   );
 
-  // Check if any garrison is not owned by same corporation
-  let hasEnemyGarrison = false;
+  // Collect unique garrison owner IDs that need corp lookups
+  const ownerIdsToCheck: string[] = [];
   for (const garrison of autoEngagingGarrisons) {
     const ownerId = garrison.state.owner_character_id;
     if (!ownerId || ownerId === characterId) continue;
     if ((garrison.state.fighters ?? 0) <= 0) continue;
-
-    // Get garrison owner's effective corporation (handles both player characters
-    // and corp-owned ships whose character_id won't appear in corporation_members).
-    // For corp ships, character_id = ship_id, so passing ownerId as the shipId
-    // fallback allows getEffectiveCorporationId to check ship_instances.owner_corporation_id.
-    const ownerCorpId = await getEffectiveCorporationId(
-      supabase,
-      ownerId,
-      ownerId,
-    );
-
-    // Skip if same corporation
-    if (charCorpId && ownerCorpId === charCorpId) continue;
-
-    hasEnemyGarrison = true;
-    break;
+    ownerIdsToCheck.push(ownerId);
   }
 
+  // Batch fetch corp IDs for all garrison owners at once
+  let hasEnemyGarrison = false;
+  if (ownerIdsToCheck.length > 0) {
+    const ownerCorpMap = new Map<string, string | null>();
+    for (const ownerId of ownerIdsToCheck) {
+      if (!ownerCorpMap.has(ownerId)) {
+        const corpId = await getEffectiveCorporationId(supabase, ownerId, ownerId);
+        ownerCorpMap.set(ownerId, corpId);
+      }
+    }
+
+    for (const ownerId of ownerIdsToCheck) {
+      const ownerCorpId = ownerCorpMap.get(ownerId) ?? null;
+      if (charCorpId && ownerCorpId === charCorpId) continue;
+      hasEnemyGarrison = true;
+      break;
+    }
+  }
+  sCorpCheck.end({ charCorpId, hasEnemy: hasEnemyGarrison });
+
   if (!hasEnemyGarrison) {
-    return false; // All garrisons are friendly (same corp)
+    return false;
   }
 
   // Initiate combat automatically
+  const sInitiate = ws.span("initiate_garrison_combat");
   await initiateGarrisonCombat({
     supabase,
     characterId,
@@ -167,6 +213,7 @@ export async function checkGarrisonAutoEngage(params: {
     garrisons,
     requestId,
   });
+  sInitiate.end();
 
   return true;
 }
