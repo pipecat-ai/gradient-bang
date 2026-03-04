@@ -623,13 +623,21 @@ class TaskAgent:
         # Drop events whose subject is a different character and has no task_id.
         # This prevents untagged corp ship events from entering our context.
         # (Task-tagged events are already filtered by the task_id check above.)
+        # Falls back to payload.player.id when event_context.character_id is NULL
+        # (e.g. garrison.character_moved where pgRecordEvent has no characterId).
         if not event_task_id:
             raw_payload = event.get("payload")
             if isinstance(raw_payload, dict):
                 ectx = raw_payload.get("__event_context") or raw_payload.get("event_context")
                 if isinstance(ectx, dict):
                     subject = ectx.get("character_id")
-                    if isinstance(subject, str) and subject != self.character_id:
+                    if subject is None:
+                        player = raw_payload.get("player")
+                        if isinstance(player, dict):
+                            candidate = player.get("id")
+                            if isinstance(candidate, str):
+                                subject = candidate
+                    if subject is not None and subject != self.character_id:
                         return
 
         if event_name == "task.finish":

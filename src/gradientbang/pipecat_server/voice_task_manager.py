@@ -639,6 +639,24 @@ class VoiceTaskManager:
             return ctx
         return None
 
+    @staticmethod
+    def _resolve_event_subject(
+        event_context: Optional[Mapping[str, Any]],
+        payload: Any,
+    ) -> Optional[str]:
+        """Extract the event subject character_id, falling back to payload.player.id."""
+        if isinstance(event_context, Mapping):
+            ctx_char = event_context.get("character_id")
+            if isinstance(ctx_char, str) and ctx_char.strip():
+                return ctx_char
+        if isinstance(payload, Mapping):
+            player = payload.get("player")
+            if isinstance(player, Mapping):
+                candidate = player.get("id")
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate
+        return None
+
     def _is_character_in_combat_payload(self, payload: Any) -> bool:
         if not isinstance(payload, Mapping):
             return False
@@ -1148,21 +1166,20 @@ class VoiceTaskManager:
                 if task_agent and task_game_client and task_game_client != self.game_client:
                     await task_agent._handle_event(event)
 
-        # Block corp-routed events that aren't for the local player.
-        # After denormalization, the corp row has recipient_character_id = subject.
-        # If the subject is NOT the player and the event has no task_id, block it.
-        # Task-scoped events and lifecycle events pass through for fan-out and UI.
-        if event_context:
-            ctx_char = event_context.get("character_id")
-            ctx_reason = event_context.get("reason")
-            if (
-                isinstance(ctx_char, str)
-                and ctx_char != self.character_id
-                and ctx_reason == "corp_broadcast"
-                and not payload_task_id
-                and event_name not in {"task.start", "task.finish"}
-            ):
-                return
+        # Fan out non-task-scoped events to corp ship task agents.
+        # Movement events (character.moved, garrison.character_moved) don't carry
+        # task_id, but the corp ship task agent still needs them for context.
+        if not task_id:
+            subject_id = self._resolve_event_subject(event_context, payload)
+            if subject_id:
+                corp_task_id = self._get_task_id_for_character(subject_id)
+                if corp_task_id:
+                    corp_task_info = self._active_tasks.get(corp_task_id)
+                    if corp_task_info and corp_task_info.get("is_corp_ship"):
+                        corp_agent = corp_task_info.get("task_agent")
+                        corp_gc = corp_task_info.get("task_game_client")
+                        if corp_agent and corp_gc and corp_gc != self.game_client:
+                            await corp_agent._handle_event(event)
 
         # Onboarding: intercept mega-port check result (don't relay to UI or LLM)
         if (
