@@ -112,12 +112,17 @@ async def _lookup_character_display_name(character_id: str, server_url: str) -> 
         return None
 
 
-async def _resolve_character_identity(character_id: str | None, server_url: str) -> tuple[str, str]:
+async def _resolve_character_identity(
+    character_id: str | None,
+    server_url: str,
+    character_name_hint: str | None = None,
+) -> tuple[str, str]:
     """Resolve the character UUID and display name for the voice bot.
 
     Args:
         character_id: Optional character ID (will use env vars if not provided)
         server_url: Game server base URL for API lookups
+        character_name_hint: Optional display name from the start payload (avoids DB lookup)
 
     Returns:
         Tuple of (character_id, display_name)
@@ -135,7 +140,8 @@ async def _resolve_character_identity(character_id: str | None, server_url: str)
             "Set BOT_TEST_CHARACTER_ID (or BOT_TEST_NPC_CHARACTER_NAME) in the environment before starting the bot."
         )
     display_name = (
-        os.getenv("BOT_TEST_CHARACTER_NAME")
+        character_name_hint
+        or os.getenv("BOT_TEST_CHARACTER_NAME")
         or os.getenv("BOT_TEST_NPC_CHARACTER_NAME")
         or await _lookup_character_display_name(character_id, server_url)
         or character_id
@@ -169,9 +175,9 @@ async def _startup_init_local_api() -> tuple[LocalApiServer, str]:
 
 
 @traced
-async def _startup_resolve_character(character_id_hint: str | None, server_url: str):
+async def _startup_resolve_character(character_id_hint: str | None, character_name_hint: str | None, server_url: str):
     """Resolve character identity (traced span)."""
-    return await _resolve_character_identity(character_id_hint, server_url)
+    return await _resolve_character_identity(character_id_hint, server_url, character_name_hint=character_name_hint)
 
 
 @traced
@@ -199,36 +205,54 @@ async def _startup_init_llm(task_manager: "VoiceTaskManager"):
 
 
 @traced
-async def bot_startup(character_id_hint: str | None, server_url: str):
+async def bot_startup(character_id_hint: str | None, character_name_hint: str | None, server_url: str):
     """Traced startup wrapper — initializes all services for the bot pipeline."""
 
     rtvi = RTVIProcessor()
 
-    # Start local API server if LOCAL_API_POSTGRES_URL is set
-    local_api_server: LocalApiServer | None = None
-    if os.getenv("LOCAL_API_POSTGRES_URL"):
-        local_api_server, local_api_url = await _startup_init_local_api()
-        os.environ["EDGE_FUNCTIONS_URL"] = local_api_url
-        logger.info(f"Using local API server: {local_api_url}")
+    # Chain A: local API server → resolve character (sequential)
+    # Chain B: STT + TTS init (independent)
+    # Run both chains in parallel, then finish with LLM init (needs task_manager).
 
-    character_id, character_display_name = await _startup_resolve_character(
-        character_id_hint,
-        server_url,
+    async def _chain_a():
+        local_api_server: LocalApiServer | None = None
+        if os.getenv("LOCAL_API_POSTGRES_URL"):
+            local_api_server, local_api_url = await _startup_init_local_api()
+            os.environ["EDGE_FUNCTIONS_URL"] = local_api_url
+            logger.info(f"Using local API server: {local_api_url}")
+
+            # Fire-and-forget warmup so Deno JIT-compiles the shared module
+            # graph before the first real game API call.
+            if character_id_hint:
+                asyncio.create_task(local_api_server.warmup(character_id_hint))
+
+        character_id, character_display_name = await _startup_resolve_character(
+            character_id_hint,
+            character_name_hint,
+            server_url,
+        )
+        return local_api_server, character_id, character_display_name
+
+    (local_api_server, character_id, character_display_name), stt, tts = (
+        await asyncio.gather(
+            _chain_a(),
+            _startup_init_stt(),
+            _startup_init_tts(),
+        )
     )
+
     logger.info(
         f"Initializing VoiceTaskManager with character_id={character_id} display_name={character_display_name}"
     )
 
-    # Create voice task manager
+    # Create voice task manager (needs character_id from chain A)
     task_manager = VoiceTaskManager(
         character_id=character_id,
         rtvi_processor=rtvi,
         base_url=server_url,
     )
 
-    # Initialize STT, TTS, and LLM services
-    stt = await _startup_init_stt()
-    tts = await _startup_init_tts()
+    # LLM init needs task_manager for register_function
     llm = await _startup_init_llm(task_manager)
 
     return rtvi, local_api_server, character_id, character_display_name, task_manager, stt, tts, llm
@@ -242,16 +266,15 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         raise RuntimeError("SUPABASE_URL is required to run the bot.")
     logger.info(f"Using Supabase URL: {server_url}")
 
-    character_id_hint = (
-        (getattr(runner_args, "body", None) or {}).get("character_id", None)
-        or os.getenv("BOT_TEST_CHARACTER_ID")
-    )
+    body = getattr(runner_args, "body", None) or {}
+    character_id_hint = body.get("character_id") or os.getenv("BOT_TEST_CHARACTER_ID")
+    character_name_hint = body.get("character_name")
 
     (
         rtvi, local_api_server,
         character_id, character_display_name,
         task_manager, stt, tts, llm,
-    ) = await bot_startup(character_id_hint, server_url)
+    ) = await bot_startup(character_id_hint, character_name_hint, server_url)
 
     @llm.event_handler("on_function_calls_started")
     async def on_function_calls_started(service, function_calls):

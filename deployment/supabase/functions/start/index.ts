@@ -168,11 +168,11 @@ Deno.serve(traced("start", async (req, trace) => {
         );
       }
 
-      // Verify character belongs to authenticated user via junction table
+      // Verify character belongs to authenticated user and fetch display name
       const sCharacterCheck = trace.span("verify_character_ownership");
       const { data: characterData, error: characterError } = await supabase
         .from("user_characters")
-        .select("character_id")
+        .select("character_id, characters!inner(name)")
         .eq("user_id", user.id)
         .eq("character_id", characterId)
         .maybeSingle();
@@ -197,6 +197,12 @@ Deno.serve(traced("start", async (req, trace) => {
         );
       }
       sCharacterCheck.end({ character_id: characterId });
+
+      // Inject character_name into the payload so the bot can skip a DB lookup
+      const charRow = characterData.characters as unknown as { name: string } | null;
+      if (charRow?.name && requestData?.body) {
+        requestData.body.character_name = charRow.name;
+      }
     } else if (action === "proxy_session") {
       // Proxying to existing session - forward as /sessions/{id} on bot
       // e.g., /functions/v1/start/abc/api/offer -> http://bot/sessions/abc/api/offer

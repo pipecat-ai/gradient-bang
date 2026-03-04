@@ -126,6 +126,19 @@ class LocalApiServer:
             f"Local API server did not become ready within {HEALTH_CHECK_TIMEOUT}s"
         )
 
+    async def warmup(self, character_id: str) -> None:
+        """Fire-and-forget: hit a heavy endpoint to trigger Deno JIT compilation."""
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    f"{self.url}/character_info",
+                    json={"character_id": character_id},
+                    timeout=10.0,
+                )
+        except Exception:
+            pass  # Errors are fine — we only care about the JIT side-effect
+        logger.info("Local API server warmed up")
+
     def _drain_output(self) -> None:
         """Read subprocess stdout in a background thread and log it."""
         if not self._process or not self._process.stdout:
