@@ -1191,6 +1191,7 @@ class TaskAgent:
         self, error_message: str, *, exception_detail: Optional[str] = None
     ) -> None:
         self._output(self._timestamped_text(error_message), TaskOutputType.ERROR)
+        self._finished_status = "failed"
         detail = exception_detail if exception_detail is not None else error_message
         finished_payload = f"Task stopped because of an error: {detail}"
         self._output(self._timestamped_text(finished_payload), TaskOutputType.FINISHED)
@@ -1206,6 +1207,7 @@ class TaskAgent:
                 f"Task stopped after {self._max_iterations} steps (max_iterations limit)."
             )
             self.finished = True
+            self._finished_status = "failed"
             self.finished_message = limit_message
             self._output(self._timestamped_text(limit_message), TaskOutputType.FINISHED)
             self._quench_inference_state()
