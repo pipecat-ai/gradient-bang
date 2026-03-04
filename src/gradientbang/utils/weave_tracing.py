@@ -74,16 +74,17 @@ def init_weave(project_name: str | None = None) -> bool:
 
 
 def traced(func: Callable) -> Callable:
-    """Decorator that applies @weave.op if Weave is available.
+    """Decorator that applies @weave.op if Weave is available and initialized.
 
     Usage:
         @traced
         async def my_function(arg1, arg2):
             ...
 
-    If Weave is not installed or not configured, this is a no-op.
+    If Weave is not installed, not configured, or init_weave() hasn't been
+    called yet, this is a no-op.
     """
-    if not WEAVE_AVAILABLE:
+    if not _weave_initialized:
         return func
     return weave.op(func)
 
