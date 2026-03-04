@@ -15,13 +15,14 @@ import {
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
-  buildStatusPayload,
   loadCharacter,
   loadShip,
   buildPublicPlayerSnapshotFromStatus,
   type ShipRow,
   type CharacterRow,
 } from "../_shared/status.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import {
   ensureActorAuthorization,
   ActorAuthorizationError,
@@ -325,11 +326,17 @@ async function handleTransfer(
   }
 
   const source = buildEventSource("transfer_credits", requestId);
-  const fromStatus = await buildStatusPayload(supabase, fromCharacterId);
-  const toStatus = await buildStatusPayload(
-    supabase,
-    toRecord.character.character_id,
-  );
+  const pgClient = await acquirePgClient();
+  let fromStatus: Record<string, unknown>;
+  let toStatus: Record<string, unknown>;
+  try {
+    [fromStatus, toStatus] = await Promise.all([
+      pgBuildStatusPayload(pgClient, fromCharacterId),
+      pgBuildStatusPayload(pgClient, toRecord.character.character_id),
+    ]);
+  } finally {
+    pgClient.release();
+  }
 
   const fromPlayer = buildPublicPlayerSnapshotFromStatus(fromStatus);
   const toPlayer = buildPublicPlayerSnapshotFromStatus(toStatus);

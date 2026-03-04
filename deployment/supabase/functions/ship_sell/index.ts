@@ -14,12 +14,13 @@ import {
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
-  buildStatusPayload,
   loadCharacter,
   loadShip,
   loadShipDefinition,
   type ShipRow,
 } from "../_shared/status.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import {
   emitCorporationEvent,
   isActiveCorporationMember,
@@ -302,7 +303,13 @@ async function handleShipSell(
 
   // Emit status.update so the player's client refreshes
   const source = buildEventSource("ship_sell", requestId);
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  try {
+    statusPayload = await pgBuildStatusPayload(pgClient, characterId);
+  } finally {
+    pgClient.release();
+  }
   const sectorId = personalShip.current_sector ?? 0;
 
   await emitCharacterEvent({

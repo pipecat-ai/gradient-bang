@@ -371,6 +371,8 @@ export async function pgLoadCharacterContext(
         si.ship_name,
         si.current_sector::int as current_sector,
         si.in_hyperspace,
+        si.hyperspace_destination::int as hyperspace_destination,
+        si.hyperspace_eta,
         si.credits::bigint as ship_credits,
         si.cargo_qf::int as cargo_qf,
         si.cargo_ro::int as cargo_ro,
@@ -464,8 +466,8 @@ export async function pgLoadCharacterContext(
     ship_type: converted.ship_type,
     ship_name: converted.ship_name,
     current_sector: converted.current_sector,
-    hyperspace_destination: null,
-    hyperspace_eta: null,
+    hyperspace_destination: converted.hyperspace_destination ?? null,
+    hyperspace_eta: converted.hyperspace_eta ?? null,
     in_hyperspace: converted.in_hyperspace,
     credits: converted.ship_credits,
     cargo_qf: converted.cargo_qf,
@@ -1426,19 +1428,26 @@ export async function pgBuildStatusPayload(
 
   // Run independent queries in parallel
   const sParallel = ws.span("parallel_loads");
+  const sKnowledge = sParallel.span("load_map_knowledge");
+  const sUniverse = sParallel.span("load_universe_size");
+  const sSector = sParallel.span("build_sector_snapshot");
+  const sCorp = sParallel.span("load_corporation_info");
   const [knowledge, universeSize, sectorSnapshot, corporationPayload] =
     await Promise.all([
-      pgLoadMapKnowledge(pg, characterId),
-      pgLoadUniverseSize(pg),
-      options?.sectorSnapshot ??
-        pgBuildSectorSnapshot(pg, ship.current_sector ?? 0, characterId),
-      character.corporation_id
+      pgLoadMapKnowledge(pg, characterId).then((r) => { sKnowledge.end(); return r; }),
+      pgLoadUniverseSize(pg).then((r) => { sUniverse.end(); return r; }),
+      (options?.sectorSnapshot
+        ? Promise.resolve(options.sectorSnapshot)
+        : pgBuildSectorSnapshot(pg, ship.current_sector ?? 0, characterId)
+      ).then((r) => { sSector.end(); return r; }),
+      (character.corporation_id
         ? pgLoadCorporationInfo(
             pg,
             character.corporation_id,
             character.corporation_joined_at,
           )
-        : Promise.resolve(null),
+        : Promise.resolve(null)
+      ).then((r) => { sCorp.end(); return r; }),
     ]);
   sParallel.end();
 

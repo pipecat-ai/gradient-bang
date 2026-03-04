@@ -39,10 +39,11 @@ import {
   respondWithError,
 } from "../_shared/request.ts";
 import {
-  buildStatusPayload,
   loadCharacter,
   loadShip,
 } from "../_shared/status.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import { traced } from "../_shared/weave.ts";
 
 class ShipRenameError extends Error {
@@ -299,7 +300,13 @@ async function handleRename(params: {
     });
 
     if (changed) {
-      const statusPayload = await buildStatusPayload(supabase, characterId);
+      const pgClient = await acquirePgClient();
+      let statusPayload: Record<string, unknown>;
+      try {
+        statusPayload = await pgBuildStatusPayload(pgClient, characterId);
+      } finally {
+        pgClient.release();
+      }
       await emitCharacterEvent({
         supabase,
         characterId,

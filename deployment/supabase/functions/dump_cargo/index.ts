@@ -15,7 +15,6 @@ import {
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
-  buildStatusPayload,
   loadCharacter,
   loadShip,
   loadShipDefinition,
@@ -24,6 +23,8 @@ import {
   ensureActorAuthorization,
   ActorAuthorizationError,
 } from "../_shared/actors.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import { buildSectorSnapshot } from "../_shared/map.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import { loadCombatForSector } from "../_shared/combat_state.ts";
@@ -291,7 +292,17 @@ async function handleDumpCargo(
     taskId,
   });
 
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  try {
+    statusPayload = await pgBuildStatusPayload(pgClient, characterId, {
+      character,
+      ship,
+      shipDefinition,
+    });
+  } finally {
+    pgClient.release();
+  }
   await emitCharacterEvent({
     supabase,
     characterId,

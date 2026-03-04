@@ -15,7 +15,6 @@ import {
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import { FIGHTER_PRICE } from "../_shared/constants.ts";
 import {
-  buildStatusPayload,
   buildPublicPlayerSnapshotFromStatus,
   loadCharacter,
   loadShip,
@@ -25,6 +24,8 @@ import {
   ensureActorAuthorization,
   ActorAuthorizationError,
 } from "../_shared/actors.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import {
   optionalBoolean,
@@ -253,7 +254,17 @@ async function handlePurchase(
     console.error("purchase_fighters.activity", activityError);
   }
 
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  try {
+    statusPayload = await pgBuildStatusPayload(pgClient, characterId, {
+      character,
+      ship,
+      shipDefinition: definition,
+    });
+  } finally {
+    pgClient.release();
+  }
   const publicPlayer = buildPublicPlayerSnapshotFromStatus(statusPayload);
   const basePlayer = (statusPayload.player ?? {}) as Record<string, unknown>;
   const playerPayload: Record<string, unknown> = { ...basePlayer };

@@ -17,12 +17,13 @@ import {
   loadCharacter,
   loadShip,
   loadShipDefinition,
-  buildStatusPayload,
 } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
   ActorAuthorizationError,
 } from "../_shared/actors.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import {
   parseJsonRequest,
@@ -271,7 +272,17 @@ async function handleRecharge(
     corpId: character.corporation_id,
   });
 
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  try {
+    statusPayload = await pgBuildStatusPayload(pgClient, characterId, {
+      character,
+      ship,
+      shipDefinition,
+    });
+  } finally {
+    pgClient.release();
+  }
   await emitCharacterEvent({
     supabase,
     characterId,

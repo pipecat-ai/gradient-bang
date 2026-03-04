@@ -8,17 +8,9 @@ import {
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
-  emitCharacterEvent,
   emitErrorEvent,
   buildEventSource,
 } from "../_shared/events.ts";
-import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
-import {
-  buildStatusPayload,
-  loadCharacter,
-  loadShip,
-} from "../_shared/status.ts";
-import { buildSectorSnapshot } from "../_shared/map.ts";
 import {
   parseJsonRequest,
   requireString,
@@ -28,12 +20,18 @@ import {
   respondWithError,
 } from "../_shared/request.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
-import {
-  ensureActorAuthorization,
-  ActorAuthorizationError,
-} from "../_shared/actors.ts";
+import { ActorAuthorizationError } from "../_shared/actors.ts";
 import { acquirePgClient } from "../_shared/pg.ts";
-import { pgFinishHyperspace, pgMarkSectorVisited } from "../_shared/pg_queries.ts";
+import {
+  pgLoadCharacterContext,
+  pgFinishHyperspace,
+  pgMarkSectorVisited,
+  pgBuildSectorSnapshot,
+  pgBuildStatusPayload,
+  pgEnsureActorAuthorization,
+  pgEmitCharacterEvent,
+  RateLimitError,
+} from "../_shared/pg_queries.ts";
 import { traced } from "../_shared/weave.ts";
 
 const HYPERSPACE_ERROR =
@@ -88,32 +86,36 @@ Deno.serve(traced("my_status", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
-  const sRateLimit = trace.span("rate_limit");
+  const pg = await acquirePgClient();
   try {
-    await enforceRateLimit(supabase, characterId, "my_status");
-    sRateLimit.end();
-  } catch (err) {
-    sRateLimit.end({ error: String(err) });
-    if (err instanceof RateLimitError) {
-      return errorResponse("Too many my_status requests", 429);
+    // Load character context (rate limit + character + ship + definition in one query)
+    const sLoadCtx = trace.span("load_character_context", { character_id: characterId });
+    let ctx;
+    try {
+      ctx = await pgLoadCharacterContext(pg, characterId, {
+        endpoint: "my_status",
+      });
+      sLoadCtx.end({ name: ctx.character.name, ship_id: ctx.ship.ship_id });
+    } catch (err) {
+      sLoadCtx.end({ error: String(err) });
+      if (err instanceof RateLimitError) {
+        return errorResponse("Too many my_status requests", 429);
+      }
+      if (err instanceof Error && err.message.includes("not found")) {
+        return errorResponse("character not found", 404);
+      }
+      throw err;
     }
-    console.error("my_status.rate_limit", err);
-    return errorResponse("rate limit error", 500);
-  }
+    const { character, ship, shipDefinition } = ctx;
 
-  try {
-    const sLoadState = trace.span("load_state", { character_id: characterId });
-    const character = await loadCharacter(supabase, characterId);
-    const ship = await loadShip(supabase, character.current_ship_id);
-    sLoadState.end();
-
-    await ensureActorAuthorization({
-      supabase,
+    const sAuth = trace.span("actor_authorization");
+    await pgEnsureActorAuthorization(pg, {
       ship,
-      characterId,
       actorCharacterId,
       adminOverride,
+      targetCharacterId: characterId,
     });
+    sAuth.end();
 
     if (ship.in_hyperspace) {
       // Check if ship is stuck (past ETA + threshold)
@@ -133,21 +135,22 @@ Deno.serve(traced("my_status", async (req, trace) => {
         });
 
         const sRecovery = trace.span("hyperspace_recovery");
-        const pgClient = await acquirePgClient();
         try {
-          await pgFinishHyperspace(pgClient, {
+          await pgFinishHyperspace(pg, {
             shipId: ship.ship_id,
             destination: ship.hyperspace_destination,
           });
-          const sectorSnapshot = await buildSectorSnapshot(
-            supabase,
+          const sectorSnapshot = await pgBuildSectorSnapshot(
+            pg,
             ship.hyperspace_destination,
             characterId,
           );
-          await pgMarkSectorVisited(pgClient, {
+          await pgMarkSectorVisited(pg, {
             characterId,
             sectorId: ship.hyperspace_destination,
             sectorSnapshot,
+            playerMetadata: character.player_metadata,
+            corporationId: character.corporation_id,
           });
           // Update local ship state to reflect completed jump
           ship.in_hyperspace = false;
@@ -166,8 +169,6 @@ Deno.serve(traced("my_status", async (req, trace) => {
             status: 500,
           });
           return errorResponse("failed to recover from stuck hyperspace", 500);
-        } finally {
-          pgClient.release();
         }
       } else {
         // Ship is legitimately in hyperspace - return error
@@ -184,7 +185,12 @@ Deno.serve(traced("my_status", async (req, trace) => {
 
     const source = buildEventSource("my_status", requestId);
     const sBuildStatus = trace.span("build_status_payload");
-    const statusPayload = await buildStatusPayload(supabase, characterId);
+    const statusPayload = await pgBuildStatusPayload(pg, characterId, {
+      character,
+      ship,
+      shipDefinition,
+      parentSpan: sBuildStatus,
+    });
     statusPayload["source"] = source;
     sBuildStatus.end();
 
@@ -197,8 +203,8 @@ Deno.serve(traced("my_status", async (req, trace) => {
     const eventCorpId = isCorpShip ? ship.owner_corporation_id : undefined;
 
     const sEmitEvent = trace.span("emit_status_snapshot");
-    await emitCharacterEvent({
-      supabase,
+    await pgEmitCharacterEvent({
+      pg,
       characterId: eventRecipientId,
       eventType: "status.snapshot",
       payload: statusPayload,
@@ -207,7 +213,6 @@ Deno.serve(traced("my_status", async (req, trace) => {
       requestId,
       taskId,
       corpId: eventCorpId,
-      scope: "direct",
     });
     sEmitEvent.end();
 
@@ -221,6 +226,8 @@ Deno.serve(traced("my_status", async (req, trace) => {
     }
     console.error("my_status.unhandled", err);
     return errorResponse("internal server error", 500);
+  } finally {
+    pg.release();
   }
 }));
 

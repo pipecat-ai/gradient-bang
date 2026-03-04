@@ -26,12 +26,13 @@ import {
   loadCharacter,
   loadShip,
   loadShipDefinition,
-  buildStatusPayload,
 } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
   ActorAuthorizationError,
 } from "../_shared/actors.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import { computeSectorVisibilityRecipients } from "../_shared/visibility.ts";
 import { recordEventWithRecipients } from "../_shared/events.ts";
 import type { SalvageEntry } from "../_shared/salvage.ts";
@@ -497,7 +498,17 @@ async function handleSalvageCollect(params: {
   });
 
   // Emit status.update with full status snapshot (for legacy parity)
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  try {
+    statusPayload = await pgBuildStatusPayload(pgClient, characterId, {
+      character,
+      ship,
+      shipDefinition,
+    });
+  } finally {
+    pgClient.release();
+  }
   statusPayload.source = buildEventSource("salvage.collect", requestId);
   await emitCharacterEvent({
     supabase,

@@ -12,10 +12,11 @@ import {
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
-  buildStatusPayload,
   loadCharacter,
   loadShip,
 } from "../_shared/status.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import {
   loadUniverseMeta,
   getMegaPortSectors,
@@ -482,8 +483,9 @@ async function handleDeposit(
     targetCharacterId,
   });
   let targetStatus;
+  const pgClient = await acquirePgClient();
   try {
-    targetStatus = await buildStatusPayload(supabase, targetCharacterId);
+    targetStatus = await pgBuildStatusPayload(pgClient, targetCharacterId);
     console.log("[bank_transfer.deposit] Built target status payload");
   } catch (err) {
     console.error("[bank_transfer.deposit] Failed to build target status", {
@@ -491,6 +493,8 @@ async function handleDeposit(
       err,
     });
     throw err;
+  } finally {
+    pgClient.release();
   }
   const targetDisplayId = resolveDisplayIdFromStatus(
     targetStatus,
@@ -518,9 +522,10 @@ async function handleDeposit(
     console.log("[bank_transfer.deposit] Building source status payload", {
       resolvedSourceCharacter,
     });
+    const pgClient2 = await acquirePgClient();
     try {
-      sourceStatus = await buildStatusPayload(
-        supabase,
+      sourceStatus = await pgBuildStatusPayload(
+        pgClient2,
         resolvedSourceCharacter,
       );
       console.log("[bank_transfer.deposit] Built source status payload");
@@ -530,6 +535,8 @@ async function handleDeposit(
         err,
       });
       throw err;
+    } finally {
+      pgClient2.release();
     }
   }
   // For corp ships, sourceDisplayId should be null (no source character)
@@ -614,9 +621,15 @@ async function handleDeposit(
     console.log("[bank_transfer.deposit] Emitting source status update", {
       resolvedSourceCharacter,
     });
-    const ownerStatus =
-      sourceStatus ??
-      (await buildStatusPayload(supabase, resolvedSourceCharacter));
+    let ownerStatus = sourceStatus;
+    if (!ownerStatus) {
+      const pgClient3 = await acquirePgClient();
+      try {
+        ownerStatus = await pgBuildStatusPayload(pgClient3, resolvedSourceCharacter);
+      } finally {
+        pgClient3.release();
+      }
+    }
     const sourceChar = await loadCharacter(supabase, resolvedSourceCharacter);
     await emitCharacterEvent({
       supabase,
@@ -733,7 +746,13 @@ async function handleWithdraw(
     .update({ credits: (ship.credits ?? 0) + amount })
     .eq("ship_id", ship.ship_id);
 
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const pgClientW = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  try {
+    statusPayload = await pgBuildStatusPayload(pgClientW, characterId);
+  } finally {
+    pgClientW.release();
+  }
   const timestamp = new Date().toISOString();
   const source = buildEventSource("bank_transfer", requestId);
   await emitBankTransaction(

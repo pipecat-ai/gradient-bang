@@ -15,13 +15,14 @@ import {
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
-  buildStatusPayload,
   loadCharacter,
   loadShip,
   loadShipDefinition,
   type ShipRow,
   type ShipDefinitionRow,
 } from "../_shared/status.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import {
   emitCorporationEvent,
   isActiveCorporationMember,
@@ -288,7 +289,13 @@ async function handlePersonalPurchase(
     throw new ShipPurchaseError("Failed to mark old ship as unowned", 500);
   }
 
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  try {
+    statusPayload = await pgBuildStatusPayload(pgClient, characterId);
+  } finally {
+    pgClient.release();
+  }
   const sectorId =
     insertedShip.current_sector ?? currentShip.current_sector ?? 0;
   const source = buildEventSource("ship_purchase", requestId);
@@ -462,7 +469,13 @@ async function handleCorporationPurchase(
   });
 
   const source = buildEventSource("ship_purchase", requestId);
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  try {
+    statusPayload = await pgBuildStatusPayload(pgClient, characterId);
+  } finally {
+    pgClient.release();
+  }
 
   await emitCharacterEvent({
     supabase,

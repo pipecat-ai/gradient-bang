@@ -23,8 +23,9 @@ import {
 import {
   loadCharacter,
   loadShip,
-  buildStatusPayload,
 } from "../_shared/status.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import {
   generateInviteCode,
   upsertCorporationMembership,
@@ -176,7 +177,13 @@ async function handleCreate(params: {
   }
 
   const source = buildEventSource("corporation_create", requestId);
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  try {
+    statusPayload = await pgBuildStatusPayload(pgClient, characterId);
+  } finally {
+    pgClient.release();
+  }
   const timestamp = new Date().toISOString();
   const eventPayload = {
     source,

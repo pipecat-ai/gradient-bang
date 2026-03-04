@@ -1,11 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import {
-  buildSectorSnapshot,
-  MapKnowledge,
-  normalizeMapKnowledge,
-  loadMapKnowledge,
-} from "./map.ts";
+import type { MapKnowledge } from "./map.ts";
 
 export interface CharacterRow {
   character_id: string;
@@ -53,80 +48,6 @@ export interface ShipDefinitionRow {
   shields: number;
   fighters: number;
   purchase_price: number;
-}
-
-let cachedUniverseSize: number | null = null;
-const CORPORATION_CACHE_TTL_MS = 60_000;
-const corporationCache = new Map<
-  string,
-  { summary: CorporationSummary; expiresAt: number }
->();
-
-interface CorporationSummary {
-  corp_id: string;
-  name: string;
-  member_count: number;
-}
-
-async function loadUniverseSize(supabase: SupabaseClient): Promise<number> {
-  if (cachedUniverseSize !== null) {
-    return cachedUniverseSize;
-  }
-  const { data, error } = await supabase
-    .from("universe_config")
-    .select("sector_count")
-    .eq("id", 1)
-    .maybeSingle();
-  if (error) {
-    throw new Error(`failed to load universe_config: ${error.message}`);
-  }
-  cachedUniverseSize = data?.sector_count ?? 0;
-  return cachedUniverseSize;
-}
-
-async function loadCorporationSummary(
-  supabase: SupabaseClient,
-  corpId: string,
-): Promise<CorporationSummary | null> {
-  if (!corpId) {
-    return null;
-  }
-  const cached = corporationCache.get(corpId);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.summary;
-  }
-
-  const { data: corpRow, error: corpError } = await supabase
-    .from("corporations")
-    .select("corp_id, name")
-    .eq("corp_id", corpId)
-    .maybeSingle();
-  if (corpError) {
-    console.error("status.corporation.load", corpError);
-    return null;
-  }
-  if (!corpRow) {
-    return null;
-  }
-
-  const { count, error: memberError } = await supabase
-    .from("corporation_members")
-    .select("character_id", { count: "exact", head: true })
-    .eq("corp_id", corpId);
-  if (memberError) {
-    console.error("status.corporation.members", memberError);
-  }
-
-  const summary: CorporationSummary = {
-    corp_id: corpRow.corp_id,
-    name: corpRow.name,
-    member_count: count ?? 0,
-  };
-  corporationCache.set(corpId, {
-    summary,
-    expiresAt: Date.now() + CORPORATION_CACHE_TTL_MS,
-  });
-  return summary;
 }
 
 export async function loadCharacter(
@@ -320,48 +241,3 @@ function buildShipSnapshot(
   };
 }
 
-export async function buildStatusPayload(
-  supabase: SupabaseClient,
-  characterId: string,
-): Promise<Record<string, unknown>> {
-  const character = await loadCharacter(supabase, characterId);
-  const ship = await loadShip(supabase, character.current_ship_id);
-  const definition = await loadShipDefinition(supabase, ship.ship_type);
-  // Load merged knowledge (with source field set on each entry)
-  const knowledge = await loadMapKnowledge(supabase, characterId);
-  const universeSize = await loadUniverseSize(supabase);
-  const playerType = resolvePlayerType(character.player_metadata);
-  const player = buildPlayerSnapshot(
-    character,
-    playerType,
-    knowledge,
-    universeSize,
-  );
-  const shipSnapshot = buildShipSnapshot(ship, definition);
-  const sectorSnapshot = await buildSectorSnapshot(
-    supabase,
-    ship.current_sector ?? 0,
-    characterId,
-  );
-
-  let corporationPayload: Record<string, unknown> | null = null;
-  if (character.corporation_id) {
-    const summary = await loadCorporationSummary(
-      supabase,
-      character.corporation_id,
-    );
-    if (summary) {
-      corporationPayload = {
-        ...summary,
-        joined_at: character.corporation_joined_at,
-      };
-    }
-  }
-
-  return {
-    player,
-    ship: shipSnapshot,
-    sector: sectorSnapshot,
-    corporation: corporationPayload,
-  };
-}
