@@ -372,80 +372,66 @@ async function handleMove({
   ).toISOString();
   let enteredHyperspace = false;
 
-  // Build destination snapshot (needed for movement.start event payload)
-  let destinationSnapshot: SectorSnapshot;
-  const sDestSnap = ws.span("build_destination_snapshot");
   try {
-    destinationSnapshot = await pgBuildSectorSnapshot(
-      pgClient,
-      destination,
-      characterId,
-    );
-    mark("build_destination_snapshot");
-    sDestSnap.end();
-  } catch (err) {
-    sDestSnap.end({ error: String(err) });
-    console.error("move.destination_snapshot", err);
-    await emitErrorEvent(supabase, {
-      characterId,
-      method: "move",
-      requestId,
-      detail: "failed to build destination snapshot",
-      status: 500,
-    });
-    return errorResponse("failed to build destination snapshot", 500);
-  }
+    // All five operations are independent except emit_movement_start which
+    // needs the destination snapshot. Chain that dependency and run everything
+    // else in parallel.
+    const sParallel = ws.span("hyperspace_parallel");
+    const sStartHyper = sParallel.span("start_hyperspace");
+    const sUpdateActive = sParallel.span("update_last_active");
+    const sDestSnap = sParallel.span("build_destination_snapshot");
+    const sEmitDepart = sParallel.span("emit_depart_observers");
 
-  try {
-    const sStartHyper = ws.span("start_hyperspace");
-    await pgStartHyperspace(pgClient, {
-      shipId: ship.ship_id,
-      currentSector: ship.current_sector,
-      destination,
-      eta: hyperspaceEta,
-      newWarpTotal: ship.current_warp_power - warpCost,
-    });
-    mark("start_hyperspace");
-    sStartHyper.end();
-    enteredHyperspace = true;
+    const [, , destinationSnapshot] = await Promise.all([
+      pgStartHyperspace(pgClient, {
+        shipId: ship.ship_id,
+        currentSector: ship.current_sector,
+        destination,
+        eta: hyperspaceEta,
+        newWarpTotal: ship.current_warp_power - warpCost,
+      }).then(() => { mark("start_hyperspace"); sStartHyper.end(); }),
 
-    const sUpdateActive = ws.span("update_last_active");
-    await pgUpdateCharacterLastActive(pgClient, characterId);
-    mark("update_last_active");
-    sUpdateActive.end();
+      pgUpdateCharacterLastActive(pgClient, characterId)
+        .then(() => { mark("update_last_active"); sUpdateActive.end(); }),
 
-    const sEmitStart = ws.span("emit_movement_start");
-    await pgEmitCharacterEvent({
-      pg: pgClient,
-      characterId,
-      eventType: "movement.start",
-      payload: {
+      // Build snapshot then emit movement.start (chained dependency).
+      // Returns the snapshot for use by completeMovement.
+      pgBuildSectorSnapshot(pgClient, destination, characterId)
+        .then((snapshot) => {
+          mark("build_destination_snapshot");
+          sDestSnap.end();
+          const sEmitStart = sParallel.span("emit_movement_start");
+          return pgEmitCharacterEvent({
+            pg: pgClient,
+            characterId,
+            eventType: "movement.start",
+            payload: {
+              source,
+              sector: snapshot,
+              hyperspace_time: hyperspaceSeconds,
+              player: {
+                id: character.character_id,
+                name: character.name,
+              },
+            },
+            shipId: ship.ship_id,
+            sectorId: ship.current_sector,
+            requestId,
+            taskId,
+          }).then(() => { mark("emit_movement_start"); sEmitStart.end(); return snapshot; });
+        }),
+
+      pgEmitMovementObservers({
+        pg: pgClient,
+        sectorId: ship.current_sector,
+        metadata: observerMetadata,
+        movement: "depart",
         source,
-        sector: destinationSnapshot,
-        hyperspace_time: hyperspaceSeconds,
-        player: {
-          id: character.character_id,
-          name: character.name,
-        },
-      },
-      shipId: ship.ship_id,
-      sectorId: ship.current_sector,
-      requestId,
-      taskId,
-    });
-    mark("emit_movement_start");
-    sEmitStart.end();
-
-    const sEmitDepart = ws.span("emit_depart_observers");
-    await pgEmitMovementObservers({
-      pg: pgClient,
-      sectorId: ship.current_sector,
-      metadata: observerMetadata,
-      movement: "depart",
-      source,
-      requestId,
-    });
-    sEmitDepart.end();
+        requestId,
+      }).then(() => sEmitDepart.end()),
+    ]);
+    sParallel.end();
+    enteredHyperspace = true;
 
     const sComplete = ws.span("complete_movement");
     await completeMovement({
