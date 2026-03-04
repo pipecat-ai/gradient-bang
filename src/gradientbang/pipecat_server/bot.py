@@ -77,6 +77,7 @@ from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStr
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
+from gradientbang.utils.weave_tracing import init_weave, traced
 
 if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
@@ -143,28 +144,71 @@ def create_chat_system_prompt() -> str:
     return build_voice_agent_prompt()
 
 
-async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
-    """Main bot function that creates and runs the pipeline."""
+@traced
+async def _startup_create_local_api_server() -> LocalApiServer:
+    """Construct LocalApiServer instance (traced span)."""
+    return LocalApiServer()
 
-    # Create RTVI processor
+
+@traced
+async def _startup_start_local_api_server(server: LocalApiServer) -> str:
+    """Start LocalApiServer and wait for health check (traced span)."""
+    return await server.start()
+
+
+@traced
+async def _startup_init_local_api() -> tuple[LocalApiServer, str]:
+    """Create and start local API server (traced span)."""
+    server = await _startup_create_local_api_server()
+    url = await _startup_start_local_api_server(server)
+    return server, url
+
+
+@traced
+async def _startup_resolve_character(character_id_hint: str | None, server_url: str):
+    """Resolve character identity (traced span)."""
+    return await _resolve_character_identity(character_id_hint, server_url)
+
+
+@traced
+async def _startup_init_stt():
+    """Initialize STT service (traced span)."""
+    return DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+
+
+@traced
+async def _startup_init_tts():
+    """Initialize TTS service (traced span)."""
+    cartesia_key = os.getenv("CARTESIA_API_KEY", "")
+    if not cartesia_key:
+        logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
+    return CartesiaTTSService(api_key=cartesia_key, voice_id="ec1e269e-9ca0-402f-8a18-58e0e022355a")
+
+
+@traced
+async def _startup_init_llm(task_manager: "VoiceTaskManager"):
+    """Initialize LLM service (traced span)."""
+    voice_config = get_voice_llm_config()
+    llm = create_llm_service(voice_config)
+    llm.register_function(None, task_manager.execute_tool_call)
+    return llm
+
+
+@traced
+async def bot_startup(character_id_hint: str | None, server_url: str):
+    """Traced startup wrapper — initializes all services for the bot pipeline."""
+
     rtvi = RTVIProcessor()
-
-    server_url = os.getenv("SUPABASE_URL")
-    if not server_url:
-        raise RuntimeError("SUPABASE_URL is required to run the bot.")
-    logger.info(f"Using Supabase URL: {server_url}")
 
     # Start local API server if LOCAL_API_POSTGRES_URL is set
     local_api_server: LocalApiServer | None = None
     if os.getenv("LOCAL_API_POSTGRES_URL"):
-        local_api_server = LocalApiServer()
-        local_api_url = await local_api_server.start()
+        local_api_server, local_api_url = await _startup_init_local_api()
         os.environ["EDGE_FUNCTIONS_URL"] = local_api_url
         logger.info(f"Using local API server: {local_api_url}")
 
-    character_id, character_display_name = await _resolve_character_identity(
-        (getattr(runner_args, "body", None) or {}).get("character_id", None)
-        or os.getenv("BOT_TEST_CHARACTER_ID"),
+    character_id, character_display_name = await _startup_resolve_character(
+        character_id_hint,
         server_url,
     )
     logger.info(
@@ -178,24 +222,34 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         base_url=server_url,
     )
 
-    # Initialize STT service
-    logger.info("Init STT…")
-    stt = DeepgramSTTService(
-        api_key=os.getenv("DEEPGRAM_API_KEY"),
+    # Initialize STT, TTS, and LLM services
+    stt = await _startup_init_stt()
+    tts = await _startup_init_tts()
+    llm = await _startup_init_llm(task_manager)
+
+    return rtvi, local_api_server, character_id, character_display_name, task_manager, stt, tts, llm
+
+
+async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
+    """Main bot function that creates and runs the pipeline."""
+
+    init_weave()
+
+    server_url = os.getenv("SUPABASE_URL")
+    if not server_url:
+        raise RuntimeError("SUPABASE_URL is required to run the bot.")
+    logger.info(f"Using Supabase URL: {server_url}")
+
+    character_id_hint = (
+        (getattr(runner_args, "body", None) or {}).get("character_id", None)
+        or os.getenv("BOT_TEST_CHARACTER_ID")
     )
 
-    # Initialize TTS service (managed session)
-    logger.info("Init TTS (Cartesia)…")
-    cartesia_key = os.getenv("CARTESIA_API_KEY", "")
-    if not cartesia_key:
-        logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
-    tts = CartesiaTTSService(api_key=cartesia_key, voice_id="ec1e269e-9ca0-402f-8a18-58e0e022355a")
-
-    # Initialize LLM service
-    logger.info("Init LLM…")
-    voice_config = get_voice_llm_config()
-    llm = create_llm_service(voice_config)
-    llm.register_function(None, task_manager.execute_tool_call)
+    (
+        rtvi, local_api_server,
+        character_id, character_display_name,
+        task_manager, stt, tts, llm,
+    ) = await bot_startup(character_id_hint, server_url)
 
     @llm.event_handler("on_function_calls_started")
     async def on_function_calls_started(service, function_calls):
