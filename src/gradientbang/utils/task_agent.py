@@ -331,6 +331,18 @@ class TaskAgent:
             Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]
         ] = []
 
+        is_corp_ship = getattr(game_client, "entity_type", None) == "corporation_ship"
+
+        # Player-only tools that corp ships cannot use
+        player_only_tools = [
+            CreateCorporation,
+            JoinCorporation,
+            LeaveCorporation,
+            KickCorporationMember,
+            SellShip,
+            BankWithdraw,
+        ]
+
         tools = tools_list or [
             MyStatus,
             PlotCourse,
@@ -347,17 +359,11 @@ class TaskAgent:
             CollectFighters,
             EventQuery,
             PurchaseFighters,
-            CreateCorporation,
-            JoinCorporation,
-            LeaveCorporation,
-            KickCorporationMember,
             CorporationInfo,
             ShipDefinitions,
             PurchaseShip,
-            SellShip,
             RenameShip,
             BankDeposit,
-            BankWithdraw,
             TransferCredits,
             DumpCargo,
             CombatInitiate,
@@ -365,6 +371,7 @@ class TaskAgent:
             LoadGameInfo,
             (WaitInIdleState, {"agent": self}),
             TaskFinished,
+            *([] if is_corp_ship else player_only_tools),
         ]
         self.set_tools(tools)
 
