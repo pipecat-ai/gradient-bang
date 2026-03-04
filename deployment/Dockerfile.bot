@@ -22,7 +22,7 @@ ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project --no-dev --group bot
+    uv sync --locked --no-install-project --no-dev --group bot --group tracing
 
 # Copy LICENSE (required by pyproject.toml)
 COPY LICENSE ./

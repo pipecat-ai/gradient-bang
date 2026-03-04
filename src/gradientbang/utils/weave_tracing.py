@@ -55,10 +55,10 @@ def init_weave(project_name: str | None = None) -> bool:
     """
     global _weave_initialized
     if not WEAVE_AVAILABLE:
-        logger.debug("Weave tracing disabled: weave package not installed")
+        logger.info("Weave tracing disabled: weave package not installed")
         return False
     if not os.getenv("WANDB_API_KEY"):
-        logger.debug("Weave tracing disabled: WANDB_API_KEY not set")
+        logger.info("Weave tracing disabled: WANDB_API_KEY not set")
         return False
     if _weave_initialized:
         return True
