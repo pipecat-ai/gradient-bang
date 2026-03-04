@@ -79,6 +79,10 @@ from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 from gradientbang.utils.weave_tracing import init_weave, traced
 
+# Initialize Weave early (before @traced decorators are applied to startup functions).
+# Must come after load_dotenv so WANDB_API_KEY is available.
+init_weave()
+
 if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
@@ -232,8 +236,6 @@ async def bot_startup(character_id_hint: str | None, server_url: str):
 
 async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     """Main bot function that creates and runs the pipeline."""
-
-    init_weave()
 
     server_url = os.getenv("SUPABASE_URL")
     if not server_url:
