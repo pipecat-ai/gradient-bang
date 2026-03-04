@@ -45,7 +45,7 @@ export interface RecordEventWithRecipientsOptions {
 
 export async function recordEventWithRecipients(
   options: RecordEventWithRecipientsOptions,
-): Promise<number | null> {
+): Promise<void> {
   const {
     supabase,
     eventType,
@@ -67,7 +67,7 @@ export async function recordEventWithRecipients(
 
   const normalizedRecipients = dedupeRecipientSnapshots(recipients);
   if (!normalizedRecipients.length && !broadcast && !corpId) {
-    return null;
+    return;
   }
 
   const recipientIds = normalizedRecipients.map(
@@ -77,7 +77,7 @@ export async function recordEventWithRecipients(
     (recipient) => recipient.reason,
   );
 
-  const { data, error } = await supabase.rpc("record_event_with_recipients", {
+  const { error } = await supabase.rpc("record_event_with_recipients", {
     p_event_type: eventType,
     p_direction: direction,
     p_scope: scope,
@@ -104,45 +104,6 @@ export async function recordEventWithRecipients(
     });
     throw new Error(`failed to record event ${eventType}: ${error.message}`);
   }
-
-  // Parse the event_id from the RPC result
-  let eventId: number | null = null;
-  if (typeof data === "number") {
-    eventId = data;
-  } else if (typeof data === "string") {
-    // PostgreSQL bigint may come back as string
-    const parsed = parseInt(data, 10);
-    if (!Number.isNaN(parsed)) {
-      eventId = parsed;
-    }
-  } else if (
-    data &&
-    typeof data === "object" &&
-    "record_event_with_recipients" in data
-  ) {
-    // Direct SQL call returns { record_event_with_recipients: <value> }
-    const val = (data as Record<string, unknown>).record_event_with_recipients;
-    if (typeof val === "number") {
-      eventId = val;
-    } else if (typeof val === "string") {
-      const parsed = parseInt(val, 10);
-      if (!Number.isNaN(parsed)) {
-        eventId = parsed;
-      }
-    }
-  }
-
-  if (eventId === null) {
-    console.error("events.recordEventWithRecipients.unexpected_response", {
-      eventType,
-      scope,
-      dataType: typeof data,
-      data: data,
-      recipientCount: recipientIds.length,
-    });
-  }
-
-  return eventId;
 }
 
 export function buildEventSource(
@@ -216,7 +177,7 @@ export async function emitCharacterEvent(
     eventType,
   });
 
-  const eventId = await recordEventWithRecipients({
+  await recordEventWithRecipients({
     supabase,
     eventType,
     scope: scope ?? "direct",
@@ -232,14 +193,6 @@ export async function emitCharacterEvent(
     actorCharacterId: actorCharacterId ?? senderId ?? characterId,
     recipients,
   });
-
-  if (eventId === null) {
-    console.error("emitCharacterEvent.event_not_recorded", {
-      eventType,
-      characterId,
-      recipientCount: recipients.length,
-    });
-  }
 }
 
 interface SectorEventOptions {
@@ -258,7 +211,7 @@ interface SectorEventOptions {
 
 export async function emitSectorEvent(
   options: SectorEventOptions,
-): Promise<number | null> {
+): Promise<void> {
   const {
     supabase,
     sectorId,
@@ -275,10 +228,10 @@ export async function emitSectorEvent(
 
   const normalizedRecipients = dedupeRecipientSnapshots(recipients);
   if (!normalizedRecipients.length) {
-    return null;
+    return;
   }
 
-  return await recordEventWithRecipients({
+  await recordEventWithRecipients({
     supabase,
     eventType,
     scope,

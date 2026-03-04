@@ -2247,7 +2247,7 @@ function dedupeRecipients(
 
 export async function pgRecordEvent(
   options: PgRecordEventOptions,
-): Promise<number | null> {
+): Promise<void> {
   const {
     pg,
     eventType,
@@ -2269,13 +2269,13 @@ export async function pgRecordEvent(
 
   const normalizedRecipients = dedupeRecipients(recipients);
   if (!normalizedRecipients.length && !broadcast && !corpId) {
-    return null;
+    return;
   }
 
   const recipientIds = normalizedRecipients.map((r) => r.characterId);
   const recipientReasons = normalizedRecipients.map((r) => r.reason);
 
-  const result = await pg.queryObject<{ record_event_with_recipients: string }>(
+  await pg.queryObject(
     `SELECT record_event_with_recipients(
       $1, $2, $3, $4::uuid, $5::uuid, $6::int, $7::uuid, $8::uuid, $9::uuid,
       $10::jsonb, $11::jsonb, $12, $13::uuid[], $14::text[], $15, $16::uuid
@@ -2299,15 +2299,6 @@ export async function pgRecordEvent(
       taskId ?? null,
     ],
   );
-
-  const returnVal = result.rows[0]?.record_event_with_recipients;
-  if (typeof returnVal === "string") {
-    return parseInt(returnVal, 10);
-  }
-  if (typeof returnVal === "number" || typeof returnVal === "bigint") {
-    return Number(returnVal);
-  }
-  return null;
 }
 
 export interface PgEmitCharacterEventOptions {
