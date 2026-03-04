@@ -317,6 +317,7 @@ interface CharacterContextRow {
   rate_limit_allowed: boolean;
   sector_valid: boolean;
   target_sector: number;
+  combat_raw: unknown;
 }
 
 export interface CharacterContext {
@@ -324,6 +325,7 @@ export interface CharacterContext {
   ship: ShipRow;
   shipDefinition: ShipDefinitionRow;
   targetSector: number;
+  combatRaw?: unknown;
 }
 
 /**
@@ -396,11 +398,18 @@ export async function pgLoadCharacterContext(
           WHERE sector_id = COALESCE($5::int, (SELECT current_sector FROM ctx), 0)
         ) as valid,
         COALESCE($5::int, (SELECT current_sector FROM ctx), 0)::int as target_sector
+    ),
+    combat_check AS (
+      SELECT combat
+      FROM sector_contents
+      WHERE sector_id = (SELECT current_sector FROM ctx)
     )
-    SELECT ctx.*, rc.allowed as rate_limit_allowed, sc.valid as sector_valid, sc.target_sector
+    SELECT ctx.*, rc.allowed as rate_limit_allowed, sc.valid as sector_valid, sc.target_sector,
+           cc.combat as combat_raw
     FROM rate_check rc
     LEFT JOIN ctx ON true
-    LEFT JOIN sector_check sc ON true`,
+    LEFT JOIN sector_check sc ON true
+    LEFT JOIN combat_check cc ON true`,
     [characterId, params.endpoint, rule.max, rule.window, sectorParam],
   );
 
@@ -483,6 +492,7 @@ export async function pgLoadCharacterContext(
     ship,
     shipDefinition,
     targetSector: converted.target_sector,
+    combatRaw: converted.combat_raw ?? undefined,
   };
 }
 
@@ -562,8 +572,8 @@ export async function pgGetAdjacentSectors(
   pg: QueryClient,
   sectorId: number,
 ): Promise<number[]> {
-  const row = await pgFetchSectorRow(pg, sectorId);
-  return parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
+  const cache = await getCachedAdjacencies(async () => pgFetchAllAdjacencies(pg));
+  return cache.get(sectorId) ?? [];
 }
 
 // ============================================================================
@@ -2030,6 +2040,8 @@ export interface MarkSectorVisitedResult {
   firstPersonalVisit: boolean;
   knownToCorp: boolean;
   knowledge: MapKnowledge;
+  /** Merged personal + corp knowledge with source attribution (avoids re-querying pgLoadMapKnowledge) */
+  mergedKnowledge: MapKnowledge;
 }
 
 export async function pgMarkSectorVisited(
@@ -2038,38 +2050,74 @@ export async function pgMarkSectorVisited(
     characterId: string;
     sectorId: number;
     sectorSnapshot: SectorSnapshot;
+    /** Pre-loaded player_metadata to avoid re-querying (optional) */
+    playerMetadata?: Record<string, unknown> | null;
+    /** Pre-loaded corporation_id to avoid re-querying (optional) */
+    corporationId?: string | null;
   },
 ): Promise<MarkSectorVisitedResult> {
   const { characterId, sectorId, sectorSnapshot } = params;
   const sectorKey = String(sectorId);
   const timestamp = new Date().toISOString();
 
-  // Load character info with player_metadata, corporation_id, and both knowledge sources
-  const charResult = await pg.queryObject<{
-    player_metadata: Record<string, unknown> | null;
-    corporation_id: string | null;
-    map_knowledge: unknown;
-    corp_map_knowledge: unknown | null;
-  }>(
-    `SELECT
-      c.player_metadata,
-      c.corporation_id,
-      c.map_knowledge,
-      cmk.map_knowledge as corp_map_knowledge
-    FROM characters c
-    LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
-    WHERE c.character_id = $1`,
-    [characterId],
-  );
+  let playerMetadata: Record<string, unknown> | null;
+  let corpId: string | null;
+  let mapKnowledge: unknown;
+  let corpMapKnowledge: unknown | null;
 
-  const charRow = charResult.rows[0];
-  if (!charRow) {
-    throw new Error(`character ${characterId} not found`);
+  if (params.playerMetadata !== undefined && params.corporationId !== undefined) {
+    // Use pre-loaded metadata; only fetch map knowledge from DB
+    playerMetadata = params.playerMetadata;
+    corpId = params.corporationId;
+    const knowledgeResult = await pg.queryObject<{
+      map_knowledge: unknown;
+      corp_map_knowledge: unknown | null;
+    }>(
+      `SELECT
+        c.map_knowledge,
+        cmk.map_knowledge as corp_map_knowledge
+      FROM characters c
+      LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
+      WHERE c.character_id = $1`,
+      [characterId],
+    );
+    const knowledgeRow = knowledgeResult.rows[0];
+    if (!knowledgeRow) {
+      throw new Error(`character ${characterId} not found`);
+    }
+    mapKnowledge = knowledgeRow.map_knowledge;
+    corpMapKnowledge = knowledgeRow.corp_map_knowledge;
+  } else {
+    // Full load: character info with player_metadata, corporation_id, and both knowledge sources
+    const charResult = await pg.queryObject<{
+      player_metadata: Record<string, unknown> | null;
+      corporation_id: string | null;
+      map_knowledge: unknown;
+      corp_map_knowledge: unknown | null;
+    }>(
+      `SELECT
+        c.player_metadata,
+        c.corporation_id,
+        c.map_knowledge,
+        cmk.map_knowledge as corp_map_knowledge
+      FROM characters c
+      LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
+      WHERE c.character_id = $1`,
+      [characterId],
+    );
+
+    const charRow = charResult.rows[0];
+    if (!charRow) {
+      throw new Error(`character ${characterId} not found`);
+    }
+    playerMetadata = charRow.player_metadata;
+    corpId = charRow.corporation_id;
+    mapKnowledge = charRow.map_knowledge;
+    corpMapKnowledge = charRow.corp_map_knowledge;
   }
 
-  const playerType = resolvePlayerType(charRow.player_metadata);
+  const playerType = resolvePlayerType(playerMetadata);
   const isCorporationShip = playerType === "corporation_ship";
-  const corpId = charRow.corporation_id;
 
   // Corporation ship: update corp knowledge only
   if (isCorporationShip) {
@@ -2083,6 +2131,7 @@ export async function pgMarkSectorVisited(
         firstPersonalVisit: false,
         knownToCorp: false,
         knowledge: emptyKnowledge,
+        mergedKnowledge: setPlayerSource(emptyKnowledge),
       };
     }
 
@@ -2096,13 +2145,14 @@ export async function pgMarkSectorVisited(
       firstPersonalVisit: result.firstVisit, // First time corp learned this sector
       knownToCorp: false, // N/A for corp ships
       knowledge: result.knowledge,
+      mergedKnowledge: setPlayerSource(result.knowledge), // Corp ships: corp knowledge IS the merged knowledge
     };
   }
 
   // Human player: update personal knowledge
-  const personalKnowledge = normalizeMapKnowledge(charRow.map_knowledge);
-  const corpKnowledge = charRow.corp_map_knowledge
-    ? normalizeMapKnowledge(charRow.corp_map_knowledge)
+  const personalKnowledge = normalizeMapKnowledge(mapKnowledge);
+  const corpKnowledge = corpMapKnowledge
+    ? normalizeMapKnowledge(corpMapKnowledge)
     : null;
 
   // Check if corp already knew about this sector BEFORE we update personal knowledge
@@ -2129,10 +2179,16 @@ export async function pgMarkSectorVisited(
 
   await pgUpdateMapKnowledge(pg, characterId, nextKnowledge);
 
+  // Build merged knowledge (personal + corp) with source attribution
+  const merged = corpKnowledge
+    ? mergeMapKnowledge(nextKnowledge, corpKnowledge)
+    : setPlayerSource(nextKnowledge);
+
   return {
     firstPersonalVisit: !visitedBefore,
     knownToCorp,
     knowledge: nextKnowledge,
+    mergedKnowledge: merged,
   };
 }
 
@@ -2701,6 +2757,10 @@ export interface PgCheckGarrisonAutoEngageOptions {
   characterId: string;
   sectorId: number;
   requestId: string;
+  /** Pre-loaded ship ID to skip character lookup */
+  shipId?: string;
+  /** Pre-loaded hyperspace state to skip ship lookup */
+  inHyperspace?: boolean;
 }
 
 /**
@@ -2721,18 +2781,27 @@ export async function pgCheckGarrisonAutoEngage(
   }
 
   // Check if character's ship is in hyperspace
-  const charResult = await pg.queryObject<{ current_ship_id: string }>(
-    `SELECT current_ship_id FROM characters WHERE character_id = $1`,
-    [characterId],
-  );
-  const charRow = charResult.rows[0];
-  if (!charRow?.current_ship_id) return false;
+  let currentShipId: string;
+  if (options.shipId !== undefined && options.inHyperspace !== undefined) {
+    // Use pre-loaded data
+    if (options.inHyperspace) return false;
+    currentShipId = options.shipId;
+  } else {
+    // Fetch from DB
+    const charResult = await pg.queryObject<{ current_ship_id: string }>(
+      `SELECT current_ship_id FROM characters WHERE character_id = $1`,
+      [characterId],
+    );
+    const charRow = charResult.rows[0];
+    if (!charRow?.current_ship_id) return false;
+    currentShipId = charRow.current_ship_id;
 
-  const shipResult = await pg.queryObject<{ in_hyperspace: boolean }>(
-    `SELECT in_hyperspace FROM ship_instances WHERE ship_id = $1`,
-    [charRow.current_ship_id],
-  );
-  if (shipResult.rows[0]?.in_hyperspace) return false;
+    const shipResult = await pg.queryObject<{ in_hyperspace: boolean }>(
+      `SELECT in_hyperspace FROM ship_instances WHERE ship_id = $1`,
+      [currentShipId],
+    );
+    if (shipResult.rows[0]?.in_hyperspace) return false;
+  }
 
   // Check if there's existing active combat
   const combatResult = await pg.queryObject<{ combat: unknown }>(
@@ -2767,7 +2836,7 @@ export async function pgCheckGarrisonAutoEngage(
       (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
       (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $2)
     ) as corp_id`,
-    [characterId, charRow.current_ship_id],
+    [characterId, currentShipId],
   );
   const charCorpId = charCorpResult.rows[0]?.corp_id ?? null;
 

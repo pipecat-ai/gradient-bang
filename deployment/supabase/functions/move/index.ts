@@ -9,11 +9,10 @@ import {
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
-  emitCharacterEvent,
   emitErrorEvent,
   buildEventSource,
 } from "../_shared/events.ts";
-import { acquirePgClient } from "../_shared/pg.ts";
+import { acquirePgClient, getCachedAdjacencies, warmupAdjacencyCache } from "../_shared/pg.ts";
 import {
   parseJsonRequest,
   requireString,
@@ -34,23 +33,18 @@ import type {
   ShipDefinitionRow,
 } from "../_shared/status.ts";
 import type { SectorSnapshot, MapKnowledge } from "../_shared/map.ts";
-import { parseWarpEdges } from "../_shared/map.ts";
+import { fetchAllAdjacencies } from "../_shared/map.ts";
 
 // Import pg-based query functions
 import {
-  pgEnforceRateLimit,
-  pgLoadCharacter,
-  pgLoadShip,
-  pgLoadShipDefinition,
+  pgLoadCharacterContext,
   pgEnsureActorCanControlShip,
-  pgLoadCombatForSector,
-  pgGetAdjacentSectors,
+  pgLoadShip,
   pgBuildSectorSnapshot,
   pgStartHyperspace,
   pgFinishHyperspace,
   pgUpdateCharacterLastActive,
   pgBuildStatusPayload,
-  pgLoadMapKnowledge,
   pgMarkSectorVisited,
   pgBuildLocalMapRegion,
   pgEmitCharacterEvent,
@@ -61,6 +55,9 @@ import {
   MoveError,
   type ObserverMetadata,
 } from "../_shared/pg_queries.ts";
+
+// Warm up the adjacency cache on cold start (non-blocking)
+warmupAdjacencyCache(fetchAllAdjacencies);
 
 const BASE_MOVE_DELAY = Number(
   Deno.env.get("MOVE_DELAY_SECONDS_PER_TURN") ?? 2 / 3,
@@ -124,27 +121,6 @@ Deno.serve(traced("move", async (req, wt) => {
     }
     const destination = toSector;
 
-    const sRateLimit = wt.span("rate_limit");
-    try {
-      await pgEnforceRateLimit(pgClient, characterId, "move");
-      mark("rate_limit");
-      sRateLimit.end();
-    } catch (err) {
-      sRateLimit.end({ error: String(err) });
-      if (err instanceof RateLimitError) {
-        await emitErrorEvent(supabase, {
-          characterId,
-          method: "move",
-          requestId,
-          detail: "Too many move requests",
-          status: 429,
-        });
-        return errorResponse("Too many move requests", 429);
-      }
-      console.error("move.rate_limit", err);
-      return errorResponse("rate limit error", 500);
-    }
-
     const moveContext = {
       supabase,
       pgClient,
@@ -204,27 +180,34 @@ async function handleMove({
   const source = buildEventSource("move", requestId);
   let observerMetadata: ObserverMetadata;
 
+  // Load character context (character + ship + definition + rate limit + combat) in one query
   let character: CharacterRow;
   let ship: ShipRow;
   let shipDefinition: ShipDefinitionRow;
+  let combatRaw: unknown;
+  const sLoadCtx = ws.span("load_character_context");
   try {
-    // Load character first (needed to get current_ship_id)
-    const sLoadChar = ws.span("load_character");
-    character = await pgLoadCharacter(pgClient, characterId);
-    mark("load_character");
-    sLoadChar.end();
-
-    // Load ship (need ship_type for definition)
-    const sLoadShip = ws.span("load_ship");
-    ship = await pgLoadShip(pgClient, character.current_ship_id);
-    mark("load_ship");
-    sLoadShip.end();
-
-    const sLoadShipDef = ws.span("load_ship_definition");
-    shipDefinition = await pgLoadShipDefinition(pgClient, ship.ship_type);
-    mark("load_ship_definition");
-    sLoadShipDef.end();
+    const ctx = await pgLoadCharacterContext(pgClient, characterId, {
+      endpoint: "move",
+    });
+    character = ctx.character;
+    ship = ctx.ship;
+    shipDefinition = ctx.shipDefinition;
+    combatRaw = ctx.combatRaw;
+    mark("load_character_context");
+    sLoadCtx.end({ name: character.name, ship_id: ship.ship_id });
   } catch (err) {
+    sLoadCtx.end({ error: String(err) });
+    if (err instanceof RateLimitError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: "move",
+        requestId,
+        detail: "Too many move requests",
+        status: 429,
+      });
+      return errorResponse("Too many move requests", 429);
+    }
     console.error("move.load_state", err);
     await emitErrorEvent(supabase, {
       characterId,
@@ -315,22 +298,13 @@ async function handleMove({
     return errorResponse("Character ship missing sector", 500);
   }
 
-  // Parallelize combat check and adjacent sectors lookup
-  const sLoadCombatAdj = ws.span("load_combat_and_adjacent");
-  const [combatRow, adjacent] = await Promise.all([
-    pgLoadCombatForSector(pgClient, ship.current_sector),
-    pgGetAdjacentSectors(pgClient, ship.current_sector),
-  ]);
-  mark("load_combat_and_adjacent");
-  sLoadCombatAdj.end();
-
-  if (combatRow) {
+  // Combat check (already loaded via context CTE)
+  if (combatRaw) {
     const combat = deserializeCombat({
-      ...(combatRow.combat as Record<string, unknown>),
-      sector_id: combatRow.sector_id,
+      ...(combatRaw as Record<string, unknown>),
+      sector_id: ship.current_sector,
     });
     if (combat && !combat.ended) {
-      // Check if this character is a participant in the combat
       if (characterId in combat.participants) {
         await emitErrorEvent(supabase, {
           characterId,
@@ -343,6 +317,10 @@ async function handleMove({
       }
     }
   }
+
+  // Get adjacencies from cache (no DB query)
+  const adjacencyMap = await getCachedAdjacencies(fetchAllAdjacencies);
+  const adjacent = adjacencyMap.get(ship.current_sector) ?? [];
 
   const observerCorpId =
     ship.owner_type === "corporation"
@@ -394,6 +372,7 @@ async function handleMove({
   ).toISOString();
   let enteredHyperspace = false;
 
+  // Build destination snapshot (needed for movement.start event payload)
   let destinationSnapshot: SectorSnapshot;
   const sDestSnap = ws.span("build_destination_snapshot");
   try {
@@ -674,15 +653,19 @@ async function completeMovement({
   try {
     mark("pg_reacquire");
 
+    // Parallelize independent writes: finish hyperspace + update last active
     const sFinishHyper = ws.span("finish_hyperspace");
-    await pgFinishHyperspace(pg, { shipId, destination });
-    mark("finish_hyperspace");
-    sFinishHyper.end();
-
     const sUpdateActive = ws.span("update_last_active");
-    await pgUpdateCharacterLastActive(pg, characterId);
-    mark("update_character_last_active");
-    sUpdateActive.end();
+    await Promise.all([
+      pgFinishHyperspace(pg, { shipId, destination }).then(() => {
+        mark("finish_hyperspace");
+        sFinishHyper.end();
+      }),
+      pgUpdateCharacterLastActive(pg, characterId).then(() => {
+        mark("update_character_last_active");
+        sUpdateActive.end();
+      }),
+    ]);
 
     // Re-load ship to get updated warp_power after move, but reuse character and definition
     const sLoadUpdatedShip = ws.span("load_updated_ship");
@@ -702,20 +685,18 @@ async function completeMovement({
     sBuildStatus.end();
 
     // Mark sector visited (updates personal or corp knowledge depending on player type)
+    // Pass pre-loaded player_metadata and corporation_id to avoid re-querying
+    // Returns mergedKnowledge (personal + corp) to avoid a separate pgLoadMapKnowledge call
     const sMarkVisited = ws.span("mark_sector_visited");
-    const { firstPersonalVisit, knownToCorp } = await pgMarkSectorVisited(pg, {
+    const { firstPersonalVisit, knownToCorp, mergedKnowledge } = await pgMarkSectorVisited(pg, {
       characterId,
       sectorId: destination,
       sectorSnapshot: destinationSnapshot,
+      playerMetadata: character.player_metadata,
+      corporationId: character.corporation_id,
     });
     mark("mark_sector_visited");
     sMarkVisited.end();
-
-    // Load merged knowledge for local map (personal + corp)
-    const sLoadMapKnow = ws.span("load_map_knowledge");
-    const mergedKnowledge = await pgLoadMapKnowledge(pg, characterId);
-    mark("load_map_knowledge");
-    sLoadMapKnow.end();
 
     const sectorPayload = statusPayload.sector as Record<string, unknown>;
     const portPayload = sectorPayload?.port as Record<string, unknown> | null;
@@ -843,14 +824,19 @@ async function completeMovement({
         characterId,
         sectorId: destination,
         requestId,
+        shipId,
+        inHyperspace: false, // Just completed hyperspace
       });
       if (needsCombat) {
         // Combat initiation needed - use REST version for full combat setup
+        // Pass pre-loaded character/ship to avoid re-fetching
         await checkGarrisonAutoEngage({
           supabase,
           characterId,
           sectorId: destination,
           requestId,
+          character,
+          ship: updatedShip,
         });
       }
       sGarrison.end();

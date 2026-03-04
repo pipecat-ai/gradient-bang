@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
+import type { QueryClient } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 import {
   validateApiToken,
@@ -10,6 +11,7 @@ import { createServiceRoleClient } from "../_shared/client.ts";
 import { acquirePgClient, warmupAdjacencyCache } from "../_shared/pg.ts";
 import {
   pgLoadCharacterContext,
+  pgLoadCombatForSector,
   RateLimitError,
   pgEnsureActorAuthorization,
   pgUpdateShipState,
@@ -24,7 +26,7 @@ import {
 } from "../_shared/pg_queries.ts";
 import { buildEventSource } from "../_shared/events.ts";
 import {
-  loadCombatForSector,
+  deserializeCombat,
   persistCombatState,
 } from "../_shared/combat_state.ts";
 import { loadCharacterCombatants } from "../_shared/combat_participants.ts";
@@ -145,45 +147,33 @@ Deno.serve(traced("join", async (req, trace) => {
 
     const previousSector = ship.current_sector;
 
-    // Update ship state using PG
+    // Parallelize three independent writes: ship state + character-ship link + map knowledge
     const sUpdateShip = trace.span("update_ship_state");
+    const sCharShipLink = trace.span("ensure_character_ship_link");
+    const sMapKnowledge = trace.span("upsert_knowledge_entry");
     const t6 = performance.now();
-    await pgUpdateShipState(pg, {
-      shipId: ship.ship_id,
-      sectorId: targetSector,
-      creditsOverride,
-    });
-    sUpdateShip.end();
+    const knowledge = normalizeMapKnowledge(character.map_knowledge);
+    await Promise.all([
+      pgUpdateShipState(pg, {
+        shipId: ship.ship_id,
+        sectorId: targetSector,
+        creditsOverride,
+      }).then(() => sUpdateShip.end()),
+      pgEnsureCharacterShipLink(pg, character.character_id, ship.ship_id)
+        .then(() => sCharShipLink.end()),
+      pgUpsertKnowledgeEntry(pg, {
+        characterId: character.character_id,
+        sectorId: targetSector,
+        existingKnowledge: knowledge,
+        parentSpan: sMapKnowledge,
+      }).then(() => sMapKnowledge.end()),
+    ]);
     console.log(
-      `[join] pgUpdateShipState: ${(performance.now() - t6).toFixed(1)}ms`,
+      `[join] parallel writes (ship+link+knowledge): ${(performance.now() - t6).toFixed(1)}ms`,
     );
 
     // Update our local copy
     ship.current_sector = targetSector;
-
-    // Ensure character-ship link using PG
-    const sCharShipLink = trace.span("ensure_character_ship_link");
-    const t7 = performance.now();
-    await pgEnsureCharacterShipLink(pg, character.character_id, ship.ship_id);
-    sCharShipLink.end();
-    console.log(
-      `[join] pgEnsureCharacterShipLink: ${(performance.now() - t7).toFixed(1)}ms`,
-    );
-
-    // Update map knowledge using PG
-    const sMapKnowledge = trace.span("upsert_knowledge_entry");
-    const t8 = performance.now();
-    const knowledge = normalizeMapKnowledge(character.map_knowledge);
-    await pgUpsertKnowledgeEntry(pg, {
-      characterId: character.character_id,
-      sectorId: targetSector,
-      existingKnowledge: knowledge,
-      parentSpan: sMapKnowledge,
-    });
-    sMapKnowledge.end();
-    console.log(
-      `[join] pgUpsertKnowledgeEntry: ${(performance.now() - t8).toFixed(1)}ms`,
-    );
 
     const source = buildEventSource("join", requestId);
 
@@ -296,11 +286,11 @@ Deno.serve(traced("join", async (req, trace) => {
     }
 
     // Auto-join existing combat (if any) in the target sector
-    // Combat operations still use REST (Supabase client)
     const sAutoJoinCombat = trace.span("auto_join_combat");
     const t12 = performance.now();
     console.log("[join] Checking for existing combat to join");
     let activeEncounter = await autoJoinExistingCombat({
+      pg,
       supabase,
       characterId,
       sectorId: targetSector,
@@ -335,7 +325,10 @@ Deno.serve(traced("join", async (req, trace) => {
     // After all combat setup is complete, check if there's an active combat encounter
     if (!activeEncounter) {
       console.log("[join] Reloading combat state after garrison check");
-      activeEncounter = await loadCombatForSector(supabase, targetSector);
+      const reloadedRow = await pgLoadCombatForSector(pg, targetSector);
+      activeEncounter = reloadedRow
+        ? deserializeCombat({ ...(reloadedRow.combat as Record<string, unknown>), sector_id: reloadedRow.sector_id })
+        : null;
     }
 
     // LAST: Emit combat.round_waiting if character is in active combat
@@ -397,19 +390,23 @@ Deno.serve(traced("join", async (req, trace) => {
  * Does NOT emit events - caller is responsible for emitting combat.round_waiting.
  */
 async function autoJoinExistingCombat(params: {
+  pg: QueryClient;
   supabase: ReturnType<typeof createServiceRoleClient>;
   characterId: string;
   sectorId: number;
   requestId: string;
 }): Promise<any | null> {
-  const { supabase, characterId, sectorId } = params;
+  const { pg, supabase, characterId, sectorId } = params;
 
   console.log(
     `[join.autoJoinCombat] Checking for combat in sector ${sectorId} for ${characterId}`,
   );
 
-  // Check if there's existing active combat in this sector
-  const existingEncounter = await loadCombatForSector(supabase, sectorId);
+  // Check if there's existing active combat in this sector (using PG instead of REST)
+  const combatRow = await pgLoadCombatForSector(pg, sectorId);
+  const existingEncounter = combatRow
+    ? deserializeCombat({ ...(combatRow.combat as Record<string, unknown>), sector_id: combatRow.sector_id })
+    : null;
   if (!existingEncounter || existingEncounter.ended) {
     console.log("[join.autoJoinCombat] No active combat found");
     return null;
