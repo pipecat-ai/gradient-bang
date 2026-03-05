@@ -1335,6 +1335,10 @@ class VoiceTaskManager:
                     )
                 else:
                     should_append = True
+            elif scope == "corp" and is_voice_agent_event:
+                # Corp-scoped events from our own tool calls (e.g. rename_ship
+                # on a corp ship emits ship.renamed with scope=corp).
+                should_append = True
             elif is_local_sector_movement and not is_corp_ship_movement:
                 should_append = True
 
