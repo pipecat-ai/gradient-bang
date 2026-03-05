@@ -677,7 +677,75 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 19: Ship sell — target not found
+// Group 19: Corp ship rename updates characters.name
+// ============================================================================
+
+Deno.test({
+  name: "ship — corp ship rename updates character name",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+
+    await t.step("reset, create corp, buy corp ship", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Rename Test Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+    });
+
+    await t.step("corp ship character has default name", async () => {
+      const char = await queryCharacter(corpShipId);
+      assertExists(char);
+      assert(
+        (char.name as string).startsWith("Corp Ship ["),
+        `Expected default name starting with 'Corp Ship [', got '${char.name}'`,
+      );
+    });
+
+    await t.step("rename corp ship", async () => {
+      const result = await apiOk("ship_rename", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        ship_name: "Nebula Runner",
+      });
+      const body = result as Record<string, unknown>;
+      assertEquals(body.ship_name, "Nebula Runner");
+      assertEquals(body.changed, true);
+    });
+
+    await t.step("DB: ship_instances.ship_name updated", async () => {
+      const ship = await queryShip(corpShipId);
+      assertExists(ship);
+      assertEquals(ship.ship_name, "Nebula Runner");
+    });
+
+    await t.step("DB: characters.name also updated", async () => {
+      const char = await queryCharacter(corpShipId);
+      assertExists(char);
+      assertEquals(
+        char.name,
+        "Nebula Runner",
+        "characters.name should be updated to match the new ship name",
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 20: Ship sell — target not found
 // ============================================================================
 
 Deno.test({

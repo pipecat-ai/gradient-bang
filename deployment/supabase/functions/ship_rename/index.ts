@@ -251,6 +251,18 @@ async function handleRename(params: {
       console.error("ship_rename.ship_update", shipUpdateError);
       throw new ShipRenameError("Failed to rename ship", 500);
     }
+
+    // For corporation ships, the pseudo-character name should match the ship name
+    if (ship.owner_type === "corporation") {
+      const { error: charUpdateError } = await supabase
+        .from("characters")
+        .update({ name: trimmedName })
+        .eq("character_id", ship.ship_id);
+
+      if (charUpdateError) {
+        console.error("ship_rename.character_update", charUpdateError);
+      }
+    }
   }
 
   const timestamp = new Date().toISOString();
