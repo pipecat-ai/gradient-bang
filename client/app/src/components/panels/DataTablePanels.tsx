@@ -72,7 +72,15 @@ export const MovementHistoryPanel = ({ className }: { className?: string }) => {
 const columnsSectorPlayerMovement: ColumnDef<LogEntry>[] = [
   {
     id: "player",
-    accessorFn: (row) => String((row.meta?.player as { name?: string } | undefined)?.name ?? "—"),
+    accessorFn: (row) => {
+      const player = row.meta?.player as
+        | { name?: string; player_type?: string; corporation?: { name?: string } }
+        | undefined
+      if (player?.player_type === "corporation_ship" && player?.corporation?.name) {
+        return player.corporation.name
+      }
+      return String(player?.name ?? "—")
+    },
     header: "Player",
     meta: { width: "40%" },
   },

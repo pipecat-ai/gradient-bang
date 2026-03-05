@@ -24,6 +24,7 @@ export interface ObserverMetadata {
   shipType: string;
   corpId?: string | null;
   playerType?: string;
+  corpName?: string | null;
 }
 
 export interface BuildCharacterMovedPayloadOptions {
@@ -75,12 +76,19 @@ export function buildCharacterMovedPayload(
   const timestamp = new Date().toISOString();
   const moveType = options?.moveType ?? "normal";
   const extraFields = options?.extraFields;
+  const player: Record<string, unknown> = {
+    id: metadata.characterId,
+    name: metadata.characterName,
+    player_type: metadata.playerType ?? "human",
+  };
+  if (metadata.corpId && metadata.corpName) {
+    player.corporation = {
+      corp_id: metadata.corpId,
+      name: metadata.corpName,
+    };
+  }
   const payload: Record<string, unknown> = {
-    player: {
-      id: metadata.characterId,
-      name: metadata.characterName,
-      player_type: metadata.playerType ?? "human",
-    },
+    player,
     ship: {
       ship_id: metadata.shipId,
       ship_name: metadata.shipName,

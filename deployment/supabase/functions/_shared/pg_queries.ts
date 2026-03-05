@@ -1379,6 +1379,18 @@ export interface PgBuildStatusPayloadOptions {
   sectorSnapshot?: SectorSnapshot;
 }
 
+export async function pgLoadCorpName(
+  pg: QueryClient,
+  corpId: string | null | undefined,
+): Promise<string | null> {
+  if (!corpId) return null;
+  const result = await pg.queryObject<{ name: string }>(
+    `SELECT name FROM corporations WHERE corp_id = $1`,
+    [corpId],
+  );
+  return result.rows[0]?.name ?? null;
+}
+
 async function pgLoadCorporationInfo(
   pg: QueryClient,
   corpId: string,
@@ -2384,6 +2396,7 @@ export interface ObserverMetadata {
   shipType: string;
   corpId?: string | null;
   playerType?: string;
+  corpName?: string | null;
 }
 
 interface EventSource {
@@ -2516,12 +2529,19 @@ function buildCharacterMovedPayload(
   const timestamp = new Date().toISOString();
   const moveType = options?.moveType ?? "normal";
   const extraFields = options?.extraFields;
+  const player: Record<string, unknown> = {
+    id: metadata.characterId,
+    name: metadata.characterName,
+    player_type: metadata.playerType ?? "human",
+  };
+  if (metadata.corpId && metadata.corpName) {
+    player.corporation = {
+      corp_id: metadata.corpId,
+      name: metadata.corpName,
+    };
+  }
   const payload: Record<string, unknown> = {
-    player: {
-      id: metadata.characterId,
-      name: metadata.characterName,
-      player_type: metadata.playerType ?? "human",
-    },
+    player,
     ship: {
       ship_id: metadata.shipId,
       ship_name: metadata.shipName,

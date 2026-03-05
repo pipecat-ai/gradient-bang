@@ -21,6 +21,7 @@ import {
   pgBuildLocalMapRegion,
   pgEmitCharacterEvent,
   pgEmitMovementObservers,
+  pgLoadCorpName,
   JoinError,
   type ObserverMetadata,
 } from "../_shared/pg_queries.ts";
@@ -240,6 +241,7 @@ Deno.serve(traced("join", async (req, trace) => {
       ship.owner_type === "corporation"
         ? ship.owner_corporation_id
         : character.corporation_id;
+    const observerCorpName = await pgLoadCorpName(pg, observerCorpId);
     const observerMetadata: ObserverMetadata = {
       characterId: character.character_id,
       characterName: character.name,
@@ -248,6 +250,7 @@ Deno.serve(traced("join", async (req, trace) => {
       shipType: ship.ship_type,
       corpId: observerCorpId,
       playerType: resolvePlayerType(character.player_metadata),
+      corpName: observerCorpName,
     };
 
     // Movement observers using PG

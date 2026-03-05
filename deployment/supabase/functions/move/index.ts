@@ -52,6 +52,7 @@ import {
   pgComputeCorpMemberRecipients,
   pgEmitMovementObservers,
   pgCheckGarrisonAutoEngage,
+  pgLoadCorpName,
   RateLimitError,
   MoveError,
   type ObserverMetadata,
@@ -327,6 +328,7 @@ async function handleMove({
     ship.owner_type === "corporation"
       ? ship.owner_corporation_id
       : character.corporation_id;
+  const observerCorpName = await pgLoadCorpName(pgClient, observerCorpId);
   observerMetadata = {
     characterId: character.character_id,
     characterName: character.name,
@@ -335,6 +337,7 @@ async function handleMove({
     shipType: ship.ship_type,
     corpId: observerCorpId,
     playerType: resolvePlayerType(character.player_metadata),
+    corpName: observerCorpName,
   };
   if (!adjacent.includes(destination)) {
     await emitErrorEvent(supabase, {
