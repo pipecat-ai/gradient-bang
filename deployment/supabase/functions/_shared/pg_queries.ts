@@ -2383,6 +2383,7 @@ export interface ObserverMetadata {
   shipName: string;
   shipType: string;
   corpId?: string | null;
+  playerType?: string;
 }
 
 interface EventSource {
@@ -2516,7 +2517,11 @@ function buildCharacterMovedPayload(
   const moveType = options?.moveType ?? "normal";
   const extraFields = options?.extraFields;
   const payload: Record<string, unknown> = {
-    player: { id: metadata.characterId, name: metadata.characterName },
+    player: {
+      id: metadata.characterId,
+      name: metadata.characterName,
+      player_type: metadata.playerType ?? "human",
+    },
     ship: {
       ship_id: metadata.shipId,
       ship_name: metadata.shipName,

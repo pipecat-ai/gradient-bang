@@ -228,6 +228,20 @@ Deno.test({
       );
       assertExists(arrive, "Expected an 'arrive' character.moved event for P3");
     });
+
+    await t.step("arrive event includes player_type", async () => {
+      const events = await eventsOfType(p3Id, "character.moved", cursorP3);
+      const arrive = events.find(
+        (e) => (e.payload as Record<string, unknown>).movement === "arrive",
+      );
+      assertExists(arrive, "Expected an 'arrive' character.moved event for P3");
+      const player = (arrive!.payload as Record<string, unknown>).player as Record<string, unknown>;
+      assertEquals(
+        player.player_type,
+        "human",
+        "arrive event player should include player_type",
+      );
+    });
   },
 });
 

@@ -23,6 +23,7 @@ export interface ObserverMetadata {
   shipName: string;
   shipType: string;
   corpId?: string | null;
+  playerType?: string;
 }
 
 export interface BuildCharacterMovedPayloadOptions {
@@ -78,6 +79,7 @@ export function buildCharacterMovedPayload(
     player: {
       id: metadata.characterId,
       name: metadata.characterName,
+      player_type: metadata.playerType ?? "human",
     },
     ship: {
       ship_id: metadata.shipId,

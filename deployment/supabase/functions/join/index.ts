@@ -42,6 +42,7 @@ import {
 } from "../_shared/request.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import { ActorAuthorizationError } from "../_shared/actors.ts";
+import { resolvePlayerType } from "../_shared/status.ts";
 import { normalizeMapKnowledge, fetchAllAdjacencies } from "../_shared/map.ts";
 import { traced } from "../_shared/weave.ts";
 import type { WeaveSpan } from "../_shared/weave.ts";
@@ -246,6 +247,7 @@ Deno.serve(traced("join", async (req, trace) => {
       shipName: ship.ship_name ?? shipDefinition.display_name,
       shipType: ship.ship_type,
       corpId: observerCorpId,
+      playerType: resolvePlayerType(character.player_metadata),
     };
 
     // Movement observers using PG

@@ -27,10 +27,11 @@ import { ActorAuthorizationError } from "../_shared/actors.ts";
 import { checkGarrisonAutoEngage } from "../_shared/garrison_combat.ts";
 import { traced, type WeaveSpan } from "../_shared/weave.ts";
 import { deserializeCombat } from "../_shared/combat_state.ts";
-import type {
-  CharacterRow,
-  ShipRow,
-  ShipDefinitionRow,
+import {
+  resolvePlayerType,
+  type CharacterRow,
+  type ShipRow,
+  type ShipDefinitionRow,
 } from "../_shared/status.ts";
 import type { SectorSnapshot, MapKnowledge } from "../_shared/map.ts";
 import { fetchAllAdjacencies } from "../_shared/map.ts";
@@ -333,6 +334,7 @@ async function handleMove({
     shipName: ship.ship_name?.trim() || shipDefinition.display_name,
     shipType: ship.ship_type,
     corpId: observerCorpId,
+    playerType: resolvePlayerType(character.player_metadata),
   };
   if (!adjacent.includes(destination)) {
     await emitErrorEvent(supabase, {
