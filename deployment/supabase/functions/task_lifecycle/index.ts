@@ -1,5 +1,3 @@
-import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
-
 import {
   validateApiToken,
   unauthorizedResponse,
@@ -17,7 +15,6 @@ import {
   RequestValidationError,
 } from "../_shared/request.ts";
 import { computeCorpMemberRecipients } from "../_shared/visibility.ts";
-import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 import { traced } from "../_shared/weave.ts";
 
 /**
@@ -106,78 +103,104 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       }
     }
 
-    // Determine ship + task scope metadata
-    let shipId: string | null = shipIdRaw ?? null;
-    let shipName: string | null = shipNameRaw ?? null;
-    let shipType: string | null = shipTypeRaw ?? null;
-    let taskScope: "player_ship" | "corp_ship" =
-      taskScopeRaw === "corp_ship" ? "corp_ship" : "player_ship";
-    let shipOwnerCorpId: string | null = null;
+    // Parse and validate the raw ship_id input.
+    // We strip brackets and lowercase, then treat any hex string ≥6 chars
+    // as a prefix to match against ship_id (full UUIDs are just long prefixes).
+    const rawLookup = shipIdRaw?.trim().replace(/[\[\]]/g, "").replace(/-/g, "") || null;
+    const lookupId = rawLookup?.toLowerCase() || null;
 
-    if (shipId) {
-      const parsed = parseShipIdInput(shipId);
-      shipId = parsed.shipId;
-      if (parsed.shipIdPrefix) {
-        const resolved = await resolveShipIdByPrefixForActor(
-          supabase,
-          parsed.shipIdPrefix,
-          actorCharacterIdRaw ?? characterId,
-        );
-        if (!resolved) {
-          throw new RequestValidationError("Ship not found", 404);
-        }
-        shipId = resolved;
+    if (lookupId && (lookupId.length < 6 || !/^[0-9a-f]+$/i.test(lookupId))) {
+      throw new RequestValidationError(
+        "ship_id must be a UUID or 6+ character hex prefix",
+        400,
+      );
+    }
+
+    // Fetch corp membership (needed for ship access and event visibility).
+    const { data: membership } = await supabase
+      .from("corporation_members")
+      .select("corp_id")
+      .eq("character_id", characterId)
+      .is("left_at", null)
+      .maybeSingle();
+    const playerCorpId: string | null = membership?.corp_id ?? null;
+
+    // Also check if characterId is itself a corp pseudo-character (ship_id == characterId).
+    let pseudoCharCorpId: string | null = null;
+    if (!playerCorpId) {
+      const { data: shipData } = await supabase
+        .from("ship_instances")
+        .select("owner_type, owner_corporation_id")
+        .eq("ship_id", characterId)
+        .maybeSingle();
+      if (shipData?.owner_type === "corporation") {
+        pseudoCharCorpId = shipData.owner_corporation_id as string ?? null;
       }
     }
 
-    // If characterId is a ship_id (corp ship control), this returns a row
-    const needsShipLookup =
-      !shipName || !shipType || taskScope === "corp_ship" || !shipId;
-    if (needsShipLookup) {
-      // If characterId is a ship_id (corp ship control), this returns a row
-      const { data: directShipRow } = await supabase
-        .from("ship_instances")
-        .select(
-          "ship_id, ship_name, ship_type, owner_type, owner_corporation_id",
-        )
-        .eq("ship_id", characterId)
-        .maybeSingle();
+    // Single query: fetch ALL ships this player can control.
+    // This includes their personal ship (owner_character_id = characterId)
+    // and all corp ships (owner_corporation_id = playerCorpId).
+    const orClauses = [`owner_character_id.eq.${characterId}`];
+    const effectiveCorpId = playerCorpId ?? pseudoCharCorpId ?? null;
+    if (effectiveCorpId) {
+      orClauses.push(`owner_corporation_id.eq.${effectiveCorpId}`);
+    }
+    const { data: accessibleShips, error: shipLookupError } = await supabase
+      .from("ship_instances")
+      .select(
+        "ship_id, ship_name, ship_type, owner_type, owner_character_id, owner_corporation_id",
+      )
+      .or(orClauses.join(","));
 
-      if (directShipRow) {
-        shipId = shipId ?? directShipRow.ship_id ?? null;
-        shipName = shipName ?? directShipRow.ship_name ?? null;
-        shipType = shipType ?? directShipRow.ship_type ?? null;
-        if (directShipRow.owner_type === "corporation") {
-          taskScope = "corp_ship";
-          shipOwnerCorpId = directShipRow.owner_corporation_id ?? null;
-        }
-      } else if (!shipId) {
-        // Otherwise, this is a personal task; resolve current_ship_id
-        const { data: characterRow } = await supabase
-          .from("characters")
-          .select("current_ship_id")
-          .eq("character_id", characterId)
-          .maybeSingle();
-        shipId = (characterRow?.current_ship_id as string | null) ?? null;
-      }
+    if (shipLookupError) {
+      console.error("task_lifecycle.ship_lookup", shipLookupError);
+      throw new Error("Failed to look up ship");
+    }
 
-      if (shipId && (!shipName || !shipType || taskScope === "corp_ship")) {
-        const { data: shipRow } = await supabase
-          .from("ship_instances")
-          .select(
-            "ship_id, ship_name, ship_type, owner_type, owner_corporation_id",
-          )
-          .eq("ship_id", shipId)
-          .maybeSingle();
-        if (shipRow) {
-          shipName = shipName ?? shipRow.ship_name ?? null;
-          shipType = shipType ?? shipRow.ship_type ?? null;
-          if (shipRow.owner_type === "corporation") {
-            taskScope = "corp_ship";
-            shipOwnerCorpId = shipRow.owner_corporation_id ?? null;
-          }
-        }
+    const ships = accessibleShips ?? [];
+
+    // Resolve the target ship from the accessible list.
+    let shipRow: Record<string, unknown> | null = null;
+
+    if (!lookupId) {
+      // No ship_id provided: default to the player's personal ship,
+      // or the corp ship whose pseudo-character IS the characterId.
+      shipRow = ships.find(
+        (s) => s.owner_character_id === characterId || s.ship_id === characterId,
+      ) ?? null;
+    } else {
+      // Match by ship_id prefix (full UUIDs are just 32-char prefixes).
+      // Also check owner_character_id for the case where the agent passes
+      // the player's character ID instead of their ship ID.
+      const stripDashes = (v: string) => v.replace(/-/g, "").toLowerCase();
+      const matches = ships.filter((s) => {
+        const sid = stripDashes(s.ship_id as string);
+        const oid = s.owner_character_id ? stripDashes(s.owner_character_id as string) : null;
+        return sid.startsWith(lookupId) || oid?.startsWith(lookupId);
+      });
+      if (matches.length > 1) {
+        throw new RequestValidationError(
+          "Ship id prefix is ambiguous; use full ship_id",
+          409,
+        );
       }
+      shipRow = matches[0] ?? null;
+      if (!shipRow) {
+        throw new RequestValidationError("Ship not found", 404);
+      }
+    }
+
+    const shipId: string | null = (shipRow?.ship_id as string) ?? null;
+    const shipName: string | null =
+      shipNameRaw ?? (shipRow?.ship_name as string) ?? null;
+    const shipType: string | null =
+      shipTypeRaw ?? (shipRow?.ship_type as string) ?? null;
+    let taskScope: "player_ship" | "corp_ship" =
+      taskScopeRaw === "corp_ship" ? "corp_ship" : "player_ship";
+
+    if (shipRow?.owner_type === "corporation") {
+      taskScope = "corp_ship";
     }
     sLoadState.end();
 
@@ -198,37 +221,8 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       }
     }
 
-    // Server-side corp lookup for visibility
-    const sCorpLookup = trace.span("corp_lookup");
-    // First check corp membership
-    const { data: membership } = await supabase
-      .from("corporation_members")
-      .select("corp_id")
-      .eq("character_id", characterId)
-      .is("left_at", null)
-      .maybeSingle();
-
-    let effectiveCorpId: string | null = membership?.corp_id ?? null;
-
-    // Also check if this is a corp ship (for corp ships, character_id == ship_id)
-    // Query ship_instances directly - simpler and avoids timing issues if pseudo-character is deleted
-    if (!effectiveCorpId) {
-      const { data: shipData } = await supabase
-        .from("ship_instances")
-        .select("owner_type, owner_corporation_id")
-        .eq("ship_id", characterId)
-        .maybeSingle();
-
-      if (shipData?.owner_type === "corporation") {
-        effectiveCorpId = shipData.owner_corporation_id ?? null;
-      }
-    }
-
-    if (!effectiveCorpId && shipOwnerCorpId) {
-      effectiveCorpId = shipOwnerCorpId;
-    }
-
     // Get corp member recipients if in a corp
+    const sCorpLookup = trace.span("corp_lookup");
     let additionalRecipients: { characterId: string; reason: string }[] = [];
     if (effectiveCorpId) {
       additionalRecipients = await computeCorpMemberRecipients(
@@ -275,99 +269,3 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
   }
 }));
 
-function parseShipIdInput(value: string): {
-  shipId: string | null;
-  shipIdPrefix: string | null;
-} {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    throw new RequestValidationError("ship_id cannot be empty", 400);
-  }
-  if (validateUuid(trimmed)) {
-    return { shipId: trimmed, shipIdPrefix: null };
-  }
-  if (/^[0-9a-f]{6,8}$/i.test(trimmed)) {
-    return { shipId: null, shipIdPrefix: trimmed.toLowerCase() };
-  }
-  throw new RequestValidationError(
-    "ship_id must be a UUID or 6-8 hex prefix",
-    400,
-  );
-}
-
-async function resolveShipIdByPrefixForActor(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  prefix: string,
-  actorCharacterId: string | null,
-): Promise<string | null> {
-  if (!actorCharacterId) {
-    return null;
-  }
-
-  const cleaned = prefix.toLowerCase();
-  const { data: personalShips, error: personalError } = await supabase
-    .from("ship_instances")
-    .select("ship_id")
-    .eq("owner_type", "character")
-    .or(
-      `owner_character_id.eq.${actorCharacterId},owner_id.eq.${actorCharacterId}`,
-    );
-
-  if (personalError) {
-    console.error("task_lifecycle.lookup_ship_prefix_personal", personalError);
-    throw new RequestValidationError("Failed to lookup ship by prefix", 500);
-  }
-
-  const shipIds: string[] = (personalShips ?? [])
-    .map((row) => row.ship_id)
-    .filter((shipId): shipId is string => typeof shipId === "string");
-
-  const { data: corpRows, error: corpError } = await supabase
-    .from("corporation_members")
-    .select("corp_id")
-    .eq("character_id", actorCharacterId)
-    .is("left_at", null);
-
-  if (corpError) {
-    console.error("task_lifecycle.lookup_ship_prefix_corps", corpError);
-    throw new RequestValidationError(
-      "Failed to lookup actor corporation memberships",
-      500,
-    );
-  }
-
-  const corpIds = (corpRows ?? [])
-    .map((row) => row.corp_id)
-    .filter((corpId): corpId is string => typeof corpId === "string");
-
-  if (corpIds.length > 0) {
-    const { data: corpShips, error: corpShipError } = await supabase
-      .from("ship_instances")
-      .select("ship_id")
-      .eq("owner_type", "corporation")
-      .in("owner_corporation_id", corpIds);
-
-    if (corpShipError) {
-      console.error("task_lifecycle.lookup_ship_prefix_corp", corpShipError);
-      throw new RequestValidationError("Failed to lookup ship by prefix", 500);
-    }
-
-    const corpShipIds = (corpShips ?? [])
-      .map((row) => row.ship_id)
-      .filter((shipId): shipId is string => typeof shipId === "string");
-    shipIds.push(...corpShipIds);
-  }
-
-  const matches = shipIds.filter((shipId) =>
-    shipId.toLowerCase().startsWith(cleaned),
-  );
-
-  if (matches.length > 1) {
-    throw new RequestValidationError(
-      "Ship id prefix is ambiguous; use full ship_id",
-      409,
-    );
-  }
-
-  return matches.length === 1 ? matches[0] : null;
-}
