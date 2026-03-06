@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'linux'",
@@ -332,6 +332,34 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/47/d7/5bbeb12c44d7c4f2fb5b56abce497eb5ed9f34d85701de869acedd602619/backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba", size = 17001, upload-time = "2022-10-05T19:19:32.061Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/73/b6e24bd22e6720ca8ee9a85a0c4a2971af8497d8f3193fa05390cbd46e09/backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8", size = 15148, upload-time = "2022-10-05T19:19:30.546Z" },
+]
+
+[[package]]
+name = "boto3"
+version = "1.42.62"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+    { name = "jmespath" },
+    { name = "s3transfer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f7/7e/c952803c8900f14e6f6158fddbd35da5afb2e3fa68bf498a761e6ba2c2ae/boto3-1.42.62.tar.gz", hash = "sha256:6b26ff56c458685caec3d42adde0549f6a55410e557e1f51bebde5c8abcf3037", size = 112848, upload-time = "2026-03-05T21:20:37.755Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/68/b5e82dedd9c8d53a9542df4e3475d2d3ec331eef4a4a801e9c5fa98b583a/boto3-1.42.62-py3-none-any.whl", hash = "sha256:eef0ee08f30e5ed16d8296719808801a827fa0f3126a3e2a9ef9be9eb5e6a313", size = 140556, upload-time = "2026-03-05T21:20:35.354Z" },
+]
+
+[[package]]
+name = "botocore"
+version = "1.42.62"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jmespath" },
+    { name = "python-dateutil" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/af/e7/031f2f03f22817f8a8def7ad1caa138979c20ac35062b055274e0a505c3f/botocore-1.42.62.tar.gz", hash = "sha256:c210dc93b0b81bf72cfe745a7b1c8df765d04bd90b4ac6c8707fbb6714141dae", size = 14966114, upload-time = "2026-03-05T21:20:25.518Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/57/9bc5c1aad3a354dd7da54ba52d43ee821badb3deedbea4c5117c4bd05eab/botocore-1.42.62-py3-none-any.whl", hash = "sha256:86d327fded96775268ffe8d8bd6ed96c4a1db86cf24eb64ff85233db12dbc287", size = 14638389, upload-time = "2026-03-05T21:20:22.359Z" },
 ]
 
 [[package]]
@@ -1160,8 +1188,10 @@ dependencies = [
 
 [package.dev-dependencies]
 bot = [
+    { name = "boto3" },
     { name = "pipecat-ai", extra = ["anthropic", "cartesia", "daily", "deepgram", "google", "runner", "silero", "webrtc"] },
     { name = "pipecat-ai-cli" },
+    { name = "soundfile" },
 ]
 dev = [
     { name = "pytest" },
@@ -1190,8 +1220,10 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 bot = [
+    { name = "boto3", specifier = ">=1.35.0" },
     { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "google", "anthropic", "runner"], specifier = "==0.0.103" },
     { name = "pipecat-ai-cli" },
+    { name = "soundfile", specifier = ">=0.12.0" },
 ]
 dev = [
     { name = "pytest", specifier = ">=8.4.1" },
@@ -1584,6 +1616,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/85/15/d6eb3b770f6a0d332675141ab3962fd4a7c270ede3515d9f3583e1d28276/jiter-0.12.0-graalpy312-graalpy250_312_native-macosx_11_0_arm64.whl", hash = "sha256:89163163c0934854a668ed783a2546a0617f71706a2551a4a0666d91ab365d6b", size = 304233, upload-time = "2025-11-09T20:49:18.734Z" },
     { url = "https://files.pythonhosted.org/packages/8c/3e/e7e06743294eea2cf02ced6aa0ff2ad237367394e37a0e2b4a1108c67a36/jiter-0.12.0-graalpy312-graalpy250_312_native-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d96b264ab7d34bbb2312dedc47ce07cd53f06835eacbc16dde3761f47c3a9e7f", size = 338537, upload-time = "2025-11-09T20:49:20.317Z" },
     { url = "https://files.pythonhosted.org/packages/2f/9c/6753e6522b8d0ef07d3a3d239426669e984fb0eba15a315cdbc1253904e4/jiter-0.12.0-graalpy312-graalpy250_312_native-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c24e864cb30ab82311c6425655b0cdab0a98c5d973b065c66a3f020740c2324c", size = 346110, upload-time = "2025-11-09T20:49:21.817Z" },
+]
+
+[[package]]
+name = "jmespath"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/59/322338183ecda247fb5d1763a6cbe46eff7222eaeebafd9fa65d4bf5cb11/jmespath-1.1.0.tar.gz", hash = "sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d", size = 27377, upload-time = "2026-01-22T16:35:26.279Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl", hash = "sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64", size = 20419, upload-time = "2026-01-22T16:35:24.919Z" },
 ]
 
 [[package]]
@@ -3403,6 +3444,18 @@ wheels = [
 ]
 
 [[package]]
+name = "s3transfer"
+version = "0.16.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/05/04/74127fc843314818edfa81b5540e26dd537353b123a4edc563109d8f17dd/s3transfer-0.16.0.tar.gz", hash = "sha256:8e990f13268025792229cd52fa10cb7163744bf56e719e0b9cb925ab79abf920", size = 153827, upload-time = "2025-12-01T02:30:59.114Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fc/51/727abb13f44c1fcf6d145979e1535a35794db0f6e450a0cb46aa24732fe2/s3transfer-0.16.0-py3-none-any.whl", hash = "sha256:18e25d66fed509e3868dc1572b3f427ff947dd2c56f844a5bf09481ad3f3b2fe", size = 86830, upload-time = "2025-12-01T02:30:57.729Z" },
+]
+
+[[package]]
 name = "safetensors"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3550,6 +3603,25 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/c4/ba2f8066cceb6f23394729afe52f3bf7adec04bf9ed2c820b39e19299111/sortedcontainers-2.4.0.tar.gz", hash = "sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88", size = 30594, upload-time = "2021-05-16T22:03:42.897Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/46/9cb0e58b2deb7f82b84065f37f3bffeb12413f947f9388e4cac22c4621ce/sortedcontainers-2.4.0-py2.py3-none-any.whl", hash = "sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0", size = 29575, upload-time = "2021-05-16T22:03:41.177Z" },
+]
+
+[[package]]
+name = "soundfile"
+version = "0.13.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e1/41/9b873a8c055582859b239be17902a85339bec6a30ad162f98c9b0288a2cc/soundfile-0.13.1.tar.gz", hash = "sha256:b2c68dab1e30297317080a5b43df57e302584c49e2942defdde0acccc53f0e5b", size = 46156, upload-time = "2025-01-25T09:17:04.831Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/28/e2a36573ccbcf3d57c00626a21fe51989380636e821b341d36ccca0c1c3a/soundfile-0.13.1-py2.py3-none-any.whl", hash = "sha256:a23c717560da2cf4c7b5ae1142514e0fd82d6bbd9dfc93a50423447142f2c445", size = 25751, upload-time = "2025-01-25T09:16:44.235Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/ab/73e97a5b3cc46bba7ff8650a1504348fa1863a6f9d57d7001c6b67c5f20e/soundfile-0.13.1-py2.py3-none-macosx_10_9_x86_64.whl", hash = "sha256:82dc664d19831933fe59adad199bf3945ad06d84bc111a5b4c0d3089a5b9ec33", size = 1142250, upload-time = "2025-01-25T09:16:47.583Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/e5/58fd1a8d7b26fc113af244f966ee3aecf03cb9293cb935daaddc1e455e18/soundfile-0.13.1-py2.py3-none-macosx_11_0_arm64.whl", hash = "sha256:743f12c12c4054921e15736c6be09ac26b3b3d603aef6fd69f9dde68748f2593", size = 1101406, upload-time = "2025-01-25T09:16:49.662Z" },
+    { url = "https://files.pythonhosted.org/packages/58/ae/c0e4a53d77cf6e9a04179535766b3321b0b9ced5f70522e4caf9329f0046/soundfile-0.13.1-py2.py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:9c9e855f5a4d06ce4213f31918653ab7de0c5a8d8107cd2427e44b42df547deb", size = 1235729, upload-time = "2025-01-25T09:16:53.018Z" },
+    { url = "https://files.pythonhosted.org/packages/57/5e/70bdd9579b35003a489fc850b5047beeda26328053ebadc1fb60f320f7db/soundfile-0.13.1-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:03267c4e493315294834a0870f31dbb3b28a95561b80b134f0bd3cf2d5f0e618", size = 1313646, upload-time = "2025-01-25T09:16:54.872Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/df/8c11dc4dfceda14e3003bb81a0d0edcaaf0796dd7b4f826ea3e532146bba/soundfile-0.13.1-py2.py3-none-win32.whl", hash = "sha256:c734564fab7c5ddf8e9be5bf70bab68042cd17e9c214c06e365e20d64f9a69d5", size = 899881, upload-time = "2025-01-25T09:16:56.663Z" },
+    { url = "https://files.pythonhosted.org/packages/14/e9/6b761de83277f2f02ded7e7ea6f07828ec78e4b229b80e4ca55dd205b9dc/soundfile-0.13.1-py2.py3-none-win_amd64.whl", hash = "sha256:1e70a05a0626524a69e9f0f4dd2ec174b4e9567f4d8b6c11d38b5c289be36ee9", size = 1019162, upload-time = "2025-01-25T09:16:59.573Z" },
 ]
 
 [[package]]
