@@ -40,14 +40,15 @@ class S3SmartTurnAnalyzerV3(LocalSmartTurnAnalyzerV3):
 
         if self._s3_bucket:
             audio_copy = audio_array.copy()
+            label = "complete" if result["prediction"] == 1 else "incomplete"
             thread = threading.Thread(
-                target=self._upload_to_s3, args=(audio_copy,), daemon=True
+                target=self._upload_to_s3, args=(audio_copy, label), daemon=True
             )
             thread.start()
 
         return result
 
-    def _upload_to_s3(self, audio_array: np.ndarray) -> None:
+    def _upload_to_s3(self, audio_array: np.ndarray, label: str) -> None:
         try:
             import soundfile as sf
             import boto3
@@ -59,7 +60,7 @@ class S3SmartTurnAnalyzerV3(LocalSmartTurnAnalyzerV3):
 
             now = datetime.now(timezone.utc)
             timestamp = now.strftime("%y-%m-%d-%H-%M-%S")
-            key = f"{self._player_id}/{timestamp}-{uuid.uuid4()}.flac"
+            key = f"{self._player_id}/{label}/{timestamp}-{uuid.uuid4()}.flac"
 
             client = boto3.client(
                 "s3",
