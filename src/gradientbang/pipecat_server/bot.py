@@ -89,20 +89,20 @@ init_weave()
 if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
-# Configure loguru
-logger.remove()
-
-
+# Log filter — applied in _configure_logging() which runs inside bot() so it
+# takes effect after pipecat's runner has set up its own loguru handlers.
 def _loguru_filter(record):
-    """Filter out noisy log messages."""
-    msg = record.get("message", "")
-    # Suppress pipecat's verbose system instruction logging
-    if "System instruction changed:" in msg:
+    """Keep INFO+ messages, suppress noisy DEBUG messages."""
+    # Suppress pipecat's verbose system instruction dump
+    if "System instruction changed:" in record["message"]:
         return False
     return True
 
 
-logger.add(sys.stderr, level="INFO", filter=_loguru_filter)
+def _configure_logging():
+    """Re-configure loguru after pipecat's runner sets its own DEBUG handler."""
+    logger.remove()
+    logger.add(sys.stderr, level="INFO", filter=_loguru_filter)
 
 
 async def _lookup_character_display_name(character_id: str, server_url: str) -> str | None:
@@ -1025,6 +1025,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
 async def bot(runner_args: RunnerArguments):
     """Main bot entry point"""
+    _configure_logging()
 
     logger.info(f"Bot started with runner_args: {runner_args}")
 
