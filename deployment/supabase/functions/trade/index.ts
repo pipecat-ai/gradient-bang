@@ -182,12 +182,6 @@ Deno.serve(traced("trade", async (req, wt) => {
     });
     return errorResponse("internal server error", 500);
   } finally {
-    trace["total"] = Date.now() - t0;
-    console.log("trade.trace", {
-      request_id: requestId,
-      character_id: characterId,
-      trace,
-    });
     pgClient.release();
   }
 }));

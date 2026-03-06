@@ -88,7 +88,18 @@ if os.getenv("BOT_USE_KRISP"):
 
 # Configure loguru
 logger.remove()
-logger.add(sys.stderr, level="INFO")
+
+
+def _loguru_filter(record):
+    """Filter out noisy log messages."""
+    msg = record.get("message", "")
+    # Suppress pipecat's verbose system instruction logging
+    if "System instruction changed:" in msg:
+        return False
+    return True
+
+
+logger.add(sys.stderr, level="INFO", filter=_loguru_filter)
 
 
 async def _lookup_character_display_name(character_id: str, server_url: str) -> str | None:

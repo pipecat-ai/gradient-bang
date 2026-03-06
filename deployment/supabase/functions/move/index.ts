@@ -139,14 +139,6 @@ Deno.serve(traced("move", async (req, wt) => {
     const sHandleMove = wt.span("handle_move", { character_id: characterId, destination });
     const result = await handleMove({ ...moveContext, ws: sHandleMove });
     sHandleMove.end();
-    const tEnd = performance.now();
-    trace["total"] = Math.round(tEnd - tStart);
-    console.log("move.trace", {
-      request_id: requestId,
-      character_id: characterId,
-      destination,
-      trace,
-    });
     return result;
   } finally {
     // pgClient may already be released by completeMovement - safe to call release() again

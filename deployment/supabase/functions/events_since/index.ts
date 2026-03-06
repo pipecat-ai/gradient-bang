@@ -50,7 +50,6 @@ interface EventRow {
 }
 
 Deno.serve(traced("events_since", async (req, trace) => {
-  const tStart = performance.now();
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -81,19 +80,6 @@ Deno.serve(traced("events_since", async (req, trace) => {
     const sHandle = trace.span("handle_events_since_request");
     const result = await handleEventsSinceRequest(supabase, payload);
     sHandle.end({ event_count: result.events.length, has_more: result.has_more });
-    const tEnd = performance.now();
-    console.log("events_since.timing", {
-      request_id: requestId,
-      character_id: payload?.character_id,
-      character_ids: payload?.character_ids,
-      corp_id: payload?.corp_id,
-      ship_ids: payload?.ship_ids,
-      since_event_id: payload?.since_event_id,
-      limit: payload?.limit,
-      duration_ms: Math.round(tEnd - tStart),
-      events: Array.isArray(result?.events) ? result.events.length : null,
-      has_more: result?.has_more ?? null,
-    });
     return successResponse({ request_id: requestId, ...result });
   } catch (err) {
     const validationResponse = respondWithError(err);
