@@ -25,6 +25,9 @@ import {
   shipIdFor,
   eventsOfType,
   getEventCursor,
+  queryEvents,
+  createCorpShip,
+  setShipCredits,
 } from "./helpers.ts";
 
 const P1 = "test_task_p1";
@@ -360,6 +363,540 @@ Deno.test({
       });
       const body = result as Record<string, unknown>;
       assertEquals(body.task_id, taskId, "Full task_id returned");
+    });
+  },
+});
+
+// ============================================================================
+// Group 9: task_lifecycle with ship_id = player's own ship ID
+// ============================================================================
+
+Deno.test({
+  name: "task_lifecycle — ship_id = player's own ship → treated as player task",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    const taskId = crypto.randomUUID();
+    let cursorP1: number;
+
+    await t.step("capture cursor", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+    });
+
+    await t.step("emit task.start with ship_id = player ship", async () => {
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: taskId,
+        event_type: "start",
+        task_description: "Task with player ship_id",
+        ship_id: p1ShipId,
+      });
+      const body = result as Record<string, unknown>;
+      assertEquals(body.task_id, taskId);
+      assertEquals(body.event_type, "start");
+    });
+
+    await t.step("P1 receives task.start with correct ship metadata", async () => {
+      const events = await eventsOfType(p1Id, "task.start", cursorP1);
+      assert(events.length >= 1, `Expected >= 1 task.start, got ${events.length}`);
+      const payload = events[0].payload;
+      assertEquals(payload.task_id, taskId);
+      assertEquals(payload.task_scope, "player_ship", "Should be player_ship scope");
+      assertEquals(payload.ship_id, p1ShipId, "Event payload should have correct ship_id");
+      assertExists(payload.ship_name, "Event payload should include ship_name");
+    });
+  },
+});
+
+// ============================================================================
+// Group 10: task_lifecycle with ship_id = player's character ID
+// ============================================================================
+
+Deno.test({
+  name: "task_lifecycle — ship_id = player character ID → resolves to player ship",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    const taskId = crypto.randomUUID();
+    let cursorP1: number;
+
+    await t.step("capture cursor", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+    });
+
+    await t.step("emit task.start with ship_id = character ID", async () => {
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: taskId,
+        event_type: "start",
+        task_description: "Task with character ID as ship_id",
+        ship_id: p1Id,
+      });
+      const body = result as Record<string, unknown>;
+      assertEquals(body.task_id, taskId);
+    });
+
+    await t.step("P1 receives task.start with resolved ship metadata", async () => {
+      const events = await eventsOfType(p1Id, "task.start", cursorP1);
+      assert(events.length >= 1, `Expected >= 1 task.start, got ${events.length}`);
+      const payload = events[0].payload;
+      assertEquals(payload.task_id, taskId);
+      assertEquals(
+        payload.ship_id,
+        p1ShipId,
+        "ship_id should resolve to player's actual ship, not character ID",
+      );
+      assertExists(payload.ship_name, "Event payload should include ship_name");
+      assertEquals(payload.task_scope, "player_ship", "Should be player_ship scope");
+    });
+
+    await t.step("event row ship_id column is the real ship ID", async () => {
+      const rows = await queryEvents(
+        "task_id = $1 AND event_type = 'task.start'",
+        [taskId],
+      );
+      assert(rows.length >= 1, "Expected at least one task.start event row");
+      assertEquals(
+        rows[0].ship_id,
+        p1ShipId,
+        "events.ship_id column should be the player's actual ship_id",
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 11: unknown ship_id → 404
+// ============================================================================
+
+Deno.test({
+  name: "task_lifecycle — unknown ship_id → 404",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("random UUID ship_id → 404", async () => {
+      const result = await api("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Unknown ship",
+        ship_id: crypto.randomUUID(),
+      });
+      assertEquals(result.status, 404, "Expected 404 for unknown ship_id");
+    });
+
+    await t.step("random hex prefix → 404", async () => {
+      const result = await api("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        ship_id: "deadbeef",
+      });
+      assertEquals(result.status, 404, "Expected 404 for unknown prefix");
+    });
+  },
+});
+
+// ============================================================================
+// Group 12: can't control other player's ship
+// ============================================================================
+
+Deno.test({
+  name: "task_lifecycle — can't use another player's ship_id",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+    });
+
+    await t.step("P1 with P2's ship_id → 404", async () => {
+      const result = await api("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Steal P2's ship",
+        ship_id: p2ShipId,
+      });
+      assertEquals(result.status, 404, "Should not resolve another player's ship");
+    });
+
+    await t.step("P1 with P2's character ID as ship_id → 404", async () => {
+      const result = await api("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        ship_id: p2Id,
+      });
+      assertEquals(result.status, 404, "Should not resolve another player's character ID");
+    });
+  },
+});
+
+// ============================================================================
+// Group 13: can't control ships from another corporation
+// ============================================================================
+
+Deno.test({
+  name: "task_lifecycle — can't use another corp's ship",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpAId: string;
+    let corpBId: string;
+    let corpAShipId: string;
+    let corpBShipId: string;
+
+    await t.step("reset and set up two corps with ships", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      await setShipCredits(p2ShipId, 50000);
+
+      // P1 creates corp A
+      const corpAResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Task Test Corp A",
+      });
+      corpAId = (corpAResult as Record<string, unknown>).corp_id as string;
+
+      // P2 creates corp B
+      const corpBResult = await apiOk("corporation_create", {
+        character_id: p2Id,
+        name: "Task Test Corp B",
+      });
+      corpBId = (corpBResult as Record<string, unknown>).corp_id as string;
+
+      // Create corp ships
+      const shipA = await createCorpShip(corpAId, 0, "Alpha Scout");
+      corpAShipId = shipA.shipId;
+      const shipB = await createCorpShip(corpBId, 0, "Beta Scout");
+      corpBShipId = shipB.shipId;
+    });
+
+    await t.step("P1 can use own corp's ship", async () => {
+      await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Control own corp ship",
+        ship_id: corpAShipId,
+      });
+    });
+
+    await t.step("P1 cannot use corp B's ship → 404", async () => {
+      const result = await api("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Steal corp B ship",
+        ship_id: corpBShipId,
+      });
+      assertEquals(result.status, 404, "Should not resolve another corp's ship");
+    });
+
+    await t.step("P2 can use own corp's ship", async () => {
+      await apiOk("task_lifecycle", {
+        character_id: p2Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Control own corp ship",
+        ship_id: corpBShipId,
+      });
+    });
+  },
+});
+
+// ============================================================================
+// Group 14: ship_id prefix resolution
+// ============================================================================
+
+Deno.test({
+  name: "task_lifecycle — ship_id prefix resolution",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let corpShipId: string;
+
+    await t.step("reset and set up corp with ship", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+
+      const corpResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Prefix Test Corp",
+      });
+      corpId = (corpResult as Record<string, unknown>).corp_id as string;
+      const ship = await createCorpShip(corpId, 0, "Prefix Probe");
+      corpShipId = ship.shipId;
+    });
+
+    await t.step("6-char prefix of corp ship resolves", async () => {
+      const prefix = corpShipId.slice(0, 6);
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Prefix 6",
+        ship_id: prefix,
+      });
+      assertExists(result);
+    });
+
+    await t.step("7-char prefix of corp ship resolves", async () => {
+      const prefix = corpShipId.slice(0, 7);
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Prefix 7",
+        ship_id: prefix,
+      });
+      assertExists(result);
+    });
+
+    await t.step("8-char prefix of corp ship resolves", async () => {
+      const prefix = corpShipId.slice(0, 8);
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Prefix 8",
+        ship_id: prefix,
+      });
+      assertExists(result);
+    });
+
+    await t.step("6-char prefix of player ship resolves", async () => {
+      const prefix = p1ShipId.slice(0, 6);
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Player ship prefix",
+        ship_id: prefix,
+      });
+      assertExists(result);
+    });
+
+    await t.step("6-char prefix of character ID resolves to personal ship", async () => {
+      // Character ID prefix matches via owner_character_id, resolving to
+      // the player's personal ship.
+      const prefix = p1Id.slice(0, 6);
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Char ID prefix",
+        ship_id: prefix,
+      });
+      assertExists(result);
+    });
+
+    await t.step("5-char prefix → 400 (too short)", async () => {
+      const result = await api("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        ship_id: "abcde",
+      });
+      assertEquals(result.status, 400, "Expected 400 for too-short prefix");
+    });
+  },
+});
+
+// ============================================================================
+// Group 15: uppercase ship_id handling
+// ============================================================================
+
+Deno.test({
+  name: "task_lifecycle — uppercase IDs resolve correctly",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let corpShipId: string;
+
+    await t.step("reset and set up corp with ship", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+
+      const corpResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Case Test Corp",
+      });
+      corpId = (corpResult as Record<string, unknown>).corp_id as string;
+      const ship = await createCorpShip(corpId, 0, "Case Probe");
+      corpShipId = ship.shipId;
+    });
+
+    await t.step("uppercase full UUID of player ship resolves", async () => {
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Uppercase player ship",
+        ship_id: p1ShipId.toUpperCase(),
+      });
+      assertExists(result);
+    });
+
+    await t.step("uppercase full UUID of corp ship resolves", async () => {
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Uppercase corp ship",
+        ship_id: corpShipId.toUpperCase(),
+      });
+      assertExists(result);
+    });
+
+    await t.step("uppercase character ID as ship_id resolves", async () => {
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Uppercase char ID",
+        ship_id: p1Id.toUpperCase(),
+      });
+      assertExists(result);
+    });
+
+    await t.step("uppercase prefix of corp ship resolves", async () => {
+      const prefix = corpShipId.slice(0, 8).toUpperCase();
+      const result = await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Uppercase prefix",
+        ship_id: prefix,
+      });
+      assertExists(result);
+    });
+  },
+});
+
+// ============================================================================
+// Group 16: no ship_id → task started for player's current ship
+// ============================================================================
+
+Deno.test({
+  name: "task_lifecycle — no ship_id → resolves to player's ship",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset database", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    const taskId = crypto.randomUUID();
+    let cursorP1: number;
+
+    await t.step("capture cursor", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+    });
+
+    await t.step("emit task.start with no ship_id", async () => {
+      await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: taskId,
+        event_type: "start",
+        task_description: "Default ship task",
+      });
+    });
+
+    await t.step("event has player's ship_id and ship_name", async () => {
+      const events = await eventsOfType(p1Id, "task.start", cursorP1);
+      assert(events.length >= 1, `Expected >= 1 task.start, got ${events.length}`);
+      const payload = events[0].payload;
+      assertEquals(payload.ship_id, p1ShipId, "Should resolve to player's ship");
+      assertExists(payload.ship_name, "Should include ship_name");
+      assertEquals(payload.task_scope, "player_ship");
+    });
+
+    await t.step("events row has correct ship_id", async () => {
+      const rows = await queryEvents(
+        "task_id = $1 AND event_type = 'task.start'",
+        [taskId],
+      );
+      assert(rows.length >= 1);
+      assertEquals(rows[0].ship_id, p1ShipId);
+    });
+  },
+});
+
+// ============================================================================
+// Group 17: same-corp players can't control each other's personal ships
+// ============================================================================
+
+Deno.test({
+  name: "task_lifecycle — same corp, can't use corpmate's personal ship",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and set up corp with both players", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+
+      // P1 creates corp, P2 joins
+      const corpResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Shared Corp",
+      });
+      const corpBody = corpResult as Record<string, unknown>;
+      const corpId = corpBody.corp_id as string;
+      const inviteCode = corpBody.invite_code as string;
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: inviteCode,
+      });
+    });
+
+    await t.step("P1 can't use P2's personal ship_id → 404", async () => {
+      const result = await api("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        task_description: "Steal corpmate ship",
+        ship_id: p2ShipId,
+      });
+      assertEquals(result.status, 404, "Should not control corpmate's personal ship");
+    });
+
+    await t.step("P1 can't use P2's character ID as ship_id → 404", async () => {
+      const result = await api("task_lifecycle", {
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        event_type: "start",
+        ship_id: p2Id,
+      });
+      assertEquals(result.status, 404, "Should not resolve corpmate's character ID");
     });
   },
 });
