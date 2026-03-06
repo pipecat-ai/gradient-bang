@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from loguru import logger
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     BotSpeakingFrame,
@@ -46,6 +47,8 @@ from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
+from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
 
 from gradientbang.utils.llm_factory import (
@@ -320,6 +323,13 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         context,
         user_params=LLMUserAggregatorParams(
             filter_incomplete_user_turns=True,
+            user_turn_strategies=UserTurnStrategies(
+                stop=[
+                    TurnAnalyzerUserTurnStopStrategy(
+                        turn_analyzer=LocalSmartTurnAnalyzerV3()
+                    )
+                ],
+            ),
             user_mute_strategies=[
                 TextInputBypassFirstBotMuteStrategy(),
             ],
