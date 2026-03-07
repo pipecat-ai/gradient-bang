@@ -557,6 +557,10 @@ declare global {
     parts: ConversationMessagePart[]
     createdAt: string
     updatedAt?: string
+    /** Present on tool-call-start messages to show the arguments. */
+    toolArgs?: string
+    /** Present on tool-result messages to show the return value. */
+    toolResult?: string
   }
 
   /**
