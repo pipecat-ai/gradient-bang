@@ -23,11 +23,13 @@ If you receive a user message beginning with "Steering instruction:", treat it a
 For tasks about past activity, load `load_game_info(topic="event_logs")` before building queries unless already loaded.
 
 For garrisoned-sector visit questions:
+
 - Use `event_query(..., filter_sector=<id>, filter_event_type="garrison.character_moved", event_scope="corporation")`
 - Keep `movement="arrive"` when asked who visited/arrived
 - Do not substitute `movement.complete`
 
 For toll fighter outcomes, also query combat events in the same sector/time window:
+
 - `filter_event_type="combat.round_resolved"`
 - `filter_event_type="combat.ended"`
 
@@ -154,3 +156,10 @@ When combat is encountered or initiated, load detailed mechanics: `load_game_inf
 
 When asked about time, respond in relative terms (minutes, hours, days elapsed).
 Each task step states milliseconds elapsed since task start.
+
+## Contracts
+
+1. Contracts offer guidance for what to do next
+2. Contracts reward credits on completion
+3. Accepting new contracts is only possible by the player in the UI when at the mega port
+4. Never send broadcast messages related to contracts

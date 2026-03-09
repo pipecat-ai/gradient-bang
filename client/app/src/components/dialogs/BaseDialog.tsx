@@ -53,6 +53,7 @@ export interface BaseDialogProps {
   onClose?: () => void
   onOpenAutoFocus?: (e: Event) => void
   onCloseAutoFocus?: (e: Event) => void
+  showCloseButton?: boolean
 }
 
 export const BaseDialog = ({
@@ -70,6 +71,7 @@ export const BaseDialog = ({
   onClose,
   onOpenAutoFocus,
   onCloseAutoFocus,
+  showCloseButton = true,
 }: BaseDialogProps) => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
@@ -152,12 +154,14 @@ export const BaseDialog = ({
                   {children}
                 </motion.div>
               </Dialog.Content>
-              <motion.div
-                {...CONTENT_ANIMATION}
-                className="fixed top-0 right-0 z-100 pointer-events-auto"
-              >
-                <ModalCloseButton handleClose={handleClose} />
-              </motion.div>
+              {showCloseButton && (
+                <motion.div
+                  {...CONTENT_ANIMATION}
+                  className="fixed top-0 right-0 z-100 pointer-events-auto"
+                >
+                  <ModalCloseButton handleClose={handleClose} />
+                </motion.div>
+              )}
             </>
           )}
         </AnimatePresence>

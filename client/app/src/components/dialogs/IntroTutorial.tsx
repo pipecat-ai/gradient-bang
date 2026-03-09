@@ -14,7 +14,13 @@ export const IntroTutorial = ({ onContinue }: { onContinue: () => void }) => {
   }
 
   return (
-    <BaseDialog modalName="intro_tutorial" title="Welcome" size="2xl" dismissOnClickOutside={false}>
+    <BaseDialog
+      modalName="intro_tutorial"
+      title="Welcome"
+      size="2xl"
+      dismissOnClickOutside={false}
+      showCloseButton={false}
+    >
       <Card variant="stripes" size="default" className="w-full h-fit shadow-xlarge bg-background">
         <CardHeader>
           <CardTitle>Welcome to Gradient Bang</CardTitle>

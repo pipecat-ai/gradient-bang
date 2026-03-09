@@ -422,9 +422,10 @@ export function GameProvider({ children }: GameProviderProps) {
               }
 
               // Update corp ship position icons regardless of sector visibility
+              // Only update ships already in our fleet — not foreign corporation ships
               if (
-                isCorporationShipPayload(data) &&
                 data.ship?.ship_id &&
+                isKnownFleetShip(data.ship.ship_id) &&
                 typeof sectorId === "number"
               ) {
                 upsertCorporationShip(data.ship.ship_id, { sector: sectorId })

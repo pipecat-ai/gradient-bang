@@ -140,7 +140,7 @@
           "giver": "Amy, Federation Cadet",
           "pages": [
             "<emotion value=\"impressed\">Nice work on the Kestrel, pilot!</emotion> You're really getting the hang of this. Now it's time to take on something bigger.",
-            "<emotion value=\"neutral\" />The Federation contracts board has new assignments available. You'll find it at the Megaport. Commander Voss has posted a contract about forming corporations and managing fleets. <emotion value=\"encouraging\">Head to the contracts board and accept his contract to continue your training.</emotion>"
+            "<emotion value=\"neutral\" />The Federation contracts board has new assignments available. You'll find it at the Megaport, accessible via a button on the Player panel. Commander Voss has posted a contract about forming corporations and managing fleets. <emotion value=\"encouraging\">Head to the mega port and accept his contract to continue your training.</emotion>"
           ]
         }
       }
