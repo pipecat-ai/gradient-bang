@@ -475,6 +475,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         ]
         await task.queue_frames([LLMMessagesAppendFrame(messages, run_llm=True)])
         await task.queue_frame(EndFrame())
+        await asyncio.sleep(15)
+        await task.cancel(reason="idle timeout")
 
     async def _shutdown(reason: str) -> None:
         nonlocal shutdown_started
