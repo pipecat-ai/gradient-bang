@@ -19,5 +19,5 @@ export const MessageTimestamp = ({ createdAt, className }: Props) => {
     [createdAt]
   )
 
-  return <span className={cn("opacity-50", className)}>[{timeString}]</span>
+  return <span className={cn("opacity-70", className)}>[{timeString}]</span>
 }

@@ -16,7 +16,7 @@ import { PostProcessingManager, type PPConfig } from "./PostProcessingManager"
 const DEFAULT_PP_CONFIG: PPConfig = {
   // Sharpening
   sharpening_enabled: true,
-  sharpening_intensity: 0.35,
+  sharpening_intensity: 0.25,
   sharpening_radius: 3.0,
   // Dithering
   dithering_enabled: true,

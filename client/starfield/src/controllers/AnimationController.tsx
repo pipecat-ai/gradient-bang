@@ -18,9 +18,9 @@ const TRANSITION_SHAKE_CONFIG = {
   mode: "circular",
   strength: 0.01,
   frequency: 10,
-  duration: 2000,
-  rampUpTime: 800,
-  settleTime: 1000,
+  duration: 1000,
+  rampUpTime: 500,
+  settleTime: 600,
 }
 /**
  * AnimationController - Manages all scene animations
@@ -50,10 +50,7 @@ export function AnimationController() {
     // Double rAF here just to ensure all objects are mounted (precaution)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        console.debug(
-          "%c[STARFIELD] Playing initial animation",
-          "color: blue; font-weight: bold"
-        )
+        console.debug("%c[STARFIELD] Playing initial animation", "color: blue; font-weight: bold")
         const { animations } = useAnimationStore.getState()
         animations.shake?.start({
           ...TRANSITION_SHAKE_CONFIG,
@@ -66,6 +63,7 @@ export function AnimationController() {
           },
           {
             initialExposure: 0,
+            durationMultiplier: 4,
           }
         )
       })
@@ -108,9 +106,7 @@ export function AnimationController() {
         // but don't play exit transition (initial animation already revealed the scene)
         if (isFirstSceneCycleRef.current) {
           if (!isSceneChanging) {
-            console.debug(
-              "[STARFIELD] First scene cycle complete, no exit transition needed"
-            )
+            console.debug("[STARFIELD] First scene cycle complete, no exit transition needed")
             isFirstSceneCycleRef.current = false
           }
           return
@@ -159,120 +155,106 @@ export function AnimationController() {
 
   useControls(
     () =>
-      (showControls
-        ? {
-            Animations: folder(
-              {
-                Dim: folder(
-                  {
-                    ["Dim Enter"]: button(() => {
-                      useAnimationStore
-                        .getState()
-                        .animations.dim?.start("enter")
-                    }),
-                    ["Dim Exit"]: button(() => {
-                      useAnimationStore.getState().animations.dim?.start("exit")
-                    }),
-                  },
-                  { collapsed: true }
-                ),
-                Exposure: folder(
-                  {
-                    ["Exposure Enter"]: button(() => {
-                      useAnimationStore
-                        .getState()
-                        .animations.exposure?.start("enter")
-                    }),
-                    ["Exposure Exit"]: button(() => {
-                      useAnimationStore
-                        .getState()
-                        .animations.exposure?.start("exit")
-                    }),
-                  },
-                  { collapsed: true }
-                ),
-                Hyperspace: folder(
-                  {
-                    ["Hyperspace Enter"]: button(() => {
-                      useAnimationStore
-                        .getState()
-                        .animations.hyperspace?.start("enter")
-                    }),
-                    ["Hyperspace Exit"]: button(() => {
-                      useAnimationStore
-                        .getState()
-                        .animations.hyperspace?.start("exit")
-                    }),
-                  },
-                  { collapsed: true }
-                ),
-                SceneChange: folder(
-                  {
-                    ["Scene Change Enter"]: button(() => {
-                      useAnimationStore
-                        .getState()
-                        .animations.sceneChange?.start("enter")
-                    }),
-                    ["Scene Change Exit"]: button(() => {
-                      useAnimationStore
-                        .getState()
-                        .animations.sceneChange?.start("exit")
-                    }),
-                  },
-                  { collapsed: true }
-                ),
-                Shake: folder(
-                  {
-                    ["Shake Start"]: button(() => {
-                      useAnimationStore.getState().animations.shake?.start()
-                    }),
-                    ["Shake Stop"]: button(() => {
-                      useAnimationStore.getState().animations.shake?.stop()
-                    }),
-                    ["Shake (Strong)"]: button(() => {
-                      useAnimationStore.getState().animations.shake?.start({
-                        strength: 0.03,
-                        frequency: 15,
-                      })
-                    }),
-                    ["Shake (Perlin)"]: button(() => {
-                      useAnimationStore.getState().animations.shake?.start({
-                        mode: "perlin",
-                        strength: 0.02,
-                      })
-                    }),
-                    ["Impact (Light)"]: button(() => {
-                      useAnimationStore.getState().animations.shake?.start({
-                        duration: 300,
-                        strength: 0.015,
-                        rampUpTime: 50,
-                        settleTime: 200,
-                      })
-                    }),
-                    ["Impact (Heavy)"]: button(() => {
-                      useAnimationStore.getState().animations.shake?.start({
-                        duration: 800,
-                        strength: 0.04,
-                        rampUpTime: 100,
-                        settleTime: 500,
-                      })
-                    }),
-                  },
-                  { collapsed: true }
-                ),
-                Shockwave: folder(
-                  {
-                    ["Shockwave Trigger"]: button(() => {
-                      useAnimationStore.getState().animations.shockwave?.start()
-                    }),
-                  },
-                  { collapsed: true }
-                ),
-              },
-              { collapsed: true }
-            ),
-          }
-        : {}) as Schema
+      (showControls ?
+        {
+          Animations: folder(
+            {
+              Dim: folder(
+                {
+                  ["Dim Enter"]: button(() => {
+                    useAnimationStore.getState().animations.dim?.start("enter")
+                  }),
+                  ["Dim Exit"]: button(() => {
+                    useAnimationStore.getState().animations.dim?.start("exit")
+                  }),
+                },
+                { collapsed: true }
+              ),
+              Exposure: folder(
+                {
+                  ["Exposure Enter"]: button(() => {
+                    useAnimationStore.getState().animations.exposure?.start("enter")
+                  }),
+                  ["Exposure Exit"]: button(() => {
+                    useAnimationStore.getState().animations.exposure?.start("exit")
+                  }),
+                },
+                { collapsed: true }
+              ),
+              Hyperspace: folder(
+                {
+                  ["Hyperspace Enter"]: button(() => {
+                    useAnimationStore.getState().animations.hyperspace?.start("enter")
+                  }),
+                  ["Hyperspace Exit"]: button(() => {
+                    useAnimationStore.getState().animations.hyperspace?.start("exit")
+                  }),
+                },
+                { collapsed: true }
+              ),
+              SceneChange: folder(
+                {
+                  ["Scene Change Enter"]: button(() => {
+                    useAnimationStore.getState().animations.sceneChange?.start("enter")
+                  }),
+                  ["Scene Change Exit"]: button(() => {
+                    useAnimationStore.getState().animations.sceneChange?.start("exit")
+                  }),
+                },
+                { collapsed: true }
+              ),
+              Shake: folder(
+                {
+                  ["Shake Start"]: button(() => {
+                    useAnimationStore.getState().animations.shake?.start()
+                  }),
+                  ["Shake Stop"]: button(() => {
+                    useAnimationStore.getState().animations.shake?.stop()
+                  }),
+                  ["Shake (Strong)"]: button(() => {
+                    useAnimationStore.getState().animations.shake?.start({
+                      strength: 0.03,
+                      frequency: 15,
+                    })
+                  }),
+                  ["Shake (Perlin)"]: button(() => {
+                    useAnimationStore.getState().animations.shake?.start({
+                      mode: "perlin",
+                      strength: 0.02,
+                    })
+                  }),
+                  ["Impact (Light)"]: button(() => {
+                    useAnimationStore.getState().animations.shake?.start({
+                      duration: 300,
+                      strength: 0.015,
+                      rampUpTime: 50,
+                      settleTime: 200,
+                    })
+                  }),
+                  ["Impact (Heavy)"]: button(() => {
+                    useAnimationStore.getState().animations.shake?.start({
+                      duration: 800,
+                      strength: 0.04,
+                      rampUpTime: 100,
+                      settleTime: 500,
+                    })
+                  }),
+                },
+                { collapsed: true }
+              ),
+              Shockwave: folder(
+                {
+                  ["Shockwave Trigger"]: button(() => {
+                    useAnimationStore.getState().animations.shockwave?.start()
+                  }),
+                },
+                { collapsed: true }
+              ),
+            },
+            { collapsed: true }
+          ),
+        }
+      : {}) as Schema
   )
 
   return null

@@ -6,7 +6,7 @@ type AnimationDirection = "enter" | "exit"
 export type DirectionalAnimationStart = (
   direction: AnimationDirection,
   onComplete?: () => void,
-  overrides?: { initialExposure?: number }
+  overrides?: { initialExposure?: number; durationMultiplier?: number }
 ) => void
 
 export type ShakeAnimationStart = (config?: {
@@ -96,8 +96,7 @@ export const useAnimationStore = create<AnimationStore>((set) => ({
       shockwaveSequence: state.shockwaveSequence + 1,
     })),
   shockwaveStartTime: null,
-  setShockwaveStartTime: (time: number | null) =>
-    set({ shockwaveStartTime: time }),
+  setShockwaveStartTime: (time: number | null) => set({ shockwaveStartTime: time }),
   isDimmed: false,
   setIsDimmed: (isDimmed: boolean) => set({ isDimmed }),
   exposure: 0,

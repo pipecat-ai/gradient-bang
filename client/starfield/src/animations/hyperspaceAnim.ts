@@ -106,8 +106,7 @@ export function useHyperspaceAnimation() {
   } = useGameStore((state) => state.starfieldConfig)
 
   // Check if tunnel should be shown during warp
-  const shouldShowTunnel =
-    tunnelConfig?.enabled || tunnelConfig?.showDuringWarp !== false
+  const shouldShowTunnel = tunnelConfig?.enabled || tunnelConfig?.showDuringWarp !== false
 
   // Track animation direction for useFrame logic
   const directionRef = useRef<"enter" | "exit">("enter")
@@ -146,20 +145,16 @@ export function useHyperspaceAnimation() {
         if (tunnelOpacity) updateUniform(tunnelOpacity, TUNNEL_OPACITY.target)
 
         const tunnelContrast = getUniform<number>("tunnelContrast")
-        if (tunnelContrast)
-          updateUniform(tunnelContrast, TUNNEL_CONTRAST.target)
+        if (tunnelContrast) updateUniform(tunnelContrast, TUNNEL_CONTRAST.target)
 
         const tunnelCenterHole = getUniform<number>("tunnelCenterHole")
-        if (tunnelCenterHole)
-          updateUniform(tunnelCenterHole, TUNNEL_CENTER_HOLE.target)
+        if (tunnelCenterHole) updateUniform(tunnelCenterHole, TUNNEL_CENTER_HOLE.target)
 
         const tunnelCenterSoftness = getUniform<number>("tunnelCenterSoftness")
-        if (tunnelCenterSoftness)
-          updateUniform(tunnelCenterSoftness, TUNNEL_CENTER_SOFTNESS.target)
+        if (tunnelCenterSoftness) updateUniform(tunnelCenterSoftness, TUNNEL_CENTER_SOFTNESS.target)
 
         const tunnelRotationSpeed = getUniform<number>("tunnelRotationSpeed")
-        if (tunnelRotationSpeed)
-          updateUniform(tunnelRotationSpeed, TUNNEL_ROTATION_SPEED.target)
+        if (tunnelRotationSpeed) updateUniform(tunnelRotationSpeed, TUNNEL_ROTATION_SPEED.target)
       }
 
       const ppExposure = getUniform<number>("ppExposure")
@@ -174,9 +169,7 @@ export function useHyperspaceAnimation() {
           ppDitheringGridSize.initial! * PP_DITHERING.gridMultiplier
         )
 
-      const ppDitheringPixelSizeRatio = getUniform<number>(
-        "ppDitheringPixelSizeRatio"
-      )
+      const ppDitheringPixelSizeRatio = getUniform<number>("ppDitheringPixelSizeRatio")
       if (ppDitheringPixelSizeRatio)
         updateUniform(
           ppDitheringPixelSizeRatio,
@@ -191,7 +184,7 @@ export function useHyperspaceAnimation() {
     (
       direction: "enter" | "exit",
       onComplete?: () => void,
-      overrides?: { initialExposure?: number }
+      overrides?: { initialExposure?: number; durationMultiplier?: number }
     ) => void
   >(() => {})
 
@@ -200,21 +193,23 @@ export function useHyperspaceAnimation() {
     startRef.current = (
       direction: "enter" | "exit",
       onComplete?: () => void,
-      overrides?: { initialExposure?: number }
+      overrides?: { initialExposure?: number; durationMultiplier?: number }
     ) => {
       directionRef.current = direction
       shockwaveTriggeredRef.current = false // Reset shockwave trigger for new animation
       setHyperspace(direction)
       exitExposureTargetRef.current =
-        direction === "exit"
-          ? (overrides?.initialExposure ?? PP_EXPOSURE.target)
-          : PP_EXPOSURE.target
+        direction === "exit" ?
+          (overrides?.initialExposure ?? PP_EXPOSURE.target)
+        : PP_EXPOSURE.target
+
+      const multiplier = overrides?.durationMultiplier ?? 1
 
       if (direction === "enter") {
         console.debug("[STARFIELD] Hyperspace entering")
         // Linear spring - per-property easing via applyEasing
         startSpring(1, {
-          duration: hyperspaceEnterTime,
+          duration: (hyperspaceEnterTime ?? 1000) * multiplier,
         } as AnimationConfig).then(() => onComplete?.())
       } else {
         // If starting exit from idle state, snap to hyperspace first
@@ -227,7 +222,7 @@ export function useHyperspaceAnimation() {
         }
         // Linear spring - per-property easing via applyEasing
         startSpring(0, {
-          duration: hyperspaceExitTime,
+          duration: (hyperspaceExitTime ?? 1000) * multiplier,
         } as AnimationConfig).then(() => onComplete?.())
       }
     }
@@ -260,10 +255,7 @@ export function useHyperspaceAnimation() {
     // --- Camera FOV ---
     const cameraFov = getUniform<number>("cameraFov")
     if (cameraFov) {
-      updateUniform(
-        cameraFov,
-        lerpAnimatedProperty(p, isEntering, cameraFov.initial!, CAMERA_FOV)
-      )
+      updateUniform(cameraFov, lerpAnimatedProperty(p, isEntering, cameraFov.initial!, CAMERA_FOV))
     }
 
     // --- Tunnel uniforms (only animate if tunnel should be shown) ---
@@ -272,12 +264,7 @@ export function useHyperspaceAnimation() {
       if (tunnelOpacity) {
         updateUniform(
           tunnelOpacity,
-          lerpAnimatedProperty(
-            p,
-            isEntering,
-            tunnelOpacity.initial!,
-            TUNNEL_OPACITY
-          )
+          lerpAnimatedProperty(p, isEntering, tunnelOpacity.initial!, TUNNEL_OPACITY)
         )
       }
 
@@ -285,12 +272,7 @@ export function useHyperspaceAnimation() {
       if (tunnelContrast) {
         updateUniform(
           tunnelContrast,
-          lerpAnimatedProperty(
-            p,
-            isEntering,
-            tunnelContrast.initial!,
-            TUNNEL_CONTRAST
-          )
+          lerpAnimatedProperty(p, isEntering, tunnelContrast.initial!, TUNNEL_CONTRAST)
         )
       }
 
@@ -298,12 +280,7 @@ export function useHyperspaceAnimation() {
       if (tunnelCenterHole) {
         updateUniform(
           tunnelCenterHole,
-          lerpAnimatedProperty(
-            p,
-            isEntering,
-            tunnelCenterHole.initial!,
-            TUNNEL_CENTER_HOLE
-          )
+          lerpAnimatedProperty(p, isEntering, tunnelCenterHole.initial!, TUNNEL_CENTER_HOLE)
         )
       }
 
@@ -311,12 +288,7 @@ export function useHyperspaceAnimation() {
       if (tunnelCenterSoftness) {
         updateUniform(
           tunnelCenterSoftness,
-          lerpAnimatedProperty(
-            p,
-            isEntering,
-            tunnelCenterSoftness.initial!,
-            TUNNEL_CENTER_SOFTNESS
-          )
+          lerpAnimatedProperty(p, isEntering, tunnelCenterSoftness.initial!, TUNNEL_CENTER_SOFTNESS)
         )
       }
 
@@ -324,12 +296,7 @@ export function useHyperspaceAnimation() {
       if (tunnelRotationSpeed) {
         updateUniform(
           tunnelRotationSpeed,
-          lerpAnimatedProperty(
-            p,
-            isEntering,
-            tunnelRotationSpeed.initial!,
-            TUNNEL_ROTATION_SPEED
-          )
+          lerpAnimatedProperty(p, isEntering, tunnelRotationSpeed.initial!, TUNNEL_ROTATION_SPEED)
         )
       }
     }
@@ -343,21 +310,14 @@ export function useHyperspaceAnimation() {
         ...PP_EXPOSURE,
         target: exitExposureTargetRef.current,
       }
-      const newValue = lerpAnimatedProperty(
-        p,
-        isEntering,
-        ppExposure.initial!,
-        exposureConfig
-      )
+      const newValue = lerpAnimatedProperty(p, isEntering, ppExposure.initial!, exposureConfig)
 
       updateUniform(ppExposure, newValue)
     }
 
     // --- Dithering effect ---
     const ppDitheringGridSize = getUniform<number>("ppDitheringGridSize")
-    const ppDitheringPixelSizeRatio = getUniform<number>(
-      "ppDitheringPixelSizeRatio"
-    )
+    const ppDitheringPixelSizeRatio = getUniform<number>("ppDitheringPixelSizeRatio")
 
     if (ppDitheringGridSize && ppDitheringPixelSizeRatio) {
       const gridInitial = ppDitheringGridSize.initial!
@@ -367,19 +327,11 @@ export function useHyperspaceAnimation() {
       if (ditherP > PROGRESS_THRESHOLD) {
         updateUniform(
           ppDitheringGridSize,
-          THREE.MathUtils.lerp(
-            gridInitial,
-            gridInitial * PP_DITHERING.gridMultiplier,
-            ditherP
-          )
+          THREE.MathUtils.lerp(gridInitial, gridInitial * PP_DITHERING.gridMultiplier, ditherP)
         )
         updateUniform(
           ppDitheringPixelSizeRatio,
-          THREE.MathUtils.lerp(
-            pixelInitial,
-            pixelInitial * PP_DITHERING.pixelMultiplier,
-            ditherP
-          )
+          THREE.MathUtils.lerp(pixelInitial, pixelInitial * PP_DITHERING.pixelMultiplier, ditherP)
         )
       } else {
         // Reset to base values when not animating
@@ -390,11 +342,7 @@ export function useHyperspaceAnimation() {
 
     // --- Shockwave trigger on exit ---
     // Trigger shockwave when progress drops below threshold during exit
-    if (
-      !isEntering &&
-      !shockwaveTriggeredRef.current &&
-      p < SHOCKWAVE_EXIT_TRIGGER
-    ) {
+    if (!isEntering && !shockwaveTriggeredRef.current && p < SHOCKWAVE_EXIT_TRIGGER) {
       shockwaveTriggeredRef.current = true
       triggerShockwave()
     }

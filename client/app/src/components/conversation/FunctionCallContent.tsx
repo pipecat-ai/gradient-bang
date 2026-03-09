@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import {
-  ArrowRightIcon,
+  CaretRightIcon,
   CheckIcon,
   CircleNotchIcon,
   WrenchIcon,
@@ -42,9 +42,9 @@ const StatusIcon: React.FC<{
   switch (status) {
     case "started":
     case "in_progress":
-      return <CircleNotchIcon size={14} className="animate-spin" />
+      return <CircleNotchIcon size={12} className="animate-spin" weight="bold" />
     case "completed":
-      return <CheckIcon size={14} className="text-green-600" />
+      return <CheckIcon size={12} className="text-success" weight="bold" />
   }
 }
 
@@ -71,7 +71,7 @@ export const FunctionCallContent: React.FC<FunctionCallContentProps> = ({
         <CollapsibleTrigger asChild disabled={!hasDetails}>
           <button
             className={cn(
-              "text-subtle-foreground font-extrabold text-xxs uppercase inline-flex gap-1 items-center",
+              "w-fit text-subtle-foreground font-extrabold text-xxs uppercase inline-flex gap-1 items-center",
               "transition-colors select-none",
               hasDetails && "hover:text-foreground cursor-pointer",
               !hasDetails && "cursor-default"
@@ -87,8 +87,9 @@ export const FunctionCallContent: React.FC<FunctionCallContentProps> = ({
               <span className="font-bold text-medium">({functionCall.function_name})</span>
             )}
             {hasDetails && (
-              <ArrowRightIcon
+              <CaretRightIcon
                 size={11}
+                weight="bold"
                 className={cn("transition-transform duration-200", isOpen && "rotate-90")}
               />
             )}
@@ -99,14 +100,16 @@ export const FunctionCallContent: React.FC<FunctionCallContentProps> = ({
           <CollapsibleContent>
             <div
               className={cn(
-                "pl-3 border-l-2 border-muted text-xs font-mono",
+                "pl-3 ml-0! border-l-2 border-accent text-xxs",
                 "flex flex-col gap-2 mt-1",
                 hasDetails && "ml-3.5"
               )}
             >
               {functionCall.args && Object.keys(functionCall.args).length > 0 && (
                 <div>
-                  <div className="font-semibold text-muted-foreground mb-1">Arguments</div>
+                  <div className="font-semibold text-accent-foreground mb-1 uppercase">
+                    Arguments
+                  </div>
                   <pre className="bg-muted/50 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
                     {JSON.stringify(functionCall.args, null, 2)}
                   </pre>
@@ -115,7 +118,7 @@ export const FunctionCallContent: React.FC<FunctionCallContentProps> = ({
 
               {functionCall.result !== undefined && (
                 <div>
-                  <div className="font-semibold text-muted-foreground mb-1">Result</div>
+                  <div className="font-semibold text-accent-foreground mb-1 uppercase">Result</div>
                   <pre className="bg-muted/50 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
                     {typeof functionCall.result === "string" ?
                       functionCall.result

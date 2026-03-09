@@ -181,7 +181,7 @@ export const MessageContent = ({
     >
       <div
         className={cn(
-          "font-extrabold text-xxs uppercase",
+          "font-semibold text-xxs uppercase",
           message.role === "assistant" ? "text-terminal"
           : message.role === "user" ? "text-fuel"
           : "text-warning",

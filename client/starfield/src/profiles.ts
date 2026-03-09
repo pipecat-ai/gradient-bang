@@ -17,9 +17,9 @@ export const defaultProfile: StarfieldConfig = {
   cameraBaseFov: 50,
   palette: "cosmicTeal",
   imageAssets: [],
-  hyperspaceEnterTime: 1500,
-  hyperspaceExitTime: 1500,
-  hyperspaceDuration: 1500,
+  hyperspaceEnterTime: 500,
+  hyperspaceExitTime: 500,
+  hyperspaceDuration: 3000,
   shakeIntensity: 1,
   shakeRelaxTime: 1000,
   layerDimDuration: 5000,
@@ -127,10 +127,7 @@ export const extremeProfile: Partial<StarfieldConfig> = {
   ...defaultProfile,
 }
 
-export const PROFILE_MAP: Record<
-  PerformanceProfile,
-  Partial<StarfieldConfig>
-> = {
+export const PROFILE_MAP: Record<PerformanceProfile, Partial<StarfieldConfig>> = {
   low: lowProfile,
   mid: midProfile,
   auto: defaultProfile,
