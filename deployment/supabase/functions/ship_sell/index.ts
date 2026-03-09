@@ -261,9 +261,10 @@ async function handleShipSell(
 
   const timestamp = new Date().toISOString();
 
-  // Add trade-in credits to the player's personal ship
+  // Add trade-in credits + any credits held by the sold ship to the player's personal ship
   const personalCredits = personalShip.credits ?? 0;
-  const creditsAfter = personalCredits + tradeInValue;
+  const targetShipCredits = targetShip.credits ?? 0;
+  const creditsAfter = personalCredits + tradeInValue + targetShipCredits;
   const { error: creditError } = await supabase
     .from("ship_instances")
     .update({ credits: creditsAfter })
@@ -273,21 +274,14 @@ async function handleShipSell(
     throw new ShipSellError("Failed to apply sale credits", 500);
   }
 
-  // Mark the sold ship as unowned
-  const { error: unownedError } = await supabase
-    .from("ship_instances")
-    .update({
-      owner_type: "unowned",
-      owner_id: null,
-      owner_character_id: null,
-      owner_corporation_id: null,
-      became_unowned: timestamp,
-      former_owner_name: character.name,
-    })
-    .eq("ship_id", shipId);
-  if (unownedError) {
-    console.error("ship_sell.unown_ship", unownedError);
-    throw new ShipSellError("Failed to mark ship as unowned", 500);
+  // Delete the corp ship's character record (references ship_instances via current_ship_id)
+  const { error: charDeleteError } = await supabase
+    .from("characters")
+    .delete()
+    .eq("current_ship_id", shipId);
+  if (charDeleteError) {
+    console.error("ship_sell.delete_character", charDeleteError);
+    throw new ShipSellError("Failed to delete corp ship character", 500);
   }
 
   // Remove the corporation_ships association
@@ -298,7 +292,28 @@ async function handleShipSell(
     .eq("ship_id", shipId);
   if (corpShipDeleteError) {
     console.error("ship_sell.corp_ship_delete", corpShipDeleteError);
-    // Non-fatal — ship is already unowned
+    // Non-fatal — proceed with ship soft-delete
+  }
+
+  // Mark the sold ship as unowned and destroyed. We set both: unowned clears
+  // ownership, and destroyed_at removes it from active queries. We soft-delete
+  // rather than hard-delete because events and port_transactions have FK
+  // references to ship_id.
+  const { error: destroyError } = await supabase
+    .from("ship_instances")
+    .update({
+      owner_type: "unowned",
+      owner_id: null,
+      owner_character_id: null,
+      owner_corporation_id: null,
+      became_unowned: timestamp,
+      former_owner_name: character.name,
+      destroyed_at: timestamp,
+    })
+    .eq("ship_id", shipId);
+  if (destroyError) {
+    console.error("ship_sell.destroy_ship", destroyError);
+    throw new ShipSellError("Failed to remove sold ship", 500);
   }
 
   // Emit status.update so the player's client refreshes

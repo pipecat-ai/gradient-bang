@@ -32,6 +32,7 @@ import {
   setShipSector,
   setShipHyperspace,
   setMegabankBalance,
+  withPg,
 } from "./helpers.ts";
 
 const P1 = "test_ship_p1";
@@ -765,6 +766,264 @@ Deno.test({
         ship_id: crypto.randomUUID(),
       });
       assertEquals(result.status, 404);
+    });
+  },
+});
+
+// ============================================================================
+// Group 21: Ship sell — sold ship is soft-deleted (destroyed_at set)
+// ============================================================================
+
+Deno.test({
+  name: "ship — sold ship is soft-deleted",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+
+    await t.step("reset and create corp with ship", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Delete Test Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+    });
+
+    await t.step("ship exists before sell with no destroyed_at", async () => {
+      const ship = await queryShip(corpShipId);
+      assertExists(ship, "Corp ship should exist before selling");
+      assertEquals(ship.destroyed_at, null, "destroyed_at should be null before sell");
+    });
+
+    await t.step("sell the corp ship", async () => {
+      const result = await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
+      assert(result.success);
+    });
+
+    await t.step("ship has destroyed_at set after sell", async () => {
+      const ship = await queryShip(corpShipId);
+      assertExists(ship, "Ship row should still exist (soft-delete)");
+      assertExists(ship.destroyed_at, "destroyed_at should be set after sell");
+    });
+
+    await t.step("corp ship character record is deleted", async () => {
+      const char = await queryCharacter(corpShipId);
+      assertEquals(char, null, "Corp ship character should be deleted");
+    });
+  },
+});
+
+// ============================================================================
+// Group 22a: Ship sell — events associated with sold ship are preserved
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell preserves events for sold ship",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    let cursorP1: number;
+
+    await t.step("reset, create corp ship, generate events", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Event Preserve Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+    });
+
+    let eventCountBefore: number;
+
+    await t.step("count events referencing the corp ship before sell", async () => {
+      eventCountBefore = await withPg(async (pg) => {
+        const result = await pg.queryObject<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM events WHERE ship_id = $1`,
+          [corpShipId],
+        );
+        return result.rows[0].count;
+      });
+      assert(eventCountBefore >= 0, "Should be able to count events");
+    });
+
+    await t.step("sell the corp ship", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+      const result = await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
+      assert(result.success);
+    });
+
+    await t.step("events referencing sold ship still exist", async () => {
+      const eventCountAfter = await withPg(async (pg) => {
+        const result = await pg.queryObject<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM events WHERE ship_id = $1`,
+          [corpShipId],
+        );
+        return result.rows[0].count;
+      });
+      assert(
+        eventCountAfter >= eventCountBefore,
+        `Events should be preserved: had ${eventCountBefore} before, got ${eventCountAfter} after`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 22: Ship sell — sold ship's credits included in refund to player ship
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell refunds ship credits to player ship",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    let tradeInValue: number;
+    const corpShipCredits = 500;
+    const personalShipCredits = 50000;
+
+    await t.step("reset and create corp ship with credits", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, personalShipCredits);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Credit Test Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+      // Give the corp ship a credit balance
+      await setShipCredits(corpShipId, corpShipCredits);
+      // Reset personal ship credits to a known value after purchase
+      await setShipCredits(p1ShipId, personalShipCredits);
+    });
+
+    await t.step("sell succeeds and credits_after includes ship credits", async () => {
+      const result = await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
+      assert(result.success);
+      const body = result as Record<string, unknown>;
+      tradeInValue = body.trade_in_value as number;
+      const creditsAfter = body.credits_after as number;
+      // credits_after should include trade-in value PLUS the sold ship's held credits
+      assertEquals(
+        creditsAfter,
+        personalShipCredits + tradeInValue + corpShipCredits,
+        `Expected credits_after to include the sold ship's ${corpShipCredits} credits on top of trade-in value ${tradeInValue}`,
+      );
+    });
+
+    await t.step("DB: player ship credits match expected total", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      const expectedCredits = personalShipCredits + tradeInValue + corpShipCredits;
+      assertEquals(
+        ship.credits as number,
+        expectedCredits,
+        `Expected player ship credits == ${personalShipCredits} + ${tradeInValue} (trade-in) + ${corpShipCredits} (refund) = ${expectedCredits}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 23: Ship sell — emits status.update and corporation.ship_sold events
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell emits expected events",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    let corpId: string;
+    let cursorP1: number;
+
+    await t.step("reset and create corp with ship", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 50000);
+      const corpResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Event Test Corp",
+      });
+      const char = await queryCharacter(p1Id);
+      assertExists(char);
+      corpId = char.corporation_id as string;
+      assertExists(corpId, "Player should have a corporation_id");
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+    });
+
+    await t.step("capture cursor and sell", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+      const result = await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
+      assert(result.success);
+    });
+
+    await t.step("player receives status.update event", async () => {
+      const events = await eventsOfType(p1Id, "status.update", cursorP1);
+      assert(events.length >= 1, `Expected >= 1 status.update, got ${events.length}`);
+    });
+
+    await t.step("player receives corporation.ship_sold event", async () => {
+      const events = await eventsOfType(p1Id, "corporation.ship_sold", cursorP1, corpId);
+      assert(events.length >= 1, `Expected >= 1 corporation.ship_sold, got ${events.length}`);
+      const payload = events[0].payload;
+      assertEquals(payload.ship_id, corpShipId, "Event should reference the sold ship");
+      assertExists(payload.trade_in_value, "Event should include trade_in_value");
+      assertEquals(payload.seller_id, p1Id, "Event should reference the seller");
     });
   },
 });
