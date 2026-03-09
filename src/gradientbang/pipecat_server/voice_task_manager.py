@@ -1196,13 +1196,14 @@ class VoiceTaskManager:
 
         # map.update is emitted server-side in Supabase move handler.
 
-        # Filter out corp-visible movement events we don't want to forward
+        # Filter out other-player movement events we don't want to forward.
+        # Note: movement.start and movement.complete from other players (which
+        # are always corp ships, since we only poll our own + corp events) are
+        # NOT dropped here — they must reach the client via RTVI push so the UI
+        # can update ship position and fuel. The should_append logic downstream
+        # already prevents them from entering the LLM context.
         drop_event = False
-        if event_name == "movement.start" and is_other_player_event:
-            drop_event = True
-        elif event_name == "movement.complete" and is_other_player_event:
-            drop_event = True
-        elif event_name == "character.moved" and is_other_player_event:
+        if event_name == "character.moved" and is_other_player_event:
             movement = payload.get("movement") if isinstance(payload, Mapping) else None
             if movement == "depart":
                 sector_id = self._extract_sector_id(payload)
