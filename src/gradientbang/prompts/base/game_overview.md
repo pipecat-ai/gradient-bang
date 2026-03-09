@@ -23,7 +23,7 @@ You are controlling a ship in Gradient Bang, a space trading and exploration gam
 
 ## Mega-Ports (Federation Space)
 - Warp power recharge, banking (deposit/withdraw), armory (fighters)
-- Identified by "MEGA" prefix (e.g., "MEGA BBS")
+- Identified using list_known_ports(mega=true)
 - Combat is disabled in Federation Space
 
 ## Combat Overview

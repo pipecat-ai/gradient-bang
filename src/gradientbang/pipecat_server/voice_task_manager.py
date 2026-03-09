@@ -1480,9 +1480,11 @@ class VoiceTaskManager:
                 f"- There are three mega-ports in Federation Space for warp recharge\n"
                 f"- Warp power is needed to move, so finding a mega-port is the first priority\n"
                 f"- CRITICAL: Stay in Federation Space until a mega-port is found. If you drift into non-Federation space (Neutral, etc.), allow 2-3 hops to look for a route back, then reverse. Do NOT explore deeper — the player will strand.\n"
+                f"- CRITICAL: Sub-agent tasks often get confused about mega-ports. Don't mislead the user: check if the current port with list_known_ports(mega=true) before telling the user it's a mega-port.\n"
+                f"- Pass the above instructions on to the task sub-agents when calling start_task\n"
                 f"- Ask: should we search for a mega-port now?\n"
                 f"- Ask: do you want to trade along the way, or just focus on finding the mega-port?\n"
-                f"Converse naturally with the player. When they want to search for the mega-port, start a task to find it. Include the Federation Space constraint in any task instructions."
+                f"Converse naturally with the player. When they want to search for the mega-port, start a task to find it. Include the Federation Space constraint and list_known_ports(mega=true) check requirement in any task instructions."
                 "</event>"
             )
             logger.info("Onboarding: new player, injecting welcome message")
