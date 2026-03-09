@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 import { PlugsIcon } from "@phosphor-icons/react/dist/icons/Plugs"
@@ -145,6 +145,7 @@ export const Conversation: React.FC<ConversationProps> = memo(
   }) => {
     const [showSystem, setShowSystem] = useState(false)
     const llmIsWorking = useConversationStore((state) => state.isThinking)
+    const thinkCount = useRef(0)
 
     const { isConnected } = usePipecatConnectionState()
 
@@ -154,7 +155,10 @@ export const Conversation: React.FC<ConversationProps> = memo(
 
     useEffect(() => {
       if (llmIsWorking) {
-        useAudioStore.getState().playSound("chime7", { volume: 0.25 })
+        if (thinkCount.current > 0) {
+          useAudioStore.getState().playSound("chime7", { volume: 0.25 })
+        }
+        thinkCount.current++
       }
     }, [llmIsWorking])
 
