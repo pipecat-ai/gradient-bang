@@ -274,14 +274,16 @@ async function handleShipSell(
     throw new ShipSellError("Failed to apply sale credits", 500);
   }
 
-  // Delete the corp ship's character record (references ship_instances via current_ship_id)
-  const { error: charDeleteError } = await supabase
+  // Unlink the corp ship's character record from the ship instance.
+  // We null out current_ship_id rather than deleting the character, because
+  // the character may have events and rate_limits referencing it via FK.
+  const { error: unlinkError } = await supabase
     .from("characters")
-    .delete()
+    .update({ current_ship_id: null })
     .eq("current_ship_id", shipId);
-  if (charDeleteError) {
-    console.error("ship_sell.delete_character", charDeleteError);
-    throw new ShipSellError("Failed to delete corp ship character", 500);
+  if (unlinkError) {
+    console.error("ship_sell.unlink_character", unlinkError);
+    throw new ShipSellError("Failed to unlink corp ship character", 500);
   }
 
   // Remove the corporation_ships association
