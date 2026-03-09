@@ -203,10 +203,12 @@ export const ConversationProvider = ({ children }: React.PropsWithChildren) => {
 
   // LLM Function Call lifecycle events
   useRTVIClientEvent(RTVIEvent.LLMFunctionCallStarted, (data: LLMFunctionCallStartedData) => {
+    console.log("PEW", data)
     handleFunctionCallStarted({ function_name: data.function_name })
   })
 
   useRTVIClientEvent(RTVIEvent.LLMFunctionCallInProgress, (data: LLMFunctionCallInProgressData) => {
+    console.log("PEW 2", data)
     handleFunctionCallInProgress({
       function_name: data.function_name,
       tool_call_id: data.tool_call_id,

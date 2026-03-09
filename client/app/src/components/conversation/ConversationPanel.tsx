@@ -4,6 +4,7 @@ import { RTVIEvent } from "@pipecat-ai/client-js"
 import { useRTVIClientEvent } from "@pipecat-ai/client-react"
 
 import { Conversation } from "@/components/conversation/Conversation"
+import { ConversationProvider } from "@/components/conversation/ConversationProvider"
 import { Divider } from "@/components/primitives/Divider"
 import { TextInputControl } from "@/components/TextInputControl"
 import { UserMicControl } from "@/components/UserMicControl"
@@ -24,7 +25,9 @@ export const ConversationPanel = ({ className }: { className?: string }) => {
 
   return (
     <div className={cn("relative flex flex-col gap-ui-xs h-full", className)}>
-      <Conversation reverseOrder />
+      <ConversationProvider>
+        <Conversation />
+      </ConversationProvider>
       <div className="flex flex-row gap-ui-xs items-center">
         <TextInputControl
           onSend={(text) => {

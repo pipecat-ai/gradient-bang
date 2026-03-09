@@ -450,8 +450,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
                 // corp-only sectors can still be updated (e.g. when a probe
                 // visits a previously gray sector).
                 const existingSource = (mapData[existingIdx] as MapSectorNode).source
-                const isPlayerVisited =
-                  existingSource === "player" || existingSource === "both"
+                const isPlayerVisited = existingSource === "player" || existingSource === "both"
                 if (!ignoreLocal || !isPlayerVisited) {
                   Object.assign(mapData[existingIdx], sectorUpdate)
                   if (sectorUpdate.port !== undefined) {
@@ -515,6 +514,11 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       set(
         produce((state) => {
           state.course_plot = undefined
+          if (state.coursePlotZoomEnabled !== false) {
+            state.mapCenterSector = undefined
+            state.mapCenterWorld = undefined
+            state.mapFitBoundsWorld = undefined
+          }
         })
       ),
 
