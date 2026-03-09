@@ -821,9 +821,10 @@ Deno.test({
       assertExists(ship.destroyed_at, "destroyed_at should be set after sell");
     });
 
-    await t.step("corp ship character record is deleted", async () => {
+    await t.step("corp ship character is unlinked from ship", async () => {
       const char = await queryCharacter(corpShipId);
-      assertEquals(char, null, "Corp ship character should be deleted");
+      assertExists(char, "Corp ship character should still exist");
+      assertEquals(char.current_ship_id, null, "current_ship_id should be nulled out");
     });
   },
 });
@@ -894,6 +895,81 @@ Deno.test({
         eventCountAfter >= eventCountBefore,
         `Events should be preserved: had ${eventCountBefore} before, got ${eventCountAfter} after`,
       );
+    });
+  },
+});
+
+// ============================================================================
+// Group 21b: Ship sell — succeeds when corp ship character has events
+// ============================================================================
+
+Deno.test({
+  name: "ship — sell succeeds when corp ship has events",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+
+    await t.step("reset and create corp ship", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Events FK Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+    });
+
+    await t.step("generate events for corp ship character", async () => {
+      // Insert events directly referencing the corp ship's character_id,
+      // simulating what happens during normal gameplay
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `INSERT INTO events (character_id, event_type, payload, sector_id, direction)
+           VALUES ($1, 'status.update', '{}', 0, 'event_out')`,
+          [corpShipId],
+        );
+      });
+    });
+
+    await t.step("DB: corp ship character has events", async () => {
+      const count = await withPg(async (pg) => {
+        const result = await pg.queryObject<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM events WHERE character_id = $1`,
+          [corpShipId],
+        );
+        return result.rows[0].count;
+      });
+      assert(count > 0, `Expected events for corp ship character, got ${count}`);
+    });
+
+    await t.step("sell succeeds despite character having events", async () => {
+      const result = await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
+      assert(result.success);
+    });
+
+    await t.step("events for corp ship character are preserved", async () => {
+      const count = await withPg(async (pg) => {
+        const result = await pg.queryObject<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM events WHERE character_id = $1`,
+          [corpShipId],
+        );
+        return result.rows[0].count;
+      });
+      assert(count > 0, `Events for corp ship character should be preserved, got ${count}`);
     });
   },
 });
