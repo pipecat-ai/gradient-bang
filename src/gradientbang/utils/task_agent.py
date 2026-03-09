@@ -242,10 +242,14 @@ class _ResponseStateTracker(FrameProcessor):
         if self._agent.finished or self._agent.cancelled:
             return
 
-        # Queue inference if function calls were made
-        if self._has_function_calls:
-            await self._agent._queue_pending_run_now()
-        else:
+        # If function calls were made, do NOT schedule inference here.
+        # The sequential tool handler will call _on_tool_call_completed after
+        # execution, which handles inference scheduling (including deferral for
+        # async tools awaiting completion events).  Calling _queue_pending_run_now
+        # here races with the tool handler: this fires BEFORE the handler sets
+        # _awaiting_completion_event, so stale reasons (e.g. map.local) trigger a
+        # premature LLM run that hallucinates the completion event.
+        if not self._has_function_calls:
             # LLM responded without tool calls - prompt it to continue or finish
             logger.debug("No tool calls in response. Prompting LLM to continue or finish.")
             await self._agent._handle_no_tool_response()
@@ -1519,6 +1523,8 @@ class TaskAgent:
                 "Deferring inference scheduling while tool call is in progress pending={}",
                 self._inference_reasons,
             )
+            return
+        if self._awaiting_completion_event:
             return
         if not self._inference_reasons:
             return
