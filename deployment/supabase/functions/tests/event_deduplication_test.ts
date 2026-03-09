@@ -42,6 +42,7 @@ import {
   setShipSector,
   setMegabankBalance,
   withPg,
+  queryEvents,
   type EventRow,
 } from "./helpers.ts";
 
@@ -1346,6 +1347,119 @@ Deno.test({
         `Solo player's event_context.character_id should match P3. ` +
           `Got ${ctx.character_id}, expected ${p3Id}`,
       );
+    });
+  },
+});
+
+// ============================================================================
+// Group 22: Corp ship movement events include corp_id
+// When a corporation ship moves, movement.start and movement.complete must
+// carry corp_id so that corp members can poll them via events_since.
+// ============================================================================
+
+Deno.test({
+  name: "event_dedup — corp ship movement events carry corp_id",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    let corpShipCharacterId: string;
+
+    await t.step("setup: buy corp ship for Corp A (P1)", async () => {
+      await setShipSector(p1ShipId, 0);
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+
+      // For corp ships, the pseudo-character's character_id equals the ship_id
+      corpShipCharacterId = corpShipId;
+
+      // Give it warp power and place in sector 0
+      await setShipWarpPower(corpShipId, 500);
+      await setShipSector(corpShipId, 0);
+    });
+
+    let cursor: number;
+
+    await t.step("capture cursor for P2 (corp member)", async () => {
+      cursor = await getEventCursor(p2Id);
+    });
+
+    await t.step("move corp ship from sector 0 → 1", async () => {
+      await apiOk("move", {
+        character_id: corpShipCharacterId,
+        to_sector: 1,
+        actor_character_id: p1Id,
+      });
+    });
+
+    await t.step("movement.complete in DB has corp row with corp_id", async () => {
+      const rows = await queryEvents(
+        `event_type = 'movement.complete' AND character_id = $1 AND corp_id = $2`,
+        [corpShipCharacterId, corpAId],
+      );
+      const recent = rows.filter((r: Record<string, unknown>) => (r.id as number) > cursor);
+      assert(
+        recent.length >= 1,
+        `Should have a movement.complete corp row with corp_id=${corpAId}`,
+      );
+    });
+
+    await t.step("movement.start in DB has corp row with corp_id", async () => {
+      const rows = await queryEvents(
+        `event_type = 'movement.start' AND character_id = $1 AND corp_id = $2`,
+        [corpShipCharacterId, corpAId],
+      );
+      const recent = rows.filter((r: Record<string, unknown>) => (r.id as number) > cursor);
+      assert(
+        recent.length >= 1,
+        `Should have a movement.start corp row with corp_id=${corpAId}`,
+      );
+    });
+
+    await t.step("P2 (corp member) can poll corp ship movement via corp_id", async () => {
+      const moveEvents = await eventsOfType(
+        p2Id,
+        "movement.complete",
+        cursor,
+        corpAId,
+      );
+      const corpShipMoves = moveEvents.filter((e) => {
+        const payload = e.payload as Record<string, unknown>;
+        const player = payload.player as Record<string, unknown> | undefined;
+        return player?.id === corpShipCharacterId;
+      });
+      assert(
+        corpShipMoves.length >= 1,
+        "P2 should see corp ship's movement.complete when polling with corp_id",
+      );
+    });
+
+    await t.step("P3 (not in Corp A) cannot see corp ship movement", async () => {
+      const moveEvents = await eventsOfType(
+        p3Id,
+        "movement.complete",
+        cursor,
+      );
+      const corpShipMoves = moveEvents.filter((e) => {
+        const payload = e.payload as Record<string, unknown>;
+        const player = payload.player as Record<string, unknown> | undefined;
+        return player?.id === corpShipCharacterId;
+      });
+      assertEquals(
+        corpShipMoves.length,
+        0,
+        "P3 (non-corp-member) should NOT see corp ship's movement.complete",
+      );
+    });
+
+    await t.step("cleanup: move corp ship back", async () => {
+      await setShipSector(corpShipId, 0);
     });
   },
 });

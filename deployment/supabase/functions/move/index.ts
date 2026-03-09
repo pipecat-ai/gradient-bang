@@ -415,6 +415,7 @@ async function handleMove({
             sectorId: ship.current_sector,
             requestId,
             taskId,
+            corpId: observerCorpId,
           }).then(() => { mark("emit_movement_start"); sEmitStart.end(); return snapshot; });
         }),
 
@@ -704,6 +705,7 @@ async function completeMovement({
       sectorId: destination,
       requestId,
       taskId,
+      corpId,
     });
     mark("emit_movement_complete");
     sEmitComplete.end();

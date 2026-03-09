@@ -272,12 +272,18 @@ async function handleRecharge(
     corpId: character.corporation_id,
   });
 
+  // Build status payload with updated ship state (not the stale pre-update copy)
+  const updatedShip = {
+    ...ship,
+    current_warp_power: currentWarpPower + unitsToBuy,
+    credits: currentCredits - totalCost,
+  };
   const pgClient = await acquirePgClient();
   let statusPayload: Record<string, unknown>;
   try {
     statusPayload = await pgBuildStatusPayload(pgClient, characterId, {
       character,
-      ship,
+      ship: updatedShip,
       shipDefinition,
     });
   } finally {

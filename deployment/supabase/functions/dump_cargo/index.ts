@@ -297,7 +297,7 @@ async function handleDumpCargo(
   try {
     statusPayload = await pgBuildStatusPayload(pgClient, characterId, {
       character,
-      ship,
+      // Don't pass pre-update ship; let it reload from DB with current values
       shipDefinition,
     });
   } finally {
