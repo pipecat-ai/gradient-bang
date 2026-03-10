@@ -64,7 +64,10 @@ def init_weave(project_name: str | None = None) -> bool:
         return True
     try:
         resolved = project_name or os.getenv("WEAVE_PROJECT", "gradientbang")
-        weave.init(resolved)
+        weave.init(
+            resolved,
+            settings={"implicitly_patch_integrations": False},
+        )
         _weave_initialized = True
         logger.info(f"Weave tracing enabled: project={resolved}")
         return True
