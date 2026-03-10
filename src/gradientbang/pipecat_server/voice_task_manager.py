@@ -27,6 +27,7 @@ from gradientbang.utils.tools_schema import (
     MyStatus,
     PlotCourse,
     QueryTaskProgress,
+    RenameCorporation,
     RenameShip,
     SendMessage,
     ShipDefinitions,
@@ -267,6 +268,9 @@ class VoiceTaskManager:
                 {} if kwargs.get("list_all") else {"character_id": self.character_id},
             ),
             "rename_ship": lambda **kwargs: self.game_client.rename_ship(
+                character_id=self.character_id, **kwargs
+            ),
+            "rename_corporation": lambda **kwargs: self.game_client.rename_corporation(
                 character_id=self.character_id, **kwargs
             ),
             "ship_definitions": lambda **kwargs: self.game_client.get_ship_definitions(),
@@ -1905,6 +1909,7 @@ class VoiceTaskManager:
             "plot_course",  # generates course.plot
             "list_known_ports",  # generates ports.list
             "rename_ship",  # generates ship.renamed
+            "rename_corporation",  # generates corporation.data
         }
 
         # Tools that need explicit run_llm=True because they don't emit
@@ -2667,6 +2672,7 @@ class VoiceTaskManager:
                 CombatAction.schema(),
                 CorporationInfo.schema(),
                 RenameShip.schema(),
+                RenameCorporation.schema(),
                 ShipDefinitions.schema(),
                 QueryTaskProgress.schema(),
                 SteerTask.schema(),

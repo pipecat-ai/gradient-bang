@@ -1140,3 +1140,226 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 27: corporation_rename — happy path
+// ============================================================================
+
+Deno.test({
+  name: "corporation — rename",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+
+    await t.step("reset and create corp with P1+P2", async () => {
+      await resetDatabase([P1, P2, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipCredits(p1ShipId, 50000);
+      const result = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Rename Corp Original",
+      });
+      corpId = (result as Record<string, unknown>).corp_id as string;
+      const inviteCode = (result as Record<string, unknown>).invite_code as string;
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: inviteCode,
+      });
+    });
+
+    let cursorP1: number;
+    let cursorP2: number;
+    let cursorP3: number;
+
+    await t.step("capture cursors before rename", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+      cursorP2 = await getEventCursor(p2Id);
+      cursorP3 = await getEventCursor(p3Id);
+    });
+
+    await t.step("P1 renames corporation", async () => {
+      const result = await apiOk("corporation_rename", {
+        character_id: p1Id,
+        name: "Rename Corp Updated",
+      });
+      assert(result.success);
+      const body = result as Record<string, unknown>;
+      assertEquals(body.name, "Rename Corp Updated");
+    });
+
+    await t.step("P1 receives corporation.data event", async () => {
+      const events = await eventsOfType(p1Id, "corporation.data", cursorP1);
+      assert(events.length >= 1, `Expected >= 1 corporation.data for P1, got ${events.length}`);
+      const payload = events[0].payload;
+      assertExists(payload.corporation, "Event should include corporation payload");
+      assertEquals(
+        (payload.corporation as Record<string, unknown>).name,
+        "Rename Corp Updated",
+      );
+    });
+
+    await t.step("P2 receives corporation.data event", async () => {
+      const events = await eventsOfType(p2Id, "corporation.data", cursorP2);
+      assert(events.length >= 1, `Expected >= 1 corporation.data for P2, got ${events.length}`);
+      const payload = events[0].payload;
+      assertEquals(
+        (payload.corporation as Record<string, unknown>).name,
+        "Rename Corp Updated",
+      );
+    });
+
+    await t.step("P3 does NOT receive corporation.data event", async () => {
+      await assertNoEventsOfType(p3Id, "corporation.data", cursorP3);
+    });
+  },
+});
+
+// ============================================================================
+// Group 28: corporation_rename — not in corp
+// ============================================================================
+
+Deno.test({
+  name: "corporation — rename not in corp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset (P3 not in any corp)", async () => {
+      await resetDatabase([P3]);
+      await apiOk("join", { character_id: p3Id });
+    });
+
+    await t.step("fails: not in a corporation", async () => {
+      const result = await api("corporation_rename", {
+        character_id: p3Id,
+        name: "Should Fail",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("Not in a corporation"),
+        `Expected not-in-corp error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 29: corporation_rename — name too short
+// ============================================================================
+
+Deno.test({
+  name: "corporation — rename name too short",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and create corp", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Short Name Test Corp",
+      });
+    });
+
+    await t.step("fails: name too short", async () => {
+      const result = await api("corporation_rename", {
+        character_id: p1Id,
+        name: "AB",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("3-50"),
+        `Expected name length error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 30: corporation_rename — name too long
+// ============================================================================
+
+Deno.test({
+  name: "corporation — rename name too long",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and create corp", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Long Name Test Corp",
+      });
+    });
+
+    await t.step("fails: name too long", async () => {
+      const result = await api("corporation_rename", {
+        character_id: p1Id,
+        name: "A".repeat(51),
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("3-50"),
+        `Expected name length error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 31: corporation_rename — duplicate name
+// ============================================================================
+
+Deno.test({
+  name: "corporation — rename duplicate name",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and create two corps", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      const p2Ship = await shipIdFor(P2);
+      await setShipCredits(p2Ship, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Existing Corp Name",
+      });
+      await apiOk("corporation_create", {
+        character_id: p2Id,
+        name: "Other Corp Name",
+      });
+    });
+
+    await t.step("fails: duplicate name", async () => {
+      const result = await api("corporation_rename", {
+        character_id: p2Id,
+        name: "Existing Corp Name",
+      });
+      assertEquals(result.status, 409);
+      assert(
+        result.body.error?.includes("already exists"),
+        `Expected duplicate name error, got: ${result.body.error}`,
+      );
+    });
+
+    await t.step("fails: duplicate name (case-insensitive)", async () => {
+      const result = await api("corporation_rename", {
+        character_id: p2Id,
+        name: "existing corp name",
+      });
+      assertEquals(result.status, 409);
+      assert(
+        result.body.error?.includes("already exists"),
+        `Expected duplicate name error, got: ${result.body.error}`,
+      );
+    });
+  },
+});
