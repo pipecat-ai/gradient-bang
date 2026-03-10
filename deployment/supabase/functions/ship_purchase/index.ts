@@ -466,6 +466,7 @@ async function handleCorporationPurchase(
     corpId,
     sectorId: currentShip.current_sector ?? 0,
     timestamp,
+    shipName: shipNameOverride ? shipName : undefined,
   });
 
   const source = buildEventSource("ship_purchase", requestId);
@@ -560,6 +561,7 @@ async function ensureCorporationShipCharacter(params: {
   corpId: string;
   sectorId: number;
   timestamp: string;
+  shipName?: string;
 }): Promise<void> {
   const existing = await params.supabase
     .from("characters")
@@ -570,14 +572,13 @@ async function ensureCorporationShipCharacter(params: {
     return;
   }
 
-  const baseName = "Corp Ship";
+  const hasCustomName = !!params.shipName;
+  const baseName = params.shipName ?? "Corp Ship";
   let attempt = 0;
   while (attempt < 3) {
-    const resolvedName = generateCorporationShipName(
-      baseName,
-      params.shipId,
-      attempt,
-    );
+    const resolvedName = hasCustomName
+      ? baseName
+      : generateCorporationShipName(baseName, params.shipId, attempt);
     const insert = await params.supabase.from("characters").insert({
       character_id: params.shipId,
       name: resolvedName,

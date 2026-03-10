@@ -1043,7 +1043,61 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 23: Ship sell — emits status.update and corporation.ship_sold events
+// Group 23: Corp ship purchase with custom name — character name matches
+// ============================================================================
+
+Deno.test({
+  name: "ship — corp ship purchase with custom name sets character name",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    const customName = "The Destroyer";
+
+    await t.step("reset, create corp, buy corp ship with custom name", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Custom Name Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+        ship_name: customName,
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+    });
+
+    await t.step("DB: ship_instances.ship_name is the custom name", async () => {
+      const ship = await queryShip(corpShipId);
+      assertExists(ship);
+      assertEquals(
+        ship.ship_name,
+        customName,
+        `Expected ship_instances.ship_name to be '${customName}', got '${ship.ship_name}'`,
+      );
+    });
+
+    await t.step("DB: characters.name matches the custom name", async () => {
+      const char = await queryCharacter(corpShipId);
+      assertExists(char);
+      assertEquals(
+        char.name,
+        customName,
+        `Expected characters.name to be '${customName}', got '${char.name}' (bug: character still has default name)`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 24: Ship sell — emits status.update and corporation.ship_sold events
 // ============================================================================
 
 Deno.test({
