@@ -207,6 +207,18 @@ async function handleCreate(params: {
     shipId: ship.ship_id,
   });
 
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "status.update",
+    payload: statusPayload,
+    sectorId: ship.current_sector ?? null,
+    requestId,
+    corpId: inserted.corp_id,
+    taskId,
+    shipId: ship.ship_id,
+  });
+
   return {
     corp_id: inserted.corp_id,
     name: inserted.name,

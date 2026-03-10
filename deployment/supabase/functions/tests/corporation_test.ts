@@ -115,6 +115,11 @@ Deno.test({
       assertExists(payload.invite_code);
     });
 
+    await t.step("P1 receives status.update after creation", async () => {
+      const events = await eventsOfType(p1Id, "status.update", cursorP1);
+      assert(events.length >= 1, `Expected >= 1 status.update, got ${events.length}`);
+    });
+
     await t.step("DB: character has corporation_id set", async () => {
       const char = await queryCharacter(p1Id);
       assertExists(char);
