@@ -17,6 +17,8 @@ import { LevaControls } from "./LevaControls"
 import "./global.css"
 
 const endpoint = (import.meta.env.VITE_BOT_URL || "http://localhost:7860") + "/start"
+const TransportCls =
+  import.meta.env.VITE_PIPECAT_TRANSPORT === "daily" ? DailyTransport : SmallWebRTCTransport
 
 const StoryWrapper = ({
   children,
@@ -65,10 +67,7 @@ export const Provider: GlobalProvider = memo(({ children, storyMeta }) => {
   useEffect(() => {
     if (!client) {
       const client = new PipecatClient({
-        transport:
-          import.meta.env.VITE_PIPECAT_TRANSPORT === "small-webrtc" ?
-            new SmallWebRTCTransport()
-          : new DailyTransport(),
+        transport: new TransportCls(),
         ...clientOptions,
       })
       setClient(client)

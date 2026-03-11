@@ -52,23 +52,7 @@ export const LevaControls = ({
     ["Connect"]: buttonGroup({
       label: "Connection",
       opts: {
-        ["Connect"]: () =>
-          client.startBotAndConnect({
-            endpoint,
-            headers: new Headers({
-              Authorization: `Bearer ${import.meta.env.VITE_BOT_API_KEY}`,
-            }),
-            requestData: {
-              createDailyRoom: true,
-              dailyRoomProperties: {
-                start_video_off: true,
-                eject_at_room_exp: true,
-              },
-              body: {
-                character_id: "81494e81-1921-4103-8d91-044f2f6bc5b0",
-              },
-            },
-          }),
+        ["Connect"]: () => client.startBotAndConnect({ endpoint }),
         ["Disconnect"]: () => client.disconnect(),
       },
     }),
