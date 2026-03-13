@@ -197,7 +197,8 @@ class AsyncGameClient(BaseAsyncGameClient):
         )
         elapsed_ms = (time.monotonic() - t0) * 1000
         from loguru import logger as _loguru
-        _loguru.info(f"API {url} {response.status_code} {elapsed_ms:.0f}ms")
+        if edge_endpoint != "events_since":
+            _loguru.info(f"API {url} {response.status_code} {elapsed_ms:.0f}ms")
 
         try:
             data = response.json()
