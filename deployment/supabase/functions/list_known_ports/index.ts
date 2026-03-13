@@ -200,6 +200,20 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+    from_sector: payload.from_sector ?? null,
+    max_hops: payload.max_hops ?? null,
+    port_type: payload.port_type ?? null,
+    commodity: payload.commodity ?? null,
+    trade_type: payload.trade_type ?? null,
+    mega: payload.mega ?? null,
+    requestId,
+  });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "list_known_ports");
@@ -233,6 +247,7 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
       sHandle,
     );
     sHandle.end();
+    trace.setOutput({ request_id: requestId });
     return result;
   } catch (err) {
     sHandle.end({ error: err instanceof Error ? err.message : String(err) });

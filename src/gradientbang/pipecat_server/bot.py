@@ -1,10 +1,16 @@
 import asyncio
 import os
 import sys
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from loguru import logger
+
+# Generate a unique instance ID for this bot process (8-char UUID prefix).
+# Set as env var so the Deno subprocess (local API server) can read it too.
+BOT_INSTANCE_ID = uuid.uuid4().hex[:8]
+os.environ["BOT_INSTANCE_ID"] = BOT_INSTANCE_ID
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     BotSpeakingFrame,
@@ -102,7 +108,12 @@ def _loguru_filter(record):
 def _configure_logging():
     """Re-configure loguru after pipecat's runner sets its own DEBUG handler."""
     logger.remove()
-    logger.add(sys.stderr, level="INFO", filter=_loguru_filter)
+    logger.add(
+        sys.stderr,
+        level="INFO",
+        filter=_loguru_filter,
+        format=f"<level>{{level: <8}}</level> [{BOT_INSTANCE_ID}] {{message}}",
+    )
 
 
 async def _lookup_character_display_name(character_id: str, server_url: str) -> str | None:

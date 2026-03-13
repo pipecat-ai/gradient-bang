@@ -10,6 +10,7 @@ const WANDB_API_KEY = Deno.env.get("WANDB_API_KEY");
 const WEAVE_PROJECT = Deno.env.get("WEAVE_PROJECT"); // "entity/project"
 const WEAVE_ENABLED = Boolean(WANDB_API_KEY && WEAVE_PROJECT);
 const WEAVE_BASE_URL = "https://trace.wandb.ai";
+const BOT_INSTANCE_ID = Deno.env.get("BOT_INSTANCE_ID") ?? null;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -24,6 +25,8 @@ export interface WeaveSpan {
 export interface WeaveTrace {
   /** Create a child span under this trace. Call span.end() when done. */
   span(opName: string, inputs?: Record<string, unknown>): WeaveSpan;
+  /** Merge additional keys into the root trace inputs (e.g. parsed request args). */
+  setInput(input: Record<string, unknown>): void;
   /** Set the output for the root trace before flushing. */
   setOutput(output: Record<string, unknown>): void;
   /** Flush all collected trace data to the Weave API. */
@@ -39,6 +42,7 @@ const NOOP_TRACE: WeaveTrace = {
   span() {
     return NOOP_SPAN;
   },
+  setInput() {},
   setOutput() {},
   async flush() {},
 };
@@ -125,8 +129,12 @@ class WeaveTraceImpl implements WeaveTrace {
     return new WeaveSpanImpl(record, this.spans, this.traceId);
   }
 
+  setInput(input: Record<string, unknown>) {
+    Object.assign(this.inputs, input);
+  }
+
   setOutput(output: Record<string, unknown>) {
-    this.output = output;
+    Object.assign(this.output, output);
   }
 
   async flush() {
@@ -156,7 +164,9 @@ class WeaveTraceImpl implements WeaveTrace {
             op_name: this.opName,
             started_at: this.startedAt,
             inputs: this.inputs,
-            attributes: {},
+            attributes: BOT_INSTANCE_ID
+              ? { bot_instance_id: BOT_INSTANCE_ID }
+              : {},
           },
         }),
       }),
