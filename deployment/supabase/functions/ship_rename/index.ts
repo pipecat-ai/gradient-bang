@@ -94,6 +94,16 @@ Deno.serve(traced("ship_rename", async (req, trace) => {
     const shipName = requireString(payload, "ship_name");
     const taskId = optionalString(payload, "task_id");
 
+    trace.setInput({
+      characterId,
+      actorCharacterId,
+      adminOverride,
+      shipId,
+      shipName,
+      taskId,
+      requestId,
+    });
+
     const rateLimitId = actorCharacterId ?? characterId;
     const sRateLimit = trace.span("rate_limit");
     try {
@@ -128,6 +138,7 @@ Deno.serve(traced("ship_rename", async (req, trace) => {
     });
     sRename.end({ changed: renamed.changed });
 
+    trace.setOutput({ request_id: requestId, ship_id: renamed.ship_id, changed: renamed.changed });
     return successResponse({ request_id: requestId, ...renamed });
   } catch (err) {
     const validationResponse = respondWithError(err);

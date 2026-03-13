@@ -99,6 +99,8 @@ Deno.serve(traced("character_modify", async (req, trace) => {
     const characterId = requireString(payload, "character_id");
     const modifyData = payload as CharacterModifyPayload;
 
+    trace.setInput({ characterId, name: modifyData.name, shipType: modifyData.ship?.ship_type });
+
     // Verify character exists and get current ship
     const sLoadChar = trace.span("load_character", { characterId });
     const { data: character, error: checkError } = await supabase
@@ -349,6 +351,8 @@ Deno.serve(traced("character_modify", async (req, trace) => {
       payload,
       result: "success",
     });
+
+    trace.setOutput({ character_id: characterId, name: updatedChar.name, ship_type_changed: shipTypeChanged });
 
     // Return success response
     return successResponse({

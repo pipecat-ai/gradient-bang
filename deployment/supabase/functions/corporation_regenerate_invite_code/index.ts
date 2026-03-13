@@ -64,6 +64,8 @@ Deno.serve(traced("corporation_regenerate_invite_code", async (req, trace) => {
   const actorCharacterId = optionalString(payload, "actor_character_id");
   ensureActorMatches(actorCharacterId, characterId);
 
+  trace.setInput({ characterId, requestId });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(
@@ -92,6 +94,7 @@ Deno.serve(traced("corporation_regenerate_invite_code", async (req, trace) => {
     const sHandleRegenerate = trace.span("handle_regenerate", { characterId });
     const result = await handleRegenerate({ supabase, characterId, requestId });
     sHandleRegenerate.end(result);
+    trace.setOutput({ request_id: requestId });
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationInviteError) {

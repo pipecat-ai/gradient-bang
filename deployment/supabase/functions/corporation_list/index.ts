@@ -54,6 +54,8 @@ Deno.serve(traced("corporation_list", async (req, trace) => {
   const requestId = resolveRequestId(payload);
   const characterId = optionalString(payload, "character_id");
 
+  trace.setInput({ characterId, requestId });
+
   if (characterId) {
     const sRateLimit = trace.span("rate_limit");
     try {
@@ -73,6 +75,7 @@ Deno.serve(traced("corporation_list", async (req, trace) => {
     const sLoadSummaries = trace.span("load_corporation_summaries");
     const corporations = await loadCorporationSummaries(supabase);
     sLoadSummaries.end({ count: corporations.length });
+    trace.setOutput({ request_id: requestId, count: corporations.length });
     return successResponse({ corporations, request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationListError) {

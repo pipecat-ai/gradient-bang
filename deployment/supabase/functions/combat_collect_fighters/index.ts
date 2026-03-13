@@ -92,6 +92,8 @@ Deno.serve(traced("combat_collect_fighters", async (req, trace) => {
     return errorResponse("quantity is required", 400);
   }
 
+  trace.setInput({ requestId, characterId, sector, quantity, actorCharacterId, adminOverride, taskId });
+
   const pg = await acquirePgClient();
   try {
     const sRateLimit = trace.span("rate_limit");
@@ -127,6 +129,7 @@ Deno.serve(traced("combat_collect_fighters", async (req, trace) => {
       taskId,
     });
     sHandle.end();
+    trace.setOutput({ request_id: requestId, characterId, sector });
     return result;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

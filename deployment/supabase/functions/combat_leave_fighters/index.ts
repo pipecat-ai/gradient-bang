@@ -103,6 +103,8 @@ Deno.serve(traced("combat_leave_fighters", async (req, trace) => {
     return errorResponse("quantity is required", 400);
   }
 
+  trace.setInput({ requestId, characterId, sector, quantity, mode, tollAmount, actorCharacterId, adminOverride, taskId });
+
   const pg = await acquirePgClient();
 
   try {
@@ -142,6 +144,7 @@ Deno.serve(traced("combat_leave_fighters", async (req, trace) => {
       taskId,
     });
     sHandle.end();
+    trace.setOutput({ request_id: requestId, characterId, sector, mode });
     return result;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

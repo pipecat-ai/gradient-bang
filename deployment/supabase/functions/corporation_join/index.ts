@@ -75,6 +75,8 @@ Deno.serve(traced("corporation_join", async (req, trace) => {
   const taskId = optionalString(payload, "task_id");
   ensureActorMatches(actorCharacterId, characterId);
 
+  trace.setInput({ characterId, corpId, requestId });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "corporation_join");
@@ -107,6 +109,7 @@ Deno.serve(traced("corporation_join", async (req, trace) => {
       taskId,
     });
     sHandleJoin.end(result);
+    trace.setOutput({ request_id: requestId, corp_id: result.corp_id });
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationJoinError) {

@@ -46,6 +46,8 @@ Deno.serve(traced("ship_definitions", async (req, trace) => {
   const characterId =
     typeof payload.character_id === "string" ? payload.character_id : null;
 
+  trace.setInput({ characterId, requestId });
+
   try {
     const sQuery = trace.span("db_query_ship_definitions");
     const { data, error } = await supabase
@@ -77,6 +79,7 @@ Deno.serve(traced("ship_definitions", async (req, trace) => {
       sEmit.end();
     }
 
+    trace.setOutput({ request_id: requestId, definitionCount: definitions.length });
     return successResponse({ definitions });
   } catch (err) {
     console.error("ship_definitions.unhandled", err);

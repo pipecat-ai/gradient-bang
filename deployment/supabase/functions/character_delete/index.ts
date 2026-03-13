@@ -64,6 +64,8 @@ Deno.serve(traced("character_delete", async (req, trace) => {
   try {
     const characterId = requireString(payload, "character_id");
 
+    trace.setInput({ characterId });
+
     // Check if character exists
     const sLoadChar = trace.span("load_character", { characterId });
     const { data: character, error: checkError } = await supabase
@@ -148,6 +150,8 @@ Deno.serve(traced("character_delete", async (req, trace) => {
       payload,
       result: "success",
     });
+
+    trace.setOutput({ character_id: characterId, ships_deleted: shipsDeleted, garrisons_deleted: garrisonsDeleted });
 
     // Return success response
     return successResponse({

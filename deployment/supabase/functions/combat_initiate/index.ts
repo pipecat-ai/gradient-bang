@@ -95,6 +95,8 @@ Deno.serve(traced("combat_initiate", async (req, trace) => {
   const debug = optionalBoolean(payload, "debug") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({ requestId, characterId, actorCharacterId, adminOverride, debug, taskId });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "combat_initiate");
@@ -128,6 +130,7 @@ Deno.serve(traced("combat_initiate", async (req, trace) => {
       taskId,
     });
     sHandle.end();
+    trace.setOutput({ request_id: requestId, characterId });
     return result;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

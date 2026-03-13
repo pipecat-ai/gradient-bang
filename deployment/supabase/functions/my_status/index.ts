@@ -86,6 +86,14 @@ Deno.serve(traced("my_status", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    actorCharacterId: actorCharacterId ?? null,
+    adminOverride,
+    taskId: taskId ?? null,
+    requestId,
+  });
+
   const pg = await acquirePgClient();
   try {
     // Load character context (rate limit + character + ship + definition in one query)
@@ -216,6 +224,7 @@ Deno.serve(traced("my_status", async (req, trace) => {
     });
     sEmitEvent.end();
 
+    trace.setOutput({ request_id: requestId, characterId, sector: ship.current_sector });
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

@@ -87,6 +87,15 @@ Deno.serve(traced("recharge_warp_power", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+    units: payload.units ?? null,
+    requestId,
+  });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "recharge_warp_power");
@@ -120,6 +129,7 @@ Deno.serve(traced("recharge_warp_power", async (req, trace) => {
       taskId,
     );
     sHandle.end();
+    trace.setOutput({ request_id: requestId, characterId });
     return result;
   } catch (err) {
     sHandle.end();

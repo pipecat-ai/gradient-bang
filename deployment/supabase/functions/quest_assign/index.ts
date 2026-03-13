@@ -50,6 +50,8 @@ Deno.serve(traced("quest_assign", async (req, trace) => {
     const characterId = requireString(payload, "character_id");
     const questCode = requireString(payload, "quest_code");
 
+    trace.setInput({ characterId, questCode, requestId });
+
     // Assign the quest via the SQL function
     const sAssign = trace.span("assign_quest_rpc");
     const { data: playerQuestId, error: rpcError } = await supabase.rpc(
@@ -259,6 +261,7 @@ Deno.serve(traced("quest_assign", async (req, trace) => {
     });
     sEmit.end();
 
+    trace.setOutput({ request_id: requestId, assigned: true, player_quest_id: playerQuestId });
     return successResponse({
       request_id: requestId,
       assigned: true,

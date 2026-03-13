@@ -126,6 +126,17 @@ Deno.serve(traced("transfer_credits", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    fromCharacterId,
+    toPlayerName,
+    toShipId,
+    toShipName,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+    requestId,
+  });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, fromCharacterId, "transfer_credits");
@@ -159,6 +170,7 @@ Deno.serve(traced("transfer_credits", async (req, trace) => {
       taskId,
     );
     sHandle.end();
+    trace.setOutput({ request_id: requestId, fromCharacterId });
     return result;
   } catch (err) {
     sHandle.end();

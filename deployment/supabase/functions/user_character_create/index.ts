@@ -152,6 +152,8 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
     const sValidate = trace.span("validate_input");
     const name = requireString(payload, "name");
 
+    trace.setInput({ user_id: user.id, name });
+
     // Validate name format (alphanumeric, underscores, spaces, 3-20 chars)
     if (!/^[a-zA-Z0-9_ ]{3,20}$/.test(name)) {
       sValidate.end({ error: "Invalid name format" });
@@ -356,6 +358,7 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
     sQuests.end({ count: autoQuests?.length ?? 0 });
 
     // Return success response
+    trace.setOutput({ character_id: characterId, ship_id: ship.ship_id, name });
     return corsResponse(
       {
         success: true,

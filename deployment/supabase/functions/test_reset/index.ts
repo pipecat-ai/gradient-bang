@@ -246,11 +246,14 @@ Deno.serve(traced("test_reset", async (req, trace) => {
     const characterIds = parseCharacterIds(payload["character_ids"]);
     const clearFiles = optionalBoolean(payload, "clear_files");
 
+    trace.setInput({ characterCount: characterIds?.length ?? 0, clearFiles, requestId });
+
     const sReset = trace.span("reset_supabase_state");
     const result = await resetSupabaseState({ characterIds });
     sReset.end();
     result.clear_files = clearFiles === false ? false : true;
 
+    trace.setOutput({ request_id: requestId, inserted_characters: result.inserted_characters, sectors_seeded: result.sectors_seeded });
     return successResponse({ request_id: requestId, ...result });
   } catch (err) {
     if (err instanceof TestResetError) {

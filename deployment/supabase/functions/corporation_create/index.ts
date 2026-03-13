@@ -76,6 +76,8 @@ Deno.serve(traced("corporation_create", async (req, trace) => {
   const taskId = optionalString(payload, "task_id");
   ensureActorMatches(actorCharacterId, characterId);
 
+  trace.setInput({ characterId, name: nameInput, requestId });
+
   const normalizedName = nameInput.trim();
   if (normalizedName.length < 3 || normalizedName.length > 50) {
     return errorResponse("Name must be 3-50 characters", 400);
@@ -111,6 +113,7 @@ Deno.serve(traced("corporation_create", async (req, trace) => {
       taskId,
     });
     sHandleCreate.end(result);
+    trace.setOutput({ request_id: requestId, corp_id: result.corp_id });
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationCreateError) {

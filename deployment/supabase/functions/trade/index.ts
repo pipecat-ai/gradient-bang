@@ -105,6 +105,14 @@ Deno.serve(traced("trade", async (req, wt) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  wt.setInput({
+    characterId,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+    requestId,
+  });
+
   const pgClient = await acquirePgClient();
 
   // Timing trace
@@ -150,6 +158,7 @@ Deno.serve(traced("trade", async (req, wt) => {
       mark,
     });
     sHandleTrade.end();
+    wt.setOutput({ request_id: requestId, characterId });
     return result;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

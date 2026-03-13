@@ -94,6 +94,15 @@ Deno.serve(traced("bank_transfer", async (req, trace) => {
   const characterIdForErrors =
     optionalString(payload, "character_id") ?? actorCharacterId;
 
+  trace.setInput({
+    requestId,
+    direction,
+    characterId: characterIdForErrors,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+  });
+
   const sHandle = trace.span("handle_bank_transfer", { direction });
   try {
     let result: Response;
@@ -122,6 +131,7 @@ Deno.serve(traced("bank_transfer", async (req, trace) => {
       );
     }
     sHandle.end();
+    trace.setOutput({ request_id: requestId, direction });
     return result;
   } catch (err) {
     sHandle.end();

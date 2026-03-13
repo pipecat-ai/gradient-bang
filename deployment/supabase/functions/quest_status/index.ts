@@ -79,6 +79,8 @@ Deno.serve(traced("quest_status", async (req, trace) => {
   try {
     const characterId = requireString(payload, "character_id");
 
+    trace.setInput({ characterId, requestId });
+
     const sFetch = trace.span("fetch_quest_status");
     const result = await fetchQuestStatus(supabase, characterId);
     sFetch.end();
@@ -94,6 +96,7 @@ Deno.serve(traced("quest_status", async (req, trace) => {
     });
     sEmit.end();
 
+    trace.setOutput({ request_id: requestId, quest_count: result.quests.length });
     return successResponse({ request_id: requestId });
   } catch (err) {
     const validationResponse = respondWithError(err);

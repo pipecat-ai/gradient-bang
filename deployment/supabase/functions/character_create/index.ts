@@ -126,6 +126,8 @@ Deno.serve(traced("character_create", async (req, trace) => {
     const cargoNs = cargo.neuro_symbolics ?? 0;
     sValidate.end({ name, shipType });
 
+    trace.setInput({ name, shipType, shipName, playerType, credits });
+
     // Validate ship type exists
     const sShipDef = trace.span("load_ship_definition");
     const shipDefinition = await loadShipDefinition(supabase, shipType);
@@ -306,6 +308,8 @@ Deno.serve(traced("character_create", async (req, trace) => {
       result: "success",
     });
     sAuditLog.end();
+
+    trace.setOutput({ character_id: characterId, name, ship_id: ship.ship_id });
 
     // Return success response
     return successResponse({

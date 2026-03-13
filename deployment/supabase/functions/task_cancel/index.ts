@@ -45,6 +45,8 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const characterId = requireString(payload, "character_id");
     const taskId = requireString(payload, "task_id");
 
+    trace.setInput({ characterId, taskId, requestId });
+
     const sQueryTask = trace.span("query_task");
     let query = supabase
       .from("events")
@@ -171,6 +173,7 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     });
     sEmit.end();
 
+    trace.setOutput({ request_id: requestId, task_id: fullTaskId });
     return successResponse({
       request_id: requestId,
       task_id: fullTaskId,

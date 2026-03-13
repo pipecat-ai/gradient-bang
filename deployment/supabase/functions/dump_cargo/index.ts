@@ -90,6 +90,8 @@ Deno.serve(traced("dump_cargo", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({ characterId, actorCharacterId, adminOverride, taskId, requestId });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "dump_cargo");
@@ -122,6 +124,7 @@ Deno.serve(traced("dump_cargo", async (req, trace) => {
       taskId,
     );
     sHandleDump.end();
+    trace.setOutput({ request_id: requestId, characterId });
     return result;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
