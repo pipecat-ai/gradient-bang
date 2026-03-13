@@ -240,7 +240,7 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
 
   const sHandle = trace.span("handle_list_known_ports", { characterId });
   try {
-    const result = await handleListKnownPorts(
+    const { response, eventPayload } = await handleListKnownPorts(
       supabase,
       payload,
       characterId,
@@ -252,8 +252,8 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
       log,
     );
     sHandle.end();
-    trace.setOutput({ request_id: requestId });
-    return result;
+    trace.setOutput({ request_id: requestId, event: eventPayload });
+    return response;
   } catch (err) {
     sHandle.end({ error: err instanceof Error ? err.message : String(err) });
     if (err instanceof ActorAuthorizationError) {
@@ -303,6 +303,11 @@ class ListKnownPortsError extends Error {
   }
 }
 
+interface HandleResult {
+  response: Response;
+  eventPayload: Record<string, unknown>;
+}
+
 async function handleListKnownPorts(
   supabase: ReturnType<typeof createServiceRoleClient>,
   payload: Record<string, unknown>,
@@ -313,7 +318,7 @@ async function handleListKnownPorts(
   taskId: string | null,
   ws: WeaveSpan,
   log: RequestLogger,
-): Promise<Response> {
+): Promise<HandleResult> {
   const source = buildEventSource("list_known_ports", requestId);
 
   const sLoadChar = ws.span("load_character", { characterId });
@@ -557,7 +562,10 @@ async function handleListKnownPorts(
   });
   sEmitEvent.end();
 
-  return successResponse({ request_id: requestId });
+  return {
+    response: successResponse({ request_id: requestId }),
+    eventPayload: payloadBody,
+  };
 }
 
 type PortRow = {
