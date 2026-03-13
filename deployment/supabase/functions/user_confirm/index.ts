@@ -91,6 +91,8 @@ Deno.serve(traced("user_confirm", async (req, trace) => {
     const refreshToken = requireString(payload, "refresh_token");
     const password = requireString(payload, "password");
 
+    trace.setInput({ hasAccessToken: Boolean(accessToken), hasRefreshToken: Boolean(refreshToken) });
+
     // Password validation
     if (password.length < 6) {
       return corsResponse(
@@ -143,6 +145,7 @@ Deno.serve(traced("user_confirm", async (req, trace) => {
     }
     sUpdatePassword.end();
 
+    trace.setOutput({ user_id: sessionData.user.id });
     return corsResponse(
       {
         success: true,

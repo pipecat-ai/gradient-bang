@@ -87,6 +87,15 @@ Deno.serve(traced("purchase_fighters", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+    units: payload.units ?? null,
+    requestId,
+  });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "purchase_fighters");
@@ -120,6 +129,7 @@ Deno.serve(traced("purchase_fighters", async (req, trace) => {
       taskId,
     );
     sHandlePurchase.end();
+    trace.setOutput({ request_id: requestId, characterId });
     return result;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

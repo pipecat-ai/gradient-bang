@@ -84,6 +84,15 @@ Deno.serve(traced("salvage_collect", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    salvageId,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+    requestId,
+  });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "salvage_collect");
@@ -116,6 +125,7 @@ Deno.serve(traced("salvage_collect", async (req, trace) => {
       taskId,
     });
     sHandle.end();
+    trace.setOutput({ request_id: requestId, characterId, salvageId });
     return result;
   } catch (err) {
     sHandle.end();

@@ -63,6 +63,8 @@ Deno.serve(traced("leaderboard_resources", async (req, trace) => {
     const forceRefresh =
       forceRefreshParam === "true" || forceRefreshParam === "1";
 
+    trace.setInput({ forceRefresh });
+
     // Check cache first
     const sCacheCheck = trace.span("cache_check");
     const { data: cached, error: cacheError } = await supabase
@@ -176,6 +178,7 @@ Deno.serve(traced("leaderboard_resources", async (req, trace) => {
         // Don't fail if cache update fails, just return fresh data
       }
 
+      trace.setOutput({ cached: false, wealth_count: (wealthResult.data ?? []).length, territory_count: (territoryResult.data ?? []).length });
       return corsResponse({
         success: true,
         wealth: wealthResult.data ?? [],
@@ -186,6 +189,7 @@ Deno.serve(traced("leaderboard_resources", async (req, trace) => {
       });
     } else {
       // Return cached data
+      trace.setOutput({ cached: true, cache_age_ms: Date.now() - new Date(cached.updated_at).getTime() });
       return corsResponse({
         success: true,
         wealth: cached.wealth ?? [],

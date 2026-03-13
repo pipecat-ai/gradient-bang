@@ -42,6 +42,8 @@ Deno.serve(traced("combat_tick", async (req, trace) => {
   }
   const nowIso = new Date().toISOString();
 
+  trace.setInput({ timestamp: nowIso });
+
   try {
     const sListDue = trace.span("list_due_combats");
     const encounters = await listDueCombats(supabase, nowIso, MAX_BATCH);
@@ -68,6 +70,7 @@ Deno.serve(traced("combat_tick", async (req, trace) => {
       }
     }
 
+    trace.setOutput({ checked: encounters.length, resolved });
     return successResponse({
       status: "ok",
       checked: encounters.length,

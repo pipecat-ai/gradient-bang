@@ -69,6 +69,8 @@ Deno.serve(traced("combat_set_garrison_mode", async (req, trace) => {
     return errorResponse("sector is required", 400);
   }
 
+  trace.setInput({ requestId, characterId, sector, mode, tollAmount, actorCharacterId, adminOverride });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "combat_set_garrison_mode");
@@ -102,6 +104,7 @@ Deno.serve(traced("combat_set_garrison_mode", async (req, trace) => {
       adminOverride,
     });
     sHandle.end();
+    trace.setOutput({ request_id: requestId, characterId, sector, mode });
     return result;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

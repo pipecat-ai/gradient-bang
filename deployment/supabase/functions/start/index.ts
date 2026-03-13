@@ -125,6 +125,8 @@ Deno.serve(traced("start", async (req, trace) => {
     console.error("start.rate_limit", err);
   }
 
+  trace.setInput({ action, user_id: user.id });
+
   try {
     // Parse request body (only for methods that support body)
     let requestData = null;
@@ -277,6 +279,7 @@ Deno.serve(traced("start", async (req, trace) => {
         action,
         data: botResponseData,
       });
+      trace.setOutput({ action, bot_status: botResponse.status });
       return corsResponse(botResponseData, botResponse.status);
     } catch (err) {
       sBotProxy.end({ error: "Invalid response from bot service" });

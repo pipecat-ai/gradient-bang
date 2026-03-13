@@ -97,6 +97,17 @@ Deno.serve(traced("event_query", async (req, trace) => {
 
   const requestId = resolveRequestId(payload);
 
+  trace.setInput({
+    characterId: optionalString(payload, "character_id"),
+    actorCharacterId: optionalString(payload, "actor_character_id"),
+    requestId,
+    start: payload["start"] ?? null,
+    end: payload["end"] ?? null,
+    filter_task_id: optionalString(payload, "filter_task_id"),
+    filter_event_type: optionalString(payload, "filter_event_type"),
+    event_scope: optionalString(payload, "event_scope"),
+  });
+
   try {
     const sExecuteQuery = trace.span("execute_event_query");
     const result = await executeEventQuery(supabase, payload);
@@ -150,6 +161,7 @@ Deno.serve(traced("event_query", async (req, trace) => {
     }
 
     // Return data directly (for programmatic use) AND emit event (for WebSocket clients)
+    trace.setOutput({ request_id: requestId, count: result.count, scope: result.scope, has_more: result.has_more });
     return successResponse({ request_id: requestId, ...result });
   } catch (err) {
     const validationResponse = respondWithError(err);

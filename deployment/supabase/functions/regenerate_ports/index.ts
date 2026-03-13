@@ -66,6 +66,8 @@ Deno.serve(traced("regenerate_ports", async (req, trace) => {
     // Get fraction parameter (default 0.25)
     const fraction = optionalNumber(payload, "fraction") ?? DEFAULT_FRACTION;
 
+    trace.setInput({ fraction });
+
     // Validate fraction range
     if (fraction < 0.0 || fraction > 1.0) {
       throw new RegeneratePortsError(
@@ -101,6 +103,8 @@ Deno.serve(traced("regenerate_ports", async (req, trace) => {
       payload,
       result: "success",
     });
+
+    trace.setOutput({ ports_regenerated: portsRegeneratedCount, fraction });
 
     // Return success response
     return successResponse({

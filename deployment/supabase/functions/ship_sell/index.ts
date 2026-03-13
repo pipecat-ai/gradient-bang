@@ -86,6 +86,14 @@ Deno.serve(traced("ship_sell", async (req, trace) => {
   const shipIdRaw = requireString(payload, "ship_id");
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    shipId: shipIdRaw,
+    actorCharacterId,
+    taskId,
+    requestId,
+  });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "ship_sell");
@@ -116,6 +124,7 @@ Deno.serve(traced("ship_sell", async (req, trace) => {
       taskId,
     );
     sHandleSell.end();
+    trace.setOutput({ request_id: requestId, shipId: shipIdRaw });
     return result;
   } catch (err) {
     if (err instanceof ShipSellError) {

@@ -102,6 +102,17 @@ Deno.serve(traced("ship_purchase", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    shipType: shipTypeRaw,
+    purchaseType,
+    expectedPrice,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+    requestId,
+  });
+
   if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
     return errorResponse(
       "actor_character_id must match character_id unless admin_override is true",
@@ -149,6 +160,7 @@ Deno.serve(traced("ship_purchase", async (req, trace) => {
         expectedPrice,
       );
       sCorpPurchase.end();
+      trace.setOutput({ request_id: requestId, purchaseType: "corporation", shipType: shipTypeRaw });
       return result;
     }
     const sPersonalPurchase = trace.span("handle_personal_purchase");
@@ -162,6 +174,7 @@ Deno.serve(traced("ship_purchase", async (req, trace) => {
       expectedPrice,
     );
     sPersonalPurchase.end();
+    trace.setOutput({ request_id: requestId, purchaseType: "personal", shipType: shipTypeRaw });
     return result;
   } catch (err) {
     if (err instanceof ShipPurchaseError) {

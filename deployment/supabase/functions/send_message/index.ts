@@ -84,6 +84,17 @@ Deno.serve(traced("send_message", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    msgType,
+    toName,
+    toShipName,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+    requestId,
+  });
+
   // Validate message type
   if (!["broadcast", "direct"].includes(msgType)) {
     return errorResponse(
@@ -141,6 +152,7 @@ Deno.serve(traced("send_message", async (req, trace) => {
       taskId,
     });
     sHandle.end();
+    trace.setOutput({ request_id: requestId, characterId, msgType });
     return result;
   } catch (err) {
     sHandle.end();

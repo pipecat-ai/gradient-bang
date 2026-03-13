@@ -94,6 +94,8 @@ Deno.serve(traced("login", async (req, trace) => {
     const email = requireString(payload, "email");
     const password = requireString(payload, "password");
 
+    trace.setInput({});
+
     // Create Supabase auth client (public)
     const publicClient = createPublicClient();
 
@@ -161,6 +163,7 @@ Deno.serve(traced("login", async (req, trace) => {
       is_npc: uc.characters.is_npc,
     }));
 
+    trace.setOutput({ user_id: data.user.id, character_count: characterList.length });
     return corsResponse(
       {
         success: true,

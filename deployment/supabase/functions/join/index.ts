@@ -99,6 +99,15 @@ Deno.serve(traced("join", async (req, trace) => {
   }
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
 
+  trace.setInput({
+    characterId,
+    actorCharacterId,
+    adminOverride,
+    sectorOverride: sectorOverride ?? null,
+    creditsOverride: creditsOverride ?? null,
+    requestId,
+  });
+
   // Supabase client for combat operations (still REST-based)
   const supabase = createServiceRoleClient();
   const pg = await acquirePgClient();
@@ -373,6 +382,7 @@ Deno.serve(traced("join", async (req, trace) => {
     }
 
     console.log(`[join] Total time: ${(performance.now() - t0).toFixed(1)}ms`);
+    trace.setOutput({ request_id: requestId, characterId, targetSector });
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

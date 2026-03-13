@@ -58,6 +58,8 @@ Deno.serve(traced("reset_ports", async (req, trace) => {
     return errorResponse("Invalid admin password", 403);
   }
 
+  trace.setInput({ action: "reset_ports" });
+
   try {
     // Call the stored procedure to reset all ports
     const sRpc = trace.span("reset_all_ports_rpc");
@@ -82,6 +84,8 @@ Deno.serve(traced("reset_ports", async (req, trace) => {
       payload,
       result: "success",
     });
+
+    trace.setOutput({ ports_reset: portsResetCount });
 
     // Return success response
     return successResponse({

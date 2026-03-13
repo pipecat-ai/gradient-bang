@@ -63,6 +63,8 @@ Deno.serve(traced("my_corporation", async (req, trace) => {
   const requestId = resolveRequestId(payload);
   const characterId = requireString(payload, "character_id");
 
+  trace.setInput({ characterId, requestId });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "my_corporation");
@@ -93,6 +95,7 @@ Deno.serve(traced("my_corporation", async (req, trace) => {
     });
     sEmitEvent.end();
 
+    trace.setOutput({ request_id: requestId, has_corporation: result.corporation !== null });
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
     if (err instanceof MyCorporationError) {

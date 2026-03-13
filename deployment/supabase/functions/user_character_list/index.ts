@@ -82,6 +82,8 @@ Deno.serve(traced("user_character_list", async (req, trace) => {
     console.error("character_list.rate_limit", err);
   }
 
+  trace.setInput({ user_id: user.id });
+
   try {
     // Query user's characters via junction table with basic ship info
     const sQuery = trace.span("query_characters");
@@ -162,6 +164,7 @@ Deno.serve(traced("user_character_list", async (req, trace) => {
       };
     });
 
+    trace.setOutput({ count: formattedCharacters.length });
     return corsResponse(
       {
         success: true,

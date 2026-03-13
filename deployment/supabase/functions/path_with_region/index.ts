@@ -80,6 +80,17 @@ Deno.serve(traced("path_with_region", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    actorCharacterId: actorCharacterId ?? null,
+    adminOverride,
+    taskId: taskId ?? null,
+    to_sector: payload.to_sector ?? null,
+    region_hops: payload.region_hops ?? null,
+    max_sectors: payload.max_sectors ?? null,
+    requestId,
+  });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "path_with_region");
@@ -112,6 +123,7 @@ Deno.serve(traced("path_with_region", async (req, trace) => {
       taskId,
     );
     sHandlePath.end();
+    trace.setOutput({ request_id: requestId, characterId });
     return result;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

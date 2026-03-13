@@ -83,6 +83,16 @@ Deno.serve(traced("plot_course", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
+  trace.setInput({
+    characterId,
+    actorCharacterId,
+    adminOverride,
+    taskId,
+    from_sector: payload.from_sector ?? null,
+    to_sector: payload.to_sector ?? null,
+    requestId,
+  });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "plot_course");
@@ -116,6 +126,7 @@ Deno.serve(traced("plot_course", async (req, trace) => {
       sHandlePlotCourse,
     );
     sHandlePlotCourse.end();
+    trace.setOutput({ request_id: requestId, characterId });
     return result;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

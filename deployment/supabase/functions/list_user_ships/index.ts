@@ -82,6 +82,8 @@ Deno.serve(traced("list_user_ships", async (req, trace) => {
     // character_id is the user's personal character
     const characterId = requireString(payload, "character_id");
 
+    trace.setInput({ characterId, requestId });
+
     const sFetch = trace.span("fetch_user_ships");
     const result = await fetchUserShips(supabase, characterId);
     sFetch.end({ ship_count: result.ships.length });
@@ -98,6 +100,7 @@ Deno.serve(traced("list_user_ships", async (req, trace) => {
     });
     sEmit.end();
 
+    trace.setOutput({ request_id: requestId, ship_count: result.ships.length });
     return successResponse({ request_id: requestId });
   } catch (err) {
     const validationResponse = respondWithError(err);

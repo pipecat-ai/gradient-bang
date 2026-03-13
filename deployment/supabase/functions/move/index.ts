@@ -123,6 +123,15 @@ Deno.serve(traced("move", async (req, wt) => {
     }
     const destination = toSector;
 
+    wt.setInput({
+      characterId,
+      actorCharacterId: actorCharacterId ?? null,
+      adminOverride,
+      destination,
+      taskId: taskId ?? null,
+      requestId,
+    });
+
     const moveContext = {
       supabase,
       pgClient,
@@ -139,6 +148,7 @@ Deno.serve(traced("move", async (req, wt) => {
     const sHandleMove = wt.span("handle_move", { character_id: characterId, destination });
     const result = await handleMove({ ...moveContext, ws: sHandleMove });
     sHandleMove.end();
+    wt.setOutput({ request_id: requestId, characterId, destination });
     return result;
   } finally {
     // pgClient may already be released by completeMovement - safe to call release() again

@@ -58,6 +58,9 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     const characterId = requireString(payload, "character_id");
     const taskId = requireString(payload, "task_id");
     const eventType = requireString(payload, "event_type");
+
+    trace.setInput({ characterId, taskId, eventType, requestId });
+
     const taskDescription = optionalString(payload, "task_description");
     const taskSummary = optionalString(payload, "task_summary");
     const taskStatusRaw = optionalString(payload, "task_status");
@@ -252,6 +255,7 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     });
     sEmit.end();
 
+    trace.setOutput({ request_id: requestId, task_id: taskId, event_type: eventType });
     return successResponse({
       request_id: requestId,
       task_id: taskId,

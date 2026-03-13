@@ -96,6 +96,8 @@ Deno.serve(traced("register", async (req, trace) => {
     const email = requireString(payload, "email");
     const password = requireString(payload, "password");
 
+    trace.setInput({});
+
     // Basic email validation
     if (!email.includes("@") || email.length < 3) {
       sValidate.end({ error: "Invalid email address" });
@@ -142,6 +144,8 @@ Deno.serve(traced("register", async (req, trace) => {
 
     // Check if email confirmation is required
     const confirmationRequired = !data.user.email_confirmed_at;
+
+    trace.setOutput({ user_id: data.user.id });
 
     return corsResponse(
       {

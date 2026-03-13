@@ -76,10 +76,22 @@ Deno.serve(traced("events_since", async (req, trace) => {
   const requestId = resolveRequestId(payload);
   const supabase = createServiceRoleClient();
 
+  const characterIds = payload.character_ids ?? (payload.character_id ? [payload.character_id] : []);
+  const corpId = payload.corp_id ?? null;
+  trace.setInput({
+    characterIds,
+    corpId,
+    sinceEventId: payload.since_event_id ?? null,
+    limit: payload.limit ?? null,
+    initialOnly: payload.initial_only ?? null,
+    requestId,
+  });
+
   try {
     const sHandle = trace.span("handle_events_since_request");
     const result = await handleEventsSinceRequest(supabase, payload);
     sHandle.end({ event_count: result.events.length, has_more: result.has_more });
+    trace.setOutput({ request_id: requestId, event_count: result.events.length, last_event_id: result.last_event_id, has_more: result.has_more });
     return successResponse({ request_id: requestId, ...result });
   } catch (err) {
     const validationResponse = respondWithError(err);

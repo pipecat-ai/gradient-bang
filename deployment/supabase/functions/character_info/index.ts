@@ -66,6 +66,8 @@ Deno.serve(traced("character_info", async (req, trace) => {
     return errorResponse("invalid character_id", 400);
   }
 
+  trace.setInput({ characterId, requestId });
+
   // Rate limit per character lookup (prevents abuse)
   const sRateLimit = trace.span("rate_limit");
   try {
@@ -105,6 +107,7 @@ Deno.serve(traced("character_info", async (req, trace) => {
     }
 
     sQuery.end({ name: data.name });
+    trace.setOutput({ request_id: requestId, character_id: data.character_id, name: data.name });
     return successResponse({
       character_id: data.character_id,
       name: data.name,

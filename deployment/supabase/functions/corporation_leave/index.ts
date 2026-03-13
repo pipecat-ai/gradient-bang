@@ -82,6 +82,8 @@ Deno.serve(traced("corporation_leave", async (req, trace) => {
   const taskId = optionalString(payload, "task_id");
   ensureActorMatches(actorCharacterId, characterId);
 
+  trace.setInput({ characterId, requestId });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "corporation_leave");
@@ -112,6 +114,7 @@ Deno.serve(traced("corporation_leave", async (req, trace) => {
       taskId,
     });
     sHandleLeave.end();
+    trace.setOutput({ request_id: requestId, characterId });
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationLeaveError) {

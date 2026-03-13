@@ -80,6 +80,8 @@ Deno.serve(traced("corporation_kick", async (req, trace) => {
 
   ensureActorMatches(actorCharacterId, characterId);
 
+  trace.setInput({ characterId, targetId, requestId });
+
   if (characterId === targetId) {
     return errorResponse("Use leave to exit your corporation", 400);
   }
@@ -120,6 +122,7 @@ Deno.serve(traced("corporation_kick", async (req, trace) => {
       taskId,
     });
     sHandleKick.end();
+    trace.setOutput({ request_id: requestId, characterId, targetId });
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationKickError) {

@@ -64,6 +64,8 @@ Deno.serve(traced("corporation_info", async (req, trace) => {
   const characterId = requireString(payload, "character_id");
   const corpId = requireString(payload, "corp_id");
 
+  trace.setInput({ characterId, corpId, requestId });
+
   const sRateLimit = trace.span("rate_limit");
   try {
     await enforceRateLimit(supabase, characterId, "corporation_info");
@@ -81,6 +83,7 @@ Deno.serve(traced("corporation_info", async (req, trace) => {
     const sHandleInfo = trace.span("handle_info", { characterId, corpId });
     const result = await handleInfo({ supabase, characterId, corpId });
     sHandleInfo.end(result);
+    trace.setOutput({ request_id: requestId, corpId });
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationInfoError) {
