@@ -257,6 +257,7 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
   } catch (err) {
     sHandle.end({ error: err instanceof Error ? err.message : String(err) });
     if (err instanceof ActorAuthorizationError) {
+      log.error("actor_authorization", err.message);
       await emitErrorEvent(supabase, {
         characterId,
         method: "list_known_ports",
@@ -268,6 +269,7 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
       return errorResponse(err.message, err.status);
     }
     if (err instanceof ListKnownPortsError) {
+      log.error("known_ports_error", err.message);
       await emitErrorEvent(supabase, {
         characterId,
         method: "list_known_ports",
