@@ -6,6 +6,7 @@ import {
   type EventRecipientSnapshot,
 } from "./visibility.ts";
 import { injectCharacterEventIdentity } from "./event_identity.ts";
+import type { RequestLogger } from "./logger.ts";
 
 type EventScope =
   | "direct"
@@ -135,6 +136,7 @@ interface CharacterEventOptions {
   additionalRecipients?: EventRecipientSnapshot[];
   actorCharacterId?: string | null;
   scope?: EventScope;
+  log?: RequestLogger | null;
 }
 
 export async function emitCharacterEvent(
@@ -156,6 +158,7 @@ export async function emitCharacterEvent(
     additionalRecipients = [],
     actorCharacterId,
     scope,
+    log,
   } = options;
 
   const recipients = dedupeRecipientSnapshots([
@@ -176,6 +179,13 @@ export async function emitCharacterEvent(
     shipId,
     eventType,
   });
+
+  const emitMsg = `emit ${eventType} scope=${scope ?? "direct"} char=${characterId}`;
+  if (log) {
+    log.info(emitMsg);
+  } else {
+    console.log(`${emitMsg}${requestId ? ` req=${requestId}` : ""}`);
+  }
 
   await recordEventWithRecipients({
     supabase,
@@ -270,6 +280,7 @@ export async function emitErrorEvent(
     requestId: string;
     detail: string;
     status?: number;
+    log?: RequestLogger | null;
   },
 ): Promise<void> {
   const payload = {
@@ -285,5 +296,6 @@ export async function emitErrorEvent(
     payload,
     requestId: params.requestId,
     recipientReason: "error",
+    log: params.log,
   });
 }

@@ -32,6 +32,7 @@ import {
 } from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
 import type { WeaveSpan } from "../_shared/weave.ts";
+import { RequestLogger } from "../_shared/logger.ts";
 
 const MAX_HOPS_DEFAULT = 5;
 const MAX_HOPS_LIMIT = 100;
@@ -191,6 +192,8 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
   }
 
   const requestId = resolveRequestId(payload);
+  const log = new RequestLogger("list_known_ports", requestId);
+
   const rawCharacterId = requireString(payload, "character_id");
   const characterId = await canonicalizeCharacterId(rawCharacterId);
   const actorCharacterLabel = optionalString(payload, "actor_character_id");
@@ -227,10 +230,11 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
         requestId,
         detail: "Too many list_known_ports requests",
         status: 429,
+        log,
       });
       return errorResponse("Too many list_known_ports requests", 429);
     }
-    console.error("list_known_ports.rate_limit", err);
+    log.error("rate_limit", err);
     return errorResponse("rate limit error", 500);
   }
 
@@ -245,6 +249,7 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
       adminOverride,
       taskId,
       sHandle,
+      log,
     );
     sHandle.end();
     trace.setOutput({ request_id: requestId });
@@ -258,6 +263,7 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
         requestId,
         detail: err.message,
         status: err.status,
+        log,
       });
       return errorResponse(err.message, err.status);
     }
@@ -268,16 +274,18 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
         requestId,
         detail: err.message,
         status: err.status,
+        log,
       });
       return errorResponse(err.message, err.status);
     }
-    console.error("list_known_ports.unhandled", err);
+    log.error("unhandled", err);
     await emitErrorEvent(supabase, {
       characterId,
       method: "list_known_ports",
       requestId,
       detail: "internal server error",
       status: 500,
+      log,
     });
     return errorResponse("internal server error", 500);
   }
@@ -302,6 +310,7 @@ async function handleListKnownPorts(
   adminOverride: boolean,
   taskId: string | null,
   ws: WeaveSpan,
+  log: RequestLogger,
 ): Promise<Response> {
   const source = buildEventSource("list_known_ports", requestId);
 
@@ -429,7 +438,7 @@ async function handleListKnownPorts(
   // Fetch port data and full adjacency graph in parallel (2 queries total)
   const sParallelLoad = ws.span("parallel_load_ports_and_adjacencies");
   const [portRows, adjacency] = await Promise.all([
-    fetchPortRows(supabase, visitedIds),
+    fetchPortRows(supabase, visitedIds, log),
     fetchAllAdjacencies(),
   ]);
   const portMap = new Map(portRows.map((row) => [row.sector_id, row]));
@@ -542,6 +551,7 @@ async function handleListKnownPorts(
     taskId,
     shipId: ship.ship_id,
     scope: "direct",
+    log,
   });
   sEmitEvent.end();
 
@@ -575,6 +585,7 @@ type PortResult = {
 async function fetchPortRows(
   supabase: ReturnType<typeof createServiceRoleClient>,
   sectorIds: number[],
+  log: RequestLogger,
 ): Promise<PortRow[]> {
   if (sectorIds.length === 0) {
     return [];
@@ -585,7 +596,7 @@ async function fetchPortRows(
     .select("sector_id, port_id")
     .in("sector_id", uniqueIds);
   if (contentsError) {
-    console.error("list_known_ports.sector_contents", contentsError);
+    log.error("sector_contents", contentsError);
     throw new ListKnownPortsError("failed to load sector contents", 500);
   }
 
@@ -620,7 +631,7 @@ async function fetchPortRows(
     )
     .in("port_id", Array.from(portIds));
   if (portsError) {
-    console.error("list_known_ports.ports", portsError);
+    log.error("ports", portsError);
     throw new ListKnownPortsError("failed to load ports", 500);
   }
 

@@ -7,10 +7,7 @@ from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from loguru import logger
 
-# Generate a unique instance ID for this bot process (8-char UUID prefix).
-# Set as env var so the Deno subprocess (local API server) can read it too.
-BOT_INSTANCE_ID = uuid.uuid4().hex[:8]
-os.environ["BOT_INSTANCE_ID"] = BOT_INSTANCE_ID
+BOT_INSTANCE_ID: str | None = None
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     BotSpeakingFrame,
@@ -108,11 +105,12 @@ def _loguru_filter(record):
 def _configure_logging():
     """Re-configure loguru after pipecat's runner sets its own DEBUG handler."""
     logger.remove()
+    tag = f"[{BOT_INSTANCE_ID}] " if BOT_INSTANCE_ID else ""
     logger.add(
         sys.stderr,
         level="INFO",
         filter=_loguru_filter,
-        format=f"<level>{{level: <8}}</level> [{BOT_INSTANCE_ID}] {{message}}",
+        format=f"<level>{{level: <8}}</level> {tag}{{message}}",
     )
 
 
@@ -1021,6 +1019,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
 async def bot(runner_args: RunnerArguments):
     """Main bot entry point"""
+    global BOT_INSTANCE_ID
+    # Use Pipecat Cloud session_id when available, otherwise generate one.
+    BOT_INSTANCE_ID = getattr(runner_args, "session_id", None) or uuid.uuid4().hex
+    os.environ["BOT_INSTANCE_ID"] = BOT_INSTANCE_ID
+
     _configure_logging()
 
     logger.info(f"Bot started with runner_args: {runner_args}")
