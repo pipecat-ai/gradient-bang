@@ -10,6 +10,7 @@ from loguru import logger
 from gradientbang.utils.supabase_client import AsyncGameClient
 
 from gradientbang.utils.tools_schema import get_openai_tools_list
+from gradientbang.utils.openai_reasoning import extract_reasoning_text
 
 
 @dataclass
@@ -173,8 +174,13 @@ class BaseLLMAgent:
 
         response = await self.client.chat.completions.create(**kwargs)
         assistant_message = response.choices[0].message
+        reasoning_text = extract_reasoning_text(assistant_message)
         if self.verbose_prompts:
             self._log_message(response.model_dump())
+            if reasoning_text:
+                preview = reasoning_text[:200]
+                suffix = "..." if len(reasoning_text) > 200 else ""
+                self._output(f"ASSISTANT_REASONING: {preview}{suffix}")
 
         message_dict = {"role": "assistant", "content": assistant_message.content or ""}
 

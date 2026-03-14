@@ -24,6 +24,12 @@ Environment Variables:
     GOOGLE_API_KEY
     ANTHROPIC_API_KEY
     OPENAI_API_KEY
+
+    # OpenAI-compatible endpoints (global or per-scope override)
+    OPENAI_BASE_URL
+    VOICE_LLM_OPENAI_BASE_URL
+    TASK_LLM_OPENAI_BASE_URL
+    UI_AGENT_LLM_OPENAI_BASE_URL
 """
 
 from __future__ import annotations
@@ -67,6 +73,21 @@ def _install_google_genai_warning_filter() -> None:
     _google_genai_filter_installed = True
 
 
+def _is_google_thinking_level_model(model: str) -> bool:
+    normalized = model.strip().lower()
+    return normalized.startswith("gemini-3") or normalized.startswith("supernova")
+
+
+def _google_budget_to_thinking_level(budget_tokens: int) -> str:
+    if budget_tokens <= 0:
+        return "minimal"
+    if budget_tokens <= 128:
+        return "low"
+    if budget_tokens <= 512:
+        return "medium"
+    return "high"
+
+
 class LLMProvider(Enum):
     """Supported LLM providers."""
 
@@ -105,6 +126,7 @@ class LLMServiceConfig:
         cache_system_prompt: When True (Anthropic only), add cache_control to
             the system parameter. Useful for agents that rebuild contexts fresh
             each call but keep the same system prompt.
+        openai_base_url: Optional base URL for OpenAI-compatible endpoints.
     """
 
     provider: LLMProvider
@@ -114,6 +136,19 @@ class LLMServiceConfig:
     function_call_timeout_secs: Optional[float] = None
     run_in_parallel: Optional[bool] = None
     cache_system_prompt: bool = False
+    openai_base_url: Optional[str] = None
+
+
+def _normalize_openai_base_url(base_url: str) -> str:
+    normalized = base_url.strip().rstrip("/")
+    if normalized.endswith("/v1"):
+        return normalized
+    return f"{normalized}/v1"
+
+
+def _resolve_openai_base_url(scope_prefix: str) -> Optional[str]:
+    scoped_key = f"{scope_prefix}_OPENAI_BASE_URL"
+    return os.getenv(scoped_key) or os.getenv("OPENAI_BASE_URL")
 
 
 def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
@@ -184,6 +219,7 @@ def create_llm_service(config: LLMServiceConfig) -> LLMService:
             config.model,
             config.thinking,
             config.function_call_timeout_secs,
+            openai_base_url=config.openai_base_url,
         )
     else:
         raise ValueError(f"Unsupported provider: {config.provider}")
@@ -210,12 +246,20 @@ def _create_google_service(
 
     params = None
     if thinking and thinking.enabled:
-        params = GoogleLLMService.InputParams(
-            thinking=GoogleLLMService.ThinkingConfig(
-                thinking_budget=thinking.budget_tokens,
-                include_thoughts=thinking.include_thoughts,
+        if _is_google_thinking_level_model(model):
+            params = GoogleLLMService.InputParams(
+                thinking=GoogleLLMService.ThinkingConfig(
+                    thinking_level=_google_budget_to_thinking_level(thinking.budget_tokens),
+                    include_thoughts=thinking.include_thoughts,
+                )
             )
-        )
+        else:
+            params = GoogleLLMService.InputParams(
+                thinking=GoogleLLMService.ThinkingConfig(
+                    thinking_budget=thinking.budget_tokens,
+                    include_thoughts=thinking.include_thoughts,
+                )
+            )
 
     llm_kwargs = {}
     if function_call_timeout_secs is not None:
@@ -304,24 +348,43 @@ def _create_openai_service(
     model: str,
     thinking: Optional[UnifiedThinkingConfig],
     function_call_timeout_secs: Optional[float] = None,
+    *,
+    openai_base_url: Optional[str] = None,
 ) -> LLMService:
     """Create OpenAI LLM service.
 
-    Note: OpenAI does not support thinking mode in the same way as Google/Anthropic.
-    If thinking is enabled, a warning is logged and the service proceeds without it.
+    For OpenAI-compatible vLLM endpoints, thinking budget is passed via
+    vllm_xargs when a custom base URL is configured.
     """
-    from pipecat.services.openai.llm import OpenAILLMService
+    from gradientbang.utils.openai_debug_llm import DebugOpenAILLMService
 
-    if thinking and thinking.enabled:
+    normalized_base_url = _normalize_openai_base_url(openai_base_url) if openai_base_url else None
+
+    params = None
+    if thinking and thinking.enabled and normalized_base_url:
+        params = DebugOpenAILLMService.InputParams(
+            extra={
+                "extra_body": {
+                    "vllm_xargs": {"thinking_budget": int(thinking.budget_tokens)},
+                }
+            }
+        )
+    elif thinking and thinking.enabled:
         logger.warning(
-            f"OpenAI does not support thinking mode. Proceeding without thinking for model {model}."
+            "OpenAI thinking budget requested for model {} but no OpenAI-compatible "
+            "base URL is configured; proceeding without thinking.",
+            model,
         )
 
     llm_kwargs = {}
     if function_call_timeout_secs is not None:
         llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
+    if normalized_base_url:
+        llm_kwargs["base_url"] = normalized_base_url
+    if params is not None:
+        llm_kwargs["params"] = params
 
-    return OpenAILLMService(
+    return DebugOpenAILLMService(
         api_key=api_key,
         model=model,
         **llm_kwargs,
@@ -354,6 +417,7 @@ def get_voice_llm_config() -> LLMServiceConfig:
     }
 
     model = os.getenv("VOICE_LLM_MODEL", default_models[provider])
+    openai_base_url = _resolve_openai_base_url("VOICE_LLM") if provider == LLMProvider.OPENAI else None
 
     # Parse tool call timeout
     timeout_str = os.getenv("VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS", "20")
@@ -365,13 +429,19 @@ def get_voice_llm_config() -> LLMServiceConfig:
         )
         function_call_timeout_secs = 20.0
 
-    logger.info(f"Voice LLM config: provider={provider.value}, model={model}")
+    logger.info(
+        "Voice LLM config: provider={}, model={}, openai_base_url={}",
+        provider.value,
+        model,
+        _normalize_openai_base_url(openai_base_url) if openai_base_url else "(default)",
+    )
 
     return LLMServiceConfig(
         provider=provider,
         model=model,
         thinking=None,  # Voice LLM typically doesn't use thinking mode
         function_call_timeout_secs=function_call_timeout_secs,
+        openai_base_url=openai_base_url,
     )
 
 
@@ -402,6 +472,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
     }
 
     model = os.getenv("TASK_LLM_MODEL", default_models[provider])
+    openai_base_url = _resolve_openai_base_url("TASK_LLM") if provider == LLMProvider.OPENAI else None
 
     # Parse thinking budget
     thinking_budget_str = os.getenv("TASK_LLM_THINKING_BUDGET", "2048")
@@ -430,8 +501,11 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         function_call_timeout_secs = 20.0
 
     logger.info(
-        f"Task LLM config: provider={provider.value}, model={model}, "
-        f"thinking_budget={thinking_budget}"
+        "Task LLM config: provider={}, model={}, thinking_budget={}, openai_base_url={}",
+        provider.value,
+        model,
+        thinking_budget,
+        _normalize_openai_base_url(openai_base_url) if openai_base_url else "(default)",
     )
 
     return LLMServiceConfig(
@@ -440,6 +514,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         thinking=thinking,
         function_call_timeout_secs=function_call_timeout_secs,
         run_in_parallel=False,
+        openai_base_url=openai_base_url,
     )
 
 
@@ -469,6 +544,7 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
         LLMProvider.OPENAI: "gpt-4.1",
     }
     model = os.getenv("UI_AGENT_LLM_MODEL", default_models[provider])
+    openai_base_url = _resolve_openai_base_url("UI_AGENT_LLM") if provider == LLMProvider.OPENAI else None
 
     thinking_budget_str = os.getenv("UI_AGENT_LLM_THINKING_BUDGET", "0")
     try:
@@ -488,8 +564,11 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
         )
 
     logger.info(
-        f"UI agent LLM config: provider={provider.value}, model={model}, "
-        f"thinking_budget={thinking_budget}"
+        "UI agent LLM config: provider={}, model={}, thinking_budget={}, openai_base_url={}",
+        provider.value,
+        model,
+        thinking_budget,
+        _normalize_openai_base_url(openai_base_url) if openai_base_url else "(default)",
     )
 
     return LLMServiceConfig(
@@ -498,4 +577,5 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
         thinking=thinking,
         run_in_parallel=False,
         cache_system_prompt=True,
+        openai_base_url=openai_base_url,
     )

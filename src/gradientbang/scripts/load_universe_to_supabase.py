@@ -71,17 +71,15 @@ class UniverseLoader:
 
         print(f"✅ Validated {sector_count} sectors")
 
-    def _fetch_all(self, table: str, columns: str):
+    def _fetch_all(self, table: str, columns: str, order_by: str | None = None):
         """Fetch all rows from a table, paging to avoid API max_rows limits."""
         rows = []
         offset = 0
         while True:
-            resp = (
-                self.supabase.table(table)
-                .select(columns)
-                .range(offset, offset + PAGE_SIZE - 1)
-                .execute()
-            )
+            query = self.supabase.table(table).select(columns)
+            if order_by:
+                query = query.order(order_by)
+            resp = query.range(offset, offset + PAGE_SIZE - 1).execute()
             chunk = resp.data or []
             rows.extend(chunk)
             if len(chunk) < PAGE_SIZE:
@@ -385,7 +383,7 @@ class UniverseLoader:
             # In dry-run mode, use None for all port IDs
             port_map = {}
         else:
-            ports = self._fetch_all("ports", "port_id, sector_id")
+            ports = self._fetch_all("ports", "port_id, sector_id", order_by="port_id")
             port_map = {p["sector_id"]: p["port_id"] for p in ports}
 
         sectors = universe["sectors"]
@@ -433,11 +431,11 @@ class UniverseLoader:
 
         # Count rows in each table
         config_count = len(self.supabase.table("universe_config").select("id").execute().data)
-        structure_rows = self._fetch_all("universe_structure", "sector_id")
+        structure_rows = self._fetch_all("universe_structure", "sector_id", order_by="sector_id")
         structure_count = len(structure_rows)
 
         # Query ports by sector_id (not port_id)
-        ports = self._fetch_all("ports", "port_id, sector_id, port_code")
+        ports = self._fetch_all("ports", "port_id, sector_id, port_code", order_by="port_id")
         ports_count = len(ports)
 
         # Verify each port references valid sector
@@ -449,7 +447,7 @@ class UniverseLoader:
         if orphaned_ports:
             raise ValueError(f"Found {len(orphaned_ports)} ports with invalid sector references: {orphaned_ports}")
 
-        contents_count = len(self._fetch_all("sector_contents", "sector_id"))
+        contents_count = len(self._fetch_all("sector_contents", "sector_id", order_by="sector_id"))
 
         expected_sectors = universe["meta"]["sector_count"]
 

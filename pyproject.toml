@@ -39,6 +39,9 @@ npc-run = "gradientbang.npc.run_npc:main"
 # Useful scripts
 universe-bang = "gradientbang.scripts.universe_bang:main"
 character-lookup = "gradientbang.scripts.character_lookup:main"
+npc-reset-state = "gradientbang.scripts.npc_reset_state:main"
+npc-run-batch = "gradientbang.scripts.run_npc_batch:main"
+compare-taskagent-harness = "gradientbang.scripts.compare_taskagent_harness_contexts:main"
 
 
 [tool.setuptools]

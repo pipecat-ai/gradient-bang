@@ -10,15 +10,26 @@ import os
 import sys
 from contextlib import suppress
 from datetime import datetime, timezone
+from typing import Callable, Optional
 
 from loguru import logger
+from pipecat.services.llm_service import LLMService
 
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.config import get_repo_root
+from gradientbang.utils.llm_factory import (
+    LLMProvider,
+    LLMServiceConfig,
+    UnifiedThinkingConfig,
+    create_llm_service,
+)
 from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
 from gradientbang.utils.task_agent import TaskAgent
 
 DEFAULT_MODEL = os.getenv("TASK_LLM_MODEL", "gemini-2.5-flash-preview-09-2025")
+DEFAULT_PROVIDER = os.getenv("TASK_LLM_PROVIDER", "google").lower()
+DEFAULT_THINKING_BUDGET = int(os.getenv("TASK_LLM_THINKING_BUDGET", "2048"))
+DEFAULT_FUNCTION_CALL_TIMEOUT_SECS = float(os.getenv("TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS", "20"))
 
 logger.enable("pipecat")
 _log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
@@ -141,9 +152,22 @@ def parse_args() -> argparse.Namespace:
 Examples:
   %(prog)s npc-02 "Where am I?"
   %(prog)s corp-member-01 --ship-id ship-123 "Move to sector 5 and scan"
+  %(prog)s f923c15c-2a6c-455a-b3c5-7c27ae7c8d50 \\
+    --provider openai \\
+    --model nemotron-3-super-120b \\
+    --openai-base-url https://kwindla--nemotron-super-b200-budget-serve.modal.run \\
+    --thinking-budget 1024 \\
+    "Where am I?"
 
 Environment Variables:
-  GOOGLE_API_KEY             Required. Google Generative AI key.
+  TASK_LLM_PROVIDER          LLM provider (google, anthropic, openai)
+  TASK_LLM_MODEL             Model name
+  TASK_LLM_THINKING_BUDGET   Thinking budget
+  TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS  Tool call timeout
+  GOOGLE_API_KEY             Google provider key
+  ANTHROPIC_API_KEY          Anthropic provider key
+  OPENAI_API_KEY             OpenAI/OpenAI-compatible provider key
+  OPENAI_BASE_URL            OpenAI-compatible base URL (optional)
   SUPABASE_URL               Required. Base URL for Supabase (edge functions + REST).
 """,
     )
@@ -162,8 +186,37 @@ Environment Variables:
 
     parser.add_argument(
         "--model",
-        default=os.getenv("AGENT_MODEL", DEFAULT_MODEL),
-        help="Gemini model name (default: %(default)s)",
+        default=DEFAULT_MODEL,
+        help="Model name (default: TASK_LLM_MODEL or %(default)s)",
+    )
+    parser.add_argument(
+        "--provider",
+        choices=[provider.value for provider in LLMProvider],
+        default=DEFAULT_PROVIDER,
+        help="LLM provider (default: TASK_LLM_PROVIDER or %(default)s)",
+    )
+    parser.add_argument(
+        "--thinking-budget",
+        type=int,
+        default=DEFAULT_THINKING_BUDGET,
+        help="Thinking budget tokens (default: TASK_LLM_THINKING_BUDGET or %(default)s)",
+    )
+    parser.add_argument(
+        "--function-call-timeout-secs",
+        type=float,
+        default=DEFAULT_FUNCTION_CALL_TIMEOUT_SECS,
+        help=(
+            "Tool/function call timeout in seconds "
+            "(default: TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS or %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--openai-base-url",
+        default=os.getenv("OPENAI_BASE_URL"),
+        help=(
+            "OpenAI-compatible base URL (optional). "
+            "If provided without /v1, /v1 is appended."
+        ),
     )
     parser.add_argument(
         "--ship-id",
@@ -181,20 +234,54 @@ Environment Variables:
     return args
 
 
-def ensure_api_key() -> str:
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        logger.error("GOOGLE_API_KEY environment variable not set")
-        logger.info("Export it with: export GOOGLE_API_KEY=your-key")
-        sys.exit(1)
-    return api_key
+def _build_llm_service_factory(args: argparse.Namespace) -> tuple[Callable[[], LLMService], Optional[str]]:
+    provider = LLMProvider(args.provider)
+    api_key_override: Optional[str] = None
+    if provider == LLMProvider.OPENAI and args.openai_base_url and not os.getenv("OPENAI_API_KEY"):
+        # Many local OpenAI-compatible endpoints don't validate auth.
+        api_key_override = "dummy"
+        logger.warning(
+            "OPENAI_API_KEY not set; using placeholder key for OpenAI-compatible endpoint."
+        )
+
+    config = LLMServiceConfig(
+        provider=provider,
+        model=args.model,
+        api_key=api_key_override,
+        thinking=UnifiedThinkingConfig(
+            enabled=True,
+            budget_tokens=args.thinking_budget,
+            include_thoughts=True,
+        ),
+        function_call_timeout_secs=args.function_call_timeout_secs,
+        run_in_parallel=False,
+        openai_base_url=args.openai_base_url,
+    )
+
+    def _factory() -> LLMService:
+        return create_llm_service(config)
+
+    return _factory, args.openai_base_url
 
 
 async def run_task(args: argparse.Namespace) -> int:
-    _ = ensure_api_key()
     if not args.server:
         logger.error("SUPABASE_URL is required (or pass --server).")
         return 1
+    try:
+        llm_service_factory, resolved_openai_base_url = _build_llm_service_factory(args)
+    except ValueError as exc:
+        logger.error(str(exc))
+        return 1
+
+    logger.info(
+        "LLM provider={} model={} thinking_budget={} function_call_timeout_secs={} openai_base_url={}",
+        args.provider,
+        args.model,
+        args.thinking_budget,
+        args.function_call_timeout_secs,
+        resolved_openai_base_url or "(default)",
+    )
     target_character_id = args.ship_id or args.actor_id
     actor_character_id = args.actor_id if args.ship_id else None
 
@@ -226,9 +313,11 @@ async def run_task(args: argparse.Namespace) -> int:
         logger.info("JOINED target={}", target_character_id)
 
         agent = TaskAgent(
-            config=LLMConfig(model=DEFAULT_MODEL),
+            config=LLMConfig(model=args.model),
             game_client=game_client,
             character_id=target_character_id,
+            llm_service_factory=llm_service_factory,
+            thinking_budget=args.thinking_budget,
         )
 
         logger.info('TASK_START task="{}"', args.task)

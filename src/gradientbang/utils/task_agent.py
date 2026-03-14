@@ -42,6 +42,7 @@ LOGURU_LEVEL=DEBUG uv run bot
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import inspect
 import json
@@ -69,7 +70,7 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext, LLMSpecificMessage
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
@@ -102,7 +103,6 @@ from gradientbang.utils.tools_schema import (
     LocalMapRegion,
     Move,
     MyStatus,
-    PathWithRegion,
     PlaceFighters,
     PlotCourse,
     PurchaseFighters,
@@ -131,6 +131,7 @@ MAX_NO_TOOL_NUDGES = 3  # Max times to nudge LLM when it responds without tool c
 NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
 TASK_LOG_TTL_SECONDS = 15 * 60
 PIPELINE_GRACEFUL_SHUTDOWN_TIMEOUT = 3.0
+TASK_AGENT_INFERENCE_CAPTURE_SCHEMA_VERSION = "taskagent_inference_capture.v1"
 
 # Tools that have async completion events - inference is deferred until the event arrives.
 # See module docstring for full explanation of this pattern.
@@ -143,7 +144,6 @@ PIPELINE_GRACEFUL_SHUTDOWN_TIMEOUT = 3.0
 # Failure to do this will cause the LLM to hallucinate tool results.
 ASYNC_TOOL_COMPLETIONS = {
     "move": "movement.complete",
-    "path_with_region": "path.region",
     "my_status": "status.snapshot",
     "list_known_ports": "ports.list",
     "trade": "trade.executed",
@@ -323,13 +323,15 @@ class TaskAgent:
         self._event_handler_tokens: List[
             Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]
         ] = []
+        self._llm_service: Optional[LLMService] = None
+        self._inference_capture_path = os.getenv("TASK_AGENT_CAPTURE_INFERENCE_JSONL", "").strip() or None
+        self._inference_capture_index = 0
 
         tools = tools_list or [
             MyStatus,
             PlotCourse,
             LocalMapRegion,
             ListKnownPorts,
-            PathWithRegion,
             Move,
             Trade,
             SalvageCollect,
@@ -364,7 +366,6 @@ class TaskAgent:
             "status.update",
             "sector.update",
             "course.plot",
-            "path.region",
             "movement.start",
             "movement.complete",
             "map.knowledge",
@@ -563,6 +564,8 @@ class TaskAgent:
         self._inference_reasons.clear()
         self._last_logged_message_count = 0
         self._context = None
+        self._llm_service = None
+        self._inference_capture_index = 0
         self.clear_messages()
         self._cancel_timers()
 
@@ -888,6 +891,7 @@ class TaskAgent:
         self._task_id = task_id or str(uuid.uuid4())
         self._task_description = task
         self._finish_emitted = False
+        self._inference_capture_index = 0
         try:
             self._max_iterations = int(max_iterations)
         except (TypeError, ValueError):
@@ -1014,6 +1018,7 @@ class TaskAgent:
     def _setup_pipeline(self, context: LLMContext) -> Tuple[PipelineTask,]:
         llm_service = self._llm_service_factory()
         llm_service.register_function(None, self._handle_function_call)
+        self._llm_service = llm_service
 
         aggregator_pair = LLMContextAggregatorPair(context)
         state_tracker = _ResponseStateTracker(self)
@@ -1078,6 +1083,106 @@ class TaskAgent:
             return json.dumps(data, ensure_ascii=False)
         except (TypeError, ValueError):
             return str(data)
+
+    @staticmethod
+    def _to_json_compatible(value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            return {
+                "_type": "bytes_b64",
+                "data": base64.b64encode(bytes(value)).decode("ascii"),
+            }
+
+        if isinstance(value, dict):
+            return {str(key): TaskAgent._to_json_compatible(val) for key, val in value.items()}
+
+        if isinstance(value, (list, tuple)):
+            return [TaskAgent._to_json_compatible(item) for item in value]
+
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            try:
+                return TaskAgent._to_json_compatible(model_dump(exclude_none=False))
+            except TypeError:
+                return TaskAgent._to_json_compatible(model_dump())
+            except Exception:  # noqa: BLE001
+                pass
+
+        to_dict = getattr(value, "dict", None)
+        if callable(to_dict):
+            try:
+                return TaskAgent._to_json_compatible(to_dict())
+            except Exception:  # noqa: BLE001
+                pass
+
+        return repr(value)
+
+    @staticmethod
+    def _serialize_context_message(message: Any) -> Any:
+        if isinstance(message, LLMSpecificMessage):
+            return {
+                "_type": "llm_specific",
+                "llm": message.llm,
+                "message": TaskAgent._to_json_compatible(message.message),
+            }
+
+        return TaskAgent._to_json_compatible(message)
+
+    def _capture_inference_input(self, reasons: list[str]) -> None:
+        if not self._inference_capture_path:
+            return
+        if self._context is None:
+            return
+
+        self._inference_capture_index += 1
+
+        messages = self._context.get_messages()
+        entry: dict[str, Any] = {
+            "schema_version": TASK_AGENT_INFERENCE_CAPTURE_SCHEMA_VERSION,
+            "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+            "task_id": self._task_id,
+            "task_description": self._task_description,
+            "inference_index": self._inference_capture_index,
+            "reasons": list(reasons),
+            "message_count": len(messages),
+            "messages": [self._serialize_context_message(message) for message in messages],
+        }
+
+        try:
+            if self._llm_service is not None:
+                adapter = self._llm_service.get_llm_adapter()
+                llm_filter = getattr(adapter, "id_for_llm_specific_messages", None)
+                if isinstance(llm_filter, str) and llm_filter:
+                    filtered_messages = self._context.get_messages(llm_specific_filter=llm_filter)
+                    entry["messages_for_llm"] = [
+                        self._serialize_context_message(message) for message in filtered_messages
+                    ]
+                    entry["messages_for_llm_count"] = len(filtered_messages)
+                    entry["llm_specific_filter"] = llm_filter
+
+                entry["provider_invocation_params"] = self._to_json_compatible(
+                    adapter.get_llm_invocation_params(self._context)
+                )
+
+                llm_settings = getattr(self._llm_service, "_settings", None)
+                if llm_settings is not None:
+                    entry["llm_settings"] = self._to_json_compatible(llm_settings)
+
+                llm_tool_config = getattr(self._llm_service, "_tool_config", None)
+                if llm_tool_config is not None:
+                    entry["llm_tool_config"] = self._to_json_compatible(llm_tool_config)
+        except Exception as exc:  # noqa: BLE001
+            entry["capture_error"] = str(exc)
+
+        try:
+            capture_path = Path(self._inference_capture_path)
+            capture_path.parent.mkdir(parents=True, exist_ok=True)
+            with capture_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to write inference capture to {}: {}", self._inference_capture_path, exc)
 
     @staticmethod
     def _extract_text_from_message(message: Dict[str, Any]) -> str:
@@ -1454,6 +1559,7 @@ class TaskAgent:
             self._no_tool_nudge_count = 0
 
         logger.debug("Queueing LLM run reasons={}", reasons_snapshot)
+        self._capture_inference_input(reasons_snapshot)
         self._llm_inflight = True
         try:
             await self._active_pipeline_task.queue_frames([LLMRunFrame()])
