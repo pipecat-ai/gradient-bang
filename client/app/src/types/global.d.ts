@@ -265,6 +265,7 @@ declare global {
     | "quest_list"
     | "ship_details"
     | "intro_tutorial"
+    | "social_replay"
 
   // --- COMBAT
 

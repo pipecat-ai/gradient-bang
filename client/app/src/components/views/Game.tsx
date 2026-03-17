@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
 import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
+import { SocialReplayCapture } from "@/capture/SocialReplayCapture"
+import { useStoreCapture } from "@/capture/useStoreCapture"
+import { useVoiceCapture } from "@/capture/useVoiceCapture"
 import { ActivityStream } from "@/components/ActivityStream"
 import { ConversationPanel } from "@/components/conversation/ConversationPanel"
 import { GameDialogs } from "@/components/dialogs/GameDialogs"
@@ -44,6 +47,10 @@ export const Game = () => {
   const lookMode = useGameStore.use.lookMode()
   const setLookMode = useGameStore.use.setLookMode?.()
   const [isCollapsed, setIsCollapsed] = useState(false)
+
+  const captureRef = useRef(new SocialReplayCapture())
+  useStoreCapture(captureRef.current)
+  useVoiceCapture(captureRef.current)
 
   usePlayerRank()
   useNotificationSound()
@@ -229,7 +236,7 @@ export const Game = () => {
       <ScreenContainer />
 
       {/* Dialogs */}
-      <GameDialogs />
+      <GameDialogs capture={captureRef.current} />
 
       {/* Other Renderables */}
       <Starfield />

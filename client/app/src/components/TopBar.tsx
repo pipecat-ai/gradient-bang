@@ -1,4 +1,4 @@
-import { MedalIcon, SlidersHorizontalIcon } from "@phosphor-icons/react"
+import { FilmStripIcon, MedalIcon, SlidersHorizontalIcon } from "@phosphor-icons/react"
 
 import useGameStore from "@/stores/game"
 import { formatCurrency } from "@/utils/formatting"
@@ -45,6 +45,21 @@ export const TopBar = () => {
         )}
       </div>
       <div className="flex flex-row gap-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setActiveModal("social_replay")}
+            >
+              <FilmStripIcon weight="bold" size={16} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Clip That!</p>
+          </TooltipContent>
+        </Tooltip>
+
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="outline" size="icon-sm" onClick={() => setActiveModal("leaderboard")}>
