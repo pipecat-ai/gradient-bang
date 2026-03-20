@@ -1566,6 +1566,21 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "llm.context_summarized": {
+              const data = e.payload as Msg.ContextSummarizedMessage
+              useConversationStore.getState().injectMessage({
+                role: "system",
+                parts: [
+                  {
+                    text: `Context summarized: ${data.original_message_count} → ${data.new_message_count} messages (${data.summarized_message_count} compressed, ${data.preserved_message_count} preserved)`,
+                    final: true,
+                    createdAt: new Date().toISOString(),
+                  },
+                ],
+              })
+              break
+            }
+
             // ----- HISTORY QUERIES
 
             case "task.history": {

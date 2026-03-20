@@ -551,6 +551,13 @@ export interface UIAgentContextSummaryMessage extends ServerMessagePayload {
   context_summary: string
 }
 
+export interface ContextSummarizedMessage extends ServerMessagePayload {
+  original_message_count: number
+  new_message_count: number
+  summarized_message_count: number
+  preserved_message_count: number
+}
+
 // --- Quest Messages
 
 export interface QuestStatusMessage extends ServerMessagePayload {

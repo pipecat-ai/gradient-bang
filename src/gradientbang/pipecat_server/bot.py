@@ -31,8 +31,13 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
+    LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
+)
+from pipecat.utils.context.llm_context_summarization import (
+    LLMAutoContextSummarizationConfig,
+    LLMContextSummaryConfig,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import (
@@ -54,20 +59,18 @@ from pipecat.utils.time import time_now_iso8601
 
 from gradientbang.pipecat_server.s3_smart_turn import S3SmartTurnAnalyzerV3
 from gradientbang.utils.llm_factory import (
+    LLMProvider,
+    LLMServiceConfig,
     create_llm_service,
     get_ui_agent_llm_config,
     get_voice_llm_config,
 )
 from gradientbang.utils.local_api_server import LocalApiServer
-from gradientbang.utils.prompt_loader import build_voice_agent_prompt
+from gradientbang.utils.prompt_loader import build_voice_agent_prompt, load_prompt
 
 load_dotenv(dotenv_path=".env.bot")
 
 from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_chat_history
-from gradientbang.pipecat_server.context_compression import (
-    ContextCompressionConsumer,
-    ContextCompressionProducer,
-)
 from gradientbang.pipecat_server.frames import TaskActivityFrame, UserTextInputFrame
 from gradientbang.pipecat_server.inference_gate import (
     InferenceGateState,
@@ -90,6 +93,7 @@ init_weave()
 
 if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
+
 
 
 # Log filter — applied in _configure_logging() which runs inside bot() so it
@@ -322,6 +326,24 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         },
     ]
 
+    # Create dedicated Gemini Flash LLM for context summarization
+    summarization_llm = create_llm_service(
+        LLMServiceConfig(provider=LLMProvider.GOOGLE, model="gemini-2.5-flash")
+    )
+    message_limit = int(os.getenv("CONTEXT_SUMMARIZATION_MESSAGE_LIMIT", "200"))
+    auto_summarization_config = LLMAutoContextSummarizationConfig(
+        max_context_tokens=None,
+        max_unsummarized_messages=message_limit,
+        summary_config=LLMContextSummaryConfig(
+            target_context_tokens=6000,
+            min_messages_after_summary=5,
+            summarization_prompt=load_prompt("fragments/context_summarization.md"),
+            summary_message_template="<session_history_summary>\n{summary}\n</session_history_summary>",
+            llm=summarization_llm,
+            summarization_timeout=120.0,
+        ),
+    )
+
     # Create context aggregator
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
@@ -339,6 +361,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 TextInputBypassFirstBotMuteStrategy(),
             ],
             vad_analyzer=SileroVADAnalyzer(),
+        ),
+        assistant_params=LLMAssistantAggregatorParams(
+            enable_auto_context_summarization=True,
+            auto_context_summarization_config=auto_summarization_config,
         ),
     )
     # Pipecat 0.0.102 emits UserMuteStartedFrame when mute state flips.
@@ -376,6 +402,29 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     say_text_voice_guard = SayTextVoiceGuard(say_text_restore_voice)
 
+    @assistant_aggregator.event_handler("on_summary_applied")
+    async def on_summary_applied(aggregator, summarizer, event):
+        logger.info(
+            f"Context summarized: {event.original_message_count} -> "
+            f"{event.new_message_count} messages "
+            f"({event.summarized_message_count} compressed, "
+            f"{event.preserved_message_count} preserved)"
+        )
+        await rtvi.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": "llm.context_summarized",
+                    "payload": {
+                        "original_message_count": event.original_message_count,
+                        "new_message_count": event.new_message_count,
+                        "summarized_message_count": event.summarized_message_count,
+                        "preserved_message_count": event.preserved_message_count,
+                    },
+                }
+            )
+        )
+
     @user_aggregator.event_handler("on_user_mute_started")
     async def on_user_mute_started(aggregator):
         logger.info("User input muted")
@@ -395,14 +444,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     pre_llm_gate = PreLLMInferenceGate(inference_gate_state)
     post_llm_gate = PostLLMInferenceGate(inference_gate_state)
 
-    # Create compression producer and consumer for context management
-    google_api_key = os.getenv("GOOGLE_API_KEY")
-    compression_producer = ContextCompressionProducer(
-        api_key=google_api_key,
-        message_threshold=200,
-    )
-    compression_consumer = ContextCompressionConsumer(producer=compression_producer)
-
     # Create UI agent branch components (3-processor design)
     ui_agent_config = get_ui_agent_llm_config()
     ui_agent_context = UIAgentContext(
@@ -420,7 +461,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     ui_branch: list[FrameProcessor] = [ui_agent_context, ui_llm, ui_response_collector]
     ui_branch_sources = set(ui_branch)
 
-    # Create pipeline with parallel compression + UI branches
+    # Create pipeline with parallel UI branch
     output_transport = transport.output()
 
     logger.info("Create pipeline…")
@@ -440,10 +481,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     tts,
                     output_transport,
                     assistant_aggregator,
-                    compression_consumer,  # Receives compression results
                 ],
-                # Compression monitoring branch (sink)
-                [compression_producer],
                 # UI agent branch
                 ui_branch,
             ),

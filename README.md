@@ -344,6 +344,23 @@ bash deployment/supabase/functions/tests/run_tests.sh
 
 The runner starts an isolated Supabase instance, runs the tests with coverage, prints a coverage report, and tears everything down automatically.
 
+### Python tests (pytest)
+
+Python tests live in `tests/` and use pytest markers to categorize them.
+
+```bash
+# Run all Python tests
+uv run pytest tests/ -v
+
+# Run only LLM behavior tests (context summarization, etc.)
+uv run pytest tests/ -m llm -v
+
+# Run integration tests (requires running server)
+set -a && source .env.supabase && set +a && USE_SUPABASE_TESTS=1 uv run pytest tests/integration -v
+```
+
+Available markers: `unit`, `integration`, `requires_server`, `stress`, `live_api`, `llm`.
+
 ---
 
 ## Deployment

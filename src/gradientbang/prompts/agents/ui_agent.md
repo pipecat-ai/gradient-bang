@@ -93,6 +93,10 @@ Include player sector guidance (`include_player_sector`):
 - EXCLUDE the player for targeted subsets (e.g., "Red Probe and Blue Hauler").
 - If unsure, prefer EXCLUDING the player.
 
+## Context Summarization
+
+The conversation context is periodically compressed by the system. When this happens, older messages are replaced with a `<session_history_summary>` block. This is NOT a new conversation — it is a compressed version of the prior history. Treat it as continuity, not a reset. Do not output "User is starting a new conversation" when you see a summary block.
+
 ## Context Summary
 
 Always output `<context_summary>YOUR SUMMARY</context_summary>`, even when calling a tool.

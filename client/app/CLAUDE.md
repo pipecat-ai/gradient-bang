@@ -12,9 +12,13 @@ The message router. Receives server events via RTVI, parses payloads into typed 
 - Routing logic (which store method to call for which event)
 - No business logic, no console logs, no state computation
 
+### Prefer Zustand over useEffect for state-driven side effects
+
+When logic reacts to state changes (e.g. subscribing to game data, toggling subsystems on/off), use Zustand store subscriptions or store methods rather than `useEffect`. Store subscriptions run outside React's render cycle, making them immune to re-render churn, mount/unmount races, and strict mode double-effects. Reserve `useEffect` only for bridging React-only APIs (e.g. hooks that can only run inside components) into the store — keep these bridges minimal (single effect, no refs).
+
 ### Stores (`src/stores/`)
 
-Zustand store composed of slices via `game.ts`. Each slice owns a domain of state and its mutations.
+Zustand store composed of slices via `game.ts`. Each slice owns a domain of state and its mutations. Standalone Zustand stores (not slices of `GameStoreState`) are used for orthogonal systems like `captureStore.ts`.
 
 **Rules for slices:**
 

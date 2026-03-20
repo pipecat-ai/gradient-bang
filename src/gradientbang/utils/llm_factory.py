@@ -208,6 +208,67 @@ def _create_google_service(
     class GradientBangGoogleLLMService(GoogleLLMService):
         adapter_class = GradientBangGeminiLLMAdapter
 
+        async def run_inference(self, context, max_tokens=None, system_instruction=None):
+            """Override to guard against response.content.parts being None.
+
+            Upstream iterates content.parts without a None check, which crashes
+            on transient Gemini responses where content exists but parts is None.
+            """
+            # Call the grandparent (LLMService) implementation's setup portion
+            # by delegating to the parent, but wrapping the response extraction.
+            # We reproduce the parent's run_inference with the fix applied.
+            from pipecat.processors.aggregators.llm_context import LLMContext as PcLLMContext
+
+            messages = []
+            system = []
+            tools = []
+            if isinstance(context, PcLLMContext):
+                adapter = self.get_llm_adapter()
+                params = adapter.get_llm_invocation_params(context)
+                messages = params["messages"]
+                system = params["system_instruction"]
+                tools = params["tools"]
+            else:
+                from pipecat.services.google.llm import GoogleLLMContext
+
+                context = GoogleLLMContext.upgrade_to_google(context)
+                messages = context.messages
+                system = getattr(context, "system_message", None)
+                tools = context.tools or []
+
+            if system_instruction is not None:
+                if system:
+                    logger.warning(
+                        f"{self}: Both system_instruction and a system message in context"
+                        " are set. Using system_instruction."
+                    )
+                system = system_instruction
+
+            generation_params = self._build_generation_params(
+                system_instruction=system, tools=tools if tools else None
+            )
+            if max_tokens is not None:
+                generation_params["max_output_tokens"] = max_tokens
+
+            from google.genai.types import GenerateContentConfig
+
+            generation_config = GenerateContentConfig(**generation_params)
+
+            response = await self._client.aio.models.generate_content(
+                model=self._settings.model,
+                contents=messages,
+                config=generation_config,
+            )
+
+            if response.candidates and response.candidates[0].content:
+                parts = response.candidates[0].content.parts
+                if parts:
+                    for part in parts:
+                        if part.text:
+                            return part.text
+
+            return None
+
     params = None
     if thinking and thinking.enabled:
         params = GoogleLLMService.InputParams(

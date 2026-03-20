@@ -13,6 +13,7 @@ export interface SettingsSlice {
     disabledSoundFX: boolean
     disableMusic: boolean
     disableRemoteAudio: boolean
+    enableCapture: boolean
     enableMic: boolean
     musicVolume: number
     remoteAudioVolume: number
@@ -40,6 +41,7 @@ const defaultSettings = {
   disabledSoundFX: false,
   disableMusic: false,
   disableRemoteAudio: false,
+  enableCapture: false,
   enableMic: true,
   musicVolume: 0.5,
   remoteAudioVolume: 1,
