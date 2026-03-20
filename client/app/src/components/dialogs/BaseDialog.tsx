@@ -96,8 +96,7 @@ export const BaseDialog = ({
   useEffect(() => {
     if (!isOpen || !useDiamondFX) return
     const el = diamondRef?.current
-    if (el && !el.id) el.id = dialogId
-    const targetId = el?.id ?? dialogId
+    const targetId = el?.id || dialogId
     diamondFXInstance?.start(targetId, false, true, { half: true })
   }, [isOpen, useDiamondFX, diamondFXInstance, diamondRef, dialogId])
 

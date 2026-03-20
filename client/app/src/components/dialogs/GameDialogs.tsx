@@ -1,3 +1,5 @@
+import { SocialReplayDialog } from "@/capture/SocialReplayDialog"
+
 import { Disconnect } from "./Disconnect"
 import { Leaderboard } from "./Leaderboard"
 import { QuestCodec } from "./QuestCodec"
@@ -13,5 +15,6 @@ export const GameDialogs = () => (
     <QuestCodec />
     <QuestList />
     <ShipDetails />
+    <SocialReplayDialog />
   </>
 )
