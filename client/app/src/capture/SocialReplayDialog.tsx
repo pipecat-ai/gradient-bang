@@ -1,5 +1,6 @@
-import { type Icon, FireIcon, SmileyIcon, SkullIcon, SmileyXEyesIcon } from "@phosphor-icons/react"
 import { useState } from "react"
+
+import { FireIcon, type Icon, SkullIcon, SmileyIcon, SmileyXEyesIcon } from "@phosphor-icons/react"
 
 import { BaseDialog } from "@/components/dialogs/BaseDialog"
 import { Button } from "@/components/primitives/Button"

@@ -41,7 +41,7 @@ const defaultSettings = {
   disabledSoundFX: false,
   disableMusic: false,
   disableRemoteAudio: false,
-  enableCapture: true,
+  enableCapture: false,
   enableMic: true,
   musicVolume: 0.5,
   remoteAudioVolume: 1,

@@ -1,9 +1,8 @@
 import { create } from "zustand"
 
+import { type EventLogComponentEntry, SocialReplayCapture } from "@/capture/SocialReplayCapture"
 import { useConversationStore } from "@/stores/conversation"
 import useGameStore from "@/stores/game"
-
-import { type EventLogComponentEntry, SocialReplayCapture } from "@/capture/SocialReplayCapture"
 
 interface CaptureStore {
   capture: SocialReplayCapture | null
@@ -205,6 +204,7 @@ export const useCaptureStore = create<CaptureStore>()((set, get) => ({
       const capture = new SocialReplayCapture()
       setupStoreSubscriptions(capture)
       set({ capture })
+      console.debug("%c[CAPTURE] Replay capture started", "color: #00CC66; font-weight: bold;")
     }
 
     // React to enableCapture setting changes
@@ -216,6 +216,7 @@ export const useCaptureStore = create<CaptureStore>()((set, get) => ({
           const capture = new SocialReplayCapture()
           setupStoreSubscriptions(capture)
           set({ capture })
+          console.debug("%c[CAPTURE] Replay capture started", "color: #00CC66; font-weight: bold;")
         } else if (!enabled && current) {
           teardownStoreSubscriptions()
           current.destroy()

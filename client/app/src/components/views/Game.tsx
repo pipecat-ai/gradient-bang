@@ -6,7 +6,6 @@ import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { useVoiceCapture } from "@/capture/useVoiceCapture"
-import { useCaptureStore } from "@/stores/captureStore"
 import { ActivityStream } from "@/components/ActivityStream"
 import { ConversationPanel } from "@/components/conversation/ConversationPanel"
 import { GameDialogs } from "@/components/dialogs/GameDialogs"
@@ -47,10 +46,6 @@ export const Game = () => {
   const setLookMode = useGameStore.use.setLookMode?.()
   const [isCollapsed, setIsCollapsed] = useState(false)
 
-  useEffect(() => {
-    useCaptureStore.getState().init()
-    return () => useCaptureStore.getState().teardown()
-  }, [])
   useVoiceCapture()
 
   usePlayerRank()
