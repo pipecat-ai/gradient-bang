@@ -327,6 +327,26 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
 
             <Separator decorative variant="dashed" />
 
+            {/* Capture */}
+            <FieldSet>
+              <FieldLegend>Capture</FieldLegend>
+              <FieldGroup>
+                <SettingSwitch
+                  label="Replay Capture"
+                  id="enable-capture"
+                  checked={formSettings.enableCapture}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      enableCapture: value,
+                    }))
+                  }
+                />
+              </FieldGroup>
+            </FieldSet>
+
+            <Separator decorative variant="dashed" />
+
             {/* Persistence */}
             <div className="flex flex-col gap-3">
               <SettingSwitch

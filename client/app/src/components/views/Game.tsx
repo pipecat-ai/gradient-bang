@@ -5,6 +5,7 @@ import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
 import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
+import { useVoiceCapture } from "@/capture/useVoiceCapture"
 import { ActivityStream } from "@/components/ActivityStream"
 import { ConversationPanel } from "@/components/conversation/ConversationPanel"
 import { GameDialogs } from "@/components/dialogs/GameDialogs"
@@ -44,6 +45,8 @@ export const Game = () => {
   const lookMode = useGameStore.use.lookMode()
   const setLookMode = useGameStore.use.setLookMode?.()
   const [isCollapsed, setIsCollapsed] = useState(false)
+
+  useVoiceCapture()
 
   usePlayerRank()
   useNotificationSound()
