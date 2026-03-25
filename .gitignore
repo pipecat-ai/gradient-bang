@@ -54,5 +54,3 @@ khk-notes.txt
 # Local runtime artifacts / large scratch trees
 bot.log.example
 tmp.bot.log
-pipecat-core-code/
-client/app/src/assets/videos/tutorial.mp4

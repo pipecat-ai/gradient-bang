@@ -366,17 +366,23 @@ def _create_openai_service(
     thinking: Optional[UnifiedThinkingConfig],
     function_call_timeout_secs: Optional[float] = None,
 ) -> LLMService:
-    """Create OpenAI LLM service.
-
-    Note: OpenAI does not support thinking mode in the same way as Google/Anthropic.
-    If thinking is enabled, a warning is logged and the service proceeds without it.
-    """
+    """Create OpenAI LLM service with optional reasoning_effort support."""
     from pipecat.services.openai.llm import OpenAILLMService
 
+    params_kwargs: dict = {}
     if thinking and thinking.enabled:
-        logger.warning(
-            f"OpenAI does not support thinking mode. Proceeding without thinking for model {model}."
-        )
+        # Map thinking budget to OpenAI reasoning_effort level
+        budget = thinking.budget_tokens
+        if budget >= 16384:
+            effort = "high"
+        elif budget >= 4096:
+            effort = "medium"
+        else:
+            effort = "low"
+        params_kwargs["extra"] = {"reasoning_effort": effort}
+        logger.info(f"OpenAI reasoning_effort={effort} for model {model} (budget={budget})")
+
+    params = OpenAILLMService.InputParams(**params_kwargs) if params_kwargs else None
 
     llm_kwargs = {}
     if function_call_timeout_secs is not None:
@@ -385,6 +391,7 @@ def _create_openai_service(
     return OpenAILLMService(
         api_key=api_key,
         model=model,
+        params=params,
         **llm_kwargs,
     )
 

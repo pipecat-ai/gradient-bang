@@ -227,12 +227,6 @@ scripts/reset-world.sh --env .env.supabase 1000 42
 scripts/reset-world.sh --env .env.cloud 1000 42
 ```
 
-### Running integration tests
-
-```bash
-set -a && source .env.supabase && set +a && USE_SUPABASE_TESTS=1 uv run pytest tests/integration -v
-```
-
 ### Generate universe map visualization
 
 ```bash
@@ -324,19 +318,13 @@ gb start
 
 ## Running tests
 
+### Edge function tests (Deno)
+
 Integration tests for the game server (edge functions) live in `deployment/supabase/functions/tests/`.
 
-### Dependencies
-
-- **Docker**: The test runner spins up an isolated Supabase instance
-- **Deno**: Tests run under `deno test` (installed automatically by the Supabase CLI)
-- **Node.js / npx**: Used to invoke the Supabase CLI
+**Dependencies:** Docker, Node.js / npx (Deno is installed automatically by the Supabase CLI).
 
 No `.env` file is needed — the test runner creates its own isolated Supabase stack on ephemeral ports and extracts credentials automatically.
-
-### Run tests
-
-> **Note:** stop any running supabase instances first `npx supabase stop`
 
 ```bash
 bash deployment/supabase/functions/tests/run_tests.sh
@@ -349,17 +337,40 @@ The runner starts an isolated Supabase instance, runs the tests with coverage, p
 Python tests live in `tests/` and use pytest markers to categorize them.
 
 ```bash
-# Run all Python tests
-uv run pytest tests/ -v
+# Run all unit tests (no server needed)
+uv run pytest -m unit -v
 
 # Run only LLM behavior tests (context summarization, etc.)
-uv run pytest tests/ -m llm -v
-
-# Run integration tests (requires running server)
-set -a && source .env.supabase && set +a && USE_SUPABASE_TESTS=1 uv run pytest tests/integration -v
+uv run pytest -m llm -v
 ```
 
-Available markers: `unit`, `integration`, `requires_server`, `stress`, `live_api`, `llm`.
+Available markers: `unit`, `llm`, `integration`, `stress`, `live_api`.
+
+### Unit tests
+
+The `tests/unit/` directory includes unit tests for the bot's agent layer — EventRelay routing, VoiceAgent tool registration, TaskAgent construction, and EventRelay↔VoiceAgent integration tests that wire real objects together with mock external boundaries.
+
+```bash
+# Run all unit tests
+uv run pytest -m unit -v
+
+# Run only the relay↔voice integration tests
+uv run pytest tests/unit/test_voice_relay_integration.py -v
+```
+
+### Python integration tests (requires DB)
+
+Python integration tests need a seeded Supabase database. An all-in-one script handles the lifecycle: it spins up an isolated Supabase instance on different ports (54421+), seeds it via `test_reset`, runs `pytest -m integration`, and tears everything down. The dev database is never touched.
+
+```bash
+# Run all integration tests
+bash scripts/run-integration-tests.sh
+
+# Pass extra pytest args
+bash scripts/run-integration-tests.sh -v -k "test_movement"
+```
+
+Integration tests are automatically skipped when running `uv run pytest` directly (without the script).
 
 ---
 

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Command-line entrypoint for the experimental Pipecat-based task agent."""
+"""Command-line entrypoint for running a task agent on a character or corp ship.
+
+A minimal launcher agent creates a TaskAgent child, sends it a task via bus
+protocol, and shuts down the runner when the task completes.
+"""
 
 from __future__ import annotations
 
@@ -10,13 +14,13 @@ import os
 import sys
 from contextlib import suppress
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
 
 from loguru import logger
 
-from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.config import get_repo_root
 from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
-from gradientbang.utils.task_agent import TaskAgent
 
 DEFAULT_MODEL = os.getenv("TASK_LLM_MODEL", "gemini-2.5-flash-preview-09-2025")
 
@@ -135,7 +139,7 @@ def _log_join_error(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the experimental Pipecat-based task agent (supports corporation ships via --ship-id)",
+        description="Run a task agent on a character or corporation ship",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -181,22 +185,18 @@ Environment Variables:
     return args
 
 
-def ensure_api_key() -> str:
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        logger.error("GOOGLE_API_KEY environment variable not set")
-        logger.info("Export it with: export GOOGLE_API_KEY=your-key")
-        sys.exit(1)
-    return api_key
-
-
 async def run_task(args: argparse.Namespace) -> int:
-    _ = ensure_api_key()
     if not args.server:
         logger.error("SUPABASE_URL is required (or pass --server).")
         return 1
     target_character_id = args.ship_id or args.actor_id
     actor_character_id = args.actor_id if args.ship_id else None
+
+    from gradientbang.subagents.agents.base_agent import BaseAgent
+    from gradientbang.subagents.runner import AgentRunner
+    from gradientbang.subagents.types import TaskStatus
+
+    from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 
     success = False
     async with AsyncGameClient(
@@ -211,7 +211,6 @@ async def run_task(args: argparse.Namespace) -> int:
             target=target_character_id,
             actor=actor_character_id or target_character_id,
         )
-        await game_client.pause_event_delivery()
 
         try:
             await game_client.join(target_character_id)
@@ -225,14 +224,55 @@ async def run_task(args: argparse.Namespace) -> int:
 
         logger.info("JOINED target={}", target_character_id)
 
-        agent = TaskAgent(
-            config=LLMConfig(model=DEFAULT_MODEL),
-            game_client=game_client,
-            character_id=target_character_id,
-        )
+        # Minimal launcher agent that starts a TaskAgent child and waits for completion.
+        task_done = asyncio.Event()
+        task_success = {"value": False}
 
-        logger.info('TASK_START task="{}"', args.task)
-        success = await agent.run_task(task=args.task)
+        class Launcher(BaseAgent):
+            def __init__(self, name, *, bus):
+                super().__init__(name, bus=bus)
+
+            async def build_pipeline(self):
+                return None
+
+            async def on_task_response(self, task_id, agent_name, response, status):
+                await super().on_task_response(task_id, agent_name, response, status)
+                task_success["value"] = status == TaskStatus.COMPLETED
+                task_done.set()
+
+            async def on_task_completed(self, task_id, responses):
+                await super().on_task_completed(task_id, responses)
+                task_done.set()
+
+        runner = AgentRunner(handle_sigint=True)
+        launcher = Launcher("launcher", bus=runner.bus)
+        await runner.add_agent(launcher)
+
+        @runner.event_handler("on_ready")
+        async def on_ready(r):
+            task_agent = TaskAgent(
+                "npc_task",
+                bus=runner.bus,
+                game_client=game_client,
+                character_id=target_character_id,
+                is_corp_ship=bool(args.ship_id),
+            )
+            await launcher.start_task(
+                task_agent,
+                payload={"task_description": args.task},
+            )
+
+        # Run in background, wait for task completion
+        runner_task = asyncio.create_task(runner.run())
+        try:
+            await task_done.wait()
+            success = task_success["value"]
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await runner.end()
+            with suppress(asyncio.CancelledError):
+                await runner_task
 
         if success:
             logger.info("TASK_COMPLETE status=success")
