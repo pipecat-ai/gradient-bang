@@ -68,6 +68,10 @@ When an action fails:
 3. Either take a DIFFERENT action or skip and continue
 4. You have all the information needed - no extra tool calls required
 
+## Destructive Tools
+
+Tools marked ⚠️ DESTRUCTIVE are irreversible. Before calling one, verify the action and target match the task description. If the task is ambiguous about the target or amount, call `finished` and ask for clarification rather than guessing.
+
 ## Waiting for Events
 
 Only use `wait_in_idle_state` for long waits on external events not guaranteed to arrive (e.g., another player arriving, chat.message). Do NOT use it for movement, trade, combat, or any action with completion events. When waiting, use 30-60 seconds. Expired timers emit `idle.complete`.

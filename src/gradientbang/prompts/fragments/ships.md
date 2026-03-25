@@ -50,11 +50,7 @@ purchase_ship(
 
 ## Selling Corporation Ships
 
-`sell_ship` has a built-in confirmation gate. It is a two-step process:
-
-1. Call `sell_ship(ship_id="...")` — this returns a reminder instead of executing
-2. **Speak** to the player (do NOT use send_message or any chat tool). Say the ship name, type, and trade-in value. Warn that cargo/credits on the ship will be lost.
-3. After the player explicitly confirms, call `sell_ship(ship_id="...", confirmed=true)` to execute
+`sell_ship` is marked ⚠️ DESTRUCTIVE — the ship is permanently destroyed and cannot be recovered.
 
 ### Selling Rules
 - You can ONLY sell corporation ships that YOU purchased — not other members' ships

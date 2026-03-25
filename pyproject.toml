@@ -20,8 +20,9 @@ dev = ["pytest>=8.4.1", "pytest-asyncio>=1.1.0", "pytest-timeout>=2.3.1"]
 worldgen = ["numpy>=1.26.0", "scipy>=1.11.0", "networkx>=3.0"]
 
 bot = [
-    "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,google,anthropic,runner]==0.0.105",
+    "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,google,anthropic,runner]>=0.0.106",
     "pipecat-ai-cli",
+    "pipecat-ai-flows>=0.0.22",
     "boto3>=1.35.0",
     "soundfile>=0.12.0",
 ]
@@ -64,11 +65,10 @@ package = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
-# Exclude archived integration tests from default test runs
-norecursedirs = ["integration-old", ".git", "__pycache__", "*.egg-info"]
+norecursedirs = [".git", "__pycache__", "*.egg-info"]
 markers = [
     "unit: Unit tests (fast, no server needed)",
-    "integration: Integration tests (may need server)",
+    "integration: Integration tests (requires test Supabase via scripts/run-integration-tests.sh)",
     "requires_server: Requires live server on port 8002",
     "stress: Stress tests (slow, concurrent operations) - skip by default",
     "requires_supabase_functions(*names): Skip when named Supabase edge functions are not implemented",
