@@ -1612,6 +1612,13 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            // ----- DEBUG
+            case "debug.llm-context": {
+              useGameStore.getState().setDebugLLMContext(e.payload.formatted as string)
+              useGameStore.getState().setDebugLLMContextLoading(false)
+              break
+            }
+
             // ----- UNHANDLED :(
             default:
               console.warn("[GAME EVENT] Unhandled server action:", e.event, e.payload)

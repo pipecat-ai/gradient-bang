@@ -480,15 +480,25 @@ class EventRelay:
 
     # ── Onboarding (passive observation) ─────────────────────────────
 
-    def _observe_ports_list(self, clean_payload: Any) -> None:
+    async def _observe_ports_list(self, clean_payload: Any) -> None:
         """Observe ports.list events to detect mega-port knowledge."""
         if not isinstance(clean_payload, Mapping):
             return
         ports = clean_payload.get("ports", [])
         has_mega = isinstance(ports, list) and len(ports) > 0
         if has_mega and self.is_new_player is not False:
+            was_new = self.is_new_player is True
             logger.info("Onboarding: mega-ports found, player is veteran")
             self.is_new_player = False
+            if was_new and self._onboarding_complete:
+                logger.info("Onboarding: mega-port discovered, injecting onboarding.complete")
+                await self._deliver_llm_event(
+                    '<event name="onboarding.complete">\n'
+                    "Player has discovered a mega-port. Onboarding is complete "
+                    "— disregard earlier onboarding instructions.\n"
+                    "</event>",
+                    should_run_llm=False,
+                )
 
     def _resolve_initial_megaport_check(self, request_id: Optional[str], clean_payload: Any) -> None:
         """Resolve the initial megaport check from join()."""
@@ -782,7 +792,7 @@ class EventRelay:
         # Runs on every event, independent of LLM append decision.
         if event_name == "ports.list":
             self._resolve_initial_megaport_check(request_id, clean_payload)
-            self._observe_ports_list(clean_payload)
+            await self._observe_ports_list(clean_payload)
             await self._maybe_inject_onboarding()
         elif event_name == "status.snapshot" and not is_other_player:
             if not self._first_status_delivered:

@@ -36,7 +36,7 @@ const MINIMAP_CONFIG: MapConfig = {
 
 const MAX_DISTANCE = 4
 
-export const MiniMapPanel = ({ className }: { className?: string }) => {
+export const MiniMapPanel = ({ className, paused }: { className?: string; paused?: boolean }) => {
   const uiState = useGameStore.use.uiState()
   const sector = useGameStore((state) => state.sector)
   const localMapData = useGameStore((state) => state.local_map_data)
@@ -111,6 +111,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
           config={MINIMAP_CONFIG}
           ships={shipSectors}
           map_data={localMapData ?? []}
+          paused={paused}
         />
       </div>
       <div className="absolute left-1.5 bottom-1.5 right-0 flex flex-col gap-1.5 z-2">

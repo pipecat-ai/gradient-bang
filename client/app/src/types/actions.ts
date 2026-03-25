@@ -95,6 +95,10 @@ export interface CombatActionAction {
 
 type ActionMeta = { async?: boolean }
 
+export interface DumpLLMContextAction {
+  type: "dump-llm-context"
+}
+
 export type GameAction = (
   | StartAction
   | GetMyStatusAction
@@ -111,6 +115,7 @@ export type GameAction = (
   | SayTextDimissAction
   | AssignQuestAction
   | CombatActionAction
+  | DumpLLMContextAction
 ) &
   ActionMeta
 

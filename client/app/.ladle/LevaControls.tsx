@@ -52,7 +52,7 @@ export const LevaControls = ({
     ["Connect"]: buttonGroup({
       label: "Connection",
       opts: {
-        ["Connect"]: () => client.startBotAndConnect({ endpoint }),
+        ["Connect"]: () => client.startBotAndConnect({ endpoint, requestData: {} }),
         ["Disconnect"]: () => client.disconnect(),
       },
     }),
@@ -87,6 +87,8 @@ export const LevaControls = ({
         id: "81da8782-7bb1-4f68-9456-76697f249b92",
       })
     }),
+
+    ["Dump LLM Context"]: button(() => dispatchAction({ type: "dump-llm-context" })),
 
     ["Look Around"]: button(() => {
       const lookMode = useGameStore.getState().lookMode

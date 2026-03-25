@@ -79,7 +79,11 @@ export const Provider: GlobalProvider = memo(({ children, storyMeta }) => {
   }
 
   if (error) {
-    return <Error onRetry={() => client.startBotAndConnect({ endpoint })}>{error}</Error>
+    return (
+      <Error onRetry={() => client.startBotAndConnect({ endpoint, requestData: {} })}>
+        {error}
+      </Error>
+    )
   }
 
   return (

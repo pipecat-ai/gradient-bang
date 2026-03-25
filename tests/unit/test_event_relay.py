@@ -477,6 +477,29 @@ class TestOnboarding:
         onboarding_events = [e for e in task_state.deferred_events if "onboarding" in e[0]]
         assert len(onboarding_events) == 1
 
+    async def test_onboarding_fragment_content_loaded(self):
+        """New player onboarding injects the actual onboarding.md fragment content."""
+        relay, task_state, _, _ = _make_relay()
+        relay._megaport_check_request_id = "mega-req"
+        relay._first_status_delivered = True
+        relay.display_name = "TestPlayer"
+        event = _make_event(
+            "ports.list",
+            {"ports": [], "__event_context": {"scope": "direct", "reason": "direct"}},
+            request_id="mega-req",
+        )
+        await relay._relay_event(event)
+        onboarding_events = [e for e in task_state.deferred_events if "onboarding" in e[0]]
+        assert len(onboarding_events) == 1
+        content, run_llm = onboarding_events[0]
+        # Verify fragment was loaded (not empty/stub) and display_name was interpolated
+        assert '<event name="onboarding">' in content
+        assert "TestPlayer" in content
+        # Key phrases from the onboarding.md fragment
+        assert "Federation Space" in content
+        assert "mega-port" in content
+        assert run_llm is True
+
     async def test_veteran_detected_from_ports_with_mega(self):
         """Initial megaport check with ports → is_new_player=False."""
         relay, task_state, _, _ = _make_relay()
@@ -508,7 +531,7 @@ class TestOnboarding:
         assert relay._onboarding_complete is False  # Waiting for status
 
     async def test_ongoing_observation_flips_flag(self):
-        """Subsequent ports.list with mega-ports flips is_new_player True→False."""
+        """Subsequent ports.list with mega-ports flips is_new_player True→False and injects onboarding.complete."""
         relay, task_state, _, _ = _make_relay()
         relay.is_new_player = True
         relay._onboarding_complete = True
@@ -519,6 +542,28 @@ class TestOnboarding:
         )
         await relay._relay_event(event)
         assert relay.is_new_player is False
+        complete_events = [e for e in task_state.deferred_events if "onboarding.complete" in e[0]]
+        assert len(complete_events) == 1
+        content, run_llm = complete_events[0]
+        assert "disregard" in content.lower()
+        assert run_llm is False
+
+    async def test_veteran_never_receives_onboarding_fragment(self):
+        """Veteran player gets session.start only, never the onboarding fragment."""
+        relay, task_state, _, _ = _make_relay()
+        relay._megaport_check_request_id = "mega-req"
+        relay._first_status_delivered = True
+        event = _make_event(
+            "ports.list",
+            {"ports": [{"id": "port-1"}], "__event_context": {"scope": "direct", "reason": "direct"}},
+            request_id="mega-req",
+        )
+        await relay._relay_event(event)
+        assert relay.is_new_player is False
+        # No onboarding fragment, no onboarding.complete — only session.start
+        all_content = [e[0] for e in task_state.deferred_events]
+        assert any("session.start" in c for c in all_content)
+        assert not any("onboarding" in c and "session.start" not in c for c in all_content)
 
     async def test_ports_list_not_dropped(self):
         """ports.list events always flow through to RTVI (not dropped)."""

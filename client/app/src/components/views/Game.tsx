@@ -158,7 +158,7 @@ export const Game = () => {
                   }}
                   {...(uiMode !== "tasks" ? { inert: true } : {})}
                 >
-                  <MiniMapPanel className="w-ui-minimap" />
+                  <MiniMapPanel className="w-ui-minimap" paused={uiMode !== "tasks"} />
                 </motion.div>
                 <motion.div
                   className="absolute inset-0 h-full w-ui-minimap"

@@ -34,6 +34,7 @@ class ClientMessageHandler:
         say_text_restore_voice: dict,
         user_mute_state: dict,
         user_unmuted_event: asyncio.Event,
+        llm_context=None,
     ):
         self._game_client = game_client
         self._character_id = character_id
@@ -44,10 +45,11 @@ class ClientMessageHandler:
         self._say_text_restore_voice = say_text_restore_voice
         self._user_mute_state = user_mute_state
         self._user_unmuted_event = user_unmuted_event
+        self._llm_context = llm_context
 
     @property
     def _pipeline_task(self):
-        return getattr(self._main_agent, "_task", None)
+        return getattr(self._main_agent, "_pipeline_task", None)
 
     async def handle(self, message):
         """Dispatch a client message to the appropriate handler."""
@@ -447,6 +449,47 @@ class ClientMessageHandler:
                 {"type": "message-received", "text": f"Received: {text}"}
             )
 
+    async def _handle_dump_llm_context(self, msg_type, msg_data):
+        """Debug: dump the current LLM context back to the client."""
+        import json
+
+        if not self._llm_context:
+            await self._rtvi.push_frame(
+                RTVIServerMessageFrame(
+                    {"frame_type": "error", "error": "LLM context not available"}
+                )
+            )
+            return
+
+        messages = self._llm_context.get_messages()
+
+        def safe_serialize(msg):
+            try:
+                json.dumps(msg)
+                return msg
+            except (TypeError, ValueError):
+                return {"role": msg.get("role", "unknown"), "content": str(msg.get("content", ""))}
+
+        safe_messages = [safe_serialize(m) for m in messages]
+
+        # Pre-format as indented JSON so the client can copy readable text.
+        # Unescape \n inside strings so long content fields are readable.
+        formatted = json.dumps(safe_messages, indent=2, ensure_ascii=False)
+        formatted = formatted.replace("\\n", "\n")
+
+        await self._rtvi.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": "debug.llm-context",
+                    "payload": {
+                        "message_count": len(safe_messages),
+                        "formatted": formatted,
+                    },
+                }
+            )
+        )
+
     # ── Dispatch table ────────────────────────────────────────────────
 
     _HANDLERS = {
@@ -469,4 +512,5 @@ class ClientMessageHandler:
         "user-text-input": _handle_user_text_input,
         "assign-quest": _handle_assign_quest,
         "custom-message": _handle_custom_message,
+        "dump-llm-context": _handle_dump_llm_context,
     }

@@ -185,6 +185,11 @@ class TestOnboardingVeteranPlayer:
         assert len(session_frames) == 1
         _, run_llm = session_frames[0]
         assert run_llm is True
+        # Veteran must never receive the onboarding fragment
+        onboarding_frames = [
+            c for c, _ in h.llm_messages if '<event name="onboarding">' in c
+        ]
+        assert len(onboarding_frames) == 0
 
 
 @pytest.mark.unit
@@ -206,6 +211,27 @@ class TestMegaportDiscovery:
             },
         )
         assert h.relay.is_new_player is False
+
+    async def test_megaport_discovery_injects_onboarding_complete(self):
+        """New player discovers megaport → onboarding.complete event injected."""
+        h = _make_harness()
+        h.relay.is_new_player = True
+        h.relay._onboarding_complete = True
+
+        await h.feed_event(
+            "ports.list",
+            {
+                "ports": [{"port_id": "p1", "mega": True}],
+                "__event_context": {"scope": "direct", "reason": "direct"},
+            },
+        )
+        complete_frames = [
+            (c, r) for c, r in h.llm_messages if '<event name="onboarding.complete">' in c
+        ]
+        assert len(complete_frames) == 1
+        content, run_llm = complete_frames[0]
+        assert "disregard" in content.lower()
+        assert run_llm is False
 
     async def test_empty_ports_does_not_flip_to_veteran(self):
         h = _make_harness()

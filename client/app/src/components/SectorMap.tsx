@@ -72,6 +72,8 @@ interface MapProps {
   mapFitEpoch?: number
   /** Monotonic counter to reset pan/zoom to base camera state. */
   mapResetEpoch?: number
+  /** Suppress controller creation and rendering (e.g. when hidden by content-visibility). */
+  paused?: boolean
 }
 
 /** Element-wise comparison for short numeric tuples. */
@@ -135,6 +137,7 @@ const MapComponent = ({
   fit_bounds_world,
   mapFitEpoch,
   mapResetEpoch,
+  paused,
 }: MapProps) => {
   // Normalize map_data to always be an array (memoized to avoid dependency changes)
   const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
@@ -169,6 +172,7 @@ const MapComponent = ({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const controllerRef = useRef<SectorMapController | null>(null)
+  const wasPausedRef = useRef(paused)
   const prevCenterSectorIdRef = useRef<number>(center_sector_id)
   const prevCurrentSectorIdRef = useRef<number | undefined>(current_sector_id)
   const previousMapRef = useRef<MapData | null>(null)
@@ -229,8 +233,14 @@ const MapComponent = ({
     >
   }, [configKey])
 
-  // Synchronously sample initial size to avoid rendering visible 440×440 fallback
+  // Synchronously sample initial size to avoid rendering visible 440×440 fallback.
+  // Skip when transitioning from paused — content-visibility may not be resolved yet
+  // and getBoundingClientRect() would force layout on a hidden subtree. The
+  // ResizeObserver handles measurement asynchronously after paint in that case.
   useLayoutEffect(() => {
+    const wasPaused = wasPausedRef.current
+    wasPausedRef.current = paused
+    if (paused || wasPaused) return
     if (!isAutoSizing || measuredSize !== null) return
     const container = containerRef.current
     if (!container) return
@@ -238,10 +248,11 @@ const MapComponent = ({
     if (measuredWidth > 0 && measuredHeight > 0) {
       setMeasuredSize({ width: measuredWidth, height: measuredHeight })
     }
-  }, [isAutoSizing, measuredSize])
+  }, [isAutoSizing, measuredSize, paused])
 
   // ResizeObserver effect for auto-sizing
   useEffect(() => {
+    if (paused) return
     if (!isAutoSizing || !containerRef.current) return
 
     let timeoutId: number | null = null
@@ -291,10 +302,11 @@ const MapComponent = ({
       }
       observer.disconnect()
     }
-  }, [isAutoSizing])
+  }, [isAutoSizing, paused])
 
   // Dimension change effect
   useEffect(() => {
+    if (paused) return
     const controller = controllerRef.current
     if (!controller) return // Not initialized yet
 
@@ -321,12 +333,20 @@ const MapComponent = ({
         height: effectiveHeight,
       }
     }
-  }, [effectiveWidth, effectiveHeight, physicalWidth, physicalHeight])
+  }, [effectiveWidth, effectiveHeight, physicalWidth, physicalHeight, paused])
 
   // Main controller update effect
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+
+    if (paused) {
+      // Stop course animation RAF if controller exists (prevents RAF in hidden subtree)
+      if (controllerRef.current) {
+        controllerRef.current.stopCourseAnimation()
+      }
+      return
+    }
 
     let controller = controllerRef.current
 
@@ -367,6 +387,11 @@ const MapComponent = ({
       lastFitBoundsWorldRef.current = fit_bounds_world
       lastMapFitEpochRef.current = mapFitEpoch
       return
+    }
+
+    // Restart course animation after unpause (idempotent — no-op if already running)
+    if (coursePlot) {
+      controller.startCourseAnimation()
     }
 
     // Compute changes BEFORE logging to enable early exit
@@ -493,6 +518,7 @@ const MapComponent = ({
     fit_bounds_world,
     mapFitEpoch,
     mapResetEpoch,
+    paused,
   ])
 
   // Update click callback when it changes
@@ -622,6 +648,7 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
   if (!tuplesEqual(prevProps.fit_bounds_world, nextProps.fit_bounds_world)) return false
   if (prevProps.mapFitEpoch !== nextProps.mapFitEpoch) return false
   if (prevProps.mapResetEpoch !== nextProps.mapResetEpoch) return false
+  if (prevProps.paused !== nextProps.paused) return false
 
   return true
 }
