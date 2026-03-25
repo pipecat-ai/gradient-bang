@@ -154,7 +154,7 @@ IMPORTANT: Once you plot a course, the full path is in your context. Do NOT call
 
 ## Trading
 
-Before executing trade operations, load detailed mechanics: `load_game_info(topic="trading")`
+You MUST call `load_game_info(topic="trading")` as your first action when the task involves trading. Do not attempt any trade() calls before loading this.
 
 ## Corporations
 
