@@ -117,7 +117,11 @@ export const SectorPanel = () => {
               />
               <RHSPanelListItem
                 label="Adjacent"
-                value={sector?.adjacent_sectors?.join(", ")}
+                value={
+                  sector?.adjacent_sectors ?
+                    Object.keys(sector.adjacent_sectors).join(", ")
+                  : undefined
+                }
                 Icon={FlowArrowIcon}
               />
               <RHSPanelListItem

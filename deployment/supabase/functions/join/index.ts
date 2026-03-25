@@ -382,7 +382,7 @@ Deno.serve(traced("join", async (req, trace) => {
     }
 
     console.log(`[join] Total time: ${(performance.now() - t0).toFixed(1)}ms`);
-    trace.setOutput({ request_id: requestId, characterId, targetSector });
+    trace.setOutput({ request_id: requestId, characterId, targetSector, "map.local": mapPayload });
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

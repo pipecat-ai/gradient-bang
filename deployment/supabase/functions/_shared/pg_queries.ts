@@ -764,7 +764,7 @@ export async function pgUpsertCorporationSectorKnowledge(
   const { knowledge: nextKnowledge } = upsertVisitedSector(
     knowledge,
     sectorId,
-    sectorSnapshot.adjacent_sectors,
+    Object.keys(sectorSnapshot.adjacent_sectors).map(Number),
     sectorSnapshot.position,
     timestamp,
   );
@@ -866,12 +866,22 @@ export async function pgBuildSectorSnapshot(
     garrison_count: number | null;
     occupants_json: string | null;
     corps_json: string | null;
+    adjacent_regions_json: string | null;
   }>(
     `WITH
     sector_base AS (
       SELECT sector_id, warps, position_x, position_y, region
       FROM universe_structure
       WHERE sector_id = $1
+    ),
+    adjacent_ids AS (
+      SELECT (elem->>'to')::int AS neighbor_id
+      FROM sector_base, jsonb_array_elements(warps::jsonb) AS elem
+    ),
+    adjacent_regions AS (
+      SELECT us.sector_id, us.region
+      FROM universe_structure us
+      WHERE us.sector_id IN (SELECT neighbor_id FROM adjacent_ids)
     ),
     sector_contents AS (
       SELECT sector_id, port_id, salvage
@@ -962,7 +972,8 @@ export async function pgBuildSectorSnapshot(
       )), '[]'::json) FROM occupants_data o
         LEFT JOIN character_corp_info cci ON cci.character_id = o.character_id
       ) as occupants_json,
-      (SELECT COALESCE(json_agg(c), '[]'::json) FROM corps_data c) as corps_json
+      (SELECT COALESCE(json_agg(c), '[]'::json) FROM corps_data c) as corps_json,
+      (SELECT COALESCE(json_agg(json_build_object('sector_id', ar.sector_id, 'region', ar.region)), '[]'::json) FROM adjacent_regions ar) as adjacent_regions_json
     FROM sector_base sb
     LEFT JOIN sector_contents sc ON sc.sector_id = sb.sector_id`,
     [sectorId],
@@ -1063,9 +1074,24 @@ export async function pgBuildSectorSnapshot(
       : row.corps_json
     : [];
 
-  // Parse warps for adjacent sectors
+  // Parse warps for adjacent sectors and enrich with region data from the CTE
   const adjacentEdges = parseWarpEdges(row.warps);
-  const adjacent = adjacentEdges.map((edge) => edge.to);
+  const adjacentIds = adjacentEdges.map((edge) => edge.to);
+  const adjacentRegionsRaw = typeof row.adjacent_regions_json === "string"
+    ? JSON.parse(row.adjacent_regions_json)
+    : row.adjacent_regions_json ?? [];
+  const regionMap = new Map<number, string | null>();
+  if (Array.isArray(adjacentRegionsRaw)) {
+    for (const entry of adjacentRegionsRaw) {
+      if (entry && typeof entry.sector_id === "number") {
+        regionMap.set(entry.sector_id, entry.region ?? null);
+      }
+    }
+  }
+  const adjacentSectors: Record<string, AdjacentSectorInfo> = {};
+  for (const id of adjacentIds) {
+    adjacentSectors[String(id)] = { region: regionMap.get(id) ?? null };
+  }
 
   // Build port object with calculated prices
   let port: Record<string, unknown> | null = null;
@@ -1271,7 +1297,7 @@ export async function pgBuildSectorSnapshot(
   return convertBigInts({
     id: sectorId,
     region: row.region ?? null,
-    adjacent_sectors: adjacent,
+    adjacent_sectors: adjacentSectors,
     position: [row.position_x ?? 0, row.position_y ?? 0],
     port,
     players,
@@ -1619,6 +1645,10 @@ async function pgLoadSectorGarrisons(
   return garrisonBySector;
 }
 
+interface AdjacentSectorInfo {
+  region: string | null;
+}
+
 interface LocalMapSector {
   id: number;
   visited: boolean;
@@ -1627,7 +1657,7 @@ interface LocalMapSector {
   region?: string | null;
   port: { code: string; mega?: boolean } | null;
   lanes: WarpEdge[];
-  adjacent_sectors: number[];
+  adjacent_sectors: Record<string, AdjacentSectorInfo>;
   last_visited?: string;
   source?: "player" | "corp" | "both";
   garrison?: LocalMapSectorGarrison | null;
@@ -1678,6 +1708,18 @@ function extractPortCodeValue(
     return null;
   }
   return code;
+}
+
+function enrichAdjacentSectors(
+  adjacent: number[],
+  universeRowCache: Map<number, { region: string | null; [key: string]: unknown }>,
+): Record<string, AdjacentSectorInfo> {
+  const result: Record<string, AdjacentSectorInfo> = {};
+  for (const sectorId of adjacent) {
+    const row = universeRowCache.get(sectorId);
+    result[String(sectorId)] = { region: row?.region ?? null };
+  }
+  return result;
 }
 
 export async function pgBuildLocalMapRegion(
@@ -1905,6 +1947,20 @@ export async function pgBuildLocalMapRegion(
   const sHydAll = ws.span("hydrate_all_rows", { count: sectorIds.length });
   await hydrateUniverseRows(sectorIds);
   sHydAll.end();
+
+  // Also hydrate adjacent sectors so we can include their region info
+  const allAdjacentIds = new Set<number>();
+  for (const sectorId of visitedSectorIds) {
+    for (const neighborId of getAdjacency(sectorId)) {
+      if (!universeRowCache.has(neighborId)) {
+        allAdjacentIds.add(neighborId);
+      }
+    }
+  }
+  if (allAdjacentIds.size > 0) {
+    await hydrateUniverseRows(Array.from(allAdjacentIds));
+  }
+
   let needsPortCodes = false;
   let needsUniverseMeta = false;
   for (const sectorId of visitedSectorIds) {
@@ -1977,7 +2033,10 @@ export async function pgBuildLocalMapRegion(
         region: universeRow?.region ?? null,
         port: portPayload,
         lanes: warps,
-        adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
+        adjacent_sectors: enrichAdjacentSectors(
+          getAdjacency(sectorId),
+          universeRowCache,
+        ),
         last_visited: knowledgeEntry?.last_visited,
         source: knowledgeEntry?.source,
         garrison: garrisonsBySector[sectorId] ?? null,
@@ -2003,9 +2062,10 @@ export async function pgBuildLocalMapRegion(
         visited: false,
         hops_from_center: hops,
         position,
+        region: universeRow?.region ?? null,
         port: null,
         lanes: derivedLanes,
-        adjacent_sectors: [],
+        adjacent_sectors: {},
       });
     }
   }
@@ -2186,7 +2246,7 @@ export async function pgMarkSectorVisited(
   const { knowledge: nextKnowledge } = upsertVisitedSector(
     personalKnowledge,
     sectorId,
-    sectorSnapshot.adjacent_sectors,
+    Object.keys(sectorSnapshot.adjacent_sectors).map(Number),
     sectorSnapshot.position,
     timestamp,
   );

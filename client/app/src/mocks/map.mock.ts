@@ -32,7 +32,12 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [100, 179],
     last_visited: "2026-02-05T23:01:04.169Z",
-    adjacent_sectors: [863, 1184, 2213, 3359],
+    adjacent_sectors: {
+      "863": { region: "Neutral" },
+      "1184": { region: "Neutral" },
+      "2213": { region: "Neutral" },
+      "3359": { region: "Neutral" },
+    },
     hops_from_center: 2,
   },
   {
@@ -50,7 +55,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     ],
     visited: false,
     position: [99, 180],
-    adjacent_sectors: [],
+    adjacent_sectors: {},
     hops_from_center: 2,
   },
   {
@@ -75,7 +80,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [102, 170],
     last_visited: "2026-02-05T19:51:44.194Z",
-    adjacent_sectors: [],
+    adjacent_sectors: {},
     hops_from_center: 4,
   },
   {
@@ -89,7 +94,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     ],
     visited: false,
     position: [100, 181],
-    adjacent_sectors: [],
+    adjacent_sectors: {},
     hops_from_center: 3,
   },
   {
@@ -117,7 +122,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [90, 177],
     last_visited: "2026-01-27T01:23:50.244Z",
-    adjacent_sectors: [],
+    adjacent_sectors: {},
     hops_from_center: 9,
   },
   {
@@ -142,7 +147,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [98, 176],
     last_visited: "2026-02-06T13:36:15.405Z",
-    adjacent_sectors: [1928, 2213],
+    adjacent_sectors: { "1928": { region: "Neutral" }, "2213": { region: "Neutral" } },
     hops_from_center: 0,
   },
   {
@@ -166,7 +171,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [94, 171],
     last_visited: "2026-02-05T22:53:12.020Z",
-    adjacent_sectors: [1928, 2058],
+    adjacent_sectors: { "1928": { region: "Neutral" }, "2058": { region: "Neutral" } },
     hops_from_center: 2,
   },
   {
@@ -194,7 +199,11 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [96, 173],
     last_visited: "2026-02-05T23:00:33.523Z",
-    adjacent_sectors: [1487, 1611, 4382],
+    adjacent_sectors: {
+      "1487": { region: "Neutral" },
+      "1611": { region: "Neutral" },
+      "4382": { region: "Neutral" },
+    },
     hops_from_center: 1,
   },
   {
@@ -215,7 +224,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [92, 172],
     last_visited: "2026-02-05T22:51:54.578Z",
-    adjacent_sectors: [1611, 2831],
+    adjacent_sectors: { "1611": { region: "Neutral" }, "2831": { region: "Neutral" } },
     hops_from_center: 3,
   },
   {
@@ -240,7 +249,11 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [99, 178],
     last_visited: "2026-02-05T23:01:01.361Z",
-    adjacent_sectors: [404, 863, 1487],
+    adjacent_sectors: {
+      "404": { region: "Neutral" },
+      "863": { region: "Neutral" },
+      "1487": { region: "Neutral" },
+    },
     hops_from_center: 1,
   },
   {
@@ -261,7 +274,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [94, 179],
     last_visited: "2026-01-27T00:23:25.556Z",
-    adjacent_sectors: [],
+    adjacent_sectors: {},
     hops_from_center: 10,
   },
   {
@@ -282,7 +295,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [99, 171],
     last_visited: "2026-02-05T23:00:26.917Z",
-    adjacent_sectors: [914, 4382],
+    adjacent_sectors: { "914": { region: "Neutral" }, "4382": { region: "Neutral" } },
     hops_from_center: 3,
   },
   {
@@ -310,7 +323,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [90, 173],
     last_visited: "2026-02-05T22:47:34.162Z",
-    adjacent_sectors: [],
+    adjacent_sectors: {},
     hops_from_center: 4,
   },
   {
@@ -324,7 +337,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     ],
     visited: false,
     position: [102, 180],
-    adjacent_sectors: [],
+    adjacent_sectors: {},
     hops_from_center: 3,
   },
   {
@@ -349,7 +362,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [93, 178],
     last_visited: "2026-01-27T01:25:22.862Z",
-    adjacent_sectors: [],
+    adjacent_sectors: {},
     hops_from_center: 9,
   },
   {
@@ -381,7 +394,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [90, 178],
     last_visited: "2026-01-27T01:25:26.255Z",
-    adjacent_sectors: [],
+    adjacent_sectors: {},
     hops_from_center: 8,
   },
   {
@@ -405,7 +418,7 @@ export const SMALL_MAP_DATA_MOCK: MapData = [
     visited: true,
     position: [98, 172],
     last_visited: "2026-02-05T23:00:29.557Z",
-    adjacent_sectors: [1928, 2792],
+    adjacent_sectors: { "1928": { region: "Neutral" }, "2792": { region: "Neutral" } },
     hops_from_center: 2,
   },
 ]

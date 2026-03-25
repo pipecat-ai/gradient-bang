@@ -148,7 +148,8 @@ Deno.serve(traced("move", async (req, wt) => {
     const sHandleMove = wt.span("handle_move", { character_id: characterId, destination });
     const result = await handleMove({ ...moveContext, ws: sHandleMove });
     sHandleMove.end();
-    wt.setOutput({ request_id: requestId, characterId, destination });
+    const mapLocalPayload = (trace as Record<string, unknown>)["_mapLocalPayload"];
+    wt.setOutput({ request_id: requestId, characterId, destination, ...(mapLocalPayload ? { "map.local": mapLocalPayload } : {}) });
     return result;
   } finally {
     // pgClient may already be released by completeMovement - safe to call release() again
@@ -442,7 +443,7 @@ async function handleMove({
     enteredHyperspace = true;
 
     const sComplete = ws.span("complete_movement");
-    await completeMovement({
+    const mapLocalPayload = await completeMovement({
       supabase,
       pgClient,
       character,
@@ -464,6 +465,9 @@ async function handleMove({
     sComplete.end();
 
     enteredHyperspace = false;
+
+    // Stash map payload for Weave trace output
+    (trace as Record<string, unknown>)["_mapLocalPayload"] = mapLocalPayload;
 
     return successResponse({ request_id: requestId });
   } catch (err) {
@@ -623,7 +627,7 @@ async function completeMovement({
   trace: Record<string, number>;
   mark: (label: string) => void;
   ws: WeaveSpan;
-}): Promise<void> {
+}): Promise<Record<string, unknown>> {
   const corpId =
     ship.owner_type === "corporation"
       ? ship.owner_corporation_id
@@ -840,6 +844,7 @@ async function completeMovement({
       // Log but don't fail the move if garrison combat fails
       console.error("move.garrison_auto_engage", garrisonError);
     }
+    return mapRegion as Record<string, unknown>;
   } catch (error) {
     console.error("move.async_completion", error);
     await emitErrorEvent(supabase, {

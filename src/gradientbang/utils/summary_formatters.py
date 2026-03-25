@@ -309,9 +309,16 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
             corp_line += f" (members: {member_count})"
         lines.append(corp_line)
 
-    # Adjacent sectors
-    adjacent = sector.get("adjacent_sectors", [])
-    lines.append(f"Adjacent sectors: {adjacent}")
+    # Adjacent sectors (with region info)
+    adjacent = sector.get("adjacent_sectors", {})
+    if isinstance(adjacent, dict) and adjacent:
+        parts = []
+        for sid, info in adjacent.items():
+            r = info.get("region") if isinstance(info, dict) else None
+            parts.append(f"{sid} ({r})" if r else str(sid))
+        lines.append(f"Adjacent sectors: {', '.join(parts)}")
+    elif isinstance(adjacent, list):
+        lines.append(f"Adjacent sectors: {adjacent}")
     region = sector.get("region")
     if isinstance(region, str) and region:
         lines.append(f"Region: {region}")
@@ -617,7 +624,23 @@ def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> 
     if isinstance(center_region, str) and center_region:
         lines.append(f"Region: {center_region}.")
 
-    unvisited_sectors: List[Tuple[Optional[int], Optional[int]]] = []
+    # Adjacent sectors with region info for the center sector
+    if isinstance(center, (int, float)):
+        for sector in sectors:
+            if not isinstance(sector, dict):
+                continue
+            if sector.get("id") != center:
+                continue
+            adj = sector.get("adjacent_sectors")
+            if isinstance(adj, dict) and adj:
+                parts = []
+                for sid, info in adj.items():
+                    r = info.get("region") if isinstance(info, dict) else None
+                    parts.append(f"{sid} ({r})" if r else str(sid))
+                lines.append("Adjacent sectors: " + ", ".join(parts) + ".")
+            break
+
+    unvisited_sectors: List[Tuple[Optional[int], Optional[int], Optional[str]]] = []
     for sector in sectors:
         if not isinstance(sector, dict):
             continue
@@ -626,10 +649,12 @@ def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> 
         sector_id = sector.get("id")
         hops = sector.get("hops_from_center")
         hops_sort = hops if isinstance(hops, (int, float)) else None
-        unvisited_sectors.append((sector_id, hops_sort))
+        region = sector.get("region")
+        region_str = region if isinstance(region, str) else None
+        unvisited_sectors.append((sector_id, hops_sort, region_str))
 
-    def _sort_key(item: Tuple[Optional[int], Optional[int]]) -> Tuple[int, int]:
-        sector_id, hops_sort = item
+    def _sort_key(item: Tuple[Optional[int], Optional[int], Optional[str]]) -> Tuple[int, int]:
+        sector_id, hops_sort, _ = item
         hops_val = hops_sort if isinstance(hops_sort, (int, float)) else 1_000_000
         sector_val = sector_id if isinstance(sector_id, int) else 1_000_000
         return (hops_val, sector_val)
@@ -638,9 +663,12 @@ def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> 
 
     if unvisited_sectors:
         entries: List[str] = []
-        for sector_id, hops_sort in unvisited_sectors[:3]:
+        for sector_id, hops_sort, region_str in unvisited_sectors[:3]:
             hops_display = hops_sort if isinstance(hops_sort, (int, float)) else "?"
-            entries.append(f"{sector_id} ({hops_display} hops)")
+            if region_str:
+                entries.append(f"{sector_id} ({hops_display} hops, {region_str})")
+            else:
+                entries.append(f"{sector_id} ({hops_display} hops)")
         if entries:
             lines.append("Nearest unvisited: " + ", ".join(entries) + ".")
 

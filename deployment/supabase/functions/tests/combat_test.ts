@@ -2811,3 +2811,74 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 56: sector.update includes adjacent_sectors with region info
+// ============================================================================
+
+Deno.test({
+  name: "combat — sector.update adjacent_sectors has region info",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 3);
+      await setShipFighters(p1ShipId, 200);
+    });
+
+    let cursorP2: number;
+
+    await t.step("capture cursor", async () => {
+      cursorP2 = await getEventCursor(p2Id);
+    });
+
+    await t.step("P1 deploys garrison to trigger sector.update", async () => {
+      await apiOk("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 50,
+        mode: "defensive",
+      });
+    });
+
+    await t.step("sector.update adjacent_sectors is object with region", async () => {
+      const events = await eventsOfType(p2Id, "sector.update", cursorP2);
+      assert(events.length >= 1, `Expected >= 1 sector.update, got ${events.length}`);
+
+      const payload = events[0].payload;
+      const adj = payload.adjacent_sectors;
+
+      // Should be an object, NOT an array
+      assert(
+        !Array.isArray(adj),
+        `adjacent_sectors should be an object, got array: ${JSON.stringify(adj)}`,
+      );
+      assert(
+        typeof adj === "object" && adj !== null,
+        `adjacent_sectors should be an object, got ${typeof adj}`,
+      );
+
+      // Sector 3 is adjacent to [1, 4, 7] — all "testbed" region
+      const adjObj = adj as Record<string, { region: string }>;
+      for (const sectorId of ["1", "4", "7"]) {
+        assertExists(
+          adjObj[sectorId],
+          `adjacent_sectors should include sector ${sectorId}`,
+        );
+        assertExists(
+          adjObj[sectorId].region,
+          `adjacent sector ${sectorId} should have region`,
+        );
+        assertEquals(
+          adjObj[sectorId].region,
+          "testbed",
+          `sector ${sectorId} should be testbed region`,
+        );
+      }
+    });
+  },
+});

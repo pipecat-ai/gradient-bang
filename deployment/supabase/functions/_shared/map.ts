@@ -33,10 +33,14 @@ export interface LocalMapSectorGarrison {
   corporation_id: string | null;
 }
 
+export interface AdjacentSectorInfo {
+  region: string | null;
+}
+
 export interface SectorSnapshot {
   id: number;
   region?: string | null;
-  adjacent_sectors: number[];
+  adjacent_sectors: Record<string, AdjacentSectorInfo>;
   position: [number, number];
   port: Record<string, unknown> | null;
   players: Array<Record<string, unknown>>;
@@ -54,7 +58,7 @@ export interface LocalMapSector {
   region?: string | null;
   port: LocalMapPort | null;
   lanes: WarpEdge[];
-  adjacent_sectors?: number[];
+  adjacent_sectors?: Record<string, AdjacentSectorInfo>;
   last_visited?: string;
   source?: "player" | "corp" | "both";
   garrison?: LocalMapSectorGarrison | null;
@@ -437,7 +441,17 @@ export async function buildSectorSnapshot(
   }
 
   const adjacentEdges = parseWarpEdges(structureRow.warps);
-  const adjacent = adjacentEdges.map((edge) => edge.to);
+  const adjacentIds = adjacentEdges.map((edge) => edge.to);
+
+  // Fetch region data for adjacent sectors
+  const adjacentRows = adjacentIds.length > 0
+    ? await fetchUniverseRows(supabase, adjacentIds)
+    : new Map();
+  const adjacentSectors: Record<string, AdjacentSectorInfo> = {};
+  for (const id of adjacentIds) {
+    const row = adjacentRows.get(id);
+    adjacentSectors[String(id)] = { region: row?.region ?? null };
+  }
 
   let port: Record<string, unknown> | null = null;
   const contentsData = sectorContents.data ?? undefined;
@@ -758,7 +772,7 @@ export async function buildSectorSnapshot(
   return {
     id: sectorId,
     region: structureRow.region ?? null,
-    adjacent_sectors: adjacent,
+    adjacent_sectors: adjacentSectors,
     position: [structureRow.position_x ?? 0, structureRow.position_y ?? 0],
     port,
     players,
@@ -1145,6 +1159,22 @@ export async function fetchAllAdjacencies(): Promise<Map<number, number[]>> {
   });
 }
 
+/**
+ * Convert a number[] of adjacent sector IDs into a Record with region info,
+ * using a universeRowCache that maps sector_id → { region, ... }.
+ */
+function enrichAdjacentSectors(
+  adjacent: number[],
+  universeRowCache: Map<number, { region: string | null; [key: string]: unknown }>,
+): Record<string, AdjacentSectorInfo> {
+  const result: Record<string, AdjacentSectorInfo> = {};
+  for (const sectorId of adjacent) {
+    const row = universeRowCache.get(sectorId);
+    result[String(sectorId)] = { region: row?.region ?? null };
+  }
+  return result;
+}
+
 export async function buildLocalMapRegion(
   supabase: SupabaseClient,
   params: {
@@ -1365,6 +1395,20 @@ export async function buildLocalMapRegion(
     .concat(Array.from(disconnectedUnvisitedNeighbors));
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
   await hydrateUniverseRows(sectorIds);
+
+  // Also hydrate adjacent sectors so we can include their region info
+  const allAdjacentIds = new Set<number>();
+  for (const sectorId of visitedSectorIds) {
+    for (const neighborId of getAdjacency(sectorId)) {
+      if (!universeRowCache.has(neighborId)) {
+        allAdjacentIds.add(neighborId);
+      }
+    }
+  }
+  if (allAdjacentIds.size > 0) {
+    await hydrateUniverseRows(Array.from(allAdjacentIds));
+  }
+
   let needsPortCodes = false;
   let needsUniverseMeta = false;
   for (const sectorId of visitedSectorIds) {
@@ -1430,7 +1474,10 @@ export async function buildLocalMapRegion(
         region: universeRow?.region ?? null,
         port: portPayload,
         lanes: warps,
-        adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
+        adjacent_sectors: enrichAdjacentSectors(
+          getAdjacency(sectorId),
+          universeRowCache,
+        ),
         last_visited: knowledgeEntry?.last_visited,
         source: knowledgeEntry?.source,
         garrison: garrisonsBySector[sectorId] ?? null,
@@ -1456,9 +1503,10 @@ export async function buildLocalMapRegion(
         visited: false,
         hops_from_center: hops,
         position,
+        region: universeRow?.region ?? null,
         port: null,
         lanes: derivedLanes,
-        adjacent_sectors: [],
+        adjacent_sectors: {},
       });
     }
   }
@@ -1578,6 +1626,37 @@ export async function buildLocalMapRegionByBounds(
   );
 
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
+
+  // Hydrate adjacent sectors that may be outside the bounds so we can include their region
+  const adjacentToHydrate: number[] = [];
+  for (const sectorId of visitedSectorIds) {
+    const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+    const adj =
+      knowledgeEntry?.adjacent_sectors ??
+      universeRowCache.get(sectorId)?.warps.map((e) => e.to) ??
+      [];
+    for (const neighborId of adj) {
+      if (!universeRowCache.has(neighborId)) {
+        adjacentToHydrate.push(neighborId);
+      }
+    }
+  }
+  if (adjacentToHydrate.length > 0) {
+    const { data: adjRows, error: adjErr } = await supabase
+      .from("universe_structure")
+      .select("sector_id, position_x, position_y, region, warps")
+      .in("sector_id", adjacentToHydrate);
+    if (!adjErr && adjRows) {
+      for (const row of adjRows) {
+        universeRowCache.set(row.sector_id, {
+          position: [row.position_x ?? 0, row.position_y ?? 0],
+          region: row.region ?? null,
+          warps: parseWarpEdges(row.warps),
+        });
+      }
+    }
+  }
+
   let needsPortCodes = false;
   let needsUniverseMeta = false;
   for (const sectorId of visitedSectorIds) {
@@ -1640,7 +1719,7 @@ export async function buildLocalMapRegionByBounds(
         region: universeRow?.region ?? null,
         port: portPayload,
         lanes: universeRow?.warps ?? [],
-        adjacent_sectors: adjacent,
+        adjacent_sectors: enrichAdjacentSectors(adjacent, universeRowCache),
         last_visited: knowledgeEntry?.last_visited,
         source: knowledgeEntry?.source,
         garrison: garrisonsBySector[sectorId] ?? null,
@@ -1666,9 +1745,10 @@ export async function buildLocalMapRegionByBounds(
         visited: false,
         hops_from_center: hops,
         position,
+        region: universeRow?.region ?? null,
         port: null,
         lanes: derivedLanes,
-        adjacent_sectors: [],
+        adjacent_sectors: {},
       });
     }
   }
@@ -1865,7 +1945,7 @@ export async function markSectorVisited(
   const { knowledge: nextKnowledge } = upsertVisitedSector(
     knowledge,
     sectorId,
-    sectorSnapshot.adjacent_sectors,
+    Object.keys(sectorSnapshot.adjacent_sectors).map(Number),
     sectorSnapshot.position,
     timestamp,
   );

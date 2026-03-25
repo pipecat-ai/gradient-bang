@@ -128,9 +128,12 @@ export const CombatActionPanel = () => {
         payload.commit = details.commit
         if (details.target_id) payload.target_id = details.target_id
       } else if (details.action === "flee") {
-        const adjacent = useGameStore.getState().sector?.adjacent_sectors ?? []
+        const adjacentObj = useGameStore.getState().sector?.adjacent_sectors ?? {}
+        const adjacentIds = Object.keys(adjacentObj).map(Number).filter(Number.isFinite)
         const toSector =
-          adjacent.length > 0 ? adjacent[Math.floor(Math.random() * adjacent.length)] : null
+          adjacentIds.length > 0 ?
+            adjacentIds[Math.floor(Math.random() * adjacentIds.length)]
+          : null
         if (toSector != null) payload.to_sector = toSector
       }
 

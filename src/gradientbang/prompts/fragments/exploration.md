@@ -15,6 +15,7 @@ Your map knowledge persists between sessions.
 - You can only see and interact with your current sector
 - Each move reveals new information about the sector you move to
 - Adjacent sectors visible from your current position may be unvisited
+- Adjacent sectors always include region info — use this to warn players before they leave Federation Space into more dangerous regions
 
 ### Finding Unvisited Sectors
 1. Use `local_map_region()` to see nearby visited and unvisited sectors

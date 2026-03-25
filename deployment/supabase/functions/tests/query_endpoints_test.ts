@@ -2137,3 +2137,183 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 54: adjacent_sectors includes region info
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — adjacent_sectors includes region info",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("adjacent_sectors is object with region, not number[]", async () => {
+      // P1 is in sector 0, adjacent to [1, 2, 5] — all "testbed" region
+      const result = await apiOk("local_map_region", {
+        character_id: p1Id,
+        center_sector: 0,
+        max_hops: 0,
+      });
+      const body = result as Record<string, unknown>;
+      const sectors = body.sectors as Array<Record<string, unknown>>;
+      assertEquals(sectors.length, 1, "max_hops=0 should return only center");
+
+      const sector0 = sectors[0];
+      assertEquals(sector0.id, 0);
+
+      const adj = sector0.adjacent_sectors;
+      // Should be an object, NOT an array
+      assert(
+        !Array.isArray(adj),
+        `adjacent_sectors should be an object with region info, got array: ${JSON.stringify(adj)}`,
+      );
+      assert(
+        typeof adj === "object" && adj !== null,
+        `adjacent_sectors should be an object, got ${typeof adj}`,
+      );
+
+      // Sector 0 is adjacent to 1, 2, 5 — all should have region info
+      const adjObj = adj as Record<string, { region: string }>;
+      for (const sectorId of ["1", "2", "5"]) {
+        assertExists(
+          adjObj[sectorId],
+          `adjacent_sectors should include sector ${sectorId}`,
+        );
+        assertExists(
+          adjObj[sectorId].region,
+          `adjacent sector ${sectorId} should have region`,
+        );
+        assertEquals(
+          adjObj[sectorId].region,
+          "testbed",
+          `sector ${sectorId} should be testbed region`,
+        );
+      }
+    });
+  },
+});
+
+// ============================================================================
+// Group 55: adjacent_sectors shows mixed regions (testbed + Federation Space)
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — adjacent_sectors mixed regions",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset, join, and move to sector 4", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      // Move P1: 0 → 1 → 3 → 4
+      await apiOk("move", { character_id: p1Id, to_sector: 1 });
+      await apiOk("move", { character_id: p1Id, to_sector: 3 });
+      await apiOk("move", { character_id: p1Id, to_sector: 4 });
+    });
+
+    await t.step("sector 4 adjacent_sectors has mixed regions", async () => {
+      // Sector 4 is adjacent to [3 (testbed), 8 (Federation Space)]
+      const result = await apiOk("local_map_region", {
+        character_id: p1Id,
+        center_sector: 4,
+        max_hops: 0,
+      });
+      const body = result as Record<string, unknown>;
+      const sectors = body.sectors as Array<Record<string, unknown>>;
+      assertEquals(sectors.length, 1);
+
+      const sector4 = sectors[0];
+      assertEquals(sector4.id, 4);
+
+      const adj = sector4.adjacent_sectors as Record<string, { region: string }>;
+      assert(
+        !Array.isArray(adj),
+        `adjacent_sectors should be an object, got array`,
+      );
+
+      // Sector 3 should be testbed
+      assertExists(adj["3"], "should include sector 3");
+      assertEquals(adj["3"].region, "testbed");
+
+      // Sector 8 should be Federation Space
+      assertExists(adj["8"], "should include sector 8");
+      assertEquals(adj["8"].region, "Federation Space");
+    });
+  },
+});
+
+// ============================================================================
+// Group 56: unvisited sectors include region
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — unvisited sectors include region",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+    });
+
+    await t.step("unvisited neighbors have region populated", async () => {
+      // P1 is in sector 0 (visited). With max_hops=1, neighbors 1, 2, 5
+      // appear as unvisited sectors and should still have region set.
+      const result = await apiOk("local_map_region", {
+        character_id: p1Id,
+        center_sector: 0,
+        max_hops: 1,
+      });
+      const body = result as Record<string, unknown>;
+      const sectors = body.sectors as Array<Record<string, unknown>>;
+
+      const unvisited = sectors.filter((s) => s.visited === false);
+      assert(
+        unvisited.length > 0,
+        `Expected at least one unvisited sector with max_hops=1, got ${unvisited.length}`,
+      );
+
+      for (const sector of unvisited) {
+        assertExists(
+          sector.region,
+          `Unvisited sector ${sector.id} should have region populated`,
+        );
+        assertEquals(
+          sector.region,
+          "testbed",
+          `Unvisited sector ${sector.id} should be testbed`,
+        );
+      }
+    });
+
+    await t.step("unvisited fedspace neighbor has correct region", async () => {
+      // Move P1 to sector 4, which is adjacent to sector 8 (Federation Space).
+      // Sector 8 should appear as unvisited with region "Federation Space".
+      await apiOk("move", { character_id: p1Id, to_sector: 1 });
+      await apiOk("move", { character_id: p1Id, to_sector: 3 });
+      await apiOk("move", { character_id: p1Id, to_sector: 4 });
+
+      const result = await apiOk("local_map_region", {
+        character_id: p1Id,
+        center_sector: 4,
+        max_hops: 1,
+      });
+      const body = result as Record<string, unknown>;
+      const sectors = body.sectors as Array<Record<string, unknown>>;
+
+      const sector8 = sectors.find((s) => s.id === 8);
+      assertExists(sector8, "Sector 8 should be in the response");
+      assertEquals(sector8.visited, false, "Sector 8 should be unvisited");
+      assertEquals(
+        sector8.region,
+        "Federation Space",
+        "Unvisited sector 8 should have region Federation Space",
+      );
+    });
+  },
+});

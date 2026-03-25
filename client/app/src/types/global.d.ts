@@ -118,9 +118,13 @@ declare global {
     safe: boolean
   }
 
+  interface AdjacentSectorInfo {
+    region: string | null
+  }
+
   interface Sector {
     id: number
-    adjacent_sectors?: number[]
+    adjacent_sectors?: Record<string, AdjacentSectorInfo>
     position: [number, number]
     last_visited?: string
     planets?: Planet[]
@@ -221,7 +225,7 @@ declare global {
     visited?: boolean
     position: [number, number]
     last_visited?: string
-    adjacent_sectors?: number[]
+    adjacent_sectors?: Record<string, AdjacentSectorInfo>
     hops_from_center?: number
     garrison?: MapSectorGarrison | null
   }

@@ -315,7 +315,12 @@ export const COMBAT_SECTOR_UPDATE_FULL_PAYLOAD_MOCK: SectorUpdateMessage = {
   source: source("combat.ended", "2026-02-06T22:15:01.910Z"),
   id: SECTOR_ID,
   region: "Outer Rim",
-  adjacent_sectors: [37, 41, 43, 48],
+  adjacent_sectors: {
+    "37": { region: "Neutral" },
+    "41": { region: "Neutral" },
+    "43": { region: "Neutral" },
+    "48": { region: "Neutral" },
+  },
   position: [12, -7],
   port: null,
   players: [
@@ -438,7 +443,12 @@ export const COMBAT_COLLECT_STATUS_UPDATE_PAYLOAD_MOCK: StatusMessage = {
   sector: {
     id: SECTOR_ID,
     position: [12, -7],
-    adjacent_sectors: [37, 41, 43, 48],
+    adjacent_sectors: {
+      "37": { region: "Neutral" },
+      "41": { region: "Neutral" },
+      "43": { region: "Neutral" },
+      "48": { region: "Neutral" },
+    },
     players: [],
     salvage: [],
     garrisons: [],

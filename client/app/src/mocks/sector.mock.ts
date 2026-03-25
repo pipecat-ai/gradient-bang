@@ -230,7 +230,7 @@ export const SECTOR_FULL_MOCK: Sector = {
       former_owner_name: "Trader Jon",
     },
   ],
-  adjacent_sectors: [1928, 2058],
+  adjacent_sectors: { "1928": { region: "Neutral" }, "2058": { region: "Neutral" } },
 }
 
 export const PORT_MOCK: Port = {

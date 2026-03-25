@@ -104,7 +104,7 @@ Deno.serve(traced("local_map_region", async (req, trace) => {
 
   try {
     const sHandleMap = trace.span("handle_local_map_region");
-    const result = await handleLocalMapRegion(
+    const { response, eventPayload } = await handleLocalMapRegion(
       supabase,
       payload,
       characterId,
@@ -114,8 +114,8 @@ Deno.serve(traced("local_map_region", async (req, trace) => {
       taskId,
     );
     sHandleMap.end();
-    trace.setOutput({ request_id: requestId, characterId });
-    return result;
+    trace.setOutput({ request_id: requestId, "map.region": eventPayload });
+    return response;
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -167,7 +167,7 @@ async function handleLocalMapRegion(
   actorCharacterId: string | null,
   adminOverride: boolean,
   taskId: string | null,
-): Promise<Response> {
+): Promise<{ response: Response; eventPayload: Record<string, unknown> }> {
   const source = buildEventSource("local_map_region", requestId);
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
@@ -305,5 +305,8 @@ async function handleLocalMapRegion(
   });
 
   // Return full payload synchronously for TaskAgent, while still emitting event for VoiceTaskManager
-  return successResponse({ request_id: requestId, ...mapRegion });
+  return {
+    response: successResponse({ request_id: requestId, ...mapRegion }),
+    eventPayload: mapRegion as Record<string, unknown>,
+  };
 }

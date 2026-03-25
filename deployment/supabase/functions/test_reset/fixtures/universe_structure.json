@@ -85,6 +85,7 @@
     {
       "id": 8,
       "position": {"x": 20, "y": 20},
+      "region": "Federation Space",
       "warps": [
         {"to": 4, "two_way": true},
         {"to": 9, "two_way": true}
@@ -93,6 +94,7 @@
     {
       "id": 9,
       "position": {"x": 5, "y": 25},
+      "region": "Federation Space",
       "warps": [
         {"to": 7, "two_way": true},
         {"to": 8, "two_way": true}
