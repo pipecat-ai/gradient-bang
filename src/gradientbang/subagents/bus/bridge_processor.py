@@ -38,6 +38,7 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
         bus: AgentBus,
         agent_name: str,
         target_agent: Optional[str] = None,
+        bridge: Optional[str] = None,
         exclude_frames: Optional[Tuple[Type[Frame], ...]] = None,
         **kwargs,
     ):
@@ -47,6 +48,9 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
             bus: The ``AgentBus`` to exchange frames with.
             agent_name: Name of this agent, used as message source.
             target_agent: When set, only exchange frames with this agent.
+            bridge: Optional bridge name for routing. When set, outgoing
+                frames are tagged with this name and only incoming frames
+                with the same bridge name are accepted.
             exclude_frames: Extra frame types that should never cross the bus
                 (on top of lifecycle frames which are always excluded).
             **kwargs: Additional arguments passed to ``FrameProcessor``.
@@ -55,6 +59,7 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
         self._bus = bus
         self._agent_name = agent_name
         self._target_agent = target_agent
+        self._bridge = bridge
         self._exclude_frames = exclude_frames or ()
 
     async def setup(self, setup: FrameProcessorSetup):
@@ -97,6 +102,7 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
             source=self._agent_name,
             frame=frame,
             direction=direction,
+            bridge=self._bridge,
         )
         await self._bus.send(msg)
 
@@ -111,6 +117,10 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
 
         # Skip own frames
         if message.source == self._agent_name:
+            return
+
+        # Filter by bridge name
+        if self._bridge and message.bridge != self._bridge:
             return
 
         # If target_agent set, only accept from that agent

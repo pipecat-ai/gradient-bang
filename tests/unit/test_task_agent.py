@@ -10,6 +10,7 @@ from gradientbang.pipecat_server.subagents.task_agent import (
     TaskAgent,
     _SPECIAL_HANDLERS,
 )
+from gradientbang.subagents.bus import BusTaskCancelMessage
 from gradientbang.tools import TASK_TOOLS
 
 
@@ -245,5 +246,5 @@ class TestCancellation:
         agent.send_task_response = AsyncMock()
         agent._task_id = "task-1"
         agent._task_requester = "parent"
-        await agent.on_task_cancelled("task-1", "test reason")
+        await agent.on_task_cancelled(BusTaskCancelMessage(source="parent", task_id="task-1", reason="test reason"))
         assert agent._cancelled is True

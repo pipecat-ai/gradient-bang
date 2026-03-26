@@ -7,20 +7,26 @@ This package provides the core agent hierarchy:
 - `FlowsAgent`: Agent that uses Pipecat Flows for structured conversation.
 """
 
-from gradientbang.subagents.agents.base_agent import ActivationArgs, BaseAgent
+from gradientbang.subagents.agents.base_agent import AgentActivationArgs, BaseAgent
 from gradientbang.subagents.agents.flows_agent import FlowsAgent
-from gradientbang.subagents.agents.llm_agent import LLMActivationArgs, LLMAgent
-from gradientbang.subagents.agents.task_group import TaskGroupContext, TaskGroupError, TaskGroupEvent
+from gradientbang.subagents.agents.llm_agent import LLMAgent, LLMAgentActivationArgs
+from gradientbang.subagents.agents.task_group import (
+    TaskGroupContext,
+    TaskGroupError,
+    TaskGroupEvent,
+    TaskGroupResponse,
+)
 from gradientbang.subagents.agents.tool import tool
 
 __all__ = [
-    "ActivationArgs",
+    "AgentActivationArgs",
     "BaseAgent",
     "FlowsAgent",
-    "LLMActivationArgs",
+    "LLMAgentActivationArgs",
     "LLMAgent",
     "TaskGroupContext",
     "TaskGroupError",
     "TaskGroupEvent",
+    "TaskGroupResponse",
     "tool",
 ]

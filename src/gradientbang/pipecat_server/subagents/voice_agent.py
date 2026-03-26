@@ -11,6 +11,7 @@ so EventRelay can query task state during event routing.
 
 from __future__ import annotations
 
+import os
 import re
 import time
 import uuid
@@ -28,8 +29,13 @@ from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageF
 from pipecat.services.llm_service import FunctionCallParams
 
 from gradientbang.subagents.agents import LLMAgent
-from gradientbang.subagents.bus import AgentBus, BusEndAgentMessage
-from gradientbang.subagents.types import TaskStatus
+from gradientbang.subagents.bus import (
+    AgentBus,
+    BusEndAgentMessage,
+    BusTaskResponseMessage,
+    BusTaskUpdateMessage,
+    TaskStatus,
+)
 
 from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage, BusSteerTaskMessage
@@ -76,11 +82,15 @@ class VoiceAgent(LLMAgent):
         rtvi_processor: RTVIProcessor,
         event_relay: Optional[EventRelay] = None,
     ):
-        super().__init__(name, bus=bus, bridged=True, active=False)
+        super().__init__(name, bus=bus, bridged=(), active=False)
         self.__game_client = game_client
         self.__character_id = character_id
         self._rtvi = rtvi_processor
         self._event_relay = event_relay
+
+        # ── Task timeout ──
+        _timeout = float(os.getenv("TASK_AGENT_TIMEOUT", 0))
+        self._task_agent_timeout: float | None = _timeout if _timeout > 0 else None
 
         # ── Transient: holds payload between add_agent and on_agent_ready ──
         self._pending_tasks: Dict[str, dict] = {}  # agent_name -> payload
@@ -161,29 +171,24 @@ class VoiceAgent(LLMAgent):
             LLMMessagesAppendFrame(messages=messages, run_llm=run_llm)
         )
 
-    # ── Deferred frame flush ──────────────────────────────────────────
+    # ── Deferred frame processing ────────────────────────────────────
 
-    async def _flush_deferred_frames(self) -> None:
-        """Flush deferred frames, coalescing multiple inference triggers.
+    async def process_deferred_tool_frames(self, frames):
+        """Coalesce multiple inference triggers into a single LLMRunFrame.
 
         When multiple events arrive while tools are in-flight, each gets
         deferred with ``run_llm=True``. Without coalescing, Pipecat fires
-        N independent inferences on flush — each seeing the same user
-        question and repeating tool calls. We suppress all ``run_llm``
-        flags, flush the context, then send a single ``LLMRunFrame``.
+        N independent inferences on flush. We suppress all ``run_llm``
+        flags and append a single ``LLMRunFrame``.
         """
-        needs_inference = any(
-            isinstance(f, LLMMessagesAppendFrame) and f.run_llm
-            for f in self._deferred_frames
-        )
-        for f in self._deferred_frames:
+        needs_inference = False
+        for f in frames:
             if isinstance(f, LLMMessagesAppendFrame) and f.run_llm:
                 f.run_llm = False
-
-        await super()._flush_deferred_frames()
-
+                needs_inference = True
         if needs_inference:
-            await self.queue_frame(LLMRunFrame())
+            frames.append(LLMRunFrame())
+        return frames
 
     # ── Request ID tracking ────────────────────────────────────────────
 
@@ -565,21 +570,22 @@ class VoiceAgent(LLMAgent):
         await super().on_agent_ready(data)
         pending = self._pending_tasks.pop(data.agent_name, None)
         if pending:
-            await self.request_task(data.agent_name, payload=pending)
+            await self.request_task(data.agent_name, payload=pending, timeout=self._task_agent_timeout)
             self._update_polling_scope()
             logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.agent_name)
 
     # ── Bus task protocol ─────────────────────────────────────────────
 
-    async def on_task_update(self, task_id: str, agent_name: str, update: Optional[dict]) -> None:
-        await super().on_task_update(task_id, agent_name, update)
+    async def on_task_update(self, message: BusTaskUpdateMessage) -> None:
+        await super().on_task_update(message)
+        update = message.update
         if not update:
             return
         update_type = update.get("type")
 
         if update_type == "progress_report":
             summary = update.get("summary", "No update available.")
-            event_xml = f'<event name="task.progress" task_id="{task_id[:8]}">\n{summary}\n</event>'
+            event_xml = f'<event name="task.progress" task_id="{message.task_id[:8]}">\n{summary}\n</event>'
             await self.queue_frame_after_tools(
                 LLMMessagesAppendFrame(
                     messages=[{"role": "user", "content": event_xml}], run_llm=True
@@ -589,34 +595,33 @@ class VoiceAgent(LLMAgent):
             text = update.get("text", "")
             message_type = update.get("message_type")
             # Get task_type from the child agent
-            child = next((c for c in self.children if isinstance(c, TaskAgent) and c.name == agent_name), None)
+            child = next((c for c in self.children if isinstance(c, TaskAgent) and c.name == message.source), None)
             task_type = "corp_ship" if child and child._is_corp_ship else "player_ship"
-            await self._task_output_handler(text, message_type, task_id, task_type)
+            await self._task_output_handler(text, message_type, message.task_id, task_type)
 
-    async def on_task_response(
-        self, task_id: str, agent_name: str, response: Optional[dict], status: TaskStatus
-    ) -> None:
-        await super().on_task_response(task_id, agent_name, response, status)
+    async def on_task_response(self, message: BusTaskResponseMessage) -> None:
+        await super().on_task_response(message)
 
+        agent_name = message.source
         child = next((c for c in self.children if isinstance(c, TaskAgent) and c.name == agent_name), None)
         task_type = "corp_ship" if child and child._is_corp_ship else "player_ship"
         is_corp = child._is_corp_ship if child else False
 
-        if status == TaskStatus.COMPLETED:
-            await self._task_output_handler("Task completed successfully", "complete", task_id, task_type)
+        if message.status == TaskStatus.COMPLETED:
+            await self._task_output_handler("Task completed successfully", "complete", message.task_id, task_type)
             status_label = "completed"
-        elif status == TaskStatus.CANCELLED:
-            await self._task_output_handler("Task was cancelled", "cancelled", task_id, task_type)
+        elif message.status == TaskStatus.CANCELLED:
+            await self._task_output_handler("Task was cancelled", "cancelled", message.task_id, task_type)
             status_label = "cancelled"
         else:
-            fail_msg = (response or {}).get("message", "Task failed")
-            await self._task_output_handler(fail_msg, "failed", task_id, task_type)
+            fail_msg = (message.response or {}).get("message", "Task failed")
+            await self._task_output_handler(fail_msg, "failed", message.task_id, task_type)
             status_label = "failed"
 
         # Notify the LLM so it can inform the user (use response.message for detail)
-        llm_msg = (response or {}).get("message", f"Task {status_label}")
+        llm_msg = (message.response or {}).get("message", f"Task {status_label}")
         event_xml = (
-            f'<event name="task.{status_label}" task_id="{task_id[:8]}" '
+            f'<event name="task.{status_label}" task_id="{message.task_id[:8]}" '
             f'task_type="{task_type}">\n{llm_msg}\n</event>'
         )
         await self.inject_context(

@@ -51,10 +51,12 @@ class BusFrameMessage(BusMessage):
     Parameters:
         frame: The Pipecat frame to transport.
         direction: Direction the frame should travel in the recipient's pipeline.
+        bridge: Optional bridge name for routing in multi-bridge setups.
     """
 
     frame: Frame
     direction: FrameDirection
+    bridge: Optional[str] = None
 
 
 @dataclass

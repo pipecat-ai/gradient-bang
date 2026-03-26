@@ -1,6 +1,6 @@
 """Background task worker agent.
 
-TaskAgent is an LLMAgent(bridged=False) that receives work via the bus task
+TaskAgent is an LLMAgent that receives work via the bus task
 protocol, executes it autonomously using game tools, and reports results back
 via send_task_update/send_task_response.
 
@@ -47,8 +47,14 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams
 
 from gradientbang.subagents.agents import LLMAgent
-from gradientbang.subagents.bus import AgentBus, BusMessage
-from gradientbang.subagents.types import TaskStatus
+from gradientbang.subagents.bus import (
+    AgentBus,
+    BusMessage,
+    BusTaskCancelMessage,
+    BusTaskRequestMessage,
+    BusTaskUpdateRequestMessage,
+    TaskStatus,
+)
 
 from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage, BusSteerTaskMessage
 from gradientbang.tools import GAME_METHOD_ALIASES, TASK_TOOLS
@@ -167,7 +173,7 @@ class _ResponseStateTracker(FrameProcessor):
 class TaskAgent(LLMAgent):
     """Background task worker with its own LLM pipeline.
 
-    Runs as LLMAgent(bridged=False). Receives tasks from a parent (typically
+    Runs as LLMAgent (not bridged). Receives tasks from a parent (typically
     VoiceAgent) via the bus task protocol, executes them autonomously using
     game tools, and reports progress/completion back.
     """
@@ -182,7 +188,7 @@ class TaskAgent(LLMAgent):
         is_corp_ship: bool = False,
         task_metadata: Optional[Dict[str, Any]] = None,
     ):
-        super().__init__(name, bus=bus, bridged=False, active=False)
+        super().__init__(name, bus=bus, active=False)
         self._game_client = game_client
         self._character_id = character_id
         self._is_corp_ship = is_corp_ship
@@ -253,10 +259,12 @@ class TaskAgent(LLMAgent):
     # ── Bus protocol ──────────────────────────────────────────────────
 
     @traced
-    async def on_task_request(self, task_id: str, requester: str, payload: Optional[dict]) -> None:
-        await super().on_task_request(task_id, requester, payload)
+    async def on_task_request(self, message: BusTaskRequestMessage) -> None:
+        await super().on_task_request(message)
         self._reset_task_state()
 
+        task_id = message.task_id
+        payload = message.payload
         self._active_task_id = task_id
         self._task_description = (payload or {}).get("task_description", "")
         self._task_metadata = (payload or {}).get("task_metadata", self._task_metadata)
@@ -289,9 +297,11 @@ class TaskAgent(LLMAgent):
         await self.queue_frame(LLMRunFrame())
         self._llm_inflight = True
 
-    async def on_task_cancelled(self, task_id: str, reason: Optional[str]) -> None:
+    async def on_task_cancelled(self, message: BusTaskCancelMessage) -> None:
         self._cancelled = True
         self._task_finished_status = "cancelled"
+        task_id = message.task_id
+        reason = message.reason
         logger.info(f"TaskAgent '{self.name}': task {task_id[:8]} cancelled: {reason}")
 
         self._quench_inference_state()
@@ -314,10 +324,10 @@ class TaskAgent(LLMAgent):
                 logger.warning(f"TaskAgent '{self.name}': failed to emit task.finish (cancel): {exc}")
 
         self._game_client.current_task_id = None
-        await super().on_task_cancelled(task_id, reason)
+        await super().on_task_cancelled(message)
 
-    async def on_task_update_requested(self, task_id: str) -> None:
-        await super().on_task_update_requested(task_id)
+    async def on_task_update_requested(self, message: BusTaskUpdateRequestMessage) -> None:
+        await super().on_task_update_requested(message)
         log_lines = self.get_task_log()
         if not log_lines:
             await self.send_task_update({"type": "progress_report", "summary": "No activity yet."})

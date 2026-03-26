@@ -23,10 +23,9 @@ Most important code in this repo:
 
 - **MainAgent** (inline in `bot.py`) - `BaseAgent` owning transport pipeline (STT/TTS) with `BusBridgeProcessor`
 - **VoiceAgent** (`subagents/voice_agent.py`) - `LLMAgent` with 16 game tools; spawns TaskAgent children per task, broadcasts game events to bus
-- **TaskAgent** (`subagents/task_agent.py`) - `LLMAgent(bridged=False)` with 31 game tools; self-contained autonomous agent, receives events via bus
+- **TaskAgent** (`subagents/task_agent.py`) - `LLMAgent` with 31 game tools; self-contained autonomous agent, receives events via bus
 - **EventRelay** (`subagents/event_relay.py`) - single game event subscriber, declarative routing engine; feeds VoiceAgent which distributes to TaskAgents via bus
 - **UIAgent** (`subagents/ui_agent.py`) - parallel pipeline branch for autonomous UI control (not on bus)
-
 
 Tool schemas are defined once in `src/gradientbang/tools/` and shared by VoiceAgent, TaskAgent, and UIAgent.
 
@@ -52,8 +51,8 @@ See `src/gradientbang/pipecat_server/subagents/CLAUDE.md` for detailed architect
 
 ## Testing
 
-- **Unit tests** (no server needed): `uv run pytest -m unit`
-- **Edge function integration tests** (Deno): `bash deployment/supabase/functions/tests/run_tests.sh`
+- **Python Unit tests** (no server needed): `uv run pytest -m unit`
 - **Python integration tests** (requires DB): `bash scripts/run-integration-tests.sh`
+- **Edge function integration tests** (Deno): `bash deployment/supabase/functions/tests/run_tests.sh`
 
 The Python integration test script spins up an isolated Supabase instance on different ports (54421+), seeds it via the `test_reset` edge function, runs `pytest -m integration`, and tears everything down. It does NOT touch the dev database. Pass extra pytest args after the script: `bash scripts/run-integration-tests.sh -v -k "test_movement"`.

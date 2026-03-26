@@ -6,6 +6,8 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Optional
 
+from gradientbang.subagents.types import TaskStatus
+
 if TYPE_CHECKING:
     from gradientbang.subagents.agents.base_agent import BaseAgent
 
@@ -14,6 +16,19 @@ class TaskGroupError(Exception):
     """Raised when a task group is cancelled due to a worker error or timeout."""
 
     pass
+
+
+@dataclass
+class TaskGroupResponse:
+    """Collected results from a completed task group.
+
+    Parameters:
+        task_id: The shared task identifier.
+        responses: Collected responses keyed by agent name.
+    """
+
+    task_id: str
+    responses: dict[str, dict]
 
 
 @dataclass

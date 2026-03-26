@@ -46,6 +46,7 @@ class FlowsAgent(BaseAgent):
         context_strategy: Optional[ContextStrategyConfig] = None,
         global_functions: Optional[List[FlowsFunctionSchema | FlowsDirectFunction]] = None,
         active: bool = False,
+        bridged: Optional[tuple[str, ...]] = (),
     ):
         """Initialize the FlowsAgent.
 
@@ -59,12 +60,13 @@ class FlowsAgent(BaseAgent):
             global_functions: Optional list of functions available at every
                 node, forwarded to `FlowManager`.
             active: Whether the agent starts active. Defaults to False.
+            bridged: Bridge configuration. See ``BaseAgent`` for details.
         """
         super().__init__(
             name,
             bus=bus,
             active=active,
-            bridged=True,
+            bridged=bridged,
         )
         self._context_aggregator = context_aggregator
         self._context_strategy = context_strategy

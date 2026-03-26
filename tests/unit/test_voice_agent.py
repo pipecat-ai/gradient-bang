@@ -255,6 +255,24 @@ class TestDeferredEventBatching:
         assert isinstance(flushed[0], LLMMessagesAppendFrame)
         assert not any(isinstance(f, LLMRunFrame) for f in flushed)
 
+    async def test_process_deferred_tool_frames_hook(self):
+        """process_deferred_tool_frames coalesces run_llm and appends LLMRunFrame."""
+        from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
+
+        agent = _make_voice_agent()
+        frames = [
+            LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=True),
+            LLMMessagesAppendFrame(messages=[{"role": "user", "content": "b"}], run_llm=True),
+            LLMMessagesAppendFrame(messages=[{"role": "user", "content": "c"}], run_llm=False),
+        ]
+        result = await agent.process_deferred_tool_frames(frames)
+        # All run_llm suppressed, single LLMRunFrame appended
+        appends = [f for f in result if isinstance(f, LLMMessagesAppendFrame)]
+        runs = [f for f in result if isinstance(f, LLMRunFrame)]
+        assert all(f.run_llm is False for f in appends)
+        assert len(runs) == 1
+        assert len(result) == 4  # 3 appends + 1 run frame
+
 
 # ── Task tool handlers ────────────────────────────────────────────────
 

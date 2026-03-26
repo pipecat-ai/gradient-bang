@@ -235,13 +235,13 @@ async def run_task(args: argparse.Namespace) -> int:
             async def build_pipeline(self):
                 return None
 
-            async def on_task_response(self, task_id, agent_name, response, status):
-                await super().on_task_response(task_id, agent_name, response, status)
-                task_success["value"] = status == TaskStatus.COMPLETED
+            async def on_task_response(self, message):
+                await super().on_task_response(message)
+                task_success["value"] = message.status == TaskStatus.COMPLETED
                 task_done.set()
 
-            async def on_task_completed(self, task_id, responses):
-                await super().on_task_completed(task_id, responses)
+            async def on_task_completed(self, result):
+                await super().on_task_completed(result)
                 task_done.set()
 
         runner = AgentRunner(handle_sigint=True)

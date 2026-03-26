@@ -9,7 +9,7 @@ import functools
 from abc import abstractmethod
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
@@ -23,9 +23,8 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
-from pydantic import BaseModel
 
-from gradientbang.subagents.agents.base_agent import ActivationArgs, BaseAgent
+from gradientbang.subagents.agents.base_agent import AgentActivationArgs, BaseAgent
 from gradientbang.subagents.agents.tool import _collect_tools
 from gradientbang.subagents.bus import AgentBus
 
@@ -39,7 +38,8 @@ class PipelineFlushFrame(ControlFrame, UninterruptibleFrame):
     pass
 
 
-class LLMActivationArgs(ActivationArgs):
+@dataclass
+class LLMAgentActivationArgs(AgentActivationArgs):
     """Activation arguments for LLM agents.
 
     Attributes:
@@ -56,7 +56,7 @@ class LLMAgent(BaseAgent):
     """Agent with an LLM pipeline and automatic tool registration.
 
     Subclasses provide an LLM service via ``build_llm()`` and define tools
-    with the ``@tool`` decorator. Pass ``bridged=True`` for agents that
+    with the ``@tool`` decorator. Pass ``bridged=()`` for agents that
     receive frames from a ``BusBridgeProcessor`` in another agent.
 
     Example::
@@ -79,7 +79,7 @@ class LLMAgent(BaseAgent):
         *,
         bus: AgentBus,
         active: bool = False,
-        bridged: bool = False,
+        bridged: Optional[tuple[str, ...]] = None,
     ):
         """Initialize the LLMAgent.
 
@@ -87,8 +87,7 @@ class LLMAgent(BaseAgent):
             name: Unique name for this agent.
             bus: The `AgentBus` for inter-agent communication.
             active: Whether the agent starts active. Defaults to False.
-            bridged: Whether to add edge processors for bus frame routing.
-                Defaults to False.
+            bridged: Bridge configuration. See ``BaseAgent`` for details.
         """
         super().__init__(
             name,
@@ -111,7 +110,7 @@ class LLMAgent(BaseAgent):
         """
         await super().on_activated(args)
 
-        activation = LLMActivationArgs.model_validate(args) if args else LLMActivationArgs()
+        activation = LLMAgentActivationArgs.from_dict(args) if args else LLMAgentActivationArgs()
 
         tools = self.build_tools()
         if tools:
@@ -220,7 +219,7 @@ class LLMAgent(BaseAgent):
         self,
         agent_name: str,
         *,
-        args: Union[BaseModel, dict, None] = None,
+        args: Optional[AgentActivationArgs] = None,
         result_callback: Optional[FunctionCallResultCallback] = None,
     ) -> None:
         """Hand off to another agent.
@@ -237,6 +236,21 @@ class LLMAgent(BaseAgent):
         await self._close_function_call(result_callback)
         await super().handoff_to(agent_name, args=args)
 
+    async def process_deferred_tool_frames(self, frames: list[Frame]) -> list[Frame]:
+        """Process deferred frames before they are flushed.
+
+        Called after all in-flight tools complete, before the deferred
+        frames are queued into the pipeline. Override to inspect, modify,
+        reorder, or filter the frames.
+
+        Args:
+            frames: The deferred frames collected during tool execution.
+
+        Returns:
+            The frames to queue. Return the list as-is for default behavior.
+        """
+        return frames
+
     def _track_tool_call(self, method: Callable) -> Callable:
         @functools.wraps(method)
         async def wrapper(params, *args, **kwargs):
@@ -251,8 +265,10 @@ class LLMAgent(BaseAgent):
         return wrapper
 
     async def _flush_deferred_frames(self) -> None:
-        while self._deferred_frames:
-            await self.queue_frame(self._deferred_frames.popleft())
+        frames = list(self._deferred_frames)
+        self._deferred_frames.clear()
+        for frame in await self.process_deferred_tool_frames(frames):
+            await self.queue_frame(frame)
 
     async def _close_function_call(
         self, result_callback: Optional[FunctionCallResultCallback]

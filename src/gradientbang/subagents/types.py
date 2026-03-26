@@ -1,21 +1,11 @@
-"""Shared types for the subagents module."""
+"""Shared types for the pipecat-subagents framework."""
 
 from dataclasses import dataclass
 from enum import Enum
 
 
 class TaskStatus(str, Enum):
-    """Status of a completed task.
-
-    Inherits from ``str`` so values compare naturally with plain strings
-    and serialize without extra handling.
-
-    Attributes:
-        COMPLETED: The task finished successfully.
-        CANCELLED: The task was cancelled by the requester.
-        FAILED: The task failed due to a logical or business error.
-        ERROR: The task encountered an unexpected runtime error.
-    """
+    """Status of a completed task."""
 
     COMPLETED = "completed"
     CANCELLED = "cancelled"

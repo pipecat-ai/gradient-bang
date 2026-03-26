@@ -588,31 +588,77 @@ pnpm run dev
 
 ### Bot (`.env.bot`)
 
-| Variable                        | Required | Default                | Description                                                                                                        |
-| ------------------------------- | -------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `DEEPGRAM_API_KEY`              | Yes      | —                      | [Deepgram](https://console.deepgram.com) API key for speech-to-text                                                |
-| `CARTESIA_API_KEY`              | Yes      | —                      | [Cartesia](https://play.cartesia.ai) API key for text-to-speech                                                    |
-| `GOOGLE_API_KEY`                | Yes      | —                      | [Google AI Studio](https://aistudio.google.com/apikey) key for Gemini LLM                                          |
-| `ANTHROPIC_API_KEY`             | No       | —                      | [Anthropic](https://console.anthropic.com) key for Claude LLM (task agent)                                         |
-| `SUPABASE_URL`                  | Yes      | —                      | Supabase project URL                                                                                               |
-| `SUPABASE_SERVICE_ROLE_KEY`     | Yes      | —                      | Service role key for DB access                                                                                     |
-| `EDGE_API_TOKEN`                | Yes      | —                      | Token for authenticating edge function calls                                                                       |
-| `DAILY_API_KEY`                 | No       | —                      | [Daily](https://www.daily.co/) API key (required for Daily transport)                                              |
-| `LOCAL_API_POSTGRES_URL`        | No       | —                      | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead |
-| `BOT_USE_KRISP`                 | No       | `0`                    | Enable Krisp noise cancellation (`1` for production, `0` for local dev)                                            |
-| `BOT_TEST_CHARACTER_ID`         | No       | —                      | Hardcoded character ID for testing                                                                                 |
-| `BOT_TEST_CHARACTER_NAME`       | No       | —                      | Hardcoded character name for testing                                                                               |
-| `BOT_TEST_NPC_CHARACTER_NAME`   | No       | —                      | Hardcoded NPC name for testing                                                                                     |
-| `VOICE_LLM_PROVIDER`            | Yes      | —                      | Voice LLM provider (`google`, `anthropic`, `openai`)                                                               |
-| `VOICE_LLM_MODEL`               | Yes      | —                      | Voice LLM model name                                                                                               |
-| `TASK_LLM_PROVIDER`             | Yes      | —                      | Task agent LLM provider                                                                                            |
-| `TASK_LLM_MODEL`                | Yes      | —                      | Task agent LLM model name                                                                                          |
-| `TASK_LLM_THINKING_BUDGET`      | No       | —                      | Token budget for task agent extended thinking                                                                      |
-| `UI_AGENT_LLM_PROVIDER`         | Yes      | —                      | UI agent LLM provider                                                                                              |
-| `UI_AGENT_LLM_MODEL`            | Yes      | —                      | UI agent LLM model name                                                                                            |
-| `UI_AGENT_LLM_THINKING_BUDGET`  | No       | —                      | Token budget for UI agent thinking                                                                                 |
-| `UI_AGENT_SHIPS_CACHE_TTL_SECS` | No       | `60`                   | Ships list cache TTL for UI agent (seconds)                                                                        |
-| `TOKEN_USAGE_LOG`               | No       | `logs/token_usage.csv` | Path for token usage metrics CSV                                                                                   |
+#### API keys
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `DEEPGRAM_API_KEY` | Yes | [Deepgram](https://console.deepgram.com) API key for speech-to-text |
+| `CARTESIA_API_KEY` | Yes | [Cartesia](https://play.cartesia.ai) API key for text-to-speech |
+| `GOOGLE_API_KEY` | Yes | [Google AI Studio](https://aistudio.google.com/apikey) key for Gemini LLM |
+| `ANTHROPIC_API_KEY` | No | [Anthropic](https://console.anthropic.com) key for Claude LLM |
+| `OPENAI_API_KEY` | No | [OpenAI](https://platform.openai.com) key (when using OpenAI as LLM provider) |
+
+#### Supabase & connectivity
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `SUPABASE_URL` | Yes | — | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Service role key for DB access |
+| `EDGE_API_TOKEN` | Yes | — | Token for authenticating edge function calls |
+| `DAILY_API_KEY` | No | — | [Daily](https://www.daily.co/) API key (required for Daily transport) |
+| `LOCAL_API_POSTGRES_URL` | No | — | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead |
+
+#### LLM configuration
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `VOICE_LLM_PROVIDER` | Yes | — | Voice LLM provider (`google`, `anthropic`, `openai`) |
+| `VOICE_LLM_MODEL` | Yes | — | Voice LLM model name |
+| `VOICE_LLM_THINKING_BUDGET` | No | `0` | Token budget for voice agent extended thinking |
+| `VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS` | No | `20` | Voice agent tool call timeout (seconds) |
+| `TASK_LLM_PROVIDER` | Yes | — | Task agent LLM provider |
+| `TASK_LLM_MODEL` | Yes | — | Task agent LLM model name |
+| `TASK_LLM_THINKING_BUDGET` | No | `4096` | Token budget for task agent extended thinking |
+| `TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS` | No | `20` | Task agent tool call timeout (seconds) |
+| `TASK_AGENT_TIMEOUT` | No | — | Max task agent lifetime in seconds; cancelled on expiry (e.g. `1800` for 30 min) |
+| `UI_AGENT_LLM_PROVIDER` | Yes | — | UI agent LLM provider |
+| `UI_AGENT_LLM_MODEL` | Yes | — | UI agent LLM model name |
+| `UI_AGENT_LLM_THINKING_BUDGET` | No | `0` | Token budget for UI agent thinking |
+| `CONTEXT_SUMMARIZATION_MESSAGE_LIMIT` | No | `200` | Max unsummarized messages before context summarization |
+
+#### UI agent tuning
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `UI_AGENT_STATUS_TIMEOUT_SECS` | `10` | Status query timeout (seconds) |
+| `UI_AGENT_PORTS_LIST_TIMEOUT_SECS` | `15` | Ports list timeout (seconds) |
+| `UI_AGENT_SHIPS_LIST_TIMEOUT_SECS` | `15` | Ships list timeout (seconds) |
+| `UI_AGENT_COURSE_PLOT_TIMEOUT_SECS` | `25` | Course plot timeout (seconds) |
+| `UI_AGENT_PORTS_LIST_STALE_SECS` | `60` | Ports list staleness threshold (seconds) |
+| `UI_AGENT_INTENT_REQUEST_DELAY_SECS` | `2.0` | Intent request delay (seconds) |
+| `UI_AGENT_SHIPS_CACHE_TTL_SECS` | `60` | Ships list cache TTL (seconds) |
+
+#### Testing & debug
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `BOT_USE_KRISP` | `0` | Enable Krisp noise cancellation (`1` for production, `0` for local dev) |
+| `BOT_TEST_CHARACTER_ID` | — | Hardcoded character ID for testing |
+| `BOT_TEST_CHARACTER_NAME` | — | Hardcoded character name for testing |
+| `BOT_TEST_NPC_CHARACTER_NAME` | — | Hardcoded NPC name for testing |
+| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, etc.) |
+| `TOKEN_USAGE_LOG` | — | Path for token usage metrics CSV |
+
+#### Optional integrations
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `WANDB_API_KEY` | — | [Weights & Biases](https://wandb.ai) API key for Weave tracing |
+| `WEAVE_PROJECT` | `gradientbang` | Weave project name |
+| `SMART_TURN_S3_BUCKET` | — | S3 bucket for smart turn audio |
+| `AWS_ACCESS_KEY_ID` | — | AWS access key (for S3 smart turn) |
+| `AWS_SECRET_ACCESS_KEY` | — | AWS secret key (for S3 smart turn) |
+| `AWS_REGION` | `us-east-1` | AWS region |
 
 ---
 

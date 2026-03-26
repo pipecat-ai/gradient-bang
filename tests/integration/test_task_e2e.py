@@ -418,6 +418,71 @@ class TestTaskCancellationE2E:
             await h.stop()
 
 
+# ── Task timeout ────────────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+class TestTaskTimeoutE2E:
+    """Framework timeout should cancel the task agent gracefully."""
+
+    @pytest.fixture(autouse=True)
+    async def setup(self, reset_db_with_characters, edge_api, make_game_client):
+        await reset_db_with_characters(["test_task_timeout_p1"])
+        self.character_id = canonicalize_character_id("test_task_timeout_p1")
+        self.api = edge_api
+        self.make_game_client = make_game_client
+
+    async def test_task_timeout_cancels_agent(self):
+        """A short timeout fires internally and cancels the task via the framework."""
+        h = E2EHarness(self.character_id, self.api, self.make_game_client)
+        # Set a 5-second timeout (override env var)
+        h.voice_agent._task_agent_timeout = 5.0
+        await h.start()
+        try:
+            await h.join_game()
+
+            # Gate keeps the task alive by pausing the ScriptedLLM.
+            h._task_llm_gate = asyncio.Event()
+            h.set_task_script([("my_status", {})] * 10)
+            result = await h.start_player_task("Long running task for timeout test")
+            assert result["success"] is True, f"start_task failed: {result}"
+
+            # Wait for task group to appear (pipeline build is async)
+            for _ in range(40):
+                if h.voice_agent._task_groups:
+                    break
+                await asyncio.sleep(0.05)
+            assert len(h.voice_agent._task_groups) > 0, "Task should be active"
+
+            # Wait for the 5-second timeout to fire (framework-internal asyncio timer)
+            await asyncio.sleep(6.0)
+
+            # Open the gate so cleanup can proceed
+            h._task_llm_gate.set()
+            await asyncio.sleep(1.0)
+
+            # Task group should be cleaned up
+            assert len(h.voice_agent._task_groups) == 0, (
+                f"Task should be cancelled by timeout. Active groups: {list(h.voice_agent._task_groups.keys())}"
+            )
+
+            # VoiceAgent LLM should have task.cancelled (not task.failed)
+            cancelled_msgs = [c for c, _ in h.llm_messages if "task.cancelled" in c]
+            failed_msgs = [c for c, _ in h.llm_messages if "task.failed" in c]
+            assert len(cancelled_msgs) >= 1, (
+                f"Expected task.cancelled in voice LLM. "
+                f"Got: {[c[:80] for c, _ in h.llm_messages]}"
+            )
+            assert len(failed_msgs) == 0, (
+                f"Should NOT have task.failed in voice LLM. "
+                f"Got: {[c[:80] for c in failed_msgs]}"
+            )
+        finally:
+            if h._task_llm_gate:
+                h._task_llm_gate.set()
+            await h.stop()
+
+
 # ── Full voice loop ──────────────────────────────────────────────────────
 
 

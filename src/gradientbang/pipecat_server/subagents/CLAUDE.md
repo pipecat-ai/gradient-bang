@@ -30,11 +30,11 @@ game_client → EventRelay (routing rules)
 
 ### MainAgent (inline in bot.py)
 
-`BaseAgent(bridged=False)`, defined as an inner class in `run_bot()`. Captures pipeline processors from the enclosing scope. Owns the transport pipeline with `BusBridgeProcessor`. Activates VoiceAgent on ready.
+`BaseAgent()`, defined as an inner class in `run_bot()`. Captures pipeline processors from the enclosing scope. Owns the transport pipeline with `BusBridgeProcessor`. Activates VoiceAgent on ready.
 
 ### voice_agent.py
 
-`LLMAgent(bridged=True)`. The core agent.
+`LLMAgent(bridged=())`. The core agent.
 
 - **16 tools** from VOICE_TOOLS (shared schemas via `register_function` in `create_llm()`)
 - **Task spawning**: creates TaskAgent children via `add_agent()`, dispatches work via `request_task()` in `on_agent_ready()`
@@ -45,7 +45,7 @@ game_client → EventRelay (routing rules)
 
 ### task_agent.py
 
-`LLMAgent(bridged=False)`. Autonomous task execution.
+`LLMAgent()`. Autonomous task execution.
 
 - **31 tools** from TASK_TOOLS (shared schemas, catch-all handler via `register_function(None, ...)`)
 - **Bus-based events**: receives `BusGameEventMessage` in `on_bus_message`, filters by task_id/character_id. No game_client event subscriptions.

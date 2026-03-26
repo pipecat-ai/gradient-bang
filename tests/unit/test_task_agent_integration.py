@@ -23,6 +23,7 @@ from gradientbang.pipecat_server.subagents.task_agent import (
     SYNC_TOOL_EVENTS,
     TaskAgent,
 )
+from gradientbang.subagents.bus import BusTaskCancelMessage, BusTaskRequestMessage
 
 
 # ── Harness ───────────────────────────────────────────────────────────────
@@ -76,9 +77,11 @@ class TaskAgentHarness:
         self.agent._task_id = task_id
         self.agent._task_requester = "voice_agent"
         await self.agent.on_task_request(
-            task_id=task_id,
-            requester="voice_agent",
-            payload={"task_description": description},
+            BusTaskRequestMessage(
+                source="voice_agent",
+                task_id=task_id,
+                payload={"task_description": description},
+            )
         )
 
     def make_function_call_params(self, tool_name: str, arguments: dict) -> FunctionCallParams:
@@ -329,7 +332,7 @@ class TestCancellationIntegration:
         await h.start_task(task_id="task-001")
         h.agent._llm_inflight = False
 
-        await h.agent.on_task_cancelled("task-001", "User cancelled")
+        await h.agent.on_task_cancelled(BusTaskCancelMessage(source="voice_agent", task_id="task-001", reason="User cancelled"))
 
         assert h.agent._cancelled is True
         # task.finish emitted
