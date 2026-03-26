@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getAdjacentSectors } from "./map.ts";
 
 export interface UniverseMeta {
   mega_port_sectors?: number[] | null;
@@ -109,6 +110,20 @@ export async function isFedspaceSector(
     return false;
   }
   return data?.region === regionName;
+}
+
+export async function isAdjacentToFedspace(
+  supabase: SupabaseClient,
+  sectorId: number,
+  meta?: UniverseMeta,
+): Promise<boolean> {
+  const neighbors = await getAdjacentSectors(supabase, sectorId);
+  for (const neighbor of neighbors) {
+    if (await isFedspaceSector(supabase, neighbor, meta)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function pickRandomFedspaceSector(

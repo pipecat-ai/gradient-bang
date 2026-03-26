@@ -57,7 +57,7 @@ import {
 } from "../_shared/combat_events.ts";
 import { computeNextCombatDeadline } from "../_shared/combat_resolution.ts";
 import { computeEventRecipients } from "../_shared/visibility.ts";
-import { loadUniverseMeta, isFedspaceSector } from "../_shared/fedspace.ts";
+import { loadUniverseMeta, isFedspaceSector, isAdjacentToFedspace } from "../_shared/fedspace.ts";
 import { runLeaveFightersTransaction } from "../_shared/garrison_transactions.ts";
 import { traced } from "../_shared/weave.ts";
 
@@ -169,7 +169,10 @@ Deno.serve(traced("combat_leave_fighters", async (req, trace) => {
       detail: err instanceof Error ? err.message : "leave fighters failed",
       status,
     });
-    return errorResponse("leave fighters error", status);
+    const message = err instanceof Error && status >= 400 && status < 500
+      ? err.message
+      : "leave fighters error";
+    return errorResponse(message, status);
   } finally {
     pg.release();
   }
@@ -254,6 +257,14 @@ async function handleCombatLeaveFighters(params: {
   if (await isFedspaceSector(supabase, sector, universeMeta)) {
     const err = new Error(
       "Garrisons cannot be deployed in Federation Space",
+    ) as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+
+  if (await isAdjacentToFedspace(supabase, sector, universeMeta)) {
+    const err = new Error(
+      "Garrisons cannot be deployed adjacent to Federation Space",
     ) as Error & { status?: number };
     err.status = 400;
     throw err;

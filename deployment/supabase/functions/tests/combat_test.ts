@@ -2882,3 +2882,77 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 57: combat_leave_fighters — adjacent to FedSpace rejected
+// ============================================================================
+
+Deno.test({
+  name: "combat — leave fighters: adjacent to FedSpace rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    // Sector 7 is NOT fedspace, but is adjacent to fedspace sectors 8 and 9.
+    // Deploying a garrison here should be rejected.
+    await t.step("reset — P1 in sector 7 (adjacent to FedSpace)", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 7);
+      await setShipFighters(p1ShipId, 200);
+    });
+
+    await t.step("fails: adjacent to FedSpace", async () => {
+      const result = await api("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 7,
+        quantity: 50,
+        mode: "defensive",
+      });
+      assertEquals(result.status, 400, `Expected 400 for sector adjacent to FedSpace, got ${result.status}`);
+      assert(
+        result.body.error?.includes("adjacent to Federation Space"),
+        `Expected adjacent-to-FedSpace message, got: ${result.body.error}`,
+      );
+    });
+
+    // Sector 4 is also adjacent to FedSpace sector 8.
+    await t.step("reset — P1 in sector 4 (adjacent to FedSpace)", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 4);
+      await setShipFighters(p1ShipId, 200);
+    });
+
+    await t.step("fails: sector 4 also adjacent to FedSpace", async () => {
+      const result = await api("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 4,
+        quantity: 50,
+        mode: "offensive",
+      });
+      assertEquals(result.status, 400, `Expected 400 for sector adjacent to FedSpace, got ${result.status}`);
+      assert(
+        result.body.error?.includes("adjacent to Federation Space"),
+        `Expected adjacent-to-FedSpace message, got: ${result.body.error}`,
+      );
+    });
+
+    // Sector 3 is NOT adjacent to any FedSpace sector — garrison should succeed.
+    await t.step("reset — P1 in sector 3 (not adjacent to FedSpace)", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipFighters(p1ShipId, 200);
+    });
+
+    await t.step("succeeds: sector 3 not adjacent to FedSpace", async () => {
+      const result = await apiOk("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 50,
+        mode: "defensive",
+      });
+      assert(result.success, "Garrison deploy should succeed in non-adjacent sector");
+    });
+  },
+});
