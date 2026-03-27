@@ -1615,7 +1615,6 @@ export function GameProvider({ children }: GameProviderProps) {
             // ----- DEBUG
             case "debug.llm-context": {
               useGameStore.getState().setDebugLLMContext(e.payload.formatted as string)
-              useGameStore.getState().setDebugLLMContextLoading(false)
               break
             }
 

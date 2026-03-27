@@ -1,23 +1,18 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
-import { CheckIcon } from "@phosphor-icons/react/dist/icons/Check"
-import { CopyIcon } from "@phosphor-icons/react/dist/icons/Copy"
 import { PlugsIcon } from "@phosphor-icons/react/dist/icons/Plugs"
-import { SpinnerGapIcon } from "@phosphor-icons/react/dist/icons/SpinnerGap"
-import { useCopyToClipboard } from "@uidotdev/usehooks"
 
 import { Card, CardContent } from "@/components/primitives/Card"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
 import { ToggleControl } from "@/components/primitives/ToggleControl"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/primitives/ToolTip"
 import { ShipOSDVisualizer } from "@/components/ShipOSDVisualizer"
 import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
 import { usePipecatConversation } from "@/hooks/usePipecatConversation"
 import useAudioStore from "@/stores/audio"
 import { useConversationStore } from "@/stores/conversation"
-import useGameStore from "@/stores/game"
 
+import { CopyContextButton } from "./CopyContextButton"
 import { MessageContainer } from "./MessageContainer"
 
 /**
@@ -153,34 +148,6 @@ export const Conversation: React.FC<ConversationProps> = memo(
     const llmIsWorking = useConversationStore((state) => state.isThinking)
     const thinkCount = useRef(0)
 
-    const debugLLMContextLoading = useGameStore((s) => s.debugLLMContextLoading)
-    const debugLLMContext = useGameStore((s) => s.debugLLMContext)
-    const [, copyToClipboard] = useCopyToClipboard()
-    const copyToClipboardRef = useRef(copyToClipboard)
-    useEffect(() => {
-      copyToClipboardRef.current = copyToClipboard
-    }, [copyToClipboard])
-    const [copied, setCopied] = useState(false)
-
-    const handleDumpContext = useCallback(() => {
-      if (debugLLMContextLoading) return
-      setCopied(false)
-      useGameStore.getState().setDebugLLMContext(null)
-      useGameStore.getState().setDebugLLMContextLoading(true)
-      useGameStore.getState().dispatchAction({ type: "dump-llm-context" })
-    }, [debugLLMContextLoading])
-
-    useEffect(() => {
-      if (debugLLMContext && !debugLLMContextLoading) {
-        let timer: ReturnType<typeof setTimeout>
-        copyToClipboardRef.current(debugLLMContext).then(() => {
-          setCopied(true)
-          timer = setTimeout(() => setCopied(false), 2000)
-        })
-        return () => clearTimeout(timer)
-      }
-    }, [debugLLMContext, debugLLMContextLoading])
-
     const { isConnected } = usePipecatConnectionState()
 
     const { messages: allMessages } = usePipecatConversation({
@@ -230,21 +197,7 @@ export const Conversation: React.FC<ConversationProps> = memo(
           </CardContent>
         : <>
             <div className="absolute right-ui-sm bottom-ui-sm group-hover:bg-background/60 w-fit h-fit inline-flex items-center gap-ui-xs px-ui-xxs py-ui-xxs z-20 opacity-50 group-hover:opacity-100 transition-opacity">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={handleDumpContext}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-white"
-                  >
-                    {debugLLMContextLoading ?
-                      <SpinnerGapIcon size={14} weight="bold" className="animate-spin" />
-                    : copied ?
-                      <CheckIcon size={14} weight="bold" className="text-green-400" />
-                    : <CopyIcon size={14} weight="bold" />}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Copy context</TooltipContent>
-              </Tooltip>
+              <CopyContextButton />
               <span className="text-xxs uppercase text-foreground px-ui-xxs opacity-0 group-hover:opacity-100 transition-opacity">
                 Show system
               </span>

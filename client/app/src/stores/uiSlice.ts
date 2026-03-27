@@ -58,9 +58,7 @@ export interface UISlice {
   setPlayerTargetId: (targetId: string | undefined) => void
 
   debugLLMContext: string | null
-  debugLLMContextLoading: boolean
   setDebugLLMContext: (context: string | null) => void
-  setDebugLLMContextLoading: (loading: boolean) => void
 }
 
 export const createUISlice: StateCreator<UISlice> = (set, get) => ({
@@ -90,17 +88,10 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   llmIsWorking: false,
 
   debugLLMContext: null,
-  debugLLMContextLoading: false,
   setDebugLLMContext: (context: string | null) =>
     set(
       produce((state) => {
         state.debugLLMContext = context
-      })
-    ),
-  setDebugLLMContextLoading: (loading: boolean) =>
-    set(
-      produce((state) => {
-        state.debugLLMContextLoading = loading
       })
     ),
 
