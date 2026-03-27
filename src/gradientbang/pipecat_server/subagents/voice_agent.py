@@ -11,6 +11,7 @@ so EventRelay can query task state during event routing.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import time
@@ -99,6 +100,9 @@ class VoiceAgent(LLMAgent):
         self._voice_agent_request_ids: Dict[str, float] = {}
         self._voice_agent_request_queue: deque[tuple[str, float]] = deque()
 
+        # ── Inject coalescing ──
+        self._inject_run_pending: bool = False
+
 
 
     # ── Properties ─────────────────────────────────────────────────────
@@ -167,10 +171,32 @@ class VoiceAgent(LLMAgent):
         return request_id in self._voice_agent_request_ids
 
     async def inject_context(self, messages: list, *, run_llm: bool = True) -> None:
-        """Inject messages into LLM context, deferring if tool calls are active."""
-        await self.queue_frame_after_tools(
-            LLMMessagesAppendFrame(messages=messages, run_llm=run_llm)
-        )
+        """Inject messages into LLM context, deferring if tool calls are active.
+
+        When tool calls are inflight the frame is deferred via the normal
+        ``queue_frame_after_tools`` path so ``process_deferred_tool_frames``
+        can coalesce multiple events into a single inference on flush.
+
+        When no tool calls are inflight the append is sent immediately with
+        ``run_llm=False``, and a single deferred ``LLMRunFrame`` is scheduled
+        via ``asyncio.ensure_future``.  Rapid-fire calls (e.g. three corp-ship
+        tasks completing simultaneously) share the same pending task, so only
+        one ``LLMRunFrame`` is ever queued per asyncio iteration.
+        """
+        if self._tool_call_inflight > 0:
+            # Defer; process_deferred_tool_frames will coalesce
+            self._deferred_frames.append(LLMMessagesAppendFrame(messages=messages, run_llm=run_llm))
+        else:
+            await self.queue_frame(LLMMessagesAppendFrame(messages=messages, run_llm=False))
+            if run_llm and not self._inject_run_pending:
+                self._inject_run_pending = True
+                asyncio.ensure_future(self._emit_coalesced_run())
+
+    async def _emit_coalesced_run(self) -> None:
+        """Send a single LLMRunFrame after yielding to accumulate same-tick injections."""
+        await asyncio.sleep(0)
+        self._inject_run_pending = False
+        await self.queue_frame(LLMRunFrame())
 
     # ── Deferred frame processing ────────────────────────────────────
 

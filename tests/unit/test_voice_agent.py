@@ -256,6 +256,38 @@ class TestDeferredEventBatching:
         assert isinstance(flushed[0], LLMMessagesAppendFrame)
         assert not any(isinstance(f, LLMRunFrame) for f in flushed)
 
+    async def test_concurrent_inject_context_coalesces_to_single_run(self):
+        """N inject_context(run_llm=True) calls without tool inflight → exactly 1 LLMRunFrame.
+
+        REGRESSION: when 3 corp-ship trade tasks complete simultaneously each
+        fires on_task_response → inject_context(run_llm=True).  Without
+        coalescing this pushes 3 LLMMessagesAppendFrame(run_llm=True) frames
+        directly to the VoiceAgent pipeline, triggering 3 sequential inferences
+        all of which answer the same user question.
+        """
+        import asyncio
+
+        from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
+
+        agent = _make_voice_agent()
+        agent.queue_frame = AsyncMock()
+
+        # Simulate 3 task completions arriving in the same asyncio iteration
+        await asyncio.gather(
+            agent.inject_context([{"role": "user", "content": "task1"}], run_llm=True),
+            agent.inject_context([{"role": "user", "content": "task2"}], run_llm=True),
+            agent.inject_context([{"role": "user", "content": "task3"}], run_llm=True),
+        )
+        await asyncio.sleep(0.01)  # allow the deferred LLMRunFrame task to fire
+
+        flushed = [call.args[0] for call in agent.queue_frame.call_args_list]
+        appends = [f for f in flushed if isinstance(f, LLMMessagesAppendFrame)]
+        runs = [f for f in flushed if isinstance(f, LLMRunFrame)]
+
+        assert len(appends) == 3
+        assert all(f.run_llm is False for f in appends)
+        assert len(runs) == 1, f"Expected 1 LLMRunFrame but got {len(runs)}: {runs}"
+
     async def test_process_deferred_tool_frames_hook(self):
         """process_deferred_tool_frames coalesces run_llm and appends LLMRunFrame."""
         from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
