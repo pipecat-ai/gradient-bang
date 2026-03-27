@@ -699,3 +699,229 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 9: Surviving ship fighters/shields persisted after combat ends
+// P1 (100 fighters) defeats P2 (2 fighters). After combat, P1's fighters and
+// shields should be updated in ship_instances to reflect damage taken.
+// ============================================================================
+
+Deno.test({
+  name: "combat_tick — surviving ship fighters persisted after combat",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup — P1 strong, P2 weak", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 3);
+      await setShipFighters(p1ShipId, 100);
+      await setShipFighters(p2ShipId, 2);
+      await setShipShields(p1ShipId, 0);
+      await setShipShields(p2ShipId, 0);
+    });
+
+    // Record P1's pre-combat state
+    let p1PreFighters: number;
+
+    await t.step("record pre-combat fighter count", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship, "P1 ship should exist");
+      p1PreFighters = Number(ship.current_fighters);
+      assertEquals(p1PreFighters, 100, "P1 should start with 100 fighters");
+    });
+
+    let combatId: string;
+    let cursorP1: number;
+
+    await t.step("initiate combat", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+      await apiOk("combat_initiate", { character_id: p1Id });
+      const events = await eventsOfType(p1Id, "combat.round_waiting", cursorP1);
+      combatId = (events[events.length - 1].payload as Record<string, unknown>).combat_id as string;
+      assertExists(combatId, "combat_id should exist");
+    });
+
+    await t.step("P1 attacks P2 until defeat", async () => {
+      for (let round = 0; round < 5; round++) {
+        cursorP1 = await getEventCursor(p1Id);
+        try {
+          await apiOk("combat_action", {
+            character_id: p1Id,
+            combat_id: combatId,
+            action: "attack",
+            commit: 50,
+            target_id: p2Id,
+          });
+        } catch (_e) {
+          break;
+        }
+        await expireCombatDeadline(3);
+        await apiOk("combat_tick", {});
+
+        const endCheck = await eventsOfType(p1Id, "combat.ended", cursorP1);
+        if (endCheck.length >= 1) break;
+
+        const combat = await queryCombatState(3);
+        if (combat?.ended) break;
+      }
+
+      const combat = await queryCombatState(3);
+      assertExists(combat, "Combat state should exist");
+      assertEquals(combat.ended, true, "Combat should have ended");
+    });
+
+    await t.step("P1 (survivor) fighters persisted in DB", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship, "P1 ship should exist");
+      const postFighters = Number(ship.current_fighters);
+      // P2 had 2 fighters attacking back (via brace counter or direct), so P1
+      // should have taken at least some damage. Even if P2 only braced, the
+      // combat engine resolves with the in-memory state. The key assertion is
+      // that the DB value differs from the pre-combat value of 100 OR matches
+      // the encounter's final participant state.
+      // At minimum, verify the DB was actually updated by checking against the
+      // combat encounter's final state.
+      const combat = await queryCombatState(3);
+      assertExists(combat, "Combat state should exist");
+      const participants = combat.participants as Record<string, Record<string, unknown>>;
+      // Find P1's participant entry
+      let p1CombatFighters: number | null = null;
+      for (const [_pid, p] of Object.entries(participants)) {
+        if (p.owner_character_id === p1Id) {
+          p1CombatFighters = Number(p.fighters);
+          break;
+        }
+      }
+      assertExists(p1CombatFighters, "P1 should be in combat participants");
+      assertEquals(
+        postFighters,
+        p1CombatFighters,
+        `DB fighters (${postFighters}) should match combat state (${p1CombatFighters})`,
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 10: Surviving ship fighters/shields persisted after garrison combat
+// P2 (200 fighters) attacks a garrison (5 fighters). After combat ends, P2's
+// fighters in ship_instances should reflect damage taken during the fight.
+// ============================================================================
+
+Deno.test({
+  name: "combat_tick — surviving ship fighters persisted after garrison combat",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup — garrison in sector 3", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      // Deploy garrison via P1
+      await setShipSector(p2ShipId, 4); // Move P2 out first
+      await setShipSector(p1ShipId, 3);
+      await setShipFighters(p1ShipId, 200);
+      await apiOk("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 50,
+        mode: "offensive",
+      });
+      // Move P1 away
+      await setShipSector(p1ShipId, 7);
+      // Set up P2 for attack
+      await setShipFighters(p2ShipId, 200);
+      await setShipShields(p2ShipId, 0);
+      await setShipWarpPower(p2ShipId, 500);
+    });
+
+    let p2PreFighters: number;
+
+    await t.step("record P2 pre-combat fighters", async () => {
+      const ship = await queryShip(p2ShipId);
+      assertExists(ship, "P2 ship should exist");
+      p2PreFighters = Number(ship.current_fighters);
+      assertEquals(p2PreFighters, 200, "P2 should start with 200 fighters");
+    });
+
+    let combatId: string;
+    let cursorP2: number;
+    let garrisonCombatantId: string;
+
+    await t.step("P2 moves into sector and triggers combat", async () => {
+      cursorP2 = await getEventCursor(p2Id);
+      await apiOk("move", { character_id: p2Id, to_sector: 3 });
+      const events = await eventsOfType(p2Id, "combat.round_waiting", cursorP2);
+      assert(events.length >= 1, "Should trigger combat with garrison");
+      combatId = (events[events.length - 1].payload as Record<string, unknown>).combat_id as string;
+
+      // Find garrison combatant ID
+      const combat = await queryCombatState(3);
+      assertExists(combat, "Combat should exist");
+      const participants = combat.participants as Record<string, Record<string, unknown>>;
+      for (const [pid, p] of Object.entries(participants)) {
+        if (p.combatant_type === "garrison") {
+          garrisonCombatantId = pid;
+          break;
+        }
+      }
+      assertExists(garrisonCombatantId, "Should have garrison participant");
+    });
+
+    await t.step("P2 attacks garrison until combat ends", async () => {
+      for (let round = 0; round < 5; round++) {
+        cursorP2 = await getEventCursor(p2Id);
+        try {
+          await apiOk("combat_action", {
+            character_id: p2Id,
+            combat_id: combatId,
+            action: "attack",
+            commit: 100,
+            target_id: garrisonCombatantId,
+          });
+        } catch (_e) {
+          break;
+        }
+        await expireCombatDeadline(3);
+        await apiOk("combat_tick", {});
+
+        const endCheck = await eventsOfType(p2Id, "combat.ended", cursorP2);
+        if (endCheck.length >= 1) break;
+
+        const combat = await queryCombatState(3);
+        if (combat?.ended) break;
+      }
+
+      const combat = await queryCombatState(3);
+      assertExists(combat, "Combat state should exist");
+      assertEquals(combat.ended, true, "Combat should have ended");
+    });
+
+    await t.step("P2 (survivor) fighters persisted in DB", async () => {
+      const ship = await queryShip(p2ShipId);
+      assertExists(ship, "P2 ship should exist");
+      const postFighters = Number(ship.current_fighters);
+
+      // Verify DB matches the combat encounter's final state for P2
+      const combat = await queryCombatState(3);
+      assertExists(combat, "Combat state should exist");
+      const participants = combat.participants as Record<string, Record<string, unknown>>;
+      let p2CombatFighters: number | null = null;
+      for (const [_pid, p] of Object.entries(participants)) {
+        if (p.owner_character_id === p2Id) {
+          p2CombatFighters = Number(p.fighters);
+          break;
+        }
+      }
+      assertExists(p2CombatFighters, "P2 should be in combat participants");
+      assertEquals(
+        postFighters,
+        p2CombatFighters,
+        `DB fighters (${postFighters}) should match combat state (${p2CombatFighters})`,
+      );
+    });
+  },
+});

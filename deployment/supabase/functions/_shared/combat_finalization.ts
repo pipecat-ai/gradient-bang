@@ -374,11 +374,33 @@ export async function finalizeCombat(
   }
 
   for (const [pid, participant] of Object.entries(encounter.participants)) {
-    if (participant.combatant_type !== "garrison") {
+    if (participant.combatant_type === "garrison") {
+      const remaining = outcome.fighters_remaining?.[pid] ?? participant.fighters;
+      await updateGarrisonState(supabase, participant, remaining);
       continue;
     }
-    const remaining = outcome.fighters_remaining?.[pid] ?? participant.fighters;
-    await updateGarrisonState(supabase, participant, remaining);
+
+    // Persist surviving character ships' fighters/shields to ship_instances
+    if (participant.combatant_type === "character") {
+      const remainingFighters = outcome.fighters_remaining?.[pid];
+      if (remainingFighters === undefined || remainingFighters <= 0) {
+        // Defeated ships are already handled above (escape pod conversion)
+        continue;
+      }
+      const shipId = participant.metadata?.ship_id as string | undefined;
+      if (!shipId) continue;
+      const remainingShields = outcome.shields_remaining?.[pid] ?? participant.shields;
+      const { error } = await supabase
+        .from("ship_instances")
+        .update({
+          current_fighters: remainingFighters,
+          current_shields: remainingShields,
+        })
+        .eq("ship_id", shipId);
+      if (error) {
+        console.error("combat_finalization.update_surviving_ship", { shipId, error });
+      }
+    }
   }
 
   return { salvageEntries, deferredDeletions };
