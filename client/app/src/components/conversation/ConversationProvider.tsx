@@ -1,5 +1,4 @@
 import { createContext, useContext, useRef } from "react"
-import { flushSync } from "react-dom"
 
 import {
   type BotOutputData,
@@ -109,8 +108,7 @@ export const ConversationProvider = ({ children }: React.PropsWithChildren) => {
     clearTimeout(placeholderTimeoutRef.current)
     placeholderTimeoutRef.current = undefined
 
-    const wasNew = ensureAssistantMessage()
-    if (wasNew) flushSync(() => {})
+    ensureAssistantMessage()
 
     // Handle spacing for BotOutput chunks
     let textToAdd = data.text
@@ -197,7 +195,7 @@ export const ConversationProvider = ({ children }: React.PropsWithChildren) => {
     if (final) {
       clearTimeout(placeholderTimeoutRef.current)
       placeholderTimeoutRef.current = setTimeout(() => {
-        flushSync(() => ensureAssistantMessage())
+        ensureAssistantMessage()
       }, 300)
     }
   })

@@ -131,7 +131,6 @@ export const mergeMessages = (messages: ConversationMessage[]): ConversationMess
 
     const shouldMerge =
       lastMerged &&
-      !lastMerged.final &&
       lastMerged.role === currentMessage.role &&
       currentMessage.role !== "system" &&
       currentMessage.role !== "function_call" &&
