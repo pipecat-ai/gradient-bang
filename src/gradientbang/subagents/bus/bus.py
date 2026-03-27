@@ -7,12 +7,14 @@ Provides the abstract `AgentBus` base class. Concrete implementations
 import asyncio
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Coroutine, Optional
+from typing import Coroutine, Optional
 
+from loguru import logger
 from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
 
-from gradientbang.subagents.bus.messages import BusMessage
+from gradientbang.subagents.bus.messages import BusLocalMessage, BusMessage
+from gradientbang.subagents.bus.queue import BusMessageQueue
 from gradientbang.subagents.bus.subscriber import BusSubscriber
 
 
@@ -22,12 +24,12 @@ class BusSubscription:
 
     Parameters:
         subscriber: The subscriber receiving messages.
-        client: The connection handle returned by `connect()`.
-        task: The delivery task, set once the bus is started.
+        queue: Priority queue for message delivery.
+        task: The dispatch task, set once the bus is started.
     """
 
     subscriber: BusSubscriber
-    client: Any
+    queue: BusMessageQueue = field(default_factory=BusMessageQueue, repr=False)
     task: Optional[asyncio.Task] = field(default=None, repr=False)
 
 
@@ -35,11 +37,14 @@ class AgentBus(BaseObject):
     """Abstract base for inter-agent and runner-agent communication.
 
     Provides pub/sub messaging where each subscriber receives messages
-    independently so that slow handlers never block other subscribers.
+    independently through its own priority queue. System messages
+    (e.g. cancel) are delivered before normal data messages.
 
-    Subclasses implement ``connect()``, ``disconnect()``, ``send()``,
-    and ``receive()`` for the specific transport (in-process queues,
-    Redis pub/sub, etc.).
+    Subclasses implement ``publish()`` for the specific transport.
+    ``send()`` handles local-only messages automatically. For network
+    buses, override ``start()``/``stop()`` to manage connections and
+    call ``on_message_received()`` when messages arrive from the
+    network.
     """
 
     def __init__(self, **kwargs):
@@ -92,19 +97,17 @@ class AgentBus(BaseObject):
         await self._task_manager.cancel_task(task)
 
     async def start(self):
-        """Start delivery tasks for all registered subscribers."""
+        """Start dispatch tasks for all registered subscribers."""
         if self._running:
             return
         self._running = True
         for sub in self._subscriptions:
-            sub.task = self.create_asyncio_task(
-                self._subscriber_task(sub), f"bus_subscriber_{sub.subscriber}"
-            )
+            self._start_dispatch_task(sub)
         # Schedule tasks right away.
         await asyncio.sleep(0)
 
     async def stop(self):
-        """Stop all subscriber tasks and disconnect them."""
+        """Stop all dispatch tasks."""
         if not self._running:
             return
         self._running = False
@@ -119,18 +122,15 @@ class AgentBus(BaseObject):
         Args:
             subscriber: The `BusSubscriber` to register.
         """
-        client = await self.connect()
-        sub = BusSubscription(subscriber=subscriber, client=client)
+        sub = BusSubscription(subscriber=subscriber)
         if self._running:
-            sub.task = self.create_asyncio_task(
-                self._subscriber_task(sub), f"bus_subscriber_{sub.subscriber}"
-            )
+            self._start_dispatch_task(sub)
             # Schedule task right away.
             await asyncio.sleep(0)
         self._subscriptions.append(sub)
 
     async def unsubscribe(self, subscriber: BusSubscriber) -> None:
-        """Remove a subscriber, cancel its task, and disconnect.
+        """Remove a subscriber and cancel its dispatch task.
 
         Args:
             subscriber: The `BusSubscriber` to remove.
@@ -139,57 +139,54 @@ class AgentBus(BaseObject):
             if sub.subscriber is subscriber:
                 if sub.task:
                     await self.cancel_asyncio_task(sub.task)
-                else:
-                    await self.disconnect(sub.client)
                 self._subscriptions.pop(i)
                 return
 
-    @abstractmethod
-    async def connect(self) -> Any:
-        """Create a new connection to the bus for reading messages.
-
-        Returns:
-            A client handle passed to `receive()` and `disconnect()`.
-        """
-        pass
-
-    @abstractmethod
-    async def disconnect(self, client: Any) -> None:
-        """Clean up a connection created by `connect()`.
-
-        Args:
-            client: The client handle returned by `connect()`.
-        """
-        pass
-
-    @abstractmethod
     async def send(self, message: BusMessage) -> None:
-        """Send a message through the bus to all subscribers.
+        """Send a message through the bus.
+
+        Local-only messages are delivered directly to subscribers.
+        All other messages are passed to ``publish()`` for transport.
 
         Args:
             message: The bus message to send.
         """
-        pass
+        if isinstance(message, BusLocalMessage):
+            self.on_message_received(message)
+            return
+        await self.publish(message)
 
     @abstractmethod
-    async def receive(self, client: Any) -> BusMessage:
-        """Wait for and return the next message from the bus.
+    async def publish(self, message: BusMessage) -> None:
+        """Publish a message to the transport.
+
+        Subclasses implement this for the specific transport. Called
+        by ``send()`` after filtering local-only messages.
 
         Args:
-            client: The client handle returned by `connect()`.
-
-        Returns:
-            The next `BusMessage` available on this connection.
+            message: The bus message to publish.
         """
         pass
 
-    async def _subscriber_task(self, sub: BusSubscription):
-        """Deliver messages from the bus to a subscriber."""
+    def on_message_received(self, message: BusMessage) -> None:
+        """Deliver a message to all local subscribers via their priority queues.
+
+        Called by bus implementations when a message arrives (either from
+        a local ``send()`` or from a network transport).
+        """
+        for sub in self._subscriptions:
+            sub.queue.put_nowait(message)
+
+    def _start_dispatch_task(self, sub: BusSubscription) -> None:
+        sub.task = self.create_asyncio_task(
+            self._dispatch_task(sub), f"bus_dispatch_{sub.subscriber}"
+        )
+
+    async def _dispatch_task(self, sub: BusSubscription):
+        """Read from a subscriber's priority queue and dispatch to handler."""
         try:
             while True:
-                message = await self.receive(sub.client)
+                message = await sub.queue.get()
                 await sub.subscriber.on_bus_message(message)
         except asyncio.CancelledError:
             pass
-        finally:
-            await self.disconnect(sub.client)

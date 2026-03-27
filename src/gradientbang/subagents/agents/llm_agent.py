@@ -21,6 +21,7 @@ from pipecat.frames.frames import (
     UninterruptibleFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 
@@ -80,6 +81,7 @@ class LLMAgent(BaseAgent):
         bus: AgentBus,
         active: bool = False,
         bridged: Optional[tuple[str, ...]] = None,
+        defer_tool_frames: bool = True,
     ):
         """Initialize the LLMAgent.
 
@@ -88,6 +90,8 @@ class LLMAgent(BaseAgent):
             bus: The `AgentBus` for inter-agent communication.
             active: Whether the agent starts active. Defaults to False.
             bridged: Bridge configuration. See ``BaseAgent`` for details.
+            defer_tool_frames: Whether to defer frames queued during
+                tool execution until all tools complete. Defaults to True.
         """
         super().__init__(
             name,
@@ -96,11 +100,19 @@ class LLMAgent(BaseAgent):
             bridged=bridged,
             exclude_frames=(PipelineFlushFrame,),
         )
+        # LLM service, created in build_pipeline via create_llm().
         self._llm: Optional[LLMService] = None
+
+        # Pipeline flush. Signaled when a PipelineFlushFrame completes
+        # its round-trip, used to ensure function call results are
+        # fully processed before proceeding.
         self._flush_done: asyncio.Event = asyncio.Event()
-        self._flush_handlers_registered: bool = False
+
+        # Tool call deferral. When defer_tool_frames is True, frames
+        # queued during tool execution are held until all tools complete.
+        self._defer_tool_frames = defer_tool_frames
         self._tool_call_inflight: int = 0
-        self._deferred_frames: deque[Frame] = deque()
+        self._deferred_frames: deque[tuple[Frame, FrameDirection]] = deque()
 
     async def on_activated(self, args: Optional[dict]) -> None:
         """Configure the LLM with tools and activation messages.
@@ -127,8 +139,10 @@ class LLMAgent(BaseAgent):
         """True when one or more ``@tool`` methods are executing."""
         return self._tool_call_inflight > 0
 
-    async def queue_frame_after_tools(self, frame: Frame) -> None:
-        """Queue a frame, deferring delivery until all tools complete.
+    async def queue_frame(
+        self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM
+    ) -> None:
+        """Queue a frame, deferring delivery until all tools complete (if any).
 
         When tool calls are in progress, the frame is held in an internal
         queue and delivered automatically once the last tool finishes.
@@ -136,11 +150,13 @@ class LLMAgent(BaseAgent):
 
         Args:
             frame: Any ``Frame`` to deliver.
+            direction: Direction the frame should travel. Defaults to
+                ``FrameDirection.DOWNSTREAM``.
         """
-        if self._tool_call_inflight > 0:
-            self._deferred_frames.append(frame)
+        if self._defer_tool_frames and self._tool_call_inflight > 0:
+            self._deferred_frames.append((frame, direction))
         else:
-            await self.queue_frame(frame)
+            await super().queue_frame(frame, direction)
 
     def build_tools(self) -> list:
         """Return the tools for this agent's LLM.
@@ -196,6 +212,31 @@ class LLMAgent(BaseAgent):
         self._llm = self.create_llm()
         return Pipeline([self._llm])
 
+    async def create_pipeline_task(self) -> PipelineTask:
+        """Create the agent's pipeline task.
+
+        Called by the runner.
+
+        Returns:
+            The configured ``PipelineTask``.
+        """
+        task = await super().create_pipeline_task()
+
+        task.add_reached_upstream_filter((PipelineFlushFrame,))
+        task.add_reached_downstream_filter((PipelineFlushFrame,))
+
+        @task.event_handler("on_frame_reached_upstream")
+        async def _on_flush_upstream(task, frame):
+            if isinstance(frame, PipelineFlushFrame):
+                await task.queue_frame(PipelineFlushFrame())
+
+        @task.event_handler("on_frame_reached_downstream")
+        async def _on_flush_downstream(task, frame):
+            if isinstance(frame, PipelineFlushFrame):
+                self._flush_done.set()
+
+        return task
+
     async def end(
         self,
         *,
@@ -236,7 +277,9 @@ class LLMAgent(BaseAgent):
         await self._close_function_call(result_callback)
         await super().handoff_to(agent_name, args=args)
 
-    async def process_deferred_tool_frames(self, frames: list[Frame]) -> list[Frame]:
+    async def process_deferred_tool_frames(
+        self, frames: list[tuple[Frame, FrameDirection]]
+    ) -> list[tuple[Frame, FrameDirection]]:
         """Process deferred frames before they are flushed.
 
         Called after all in-flight tools complete, before the deferred
@@ -265,10 +308,18 @@ class LLMAgent(BaseAgent):
         return wrapper
 
     async def _flush_deferred_frames(self) -> None:
+        # Wait unti the function result frame is really processed.
+        await self._flush_pipeline()
+
         frames = list(self._deferred_frames)
         self._deferred_frames.clear()
-        for frame in await self.process_deferred_tool_frames(frames):
-            await self.queue_frame(frame)
+        for frame, direction in await self.process_deferred_tool_frames(frames):
+            await super().queue_frame(frame, direction)
+
+    async def _flush_pipeline(self) -> None:
+        self._flush_done.clear()
+        await self.pipeline_task.queue_frame(PipelineFlushFrame(), FrameDirection.UPSTREAM)
+        await self._flush_done.wait()
 
     async def _close_function_call(
         self, result_callback: Optional[FunctionCallResultCallback]
@@ -288,22 +339,5 @@ class LLMAgent(BaseAgent):
 
         await result_callback(None, properties=FunctionCallResultProperties(run_llm=False))
 
-        if not self._flush_handlers_registered:
-            self._flush_handlers_registered = True
-
-            self.pipeline_task.add_reached_upstream_filter((PipelineFlushFrame,))
-            self.pipeline_task.add_reached_downstream_filter((PipelineFlushFrame,))
-
-            @self.pipeline_task.event_handler("on_frame_reached_upstream")
-            async def _on_flush_upstream(task, frame):
-                if isinstance(frame, PipelineFlushFrame):
-                    await task.queue_frame(PipelineFlushFrame())
-
-            @self.pipeline_task.event_handler("on_frame_reached_downstream")
-            async def _on_flush_downstream(task, frame):
-                if isinstance(frame, PipelineFlushFrame):
-                    self._flush_done.set()
-
-        self._flush_done.clear()
-        await self.pipeline_task.queue_frame(PipelineFlushFrame(), FrameDirection.UPSTREAM)
-        await self._flush_done.wait()
+        # Wait unti the function result frame is really processed.
+        await self._flush_pipeline()

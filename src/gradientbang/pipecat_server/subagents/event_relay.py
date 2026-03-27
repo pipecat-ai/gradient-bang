@@ -94,7 +94,9 @@ class EventConfig:
     suppress_deferred_inference: bool = False  # Suppress run_llm when deferred during tool calls
 
     # XML
-    xml_context_key: Optional[str] = None  # Payload key to extract as an XML attribute (e.g. "combat_id")
+    xml_context_key: Optional[str] = (
+        None  # Payload key to extract as an XML attribute (e.g. "combat_id")
+    )
 
 
 _DEFAULT_CONFIG = EventConfig()
@@ -379,7 +381,9 @@ class TaskStateProvider(Protocol):
     """Callbacks that EventRelay needs from the task-state owner (VoiceAgent)."""
 
     # Event distribution to TaskAgent children via bus
-    async def broadcast_game_event(self, event: Dict[str, Any], *, voice_agent_originated: bool = False) -> None: ...
+    async def broadcast_game_event(
+        self, event: Dict[str, Any], *, voice_agent_originated: bool = False
+    ) -> None: ...
 
     # Task awareness (for routing decisions)
     def is_our_task(self, task_id: str) -> bool: ...
@@ -389,7 +393,7 @@ class TaskStateProvider(Protocol):
     # LLM frame management (inherited from LLMAgent)
     @property
     def tool_call_active(self) -> bool: ...
-    async def queue_frame_after_tools(self, frame) -> None: ...
+    async def queue_frame(self, frame) -> None: ...
 
 
 # ── EventRelay ────────────────────────────────────────────────────────────
@@ -446,7 +450,9 @@ class EventRelay:
         # Issue megaport check — response arrives as a ports.list event after resume
         try:
             mega_ack = await self._game_client.list_known_ports(
-                character_id=self._character_id, mega=True, max_hops=100,
+                character_id=self._character_id,
+                mega=True,
+                max_hops=100,
             )
             req_id = mega_ack.get("request_id") if isinstance(mega_ack, Mapping) else None
             if req_id:
@@ -504,7 +510,9 @@ class EventRelay:
                     should_run_llm=False,
                 )
 
-    def _resolve_initial_megaport_check(self, request_id: Optional[str], clean_payload: Any) -> None:
+    def _resolve_initial_megaport_check(
+        self, request_id: Optional[str], clean_payload: Any
+    ) -> None:
         """Resolve the initial megaport check from join()."""
         if not self._megaport_check_request_id:
             return
@@ -616,7 +624,7 @@ class EventRelay:
     # ── LLM event delivery ─────────────────────────────────────────────
 
     async def _deliver_llm_event(self, event_xml: str, should_run_llm: bool) -> None:
-        await self._task_state.queue_frame_after_tools(
+        await self._task_state.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[{"role": "user", "content": event_xml}],
                 run_llm=should_run_llm,
@@ -729,7 +737,9 @@ class EventRelay:
 
         # Suppress initial status.snapshot inference until onboarding resolves
         if result and not self._onboarding_complete and event_name == "status.snapshot":
-            logger.info("Onboarding: suppressing status.snapshot inference until onboarding resolves")
+            logger.info(
+                "Onboarding: suppressing status.snapshot inference until onboarding resolves"
+            )
             result = False
 
         return result
@@ -767,13 +777,13 @@ class EventRelay:
             is_voice_originated = _src_rid is not None
         else:
             is_voice_originated = (
-                self._task_state.is_recent_request_id(request_id)
-                if request_id
-                else False
+                self._task_state.is_recent_request_id(request_id) if request_id else False
             )
 
         # Broadcast every event to the bus for TaskAgent children
-        await self._task_state.broadcast_game_event(event, voice_agent_originated=is_voice_originated)
+        await self._task_state.broadcast_game_event(
+            event, voice_agent_originated=is_voice_originated
+        )
 
         direct_recipient = self._is_direct_recipient_event(event_context)
         in_participants = _is_player_participant(self, clean_payload)
@@ -871,7 +881,7 @@ class EventRelay:
         if payload_task_id and self._task_state.tool_call_active:
             if cfg.suppress_deferred_inference:
                 should_run_llm = False
-            await self._task_state.queue_frame_after_tools(
+            await self._task_state.queue_frame(
                 LLMMessagesAppendFrame(
                     messages=[{"role": "user", "content": event_xml}],
                     run_llm=should_run_llm,

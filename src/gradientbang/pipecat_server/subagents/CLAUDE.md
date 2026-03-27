@@ -48,7 +48,7 @@ game_client → EventRelay (routing rules)
 `LLMAgent()`. Autonomous task execution.
 
 - **31 tools** from TASK_TOOLS (shared schemas, catch-all handler via `register_function(None, ...)`)
-- **Bus-based events**: receives `BusGameEventMessage` in `on_bus_message`, filters by task_id/character_id. No game_client event subscriptions.
+- **Bus-based events**: receives `BusDataMessage` in `on_bus_message`, filters by task_id/character_id. No game_client event subscriptions.
 - **Inference engine**: async tool completion pattern, event batching, watchdogs, no-tool nudging, error limits
 - **Bus protocol**: `on_task_request` starts work, `send_task_update` reports progress, `send_task_response` completes
 - **Steering**: handles `BusSteerTaskMessage` for mid-task instruction changes
@@ -56,7 +56,8 @@ game_client → EventRelay (routing rules)
 ### bus_messages.py
 
 Custom bus messages extending `BusMessage`:
-- `BusGameEventMessage(event)` — broadcasts game events to bus for TaskAgents
+
+- `BusDataMessage(event)` — broadcasts game events to bus for TaskAgents
 - `BusSteerTaskMessage(task_id, text)` — VoiceAgent→TaskAgent mid-task instruction
 
 ### event_relay.py
@@ -64,10 +65,11 @@ Custom bus messages extending `BusMessage`:
 Plain service class (not a BaseAgent). Declarative `EVENT_CONFIGS` registry controls per-event routing.
 
 Minimal task awareness via `TaskStateProvider` protocol:
+
 - `broadcast_game_event(event)` — distribute events to bus
 - `is_our_task(task_id)` — check if event belongs to our task
 - `is_recent_request_id` — request ID cache
-- `tool_call_active`, `queue_frame_after_tools` — LLM frame management
+- `tool_call_active`, `queue_frame` — LLM frame management
 
 Does NOT: track tasks, forward events to TaskAgents, manage polling scope.
 
@@ -81,9 +83,9 @@ NOT on the bus. Runs as a `ParallelPipeline` branch inside MainAgent's pipeline.
 uv run pytest tests/unit/ -v
 ```
 
-| File | What it tests |
-|---|---|
-| test_event_relay.py | Event routing, onboarding, voice summaries, simplified TaskStateProvider |
-| test_voice_agent.py | Tool registration, framework task helpers, bus event broadcast, polling scope, task handlers (stop/steer/query) |
-| test_voice_relay_integration.py | Real EventRelay↔VoiceAgent wiring: onboarding flows, combat routing, event flow integrity |
-| test_task_agent.py | Construction, tool coverage, state management, bus event reception, cancellation, steering |
+| File                            | What it tests                                                                                                   |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| test_event_relay.py             | Event routing, onboarding, voice summaries, simplified TaskStateProvider                                        |
+| test_voice_agent.py             | Tool registration, framework task helpers, bus event broadcast, polling scope, task handlers (stop/steer/query) |
+| test_voice_relay_integration.py | Real EventRelay↔VoiceAgent wiring: onboarding flows, combat routing, event flow integrity                       |
+| test_task_agent.py              | Construction, tool coverage, state management, bus event reception, cancellation, steering                      |

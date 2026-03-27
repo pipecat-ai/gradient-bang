@@ -15,6 +15,7 @@ from gradientbang.subagents.agents.task_group import (
     TaskGroupError,
     TaskGroupEvent,
     TaskGroupResponse,
+    TaskStatus,
 )
 from gradientbang.subagents.agents.tool import tool
 
@@ -28,5 +29,6 @@ __all__ = [
     "TaskGroupError",
     "TaskGroupEvent",
     "TaskGroupResponse",
+    "TaskStatus",
     "tool",
 ]

@@ -50,11 +50,13 @@ from gradientbang.subagents.bus import (
     BusTaskCancelMessage,
     BusTaskRequestMessage,
     BusTaskResponseMessage,
+    BusTaskResponseUrgentMessage,
     BusTaskStreamDataMessage,
     BusTaskStreamEndMessage,
     BusTaskStreamStartMessage,
     BusTaskUpdateMessage,
     BusTaskUpdateRequestMessage,
+    BusTaskUpdateUrgentMessage,
 )
 from gradientbang.subagents.bus.messages import BusFrameMessage
 from gradientbang.subagents.bus.subscriber import BusSubscriber
@@ -163,6 +165,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     Overridable lifecycle methods (always call ``super()``):
 
     - ``on_ready()``: Called once when the agent is ready.
+    - ``on_finished()``: Called when the agent's pipeline has finished.
     - ``on_activated(args)``: Called when this agent is activated.
     - ``on_deactivated()``: Called when this agent is deactivated.
     - ``on_agent_ready(agent_info)``: Called when another agent is ready
@@ -193,6 +196,7 @@ class BaseAgent(BaseObject, BusSubscriber):
     Event handlers available:
 
     - on_ready: Agent is ready to operate.
+    - on_finished: Agent's pipeline has finished.
     - on_error: A pipeline error occurred.
     - on_activated: Agent was activated.
     - on_deactivated: Agent was deactivated.
@@ -276,6 +280,7 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         # This agent's lifecycle
         self._register_event_handler("on_ready")
+        self._register_event_handler("on_finished")
         self._register_event_handler("on_error")
         self._register_event_handler("on_activated")
         self._register_event_handler("on_deactivated")
@@ -397,6 +402,10 @@ class BaseAgent(BaseObject, BusSubscriber):
 
     async def on_ready(self) -> None:
         """Called once when the agent is ready."""
+        pass
+
+    async def on_finished(self) -> None:
+        """Called when the agent's pipeline has finished."""
         pass
 
     async def on_error(self, error: str, fatal: bool) -> None:
@@ -540,9 +549,9 @@ class BaseAgent(BaseObject, BusSubscriber):
             await self._handle_agent_cancel(message)
         elif isinstance(message, BusTaskRequestMessage):
             await self._handle_task_request(message)
-        elif isinstance(message, BusTaskResponseMessage):
+        elif isinstance(message, (BusTaskResponseMessage, BusTaskResponseUrgentMessage)):
             await self._handle_task_response(message)
-        elif isinstance(message, BusTaskUpdateMessage):
+        elif isinstance(message, (BusTaskUpdateMessage, BusTaskUpdateUrgentMessage)):
             await self._handle_task_update(message)
         elif isinstance(message, BusTaskUpdateRequestMessage):
             await self._handle_task_update_request(message)
@@ -651,6 +660,8 @@ class BaseAgent(BaseObject, BusSubscriber):
         @task.event_handler("on_pipeline_finished")
         async def on_pipeline_finished(task, frame):
             logger.debug(f"Agent '{self}': pipeline {task} finished ({frame})")
+            await self.on_finished()
+            await self._call_event_handler("on_finished")
             await self._stop()
 
         return task
@@ -922,7 +933,11 @@ class BaseAgent(BaseObject, BusSubscriber):
         )
 
     async def send_task_response(
-        self, response: Optional[dict] = None, *, status: TaskStatus = TaskStatus.COMPLETED
+        self,
+        response: Optional[dict] = None,
+        *,
+        status: TaskStatus = TaskStatus.COMPLETED,
+        urgent: bool = False,
     ) -> None:
         """Send a task response back to the requester.
 
@@ -931,14 +946,17 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             response: Optional result data.
             status: Completion status. Defaults to ``TaskStatus.COMPLETED``.
+            urgent: When True, the response is delivered with system
+                priority, preempting queued data messages.
 
         Raises:
             RuntimeError: If this agent has no active task.
         """
         if not self._task_id or not self._task_requester:
             raise RuntimeError(f"Agent '{self}': no active task to respond to")
+        msg_class = BusTaskResponseUrgentMessage if urgent else BusTaskResponseMessage
         await self.send_message(
-            BusTaskResponseMessage(
+            msg_class(
                 source=self.name,
                 target=self._task_requester,
                 task_id=self._task_id,
@@ -949,19 +967,24 @@ class BaseAgent(BaseObject, BusSubscriber):
         self._task_id = None
         self._task_requester = None
 
-    async def send_task_update(self, update: Optional[dict] = None) -> None:
+    async def send_task_update(
+        self, update: Optional[dict] = None, *, urgent: bool = False
+    ) -> None:
         """Send a progress update to the requester.
 
         Args:
             update: Optional progress data.
+            urgent: When True, the update is delivered with system
+                priority, preempting queued data messages.
 
         Raises:
             RuntimeError: If this agent has no active task.
         """
         if not self._task_id or not self._task_requester:
             raise RuntimeError(f"Agent '{self}': no active task to update")
+        msg_class = BusTaskUpdateUrgentMessage if urgent else BusTaskUpdateMessage
         await self.send_message(
-            BusTaskUpdateMessage(
+            msg_class(
                 source=self.name,
                 target=self._task_requester,
                 task_id=self._task_id,
@@ -1248,7 +1271,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         await self.on_task_request(message)
         await self._call_event_handler("on_task_request", message)
 
-    async def _handle_task_response(self, message: BusTaskResponseMessage) -> None:
+    async def _handle_task_response(
+        self, message: Union[BusTaskResponseMessage, BusTaskResponseUrgentMessage]
+    ) -> None:
         """Handle a task response and track group completion."""
         await self.on_task_response(message)
         await self._call_event_handler("on_task_response", message)
@@ -1265,7 +1290,9 @@ class BaseAgent(BaseObject, BusSubscriber):
 
         await self._track_task_group_response(message.task_id, message.source, message.response)
 
-    async def _handle_task_update(self, message: BusTaskUpdateMessage) -> None:
+    async def _handle_task_update(
+        self, message: Union[BusTaskUpdateMessage, BusTaskUpdateUrgentMessage]
+    ) -> None:
         """Handle a task progress update."""
         await self.on_task_update(message)
         await self._call_event_handler("on_task_update", message)

@@ -20,12 +20,14 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from loguru import logger
 from pipecat.frames.frames import (
+    Frame,
     FunctionCallResultProperties,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
     LLMRunFrame,
 )
+from pipecat.processors.frame_processor import FrameDirection
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 from pipecat.services.llm_service import FunctionCallParams
 
@@ -36,13 +38,12 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
 )
 from gradientbang.pipecat_server.subagents.event_relay import EventRelay
 from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-from gradientbang.subagents.agents import LLMAgent
+from gradientbang.subagents.agents import LLMAgent, TaskStatus
 from gradientbang.subagents.bus import (
     AgentBus,
     BusEndAgentMessage,
     BusTaskResponseMessage,
     BusTaskUpdateMessage,
-    TaskStatus,
 )
 from gradientbang.tools import VOICE_TOOLS
 from gradientbang.utils.llm_factory import create_llm_service, get_voice_llm_config
@@ -193,42 +194,20 @@ class VoiceAgent(LLMAgent):
         self._prune_request_ids()
         return request_id in self._voice_agent_request_ids
 
-    """
-    async def queue_frame_after_tools(self, frame) -> None:
-       
-        if self._tool_call_inflight > 0:
-            self._deferred_frames.append(frame)
-        elif isinstance(frame, LLMMessagesAppendFrame) and frame.run_llm:
-            frame.run_llm = False
-            await self.queue_frame(frame)
-            if not self._inject_run_pending:
-                self._inject_run_pending = True
-                asyncio.ensure_future(self._emit_coalesced_run())
-        else:
-            await self.queue_frame(frame)
-    """
-
     # ── Deferred frame processing ────────────────────────────────────
 
-    async def process_deferred_tool_frames(self, frames):
-        """Coalesce multiple inference triggers into a single LLMRunFrame.
-
-        When multiple events arrive while tools are in-flight, each gets
-        deferred with ``run_llm=True``. Without coalescing, Pipecat fires
-        N independent inferences on flush. We suppress all ``run_llm``
-        flags and append a single ``LLMRunFrame``.
-        """
+    async def process_deferred_tool_frames(
+        self, frames: list[tuple[Frame, FrameDirection]]
+    ) -> list[tuple[Frame, FrameDirection]]:
         needs_inference = False
-        for f in frames:
+        for f, d in frames:
             if isinstance(f, LLMMessagesAppendFrame) and f.run_llm:
                 f.run_llm = False
                 needs_inference = True
-        if needs_inference or self._deferred_after_response:
-            self._deferred_after_response = False
-            if self._llm_response_inflight:
-                self._deferred_after_response = True  # re-defer until speech ends
-            else:
-                frames.append(LLMRunFrame())
+
+        if needs_inference:
+            frames.append((LLMRunFrame(), FrameDirection.DOWNSTREAM))
+
         return frames
 
     # ── Request ID tracking ────────────────────────────────────────────
@@ -274,15 +253,9 @@ class VoiceAgent(LLMAgent):
         try:
             result = await self._game_client.my_status(character_id=self._character_id)
             self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback(
-                {"error": str(exc)},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+            await params.result_callback({"error": str(exc)})
 
     async def _handle_plot_course(self, params: FunctionCallParams):
         args = params.arguments
@@ -293,15 +266,9 @@ class VoiceAgent(LLMAgent):
                 from_sector=args.get("from_sector"),
             )
             self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback(
-                {"error": str(exc)},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+            await params.result_callback({"error": str(exc)})
 
     async def _handle_list_known_ports(self, params: FunctionCallParams):
         args = params.arguments
@@ -314,15 +281,9 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id, **kwargs
             )
             self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback(
-                {"error": str(exc)},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+            await params.result_callback({"error": str(exc)})
 
     async def _handle_rename_ship(self, params: FunctionCallParams):
         args = params.arguments
@@ -333,15 +294,9 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback(
-                {"error": str(exc)},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+            await params.result_callback({"error": str(exc)})
 
     async def _handle_rename_corporation(self, params: FunctionCallParams):
         args = params.arguments
@@ -351,15 +306,9 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback(
-                {"error": str(exc)},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+            await params.result_callback({"error": str(exc)})
 
     async def _handle_create_corporation(self, params: FunctionCallParams):
         args = params.arguments
@@ -369,15 +318,9 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback(
-                {"error": str(exc)},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+            await params.result_callback({"error": str(exc)})
 
     # ── Fire-and-forget tools ──────────────────────────────────────────
 
@@ -393,15 +336,9 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback(
-                {"error": str(exc)},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+            await params.result_callback({"error": str(exc)})
 
     async def _handle_combat_initiate(self, params: FunctionCallParams):
         args = params.arguments
@@ -412,15 +349,9 @@ class VoiceAgent(LLMAgent):
                 target_type=args.get("target_type", "character"),
             )
             self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback(
-                {"error": str(exc)},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+            await params.result_callback({"error": str(exc)})
 
     async def _handle_combat_action(self, params: FunctionCallParams):
         args = params.arguments
@@ -435,15 +366,9 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback(
-                {"error": str(exc)},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+            await params.result_callback({"error": str(exc)})
 
     # ── Direct-response tools ──────────────────────────────────────────
 
@@ -706,7 +631,7 @@ class VoiceAgent(LLMAgent):
             event_xml = (
                 f'<event name="task.progress" task_id="{message.task_id[:8]}">\n{summary}\n</event>'
             )
-            await self.queue_frame_after_tools(
+            await self.queue_frame(
                 LLMMessagesAppendFrame(
                     messages=[{"role": "user", "content": event_xml}], run_llm=True
                 )
@@ -754,7 +679,7 @@ class VoiceAgent(LLMAgent):
             f'task_type="{task_type}">\n{llm_msg}\n</event>'
         )
 
-        await self.queue_frame_after_tools(
+        await self.queue_frame(
             LLMMessagesAppendFrame(messages=[{"role": "user", "content": event_xml}], run_llm=True)
         )
 

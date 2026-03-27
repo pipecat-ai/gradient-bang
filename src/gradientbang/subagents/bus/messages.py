@@ -9,28 +9,42 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
-from pipecat.frames.frames import DataFrame, Frame
+from pipecat.frames.frames import DataFrame, Frame, SystemFrame
 from pipecat.processors.frame_processor import FrameDirection
-
-from gradientbang.subagents.types import TaskStatus
 
 if TYPE_CHECKING:
     from gradientbang.subagents.agents.base_agent import BaseAgent
+    from gradientbang.subagents.agents.task_group import TaskStatus
 
 
-class BusLocalMixin:
+# ---------------------------------------------------------------------------
+# Base types and mixins
+# ---------------------------------------------------------------------------
+
+
+class BusMessage:
+    """Mixin carrying source/target metadata for bus messages.
+
+    Not a frame itself. Combined with ``DataFrame`` or ``SystemFrame``
+    to create concrete message types with appropriate priority.
+    """
+
+    source: str
+    target: Optional[str] = None
+
+    def __str__(self):
+        return f"{type(self).__name__} (source={self.source}, target={self.target})"
+
+
+class BusLocalMessage:
     """Mixin: message stays on the local bus, never forwarded to remote buses."""
 
     pass
 
 
 @dataclass(kw_only=True)
-class BusMessage(DataFrame):
-    """Base class for all messages transported over the AgentBus.
-
-    Every bus message carries metadata about its source and optional target.
-    If target is None, the message is broadcast to all agents.
-    If target is set, only that named agent receives it.
+class BusDataMessage(BusMessage, DataFrame):
+    """Normal-priority bus message.
 
     Parameters:
         source: Name of the agent or component that sent this message.
@@ -40,12 +54,27 @@ class BusMessage(DataFrame):
     source: str
     target: Optional[str] = None
 
-    def __str__(self):
-        return f"{self.name} (source={self.source}, target={self.target})"
+
+@dataclass(kw_only=True)
+class BusSystemMessage(BusMessage, SystemFrame):
+    """High-priority bus message that preempts normal messages in subscriber queues.
+
+    Parameters:
+        source: Name of the agent or component that sent this message.
+        target: Name of the intended recipient agent, or None for broadcast.
+    """
+
+    source: str
+    target: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Frame transport
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class BusFrameMessage(BusMessage):
+class BusFrameMessage(BusDataMessage):
     """Wraps a Pipecat `Frame` for transport over the bus.
 
     Parameters:
@@ -59,8 +88,104 @@ class BusFrameMessage(BusMessage):
     bridge: Optional[str] = None
 
 
+# ---------------------------------------------------------------------------
+# Agent lifecycle
+# ---------------------------------------------------------------------------
+
+
 @dataclass
-class BusAgentRegistryMessage(BusMessage):
+class BusActivateAgentMessage(BusDataMessage):
+    """Tells a targeted agent to become active and start processing.
+
+    Parameters:
+        args: Optional activation arguments forwarded to ``on_activated``.
+    """
+
+    args: Optional[dict] = None
+
+
+@dataclass
+class BusDeactivateAgentMessage(BusDataMessage):
+    """Tells a targeted agent to become inactive and stop processing."""
+
+    pass
+
+
+@dataclass
+class BusEndMessage(BusDataMessage):
+    """Request a graceful end of the session.
+
+    Sent by an agent to the runner, which responds by sending
+    `BusEndAgentMessage` to each agent.
+
+    Parameters:
+        reason: Optional human-readable reason for ending.
+    """
+
+    reason: Optional[str] = None
+
+
+@dataclass
+class BusEndAgentMessage(BusDataMessage):
+    """Tells a targeted agent to end its pipeline gracefully.
+
+    Sent by the runner to individual agents during shutdown.
+
+    Parameters:
+        reason: Optional human-readable reason for ending.
+    """
+
+    reason: Optional[str] = None
+
+
+@dataclass
+class BusCancelMessage(BusSystemMessage):
+    """Request a hard cancel of the session.
+
+    Sent by an agent to the runner, which responds by sending
+    `BusCancelAgentMessage` to each agent.
+
+    Parameters:
+        reason: Optional human-readable reason for the cancellation.
+    """
+
+    reason: Optional[str] = None
+
+
+@dataclass
+class BusCancelAgentMessage(BusSystemMessage):
+    """Tells a targeted agent to cancel its pipeline task.
+
+    Sent by the runner to individual agents during cancellation.
+
+    Parameters:
+        reason: Optional human-readable reason for the cancellation.
+    """
+
+    reason: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Agent registry and errors
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BusAddAgentMessage(BusSystemMessage, BusLocalMessage):
+    """Request to add an agent to the local runner.
+
+    Local-only: carries an in-memory agent reference that cannot be
+    serialized over the network.
+
+    Parameters:
+        agent: The agent instance to add.
+    """
+
+    agent: BaseAgent
+
+
+@dataclass
+class BusAgentRegistryMessage(BusSystemMessage):
     """Snapshot of root agents managed by a runner.
 
     Sent by the runner on startup to announce its root agents so that
@@ -76,25 +201,7 @@ class BusAgentRegistryMessage(BusMessage):
 
 
 @dataclass
-class BusActivateAgentMessage(BusMessage):
-    """Tells a targeted agent to become active and start processing.
-
-    Parameters:
-        args: Optional activation arguments forwarded to ``on_activated``.
-    """
-
-    args: Optional[dict] = None
-
-
-@dataclass
-class BusDeactivateAgentMessage(BusMessage):
-    """Tells a targeted agent to become inactive and stop processing."""
-
-    pass
-
-
-@dataclass
-class BusAgentErrorMessage(BusMessage):
+class BusAgentErrorMessage(BusSystemMessage):
     """Reports an error from a root agent.
 
     Sent over the network so remote agents can react. For child agent
@@ -108,7 +215,7 @@ class BusAgentErrorMessage(BusMessage):
 
 
 @dataclass
-class BusAgentLocalErrorMessage(BusMessage, BusLocalMixin):
+class BusAgentLocalErrorMessage(BusSystemMessage, BusLocalMessage):
     """Reports an error from a child agent to its parent.
 
     Local-only: never crosses the network. The parent receives it
@@ -121,76 +228,13 @@ class BusAgentLocalErrorMessage(BusMessage, BusLocalMixin):
     error: str
 
 
-@dataclass
-class BusCancelMessage(BusMessage):
-    """Request a hard cancel of the session.
-
-    Sent by an agent to the runner, which responds by sending
-    `BusCancelAgentMessage` to each agent.
-
-    Parameters:
-        reason: Optional human-readable reason for the cancellation.
-    """
-
-    reason: Optional[str] = None
+# ---------------------------------------------------------------------------
+# Tasks
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class BusCancelAgentMessage(BusMessage):
-    """Tells a targeted agent to cancel its pipeline task.
-
-    Sent by the runner to individual agents during cancellation.
-
-    Parameters:
-        reason: Optional human-readable reason for the cancellation.
-    """
-
-    reason: Optional[str] = None
-
-
-@dataclass
-class BusEndMessage(BusMessage):
-    """Request a graceful end of the session.
-
-    Sent by an agent to the runner, which responds by sending
-    `BusEndAgentMessage` to each agent.
-
-    Parameters:
-        reason: Optional human-readable reason for ending.
-    """
-
-    reason: Optional[str] = None
-
-
-@dataclass
-class BusEndAgentMessage(BusMessage):
-    """Tells a targeted agent to end its pipeline gracefully.
-
-    Sent by the runner to individual agents during shutdown.
-
-    Parameters:
-        reason: Optional human-readable reason for ending.
-    """
-
-    reason: Optional[str] = None
-
-
-@dataclass
-class BusAddAgentMessage(BusMessage, BusLocalMixin):
-    """Request to add an agent to the local runner.
-
-    Local-only: carries an in-memory agent reference that cannot be
-    serialized over the network.
-
-    Parameters:
-        agent: The agent instance to add.
-    """
-
-    agent: BaseAgent
-
-
-@dataclass
-class BusTaskRequestMessage(BusMessage):
+class BusTaskRequestMessage(BusDataMessage):
     """Requests a task agent to start work.
 
     Parameters:
@@ -203,22 +247,40 @@ class BusTaskRequestMessage(BusMessage):
 
 
 @dataclass
-class BusTaskResponseMessage(BusMessage):
+class BusTaskResponseMessage(BusDataMessage):
     """Response from a task agent when it completes.
 
     Parameters:
         task_id: The task identifier.
-        response: Optional result data.
         status: Completion status.
+        response: Optional result data.
     """
 
     task_id: str
+    status: "TaskStatus"
     response: Optional[dict] = None
-    status: TaskStatus = TaskStatus.COMPLETED
 
 
 @dataclass
-class BusTaskUpdateMessage(BusMessage):
+class BusTaskResponseUrgentMessage(BusSystemMessage):
+    """High-priority response from a task agent.
+
+    Same semantics as ``BusTaskResponseMessage`` but delivered with
+    system priority, preempting queued data messages.
+
+    Parameters:
+        task_id: The task identifier.
+        status: Completion status.
+        response: Optional result data.
+    """
+
+    task_id: str
+    status: "TaskStatus"
+    response: Optional[dict] = None
+
+
+@dataclass
+class BusTaskUpdateMessage(BusDataMessage):
     """Progress update from a task agent.
 
     Parameters:
@@ -231,7 +293,23 @@ class BusTaskUpdateMessage(BusMessage):
 
 
 @dataclass
-class BusTaskUpdateRequestMessage(BusMessage):
+class BusTaskUpdateUrgentMessage(BusSystemMessage):
+    """High-priority progress update from a task agent.
+
+    Same semantics as ``BusTaskUpdateMessage`` but delivered with
+    system priority, preempting queued data messages.
+
+    Parameters:
+        task_id: The task identifier.
+        update: Optional progress data.
+    """
+
+    task_id: str
+    update: Optional[dict] = None
+
+
+@dataclass
+class BusTaskUpdateRequestMessage(BusDataMessage):
     """Request a progress update from a task agent.
 
     Parameters:
@@ -242,7 +320,7 @@ class BusTaskUpdateRequestMessage(BusMessage):
 
 
 @dataclass
-class BusTaskCancelMessage(BusMessage):
+class BusTaskCancelMessage(BusSystemMessage):
     """Cancel a running task.
 
     Parameters:
@@ -254,8 +332,13 @@ class BusTaskCancelMessage(BusMessage):
     reason: Optional[str] = None
 
 
+# ---------------------------------------------------------------------------
+# Task streaming
+# ---------------------------------------------------------------------------
+
+
 @dataclass
-class BusTaskStreamStartMessage(BusMessage):
+class BusTaskStreamStartMessage(BusDataMessage):
     """Signals the start of a streaming task response.
 
     Parameters:
@@ -268,7 +351,7 @@ class BusTaskStreamStartMessage(BusMessage):
 
 
 @dataclass
-class BusTaskStreamDataMessage(BusMessage):
+class BusTaskStreamDataMessage(BusDataMessage):
     """A chunk of streaming task data.
 
     Parameters:
@@ -281,7 +364,7 @@ class BusTaskStreamDataMessage(BusMessage):
 
 
 @dataclass
-class BusTaskStreamEndMessage(BusMessage):
+class BusTaskStreamEndMessage(BusDataMessage):
     """Signals the end of a streaming task response.
 
     Parameters:

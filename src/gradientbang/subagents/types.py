@@ -1,16 +1,6 @@
 """Shared types for the pipecat-subagents framework."""
 
 from dataclasses import dataclass
-from enum import Enum
-
-
-class TaskStatus(str, Enum):
-    """Status of a completed task."""
-
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    FAILED = "failed"
-    ERROR = "error"
 
 
 @dataclass

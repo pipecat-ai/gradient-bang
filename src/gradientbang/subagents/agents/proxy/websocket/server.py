@@ -5,6 +5,13 @@ from typing import Optional
 
 from loguru import logger
 
+from gradientbang.subagents.agents.base_agent import BaseAgent
+from gradientbang.subagents.bus import AgentBus, BusAgentRegistryMessage, BusMessage
+from gradientbang.subagents.bus.messages import BusLocalMessage
+from gradientbang.subagents.bus.serializers import JSONMessageSerializer
+from gradientbang.subagents.bus.serializers.base import MessageSerializer
+from gradientbang.subagents.types import AgentReadyData
+
 try:
     from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 except ModuleNotFoundError as e:
@@ -13,13 +20,6 @@ except ModuleNotFoundError as e:
         "In order to use WebSocketProxyServerAgent, you need to `pip install pipecat-ai-subagents[websocket]`."
     )
     raise Exception(f"Missing module: {e}")
-
-from gradientbang.subagents.agents.base_agent import BaseAgent
-from gradientbang.subagents.bus import AgentBus, BusAgentRegistryMessage, BusMessage
-from gradientbang.subagents.bus.messages import BusLocalMixin
-from gradientbang.subagents.bus.serializers import JSONMessageSerializer
-from gradientbang.subagents.bus.serializers.base import MessageSerializer
-from gradientbang.subagents.types import AgentReadyData
 
 
 class WebSocketProxyServerAgent(BaseAgent):
@@ -157,7 +157,7 @@ class WebSocketProxyServerAgent(BaseAgent):
         if not self._ws:
             return
 
-        if isinstance(message, BusLocalMixin):
+        if isinstance(message, BusLocalMessage):
             return
 
         if message.source != self._agent_name:

@@ -3,11 +3,11 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
-from gradientbang.subagents.bus.messages import BusMessage
+from gradientbang.subagents.bus.messages import BusDataMessage
 
 
 @dataclass
-class BusGameEventMessage(BusMessage):
+class BusGameEventMessage(BusDataMessage):
     """Broadcasts a game event to the bus for TaskAgents.
 
     Sent by VoiceAgent when a game event arrives on the game_client.
@@ -27,7 +27,7 @@ class BusGameEventMessage(BusMessage):
 
 
 @dataclass
-class BusSteerTaskMessage(BusMessage):
+class BusSteerTaskMessage(BusDataMessage):
     """Steering instruction for a running task agent.
 
     Sent by VoiceAgent to redirect a TaskAgent mid-execution.

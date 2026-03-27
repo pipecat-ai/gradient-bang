@@ -4,12 +4,30 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, ClassVar, Optional
-
-from gradientbang.subagents.types import TaskStatus
 
 if TYPE_CHECKING:
     from gradientbang.subagents.agents.base_agent import BaseAgent
+
+
+class TaskStatus(str, Enum):
+    """Status of a completed task.
+
+    Inherits from ``str`` so values compare naturally with plain strings
+    and serialize without extra handling.
+
+    Attributes:
+        COMPLETED: The task finished successfully.
+        CANCELLED: The task was cancelled by the requester.
+        FAILED: The task failed due to a logical or business error.
+        ERROR: The task encountered an unexpected runtime error.
+    """
+
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+    ERROR = "error"
 
 
 class TaskGroupError(Exception):
