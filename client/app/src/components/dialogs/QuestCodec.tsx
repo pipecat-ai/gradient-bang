@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { ArrowRightIcon, CaretLeftIcon, WaveSineIcon } from "@phosphor-icons/react"
 
 import FeddyPortrait from "@/assets/images/characters/feddy_the_support_bot.png"
+import OrbPortrait from "@/assets/images/characters/infallible_orb.png"
 import VeecyPortrait from "@/assets/images/characters/venture_chamber_agent.png"
 import { DottedTitle } from "@/components/DottedTitle"
 import { Button } from "@/components/primitives/Button"
@@ -18,11 +19,13 @@ import type { SayTextAction } from "@/types/actions"
 const VOICE_ID_MAP: Record<string, string> = {
   feddy_the_support_bot: "c961b81c-a935-4c17-bfb3-ba2239de8c2f", // Kyle
   venture_chamber_agent: "cbaf8084-f009-4838-a096-07ee2e6612b1", // Maya
+  infallible_orb: "26403c37-80c1-4a1a-8692-540551ca2ae5", // Marian
 }
 
 const PORTRAIT_MAP: Record<string, string> = {
   feddy_the_support_bot: FeddyPortrait,
   venture_chamber_agent: VeecyPortrait,
+  infallible_orb: OrbPortrait,
 }
 
 export const QuestCodec = () => {
