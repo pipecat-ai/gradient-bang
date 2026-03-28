@@ -690,6 +690,69 @@ class TestCorporationDirectTools:
         assert agent.is_recent_request_id("req-rename")
 
 
+@pytest.mark.unit
+class TestEventDrivenToolErrors:
+    @pytest.mark.asyncio
+    async def test_my_status_hyperspace_error_is_silent_during_active_player_task(self):
+        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+
+        agent = _make_voice_agent()
+        agent._game_client.my_status = AsyncMock(
+            side_effect=RuntimeError("my_status failed with status 409: in hyperspace")
+        )
+        active_task = MagicMock(spec=TaskAgent)
+        active_task._is_corp_ship = False
+        agent._children = [active_task]
+        params = MagicMock()
+        params.arguments = {}
+        params.result_callback = AsyncMock()
+
+        await agent._handle_my_status(params)
+
+        params.result_callback.assert_awaited_once()
+        assert params.result_callback.call_args.args[0] == {
+            "error": "my_status failed with status 409: in hyperspace"
+        }
+        properties = params.result_callback.call_args.kwargs["properties"]
+        assert properties.run_llm is False
+
+    @pytest.mark.asyncio
+    async def test_my_status_hyperspace_error_without_active_task_triggers_llm(self):
+        agent = _make_voice_agent()
+        agent._game_client.my_status = AsyncMock(
+            side_effect=RuntimeError("my_status failed with status 409: in hyperspace")
+        )
+        params = MagicMock()
+        params.arguments = {}
+        params.result_callback = AsyncMock()
+
+        await agent._handle_my_status(params)
+
+        params.result_callback.assert_awaited_once()
+        assert params.result_callback.call_args.args[0] == {
+            "error": "my_status failed with status 409: in hyperspace"
+        }
+        properties = params.result_callback.call_args.kwargs["properties"]
+        assert properties.run_llm is True
+        assert agent._assistant_cycle_active is True
+
+    @pytest.mark.asyncio
+    async def test_send_message_error_triggers_llm(self):
+        agent = _make_voice_agent()
+        agent._game_client.send_message = AsyncMock(side_effect=RuntimeError("message failed"))
+        params = MagicMock()
+        params.arguments = {"content": "hello"}
+        params.result_callback = AsyncMock()
+
+        await agent._handle_send_message(params)
+
+        params.result_callback.assert_awaited_once()
+        assert params.result_callback.call_args.args[0] == {"error": "message failed"}
+        properties = params.result_callback.call_args.kwargs["properties"]
+        assert properties.run_llm is True
+        assert agent._assistant_cycle_active is True
+
+
 # ── Corp ship routing guard ───────────────────────────────────────────
 
 

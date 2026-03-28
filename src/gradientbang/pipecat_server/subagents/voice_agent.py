@@ -329,6 +329,23 @@ class VoiceAgent(LLMAgent):
             LLMMessagesAppendFrame(messages=[{"role": "user", "content": event_xml}], run_llm=True)
         )
 
+    def _has_active_player_task(self) -> bool:
+        return any(isinstance(c, TaskAgent) and not c._is_corp_ship for c in self.children)
+
+    def _should_suppress_my_status_error(self, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return "hyperspace" in message and self._has_active_player_task()
+
+    async def _finish_event_tool_with_error(
+        self, params: FunctionCallParams, exc: Exception, *, run_llm: bool
+    ) -> None:
+        if run_llm:
+            self._begin_assistant_response_cycle()
+        await params.result_callback(
+            {"error": str(exc)},
+            properties=FunctionCallResultProperties(run_llm=run_llm),
+        )
+
     # ── Event-generating tools ─────────────────────────────────────────
     # Return ack with run_llm=False. Real data arrives via game event.
     # On error, call result_callback with the error so the spinner clears.
@@ -339,7 +356,11 @@ class VoiceAgent(LLMAgent):
             self._track_request_id_from_result(result)
             await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback({"error": str(exc)})
+            await self._finish_event_tool_with_error(
+                params,
+                exc,
+                run_llm=not self._should_suppress_my_status_error(exc),
+            )
 
     async def _handle_plot_course(self, params: FunctionCallParams):
         args = params.arguments
@@ -352,7 +373,7 @@ class VoiceAgent(LLMAgent):
             self._track_request_id_from_result(result)
             await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback({"error": str(exc)})
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     async def _handle_list_known_ports(self, params: FunctionCallParams):
         args = params.arguments
@@ -367,7 +388,7 @@ class VoiceAgent(LLMAgent):
             self._track_request_id_from_result(result)
             await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback({"error": str(exc)})
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     async def _handle_rename_ship(self, params: FunctionCallParams):
         args = params.arguments
@@ -380,7 +401,7 @@ class VoiceAgent(LLMAgent):
             self._track_request_id_from_result(result)
             await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback({"error": str(exc)})
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     async def _handle_rename_corporation(self, params: FunctionCallParams):
         args = params.arguments
@@ -392,7 +413,7 @@ class VoiceAgent(LLMAgent):
             self._track_request_id_from_result(result)
             await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback({"error": str(exc)})
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     async def _handle_create_corporation(self, params: FunctionCallParams):
         args = params.arguments
@@ -404,7 +425,7 @@ class VoiceAgent(LLMAgent):
             self._track_request_id_from_result(result)
             await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback({"error": str(exc)})
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     # ── Fire-and-forget tools ──────────────────────────────────────────
 
@@ -422,7 +443,7 @@ class VoiceAgent(LLMAgent):
             self._track_request_id_from_result(result)
             await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback({"error": str(exc)})
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     async def _handle_combat_initiate(self, params: FunctionCallParams):
         args = params.arguments
@@ -435,7 +456,7 @@ class VoiceAgent(LLMAgent):
             self._track_request_id_from_result(result)
             await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback({"error": str(exc)})
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     async def _handle_combat_action(self, params: FunctionCallParams):
         args = params.arguments
@@ -452,7 +473,7 @@ class VoiceAgent(LLMAgent):
             self._track_request_id_from_result(result)
             await params.result_callback(None)
         except Exception as exc:
-            await params.result_callback({"error": str(exc)})
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     # ── Direct-response tools ──────────────────────────────────────────
 
