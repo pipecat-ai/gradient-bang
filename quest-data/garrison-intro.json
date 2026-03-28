@@ -1,0 +1,72 @@
+{
+  "code": "garrison_intro",
+  "name": "Eyes of the Orb",
+  "description": "Set up a covert surveillance network in neutral space.",
+  "assign_on_creation": false,
+  "enabled": true,
+  "meta": {
+    "giver": "The Infallible Orb (Gamma Division)"
+  },
+  "steps": [
+    {
+      "step_index": 1,
+      "name": "Deploy defensive garrisons",
+      "description": "Deploy fighters in defensive mode in 3 neutral sectors.",
+      "eval_type": "unique_count",
+      "event_types": ["garrison.deployed"],
+      "target_value": 3,
+      "unique_field": "sector",
+      "reward_credits": 500,
+      "meta": {
+        "codec": {
+          "giver_id": "infallible_orb",
+          "giver": "The Infallible Orb (Gamma Division)",
+          "pages": [
+            "<emotion value=\"mysterious\">You have been selected.</emotion> Do not ask why. The Orb has observed your trajectory and determined that you are... <emotion value=\"sarcastic\">adequate</emotion>. We require a service that demands insignificance, and you qualify.",
+            "<emotion value=\"neutral\">The Crimson Syndicate is expanding into neutral space near you. Their movements must be documented without their knowledge. You may perform this task for us.</emotion>",
+            "<emotion value=\"calm\">Deploy your fighters in defensive mode across three sectors in neutral space. Defensive mode is critical. Your garrisons must observe, not provoke. If the Crimson Syndicate detects aggression, this arrangement ends. You do not want this arrangement to end.</emotion>"
+          ]
+        }
+      }
+    },
+    {
+      "step_index": 2,
+      "name": "Detect movement",
+      "description": "Wait for your garrisons to detect another ship entering one of your sectors.",
+      "eval_type": "unique_count",
+      "event_types": ["garrison.character_moved"],
+      "target_value": 1,
+      "unique_field": "sector",
+      "reward_credits": 2000,
+      "meta": {
+        "codec": {
+          "giver_id": "infallible_orb",
+          "giver": "The Infallible Orb (Gamma Division)",
+          "pages": [
+            "<emotion value=\"content\">Your garrisons are in place. Good.</emotion> Now we wait. Your fighters will notify you when a ship passes through one of your monitored sectors. This may take time. Patience is the Orb's currency.",
+            "<emotion value=\"neutral\">If you wish to increase the probability of detection, you may deploy additional garrisons beyond the three we asked for. The Orb does not object to initiative, provided it remains quiet.</emotion>"
+          ]
+        }
+      }
+    },
+    {
+      "step_index": 3,
+      "name": "Collect your fighters",
+      "description": "Retrieve your deployed fighters from a garrison.",
+      "eval_type": "count",
+      "event_types": ["garrison.collected"],
+      "target_value": 1,
+      "reward_credits": 1000,
+      "meta": {
+        "codec": {
+          "giver_id": "infallible_orb",
+          "giver": "The Infallible Orb (Gamma Division)",
+          "pages": [
+            "<emotion value=\"content\">Contact detected. The data has been received.</emotion> You do not need to know what was learned. You only need to know that the Orb is satisfied.",
+            "<emotion value=\"neutral\">Collect your fighters from one of your garrisons. Leave no trace of this operation. Your compensation has been arranged. The Orb may contact you again in the future. Or it may not. <emotion value=\"mysterious\">The difference is not your concern.</emotion>"
+          ]
+        }
+      }
+    }
+  ]
+}

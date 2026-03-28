@@ -1,6 +1,7 @@
 // Images
 // Characters
 import feddyTheSupportBot from "./images/characters/feddy_the_support_bot.png"
+import infallibleOrb from "./images/characters/infallible_orb.png"
 import ventureChamberAgent from "./images/characters/venture_chamber_agent.png"
 import port1 from "./images/ports/port-1.png"
 import port2 from "./images/ports/port-2.png"
@@ -57,6 +58,7 @@ import titleVideo from "./videos/title.mp4"
 export const images = {
   splash1,
   feddyTheSupportBot,
+  infallibleOrb,
   ventureChamberAgent,
   aegisCruiserLogo,
   atlasHaulerLogo,
