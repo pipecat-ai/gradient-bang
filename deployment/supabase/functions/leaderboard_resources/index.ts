@@ -5,7 +5,7 @@
  * Implements caching with 5-minute expiration.
  * Read-only operation - no admin password required.
  *
- * Query Parameters:
+ * Query Parameters / JSON Body:
  *   - force_refresh: boolean (optional) - Force refresh of cached data
  */
 
@@ -17,8 +17,9 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // CORS headers for public access from web clients
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, X-API-Token, apikey",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -43,27 +44,55 @@ class LeaderboardError extends Error {
   }
 }
 
+async function parseForceRefresh(req: Request): Promise<boolean> {
+  if (req.method === "GET") {
+    const url = new URL(req.url);
+    const forceRefreshParam = url.searchParams.get("force_refresh");
+    return forceRefreshParam === "true" || forceRefreshParam === "1";
+  }
+
+  if (req.method !== "POST") {
+    throw new LeaderboardError("Method not allowed", 405);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await req.json();
+  } catch {
+    throw new LeaderboardError("invalid JSON payload", 400);
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new LeaderboardError("invalid JSON payload", 400);
+  }
+
+  const forceRefreshParam = (payload as Record<string, unknown>).force_refresh;
+  if (typeof forceRefreshParam === "boolean") {
+    return forceRefreshParam;
+  }
+  if (typeof forceRefreshParam === "string") {
+    return forceRefreshParam === "true" || forceRefreshParam === "1";
+  }
+  return false;
+}
+
 Deno.serve(traced("leaderboard_resources", async (req, trace) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  // Only allow GET requests
-  if (req.method !== "GET") {
+  // Public endpoint used by both the web client (GET) and Python client (POST).
+  if (!["GET", "POST"].includes(req.method)) {
     return corsResponse({ success: false, error: "Method not allowed" }, 405);
   }
 
   const supabase = createServiceRoleClient();
 
   try {
-    // Parse query parameters
-    const url = new URL(req.url);
-    const forceRefreshParam = url.searchParams.get("force_refresh");
-    const forceRefresh =
-      forceRefreshParam === "true" || forceRefreshParam === "1";
+    const forceRefresh = await parseForceRefresh(req);
 
-    trace.setInput({ forceRefresh });
+    trace.setInput({ forceRefresh, method: req.method });
 
     // Check cache first
     const sCacheCheck = trace.span("cache_check");

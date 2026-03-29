@@ -19,6 +19,7 @@ import {
 import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
+  apiGet,
   apiOk,
   characterIdFor,
   shipIdFor,
@@ -330,6 +331,60 @@ Deno.test({
       });
       assertEquals(result.status, 403);
       assert(result.body.error?.includes("discovered"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 8: leaderboard_resources
+// ============================================================================
+
+Deno.test({
+  name: "query_endpoints — leaderboard_resources supports GET and POST",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and join players", async () => {
+      const localP1Id = await characterIdFor(P1);
+      const localP2Id = await characterIdFor(P2);
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: localP1Id });
+      await apiOk("join", { character_id: localP2Id });
+    });
+
+    await t.step("POST request returns leaderboard payload", async () => {
+      const result = await apiOk("leaderboard_resources", {});
+      const body = result as Record<string, unknown>;
+      assertExists(body.wealth, "Should have wealth leaderboard");
+      assertExists(body.trading, "Should have trading leaderboard");
+      assertExists(body.exploration, "Should have exploration leaderboard");
+      assertExists(body.territory, "Should have territory leaderboard");
+      assertEquals(body.cached, false);
+    });
+
+    await t.step("GET request returns cached leaderboard payload", async () => {
+      const result = await apiGet("leaderboard_resources");
+      assertEquals(result.status, 200);
+      assertEquals(result.body.success, true);
+      assertExists(result.body.wealth, "Should have wealth leaderboard");
+      assertExists(result.body.trading, "Should have trading leaderboard");
+      assertExists(result.body.exploration, "Should have exploration leaderboard");
+      assertExists(result.body.territory, "Should have territory leaderboard");
+      assertEquals(result.body.cached, true);
+    });
+
+    await t.step("force_refresh works via POST and GET", async () => {
+      const postResult = await apiOk("leaderboard_resources", {
+        force_refresh: true,
+      });
+      const getResult = await apiGet("leaderboard_resources", {
+        force_refresh: true,
+      });
+
+      assertEquals(postResult.cached, false);
+      assertEquals(getResult.status, 200);
+      assertEquals(getResult.body.success, true);
+      assertEquals(getResult.body.cached, false);
     });
   },
 });

@@ -12,12 +12,14 @@ so EventRelay can query task state during event routing.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
+import functools
 import os
 import re
 import time
 import uuid
 from collections import deque
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from loguru import logger
 from pipecat.frames.frames import (
@@ -315,7 +317,8 @@ class VoiceAgent(LLMAgent):
         }
         for schema in VOICE_TOOLS.standard_tools:
             handler = handlers[schema.name]
-            tracked = self._track_tool_call(handler)
+            safe = self._wrap_tool_errors(schema.name, handler)
+            tracked = self._track_tool_call(safe)
             llm.register_function(schema.name, tracked)
         return llm
 
@@ -406,6 +409,40 @@ class VoiceAgent(LLMAgent):
             {"error": str(exc)},
             properties=FunctionCallResultProperties(run_llm=run_llm),
         )
+
+    def _wrap_tool_errors(self, tool_name: str, handler: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(handler)
+        async def wrapped(params: FunctionCallParams, *args, **kwargs):
+            result_callback_called = False
+            original_result_callback = params.result_callback
+
+            async def tracked_result_callback(*cb_args, **cb_kwargs):
+                nonlocal result_callback_called
+                result_callback_called = True
+                return await original_result_callback(*cb_args, **cb_kwargs)
+
+            wrapped_params = replace(params, result_callback=tracked_result_callback)
+
+            try:
+                return await handler(wrapped_params, *args, **kwargs)
+            except Exception as exc:
+                logger.exception("VoiceAgent: tool '{}' failed", tool_name)
+                if result_callback_called:
+                    return None
+                self._begin_assistant_response_cycle()
+                try:
+                    await original_result_callback(
+                        {"error": str(exc)},
+                        properties=FunctionCallResultProperties(run_llm=True),
+                    )
+                except Exception:
+                    logger.exception(
+                        "VoiceAgent: failed to resolve tool '{}' after exception",
+                        tool_name,
+                    )
+                return None
+
+        return wrapped
 
     # ── Event-generating tools ─────────────────────────────────────────
     # Return ack with run_llm=False. Real data arrives via game event.
@@ -603,12 +640,16 @@ class VoiceAgent(LLMAgent):
             character_id=self._character_id,
             force_refresh=args.get("force_refresh", False),
         )
-        summary = summarize_leaderboard(result)
+        summary = summarize_leaderboard(result, player_id=self._character_id)
         self._begin_assistant_response_cycle()
-        if summary:
-            await params.result_callback({"summary": summary})
-        else:
-            await params.result_callback(result)
+        if not summary:
+            await params.result_callback(
+                {
+                    "error": "Leaderboard data is unavailable or too large to summarize safely."
+                }
+            )
+            return
+        await params.result_callback({"summary": summary})
 
     async def _handle_ship_definitions(self, params: FunctionCallParams):
         from gradientbang.utils.formatting import summarize_ship_definitions

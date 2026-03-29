@@ -744,11 +744,15 @@ EVENT_QUERY = FunctionSchema(
 LEADERBOARD_RESOURCES = FunctionSchema(
     name="leaderboard_resources",
     description=(
-        "Fetch the latest wealth leaderboard snapshot. The response "
-        "includes players (with exploration percentage) and corporations, "
-        "sorted by total resources."
+        "Fetch the latest leaderboard snapshot. The response includes "
+        "wealth, trading, exploration, and territory rankings."
     ),
-    properties={},
+    properties={
+        "force_refresh": {
+            "type": "boolean",
+            "description": "Bypass the cached snapshot and fetch fresh leaderboard data.",
+        },
+    },
     required=[],
 )
 

@@ -62,6 +62,25 @@ export async function api<T = Record<string, unknown>>(
   };
 }
 
+/** Make a GET API call to the test server. */
+export async function apiGet<T = Record<string, unknown>>(
+  endpoint: string,
+  query: Record<string, string | number | boolean> = {},
+): Promise<ApiResponse<T>> {
+  const baseUrl = getBaseUrl();
+  const url = new URL(`${baseUrl}/${endpoint}`);
+  for (const [key, value] of Object.entries(query)) {
+    url.searchParams.set(key, String(value));
+  }
+  const resp = await fetch(url);
+  const body = await resp.json();
+  return {
+    status: resp.status,
+    ok: resp.ok,
+    body: body as T & { success: boolean; error?: string },
+  };
+}
+
 /** Make a raw API call (for sending non-JSON bodies like invalid payloads). */
 export async function apiRaw(
   endpoint: string,

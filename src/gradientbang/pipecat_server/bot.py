@@ -528,7 +528,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             )
 
     @user_aggregator.event_handler("on_user_turn_started")
-    async def on_user_turn_started(aggregator):
+    async def on_user_turn_started(aggregator, strategy):
         nonlocal idle_report_count
         if idle_report_count > 0:
             idle_report_count = 0
