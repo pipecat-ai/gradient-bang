@@ -33,6 +33,7 @@ from gradientbang.utils.formatting import (
     short_id,
     shorten_embedded_ids,
 )
+from gradientbang.utils.summary_formatters import event_query_summary
 
 if TYPE_CHECKING:
     from gradientbang.utils.supabase_client import AsyncGameClient
@@ -71,7 +72,7 @@ class Priority(Enum):
 
 # ── Event config ──────────────────────────────────────────────────────────
 
-VoiceSummaryFn = Callable[["EventRelay", dict], Optional[str]]
+EventSummaryFn = Callable[["EventRelay", dict], Optional[str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +83,8 @@ class EventConfig:
     append: AppendRule = AppendRule.DIRECT  # How to decide LLM append
     inference: InferenceRule = InferenceRule.NEVER  # How to decide inference trigger
     priority: Priority = Priority.NORMAL  # Event priority level
-    voice_summary: Optional[VoiceSummaryFn] = field(default=None, repr=False)  # Custom LLM summary
+    task_summary: Optional[EventSummaryFn] = field(default=None, repr=False)  # Shared bus/task summary
+    voice_summary: Optional[EventSummaryFn] = field(default=None, repr=False)  # Voice override
 
     # Append modifiers for DIRECT rule
     corp_scope_if_own_action: bool = False  # Also append corp-scoped events from our own tool calls
@@ -122,6 +124,26 @@ def _summarize_event_query(_relay: EventRelay, event: dict) -> Optional[str]:
     if has_more:
         summary += " More available."
     return summary
+
+
+def _summarize_event_query_for_task(relay: EventRelay, event: dict) -> Optional[str]:
+    payload = event.get("payload", {})
+    if not isinstance(payload, dict):
+        summary = event.get("summary")
+        return summary if isinstance(summary, str) else None
+
+    def nested_summary(event_name: str, nested_payload: Dict[str, Any]) -> Optional[str]:
+        if event_name == "event.query":
+            count = nested_payload.get("count", 0)
+            has_more = nested_payload.get("has_more", False)
+            suffix = " (more available)" if has_more else ""
+            return f"nested query returned {count} events{suffix}"
+        getter = getattr(relay._game_client, "_get_summary", None)
+        if callable(getter):
+            return getter(event_name, nested_payload)
+        return None
+
+    return event_query_summary(payload, nested_summary)
 
 
 def _summarize_chat(_relay: EventRelay, event: dict) -> Optional[str]:
@@ -348,8 +370,14 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "corporation.member_kicked": EventConfig(corp_scope_if_own_action=True),
     "corporation.disbanded": EventConfig(corp_scope_if_own_action=True),
     "corporation.data": EventConfig(corp_scope_if_own_action=True),
-    # Voice summaries only
-    "event.query": EventConfig(voice_summary=_summarize_event_query),
+    # Audited legacy overrides:
+    # - event.query needs a shared bounded task/bus summary plus a shorter voice summary
+    # - chat.message, ships.list, and combat overrides remain voice-only; generic client summaries
+    #   are sufficient for bus/task consumers
+    "event.query": EventConfig(
+        task_summary=_summarize_event_query_for_task,
+        voice_summary=_summarize_event_query,
+    ),
     "ships.list": EventConfig(voice_summary=_summarize_ships_list),
     # Plain defaults (DIRECT append, NEVER inference)
     "sector.update": EventConfig(),
@@ -632,6 +660,47 @@ class EventRelay:
         )
         logger.info("LLM deliver complete")
 
+    def _resolve_task_summary(
+        self,
+        cfg: EventConfig,
+        event_name: Optional[str],
+        event_for_summary: Dict[str, Any],
+    ) -> Optional[str]:
+        summary: Optional[str] = None
+        if cfg.task_summary:
+            summary = cfg.task_summary(self, event_for_summary)
+        if not summary:
+            existing = event_for_summary.get("summary")
+            if isinstance(existing, str) and existing.strip():
+                summary = existing.strip()
+        if not summary and event_name:
+            payload = event_for_summary.get("payload")
+            getter = getattr(self._game_client, "_get_summary", None)
+            if isinstance(payload, dict) and callable(getter):
+                summary = getter(event_name, payload)
+        if isinstance(summary, str):
+            summary = summary.strip()
+            return summary or None
+        return None
+
+    def _resolve_voice_summary(
+        self,
+        cfg: EventConfig,
+        event_for_summary: Dict[str, Any],
+        task_summary: Optional[str],
+    ) -> Any:
+        if cfg.voice_summary:
+            voice_summary = cfg.voice_summary(self, event_for_summary)
+            if isinstance(voice_summary, str):
+                voice_summary = voice_summary.strip()
+                if voice_summary:
+                    return voice_summary
+            elif voice_summary:
+                return voice_summary
+        if task_summary is not None:
+            return task_summary
+        return event_for_summary.get("payload")
+
     # ── Task cancel event handler ──────────────────────────────────────
 
     async def _handle_task_cancel_event(self, event: Dict[str, Any]) -> None:
@@ -780,9 +849,15 @@ class EventRelay:
                 self._task_state.is_recent_request_id(request_id) if request_id else False
             )
 
+        event_for_summary = {**event, "payload": clean_payload}
+        task_summary = self._resolve_task_summary(cfg, event_name, event_for_summary)
+        event_for_bus = dict(event_for_summary)
+        if task_summary is not None:
+            event_for_bus["summary"] = task_summary
+
         # Broadcast every event to the bus for TaskAgent children
         await self._task_state.broadcast_game_event(
-            event, voice_agent_originated=is_voice_originated
+            event_for_bus, voice_agent_originated=is_voice_originated
         )
 
         direct_recipient = self._is_direct_recipient_event(event_context)
@@ -857,11 +932,7 @@ class EventRelay:
             return
 
         # ── Phase 5: Summary, inference, delivery ──
-        event_for_summary = {**event, "payload": clean_payload}
-        if cfg.voice_summary:
-            summary = cfg.voice_summary(self, event_for_summary) or clean_payload
-        else:
-            summary = event_for_summary.get("summary") or clean_payload
+        summary = self._resolve_voice_summary(cfg, event_for_bus, task_summary)
 
         # Build XML
         attrs = [f'name="{event_name}"']

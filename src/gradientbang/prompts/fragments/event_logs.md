@@ -101,7 +101,23 @@ use an anchor-first strategy.
 
 ### Session-before/session-after playbook
 
-1. Find the anchor event or anchor task first with a narrow filtered query.
+1. Use join markers to define session windows.
+   - Treat join-originated `status.snapshot` events as the short-term session-start marker.
+   - Find them with a narrow query like:
+```
+event_query(
+    start=..., end=...,
+    filter_event_type="status.snapshot",
+    filter_string_match="\"method\":\"join\"",
+    sort_direction="reverse",
+    max_rows=2
+)
+```
+   - Use `max_rows=2` for "last session" and `max_rows=3` for "session before last".
+   - Start with a recent bounded time range and only broaden if you do not find enough join markers.
+   - Do NOT query broad activity event types until you have identified the session window from join markers.
+
+2. For session-relative questions around an anchor, find the anchor event or anchor task first with a narrow filtered query.
    - Prefer `filter_event_type` plus `filter_string_match` or `max_rows=1`
    - Examples:
    - `task.finish` with a purchase-related keyword
@@ -109,18 +125,22 @@ use an anchor-first strategy.
    - `trade.executed`
    - `bank.transaction`
 
-2. Once you know the anchor timestamp, identify the neighboring task history around that time.
-   - Prefer `task.start` and `task.finish` first
-   - Use those results to identify the session or activity block immediately before or after the anchor
+3. Once you know the anchor timestamp, identify the neighboring join markers around that time.
+   - Use join-originated `status.snapshot` events to find the session window immediately before or after the anchor
+   - For "session after X", the window starts at the first join marker after the anchor
+   - For "session before X", the window ends at the last join marker before the anchor
+   - Only if join markers are unavailable should you fall back to inferring a session from the nearest cluster of `task.start` and `task.finish`
 
-3. Summarize from that bounded session window first.
+4. Summarize from that bounded session window first.
+   - Prefer `task.start` and `task.finish` first inside that exact window
    - Task summaries are usually enough to answer what the player was doing
    - Only query `trade.executed`, `bank.transaction`, `warp.purchase`, or other detailed event types inside that already-bounded window if task history is not enough
 
-4. Do NOT start with broad multi-type scans across a large time range.
+5. Do NOT start with broad multi-type scans across a large time range.
    - Avoid querying several activity event types over a whole day or month before you have identified the target session window
+   - For "last session", do not start with `task.finish` or mixed event-type scans over a broad date range
 
-If no explicit session-boundary event is available, treat the relevant session as the nearest cluster of `task.start` and `task.finish` activity around the anchor time.
+If join markers are unavailable, treat the relevant session as the nearest cluster of `task.start` and `task.finish` activity around the anchor time.
 
 ## Garrison Sector Activity Playbook
 
@@ -192,7 +212,7 @@ All filter parameters use the `filter_` prefix:
 ## Other Parameters
 
 - **sort_direction**: "forward" (chronological) or "reverse" (newest first)
-- **max_rows**: Limit results (default 100, max 100)
+- **max_rows**: Limit results (default 100, max 100). Prefer smaller values unless you truly need a wide scan.
 - **cursor**: For pagination (use next_cursor from previous response)
 - **event_scope**: "personal" or "corporation"
 

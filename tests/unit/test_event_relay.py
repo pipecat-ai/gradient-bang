@@ -62,6 +62,7 @@ def _make_relay(**overrides) -> tuple[EventRelay, StubTaskState, MagicMock, Magi
     """Create an EventRelay with mock game_client and rtvi_processor."""
     mock_client = MagicMock()
     mock_client.corporation_id = "corp-1"
+    mock_client._get_summary = MagicMock(return_value=None)
     mock_client.on = MagicMock(return_value=lambda fn: fn)
     mock_client.join = AsyncMock(return_value={"request_id": "join-req"})
     mock_client.subscribe_my_messages = AsyncMock()
@@ -358,6 +359,65 @@ class TestRelayEventRouting:
         await relay._relay_event(event)
         # RTVI push happens on rtvi, LLM delivery goes through task_state
         assert mock_rtvi.push_frame.call_count == 1  # RTVI only
+
+    async def test_event_query_bus_event_gets_bounded_task_summary(self):
+        relay, task_state, _, _ = _make_relay()
+        payload = {
+            "count": 25,
+            "has_more": True,
+            "filters": {"filter_event_type": "task.finish"},
+            "events": [
+                {
+                    "event": f"movement.complete.{idx}",
+                    "timestamp": f"2026-03-29T12:00:{idx:02d}Z",
+                    "payload": {"detail": "x" * 500},
+                }
+                for idx in range(25)
+            ],
+            "__event_context": {"scope": "direct", "reason": "direct"},
+        }
+        await relay._relay_event(_make_event("event.query", payload))
+
+        bus_event = task_state.broadcast_events[-1]
+        assert bus_event["event_name"] == "event.query"
+        assert "... 5 more events omitted." in bus_event["summary"]
+        assert "More events available" in bus_event["summary"]
+
+    async def test_existing_generic_summary_is_carried_through_bus(self):
+        relay, task_state, mock_client, _ = _make_relay()
+        mock_client._get_summary.return_value = "Status summary."
+        event = _make_event(
+            "status.snapshot",
+            {
+                "player": {"id": "char-123"},
+                "__event_context": {"scope": "direct", "reason": "direct"},
+            },
+        )
+
+        await relay._relay_event(event)
+
+        bus_event = task_state.broadcast_events[-1]
+        assert bus_event["summary"] == "Status summary."
+
+    async def test_rtvi_payload_remains_raw_when_bus_summary_exists(self):
+        relay, task_state, _, mock_rtvi = _make_relay()
+        payload = {
+            "count": 2,
+            "has_more": False,
+            "events": [
+                {"event": "task.finish", "timestamp": "2026-03-29T12:00:00Z", "payload": {"x": 1}},
+                {"event": "task.finish", "timestamp": "2026-03-29T12:00:01Z", "payload": {"x": 2}},
+            ],
+            "__event_context": {"scope": "direct", "reason": "direct"},
+        }
+
+        await relay._relay_event(_make_event("event.query", payload))
+
+        frame = mock_rtvi.push_frame.call_args.args[0]
+        assert frame.data["frame_type"] == "event"
+        assert frame.data["event"] == "event.query"
+        assert frame.data["payload"]["events"] == payload["events"]
+        assert "summary" not in frame.data["payload"]
         assert len(task_state.deferred_events) == 1  # LLM event delivered via task_state
 
     async def test_combat_event_appended_for_participant(self):
@@ -1279,6 +1339,32 @@ class TestXmlFormat:
         assert len(task_state.deferred_events) == 1
         content, _ = task_state.deferred_events[0]
         assert "Alice (broadcast): Hello everyone!" in content
+
+    async def test_event_query_uses_voice_summary_in_xml_but_task_summary_on_bus(self):
+        relay, task_state, _, _ = _make_relay()
+        payload = {
+            "count": 25,
+            "has_more": True,
+            "filters": {"filter_event_type": "task.finish"},
+            "events": [
+                {
+                    "event": f"task.finish.{idx}",
+                    "timestamp": f"2026-03-29T12:00:{idx:02d}Z",
+                    "payload": {"task_summary": "x" * 500},
+                }
+                for idx in range(25)
+            ],
+            "__event_context": {"scope": "direct", "reason": "direct"},
+        }
+
+        await relay._relay_event(_make_event("event.query", payload))
+
+        bus_event = task_state.broadcast_events[-1]
+        assert "... 5 more events omitted." in bus_event["summary"]
+
+        content, _ = task_state.deferred_events[0]
+        assert "Query returned 25 events (type=task.finish). More available." in content
+        assert "... 5 more events omitted." not in content
 
     async def test_internal_metadata_stripped_from_xml(self):
         relay, task_state, _, _ = _make_relay()

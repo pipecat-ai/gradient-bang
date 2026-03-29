@@ -1,8 +1,10 @@
 """Tests for the TaskAgent."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pipecat.frames.frames import LLMRunFrame
 from pipecat.services.llm_service import FunctionCallParams
 
 from gradientbang.pipecat_server.subagents.task_agent import (
@@ -271,6 +273,31 @@ class TestBusEventReception:
         await agent.on_bus_message(msg)
         agent._handle_event.assert_not_called()
 
+    async def test_bus_event_query_uses_summary_not_raw_payload(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+
+        agent = _make_task_agent()
+        agent._active_task_id = "task-uuid-123"
+        agent._awaiting_completion_event = "event.query"
+        agent._awaiting_completion_request_id = "req-123"
+        agent._llm_context = MagicMock()
+        agent._llm_inflight = True
+
+        msg = BusGameEventMessage(
+            source="player",
+            event={
+                "event_name": "event.query",
+                "request_id": "req-123",
+                "summary": "Query returned 8 events.",
+                "payload": {"events": [{"blob": "x" * 5000}]},
+            },
+        )
+        await agent.on_bus_message(msg)
+
+        context_message = agent._llm_context.add_message.call_args.args[0]["content"]
+        assert "Query returned 8 events." in context_message
+        assert "blob" not in context_message
+
 @pytest.mark.unit
 class TestSteering:
     async def test_steering_injected_into_context(self):
@@ -453,6 +480,92 @@ class TestTaskOutputDelivery:
 
         warn.assert_called()
         agent.send_task_response.assert_awaited_once()
+
+
+@pytest.mark.unit
+class TestSyntheticProgressMessages:
+    async def test_task_start_does_not_emit_initial_progress_message(self):
+        agent = _make_task_agent()
+        agent._llm_context = MagicMock()
+        agent.queue_frame = AsyncMock()
+        agent._game_client.task_lifecycle = AsyncMock()
+
+        await agent.on_task_request(
+            BusTaskRequestMessage(
+                source="voice",
+                task_id="task-1",
+                payload={"task_description": "Check status"},
+            )
+        )
+
+        assert agent.get_task_log() == []
+        agent.queue_frame.assert_awaited_once()
+
+    async def test_event_query_completion_emits_message_before_llm_run(self):
+        agent = _make_task_agent()
+        agent._active_task_id = "task-1"
+        agent._llm_context = MagicMock()
+        agent.queue_frame = AsyncMock()
+        agent._awaiting_completion_event = "event.query"
+        agent._awaiting_completion_request_id = "req-123"
+
+        await agent._handle_event(
+            {
+                "event_name": "event.query",
+                "request_id": "req-123",
+                "summary": "Query returned 8 events.",
+                "payload": {"count": 8},
+            }
+        )
+        await asyncio.sleep(0)
+
+        assert agent.get_task_log()[-2:] == [
+            "event.query: Query returned 8 events.",
+            "Analyzing query results...",
+        ]
+        assert agent._llm_context.add_message.call_count == 1
+        agent.queue_frame.assert_awaited_once()
+        assert isinstance(agent.queue_frame.call_args.args[0], LLMRunFrame)
+
+    async def test_steering_emits_replanning_message(self):
+        agent = _make_task_agent()
+        agent._active_task_id = "task-1"
+        agent._llm_context = MagicMock()
+        agent.queue_frame = AsyncMock()
+
+        await agent._inject_steering("Change direction")
+
+        assert agent.get_task_log()[-2:] == [
+            "Change direction",
+            "Replanning with new instructions...",
+        ]
+        agent.queue_frame.assert_awaited_once()
+
+    async def test_generic_event_completion_emits_reviewing_results_message(self):
+        agent = _make_task_agent()
+        agent._active_task_id = "task-1"
+        agent.queue_frame = AsyncMock()
+        agent._record_inference_reason("movement.complete")
+
+        await agent._schedule_pending_inference()
+
+        assert agent.get_task_log()[-1] == "Reviewing latest results..."
+        agent.queue_frame.assert_awaited_once()
+
+    async def test_duplicate_progress_message_is_suppressed_without_new_action_or_event(self):
+        agent = _make_task_agent()
+        agent._active_task_id = "task-1"
+        agent.queue_frame = AsyncMock()
+        agent._record_inference_reason("event.query")
+
+        await agent._schedule_pending_inference()
+        agent._llm_inflight = False
+        agent._record_inference_reason("event.query")
+
+        await agent._schedule_pending_inference()
+
+        assert agent.get_task_log().count("Analyzing query results...") == 1
+        assert agent.queue_frame.await_count == 2
 
 
 @pytest.mark.unit

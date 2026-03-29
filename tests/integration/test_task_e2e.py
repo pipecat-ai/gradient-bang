@@ -298,6 +298,59 @@ class TestAsyncCompletionE2E:
             assert any(event.get("request_id") for event in event_query_bus), (
                 f"Expected event.query bus event to carry request_id. Got: {event_query_bus}"
             )
+            assert any(
+                isinstance(event.get("summary"), str)
+                and event.get("summary", "").startswith("Query returned ")
+                for event in event_query_bus
+            ), f"Expected summarized event.query on the bus. Got: {event_query_bus}"
+        finally:
+            await h.stop()
+
+    async def test_event_query_emits_progress_message_after_event_output(self):
+        """History-query tasks should surface a MESSAGE row during post-query reasoning."""
+        h = E2EHarness(self.character_id, self.api, self.make_game_client)
+        await h.start()
+        try:
+            await h.join_game()
+
+            end_time = datetime.now(timezone.utc)
+            start_time = end_time - timedelta(hours=24)
+            h.set_task_script(
+                [
+                    (
+                        "event_query",
+                        {
+                            "start": start_time.isoformat(),
+                            "end": end_time.isoformat(),
+                            "max_rows": 10,
+                        },
+                    )
+                ]
+            )
+            result = await h.start_player_task("Summarize my recent activity")
+            assert result["success"] is True, f"start_task failed: {result}"
+
+            completed = await h.wait_for_task_complete(timeout=30.0)
+            assert completed, "Player task did not complete after event_query"
+
+            task_outputs = h.rtvi_events_of_type("task_output")
+            event_index = next(
+                index
+                for index, event in enumerate(task_outputs)
+                if event.get("payload", {}).get("task_message_type") == "event"
+                and event.get("payload", {}).get("text", "").startswith("event.query:")
+            )
+            message_index = next(
+                index
+                for index, event in enumerate(task_outputs)
+                if event.get("payload", {}).get("task_message_type") == "message"
+                and event.get("payload", {}).get("text") == "Analyzing query results..."
+            )
+
+            assert event_index < message_index, (
+                f"Expected event.query EVENT output before the synthetic MESSAGE output. "
+                f"Got: {task_outputs}"
+            )
         finally:
             await h.stop()
 

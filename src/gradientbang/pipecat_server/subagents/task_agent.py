@@ -225,6 +225,9 @@ class TaskAgent(LLMAgent):
         self._consecutive_error_count: int = 0
         self._idle_wait_event: Optional[asyncio.Event] = None
         self._skip_context_events: Dict[str, int] = {}
+        self._task_output_progress_epoch: int = 0
+        self._last_synthetic_progress_message: Optional[str] = None
+        self._last_synthetic_progress_epoch: int = -1
 
         # ── Task log ──
         self._task_log: List[str] = []
@@ -448,6 +451,9 @@ class TaskAgent(LLMAgent):
         self._idle_wait_event = None
         self._skip_context_events.clear()
         self._inference_reasons.clear()
+        self._task_output_progress_epoch = 0
+        self._last_synthetic_progress_message = None
+        self._last_synthetic_progress_epoch = -1
         self._cancel_timers()
 
     def _archive_task_log(self):
@@ -861,18 +867,44 @@ class TaskAgent(LLMAgent):
         if not self._inference_reasons:
             return
 
+        reasons = list(self._inference_reasons)
         self._inference_reasons.clear()
         self._cancel_inference_watchdog()
         if self._no_tool_watchdog_handle:
             self._no_tool_watchdog_handle.cancel()
             self._no_tool_watchdog_handle = None
 
+        self._emit_synthetic_progress_message(reasons)
         self._llm_inflight = True
         try:
             await self.queue_frame(LLMRunFrame())
         except Exception:
             self._llm_inflight = False
             raise
+
+    def _progress_message_for_reasons(self, reasons: List[str]) -> str:
+        if any(reason == "event.query" for reason in reasons):
+            return "Analyzing query results..."
+        if "steering" in reasons:
+            return "Replanning with new instructions..."
+        if any(reason.startswith("tool(load_game_info):") for reason in reasons):
+            return "Reviewing loaded reference info..."
+        if any(reason.startswith("tool(plot_course):") for reason in reasons):
+            return "Planning route from the latest map data..."
+        if reasons and any(reason != "no_tool_nudge" for reason in reasons):
+            return "Reviewing latest results..."
+        return "Choosing the next step..."
+
+    def _emit_synthetic_progress_message(self, reasons: List[str]) -> None:
+        message = self._progress_message_for_reasons(reasons)
+        if (
+            message == self._last_synthetic_progress_message
+            and self._task_output_progress_epoch == self._last_synthetic_progress_epoch
+        ):
+            return
+        self._last_synthetic_progress_message = message
+        self._last_synthetic_progress_epoch = self._task_output_progress_epoch
+        self._output(message, TaskOutputType.MESSAGE)
 
     def _record_inference_reason(self, reason: str) -> None:
         if reason not in self._inference_reasons:
@@ -1136,6 +1168,8 @@ class TaskAgent(LLMAgent):
         else:
             logger.info("{}", text)
         self._task_log.append(text)
+        if message_type in {TaskOutputType.ACTION, TaskOutputType.EVENT}:
+            self._task_output_progress_epoch += 1
 
         # Send to parent (VoiceAgent) so it can forward to client.
         # Snapshot the current route up front so short-lived tasks do not

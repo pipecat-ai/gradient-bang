@@ -1568,10 +1568,18 @@ def event_query_summary(
         nested_summary = None
         if isinstance(payload, dict):
             nested_summary = get_nested_summary(event_name, payload)
+        join_marker_prefix = ""
+        if (
+            event_name == "status.snapshot"
+            and isinstance(payload, dict)
+            and isinstance(payload.get("source"), dict)
+            and payload["source"].get("method") == "join"
+        ):
+            join_marker_prefix = "join marker: "
 
         # Build event line
         if nested_summary:
-            line = f"[{time_str}] {event_name}{task_suffix}: {nested_summary}"
+            line = f"[{time_str}] {event_name}{task_suffix}: {join_marker_prefix}{nested_summary}"
             event_lines.append(_event_line(line))
         elif isinstance(payload, dict) and payload:
             # Provide a compact representation of key fields
@@ -1589,13 +1597,22 @@ def event_query_summary(
                         display_id = _short_id(nested_id) or nested_id
                     compact_parts.append(f"{key}.id={display_id}")
             if compact_parts:
-                line = f"[{time_str}] {event_name}{task_suffix}: {', '.join(compact_parts)}"
+                line = (
+                    f"[{time_str}] {event_name}{task_suffix}: "
+                    f"{join_marker_prefix}{', '.join(compact_parts)}"
+                )
                 event_lines.append(_event_line(line))
             else:
-                line = f"[{time_str}] {event_name}{task_suffix}"
+                if join_marker_prefix:
+                    line = f"[{time_str}] {event_name}{task_suffix}: {join_marker_prefix}no summary"
+                else:
+                    line = f"[{time_str}] {event_name}{task_suffix}"
                 event_lines.append(_event_line(line))
         else:
-            line = f"[{time_str}] {event_name}{task_suffix}"
+            if join_marker_prefix:
+                line = f"[{time_str}] {event_name}{task_suffix}: {join_marker_prefix}no payload"
+            else:
+                line = f"[{time_str}] {event_name}{task_suffix}"
             event_lines.append(_event_line(line))
 
     omitted_events = max(len(page_events) - len(event_lines), 0)

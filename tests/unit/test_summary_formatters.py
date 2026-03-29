@@ -77,3 +77,23 @@ class TestEventQuerySummary:
         assert len(result) <= _EVENT_QUERY_MAX_TOTAL_CHARS
         for line in result.splitlines()[1:]:
             assert len(line) <= 240
+
+    def test_preserves_join_marker_for_status_snapshot_rows(self):
+        result = event_query_summary(
+            {
+                "events": [
+                    {
+                        "event": "status.snapshot",
+                        "timestamp": "2026-03-29T12:00:00Z",
+                        "payload": {
+                            "source": {"method": "join"},
+                            "detail": "at sector 825",
+                        },
+                    }
+                ],
+                "count": 1,
+            },
+            _nested_summary,
+        )
+
+        assert "status.snapshot: join marker:" in result
