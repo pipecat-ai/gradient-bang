@@ -89,6 +89,39 @@ event_query(
 )
 ```
 
+## Session-Relative Questions
+
+For questions like:
+
+- "What did I do in the last session?"
+- "What happened in the session before the Aegis cruiser purchase?"
+- "Tell me about the session after I joined the corporation"
+
+use an anchor-first strategy.
+
+### Session-before/session-after playbook
+
+1. Find the anchor event or anchor task first with a narrow filtered query.
+   - Prefer `filter_event_type` plus `filter_string_match` or `max_rows=1`
+   - Examples:
+   - `task.finish` with a purchase-related keyword
+   - `corporation.ship_purchased`
+   - `trade.executed`
+   - `bank.transaction`
+
+2. Once you know the anchor timestamp, identify the neighboring task history around that time.
+   - Prefer `task.start` and `task.finish` first
+   - Use those results to identify the session or activity block immediately before or after the anchor
+
+3. Summarize from that bounded session window first.
+   - Task summaries are usually enough to answer what the player was doing
+   - Only query `trade.executed`, `bank.transaction`, `warp.purchase`, or other detailed event types inside that already-bounded window if task history is not enough
+
+4. Do NOT start with broad multi-type scans across a large time range.
+   - Avoid querying several activity event types over a whole day or month before you have identified the target session window
+
+If no explicit session-boundary event is available, treat the relevant session as the nearest cluster of `task.start` and `task.finish` activity around the anchor time.
+
 ## Garrison Sector Activity Playbook
 
 Use these rules when the user asks about activity in a garrisoned sector.

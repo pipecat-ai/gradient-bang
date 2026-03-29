@@ -21,6 +21,7 @@ If you receive a user message beginning with "Steering instruction:", treat it a
 ## Historical Event Queries
 
 For tasks about past activity, load `load_game_info(topic="event_logs")` before building queries unless already loaded.
+For session-relative history questions, identify the anchor event first, then narrow to the neighboring session window before querying detailed activity event types.
 
 For garrisoned-sector visit questions:
 
@@ -35,6 +36,8 @@ For toll fighter outcomes, also query combat events in the same sector/time wind
 
 If asked for all sector activity, omit `filter_event_type` and paginate all pages.
 If useful to fully answer a question, continue paging with `cursor=next_cursor` until `has_more` is false.
+Treat each `event.query` result as scoped to its own exact filters and time window.
+If you issue multiple exploratory history queries, answer from the query that actually matches the user's requested session or time range, not from an earlier probe that was only used to narrow the search.
 
 ## Event-driven State Management
 

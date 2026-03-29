@@ -19,6 +19,9 @@ _UUID_RE = re.compile(
 )
 _BRACKET_HEX_RE = re.compile(r"\[([0-9a-fA-F]{8,})\]")
 _ID_KEY_HINTS = ("ship", "character", "player", "actor", "owner", "target")
+_EVENT_QUERY_MAX_EVENTS = 20
+_EVENT_QUERY_MAX_LINE_LENGTH = 240
+_EVENT_QUERY_MAX_TOTAL_CHARS = 6000
 
 
 def _short_id(value: Any, prefix_len: int = _ID_PREFIX_LEN) -> Optional[str]:
@@ -52,6 +55,60 @@ def _should_shorten_id_for_object_key(key: str) -> bool:
     """Return True when key likely represents a ship/character object."""
     key_lower = key.lower()
     return any(hint in key_lower for hint in _ID_KEY_HINTS)
+
+
+def _truncate_text(text: str, max_length: int) -> str:
+    """Truncate text with an ASCII ellipsis when needed."""
+    if max_length <= 0:
+        return ""
+    if len(text) <= max_length:
+        return text
+    if max_length <= 3:
+        return text[:max_length]
+    return text[: max_length - 3].rstrip() + "..."
+
+
+def _single_line(text: Any) -> str:
+    """Collapse whitespace and coerce arbitrary values to a single line."""
+    return " ".join(str(text).split())
+
+
+def _format_event_query_filter_context(filters: Dict[str, Any]) -> str:
+    """Render the key query filters so summaries stay anchored to the actual request."""
+    if not isinstance(filters, dict) or not filters:
+        return ""
+
+    parts: List[str] = []
+    start = filters.get("start")
+    end = filters.get("end")
+    if isinstance(start, str) and isinstance(end, str):
+        parts.append(f"window={start} to {end}")
+    elif isinstance(start, str):
+        parts.append(f"start={start}")
+    elif isinstance(end, str):
+        parts.append(f"end={end}")
+
+    sort_direction = filters.get("sort_direction")
+    if isinstance(sort_direction, str) and sort_direction:
+        parts.append(f"sort={sort_direction}")
+
+    filter_task_id = filters.get("filter_task_id")
+    if isinstance(filter_task_id, str) and filter_task_id:
+        parts.append(f"task={_short_id(filter_task_id) or filter_task_id}")
+
+    filter_event_type = filters.get("filter_event_type")
+    if isinstance(filter_event_type, str) and filter_event_type:
+        parts.append(f"type={filter_event_type}")
+
+    filter_sector = filters.get("filter_sector")
+    if filter_sector is not None:
+        parts.append(f"sector={filter_sector}")
+
+    filter_string_match = filters.get("filter_string_match")
+    if isinstance(filter_string_match, str) and filter_string_match:
+        parts.append(f"match={_truncate_text(filter_string_match, 40)}")
+
+    return f" ({'; '.join(parts)})" if parts else ""
 
 def _format_relative_time(timestamp_str: str) -> str:
     """Format an ISO timestamp as relative time (e.g., '5 minutes ago', '2 hours ago').
@@ -1437,15 +1494,11 @@ def event_query_summary(
     data: Dict[str, Any],
     get_nested_summary: Callable[[str, Dict[str, Any]], Optional[str]],
 ) -> str:
-    """Format event.query response - detailed summary for TaskAgent LLM context.
+    """Format event.query response with bounded per-event detail.
 
-    This detailed format provides the LLM with properly summarized event data
-    including timestamps, nested summaries for each event, and context lines.
-    The raw payload would be too verbose and hurt instruction following.
-
-    When the query is NOT filtered by task_id, each event line includes a short
-    task ID (first 6 hex chars of the UUID) to allow the LLM to correlate events
-    with tasks and query further using the short ID prefix.
+    Keep the old per-event style that is useful for historical reasoning, but
+    cap the number of rows and total text size so a broad query cannot dominate
+    the task agent's context window.
     """
     events = data.get("events", [])
     count = data.get("count", len(events))
@@ -1461,12 +1514,16 @@ def event_query_summary(
             result += " More available."
         return result
 
-    lines: List[str] = [f"Query returned {count} event{'s' if count != 1 else ''}:"]
+    filter_context = _format_event_query_filter_context(filters)
+    header = f"Query returned {count} event{'s' if count != 1 else ''}{filter_context}:"
+    event_lines: List[str] = []
+    page_events = [event for event in events if isinstance(event, dict)]
 
-    for event in events:
-        if not isinstance(event, dict):
-            continue
+    def _event_line(text: str) -> str:
+        normalized = _single_line(text).lstrip()
+        return _truncate_text(f"  {normalized}", _EVENT_QUERY_MAX_LINE_LENGTH)
 
+    for event in page_events[:_EVENT_QUERY_MAX_EVENTS]:
         event_name = event.get("event", "unknown")
         timestamp = event.get("timestamp")
         payload = event.get("payload", {})
@@ -1503,7 +1560,8 @@ def event_query_summary(
             else:
                 nested_summary = f"{from_name}: {content}"
 
-            lines.append(f"  [{time_str}] {event_name}{task_suffix}: {nested_summary}")
+            line = f"[{time_str}] {event_name}{task_suffix}: {nested_summary}"
+            event_lines.append(_event_line(line))
             continue
 
         # Try to get a nested summary for the event payload
@@ -1513,7 +1571,8 @@ def event_query_summary(
 
         # Build event line
         if nested_summary:
-            lines.append(f"  [{time_str}] {event_name}{task_suffix}: {nested_summary}")
+            line = f"[{time_str}] {event_name}{task_suffix}: {nested_summary}"
+            event_lines.append(_event_line(line))
         elif isinstance(payload, dict) and payload:
             # Provide a compact representation of key fields
             compact_parts: List[str] = []
@@ -1530,16 +1589,36 @@ def event_query_summary(
                         display_id = _short_id(nested_id) or nested_id
                     compact_parts.append(f"{key}.id={display_id}")
             if compact_parts:
-                lines.append(f"  [{time_str}] {event_name}{task_suffix}: {', '.join(compact_parts)}")
+                line = f"[{time_str}] {event_name}{task_suffix}: {', '.join(compact_parts)}"
+                event_lines.append(_event_line(line))
             else:
-                lines.append(f"  [{time_str}] {event_name}{task_suffix}")
+                line = f"[{time_str}] {event_name}{task_suffix}"
+                event_lines.append(_event_line(line))
         else:
-            lines.append(f"  [{time_str}] {event_name}{task_suffix}")
+            line = f"[{time_str}] {event_name}{task_suffix}"
+            event_lines.append(_event_line(line))
 
-    if has_more:
-        lines.append("More events available (use offset/limit to paginate).")
+    omitted_events = max(len(page_events) - len(event_lines), 0)
 
-    return "\n".join(lines)
+    def _compose(lines: List[str], omitted: int) -> str:
+        parts = [header, *lines]
+        if omitted > 0:
+            parts.append(f"... {omitted} more event{'s' if omitted != 1 else ''} omitted.")
+        if has_more:
+            parts.append("More events available (use offset/limit to paginate).")
+        return "\n".join(parts)
+
+    while event_lines:
+        result = _compose(event_lines, omitted_events)
+        if len(result) <= _EVENT_QUERY_MAX_TOTAL_CHARS:
+            return result
+        event_lines.pop()
+        omitted_events += 1
+
+    return _truncate_text(
+        _compose([], omitted_events),
+        _EVENT_QUERY_MAX_TOTAL_CHARS,
+    )
 
 
 def task_cancel_summary(event: Dict[str, Any]) -> str:

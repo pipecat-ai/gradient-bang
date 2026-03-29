@@ -301,6 +301,60 @@ class TestAsyncCompletionE2E:
         finally:
             await h.stop()
 
+    async def test_pipeline_error_surfaces_as_normal_failed_task(self):
+        """LLM pipeline errors should fail the task through the standard response path."""
+        h = E2EHarness(self.character_id, self.api, self.make_game_client)
+        await h.start()
+        try:
+            await h.join_game()
+
+            h._task_llm_gate = asyncio.Event()
+            h.set_task_script([("event_query", {})])
+            result = await h.start_player_task("Summarize my recent activity")
+            assert result["success"] is True, f"start_task failed: {result}"
+
+            task_agent = None
+            for _ in range(40):
+                task_agent = next(
+                    (c for c in h.voice_agent.children if isinstance(c, TaskAgent)),
+                    None,
+                )
+                if task_agent and task_agent._active_task_id:
+                    break
+                await asyncio.sleep(0.05)
+
+            assert task_agent is not None, "TaskAgent should have been created"
+            assert task_agent._active_task_id, "TaskAgent should have an active task ID"
+
+            await task_agent.on_error(
+                "Error during completion: Error code: 400 - "
+                "{'error': {'message': 'Input tokens exceed the configured limit', "
+                "'code': 'context_length_exceeded'}}",
+                fatal=False,
+            )
+
+            completed = await h.wait_for_task_complete(timeout=5.0)
+            assert completed, "Task should fail cleanly instead of hanging"
+            assert not h.voice_agent._task_groups, "Failed task group should be removed"
+
+            failed_task_outputs = [
+                event
+                for event in h.rtvi_events_of_type("task_output")
+                if event.get("payload", {}).get("task_message_type") == "failed"
+            ]
+            assert failed_task_outputs, (
+                f"Expected failed task_output after pipeline error. "
+                f"Got: {h.rtvi_events_of_type('task_output')}"
+            )
+            assert any("task.failed" in content for content, _ in h.llm_messages), (
+                f"Expected task.failed in voice LLM messages. "
+                f"Got: {[content[:120] for content, _ in h.llm_messages]}"
+            )
+        finally:
+            if h._task_llm_gate:
+                h._task_llm_gate.set()
+            await h.stop()
+
     async def test_task_completion_triggers_single_inference(self):
         """REGRESSION: Task completion should trigger exactly one voice LLM inference.
 

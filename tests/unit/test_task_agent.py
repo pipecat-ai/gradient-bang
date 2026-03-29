@@ -11,6 +11,7 @@ from gradientbang.pipecat_server.subagents.task_agent import (
     TaskAgent,
     _SPECIAL_HANDLERS,
 )
+from gradientbang.subagents.agents import TaskStatus
 from gradientbang.subagents.bus import (
     BusTaskCancelMessage,
     BusTaskRequestMessage,
@@ -18,6 +19,7 @@ from gradientbang.subagents.bus import (
 )
 from gradientbang.tools import TASK_TOOLS
 from gradientbang.utils.prompt_loader import TaskOutputType
+from gradientbang.utils.summary_formatters import event_query_summary
 
 
 def _make_task_agent(**overrides):
@@ -539,3 +541,79 @@ class TestEventQueryCompletionCorrelation:
         assert agent._awaiting_completion_request_id is None
         agent._schedule_pending_inference.assert_awaited_once()
         warn.assert_called()
+
+
+@pytest.mark.unit
+class TestEventQuerySummaryHandling:
+    async def test_event_query_summary_is_bounded_in_output_and_context(self):
+        agent = _make_task_agent()
+        agent._active_task_id = "task-1"
+        agent._llm_context = MagicMock()
+        agent._llm_inflight = True
+
+        events = [
+            {
+                "event": f"movement.complete.{idx}",
+                "timestamp": f"2026-03-29T12:00:{idx:02d}Z",
+                "payload": {"detail": "x" * 500},
+            }
+            for idx in range(25)
+        ]
+        summary = event_query_summary(
+            {"events": events, "count": len(events), "has_more": True},
+            lambda event_name, payload: f"{event_name} {payload.get('detail', '')}",
+        )
+
+        await agent._handle_event(
+            {
+                "event_name": "event.query",
+                "summary": summary,
+                "payload": {"events": events, "count": len(events), "has_more": True},
+                "request_id": "req-123",
+            }
+        )
+
+        assert "... 5 more events omitted." in agent.get_task_log()[-1]
+        context_message = agent._llm_context.add_message.call_args.args[0]["content"]
+        assert "... 5 more events omitted." in context_message
+        assert "More events available" in context_message
+
+
+@pytest.mark.unit
+class TestPipelineErrorFailureHandling:
+    async def test_on_error_fails_task_normally(self):
+        agent = _make_task_agent()
+        agent._task_id = "framework-task"
+        agent._task_requester = "voice_agent"
+        agent._active_task_id = "task-1"
+        agent._game_client.task_lifecycle = AsyncMock()
+        agent.send_message = AsyncMock()
+        agent.send_task_response = AsyncMock()
+
+        await agent.on_error(
+            "Error during completion: context_length_exceeded: input too long",
+            fatal=False,
+        )
+
+        agent.send_task_response.assert_awaited_once()
+        assert agent.send_task_response.call_args.kwargs["status"] == TaskStatus.FAILED
+        assert (
+            agent.send_task_response.call_args.kwargs["response"]["message"]
+            == "Task stopped because the event query returned too much history "
+            "to process at once. Narrow the time range or query a specific "
+            "task or event type."
+        )
+        agent._game_client.task_lifecycle.assert_awaited_once()
+        assert agent._active_task_id is None
+
+    async def test_on_error_is_idempotent(self):
+        agent = _make_task_agent()
+        agent._active_task_id = "task-1"
+        agent._game_client.task_lifecycle = AsyncMock()
+        agent.send_task_response = AsyncMock()
+
+        await agent.on_error("generic pipeline failure", fatal=False)
+        await agent.on_error("generic pipeline failure", fatal=False)
+
+        agent.send_task_response.assert_awaited_once()
+        agent._game_client.task_lifecycle.assert_awaited_once()

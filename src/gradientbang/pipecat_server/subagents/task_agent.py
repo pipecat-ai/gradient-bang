@@ -769,6 +769,55 @@ class TaskAgent(LLMAgent):
         except RuntimeError:
             pass  # Already responded
 
+    async def _fail_task_once(self, message: str) -> None:
+        """Fail the active task exactly once using the normal task-failure path."""
+        if self._cancelled or self._task_finished or not self._active_task_id:
+            return
+
+        self._task_finished = True
+        self._task_finished_status = "failed"
+        self._task_finished_message = message
+        self._tool_call_in_progress = False
+        self._llm_inflight = False
+        self._output(self._timestamped_text(message), TaskOutputType.FINISHED)
+        self._quench_inference_state()
+
+        if self._active_task_id and not self._finish_emitted:
+            try:
+                await self._game_client.task_lifecycle(
+                    task_id=self._active_task_id,
+                    event_type="finish",
+                    task_summary=message,
+                    task_status="failed",
+                    task_metadata=self._task_metadata,
+                )
+                self._finish_emitted = True
+            except Exception as exc:
+                logger.warning(f"TaskAgent: failed to emit task.finish (failure): {exc}")
+
+        await self._complete_task()
+
+    @staticmethod
+    def _is_context_length_error(error: str) -> bool:
+        lowered = (error or "").lower()
+        return any(
+            marker in lowered
+            for marker in (
+                "context_length_exceeded",
+                "input tokens exceed the configured limit",
+                "maximum context length",
+            )
+        )
+
+    def _pipeline_failure_message(self, error: str) -> str:
+        if self._is_context_length_error(error):
+            return (
+                "Task stopped because the event query returned too much history "
+                "to process at once. Narrow the time range or query a specific "
+                "task or event type."
+            )
+        return "Task stopped due to an internal processing error."
+
     # ── Inference scheduling ──────────────────────────────────────────
 
     async def _on_tool_call_completed(self, tool_name: Optional[str], result_payload: Any) -> None:
@@ -899,30 +948,9 @@ class TaskAgent(LLMAgent):
         self._no_tool_nudge_count += 1
 
         if self._no_tool_nudge_count > MAX_NO_TOOL_NUDGES:
-            self._task_finished = True
-            self._task_finished_status = "failed"
-            self._task_finished_message = "Task stopped: LLM failed to call required tools"
-            self._output(
-                self._timestamped_text(self._task_finished_message), TaskOutputType.FINISHED
+            asyncio.create_task(
+                self._fail_task_once("Task stopped: LLM failed to call required tools")
             )
-
-            if self._active_task_id and not self._finish_emitted:
-
-                async def _emit():
-                    try:
-                        await self._game_client.task_lifecycle(
-                            task_id=self._active_task_id,
-                            event_type="finish",
-                            task_summary=self._task_finished_message,
-                            task_status="failed",
-                            task_metadata=self._task_metadata,
-                        )
-                        self._finish_emitted = True
-                    except Exception as exc:
-                        logger.warning(f"TaskAgent: failed to emit task.finish: {exc}")
-
-                asyncio.create_task(_emit())
-            asyncio.create_task(self._complete_task())
             return
 
         nudge = {
@@ -947,55 +975,30 @@ class TaskAgent(LLMAgent):
         self._clear_awaited_completion()
 
     async def _force_finish_on_errors(self, last_error: str) -> None:
-        self._task_finished = True
-        self._task_finished_status = "failed"
-        self._task_finished_message = (
+        message = (
             f"Task stopped after {self._consecutive_error_count} consecutive errors. "
             f"Last error: {last_error}"
         )
-        self._output(self._timestamped_text(self._task_finished_message), TaskOutputType.FINISHED)
-        self._quench_inference_state()
-
-        if self._active_task_id and not self._finish_emitted:
-            try:
-                await self._game_client.task_lifecycle(
-                    task_id=self._active_task_id,
-                    event_type="finish",
-                    task_summary=self._task_finished_message,
-                    task_status="failed",
-                    task_metadata=self._task_metadata,
-                )
-                self._finish_emitted = True
-            except Exception as exc:
-                logger.warning(f"TaskAgent: failed to emit task.finish (errors): {exc}")
-
-        await self._complete_task()
+        await self._fail_task_once(message)
 
     async def _force_finish_max_iterations(self, params: FunctionCallParams) -> None:
         msg = "Task stopped after 100 steps (max_iterations limit)."
-        self._task_finished = True
-        self._task_finished_status = "failed"
-        self._task_finished_message = msg
-        self._output(self._timestamped_text(msg), TaskOutputType.FINISHED)
-        self._quench_inference_state()
         await params.result_callback(
             {"error": msg}, properties=FunctionCallResultProperties(run_llm=False)
         )
+        await self._fail_task_once(msg)
 
-        if self._active_task_id and not self._finish_emitted:
-            try:
-                await self._game_client.task_lifecycle(
-                    task_id=self._active_task_id,
-                    event_type="finish",
-                    task_summary=msg,
-                    task_status="failed",
-                    task_metadata=self._task_metadata,
-                )
-                self._finish_emitted = True
-            except Exception as exc:
-                logger.warning(f"TaskAgent: failed to emit task.finish (iterations): {exc}")
-
-        await self._complete_task()
+    async def on_error(self, error: str, fatal: bool) -> None:
+        """Convert pipeline errors into the normal failed-task path."""
+        logger.error(
+            "TaskAgent '{}': pipeline error (fatal={}): {}",
+            self.name,
+            fatal,
+            error,
+        )
+        if not self._active_task_id or self._task_finished or self._cancelled:
+            return
+        await self._fail_task_once(self._pipeline_failure_message(error))
 
     # ── Steering ──────────────────────────────────────────────────────
 
