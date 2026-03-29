@@ -241,20 +241,12 @@ def summarize_ship_definitions(result: Any) -> str:
     return "Ship definitions (purchase_price / trade-in value):\n" + "\n".join(lines)
 
 
-def summarize_leaderboard(result: Any) -> Optional[str]:
+def summarize_leaderboard(result: Any, *, player_id: Optional[str] = None) -> Optional[str]:
     """Produce a concise text summary of the resource leaderboard."""
     if not isinstance(result, dict):
         return None
-    players = result.get("players")
-    corporations = result.get("corporations")
-    if not isinstance(players, list):
-        players = []
-    if not isinstance(corporations, list):
-        corporations = []
 
-    summary = f"Leaderboard: {len(players)} players, {len(corporations)} corporations."
-
-    def _extract_name(entry: Any, keys: tuple) -> Optional[str]:
+    def _extract_name(entry: Any, keys: tuple[str, ...]) -> Optional[str]:
         if not isinstance(entry, dict):
             return None
         for key in keys:
@@ -263,19 +255,154 @@ def summarize_leaderboard(result: Any) -> Optional[str]:
                 return candidate.strip()
         return None
 
-    top_player_name = _extract_name(
-        players[0] if players else None, ("name", "player_name", "character_name")
-    )
-    if top_player_name:
-        summary += f" Top player: {shorten_embedded_ids(top_player_name)}."
+    def _human_entries(entries: Any) -> List[Dict[str, Any]]:
+        if not isinstance(entries, list):
+            return []
+        humans = [
+            entry
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("player_type") == "human"
+        ]
+        if humans:
+            return humans
+        return [entry for entry in entries if isinstance(entry, dict)]
 
-    top_corp_name = _extract_name(
-        corporations[0] if corporations else None, ("name", "corp_name", "corporation_name")
-    )
-    if top_corp_name:
-        summary += f" Top corp: {shorten_embedded_ids(top_corp_name)}."
+    def _pick_top_entry(entries: Any) -> Optional[Dict[str, Any]]:
+        filtered = _human_entries(entries)
+        if filtered:
+            return filtered[0]
+        if not isinstance(entries, list):
+            return None
+        for entry in entries:
+            if isinstance(entry, dict):
+                return entry
+        return None
 
-    return summary
+    def _format_value(entry: Dict[str, Any], stat_key: str, stat_label: str) -> str:
+        value = entry.get(stat_key)
+        if not isinstance(value, (int, float)):
+            return ""
+        return f"{int(value):,} {stat_label}"
+
+    def _format_rank_line(
+        prefix: str,
+        entry: Optional[Dict[str, Any]],
+        *,
+        rank: Optional[int],
+        stat_key: str,
+        stat_label: str,
+    ) -> Optional[str]:
+        if not entry:
+            return None
+        name = _extract_name(entry, ("player_name", "name", "character_name"))
+        if not name:
+            return None
+        parts = [prefix, shorten_embedded_ids(name)]
+        if rank is not None:
+            parts.append(f"(#{rank})")
+        value = _format_value(entry, stat_key, stat_label)
+        if value:
+            parts.append(f"with {value}")
+        return " ".join(parts) + "."
+
+    def _format_category(
+        label: str, entries: Any, stat_key: str, stat_label: str
+    ) -> Optional[str]:
+        filtered_entries = _human_entries(entries)
+        if not filtered_entries:
+            return None
+        entry = filtered_entries[0]
+        category_parts: List[str] = []
+        top_line = _format_rank_line(
+            f"{label.title()} leader:",
+            entry,
+            rank=1,
+            stat_key=stat_key,
+            stat_label=stat_label,
+        )
+        if top_line:
+            category_parts.append(top_line)
+
+        clean_player_id = player_id.strip() if isinstance(player_id, str) else ""
+        player_index = next(
+            (
+                idx
+                for idx, candidate in enumerate(filtered_entries)
+                if isinstance(candidate.get("player_id"), str)
+                and candidate.get("player_id", "").strip() == clean_player_id
+            ),
+            -1,
+        )
+
+        if player_index < 0:
+            category_parts.append(f"Your {label} rank: unranked.")
+            return " ".join(category_parts)
+
+        player_entry = filtered_entries[player_index]
+        player_rank = player_index + 1
+        player_line = _format_rank_line(
+            f"Your {label} rank:",
+            player_entry,
+            rank=player_rank,
+            stat_key=stat_key,
+            stat_label=stat_label,
+        )
+        if player_line:
+            category_parts.append(player_line)
+
+        above_entry = filtered_entries[player_index - 1] if player_index > 0 else None
+        above_line = _format_rank_line(
+            f"Above you in {label}:",
+            above_entry,
+            rank=player_rank - 1 if above_entry else None,
+            stat_key=stat_key,
+            stat_label=stat_label,
+        )
+        if above_line:
+            category_parts.append(above_line)
+        else:
+            category_parts.append(f"Above you in {label}: nobody.")
+
+        below_entry = (
+            filtered_entries[player_index + 1]
+            if player_index + 1 < len(filtered_entries)
+            else None
+        )
+        below_line = _format_rank_line(
+            f"Below you in {label}:",
+            below_entry,
+            rank=player_rank + 1 if below_entry else None,
+            stat_key=stat_key,
+            stat_label=stat_label,
+        )
+        if below_line:
+            category_parts.append(below_line)
+        else:
+            category_parts.append(f"Below you in {label}: nobody.")
+
+        return " ".join(category_parts)
+
+    category_summaries = [
+        _format_category("wealth", result.get("wealth"), "total_wealth", "credits"),
+        _format_category("trading", result.get("trading"), "total_trade_volume", "trade volume"),
+        _format_category(
+            "exploration",
+            result.get("exploration"),
+            "sectors_visited",
+            "sectors visited",
+        ),
+        _format_category(
+            "territory",
+            result.get("territory"),
+            "sectors_controlled",
+            "sectors controlled",
+        ),
+    ]
+    category_summaries = [summary for summary in category_summaries if summary]
+    if not category_summaries:
+        return None
+
+    return "Leaderboard summary: " + " ".join(category_summaries)
 
 
 def extract_display_name(payload: Mapping[str, Any]) -> Optional[str]:

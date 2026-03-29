@@ -4,9 +4,10 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pipecat.services.llm_service import FunctionCallParams
 
 from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
-from gradientbang.utils.formatting import summarize_corporation_info
+from gradientbang.utils.formatting import summarize_corporation_info, summarize_leaderboard
 
 
 def _make_voice_agent(**overrides):
@@ -26,6 +27,22 @@ def _make_voice_agent(**overrides):
     }
     kwargs.update(overrides)
     return VoiceAgent("player", **kwargs)
+
+
+def _make_function_call_params(
+    *,
+    function_name: str = "test_tool",
+    arguments: dict | None = None,
+    result_callback=None,
+) -> FunctionCallParams:
+    return FunctionCallParams(
+        function_name=function_name,
+        tool_call_id="tool-call-1",
+        arguments=arguments or {},
+        llm=MagicMock(),
+        context=MagicMock(),
+        result_callback=result_callback or AsyncMock(),
+    )
 
 
 EXPECTED_TOOLS = {
@@ -598,6 +615,97 @@ def _corp_api_response(ship_id=CORP_SHIP_ID, ship_name="Red Probe"):
     }
 
 
+def _leaderboard_api_response():
+    return {
+        "wealth": [
+            {
+                "player_id": "human-1",
+                "player_name": "Alice Explorer",
+                "player_type": "human",
+                "total_wealth": 400000,
+            },
+            {
+                "player_id": "char-123",
+                "player_name": "Player One",
+                "player_type": "human",
+                "total_wealth": 300000,
+            },
+            {
+                "player_id": "human-5",
+                "player_name": "Eve Miner",
+                "player_type": "human",
+                "total_wealth": 250000,
+            },
+            {
+                "player_id": "npc-1",
+                "player_name": "NPC Rich",
+                "player_type": "npc",
+                "total_wealth": 999999,
+            },
+        ],
+        "trading": [
+            {
+                "player_id": "human-2",
+                "player_name": "Bob Trader",
+                "player_type": "human",
+                "total_trade_volume": 75000,
+            },
+            {
+                "player_id": "char-123",
+                "player_name": "Player One",
+                "player_type": "human",
+                "total_trade_volume": 70000,
+            },
+            {
+                "player_id": "human-6",
+                "player_name": "Finn Broker",
+                "player_type": "human",
+                "total_trade_volume": 65000,
+            },
+        ],
+        "exploration": [
+            {
+                "player_id": "human-3",
+                "player_name": "Cara Scout",
+                "player_type": "human",
+                "sectors_visited": 88,
+            },
+            {
+                "player_id": "char-123",
+                "player_name": "Player One",
+                "player_type": "human",
+                "sectors_visited": 72,
+            },
+            {
+                "player_id": "human-7",
+                "player_name": "Gale Surveyor",
+                "player_type": "human",
+                "sectors_visited": 66,
+            }
+        ],
+        "territory": [
+            {
+                "player_id": "human-4",
+                "player_name": "Dax Warden",
+                "player_type": "human",
+                "sectors_controlled": 12,
+            },
+            {
+                "player_id": "char-123",
+                "player_name": "Player One",
+                "player_type": "human",
+                "sectors_controlled": 8,
+            },
+            {
+                "player_id": "human-8",
+                "player_name": "Hale Sentinel",
+                "player_type": "human",
+                "sectors_controlled": 6,
+            },
+        ],
+    }
+
+
 @pytest.mark.unit
 class TestCorporationInfoSummary:
     """Verify corporation_info returns a curated summary, not raw JSON."""
@@ -641,6 +749,113 @@ class TestCorporationInfoSummary:
         summary = summarize_corporation_info(result)
         assert "2 total" in summary
         assert "Alpha Corp" in summary
+
+
+@pytest.mark.unit
+class TestVoiceToolErrorWrapping:
+    @pytest.mark.asyncio
+    async def test_wrap_tool_errors_resolves_uncaught_exception(self):
+        agent = _make_voice_agent()
+        params = _make_function_call_params(result_callback=AsyncMock())
+
+        async def boom(_params):
+            raise RuntimeError("boom")
+
+        wrapped = agent._wrap_tool_errors("test_tool", boom)
+        await wrapped(params)
+
+        params.result_callback.assert_awaited_once()
+        assert params.result_callback.await_args.args[0] == {"error": "boom"}
+        properties = params.result_callback.await_args.kwargs["properties"]
+        assert properties.run_llm is True
+        assert agent._assistant_cycle_active is True
+
+    @pytest.mark.asyncio
+    async def test_wrap_tool_errors_does_not_resolve_twice(self):
+        agent = _make_voice_agent()
+        params = _make_function_call_params(result_callback=AsyncMock())
+
+        async def resolve_then_fail(call_params):
+            await call_params.result_callback({"ok": True})
+            raise RuntimeError("boom after callback")
+
+        wrapped = agent._wrap_tool_errors("test_tool", resolve_then_fail)
+        await wrapped(params)
+
+        params.result_callback.assert_awaited_once_with({"ok": True})
+
+    @pytest.mark.asyncio
+    async def test_leaderboard_failure_resolves_cleanly(self):
+        agent = _make_voice_agent()
+        agent._game_client.leaderboard_resources = AsyncMock(side_effect=RuntimeError("bad rpc"))
+        params = _make_function_call_params(
+            function_name="leaderboard_resources",
+            result_callback=AsyncMock(),
+        )
+
+        wrapped = agent._wrap_tool_errors("leaderboard_resources", agent._handle_leaderboard_resources)
+        await wrapped(params)
+
+        params.result_callback.assert_awaited_once()
+        assert params.result_callback.await_args.args[0] == {"error": "bad rpc"}
+        properties = params.result_callback.await_args.kwargs["properties"]
+        assert properties.run_llm is True
+
+
+@pytest.mark.unit
+class TestLeaderboardSummary:
+    def test_summarize_leaderboard_multicategory_payload(self):
+        summary = summarize_leaderboard(_leaderboard_api_response(), player_id="char-123")
+
+        assert summary is not None
+        assert "Alice Explorer" in summary
+        assert "Bob Trader" in summary
+        assert "Cara Scout" in summary
+        assert "Dax Warden" in summary
+        assert "Your wealth rank: Player One (#2)" in summary
+        assert "Above you in wealth: Alice Explorer (#1)" in summary
+        assert "Below you in wealth: Eve Miner (#3)" in summary
+        assert "Your trading rank: Player One (#2)" in summary
+        assert "Below you in territory: Hale Sentinel (#3)" in summary
+
+    @pytest.mark.asyncio
+    async def test_handle_leaderboard_resources_returns_summary_only(self):
+        agent = _make_voice_agent()
+        agent._game_client.leaderboard_resources = AsyncMock(return_value=_leaderboard_api_response())
+        params = _make_function_call_params(
+            function_name="leaderboard_resources",
+            arguments={"force_refresh": True},
+            result_callback=AsyncMock(),
+        )
+
+        await agent._handle_leaderboard_resources(params)
+
+        agent._game_client.leaderboard_resources.assert_called_once_with(
+            character_id="char-123",
+            force_refresh=True,
+        )
+        params.result_callback.assert_awaited_once()
+        payload = params.result_callback.await_args.args[0]
+        assert set(payload.keys()) == {"summary"}
+        assert "Alice Explorer" in payload["summary"]
+        assert "Player One (#2)" in payload["summary"]
+
+    @pytest.mark.asyncio
+    async def test_handle_leaderboard_resources_returns_error_when_unsummarizable(self):
+        agent = _make_voice_agent()
+        agent._game_client.leaderboard_resources = AsyncMock(return_value={"cached": True})
+        params = _make_function_call_params(
+            function_name="leaderboard_resources",
+            result_callback=AsyncMock(),
+        )
+
+        await agent._handle_leaderboard_resources(params)
+
+        params.result_callback.assert_awaited_once()
+        payload = params.result_callback.await_args.args[0]
+        assert payload == {
+            "error": "Leaderboard data is unavailable or too large to summarize safely."
+        }
 
 
 # ── Corporation direct tools ──────────────────────────────────────────
