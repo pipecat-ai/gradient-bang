@@ -13,6 +13,7 @@ import bulwarkDestroyerLogo from "./images/ships/bulwark_destroyer_logo.png"
 import corsairRaiderLogo from "./images/ships/corsair_raider_logo.png"
 import escapePodLogo from "./images/ships/escape_pod_logo.png"
 import kestrelLogo from "./images/ships/kestrel_courier_logo.png"
+import parhelionSeekerLogo from "./images/ships/parhelion_seeker_logo.png"
 import pikeFrigateLogo from "./images/ships/pike_frigate_logo.png"
 import pioneerLifterLogo from "./images/ships/pioneer_lifter_logo.png"
 import sovereignStarcruiserLogo from "./images/ships/sovereign_starcruiser_logo.png"
@@ -65,6 +66,7 @@ export const images = {
   bulwarkDestroyerLogo,
   corsairRaiderLogo,
   kestrelLogo,
+  parhelionSeekerLogo,
   pikeFrigateLogo,
   pioneerLifterLogo,
   sovereignStarcruiserLogo,
