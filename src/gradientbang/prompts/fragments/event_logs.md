@@ -125,11 +125,11 @@ Task summaries are usually sufficient. Only query `trade.executed`, `bank.transa
 
 ### "What happened in the session where I bought the Aegis?"
 
-Step 1 — Find the anchor. For ship purchases, use the dedicated event type:
+Step 1 — Find the anchor. For personal ship purchases, use the dedicated event type:
 ```
 event_query(
     start=<7 days ago>, end=<now>,
-    filter_event_type="ship.traded_in",
+    filter_event_type="ship.purchased",
     filter_string_match="Aegis",
     sort_direction="reverse",
     max_rows=1
@@ -244,7 +244,8 @@ All filter parameters use the `filter_` prefix:
 | task.start | task_description, task_id |
 | task.finish | task_summary, task_status |
 | session.started | session boundary marker (sector, ship_name, ship_type) |
-| ship.traded_in | personal ship purchase (old_ship_type, new_ship_type, price, trade_in_value) |
+| ship.purchased | personal ship purchase (ship_type, ship_name, purchase_price, net_cost, old_ship_type) |
+| ship.traded_in | personal ship trade-in detail (old_ship_type, new_ship_type, price, trade_in_value) |
 | corporation.ship_purchased | corp ship purchase (ship_type, ship_name, purchase_price, buyer_name) |
 
 ## Calculating Trade Profit
