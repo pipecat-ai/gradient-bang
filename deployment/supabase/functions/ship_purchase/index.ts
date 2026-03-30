@@ -325,6 +325,31 @@ async function handlePersonalPurchase(
     shipId: insertedShip.ship_id,
   });
 
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "ship.purchased",
+    payload: {
+      source,
+      character_id: characterId,
+      ship_id: newShipId,
+      ship_type: shipType,
+      ship_name: shipName,
+      purchase_price: price,
+      trade_in_value: tradeInValue,
+      net_cost: netCost,
+      old_ship_id: currentShip.ship_id,
+      old_ship_type: currentShip.ship_type,
+      sector: sectorId,
+      timestamp,
+    },
+    sectorId,
+    requestId,
+    corpId: character.corporation_id,
+    taskId,
+    shipId: insertedShip.ship_id,
+  });
+
   if (currentShip.ship_id) {
     await emitCharacterEvent({
       supabase,

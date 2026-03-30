@@ -24,6 +24,8 @@ import {
   apiOk,
   characterIdFor,
   shipIdFor,
+  eventsOfType,
+  getEventCursor,
   queryCharacter,
   queryShip,
   setShipCredits,
@@ -379,6 +381,113 @@ Deno.test({
         result.body.error?.includes("name"),
         `Expected name error, got: ${result.body.error}`,
       );
+    });
+  },
+});
+
+// ============================================================================
+// Group 7: corporation.ship_purchased event emitted on corp purchase
+// ============================================================================
+
+Deno.test({
+  name: "ship_purchase — corporation.ship_purchased event emitted",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let cursorP1: number;
+
+    await t.step("reset and setup corp", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Purchase Event Corp",
+      });
+      corpId = (createResult as Record<string, unknown>).corp_id as string;
+      await setMegabankBalance(p1Id, 10000);
+    });
+
+    await t.step("capture cursor", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+    });
+
+    let corpShipId: string;
+
+    await t.step("purchase corp ship", async () => {
+      const result = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (result as Record<string, unknown>).ship_id as string;
+    });
+
+    await t.step("corporation.ship_purchased event visible via corp_id", async () => {
+      const events = await eventsOfType(
+        p1Id,
+        "corporation.ship_purchased",
+        cursorP1,
+        corpId,
+      );
+      assert(
+        events.length >= 1,
+        `Expected >= 1 corporation.ship_purchased event, got ${events.length}`,
+      );
+      const payload = events[0].payload;
+      assertEquals(payload.ship_id, corpShipId);
+      assertEquals(payload.ship_type, "autonomous_probe");
+      assertExists(payload.purchase_price);
+      assertExists(payload.buyer_id);
+      assertExists(payload.corp_name);
+    });
+  },
+});
+
+// ============================================================================
+// Group 8: ship.purchased event emitted on personal purchase
+// ============================================================================
+
+Deno.test({
+  name: "ship_purchase — ship.purchased event emitted for personal purchase",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let cursorP1: number;
+
+    await t.step("reset and setup", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 100000);
+      await setShipFighters(p1ShipId, 300);
+    });
+
+    await t.step("capture cursor", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+    });
+
+    let newShipId: string;
+
+    await t.step("purchase personal ship", async () => {
+      const result = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "wayfarer_freighter",
+      });
+      newShipId = (result as Record<string, unknown>).ship_id as string;
+    });
+
+    await t.step("ship.purchased event emitted", async () => {
+      const events = await eventsOfType(p1Id, "ship.purchased", cursorP1);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 ship.purchased event, got ${events.length}`,
+      );
+      const payload = events[0].payload;
+      assertEquals(payload.ship_id, newShipId);
+      assertEquals(payload.ship_type, "wayfarer_freighter");
+      assertExists(payload.purchase_price);
+      assertExists(payload.net_cost);
     });
   },
 });
