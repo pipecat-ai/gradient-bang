@@ -235,23 +235,24 @@ async function handleDisband(params: {
       );
     }
 
-    const { error: autopilotDeleteError } = await supabase
+    // Detach pseudo-characters from corporation (don't delete — avoids FK
+    // constraint violations on events.character_id / events.sender_id).
+    const { error: autopilotUpdateError } = await supabase
       .from("characters")
-      .delete()
+      .update({ corporation_id: null })
       .in("character_id", shipIds);
-    if (autopilotDeleteError) {
+    if (autopilotUpdateError) {
       console.error(
-        "corporation_leave.ship_character_delete",
-        autopilotDeleteError,
+        "corporation_leave.ship_character_update",
+        autopilotUpdateError,
       );
       throw new CorporationLeaveError(
-        "Failed to clean up corporation ship pilots",
+        "Failed to detach corporation ship pilots",
         500,
       );
     }
   }
 
-  // Emit events BEFORE deleting the corporation (otherwise FK constraint violation)
   const source = buildEventSource("corporation_leave", requestId);
   const disbandPayload = {
     source,
@@ -295,22 +296,14 @@ async function handleDisband(params: {
     });
   }
 
-  // NULL out corp_id in events before deleting corporation (preserve event history)
-  const { error: eventUpdateError } = await supabase
-    .from("events")
-    .update({ corp_id: null })
-    .eq("corp_id", corpId);
-  if (eventUpdateError) {
-    console.error("corporation_leave.event_update", eventUpdateError);
-    // Continue anyway - this is not critical
-  }
-
-  const { error: deleteError } = await supabase
+  // Soft-delete: mark disbanded instead of hard-deleting. This preserves FK
+  // references from the events table (corp_id) without needing to NULL them.
+  const { error: disbandError } = await supabase
     .from("corporations")
-    .delete()
+    .update({ disbanded_at: timestamp })
     .eq("corp_id", corpId);
-  if (deleteError) {
-    console.error("corporation_leave.corp_delete", deleteError);
+  if (disbandError) {
+    console.error("corporation_leave.corp_disband", disbandError);
     throw new CorporationLeaveError("Failed to disband corporation", 500);
   }
 }

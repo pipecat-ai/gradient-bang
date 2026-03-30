@@ -137,12 +137,13 @@ async function handleRename(params: {
     throw new CorporationRenameError("Name must be 3-50 characters", 400);
   }
 
-  // Case-insensitive uniqueness check (exclude own corporation)
+  // Case-insensitive uniqueness check (exclude own corporation and disbanded)
   const { data: duplicate, error: dupError } = await supabase
     .from("corporations")
     .select("corp_id")
     .ilike("name", trimmedName)
     .neq("corp_id", corpId)
+    .is("disbanded_at", null)
     .maybeSingle();
   if (dupError) {
     console.error("corporation_rename.uniqueness_check", dupError);

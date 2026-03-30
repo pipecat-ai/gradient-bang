@@ -12,6 +12,7 @@ export interface CorporationRecord {
   invite_code: string;
   invite_code_generated: string;
   invite_code_generated_by: string | null;
+  disbanded_at: string | null;
 }
 
 export interface CorporationMemberSummary {
@@ -68,7 +69,7 @@ export async function loadCorporationById(
   const { data, error } = await supabase
     .from("corporations")
     .select(
-      "corp_id, name, founder_id, founded, invite_code, invite_code_generated, invite_code_generated_by",
+      "corp_id, name, founder_id, founded, invite_code, invite_code_generated, invite_code_generated_by, disbanded_at",
     )
     .eq("corp_id", corpId)
     .maybeSingle();

@@ -131,11 +131,11 @@ Deno.serve(traced("character_delete", async (req, trace) => {
         .eq("corporation_id", corporationId);
 
       if (!countError && remainingMembers && remainingMembers.length === 0) {
-        // Delete the empty corporation
+        // Soft-delete the empty corporation
         await supabase
           .from("corporations")
-          .delete()
-          .eq("corporation_id", corporationId);
+          .update({ disbanded_at: new Date().toISOString() })
+          .eq("corp_id", corporationId);
       }
       sCorpCleanup.end({ corporationId, disbanded: remainingMembers?.length === 0 });
     } else {

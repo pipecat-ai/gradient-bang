@@ -91,7 +91,8 @@ async function loadCorporationSummaries(
 ): Promise<Array<Record<string, unknown>>> {
   const { data: corps, error } = await supabase
     .from("corporations")
-    .select("corp_id, name, founded");
+    .select("corp_id, name, founded")
+    .is("disbanded_at", null);
   if (error) {
     console.error("corporation_list.corporations", error);
     throw new CorporationListError("Failed to load corporations", 500);

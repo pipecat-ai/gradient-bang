@@ -158,6 +158,9 @@ async function handleJoin(params: {
     }
     throw err;
   }
+  if (corporation.disbanded_at) {
+    throw new CorporationJoinError("Corporation has been disbanded", 400);
+  }
   const expectedCode = (corporation.invite_code ?? "").trim().toLowerCase();
   if (!expectedCode || expectedCode !== inviteCode.trim().toLowerCase()) {
     throw new CorporationJoinError("Invalid invite code", 400);
