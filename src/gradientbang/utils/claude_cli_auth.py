@@ -10,7 +10,16 @@ Protocol:
   2. Pass it as ``auth_token`` (Bearer), **not** ``api_key``
   3. Include the required beta header ``anthropic-beta: oauth-2025-04-20``
 
+Limitations:
+  - Local dev only — Docker/CI/prod must use ANTHROPIC_API_KEY.
+  - Tokens expire (~5 hours). Developer must run ``claude`` to refresh.
+  - **IMPORTANT**: As of mid-March 2026, the OAuth beta restricts inference 
+    to Haiku-tier models only. Sonnet and Opus return 400. 
+    This was not the case when initially implemented (2026-03-09). 
+    Use ANTHROPIC_API_KEY for full access to Claude models.
+
 Reference: Siftly lib/claude-cli-auth.ts
+
 """
 
 from __future__ import annotations
