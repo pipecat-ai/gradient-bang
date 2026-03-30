@@ -389,13 +389,14 @@ Deno.test({
       assertEquals(char.corporation_id, null);
     });
 
-    await t.step("DB: corporation deleted", async () => {
+    await t.step("DB: corporation soft-deleted", async () => {
       await withPg(async (pg) => {
-        const result = await pg.queryObject(
-          `SELECT corp_id FROM corporations WHERE corp_id = $1`,
+        const result = await pg.queryObject<{ disbanded_at: string | null }>(
+          `SELECT disbanded_at FROM corporations WHERE corp_id = $1`,
           [corpId],
         );
-        assertEquals(result.rows.length, 0, "Corporation should be deleted");
+        assertEquals(result.rows.length, 1, "Corporation row should still exist");
+        assertExists(result.rows[0].disbanded_at, "Corporation should be soft-deleted");
       });
     });
 
