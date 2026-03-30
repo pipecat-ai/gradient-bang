@@ -5,6 +5,7 @@ import { motion } from "motion/react"
 import { CheckCircleIcon, LockSimpleIcon } from "@phosphor-icons/react"
 
 import FeddyPortrait from "@/assets/images/characters/feddy_the_support_bot.png"
+import OrbPortrait from "@/assets/images/characters/infallible_orb.png"
 import VeecyPortrait from "@/assets/images/characters/venture_chamber_agent.png"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
@@ -29,6 +30,14 @@ const QUEST_GIVERS = [
     questCode: "tutorial_corporations",
     locked: false,
     portrait: VeecyPortrait,
+  },
+  {
+    id: "infallible_orb",
+    name: "The Infallible Orb",
+    description: "Gamma Division",
+    questCode: "garrison_intro",
+    locked: false,
+    portrait: OrbPortrait,
   },
   {
     id: "dr-nexus",

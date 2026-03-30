@@ -44,7 +44,8 @@
           "giver_id": "feddy_the_support_bot",
           "giver": "Feddy, Senior Federation Support Chatbot (Mark IX)",
           "pages": [
-            "<emotion value=\"surprised\">Honestly that wasn't too bad!</emotion> Maybe you'll be a pilot after all. You should look for a Megaport next. The Megaport is a major hub for trade and commerce in this part of the galaxy. If you want a career in trading, that's where you need to be. <emotion value=\"disappointed\">I wish I could travel the galaxy too, but I'm stuck here making these calls...</emotion> Keep warping to adjacent sectors until you find one that contains a Megaport. Once you arrive, you'll have access to markets, shipyards, and other facilities that can help you."
+            "<emotion value=\"surprised\">Honestly that wasn't too bad!</emotion> Maybe you'll be a pilot after all.",
+            "You should look for a Megaport next. The Megaport is a major hub for trade and commerce in this part of the galaxy. If you want a career in trading, that's where you need to be. <emotion value=\"disappointed\">I wish I could travel the galaxy too, but I'm stuck here making these calls...</emotion> Keep warping to adjacent sectors until you find one that contains a Megaport. Once you arrive, you'll have access to markets, shipyards, and other facilities that can help you."
           ]
         }
       }
@@ -90,7 +91,8 @@
           "giver_id": "feddy_the_support_bot",
           "giver": "Feddy, Senior Federation Support Chatbot (Mark IX)",
           "pages": [
-            "<emotion value=\"content\">You made your first trade! Looks like my advice is actually useful for once.</emotion> Now, you should know that the Sparrow you're flying is a loaner from the Federation. It's actually been missing from our records for 35 years. Once the quartermaster finds out, they'll want it back. So you should get your own ship.",
+            "<emotion value=\"content\">You made your first trade! Looks like my advice is actually useful for once.</emotion>",
+            "Now, you should know that the Sparrow you're flying is a loaner from the Federation. It's actually been missing from our records for 35 years. Once the quartermaster finds out, they'll want it back. So you should get your own ship.",
             "<emotion value=\"anticipation\">I'm thinking you could get a... Kestrel Courier?</emotion> Yeah, that would work. It's fast, reliable, and an upstart like you can probably afford it. Keep trading between ports — buy low, sell high — and you should get there."
           ]
         },
