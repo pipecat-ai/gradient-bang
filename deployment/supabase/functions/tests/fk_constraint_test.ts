@@ -35,9 +35,11 @@ import {
   eventsOfType,
   getEventCursor,
   setShipCredits,
+  setMegabankBalance,
   createCorpShip,
   withPg,
   queryEvents,
+  queryShip,
 } from "./helpers.ts";
 
 const P1 = "test_fk_p1";
@@ -121,6 +123,24 @@ Deno.test({
         events.length >= 1,
         `Expected events referencing corp ship pseudo-character, got ${events.length}`,
       );
+    });
+
+    await t.step("remove corp ship (so disband is allowed)", async () => {
+      // Remove the corporation_ships link and mark ship unowned so the
+      // disband guard passes. The event referencing the pseudo-character
+      // remains — that's what this test is verifying.
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `DELETE FROM corporation_ships WHERE ship_id = $1`,
+          [corpShipId],
+        );
+        await pg.queryObject(
+          `UPDATE ship_instances SET owner_type = 'unowned', owner_id = NULL,
+           owner_character_id = NULL, owner_corporation_id = NULL
+           WHERE ship_id = $1`,
+          [corpShipId],
+        );
+      });
     });
 
     await t.step("P1 leaves corp (triggers disband) — succeeds with soft-delete", async () => {
@@ -334,22 +354,21 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 5: Corp disband preserves ship and pseudo-character records
+// Group 5: Sold corp ship records survive disband (ship_id FK safe)
 // ============================================================================
-// Corp ships produce events with ship_id set. handleDisband() soft-releases
-// ships (sets owner_type='unowned') and detaches pseudo-characters (NULLs
-// corporation_id) instead of deleting them. Both records survive disband.
+// After selling a corp ship (soft-delete: destroyed_at set, owner_type='unowned'),
+// the ship_instances row persists so events.ship_id FK references remain valid.
+// This test verifies the ship record survives through sell + disband.
 
 Deno.test({
-  name: "fk_constraint — corp disband preserves ship and pseudo-character records",
+  name: "fk_constraint — sold corp ship records survive disband (ship_id FK safe)",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
     let corpId: string;
     let corpShipId: string;
-    let corpShipShipId: string;
 
-    await t.step("reset and create corp with ship", async () => {
+    await t.step("reset, create corp, buy and sell a ship", async () => {
       p1Id = await characterIdFor(P1);
       p1ShipId = await shipIdFor(P1);
       await resetDatabase([P1]);
@@ -358,17 +377,22 @@ Deno.test({
 
       const createResult = await apiOk("corporation_create", {
         character_id: p1Id,
-        name: "FK Ship Preserve Corp",
+        name: "FK Ship Survive Corp",
       });
       corpId = (createResult as Record<string, unknown>).corp_id as string;
 
-      const shipResult = await createCorpShip(corpId, 0, "Preserve Probe");
-      corpShipId = shipResult.pseudoCharacterId;
-      corpShipShipId = shipResult.shipId;
-    });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
 
-    await t.step("insert event with ship_id for corp ship", async () => {
-      // Insert event referencing the corp ship's ship_id
+      // Insert an event referencing the corp ship via ship_id FK column.
+      // This simulates any event that might reference the ship (e.g., combat,
+      // move). We insert before selling so the FK reference exists when we
+      // later verify it survives disband.
       await withPg(async (pg) => {
         await pg.queryObject(
           `INSERT INTO events (
@@ -378,45 +402,34 @@ Deno.test({
             'event_out', 'test.fk_ship_probe', 'direct', $1, $2, '{}'::jsonb,
             $1, 'direct', NOW()
           )`,
-          [p1Id, corpShipShipId],
+          [p1Id, corpShipId],
         );
       });
 
-      const events = await queryEvents("ship_id = $1", [corpShipShipId]);
-      assert(
-        events.length >= 1,
-        `Expected events with ship_id for corp ship`,
-      );
+      // Sell the corp ship
+      await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
     });
 
-    await t.step("P1 leaves corp (disband) — records preserved", async () => {
-      const result = await api("corporation_leave", { character_id: p1Id });
+    await t.step("disband succeeds after selling ship", async () => {
+      const result = await apiOk("corporation_leave", { character_id: p1Id });
+      assert(result.success);
+    });
+
+    await t.step("DB: sold ship record still exists (ship_id FK intact)", async () => {
+      const ship = await queryShip(corpShipId);
+      assertExists(ship, "Ship record should still exist after sell + disband");
+      assertExists(ship.destroyed_at, "Ship should have destroyed_at set");
+
+      // Events still reference the ship — FK is valid because the row persists
+      const events = await queryEvents("ship_id = $1", [corpShipId]);
       assert(
-        result.body.success,
-        `corporation_leave should succeed but got: ${JSON.stringify(result.body)}`,
+        events.length >= 1,
+        "Events referencing ship_id should survive disband",
       );
-
-      // Ship record preserved, marked as unowned
-      const shipRows = await withPg(async (pg) => {
-        const r = await pg.queryObject<{ owner_type: string }>(
-          `SELECT owner_type FROM ship_instances WHERE ship_id = $1`,
-          [corpShipShipId],
-        );
-        return r.rows;
-      });
-      assert(shipRows.length >= 1, "Ship record should still exist after disband");
-      assertEquals(shipRows[0].owner_type, "unowned");
-
-      // Pseudo-character preserved, detached from corporation
-      const charRows = await withPg(async (pg) => {
-        const r = await pg.queryObject<{ corporation_id: string | null }>(
-          `SELECT corporation_id FROM characters WHERE character_id = $1`,
-          [corpShipId],
-        );
-        return r.rows;
-      });
-      assert(charRows.length >= 1, "Pseudo-character should still exist after disband");
-      assertEquals(charRows[0].corporation_id, null, "Pseudo-character should be detached from corp");
     });
   },
 });
@@ -509,6 +522,131 @@ Deno.test({
         (result as Record<string, unknown>).corp_id,
         "Should be able to create corp with disbanded corp's name",
       );
+    });
+  },
+});
+
+// ============================================================================
+// Group 8: Cannot leave corp as last member while corp still has ships
+// ============================================================================
+
+Deno.test({
+  name: "fk_constraint — cannot disband corp that still has ships",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+
+    await t.step("reset and create corp with a ship", async () => {
+      p1Id = await characterIdFor(P1);
+      p1ShipId = await shipIdFor(P1);
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Ships Block Leave Corp",
+      });
+      corpId = (createResult as Record<string, unknown>).corp_id as string;
+
+      // Buy a corp ship
+      await setMegabankBalance(p1Id, 10000);
+      await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+    });
+
+    await t.step("leaving as last member fails — corp has ships", async () => {
+      const result = await api("corporation_leave", {
+        character_id: p1Id,
+      });
+      assert(
+        !result.body.success,
+        "Should not be able to disband corp while it still has ships",
+      );
+      assert(
+        result.body.error?.includes("ship"),
+        `Error should mention ships, got: ${result.body.error}`,
+      );
+    });
+
+    await t.step("DB: P1 still in corporation", async () => {
+      const char = await withPg(async (pg) => {
+        const r = await pg.queryObject<{ corporation_id: string | null }>(
+          `SELECT corporation_id FROM characters WHERE character_id = $1`,
+          [p1Id],
+        );
+        return r.rows[0];
+      });
+      assertEquals(char.corporation_id, corpId, "P1 should still be in the corp");
+    });
+  },
+});
+
+// ============================================================================
+// Group 9: Can leave corp after selling all corp ships
+// ============================================================================
+
+Deno.test({
+  name: "fk_constraint — can disband corp after selling all ships",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let corpShipId: string;
+
+    await t.step("reset and create corp with a ship", async () => {
+      p1Id = await characterIdFor(P1);
+      p1ShipId = await shipIdFor(P1);
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Sell Then Leave Corp",
+      });
+      corpId = (createResult as Record<string, unknown>).corp_id as string;
+
+      // Buy a corp ship
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+    });
+
+    await t.step("sell the corp ship", async () => {
+      const result = await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
+      assert(result.success);
+    });
+
+    await t.step("now leaving as last member succeeds", async () => {
+      const result = await apiOk("corporation_leave", {
+        character_id: p1Id,
+      });
+      assert(result.success);
+    });
+
+    await t.step("DB: corporation is soft-deleted", async () => {
+      const rows = await withPg(async (pg) => {
+        const r = await pg.queryObject<{ disbanded_at: string | null }>(
+          `SELECT disbanded_at FROM corporations WHERE corp_id = $1`,
+          [corpId],
+        );
+        return r.rows;
+      });
+      assertEquals(rows.length, 1);
+      assertExists(rows[0].disbanded_at);
     });
   },
 });

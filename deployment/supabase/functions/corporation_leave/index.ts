@@ -149,6 +149,19 @@ async function handleLeave(params: {
   }
 
   const corporation = await loadCorporationById(supabase, corpId);
+
+  // If this is the last member, ensure no corp ships remain before disbanding
+  const currentMembers = await fetchCorporationMembers(supabase, corpId);
+  if (currentMembers.length <= 1) {
+    const corpShips = await fetchCorporationShipSummaries(supabase, corpId);
+    if (corpShips.length > 0) {
+      throw new CorporationLeaveError(
+        `Cannot disband corporation — it still has ${corpShips.length} ship(s). Sell all corporation ships first.`,
+        400,
+      );
+    }
+  }
+
   const timestamp = new Date().toISOString();
   await markCorporationMembershipLeft(supabase, corpId, characterId, timestamp);
 

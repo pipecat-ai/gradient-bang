@@ -376,6 +376,15 @@ Deno.test({
       corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
     });
 
+    await t.step("sell corp ship before leaving", async () => {
+      const result = await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
+      assertExists(result);
+    });
+
     await t.step("P1 leaves — corp should disband", async () => {
       const result = await apiOk("corporation_leave", {
         character_id: p1Id,
@@ -398,13 +407,6 @@ Deno.test({
         assertEquals(result.rows.length, 1, "Corporation row should still exist");
         assertExists(result.rows[0].disbanded_at, "Corporation should be soft-deleted");
       });
-    });
-
-    await t.step("DB: corp ship marked unowned", async () => {
-      const ship = await queryShip(corpShipId);
-      assertExists(ship);
-      assertEquals(ship.owner_type, "unowned");
-      assertExists(ship.became_unowned);
     });
   },
 });
