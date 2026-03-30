@@ -21,7 +21,7 @@ If you receive a user message beginning with "Steering instruction:", treat it a
 ## Historical Event Queries
 
 For tasks about past activity, load `load_game_info(topic="event_logs")` before building queries unless already loaded.
-For session-relative history questions, use `session.started` events to find session boundaries. Example for "last session": query `session.started` reverse max_rows=3 to get [current, previous, before_that], then query `task.finish` between previous and current timestamps. If only 1 `session.started` exists, use the 24 hours before it as the session window.
+For session-relative history questions, use the "Current session started at" timestamp from your context as the current session boundary. Query `session.started` events before that timestamp to find the previous session start, then get `task.finish` between those two timestamps.
 When searching for an anchor by name or keyword, use `filter_event_type="task.finish"` + `filter_string_match` — task summaries capture purchases, trades, and other actions. Never use a bare `filter_string_match` without `filter_event_type`.
 Do not use broad keyword searches that can match old `event.query` payloads and pull prior history queries back into the result set.
 

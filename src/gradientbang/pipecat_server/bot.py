@@ -275,7 +275,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     # Context starts empty — messages and tools are injected into the
     # VoiceAgent via LLMAgentActivationArgs on the bus.
     context = LLMContext()
-    idle_report_time = float(os.getenv("BOT_IDLE_REPORT_TIME", "8.5"))
+    idle_report_time = float(os.getenv("BOT_IDLE_REPORT_TIME", "7.5"))
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(

@@ -101,23 +101,22 @@ event_query(
 
 ### "What did I do last session?"
 
-Step 1 — Find session boundaries:
+If your context includes "Current session started at {T}", use T as the current session boundary. Query `session.started` events BEFORE T to find the previous session:
+
 ```
 event_query(
-    start=<7 days ago>, end=<now>,
+    start=<7 days ago>, end=<T>,
     filter_event_type="session.started",
     sort_direction="reverse",
-    max_rows=3
+    max_rows=1
 )
 ```
-Results: [S3=current, S2=previous, S1=before that]. "Last session" = S2 → S3.
+"Last session" = the returned timestamp → T. If no results, use T minus 24 hours → T.
 
-If only 1 result (current session only), use the 24 hours before it as the session window.
-
-Step 2 — Get activity in that window:
+Then get activity in that window:
 ```
 event_query(
-    start=<S2 timestamp>, end=<S3 timestamp>,
+    start=<previous session.started>, end=<T>,
     filter_event_type="task.finish",
     sort_direction="forward"
 )
@@ -126,17 +125,17 @@ Task summaries are usually sufficient. Only query `trade.executed`, `bank.transa
 
 ### "What happened in the session where I bought the Aegis?"
 
-Step 1 — Find the anchor via `task.finish` + string match:
+Step 1 — Find the anchor. For ship purchases, use the dedicated event type:
 ```
 event_query(
     start=<7 days ago>, end=<now>,
-    filter_event_type="task.finish",
+    filter_event_type="ship.traded_in",
     filter_string_match="Aegis",
     sort_direction="reverse",
     max_rows=1
 )
 ```
-Ship purchases, trades, and other actions appear in `task.finish` summaries. Always use `task.finish` + `filter_string_match` to find anchors by keyword.
+For corp ship purchases use `corporation.ship_purchased` instead. If the dedicated event type returns 0, fall back to `task.finish` + `filter_string_match`.
 
 Step 2 — Find the `session.started` before and after the anchor:
 ```
@@ -245,6 +244,8 @@ All filter parameters use the `filter_` prefix:
 | task.start | task_description, task_id |
 | task.finish | task_summary, task_status |
 | session.started | session boundary marker (sector, ship_name, ship_type) |
+| ship.traded_in | personal ship purchase (old_ship_type, new_ship_type, price, trade_in_value) |
+| corporation.ship_purchased | corp ship purchase (ship_type, ship_name, purchase_price, buyer_name) |
 
 ## Calculating Trade Profit
 

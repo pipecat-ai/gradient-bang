@@ -642,7 +642,7 @@ pnpm run dev
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `BOT_IDLE_REPORT_TIME` | `5` | Seconds of silence before the bot gives a one-sentence task status update (`0` to disable) |
+| `BOT_IDLE_REPORT_TIME` | `7.5` | Seconds of silence before the bot gives a one-sentence task status update (`0` to disable) |
 | `BOT_USE_KRISP` | `0` | Enable Krisp noise cancellation (`1` for production, `0` for local dev) |
 | `BOT_TEST_CHARACTER_ID` | — | Hardcoded character ID for testing |
 | `BOT_TEST_CHARACTER_NAME` | — | Hardcoded character name for testing |
