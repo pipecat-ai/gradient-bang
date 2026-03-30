@@ -376,6 +376,8 @@ export interface GarrisonCollectedMessage extends ServerMessagePayload {
   credits_collected: number
   garrison: CombatGarrisonSnapshot | null
   fighters_on_ship: number
+  disbanded?: boolean
+  fighters_disbanded?: number
 }
 
 export interface GarrisonModeChangedMessage extends ServerMessagePayload {

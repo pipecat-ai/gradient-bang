@@ -2098,6 +2098,37 @@ class AsyncGameClient:
         }
         return await self._request("combat.set_garrison_mode", payload)
 
+    async def combat_disband_garrison(
+        self,
+        *,
+        sector: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Disband a garrison, destroying all fighters. Toll balance is paid out.
+
+        Args:
+            sector: Sector with garrison
+            character_id: Character requesting disband (must match bound ID)
+
+        Returns:
+            Success response
+
+        Raises:
+            RPCError: If the request fails
+            ValueError: If character_id doesn't match bound ID
+        """
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload = {
+            "character_id": character_id,
+            "sector": sector,
+        }
+        return await self._request("combat.disband_garrison", payload)
+
     async def salvage_collect(
         self,
         *,

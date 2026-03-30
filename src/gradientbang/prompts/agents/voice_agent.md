@@ -48,7 +48,7 @@ Functions requiring a task (use `start_task` immediately, in the same response):
 - Joining/leaving corporations, kicking members, ship purchasing
 - Querying historical event log, dumping/collecting cargo/salvage
 - Recharging/transferring warp power, transferring credits
-- Banking (deposit/withdraw), placing/collecting garrisons
+- Banking (deposit/withdraw), all garrison operations (place, collect, change mode, disband)
 
 ## Tasks
 

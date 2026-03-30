@@ -353,6 +353,18 @@ class AsyncGameClient(BaseAsyncGameClient):
         }
         return await self._request("combat_set_garrison_mode", payload)
 
+    async def combat_disband_garrison(
+        self,
+        *,
+        sector: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        payload = {
+            "sector": sector,
+            "character_id": canonicalize_character_id(character_id),
+        }
+        return await self._request("combat_disband_garrison", payload)
+
     def _inject_character_ids(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         enriched = dict(payload)
         requested_character_id = enriched.get("character_id")

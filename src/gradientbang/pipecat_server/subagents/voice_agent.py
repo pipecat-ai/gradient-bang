@@ -315,7 +315,6 @@ class VoiceAgent(LLMAgent):
             "list_known_ports": self._handle_list_known_ports,
             "rename_ship": self._handle_rename_ship,
             "rename_corporation": self._handle_rename_corporation,
-            "set_garrison_mode": self._handle_set_garrison_mode,
             "create_corporation": self._handle_create_corporation,
             "leave_corporation": self._handle_leave_corporation,
             "send_message": self._handle_send_message,
@@ -518,23 +517,6 @@ class VoiceAgent(LLMAgent):
             result = await self._game_client.rename_ship(
                 ship_name=args["ship_name"],
                 ship_id=args.get("ship_id"),
-                character_id=self._character_id,
-            )
-            self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
-        except Exception as exc:
-            await self._finish_event_tool_with_error(params, exc, run_llm=True)
-
-    async def _handle_set_garrison_mode(self, params: FunctionCallParams):
-        args = params.arguments
-        try:
-            result = await self._game_client.combat_set_garrison_mode(
-                sector=args["sector"],
-                mode=args["mode"],
-                toll_amount=args.get("toll_amount", 0),
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
@@ -1261,17 +1243,11 @@ class VoiceAgent(LLMAgent):
             return
 
         result = await self._handle_start_task(params)
-        if isinstance(result, dict) and result.get("success"):
-            await params.result_callback(
-                {"result": result},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
-        else:
-            self._begin_assistant_response_cycle()
-            await params.result_callback(
-                {"result": result},
-                properties=FunctionCallResultProperties(run_llm=True),
-            )
+        self._begin_assistant_response_cycle()
+        await params.result_callback(
+            {"result": result},
+            properties=FunctionCallResultProperties(run_llm=True),
+        )
 
     async def _handle_stop_task_tool(self, params: FunctionCallParams):
         result = await self._handle_stop_task(params)

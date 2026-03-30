@@ -48,7 +48,7 @@ def _make_function_call_params(
 EXPECTED_TOOLS = {
     "my_status", "plot_course", "list_known_ports", "rename_ship",
     "rename_corporation", "create_corporation", "corporation_info",
-    "leave_corporation", "set_garrison_mode",
+    "leave_corporation",
     "leaderboard_resources", "ship_definitions", "send_message",
     "combat_initiate", "combat_action", "load_game_info",
     "start_task", "stop_task", "steer_task", "query_task_progress",
@@ -804,26 +804,6 @@ class TestVoiceToolErrorWrapping:
 
 @pytest.mark.unit
 class TestTaskToolWrappers:
-    @pytest.mark.asyncio
-    async def test_start_task_tool_success_stops_immediate_followup_inference(self):
-        agent = _make_voice_agent()
-        result = {
-            "success": True,
-            "message": "Task started",
-            "task_id": "task_123",
-            "task_type": "player_ship",
-        }
-        agent._handle_start_task = AsyncMock(return_value=result)
-        params = _make_function_call_params(function_name="start_task", result_callback=AsyncMock())
-
-        await agent._handle_start_task_tool(params)
-
-        params.result_callback.assert_awaited_once()
-        assert params.result_callback.await_args.args[0] == {"result": result}
-        properties = params.result_callback.await_args.kwargs["properties"]
-        assert properties.run_llm is False
-        assert agent._assistant_cycle_active is False
-
     @pytest.mark.asyncio
     async def test_start_task_tool_failure_continues_llm(self):
         agent = _make_voice_agent()

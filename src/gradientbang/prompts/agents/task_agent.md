@@ -63,6 +63,11 @@ Common trade errors (check BEFORE calling trade()):
 - "Not enough credits" → Check Credits before buying
 - "Insufficient quantity at port" → Check port inventory
 
+Garrison collect errors:
+
+- "Fighter capacity is already at maximum" → finish(status="failed"). Do NOT place fighters elsewhere to free capacity.
+  - Example: ship 200/200 fighters, garrison has 50 → collect fails → `finished(status="failed", message="Ship at max fighter capacity. Disband the garrison to remove it without recovering fighters.")`
+
 ## High-Stakes Tools
 
 Some tools (selling ships, leaving corporations, kicking members) have permanent effects. Verify the action and target match the task description. If the task is ambiguous about the target or amount, call `finished` and ask for clarification rather than guessing.

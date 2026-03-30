@@ -1321,7 +1321,10 @@ export function GameProvider({ children }: GameProviderProps) {
 
               useGameStore.getState().addActivityLogEntry({
                 type: "garrison.collected",
-                message: `Collected fighters from [sector ${data.sector.id}] - ship now has [${data.fighters_on_ship}] fighters`,
+                message:
+                  data.disbanded ?
+                    `Garrison disbanded in [sector ${data.sector.id}] - [${data.fighters_disbanded ?? 0}] fighters destroyed`
+                  : `Collected fighters from [sector ${data.sector.id}] - ship now has [${data.fighters_on_ship}] fighters`,
               })
               break
             }

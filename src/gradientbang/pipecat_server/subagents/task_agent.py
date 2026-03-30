@@ -104,6 +104,7 @@ ASYNC_TOOL_COMPLETIONS = {
     "place_fighters": "garrison.deployed",
     "collect_fighters": "garrison.collected",
     "set_garrison_mode": "garrison.mode_changed",
+    "disband_garrison": "garrison.collected",
     "event_query": "event.query",
     "purchase_fighters": "fighter.purchase",
     "purchase_ship": "status.update",

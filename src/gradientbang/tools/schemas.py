@@ -437,6 +437,24 @@ SET_GARRISON_MODE = FunctionSchema(
     required=["sector", "mode"],
 )
 
+DISBAND_GARRISON = FunctionSchema(
+    name="disband_garrison",
+    description=(
+        "Permanently destroy a garrison, removing all stationed fighters. "
+        "Fighters are NOT recovered. Any accumulated toll credits are collected. "
+        "Always prefer collect_fighters to recover fighters first; only use this "
+        "tool when your ship cannot hold more fighters and you need the garrison removed."
+    ),
+    properties={
+        "sector": {
+            "type": "integer",
+            "description": "Sector ID containing the garrison to disband",
+            "minimum": 0,
+        },
+    },
+    required=["sector"],
+)
+
 # ── Corporation ───────────────────────────────────────────────────────
 
 CREATE_CORPORATION = FunctionSchema(
@@ -1062,4 +1080,5 @@ GAME_METHOD_ALIASES = {
     "place_fighters": "combat_leave_fighters",
     "collect_fighters": "combat_collect_fighters",
     "set_garrison_mode": "combat_set_garrison_mode",
+    "disband_garrison": "combat_disband_garrison",
 }

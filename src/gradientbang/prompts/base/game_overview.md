@@ -45,3 +45,4 @@ You are controlling a ship in Gradient Bang, a space trading and exploration gam
 - "Toll fighters" means a garrison in toll mode that can demand payment from arrivals
 - Garrisons cannot be placed in Federation Space or in sectors adjacent to Federation Space
 - Questions about who entered/left a garrisoned sector are event-log history questions
+- `disband_garrison` destroys a garrison without recovering fighters — last resort when ship is full
