@@ -1248,3 +1248,86 @@ class TestCorpShipRouting:
         assert len(failures) == 1
         assert "already has a task running" in failures[0]["error"]
         assert len([child for child in agent._children if isinstance(child, TaskAgent)]) == 1
+        assert agent._character_id in agent._locked_ships
+
+    @pytest.mark.asyncio
+    async def test_ship_lock_released_after_task_completes(self):
+        """Ship lock is released when on_task_response removes the child."""
+        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.subagents.bus.messages import BusTaskResponseMessage
+        from gradientbang.subagents.agents.task_group import TaskStatus
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent._inject_context = AsyncMock()
+        agent._queue_task_completion_event = AsyncMock()
+
+        async def add_agent(task_agent):
+            await asyncio.sleep(0)
+            agent._children.append(task_agent)
+
+        agent.add_agent = AsyncMock(side_effect=add_agent)
+
+        # Start a task — locks the ship
+        params = MagicMock()
+        params.arguments = {"task_description": "Mine resources"}
+        result = await agent._handle_start_task(params)
+        assert result["success"]
+        assert agent._character_id in agent._locked_ships
+        task_name = result["task_id"]
+
+        # Simulate on_task_response — unlocks the ship
+        child = next(c for c in agent._children if c.name == task_name)
+        msg = MagicMock(spec=BusTaskResponseMessage)
+        msg.source = task_name
+        msg.task_id = "framework-task-1"
+        msg.status = TaskStatus.COMPLETED
+        msg.response = {"message": "Done"}
+        agent.send_message = AsyncMock()
+        agent._tool_call_inflight = 0
+        agent._assistant_cycle_active = False
+        agent._assistant_cycle_idle_event.set()
+        agent._bot_stopped_speaking_at = 0.0
+        agent._update_polling_scope = MagicMock()
+
+        await agent.on_task_response(msg)
+
+        assert agent._character_id not in agent._locked_ships
+        assert not any(c.name == task_name for c in agent._children)
+
+    @pytest.mark.asyncio
+    async def test_error_after_add_agent_cleans_up_ship_lock(self):
+        """If add_agent fails after appending child, both lock and orphan are cleaned up."""
+        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent._VoiceAgent__game_client.base_url = "http://localhost"
+
+        async def add_agent_that_fails(task_agent):
+            agent._children.append(task_agent)
+            raise RuntimeError("registry.watch failed")
+
+        agent.add_agent = AsyncMock(side_effect=add_agent_that_fails)
+
+        params = MagicMock()
+        params.arguments = {"task_description": "Explore sector 5"}
+        result = await agent._handle_start_task(params)
+
+        assert not result["success"]
+        assert agent._locked_ships == set()
+        assert len(agent._children) == 0
+        assert len(agent._pending_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_close_tasks_clears_ship_locks(self):
+        """close_tasks() clears _locked_ships even if on_task_response never fires."""
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._locked_ships = {"ship-1", "ship-2"}
+
+        await agent.close_tasks()
+
+        assert agent._locked_ships == set()

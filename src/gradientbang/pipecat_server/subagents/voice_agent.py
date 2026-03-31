@@ -126,6 +126,7 @@ class VoiceAgent(LLMAgent):
         self._assistant_cycle_idle_event.set()
         self._speech_start_grace_task: Optional[asyncio.Task] = None
         self._start_task_lock: asyncio.Lock = asyncio.Lock()
+        self._locked_ships: set[str] = set()  # character_ids with an active task
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -999,7 +1000,10 @@ class VoiceAgent(LLMAgent):
             )
         except Exception as e:
             logger.error(f"Failed to end task agent '{agent_name}': {e}")
+        ship_character_id = child._character_id if child else None
         self._children = [c for c in self._children if c.name != agent_name]
+        if ship_character_id:
+            self._locked_ships.discard(ship_character_id)
 
         # Close task-owned game clients. Player tasks now use a dedicated
         # client too, so don't limit cleanup to corp-ship tasks.
@@ -1044,6 +1048,8 @@ class VoiceAgent(LLMAgent):
     async def _handle_start_task(self, params: FunctionCallParams) -> dict:
         async with self._start_task_lock:
             task_game_client = None
+            agent_name = None
+            target_character_id = None
             try:
                 task_desc = params.arguments.get("task_description", "")
                 explicit_context = params.arguments.get("context")
@@ -1074,13 +1080,12 @@ class VoiceAgent(LLMAgent):
 
                 target_character_id = ship_id if ship_id else self._character_id
 
-                # Check duplicate: any child TaskAgent with same character_id
-                for child in self.children:
-                    if isinstance(child, TaskAgent) and child._character_id == target_character_id:
-                        return {
-                            "success": False,
-                            "error": f"Ship {target_character_id[:8]}... already has a task running. Stop it first.",
-                        }
+                # Check ship lock
+                if target_character_id in self._locked_ships:
+                    return {
+                        "success": False,
+                        "error": f"Ship {target_character_id[:8]}... already has a task running. Stop it first.",
+                    }
 
                 # Corp ship limit
                 if ship_id:
@@ -1126,8 +1131,18 @@ class VoiceAgent(LLMAgent):
                     tag_outbound_rpcs_with_task_id=bool(ship_id),
                 )
 
+                # Lock ship BEFORE add_agent — if add_agent partially fails
+                # (child in _children but pipeline not started), the ship stays
+                # locked so no second agent can be added for it.
                 self._pending_tasks[agent_name] = payload
-                await self.add_agent(task_agent)
+                self._locked_ships.add(target_character_id)
+                try:
+                    await self.add_agent(task_agent)
+                except Exception:
+                    self._locked_ships.discard(target_character_id)
+                    self._pending_tasks.pop(agent_name, None)
+                    self._children = [c for c in self._children if c.name != agent_name]
+                    raise
 
                 return {
                     "success": True,
@@ -1139,6 +1154,11 @@ class VoiceAgent(LLMAgent):
                 logger.error(f"start_task failed: {e}")
                 if task_game_client and task_game_client != self._game_client:
                     await task_game_client.close()
+                if target_character_id:
+                    self._locked_ships.discard(target_character_id)
+                if agent_name:
+                    self._pending_tasks.pop(agent_name, None)
+                    self._children = [c for c in self._children if c.name != agent_name]
                 return {"success": False, "error": str(e)}
 
     @traced
@@ -1240,6 +1260,7 @@ class VoiceAgent(LLMAgent):
                 await self.cancel_task(task_id, reason="Disconnected")
             except Exception as e:
                 logger.error(f"Failed to cancel task: {e}")
+        self._locked_ships.clear()
 
     # ── Task management tool wrappers ─────────────────────────────────
 
