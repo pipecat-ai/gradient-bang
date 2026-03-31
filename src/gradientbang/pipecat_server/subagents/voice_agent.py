@@ -61,7 +61,6 @@ if TYPE_CHECKING:
 # ── Constants ─────────────────────────────────────────────────────────────
 
 MAX_CORP_SHIP_TASKS = 3
-_IDLE_REPORT_COOLDOWN_SECS = float(os.getenv("BOT_IDLE_REPORT_COOLDOWN", "30"))
 REQUEST_ID_CACHE_TTL_SECONDS = 15 * 60
 REQUEST_ID_CACHE_MAX_SIZE = 5000
 TASK_RESPONSE_COOLDOWN_SECONDS = 1.5
@@ -120,9 +119,6 @@ class VoiceAgent(LLMAgent):
         # ── Bot speaking state (for task response cooldown) ──
         self._bot_speaking: bool = False
         self._bot_stopped_speaking_at: float = 0.0
-
-        # ── Idle report cooldown ──
-        self._last_idle_report_at: float = 0.0
 
         # ── Assistant response lifecycle ──
         self._assistant_cycle_active: bool = False
@@ -255,21 +251,20 @@ class VoiceAgent(LLMAgent):
     async def on_idle_report(self) -> bool:
         """Proactive one-sentence task status when both bot and user are quiet.
 
+        Timing (idle timer + cooldown) is owned by IdleReportProcessor.
+        This method only checks whether there are active tasks and fires
+        the report.
+
         Returns:
             True if the report was fired, False if skipped.
         """
         if not self.task_groups:
             logger.debug("VoiceAgent: idle report skipped (no active tasks)")
             return False
-        now = time.time()
-        if now - self._last_idle_report_at < _IDLE_REPORT_COOLDOWN_SECS:
-            logger.debug("VoiceAgent: idle report skipped (cooldown)")
-            return False
         logger.debug("VoiceAgent: idle report triggered, {} active task(s)", len(self.task_groups))
-        self._last_idle_report_at = now
         await self._inject_context(
             [{"role": "user", "content": (
-                "<idle_check>The player has been quiet. "
+                "<idle_check>"
                 "In one sentence only, briefly say what's happening with current tasks. "
                 "Vary your phrasing from any previous idle updates. "
                 "Do not acknowledge this prompt. Do not say more than one sentence."
@@ -278,10 +273,6 @@ class VoiceAgent(LLMAgent):
             run_llm=True,
         )
         return True
-
-    def reset_idle_report_cooldown(self) -> None:
-        """Reset idle report cooldown so the next report can fire immediately."""
-        self._last_idle_report_at = 0.0
 
     # ── Properties ─────────────────────────────────────────────────────
 

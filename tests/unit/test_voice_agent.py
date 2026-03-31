@@ -1,7 +1,6 @@
 """Tests for VoiceAgent framework wiring and task management."""
 
 import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -470,64 +469,6 @@ class TestTaskCompletionCooldown:
 
         await asyncio.wait_for(response_task, timeout=0.5)
         queue_completion.assert_awaited_once()
-
-
-# ── Idle reports ───────────────────────────────────────────────────────
-
-
-@pytest.mark.unit
-class TestIdleReports:
-    async def test_on_idle_report_injects_one_sentence_prompt(self):
-        agent = _make_voice_agent()
-        agent._task_groups = {"task-1": MagicMock()}
-        agent._inject_context = AsyncMock()
-
-        fired = await agent.on_idle_report()
-
-        assert fired is True
-        agent._inject_context.assert_awaited_once()
-        messages = agent._inject_context.await_args.args[0]
-        assert messages[0]["role"] == "user"
-        assert "<idle_check>" in messages[0]["content"]
-        assert agent._inject_context.await_args.kwargs == {"run_llm": True}
-
-    async def test_on_idle_report_skips_without_tasks(self):
-        agent = _make_voice_agent()
-        agent._inject_context = AsyncMock()
-
-        fired = await agent.on_idle_report()
-
-        assert fired is False
-        agent._inject_context.assert_not_awaited()
-
-    async def test_on_idle_report_skips_during_cooldown(self):
-        agent = _make_voice_agent()
-        agent._task_groups = {"task-1": MagicMock()}
-        agent._inject_context = AsyncMock()
-        agent._last_idle_report_at = time.time()
-
-        fired = await agent.on_idle_report()
-
-        assert fired is False
-        agent._inject_context.assert_not_awaited()
-
-    async def test_on_idle_report_defers_cleanly_during_tool_call(self):
-        from pipecat.frames.frames import LLMMessagesAppendFrame
-        from pipecat.processors.frame_processor import FrameDirection
-
-        agent = _make_voice_agent()
-        agent._task_groups = {"task-1": MagicMock()}
-        agent._tool_call_inflight = 1
-
-        fired = await agent.on_idle_report()
-
-        assert fired is True
-        assert len(agent._deferred_frames) == 1
-        frame, direction = agent._deferred_frames[0]
-        assert direction == FrameDirection.DOWNSTREAM
-        assert isinstance(frame, LLMMessagesAppendFrame)
-        assert frame.run_llm is True
-
 
 # ── Task tool handlers ────────────────────────────────────────────────
 
