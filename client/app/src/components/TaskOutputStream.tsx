@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 
+import { CopyTaskContextButton } from "@/components/CopyTaskContextButton"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
 import { ScrollNewItemsButton } from "@/components/ScrollNewItemsButton"
 import { useAutoScroll } from "@/hooks/useAutoScroll"
@@ -83,10 +84,12 @@ const TaskRow = memo(({ task, className }: { task: TaskOutput; className?: strin
 
 export const TaskOutputStreamComponent = ({
   tasks,
+  taskId,
   onResetAutoScroll,
   className,
 }: {
   tasks: TaskOutput[]
+  taskId?: string | null
   onResetAutoScroll?: (reset: () => void) => void
   className?: string
 }) => {
@@ -105,7 +108,12 @@ export const TaskOutputStreamComponent = ({
   const visibleStartIndex = Math.max(tasks.length - visibleTasks.length, 0)
 
   return (
-    <div className={cn("flex flex-col w-full h-full min-h-0 select-none", className)}>
+    <div className={cn("group flex flex-col w-full h-full min-h-0 select-none", className)}>
+      {taskId && (
+        <div className="absolute right-ui-sm top-ui-sm z-10">
+          <CopyTaskContextButton taskId={taskId} />
+        </div>
+      )}
       <div className="relative flex flex-col flex-1 min-h-0 mask-[linear-gradient(to_bottom,transparent_0px,black_80px)]">
         <ScrollArea className="w-full flex-1 min-h-0" viewportRef={scrollRef}>
           <div className="flex flex-col min-h-full">
@@ -182,6 +190,7 @@ export const TaskOutputStream = ({
   return (
     <TaskOutputStreamComponent
       tasks={displayTasks}
+      taskId={taskId}
       onResetAutoScroll={handleResetAutoScroll}
       className={className}
     />

@@ -546,6 +546,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         user_mute_state=user_mute_state,
         user_unmuted_event=user_unmuted_event,
         llm_context=context,
+        voice_agent=voice_agent,
     )
 
     @rtvi.event_handler("on_client_message")

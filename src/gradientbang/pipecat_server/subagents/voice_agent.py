@@ -126,6 +126,7 @@ class VoiceAgent(LLMAgent):
         self._assistant_cycle_idle_event.set()
         self._speech_start_grace_task: Optional[asyncio.Task] = None
         self._start_task_lock: asyncio.Lock = asyncio.Lock()
+        self._locked_ships: set[str] = set()  # character_ids with an active task
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -427,7 +428,7 @@ class VoiceAgent(LLMAgent):
         )
 
     def _has_active_player_task(self) -> bool:
-        return any(isinstance(c, TaskAgent) and not c._is_corp_ship for c in self.children)
+        return self._character_id in self._locked_ships
 
     def _should_suppress_my_status_error(self, exc: Exception) -> bool:
         message = str(exc).lower()
@@ -606,9 +607,10 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
+            self._begin_assistant_response_cycle()
             await params.result_callback(
                 {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
+                properties=FunctionCallResultProperties(run_llm=True),
             )
         except Exception as exc:
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
@@ -992,22 +994,26 @@ class VoiceAgent(LLMAgent):
 
         await self._queue_task_completion_event(event_xml)
 
-        # End the task agent
-        try:
-            await self.send_message(
-                BusEndAgentMessage(source=self.name, target=agent_name, reason="task complete")
-            )
-        except Exception as e:
-            logger.error(f"Failed to end task agent '{agent_name}': {e}")
-        self._children = [c for c in self._children if c.name != agent_name]
+        # Release ship lock (both player and corp)
+        ship_character_id = child._character_id if child else None
+        if ship_character_id:
+            self._locked_ships.discard(ship_character_id)
 
-        # Close task-owned game clients. Player tasks now use a dedicated
-        # client too, so don't limit cleanup to corp-ship tasks.
-        if child and child._game_client != self._game_client:
+        # Corp ship agents: end pipeline, remove from children, close client.
+        # Player agents: keep alive for reuse — pipeline stays running.
+        if child and child._is_corp_ship:
             try:
-                await child._game_client.close()
+                await self.send_message(
+                    BusEndAgentMessage(source=self.name, target=agent_name, reason="task complete")
+                )
             except Exception as e:
-                logger.error(f"Failed to close task game client: {e}")
+                logger.error(f"Failed to end task agent '{agent_name}': {e}")
+            self._children = [c for c in self._children if c.name != agent_name]
+            if child._game_client != self._game_client:
+                try:
+                    await child._game_client.close()
+                except Exception as e:
+                    logger.error(f"Failed to close task game client: {e}")
 
         self._update_polling_scope()
 
@@ -1044,6 +1050,8 @@ class VoiceAgent(LLMAgent):
     async def _handle_start_task(self, params: FunctionCallParams) -> dict:
         async with self._start_task_lock:
             task_game_client = None
+            agent_name = None
+            target_character_id = None
             try:
                 task_desc = params.arguments.get("task_description", "")
                 explicit_context = params.arguments.get("context")
@@ -1074,13 +1082,12 @@ class VoiceAgent(LLMAgent):
 
                 target_character_id = ship_id if ship_id else self._character_id
 
-                # Check duplicate: any child TaskAgent with same character_id
-                for child in self.children:
-                    if isinstance(child, TaskAgent) and child._character_id == target_character_id:
-                        return {
-                            "success": False,
-                            "error": f"Ship {target_character_id[:8]}... already has a task running. Stop it first.",
-                        }
+                # Check ship lock
+                if target_character_id in self._locked_ships:
+                    return {
+                        "success": False,
+                        "error": f"Ship {target_character_id[:8]}... already has a task running. Stop it first.",
+                    }
 
                 # Corp ship limit
                 if ship_id:
@@ -1102,6 +1109,30 @@ class VoiceAgent(LLMAgent):
                 payload = {"task_description": task_desc, "task_metadata": task_metadata}
                 if task_context:
                     payload["context"] = task_context
+
+                # Player tasks: reuse existing idle agent if available.
+                # The agent stays in _children with a running pipeline between
+                # tasks; request_task() triggers on_task_request which resets
+                # all state and starts fresh.
+                if not ship_id:
+                    existing = next(
+                        (c for c in self.children
+                         if isinstance(c, TaskAgent) and not c._is_corp_ship
+                         and not c._active_task_id),
+                        None,
+                    )
+                    if existing:
+                        self._locked_ships.add(target_character_id)
+                        await self.request_task(
+                            existing.name, payload=payload, timeout=self._task_agent_timeout
+                        )
+                        self._update_polling_scope()
+                        return {
+                            "success": True,
+                            "message": "Task started",
+                            "task_id": existing.name,
+                            "task_type": task_type,
+                        }
 
                 if ship_id:
                     task_game_client = AsyncGameClient(
@@ -1126,8 +1157,24 @@ class VoiceAgent(LLMAgent):
                     tag_outbound_rpcs_with_task_id=bool(ship_id),
                 )
 
+                # Lock ship BEFORE add_agent — if add_agent partially fails
+                # (child in _children but pipeline not started), the ship stays
+                # locked so no second agent can be added for it.
                 self._pending_tasks[agent_name] = payload
-                await self.add_agent(task_agent)
+                self._locked_ships.add(target_character_id)
+                try:
+                    await self.add_agent(task_agent)
+                except Exception:
+                    self._locked_ships.discard(target_character_id)
+                    self._pending_tasks.pop(agent_name, None)
+                    self._children = [c for c in self._children if c.name != agent_name]
+                    try:
+                        await self.send_message(
+                            BusEndAgentMessage(source=self.name, target=agent_name, reason="startup failed")
+                        )
+                    except Exception:
+                        pass
+                    raise
 
                 return {
                     "success": True,
@@ -1139,6 +1186,11 @@ class VoiceAgent(LLMAgent):
                 logger.error(f"start_task failed: {e}")
                 if task_game_client and task_game_client != self._game_client:
                     await task_game_client.close()
+                if target_character_id:
+                    self._locked_ships.discard(target_character_id)
+                if agent_name:
+                    self._pending_tasks.pop(agent_name, None)
+                    self._children = [c for c in self._children if c.name != agent_name]
                 return {"success": False, "error": str(e)}
 
     @traced
@@ -1234,12 +1286,23 @@ class VoiceAgent(LLMAgent):
     # ── Task cleanup ───────────────────────────────────────────────────
 
     async def close_tasks(self) -> None:
-        """Cancel all active tasks via bus protocol."""
+        """Cancel all active tasks and end all task agent pipelines."""
         for task_id in list(self._task_groups.keys()):
             try:
                 await self.cancel_task(task_id, reason="Disconnected")
             except Exception as e:
                 logger.error(f"Failed to cancel task: {e}")
+        # End any remaining task agent pipelines (including idle player agent)
+        for child in list(self._children):
+            if isinstance(child, TaskAgent):
+                try:
+                    await self.send_message(
+                        BusEndAgentMessage(source=self.name, target=child.name, reason="Disconnected")
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to end task agent '{child.name}': {e}")
+        self._children = [c for c in self._children if not isinstance(c, TaskAgent)]
+        self._locked_ships.clear()
 
     # ── Task management tool wrappers ─────────────────────────────────
 

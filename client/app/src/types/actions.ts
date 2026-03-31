@@ -99,6 +99,11 @@ export interface DumpLLMContextAction {
   type: "dump-llm-context"
 }
 
+export interface DumpTaskContextAction {
+  type: "dump-task-context"
+  payload: { task_id: string }
+}
+
 export type GameAction = (
   | StartAction
   | GetMyStatusAction
@@ -116,6 +121,7 @@ export type GameAction = (
   | AssignQuestAction
   | CombatActionAction
   | DumpLLMContextAction
+  | DumpTaskContextAction
 ) &
   ActionMeta
 

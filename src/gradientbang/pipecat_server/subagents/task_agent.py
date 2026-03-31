@@ -235,6 +235,9 @@ class TaskAgent(LLMAgent):
         self._task_log: List[str] = []
         self._pending_task_output_tasks: set[asyncio.Task[None]] = set()
 
+        # ── Debug context cache ──
+        self._last_context_dump: Optional[List[Dict[str, Any]]] = None
+
         # ── Pipeline refs (set in build_pipeline) ──
         self._llm_context: Optional[LLMContext] = None
 
@@ -436,6 +439,11 @@ class TaskAgent(LLMAgent):
     # ── Task state management ─────────────────────────────────────────
 
     def _reset_task_state(self):
+        # Snapshot current context for debugging before clearing
+        if self._llm_context:
+            self._last_context_dump = list(self._llm_context.get_messages())
+        else:
+            self._last_context_dump = None
         self._archive_task_log()
         for task in list(self._pending_task_output_tasks):
             task.cancel()
@@ -468,6 +476,14 @@ class TaskAgent(LLMAgent):
 
     def get_task_log(self) -> List[str]:
         return list(self._task_log)
+
+    def get_context_dump(self) -> Optional[List[Dict[str, Any]]]:
+        """LLM context: live messages if available, else cached dump from previous task."""
+        if self._llm_context:
+            messages = self._llm_context.get_messages()
+            if messages:
+                return list(messages)
+        return self._last_context_dump
 
     def _set_client_task_id(self, task_id: Optional[str]) -> None:
         if not self._tag_outbound_rpcs_with_task_id or not task_id:

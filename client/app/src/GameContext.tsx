@@ -1620,6 +1620,10 @@ export function GameProvider({ children }: GameProviderProps) {
               useGameStore.getState().setDebugLLMContext(e.payload.formatted as string)
               break
             }
+            case "debug.task-context": {
+              useGameStore.getState().setDebugTaskContext(e.payload.formatted as string)
+              break
+            }
 
             // ----- UNHANDLED :(
             default:

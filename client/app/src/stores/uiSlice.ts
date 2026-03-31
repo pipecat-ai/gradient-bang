@@ -59,6 +59,8 @@ export interface UISlice {
 
   debugLLMContext: string | null
   setDebugLLMContext: (context: string | null) => void
+  debugTaskContext: string | null
+  setDebugTaskContext: (context: string | null) => void
 }
 
 export const createUISlice: StateCreator<UISlice> = (set, get) => ({
@@ -92,6 +94,13 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.debugLLMContext = context
+      })
+    ),
+  debugTaskContext: null,
+  setDebugTaskContext: (context: string | null) =>
+    set(
+      produce((state) => {
+        state.debugTaskContext = context
       })
     ),
 
