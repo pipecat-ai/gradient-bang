@@ -1392,6 +1392,8 @@ export function GameProvider({ children }: GameProviderProps) {
               if (data.next_step) {
                 useGameStore.getState().setQuestCompletionData({
                   type: "step",
+                  questId: data.quest_id,
+                  stepId: data.step_id,
                   questName: data.quest_name,
                   completedStepName: data.step_name,
                   nextStep: data.next_step,
@@ -1401,10 +1403,7 @@ export function GameProvider({ children }: GameProviderProps) {
               }
               useGameStore.getState().addActivityLogEntry({
                 type: "quest.step_completed",
-                message:
-                  data.reward?.credits ?
-                    `[${data.quest_name}] Step completed: ${data.step_name} (+${data.reward.credits} credits)`
-                  : `[${data.quest_name}] Step completed: ${data.step_name}`,
+                message: `[${data.quest_name}] Step completed: ${data.step_name}`,
               })
               break
             }
@@ -1422,10 +1421,17 @@ export function GameProvider({ children }: GameProviderProps) {
               useGameStore.getState().setNotifications({ questCompleted: true })
               useGameStore.getState().addActivityLogEntry({
                 type: "quest.completed",
-                message:
-                  data.reward?.credits ?
-                    `Quest completed: ${data.quest_name} (+${data.reward.credits} credits)`
-                  : `Quest completed: ${data.quest_name}`,
+                message: `Quest completed: ${data.quest_name}`,
+              })
+              break
+            }
+
+            case "quest.reward_claimed": {
+              const data = e.payload as Msg.QuestRewardClaimedMessage
+              useGameStore.getState().claimStepReward(data.quest_id, data.step_id)
+              useGameStore.getState().addActivityLogEntry({
+                type: "quest.reward_claimed",
+                message: `[${data.quest_name}] Reward claimed: ${data.step_name} (+${data.reward.credits} credits)`,
               })
               break
             }

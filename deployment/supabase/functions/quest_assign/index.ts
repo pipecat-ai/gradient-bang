@@ -77,10 +77,29 @@ Deno.serve(traced("quest_assign", async (req, trace) => {
       });
     }
 
-    // Trigger a quest.status event so the client gets the updated list
     const source = buildEventSource("quest_assign", requestId);
 
-    // Fetch and emit the full quest status
+    // Emit quest.assigned FIRST — the DB trigger (evaluate_quest_progress)
+    // runs synchronously on insert and may complete other quest steps (e.g.
+    // a tutorial step that watches for quest.assigned). Loading quest status
+    // after this ensures the snapshot includes any triggered completions.
+    const sEmitAssigned = trace.span("emit_quest_assigned");
+    await emitCharacterEvent({
+      supabase,
+      characterId,
+      eventType: "quest.assigned",
+      payload: {
+        source,
+        quest_code: questCode,
+        player_quest_id: playerQuestId,
+      },
+      requestId,
+      scope: "direct",
+      recipientReason: "direct",
+    });
+    sEmitAssigned.end();
+
+    // Now fetch quest status (reflects any trigger-driven completions)
     const sLoadStatus = trace.span("load_quest_status");
     const { data: playerQuests, error: pqError } = await supabase
       .from("player_quests")
@@ -124,12 +143,14 @@ Deno.serve(traced("quest_assign", async (req, trace) => {
         step_id,
         current_value,
         completed_at,
+        reward_claimed_at,
         quest_step_definitions (
           step_index,
           name,
           description,
           target_value,
-          meta
+          meta,
+          reward_credits
         )
       `,
       )
@@ -156,6 +177,8 @@ Deno.serve(traced("quest_assign", async (req, trace) => {
       current_value: number;
       completed: boolean;
       meta: JsonRecord;
+      reward_credits: number | null;
+      reward_claimed: boolean;
     }
 
     interface QuestInfo {
@@ -194,6 +217,7 @@ Deno.serve(traced("quest_assign", async (req, trace) => {
           description: string | null;
           target_value: number;
           meta: JsonRecord;
+          reward_credits: number | null;
         };
         if (!stepDef) continue;
 
@@ -207,6 +231,8 @@ Deno.serve(traced("quest_assign", async (req, trace) => {
           current_value: Number(step.current_value),
           completed: step.completed_at !== null,
           meta: stepDef.meta ?? {},
+          reward_credits: stepDef.reward_credits,
+          reward_claimed: step.reward_claimed_at !== null,
         };
 
         if (step.completed_at) {
@@ -235,23 +261,8 @@ Deno.serve(traced("quest_assign", async (req, trace) => {
 
     sLoadStatus.end();
 
-    // Emit quest.assigned event (can be used as a quest step trigger)
-    const sEmit = trace.span("emit_events");
-    await emitCharacterEvent({
-      supabase,
-      characterId,
-      eventType: "quest.assigned",
-      payload: {
-        source,
-        quest_code: questCode,
-        player_quest_id: playerQuestId,
-      },
-      requestId,
-      scope: "direct",
-      recipientReason: "direct",
-    });
-
     // Emit quest.status so the client gets the updated list
+    const sEmit = trace.span("emit_events");
     await emitCharacterEvent({
       supabase,
       characterId,

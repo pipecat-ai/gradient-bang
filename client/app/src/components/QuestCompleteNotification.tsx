@@ -174,7 +174,7 @@ export const QuestCompleteNotification = () => {
                         transition={{ duration: 0.4, delay: 1.2 }}
                         className="text-sm font-medium text-terminal"
                       >
-                        +{questCompletionData.reward.credits.toLocaleString()} credits
+                        +{questCompletionData.reward.credits.toLocaleString()} credits available
                       </motion.span>
                     )}
                   </motion.div>

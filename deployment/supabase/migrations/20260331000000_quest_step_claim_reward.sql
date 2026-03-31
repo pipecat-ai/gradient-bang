@@ -1,27 +1,23 @@
--- Quest step rewards: manual claim when a step completes
+-- Quest step reward claiming: switch from auto-grant to manual claim
 --
--- Adds an optional reward_credits column to quest_step_definitions.
--- Adds reward_claimed_at to player_quest_steps for manual claiming.
--- When evaluate_quest_progress() marks a step complete, the reward
--- is NOT auto-granted — players must claim via claim_quest_step_reward().
--- The reward amount is included in quest.step_completed and
--- quest.completed event payloads.
+-- Adds reward_claimed_at to player_quest_steps so players must
+-- explicitly claim step rewards via claim_quest_step_reward().
+-- Removes the auto-grant from evaluate_quest_progress().
 
 SET search_path = public;
 
 -- ============================================================
--- 1. Add reward_credits column
+-- 1. Add reward_claimed_at column
 -- ============================================================
 
-ALTER TABLE quest_step_definitions
-  ADD COLUMN reward_credits INTEGER DEFAULT NULL
-  CHECK (reward_credits IS NULL OR reward_credits > 0);
+ALTER TABLE player_quest_steps
+  ADD COLUMN reward_claimed_at TIMESTAMPTZ DEFAULT NULL;
 
-COMMENT ON COLUMN quest_step_definitions.reward_credits
-  IS 'Credits awarded to the player''s active ship when this step completes. NULL = no reward.';
+COMMENT ON COLUMN player_quest_steps.reward_claimed_at
+  IS 'Timestamp when the player claimed the step reward. NULL = unclaimed.';
 
 -- ============================================================
--- 2. Redefine evaluate_quest_progress with reward granting
+-- 2. Redefine evaluate_quest_progress WITHOUT auto-grant
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION evaluate_quest_progress(p_event_id BIGINT)
@@ -48,7 +44,6 @@ DECLARE
   v_quest_code TEXT;
   v_quest_name TEXT;
   v_step_completed_payload JSONB;
-  v_ship_id UUID;
 BEGIN
   -- 1. Load event
   SELECT id, event_type, character_id, actor_character_id, payload
@@ -57,10 +52,8 @@ BEGIN
   WHERE id = p_event_id;
 
   IF NOT FOUND THEN RETURN; END IF;
-  -- Allow events where either character_id or actor_character_id is set.
   IF v_event.character_id IS NULL AND v_event.actor_character_id IS NULL THEN RETURN; END IF;
 
-  -- Resolve the player who owns quests.
   v_player_id := COALESCE(v_event.actor_character_id, v_event.character_id);
 
   -- 2. Find matching step definitions via subscription routing
@@ -160,19 +153,8 @@ BEGIN
       SET completed_at = now()
       WHERE id = v_pqs_id;
 
-      -- Grant step reward (if any)
-      IF v_sub.reward_credits IS NOT NULL AND v_sub.reward_credits > 0 THEN
-        SELECT current_ship_id INTO v_ship_id
-        FROM characters
-        WHERE character_id = v_player_id;
-
-        IF v_ship_id IS NOT NULL THEN
-          PERFORM update_ship_resources(
-            p_ship_id := v_ship_id,
-            p_credits_delta := v_sub.reward_credits
-          );
-        END IF;
-      END IF;
+      -- NOTE: rewards are no longer auto-granted here.
+      -- Players must claim them via claim_quest_step_reward().
 
       -- Look up quest name/code for the payload
       SELECT code, name INTO v_quest_code, v_quest_name
@@ -214,7 +196,9 @@ BEGIN
             'target_value', v_next_step.target_value,
             'current_value', 0,
             'completed', false,
-            'meta', COALESCE(v_next_step.meta, '{}'::jsonb)
+            'meta', COALESCE(v_next_step.meta, '{}'::jsonb),
+            'reward_credits', v_next_step.reward_credits,
+            'reward_claimed', false
           )
         );
       END IF;
@@ -270,3 +254,105 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+-- ============================================================
+-- 3. Claim function
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION claim_quest_step_reward(
+  p_player_id UUID,
+  p_quest_id UUID,
+  p_step_id UUID
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_pqs_id UUID;
+  v_completed_at TIMESTAMPTZ;
+  v_reward_claimed_at TIMESTAMPTZ;
+  v_reward_credits INTEGER;
+  v_step_name TEXT;
+  v_ship_id UUID;
+  v_quest_code TEXT;
+  v_quest_name TEXT;
+BEGIN
+  -- 1. Find the player_quest_steps row
+  SELECT pqs.id, pqs.completed_at, pqs.reward_claimed_at,
+         qsd.reward_credits, qsd.name
+  INTO v_pqs_id, v_completed_at, v_reward_claimed_at,
+       v_reward_credits, v_step_name
+  FROM player_quest_steps pqs
+  JOIN player_quests pq ON pq.id = pqs.player_quest_id
+  JOIN quest_step_definitions qsd ON qsd.id = pqs.step_id
+  WHERE pq.player_id = p_player_id
+    AND pq.quest_id = p_quest_id
+    AND pqs.step_id = p_step_id;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'step_not_found');
+  END IF;
+
+  -- 2. Validate step is completed
+  IF v_completed_at IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'step_not_completed');
+  END IF;
+
+  -- 3. Validate not already claimed
+  IF v_reward_claimed_at IS NOT NULL THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'already_claimed');
+  END IF;
+
+  -- 4. Validate reward exists
+  IF v_reward_credits IS NULL OR v_reward_credits <= 0 THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'no_reward');
+  END IF;
+
+  -- 5. Resolve player's current ship
+  SELECT current_ship_id INTO v_ship_id
+  FROM characters
+  WHERE character_id = p_player_id;
+
+  IF v_ship_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'no_ship');
+  END IF;
+
+  -- 6. Grant reward
+  PERFORM update_ship_resources(
+    p_ship_id := v_ship_id,
+    p_credits_delta := v_reward_credits
+  );
+
+  -- 7. Mark claimed
+  UPDATE player_quest_steps
+  SET reward_claimed_at = now()
+  WHERE id = v_pqs_id;
+
+  -- 8. Look up quest info for event
+  SELECT code, name INTO v_quest_code, v_quest_name
+  FROM quest_definitions WHERE id = p_quest_id;
+
+  -- 9. Emit reward claimed event
+  PERFORM record_event_with_recipients(
+    p_event_type := 'quest.reward_claimed',
+    p_scope := 'direct',
+    p_actor_character_id := p_player_id,
+    p_character_id := p_player_id,
+    p_payload := jsonb_build_object(
+      'quest_id', p_quest_id,
+      'quest_code', v_quest_code,
+      'quest_name', v_quest_name,
+      'step_id', p_step_id,
+      'step_name', v_step_name,
+      'reward', jsonb_build_object('credits', v_reward_credits)
+    ),
+    p_recipients := ARRAY[p_player_id],
+    p_reasons := ARRAY['direct']
+  );
+
+  RETURN jsonb_build_object('success', true, 'credits', v_reward_credits);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION claim_quest_step_reward(UUID, UUID, UUID) TO service_role;

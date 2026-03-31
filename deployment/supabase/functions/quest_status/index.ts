@@ -36,6 +36,7 @@ interface QuestStepInfo {
   completed: boolean;
   meta: JsonRecord;
   reward_credits: number | null;
+  reward_claimed: boolean;
 }
 
 interface QuestInfo {
@@ -155,6 +156,7 @@ async function fetchQuestStatus(
       step_id,
       current_value,
       completed_at,
+      reward_claimed_at,
       quest_step_definitions (
         step_index,
         name,
@@ -221,6 +223,7 @@ async function fetchQuestStatus(
         completed: step.completed_at !== null,
         meta: stepDef.meta ?? {},
         reward_credits: stepDef.reward_credits,
+        reward_claimed: step.reward_claimed_at !== null,
       };
 
       if (step.completed_at) {

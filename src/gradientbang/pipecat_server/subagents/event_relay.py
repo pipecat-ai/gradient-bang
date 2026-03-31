@@ -365,6 +365,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # Using ALWAYS here would double-fire (same pattern as task.finish).
     "quest.step_completed": EventConfig(inference=InferenceRule.VOICE_AGENT),
     "quest.completed": EventConfig(inference=InferenceRule.VOICE_AGENT),
+    "quest.reward_claimed": EventConfig(inference=InferenceRule.ALWAYS),
     # Task-scoped allowlisted (direct events pass through when task-scoped)
     "trade.executed": EventConfig(task_scoped_allowlisted=True),
     "port.update": EventConfig(task_scoped_allowlisted=True),
