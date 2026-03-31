@@ -42,11 +42,13 @@ class IdleReportProcessor(FrameProcessor):
         idle_seconds: float = 7.5,
         cooldown_seconds: float = 30.0,
         on_idle: Callable[[], Awaitable[bool]],
+        enabled: bool = True,
     ):
         super().__init__()
         self._idle_seconds = idle_seconds
         self._cooldown_seconds = cooldown_seconds
         self._on_idle = on_idle
+        self._enabled = enabled
 
         self._timer_task: Optional[asyncio.Task] = None
         self._started = False
@@ -57,6 +59,10 @@ class IdleReportProcessor(FrameProcessor):
 
     async def process_frame(self, frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
+
+        if not self._enabled:
+            await self.push_frame(frame, direction)
+            return
 
         # Shutdown: cancel all tasks immediately, never block.
         if isinstance(frame, (EndFrame, CancelFrame)):

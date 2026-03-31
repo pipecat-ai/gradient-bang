@@ -1,6 +1,7 @@
 import asyncio
 import os
 import uuid
+
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -33,6 +34,7 @@ from pipecat.utils.context.llm_context_summarization import (
     LLMAutoContextSummarizationConfig,
     LLMContextSummaryConfig,
 )
+
 from gradientbang.pipecat_server.s3_smart_turn import S3SmartTurnAnalyzerV3
 from gradientbang.utils.llm_factory import (
     LLMProvider,
@@ -217,6 +219,7 @@ async def bot_startup(
 
     return rtvi, local_api_server, character_id, character_display_name, game_client, stt, tts
 
+
 async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     """Main bot function that creates and runs the pipeline."""
 
@@ -367,7 +370,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         user_unmuted_event.set()
 
     inference_gate_state = InferenceGateState(
-        cooldown_seconds=1.5,
+        cooldown_seconds=2,
         post_llm_grace_seconds=1.5,
     )
     pre_llm_gate = PreLLMInferenceGate(inference_gate_state)
@@ -401,15 +404,15 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         RTVIObserver,
         RTVIObserverParams,
     )
-    from gradientbang.subagents.agents import BaseAgent, LLMAgentActivationArgs
-    from gradientbang.subagents.bus import BusBridgeProcessor
-    from gradientbang.subagents.runner import AgentRunner
-    from gradientbang.subagents.types import AgentReadyData
 
     from gradientbang.pipecat_server.frames import TaskActivityFrame
     from gradientbang.pipecat_server.idle_report import IdleReportProcessor
     from gradientbang.pipecat_server.subagents.event_relay import EventRelay
     from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
+    from gradientbang.subagents.agents import BaseAgent, LLMAgentActivationArgs
+    from gradientbang.subagents.bus import BusBridgeProcessor
+    from gradientbang.subagents.runner import AgentRunner
+    from gradientbang.subagents.types import AgentReadyData
 
     class MainAgent(BaseAgent):
         """Transport agent — bridges voice I/O to VoiceAgent via the bus.
@@ -513,6 +516,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         idle_seconds=float(os.getenv("BOT_IDLE_REPORT_TIME", "7.5")),
         cooldown_seconds=float(os.getenv("BOT_IDLE_REPORT_COOLDOWN", "30")),
         on_idle=voice_agent.on_idle_report,
+        enabled=os.getenv("BOT_IDLE_REPORT_ENABLED", "1") not in ("0", "false", ""),
     )
 
     main_agent = MainAgent("main", bus=agent_runner.bus)

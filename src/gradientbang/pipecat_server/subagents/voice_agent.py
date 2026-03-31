@@ -112,6 +112,7 @@ class VoiceAgent(LLMAgent):
 
         # ── Coalesced context injection ──
         self._inject_run_pending: bool = False
+        self._inject_run_task: Optional[asyncio.Task] = None
 
         # ── LLM response lifecycle ──
         self._llm_response_inflight: bool = False
@@ -374,7 +375,9 @@ class VoiceAgent(LLMAgent):
             await super().queue_frame(frame)
             if not self._inject_run_pending:
                 self._inject_run_pending = True
-                asyncio.create_task(self._emit_coalesced_run())
+                self._inject_run_task = self.pipeline_task.create_task(
+                    self._emit_coalesced_run()
+                )
             return
 
         await super().queue_frame(frame)
@@ -384,8 +387,11 @@ class VoiceAgent(LLMAgent):
         try:
             await asyncio.sleep(0)
             await super().queue_frame(LLMRunFrame())
+        except asyncio.CancelledError:
+            return
         finally:
             self._inject_run_pending = False
+            self._inject_run_task = None
 
     # ── Request ID tracking ────────────────────────────────────────────
 

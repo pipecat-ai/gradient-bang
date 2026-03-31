@@ -642,7 +642,8 @@ pnpm run dev
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `BOT_IDLE_REPORT_TIME` | `7.5` | Seconds of silence before the bot gives a one-sentence task status update (`0` to disable) |
+| `BOT_IDLE_REPORT_ENABLED` | `1` | Enable idle task status reports (`0` to disable — processor stays in pipeline as a passthrough) |
+| `BOT_IDLE_REPORT_TIME` | `7.5` | Seconds of silence before the bot gives a one-sentence task status update |
 | `BOT_IDLE_REPORT_COOLDOWN` | `30` | Minimum seconds between consecutive idle reports |
 | `BOT_USE_KRISP` | `0` | Enable Krisp noise cancellation (`1` for production, `0` for local dev) |
 | `BOT_TEST_CHARACTER_ID` | — | Hardcoded character ID for testing |
