@@ -8,7 +8,7 @@
     inset: calc(var(--elbow-offset) * -1);
     transition: all 0.5s ease-in-out;
     z-index: 1;
-    background: 
+    background:
         /* Top-left corner: horizontal part */
       linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 left 0 / var(--elbow-size)
         var(--elbow-width) no-repeat,
@@ -30,6 +30,54 @@
         var(--elbow-width) no-repeat,
       /* Bottom-right corner: vertical part */
         linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right 0 /
+        var(--elbow-width) var(--elbow-size) no-repeat;
+    pointer-events: none;
+    opacity: var(--elbow-opacity);
+  }
+}
+
+@utility elbows-top {
+  position: relative;
+  overflow: visible;
+
+  &:before {
+    content: "";
+    position: absolute;
+    inset: calc(var(--elbow-offset) * -1);
+    transition: all 0.5s ease-in-out;
+    z-index: 1;
+    background:
+      linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 left 0 / var(--elbow-size)
+        var(--elbow-width) no-repeat,
+      linear-gradient(var(--elbow-color), var(--elbow-color))
+        top 0 left 0 / var(--elbow-width) var(--elbow-size) no-repeat,
+      linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 right 0 / var(--elbow-size)
+        var(--elbow-width) no-repeat,
+      linear-gradient(var(--elbow-color), var(--elbow-color))
+        top 0 right 0 / var(--elbow-width) var(--elbow-size) no-repeat;
+    pointer-events: none;
+    opacity: var(--elbow-opacity);
+  }
+}
+
+@utility elbows-bottom {
+  position: relative;
+  overflow: visible;
+
+  &:before {
+    content: "";
+    position: absolute;
+    inset: calc(var(--elbow-offset) * -1);
+    transition: all 0.5s ease-in-out;
+    z-index: 1;
+    background:
+      linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left 0 / var(--elbow-size)
+        var(--elbow-width) no-repeat,
+      linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left 0 / var(--elbow-width)
+        var(--elbow-size) no-repeat,
+      linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right 0 / var(--elbow-size)
+        var(--elbow-width) no-repeat,
+      linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right 0 /
         var(--elbow-width) var(--elbow-size) no-repeat;
     pointer-events: none;
     opacity: var(--elbow-opacity);
