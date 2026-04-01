@@ -1624,6 +1624,10 @@ export function GameProvider({ children }: GameProviderProps) {
               useGameStore.getState().setDebugTaskContext(e.payload.formatted as string)
               break
             }
+            case "debug.task-context-error": {
+              useGameStore.getState().setDebugTaskContextError(e.payload.error as string)
+              break
+            }
 
             // ----- UNHANDLED :(
             default:

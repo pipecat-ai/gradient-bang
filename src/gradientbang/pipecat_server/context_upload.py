@@ -19,6 +19,10 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 
+class ContextNotFoundError(Exception):
+    """Raised when no context snapshot exists for the requested task."""
+
+
 def _get_config() -> Optional[Dict[str, str]]:
     """Return S3/DB config from env, or None if the feature is disabled."""
     bucket = os.getenv("CONTEXT_S3_BUCKET", "")
@@ -137,3 +141,85 @@ def _upsert_db_row(config: Dict[str, str], db_row: Dict[str, Any]) -> None:
     with httpx.Client(timeout=10.0) as client:
         resp = client.post(url, headers=headers, params=params, json=row)
         resp.raise_for_status()
+
+
+async def download_task_context(
+    task_id: str,
+    character_id: str,
+) -> List[Dict[str, Any]]:
+    """Download a task's LLM context from S3.
+
+    Looks up the ``context_snapshots`` table for the given task_id,
+    verifies it belongs to the requesting character, then fetches the
+    JSON from S3.
+
+    Raises
+    ------
+    ContextNotFoundError
+        If no snapshot exists or the character_id doesn't match.
+    RuntimeError
+        If CONTEXT_S3_BUCKET is not configured.
+    """
+    config = _get_config()
+    if config is None:
+        raise RuntimeError("CONTEXT_S3_BUCKET is not configured")
+
+    import asyncio
+
+    # DB lookup and S3 download are blocking — run in a thread.
+    return await asyncio.to_thread(
+        _download_task_context_sync, config, task_id, character_id
+    )
+
+
+def _download_task_context_sync(
+    config: Dict[str, str],
+    task_id: str,
+    character_id: str,
+) -> List[Dict[str, Any]]:
+    import httpx
+
+    rest_url = config.get("supabase_rest_url", "")
+    service_key = config.get("supabase_service_key", "")
+    if not rest_url or not service_key:
+        raise ContextNotFoundError("Database not configured")
+
+    # Look up the s3_key for this task, scoped to the requesting character.
+    url = f"{rest_url}/context_snapshots"
+    headers = {
+        "apikey": service_key,
+        "Authorization": f"Bearer {service_key}",
+        "Accept": "application/json",
+    }
+    params = {
+        "task_id": f"eq.{task_id}",
+        "character_id": f"eq.{character_id}",
+        "select": "s3_key",
+        "limit": "1",
+    }
+    with httpx.Client(timeout=10.0) as client:
+        resp = client.get(url, headers=headers, params=params)
+        resp.raise_for_status()
+        rows = resp.json()
+
+    if not rows:
+        raise ContextNotFoundError(f"No context snapshot found for task {task_id}")
+
+    s3_key = rows[0]["s3_key"]
+
+    # Download from S3.
+    import boto3
+
+    s3 = boto3.client(
+        "s3",
+        region_name=config["aws_region"],
+        aws_access_key_id=config["aws_access_key_id"],
+        aws_secret_access_key=config["aws_secret_access_key"],
+    )
+    try:
+        obj = s3.get_object(Bucket=config["bucket"], Key=s3_key)
+        body = obj["Body"].read()
+    except s3.exceptions.NoSuchKey:
+        raise ContextNotFoundError(f"S3 object not found: {s3_key}")
+
+    return json.loads(body)

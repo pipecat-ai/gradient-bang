@@ -20,8 +20,11 @@ CREATE TABLE context_snapshots (
 -- Voice upsert: one row per s3_key (new key on compaction, overwrite on periodic/shutdown)
 CREATE UNIQUE INDEX idx_context_snapshots_s3_key ON context_snapshots(s3_key);
 
--- Task upsert: one row per task per session
-CREATE UNIQUE INDEX idx_context_snapshots_task ON context_snapshots(session_id, task_id) WHERE task_id IS NOT NULL;
+-- Task upsert: one row per task per session.
+-- Non-partial so PostgREST can reference it for ON CONFLICT (session_id, task_id).
+-- NULLs are distinct in PostgreSQL unique indexes, so voice rows (task_id IS NULL)
+-- are unaffected.
+CREATE UNIQUE INDEX idx_context_snapshots_task ON context_snapshots(session_id, task_id);
 
 -- Lookup by character
 CREATE INDEX idx_context_snapshots_character ON context_snapshots(character_id, created_at DESC);

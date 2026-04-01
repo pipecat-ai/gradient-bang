@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { format, parseISO } from "date-fns"
 import { ArrowDownRightIcon, ArrowRightIcon } from "@phosphor-icons/react"
+import { CheckIcon } from "@phosphor-icons/react/dist/icons/Check"
+import { CopyIcon } from "@phosphor-icons/react/dist/icons/Copy"
+import { SpinnerGapIcon } from "@phosphor-icons/react/dist/icons/SpinnerGap"
+import { useCopyToClipboard } from "@uidotdev/usehooks"
 
 import { useTaskState } from "@/hooks/useTaskState"
 import useGameStore from "@/stores/game"
@@ -17,6 +21,84 @@ import { ChevronSM } from "../svg/ChevronSM"
 import { RHSPanelContent, RHSSubPanel } from "./RHSPanelContainer"
 
 const formatTaskDate = (isoDate: string) => format(parseISO(isoDate), "yy.MM.dd HH:mm")
+
+const CopyContextButton = ({ taskId }: { taskId: string }) => {
+  const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [, copyToClipboard] = useCopyToClipboard()
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => {
+    const unsubContext = useGameStore.subscribe(
+      (s) => s.debugTaskContext,
+      (context) => {
+        if (!context) return
+        setLoading(false)
+        copyToClipboard(context)
+        setCopied(true)
+        clearTimeout(copiedTimerRef.current)
+        copiedTimerRef.current = setTimeout(() => setCopied(false), 2000)
+      }
+    )
+    const unsubError = useGameStore.subscribe(
+      (s) => s.debugTaskContextError,
+      (err) => {
+        if (!err) return
+        setLoading(false)
+        setError(err)
+        useGameStore.getState().setDebugTaskContextError(null)
+      }
+    )
+    return () => {
+      unsubContext()
+      unsubError()
+    }
+  }, [copyToClipboard])
+
+  useEffect(() => () => clearTimeout(copiedTimerRef.current), [])
+
+  const handleClick = useCallback(() => {
+    if (loading) return
+    setCopied(false)
+    setError(null)
+    setLoading(true)
+    useGameStore.getState().setDebugTaskContext(null)
+    useGameStore
+      .getState()
+      .dispatchAction({ type: "dump-task-context", payload: { task_id: taskId } })
+  }, [loading, taskId])
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="bg-accent-background/50 text-foreground hover:bg-accent-background w-full"
+        onClick={handleClick}
+        disabled={loading}
+      >
+        {loading ?
+          <SpinnerGapIcon size={14} weight="bold" className="animate-spin" />
+        : copied ?
+          <>
+            <CheckIcon size={14} weight="bold" className="text-green-400" />
+            <span className="text-green-400 text-xxs">Copied</span>
+          </>
+        : <>
+            <CopyIcon size={14} weight="bold" />
+            <span className="text-xxs">Copy Context</span>
+          </>
+        }
+      </Button>
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/30 text-destructive text-xxs p-2">
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export const TaskHistoryRow = ({
   task,
@@ -203,14 +285,19 @@ export const TaskPanel = () => {
       </Card>
 
       <RHSSubPanel>
-        <ul className="flex flex-col gap-2 text-xxs list-none">
-          {Object.entries(selectedTask ?? {}).map(([key, value]) => (
-            <li key={key} className="flex flex-col gap-0.5 border-b pb-2">
-              <span className="text-foreground font-bold uppercase">{key}</span>{" "}
-              <span className="text-subtle">{value?.toString()}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-col gap-4">
+          <ul className="flex flex-col gap-2 text-xxs list-none">
+            {Object.entries(selectedTask ?? {}).map(([key, value]) => (
+              <li key={key} className="flex flex-col gap-0.5 border-b pb-2">
+                <span className="text-foreground font-bold uppercase">{key}</span>{" "}
+                <span className="text-subtle">{value?.toString()}</span>
+              </li>
+            ))}
+          </ul>
+          {selectedTask && "task_id" in selectedTask && (
+            <CopyContextButton taskId={selectedTask.task_id} />
+          )}
+        </div>
       </RHSSubPanel>
     </RHSPanelContent>
   )

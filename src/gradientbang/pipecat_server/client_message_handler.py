@@ -539,36 +539,71 @@ class ClientMessageHandler:
         )
 
     async def _handle_dump_task_context(self, msg_type, msg_data):
-        """Debug: dump a task agent's LLM context back to the client."""
+        """Debug: dump a task agent's LLM context back to the client.
+
+        Tries in-memory context first (live/cached), then falls back to S3.
+        """
         import json
 
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 
         task_id = msg_data.get("task_id") if isinstance(msg_data, dict) else None
-        if not task_id or not self._voice_agent:
+        if not task_id:
             return
 
-        # Match by agent name, active task UUID, or fall back to the
-        # single player task agent (whose _active_task_id is cleared after
-        # completion but still holds the cached context).
-        child = next(
-            (c for c in self._voice_agent.children
-             if isinstance(c, TaskAgent)
-             and (c.name == task_id or c._active_task_id == task_id)),
-            None,
-        )
-        if not child:
+        # Try in-memory context first — only exact task_id matches.
+        # The broad "any player task agent" fallback is intentionally removed
+        # so that historical tasks correctly fall through to the S3 path.
+        messages = None
+        if self._voice_agent:
             child = next(
                 (c for c in self._voice_agent.children
-                 if isinstance(c, TaskAgent) and not c._is_corp_ship),
+                 if isinstance(c, TaskAgent)
+                 and (c.name == task_id or c._active_task_id == task_id)),
                 None,
             )
-        if not child:
-            return
+            if child:
+                messages = child.get_context_dump()
 
-        messages = child.get_context_dump()
+        # Fall back to S3 for historical tasks.
         if not messages:
-            return
+            from gradientbang.pipecat_server.context_upload import (
+                ContextNotFoundError,
+                download_task_context,
+            )
+
+            try:
+                messages = await download_task_context(task_id, self._character_id)
+            except ContextNotFoundError as exc:
+                logger.debug(f"dump-task-context: not found for {task_id}: {exc}")
+                await self._rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "debug.task-context-error",
+                            "payload": {
+                                "task_id": task_id,
+                                "error": "No saved context found for this task.",
+                            },
+                        }
+                    )
+                )
+                return
+            except Exception as exc:
+                logger.error(f"dump-task-context: S3 download failed for {task_id}: {exc}")
+                await self._rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "debug.task-context-error",
+                            "payload": {
+                                "task_id": task_id,
+                                "error": "Failed to download context. Check server logs.",
+                            },
+                        }
+                    )
+                )
+                return
 
         def safe_serialize(msg):
             try:
