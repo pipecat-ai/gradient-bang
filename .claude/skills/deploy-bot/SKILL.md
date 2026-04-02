@@ -1,57 +1,36 @@
 # Deploy Bot
 
-Builds the bot Docker image, pushes it to the registry, and optionally deploys to Pipecat Cloud.
+Deploys the bot to Pipecat Cloud using cloud builds.
 
 ## Parameters
 
-Ask the user for:
-- **Image tag**: Read the default from `deployment/pcc-deploy.toml` (the `image` field). Show the user the default and ask if they want to use it or enter a custom image tag.
-- **Platform**: Ask if they want to build for `linux/arm64` (default, required for Pipecat Cloud — the base image `dailyco/pipecat-base` is arm64-only) or their local platform.
+The user specifies the environment as an argument: `/deploy-bot dev` or `/deploy-bot prod`. If not provided, ask which environment to deploy to.
+
+- `dev` → config file: `deployment/pcc-deploy.dev.toml`
+- `prod` → config file: `deployment/pcc-deploy.prod.toml`
 
 ## Steps
 
-### 1. Read image tag from pcc-deploy.toml
-
-Parse `deployment/pcc-deploy.toml` to get the configured `image` value. Present this to the user as the default.
-
-### 2. Build the Docker image
+### 1. Deploy to Pipecat Cloud
 
 ```bash
-docker build --platform linux/arm64 -f deployment/Dockerfile.bot -t <image_tag> .
+pipecat cloud deploy --config-file deployment/pcc-deploy.<env>.toml --yes
 ```
 
-If the user chose their local platform, omit the `--platform` flag.
+The `--yes` flag skips all confirmation prompts. Pipecat Cloud will build the Docker image remotely using the Dockerfile and context specified in the toml file.
 
-### 3. Push the Docker image
+### 2. Verify
+
+Report the result. The deploy command has a 90-second health check window that will often time out with a message like "Deployment did not enter ready state within 90 seconds." This is normal — the deployment was still submitted successfully. Treat this as a successful deploy and report the agent name.
+
+If the build fails, check the build logs using the build ID from the error output:
 
 ```bash
-docker push <image_tag>
+pipecat cloud build logs <build-id>
 ```
-
-If the push fails with an authentication error, tell the user to run `docker login` first and retry.
-
-### 4. Ask whether to deploy to Pipecat Cloud
-
-After the image is built and pushed, ask the user if they also want to deploy the bot to Pipecat Cloud. They may just want to build and push the image without updating the running bot.
-
-If **yes**, proceed to step 5. If **no**, skip to step 6.
-
-### 5. Deploy to Pipecat Cloud
-
-```bash
-cd deployment/ && pipecat cloud deploy --no-credentials --force
-```
-
-The `--force` flag skips the interactive confirmation prompt. Use `--no-credentials` since the image is public. If the user indicates the image is private, omit `--no-credentials` so Pipecat Cloud uses configured image pull credentials.
-
-### 6. Verify
-
-Report what was completed (build + push, and optionally deploy). The deploy command has a 90-second health check window that will often time out with a message like "Deployment did not enter ready state within 90 seconds." This is normal and expected — the deployment was still submitted successfully. Treat this as a successful deploy and report the agent name.
 
 ## Important notes
 
-- The Dockerfile is at `deployment/Dockerfile.bot`.
-- The Pipecat Cloud deploy config is at `deployment/pcc-deploy.toml`.
-- The image tag in `pcc-deploy.toml` must match what you build and push. If the user provides a custom tag, update `pcc-deploy.toml` to match before deploying.
-- Secrets should already be configured on Pipecat Cloud (`pipecat cloud secrets set gb-bot-secrets --file .env.bot`). If the user hasn't set secrets yet, remind them to do so.
-- Build context is the repo root (`.`), not the `deployment/` directory.
+- Config files are at `deployment/pcc-deploy.dev.toml` and `deployment/pcc-deploy.prod.toml`.
+- The `.dockerignore` at the repo root controls what gets included in the build context.
+- Secrets should already be configured on Pipecat Cloud. If the user hasn't set secrets yet, remind them to do so.

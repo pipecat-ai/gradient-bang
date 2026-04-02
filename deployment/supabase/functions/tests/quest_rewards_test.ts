@@ -97,21 +97,33 @@ Deno.test({
       await apiOk("move", { character_id: p1Id, to_sector: 1 });
     });
 
-    await t.step("ship credits increased by 50", async () => {
+    await t.step("credits unchanged before claim", async () => {
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
-      assertEquals(ship.credits, 1050, `Expected 1050 credits, got ${ship.credits}`);
+      assertEquals(ship.credits, 1000, `Expected 1000 credits before claim, got ${ship.credits}`);
     });
 
+    let stepCompletedPayload: Record<string, unknown>;
     await t.step("quest.step_completed event includes reward", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
       assert(events.length >= 1, `Expected quest.step_completed, got ${events.length}`);
-      const payload = events[0].payload as Record<string, unknown>;
-      assertEquals(payload.quest_code, "tutorial");
-      assertEquals(payload.step_index, 1);
-      assertExists(payload.reward, "Should have reward in payload");
-      const reward = payload.reward as Record<string, unknown>;
+      stepCompletedPayload = events[0].payload as Record<string, unknown>;
+      assertEquals(stepCompletedPayload.quest_code, "tutorial");
+      assertEquals(stepCompletedPayload.step_index, 1);
+      assertExists(stepCompletedPayload.reward, "Should have reward in payload");
+      const reward = stepCompletedPayload.reward as Record<string, unknown>;
       assertEquals(reward.credits, 50, "Reward should be 50 credits");
+    });
+
+    await t.step("claim reward grants credits", async () => {
+      await apiOk("quest_claim_reward", {
+        character_id: p1Id,
+        quest_id: stepCompletedPayload.quest_id as string,
+        step_id: stepCompletedPayload.step_id as string,
+      });
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      assertEquals(ship.credits, 1050, `Expected 1050 credits after claim, got ${ship.credits}`);
     });
   },
 });
@@ -202,20 +214,36 @@ Deno.test({
       });
     });
 
-    await t.step("ship credits increased by 1000", async () => {
+    await t.step("credits unchanged before claim", async () => {
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
-      assertEquals(ship.credits, 6000, `Expected 6000 credits, got ${ship.credits}`);
+      assertEquals(ship.credits, 5000, `Expected 5000 credits before claim, got ${ship.credits}`);
     });
 
+    let completedPayload: Record<string, unknown>;
     await t.step("quest.completed event includes reward", async () => {
       const events = await eventsOfType(p1Id, "quest.completed", cursor);
       assert(events.length >= 1, `Expected quest.completed, got ${events.length}`);
-      const payload = events[0].payload as Record<string, unknown>;
-      assertEquals(payload.quest_code, "tutorial_corporations");
-      assertExists(payload.reward, "Should have reward in quest.completed payload");
-      const reward = payload.reward as Record<string, unknown>;
+      completedPayload = events[0].payload as Record<string, unknown>;
+      assertEquals(completedPayload.quest_code, "tutorial_corporations");
+      assertExists(completedPayload.reward, "Should have reward in quest.completed payload");
+      const reward = completedPayload.reward as Record<string, unknown>;
       assertEquals(reward.credits, 1000, "Final step reward should be 1000 credits");
+    });
+
+    await t.step("claim final step reward grants credits", async () => {
+      // Need to find the step_id for the final step from step_completed event
+      const stepEvents = await eventsOfType(p1Id, "quest.step_completed", cursor);
+      assert(stepEvents.length >= 1, "Expected quest.step_completed for final step");
+      const stepPayload = stepEvents[0].payload as Record<string, unknown>;
+      await apiOk("quest_claim_reward", {
+        character_id: p1Id,
+        quest_id: stepPayload.quest_id as string,
+        step_id: stepPayload.step_id as string,
+      });
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      assertEquals(ship.credits, 6000, `Expected 6000 credits after claim, got ${ship.credits}`);
     });
 
     await t.step("quest is marked completed", async () => {

@@ -1,33 +1,23 @@
 # Deploy Supabase Functions
 
-Deploys all Supabase edge functions to production.
+Deploys all Supabase edge functions.
 
 ## Parameters
 
-Ask the user for:
-- **Environment**: `production` (uses `.env.cloud`) or `local` (uses `.env.supabase`)
+The user specifies the environment as an argument: `/deploy-functions dev` or `/deploy-functions prod`. If not provided, ask which environment.
+
+- `dev` → env file: `.env.cloud.dev`
+- `prod` → env file: `.env.cloud`
 
 ## Steps
 
-### 1. Source environment variables
-
-For production:
-```bash
-set -a && source .env.cloud && set +a
-```
-
-For local:
-```bash
-set -a && source .env.supabase && set +a
-```
-
-### 2. Deploy functions
+### 1. Source environment variables and deploy
 
 ```bash
-npx supabase functions deploy --workdir deployment/ --no-verify-jwt
+set -a && source <env-file> && set +a && npx supabase functions deploy --workdir deployment/ --no-verify-jwt
 ```
 
-### 3. Verify
+### 2. Verify
 
 Confirm the output shows all functions deployed successfully. Report any errors to the user.
 
