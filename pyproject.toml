@@ -20,8 +20,9 @@ dev = ["pytest>=8.4.1", "pytest-asyncio>=1.1.0", "pytest-timeout>=2.3.1"]
 worldgen = ["numpy>=1.26.0", "scipy>=1.11.0", "networkx>=3.0"]
 
 bot = [
-    "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,google,anthropic,runner]>=0.0.106",
+    "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,google,anthropic,runner]>=0.0.108",
     "pipecat-ai-cli",
+    "pipecatcloud==0.4.1",
     "pipecat-ai-flows>=0.0.22",
     "boto3>=1.35.0",
     "soundfile>=0.12.0",

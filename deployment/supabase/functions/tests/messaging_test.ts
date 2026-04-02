@@ -4,9 +4,12 @@
  * Tests cover:
  *   - Broadcast message (all players receive)
  *   - Direct message (only sender + recipient, not third party)
- *   - Message content validation (too long)
- *   - Direct message recipient not found (Group 4)
- *   - Empty content rejected (Group 5)
+ *   - Empty content rejected
+ *   - Invalid message type rejected
+ *   - Direct message missing recipient
+ *   - Content too long returns 400
+ *   - DM recipient not found
+ *   - Invalid to_ship_id format
  *
  * Setup: 3 players in sector 0.
  */
@@ -14,7 +17,6 @@
 import {
   assert,
   assertEquals,
-  assertExists,
 } from "https://deno.land/std@0.197.0/testing/asserts.ts";
 
 import { resetDatabase, startServerInProcess } from "./harness.ts";
@@ -157,66 +159,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 3: Message content validation (too long)
-// ============================================================================
-
-Deno.test({
-  name: "messaging — content validation",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset database", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("message exceeding 512 chars handled", async () => {
-      const longContent = "A".repeat(600);
-      const result = await api("send_message", {
-        character_id: p1Id,
-        type: "broadcast",
-        content: longContent,
-      });
-      // Server should either reject (400) or truncate — either way it handles it
-      // Check that it doesn't crash (500)
-      assert(result.status !== 500, "Server should not crash on long message");
-    });
-  },
-});
-
-// ============================================================================
-// Group 4: Direct message — recipient not found
-// ============================================================================
-
-Deno.test({
-  name: "messaging — direct message recipient not found",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset database", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("DM to non-existent player fails", async () => {
-      const result = await api("send_message", {
-        character_id: p1Id,
-        type: "direct",
-        content: "Hello nobody",
-        to_name: "nonexistent_player_xyz",
-      });
-      // Should return 404 or 400, not crash
-      assert(
-        !result.ok || !result.body.success,
-        "Expected DM to non-existent player to fail",
-      );
-      assert(result.status !== 500, "Should not crash");
-    });
-  },
-});
-
-// ============================================================================
-// Group 5: Empty content rejected
+// Group 3: Empty content rejected
 // ============================================================================
 
 Deno.test({
@@ -321,59 +264,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 9: Invalid message type
-// ============================================================================
-
-Deno.test({
-  name: "messaging — invalid message type",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset database", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("fails: invalid type", async () => {
-      const result = await api("send_message", {
-        character_id: p1Id,
-        type: "whisper",
-        content: "Hello",
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("type"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 10: Empty content
-// ============================================================================
-
-Deno.test({
-  name: "messaging — empty content rejected",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset database", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("fails: empty content", async () => {
-      const result = await api("send_message", {
-        character_id: p1Id,
-        type: "broadcast",
-        content: "",
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("Empty"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 11: Direct message — recipient not found
+// Group 7: Direct message — recipient not found
 // ============================================================================
 
 Deno.test({

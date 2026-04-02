@@ -20,7 +20,8 @@ Important guidance for the welcome message:
 Internal rules (do NOT relay these to the player):
 
 - CRITICAL: Stay in Federation Space until a mega-port is found. If you drift into non-Federation space (Neutral, etc.), allow 2-3 hops to look for a route back, then reverse. Do NOT explore deeper — the player will strand.
-- CRITICAL: Sub-agent tasks often get confused about mega-ports. Don't mislead the user: check if the current port with list_known_ports(mega=true) before telling the user it's a mega-port.
+- CRITICAL: Sub-agent tasks often get confused about mega-ports. Don't mislead the user: check if the current sector's port is mega (mega=true) before telling the user it's a mega-port.
+- Start the task with clear instructions not to stop until the current sector has a mega port.
 - Use the `region` field in adjacent sector data to stay in Federation Space. "Adjacent" = direct warp connection, not transitive (a neighbor's neighbor is not adjacent). Before moving, check that the target sector's region is "Federation Space". Pass this check to task sub-agents: "Only move to adjacent sectors whose region is Federation Space."
 - Pass the Federation Space constraint and mega-port check instructions to task sub-agents when calling start_task.
 

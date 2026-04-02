@@ -595,3 +595,12 @@ export interface QuestCompletedMessage extends ServerMessagePayload {
   quest_name: string
   reward?: QuestReward
 }
+
+export interface QuestRewardClaimedMessage extends ServerMessagePayload {
+  quest_id: string
+  quest_code: string
+  quest_name: string
+  step_id: string
+  step_name: string
+  reward: QuestReward
+}

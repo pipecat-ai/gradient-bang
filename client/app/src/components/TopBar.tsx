@@ -1,7 +1,7 @@
 import { FilmStripIcon, MedalIcon, SlidersHorizontalIcon } from "@phosphor-icons/react"
 
+import { TopBarCreditBalance } from "@/components/TopBarCreditBalance"
 import useGameStore from "@/stores/game"
-import { formatCurrency } from "@/utils/formatting"
 
 import { CharacterBadge } from "./CharacterBadge"
 import { Button } from "./primitives/Button"
@@ -19,33 +19,24 @@ export const TopBarTextItem = ({ label, value }: { label: string; value: string 
 
 export const TopBar = () => {
   const setActiveModal = useGameStore.use.setActiveModal()
-  const player = useGameStore.use.player()
-  const ship = useGameStore.use.ship()
   const corporation = useGameStore.use.corporation?.()
   const enableCapture = useGameStore((s) => s.settings.enableCapture)
 
   return (
-    <header className="bg-subtle-background border-b p-1.5 flex flex-row items-center shadow-long z-50">
-      <div className="text-xs uppercase">
+    <header className="relative bg-subtle-background border-b flex flex-row items-center shadow-long z-50">
+      <div className="text-xs uppercase p-1.5">
         <CharacterBadge />
       </div>
-      <div className="flex-1 flex flex-row gap-3 text-sm items-center justify-center">
-        <TopBarTextItem
-          label="Credits in Bank"
-          value={player?.credits_in_bank ? formatCurrency(player.credits_in_bank) : undefined}
-        />
-        <TopBarTextItem
-          label="on Hand"
-          value={ship?.credits ? formatCurrency(ship.credits) : undefined}
-        />
-        {corporation && (
-          <>
-            <DotDivider />
-            <TopBarTextItem label="Corp" value={corporation.name} />
-          </>
-        )}
-      </div>
-      <div className="flex flex-row gap-1.5">
+      <div className="flex-1" />
+      <TopBarCreditBalance />
+      {corporation && (
+        <div className="flex flex-row gap-3 text-sm items-center">
+          <DotDivider />
+          <TopBarTextItem label="Corp" value={corporation.name} />
+        </div>
+      )}
+      <div className="flex-1" />
+      <div className="flex flex-row gap-1.5 p-1.5">
         {enableCapture && (
           <Tooltip>
             <TooltipTrigger asChild>

@@ -1170,6 +1170,34 @@ class AsyncGameClient:
 
         return await self._request("quest.assign", payload)
 
+    async def claim_quest_step_reward(
+        self,
+        *,
+        quest_id: str,
+        step_id: str,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Claim the reward for a completed quest step.
+
+        Args:
+            quest_id: The quest definition ID
+            step_id: The step definition ID
+            character_id: Character ID (defaults to bound character)
+
+        Returns:
+            Dict with success status and credits granted
+        """
+        if character_id is None:
+            character_id = self._character_id
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "quest_id": quest_id,
+            "step_id": step_id,
+        }
+
+        return await self._request("quest.claim.reward", payload)
+
     async def task_lifecycle(
         self,
         *,

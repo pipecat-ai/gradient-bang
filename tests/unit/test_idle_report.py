@@ -56,12 +56,23 @@ class TestIdleReportProcessor:
         await asyncio.sleep(0.1)
         cb.assert_not_called()
 
+    async def test_no_fire_before_user_interaction(self):
+        """Timer should not fire after greeting speech if user hasn't interacted yet."""
+        cb = AsyncMock(return_value=True)
+        proc = _make_processor(idle_seconds=0.05, on_idle=cb)
+
+        # Bot greeting finishes but no user interaction yet.
+        await _send(proc, BotStoppedSpeakingFrame())
+        await asyncio.sleep(0.1)
+        cb.assert_not_called()
+
     async def test_fires_after_idle(self):
         """Report fires after idle_seconds of silence."""
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.1, on_idle=cb)
 
-        # Start monitoring.
+        # User must interact before idle monitoring starts.
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
         await asyncio.sleep(0.15)
         cb.assert_called_once()
@@ -71,6 +82,7 @@ class TestIdleReportProcessor:
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.05, cooldown_seconds=0.2, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
 
         # First report fires after ~0.05s.
@@ -95,6 +107,7 @@ class TestIdleReportProcessor:
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.1, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
 
         # User speaks — cancels timer.
@@ -116,6 +129,7 @@ class TestIdleReportProcessor:
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.1, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
 
         await asyncio.sleep(0.07)
@@ -136,6 +150,7 @@ class TestIdleReportProcessor:
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.1, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
 
         # Bot starts speaking mid-countdown — cancels timer.
@@ -156,6 +171,7 @@ class TestIdleReportProcessor:
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.1, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
 
         # Bot speaks for a while — timer should be cancelled.
@@ -176,6 +192,7 @@ class TestIdleReportProcessor:
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.05, cooldown_seconds=0.3, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
 
         # First report fires.
@@ -197,6 +214,7 @@ class TestIdleReportProcessor:
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.05, cooldown_seconds=0.5, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
 
         # First report fires.
@@ -221,6 +239,7 @@ class TestIdleReportProcessor:
         cb = AsyncMock(side_effect=[False, False, True])
         proc = _make_processor(idle_seconds=0.05, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
 
         # Should retry until callback returns True.
@@ -237,6 +256,7 @@ class TestIdleReportShutdown:
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.1, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
         await _send(proc, CancelFrame())
 
@@ -249,6 +269,7 @@ class TestIdleReportShutdown:
         cb = AsyncMock(return_value=True)
         proc = _make_processor(idle_seconds=0.1, on_idle=cb)
 
+        await _send(proc, UserStartedSpeakingFrame())
         await _send(proc, BotStoppedSpeakingFrame())
         await proc.cleanup()
 

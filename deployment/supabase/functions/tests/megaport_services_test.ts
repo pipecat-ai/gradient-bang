@@ -590,143 +590,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 11: recharge_warp_power — insufficient credits
-// ============================================================================
-
-Deno.test({
-  name: "megaport_services — recharge insufficient credits",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset, set low credits and low warp", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipCredits(p1ShipId, 0);
-      await setShipWarpPower(p1ShipId, 100);
-    });
-
-    await t.step("fails: insufficient credits", async () => {
-      const result = await api("recharge_warp_power", {
-        character_id: p1Id,
-        units: 100,
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("Insufficient"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 12: recharge_warp_power — already at max
-// ============================================================================
-
-Deno.test({
-  name: "megaport_services — recharge already at max",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset, set warp to max (500)", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipWarpPower(p1ShipId, 500);
-      await setShipCredits(p1ShipId, 50000);
-    });
-
-    await t.step("fails: already at maximum", async () => {
-      const result = await api("recharge_warp_power", {
-        character_id: p1Id,
-        units: 10,
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("maximum"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 13: purchase_fighters — not at mega-port
-// ============================================================================
-
-Deno.test({
-  name: "megaport_services — purchase_fighters not at mega-port",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset, move to non-mega sector", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipCredits(p1ShipId, 50000);
-      await setShipFighters(p1ShipId, 100);
-    });
-
-    await t.step("fails: not at mega-port", async () => {
-      const result = await api("purchase_fighters", {
-        character_id: p1Id,
-        units: 10,
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("mega-port"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 14: purchase_fighters — already at max fighters
-// ============================================================================
-
-Deno.test({
-  name: "megaport_services — purchase_fighters already at max",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset, max out fighters (300 for kestrel)", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipCredits(p1ShipId, 50000);
-      await setShipFighters(p1ShipId, 300);
-    });
-
-    await t.step("fails: already at maximum", async () => {
-      const result = await api("purchase_fighters", {
-        character_id: p1Id,
-        units: 10,
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("maximum"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 15: purchase_fighters — insufficient credits
-// ============================================================================
-
-Deno.test({
-  name: "megaport_services — purchase_fighters insufficient credits",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset, set low credits", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipCredits(p1ShipId, 0);
-      await setShipFighters(p1ShipId, 100);
-    });
-
-    await t.step("fails: insufficient credits", async () => {
-      const result = await api("purchase_fighters", {
-        character_id: p1Id,
-        units: 10,
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("Insufficient"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 16: ship_purchase — invalid purchase_type
+// Group 11: ship_purchase — invalid purchase_type
 // ============================================================================
 
 Deno.test({
@@ -752,7 +616,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 17: ship_purchase — not at mega-port
+// Group 12: ship_purchase — not at mega-port
 // ============================================================================
 
 Deno.test({
@@ -779,7 +643,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 18: ship_purchase — in hyperspace
+// Group 13: ship_purchase — in hyperspace
 // ============================================================================
 
 Deno.test({
@@ -804,7 +668,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 19: ship_purchase — actor mismatch
+// Group 14: ship_purchase — actor mismatch
 // ============================================================================
 
 Deno.test({

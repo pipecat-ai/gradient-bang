@@ -593,6 +593,8 @@ declare global {
     current_value: number
     completed: boolean
     meta: QuestStepMeta
+    reward_credits?: number | null
+    reward_claimed?: boolean
   }
 
   export interface QuestMeta {

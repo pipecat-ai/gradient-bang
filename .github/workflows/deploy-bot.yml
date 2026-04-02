@@ -1,0 +1,53 @@
+name: Deploy Bot (Dev)
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "src/**"
+      - "deployment/Dockerfile.bot"
+      - "deployment/supabase/functions/**"
+      - "pyproject.toml"
+      - "uv.lock"
+
+jobs:
+  deploy:
+    name: Deploy to Pipecat Cloud
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Pipecat CLI
+        run: pip install pipecatcloud==0.4.1
+
+      - name: Authenticate with Pipecat Cloud
+        run: pipecat cloud auth login --token "${{ secrets.PCC_PAT }}"
+
+      - name: Generate deploy config
+        run: |
+          cat > deployment/pcc-deploy.dev.toml << 'EOF'
+          agent_name = "gb-bot-dev"
+          agent_profile = "agent-2x"
+          secret_set = "gb-bot-secrets-dev"
+
+          [krisp_viva]
+          audio_filter = "tel"
+
+          [scaling]
+          min_agents = 1
+          max_agents = 10
+
+          [build]
+          context_dir = "."
+          dockerfile = "deployment/Dockerfile.bot"
+          EOF
+
+      - name: Deploy
+        run: pipecat cloud deploy --config-file deployment/pcc-deploy.dev.toml --yes

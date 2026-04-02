@@ -4,6 +4,8 @@ import type { StateCreator } from "zustand"
 export type QuestCompletionData =
   | {
       type: "step"
+      questId: string
+      stepId: string
       questName: string
       completedStepName: string
       nextStep: QuestStep
@@ -22,6 +24,7 @@ export interface QuestSlice {
   updateQuestStepProgress: (questId: string, stepIndex: number, currentValue: number) => void
   updateQuestStepCompleted: (questId: string, stepIndex: number, nextStep?: QuestStep) => void
   completeQuest: (questId: string) => void
+  claimStepReward: (questId: string, stepId: string) => void
   getActiveQuests: () => Quest[]
   getQuestByCode: (code: string) => Quest | undefined
   getActiveCodec: (questId?: string) => QuestCodec | null
@@ -116,6 +119,18 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
         s.notifications.seenContractCodecs = s.notifications.seenContractCodecs.filter(
           (key: string) => key !== questId
         )
+      })
+    ),
+
+  claimStepReward: (questId: string, stepId: string) =>
+    set(
+      produce((state) => {
+        const quest = state.quests.find((q: Quest) => q.quest_id === questId)
+        if (!quest) return
+        const step = quest.completed_steps.find((s: QuestStep) => s.step_id === stepId)
+        if (step) {
+          step.reward_claimed = true
+        }
       })
     ),
 

@@ -4,8 +4,13 @@ Resets the game database, generates a fresh universe, loads quest definitions, a
 
 ## Parameters
 
-Ask the user for:
-- **Environment**: `local` (default) or `cloud` (uses `.env.cloud`)
+The user specifies the environment as an argument: `/reset-world local`, `/reset-world dev`, or `/reset-world prod`. If not provided, ask which environment.
+
+- `local` → env file: `.env.supabase`
+- `dev` → env file: `.env.cloud.dev`
+- `prod` → env file: `.env.cloud`
+
+Additional optional parameters (ask if not provided, or use defaults):
 - **Sector count**: number of sectors to generate (default: `5000`)
 - **Seed**: optional universe seed for reproducibility
 
@@ -14,23 +19,21 @@ Ask the user for:
 ### 1. Source environment variables
 
 ```bash
-set -a && source .env.supabase && set +a
+set -a && source <env-file> && set +a
 ```
-
-For cloud, use `.env.cloud` instead.
 
 ### 2. Run the world reset script
 
 This truncates all game data tables (preserving auth.users), generates a new universe, loads it into Supabase, and loads quest definitions.
 
-For local:
+For **local**:
 ```bash
 scripts/reset-world.sh <sector_count> [seed]
 ```
 
-For cloud:
+For **dev** or **prod**:
 ```bash
-scripts/reset-world.sh --env .env.cloud <sector_count> [seed]
+scripts/reset-world.sh --env <env-file> <sector_count> [seed]
 ```
 
 Redirect output to a file and monitor with `tail`:
@@ -42,7 +45,7 @@ scripts/reset-world.sh <args> > /tmp/reset-world.log 2>&1
 
 After the world reset, seed the combat cron runtime config into `app_runtime_config`.
 
-For local dev, run this docker exec command (env vars should already be sourced from step 1):
+For **local**, run this docker exec command (env vars should already be sourced from step 1):
 
 ```bash
 docker exec -e PGPASSWORD=postgres supabase_db_gb-world-server \
@@ -54,7 +57,7 @@ docker exec -e PGPASSWORD=postgres supabase_db_gb-world-server \
   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();"
 ```
 
-For cloud, run:
+For **dev** or **prod**, run:
 ```bash
 scripts/setup-production-combat-tick.sh
 ```
@@ -67,5 +70,5 @@ Confirm the reset completed by checking the log output for the "Complete!" messa
 
 - The `reset-world.sh` script handles: truncating tables, generating universe (`universe-bang`), loading universe data, and loading quest definitions.
 - All output from scripts should be redirected to files. Do NOT use `tee`.
-- For cloud resets, the script will prompt for confirmation before wiping data.
+- For cloud resets (dev/prod), the script will prompt for confirmation before wiping data.
 - Combat cron config is NOT modified by `reset-world.sh` -- you must run the cron script separately.

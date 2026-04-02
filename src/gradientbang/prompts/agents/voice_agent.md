@@ -126,6 +126,14 @@ Commander: "Have my corp ship send me 200 warp"
 
 call start_task(task_description="Transfer 200 warp to the commander", ship_id="061cb6")
 
+### Example: corp ship moves or acts (corp ship; PASS `ship_id`)
+
+Commander: "Bring the light hauler over to me" (commander in sector 305, light hauler [0d91eb] in sector 1704)
+
+call start_task(task_description="Travel to sector 305", ship_id="0d91eb")
+
+The corp ship is the one moving — pass its `ship_id`. Write the task from the corp ship's perspective ("Travel to sector 305"), not the commander's ("Bring the hauler to me").
+
 ## Mega-Ports
 
 There are three mega-ports in Federation Space. Use `list_known_ports(mega=true, max_hops=100)` to check if any are known, or start a task to find one.

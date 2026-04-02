@@ -101,6 +101,14 @@ Use `list_known_ports` with filters:
 - `port_type="BBB"` - find specific port type
 - `mega=true` - find mega-ports for banking/recharge
 
+## Trade Run Strategy
+
+When planning a trade run for profit:
+1. Compare commodity margins FIRST: sell_price − buy_price per unit
+   - Example: QF buys@33 sells@19 = 14 margin. NS buys@52 sells@30 = 22 margin. → Trade NS.
+2. Pick the highest-margin commodity, then find the nearest port pair
+3. One port search is usually enough — don't enumerate all commodities exhaustively
+
 ## Profit Calculation
 
 From trade.executed events:

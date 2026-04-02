@@ -70,11 +70,13 @@ class IdleReportProcessor(FrameProcessor):
             await self.push_frame(frame, direction)
             return
 
-        # Wait for first bot speech to complete before monitoring.
+        # Wait for first user interaction before monitoring idle.
+        # Without this, the idle timer fires right after the greeting speech
+        # while a task agent may still be running its first turn.
         if not self._started:
-            if isinstance(frame, BotStoppedSpeakingFrame):
+            if self._is_user_activity(frame):
                 self._started = True
-                self._start_timer(self._idle_seconds)
+                # Don't start timer yet — wait for the bot's reply to finish.
             await self.push_frame(frame, direction)
             return
 

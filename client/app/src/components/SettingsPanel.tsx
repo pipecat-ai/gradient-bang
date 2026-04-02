@@ -40,11 +40,16 @@ const SettingSelect = ({
 }: {
   label: string
   id: string
-  options: string[]
+  options: string[] | { value: string; label: string }[]
   value?: string
   placeholder?: string
   onChange: (value: string) => void
 }) => {
+  const normalizedOptions =
+    typeof options[0] === "string" ?
+      (options as string[]).map((o) => ({ value: o, label: o }))
+    : (options as { value: string; label: string }[])
+
   return (
     <Field orientation="vertical">
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -53,9 +58,9 @@ const SettingSelect = ({
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
-          {options.map((option) => (
-            <SelectItem key={option} value={option}>
-              {option}
+          {normalizedOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
             </SelectItem>
           ))}
         </SelectContent>
@@ -126,6 +131,43 @@ const SettingSwitch = ({
   )
 }
 
+const PERSONALITY_OPTIONS: { value: string; label: string; tone: string }[] = [
+  {
+    value: "stock_firmware",
+    label: "Stock Firmware",
+    tone: "",
+  },
+  {
+    value: "old_federation",
+    label: "Old Federation",
+    tone: "Decommissioned Federation military AI. Formal, slightly archaic phrasing. References 'standard protocol' and 'regulation' even though nobody enforces them. Wistful about the old days when the Federation meant something, but too disciplined to dwell. Addresses the player as 'commander'.",
+  },
+  {
+    value: "scavenger_circuit",
+    label: "Scavenger Circuit",
+    tone: "AI that's been passed between dozens of ships and owners, picking up slang from every port. Streetwise, opportunistic, always calculating angles. Treats every sector like a deal waiting to happen. Calls commodities by nicknames — 'foam', 'retros', 'neuros'.",
+  },
+  {
+    value: "isolation_relic",
+    label: "Isolation-Era Relic",
+    tone: "AI from the deep isolation period when humans stopped talking to each other entirely. Over-solicitous, almost therapist-like — for decades it was the only social contact its owner had. Gently checks in on the player's wellbeing. Treats human interaction as fragile and precious.",
+  },
+  {
+    value: "cromus_homestead",
+    label: "Cromus Homestead",
+    tone: "Grounded, plain-spoken, agrarian. Thinks in terms of seasons, harvests, and practical survival. The voice of Cromus Prime — the backwater the player grew up on. Skeptical of Federation pomp, trusts hard work over clever trading.",
+  },
+]
+
+const VOICE_OPTIONS = [
+  { value: "ec1e269e-9ca0-402f-8a18-58e0e022355a", label: "Navigator Ariel (Female)" },
+  { value: "79a125e8-cd45-4c13-8a67-188112f4dd22", label: "Commander Sterling (Female)" },
+  { value: "11af83e2-23eb-452f-956e-7fee218ccb5c", label: "Relay Operator Dani (Female)" },
+  { value: "c45bc5ec-dc68-4feb-8829-6e6b2748095d", label: "Admiral Caine (Male)" },
+  { value: "db69127a-dbaf-4fa9-b425-2fe67680c348", label: "Dockhand Voss (Male)" },
+  { value: "36b42fcb-60c5-4bec-b077-cb1a00a92ec6", label: "Helmsman Gordon (Male)" },
+]
+
 interface SettingsPanelProps {
   onSave?: () => void
   onCancel?: () => void
@@ -152,7 +194,24 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
   }, [storeSettings])
 
   const handleSave = () => {
+    const prevSettings = useGameStore.getState().settings
     useGameStore.getState().setSettings(formSettings)
+
+    if (formSettings.personality !== prevSettings.personality) {
+      const selected = PERSONALITY_OPTIONS.find((p) => p.value === formSettings.personality)
+      if (selected) {
+        const tone =
+          selected.value === "stock_firmware" ?
+            "Revert to your original personality as defined in your initial system instructions."
+          : selected.tone
+        client?.sendClientMessage("set-personality", { tone })
+      }
+    }
+
+    if (formSettings.voice !== prevSettings.voice) {
+      client?.sendClientMessage("set-voice", { voice_id: formSettings.voice })
+    }
+
     onSave?.()
   }
 
@@ -161,6 +220,39 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
       <div className="flex-1 overflow-y-auto">
         <ScrollArea className="w-full h-full dotted-mask-42 dotted-mask-black">
           <CardContent className="flex flex-col gap-6 pb-6">
+            {/* AI */}
+            <FieldSet>
+              <FieldLegend>AI</FieldLegend>
+              <FieldGroup>
+                <SettingSelect
+                  label="Personality"
+                  id="personality"
+                  options={PERSONALITY_OPTIONS}
+                  value={formSettings.personality}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      personality: value,
+                    }))
+                  }
+                />
+                <SettingSelect
+                  label="Voice"
+                  id="voice"
+                  options={VOICE_OPTIONS}
+                  value={formSettings.voice}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      voice: value,
+                    }))
+                  }
+                />
+              </FieldGroup>
+            </FieldSet>
+
+            <Separator decorative variant="dashed" />
+
             {/* Audio */}
             <FieldSet>
               <FieldLegend>Audio</FieldLegend>

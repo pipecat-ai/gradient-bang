@@ -463,6 +463,65 @@ class ClientMessageHandler:
         except Exception as e:
             logger.error(f"assign-quest failed: {e}")
 
+    async def _handle_claim_step_reward(self, msg_type, msg_data):
+        quest_id = msg_data.get("quest_id", "") if isinstance(msg_data, dict) else ""
+        step_id = msg_data.get("step_id", "") if isinstance(msg_data, dict) else ""
+        if not quest_id or not step_id:
+            logger.warning("claim-step-reward: missing quest_id or step_id")
+            return
+        try:
+            result = await self._game_client.claim_quest_step_reward(
+                quest_id=quest_id,
+                step_id=step_id,
+                character_id=self._character_id,
+            )
+            logger.info(f"claim-step-reward result: {result}")
+        except Exception as e:
+            logger.error(f"claim-step-reward failed: {e}")
+
+    async def _handle_set_voice(self, msg_type, msg_data):
+        """Change the default TTS voice, respecting in-flight dialogs."""
+        voice_id = msg_data.get("voice_id", "").strip() if isinstance(msg_data, dict) else ""
+        if not voice_id:
+            return
+        pipeline_task = self._pipeline_task
+        if not pipeline_task:
+            return
+
+        if self._say_text_restore_voice.get("voice_id"):
+            # Dialog in flight — update restore target so it switches after dismiss
+            self._say_text_restore_voice["voice_id"] = voice_id
+            logger.info(f"Voice restore target updated to {voice_id} (dialog in flight)")
+        else:
+            # No dialog — switch immediately
+            await pipeline_task.queue_frame(
+                TTSUpdateSettingsFrame(settings={"voice_id": voice_id})
+            )
+            logger.info(f"Voice switched to {voice_id}")
+
+    async def _handle_set_personality(self, msg_type, msg_data):
+        """Append a system message overriding the voice agent's personality."""
+        tone = msg_data.get("tone", "").strip() if isinstance(msg_data, dict) else ""
+        if not tone:
+            return
+
+        pipeline_task = self._pipeline_task
+        if not pipeline_task:
+            return
+
+        await pipeline_task.queue_frame(
+            LLMMessagesAppendFrame(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"Adopt the following personality and tone for all responses: {tone}",
+                    }
+                ],
+                run_llm=False,
+            )
+        )
+        logger.info("Personality directive appended to context")
+
     async def _handle_custom_message(self, msg_type, msg_data):
         text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
         if text:
@@ -651,6 +710,9 @@ class ClientMessageHandler:
         "say-text-dismiss": _handle_say_text_dismiss,
         "user-text-input": _handle_user_text_input,
         "assign-quest": _handle_assign_quest,
+        "claim-step-reward": _handle_claim_step_reward,
+        "set-voice": _handle_set_voice,
+        "set-personality": _handle_set_personality,
         "custom-message": _handle_custom_message,
         "dump-llm-context": _handle_dump_llm_context,
         "dump-task-context": _handle_dump_task_context,

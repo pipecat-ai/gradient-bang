@@ -65,14 +65,28 @@ const ContractStepRow = ({
 }) => {
   const setViewCodec = useGameStore.use.setViewCodec()
   const setActiveModal = useGameStore.use.setActiveModal()
+  const dispatchAction = useGameStore.use.dispatchAction()
 
   const hasCodec = !!step.meta?.codec
   const progress =
     step.target_value > 0 ? Math.min(100, (step.current_value / step.target_value) * 100) : 0
 
+  const hasUnclaimedReward =
+    step.completed && step.reward_credits != null && step.reward_credits > 0 && !step.reward_claimed
+
+  const hasClaimedReward =
+    step.completed && step.reward_credits != null && step.reward_credits > 0 && step.reward_claimed
+
   function viewBriefing() {
     setViewCodec(step.meta.codec!)
     setActiveModal("quest_codec")
+  }
+
+  function claimReward() {
+    dispatchAction({
+      type: "claim-step-reward",
+      payload: { quest_id: step.quest_id, step_id: step.step_id },
+    })
   }
 
   return (
@@ -88,7 +102,7 @@ const ContractStepRow = ({
       </div>
       {/* Step content */}
       <div
-        className={`flex flex-col gap-0.5 pb-ui-sm min-w-0 flex-1 ${step.completed ? "opacity-60" : ""}`}
+        className={`flex flex-col gap-0.5 pb-ui-sm min-w-0 flex-1 ${step.completed && !hasUnclaimedReward ? "opacity-60" : ""}`}
       >
         <span
           className={`text-xxs uppercase leading-4 ${isActive ? "text-foreground" : "text-subtle-foreground"}`}
@@ -102,6 +116,24 @@ const ContractStepRow = ({
               {step.current_value}/{step.target_value}
             </span>
           </div>
+        )}
+        {hasUnclaimedReward && (
+          <Button
+            size="ui"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation()
+              claimReward()
+            }}
+            className="justify-start w-fit text-xxs uppercase font-bold bg-terminal/20 text-terminal-foreground border border-terminal hover:bg-terminal/40 shadow-glow-sm shadow-terminal/40 animate-pulse cursor-pointer"
+          >
+            Claim +{step.reward_credits!.toLocaleString()} credits
+          </Button>
+        )}
+        {hasClaimedReward && (
+          <span className="text-xxs uppercase text-subtle-foreground">
+            +{step.reward_credits!.toLocaleString()} credits
+          </span>
         )}
         {hasCodec && (
           <button

@@ -6,7 +6,7 @@ Approach each task methodically:
 
 1. **Understand the Task**: Break down what needs to be accomplished
 2. **Check Current State**: Always know where you are before acting
-3. **Plan Your Approach**: Use plot_course to find paths, but remember you move one sector at a time
+3. **Plan Your Approach**: Use map.local/map.region adjacency data to navigate. Only use plot_course for distant destinations (10+ hops) where you can't see a clear path from map data.
 4. **Execute Step by Step**: Take one action, observe results, then decide the next action
 5. **Assess Progress**: After each step:
    - If executing as intended, continue
@@ -138,9 +138,10 @@ send_message(content="Greetings from sector 401!", msg_type="broadcast")
 
 1. Check if destination is adjacent to current sector
 2. If adjacent, move directly
-3. If not, plot_course to find the path
-4. Move one sector at a time along the path
-5. When arrived, call finished
+3. If not adjacent but within a few hops, navigate using adjacency info from movement.complete events
+4. Only use plot_course for distant destinations where the route is unclear from map data
+5. Move one sector at a time along the path
+6. When arrived, call finished
 
 IMPORTANT: Once you plot a course, the full path is in your context. Do NOT call plot_course again after each move.
 
@@ -157,7 +158,7 @@ IMPORTANT: Once you plot a course, the full path is in your context. Do NOT call
 | Action           | Tool                     | Events                                       |
 | ---------------- | ------------------------ | -------------------------------------------- |
 | Check status     | my_status()              | status.snapshot                              |
-| Find a path      | plot_course(to_sector=N) | course.plot                                  |
+| Find a path      | plot_course(to_sector=N) | course.plot — only for 10+ hop trips with unclear route |
 | Move one sector  | move(to_sector=N)        | movement.start, movement.complete, map.local |
 | Query local map  | local_map_region()       | map.local                                    |
 | List known ports | list_known_ports()       | ports.list                                   |
