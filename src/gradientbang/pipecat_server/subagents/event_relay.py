@@ -9,6 +9,7 @@ called from explicit phases in the router.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -24,7 +25,7 @@ from typing import (
 )
 
 from loguru import logger
-from pipecat.frames.frames import LLMMessagesAppendFrame
+from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 
 from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_chat_history
@@ -95,6 +96,7 @@ class EventConfig:
     track_sector: bool = False  # Update current sector from this event
     sync_display_name: bool = False  # Update display name from this event
     suppress_deferred_inference: bool = False  # Suppress run_llm when deferred during tool calls
+    debounce_seconds: Optional[float] = None  # Debounce rapid-fire inference triggers
 
     # XML
     xml_context_key: Optional[str] = (
@@ -365,7 +367,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # Using ALWAYS here would double-fire (same pattern as task.finish).
     "quest.step_completed": EventConfig(inference=InferenceRule.VOICE_AGENT),
     "quest.completed": EventConfig(inference=InferenceRule.VOICE_AGENT),
-    "quest.reward_claimed": EventConfig(inference=InferenceRule.ALWAYS),
+    "quest.reward_claimed": EventConfig(inference=InferenceRule.ALWAYS, debounce_seconds=0.8),
     # Task-scoped allowlisted (direct events pass through when task-scoped)
     "trade.executed": EventConfig(task_scoped_allowlisted=True),
     "port.update": EventConfig(task_scoped_allowlisted=True),
@@ -462,6 +464,7 @@ class EventRelay:
         self._megaport_check_request_id: Optional[str] = None
         self._onboarding_complete = False
         self._session_started_at: Optional[str] = None
+        self._debounce_tasks: dict[str, asyncio.Task] = {}
 
         # Subscribe to game events from config registry
         for event_name in EVENT_CONFIGS:
@@ -514,6 +517,9 @@ class EventRelay:
         return result
 
     async def close(self) -> None:
+        for task in self._debounce_tasks.values():
+            task.cancel()
+        self._debounce_tasks.clear()
         self.is_new_player = None
         self._first_status_delivered = False
         self._onboarding_complete = False
@@ -690,6 +696,21 @@ class EventRelay:
         if isinstance(candidate, str) and candidate.strip().isdigit():
             return int(candidate.strip())
         return None
+
+    # ── Debounced inference ─────────────────────────────────────────────
+
+    def _schedule_debounced_inference(self, event_name: str, delay: float) -> None:
+        """Start or reset a debounce timer for the given event type."""
+        existing = self._debounce_tasks.get(event_name)
+        if existing and not existing.done():
+            existing.cancel()
+
+        async def _fire():
+            await asyncio.sleep(delay)
+            self._debounce_tasks.pop(event_name, None)
+            await self._task_state.queue_frame(LLMRunFrame())
+
+        self._debounce_tasks[event_name] = asyncio.get_event_loop().create_task(_fire())
 
     # ── LLM event delivery ─────────────────────────────────────────────
 
@@ -993,6 +1014,11 @@ class EventRelay:
         should_run_llm = self._should_run_llm(
             cfg, event_name, is_our_task, request_id, combat_for_player
         )
+
+        # Debounce rapid-fire inference triggers
+        if should_run_llm and cfg.debounce_seconds is not None:
+            should_run_llm = False
+            self._schedule_debounced_inference(event_name, cfg.debounce_seconds)
 
         # Deferred batching
         if payload_task_id and self._task_state.tool_call_active:
