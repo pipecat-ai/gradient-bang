@@ -166,7 +166,7 @@ class OpenAIResponsesLLMService(BaseOpenAILLMService):
             tools_list = context.tools if context.tools else []
         else:
             adapter = self.get_llm_adapter()
-            params = adapter.get_llm_invocation_params(context)
+            params = adapter.get_llm_invocation_params(context, convert_developer_to_user=False)
             messages = params.get("messages", [])
             tools_list = params.get("tools", [])
 
