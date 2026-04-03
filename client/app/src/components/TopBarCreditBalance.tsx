@@ -183,6 +183,7 @@ const BalanceItem = ({
         : direction === "down" ? "bg-warning-background/50"
         : null
       )}
+      data-tutorial="credits"
     >
       <AnimatePresence>
         {bubbles.map((b) => (

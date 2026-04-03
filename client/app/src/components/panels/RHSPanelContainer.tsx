@@ -6,6 +6,7 @@ import { ArrowLeftIcon } from "@phosphor-icons/react"
 import * as Panels from "@/components/panels"
 import { Button } from "@/components/primitives/Button"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
+import { TutorialRevealOverlay } from "@/components/TutorialRevealOverlay"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
@@ -57,10 +58,12 @@ export const RHSSubPanel = ({
 export const RHSPanelContent = ({
   children,
   className,
+  id,
   noScroll = false,
 }: {
   children: React.ReactNode
   className?: string
+  id?: string
   /** When true, fills the container without wrapping in a ScrollArea. Use for panels that manage their own scrolling. */
   noScroll?: boolean
 }) => {
@@ -69,7 +72,7 @@ export const RHSPanelContent = ({
   }
 
   return (
-    <ScrollArea className="w-full h-full">
+    <ScrollArea className="w-full h-full" id={id}>
       <div className={cn("flex flex-col gap-ui-xs w-full pb-12", className)}>{children}</div>
     </ScrollArea>
   )
@@ -79,11 +82,19 @@ export const RHSPanelContainer = () => {
   const activePanel = useGameStore.use.activePanel?.()
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
-
+  const tutorialActive = useGameStore((state) => state.tutorialActive)
+  const tutorialRevealed = useGameStore((state) => state.tutorialRevealed)
   return (
     <div
       className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/60 border-t border-l"
       id="panel-container"
+      data-tutorial={
+        tutorialActive ?
+          tutorialRevealed.includes("panel.container") ?
+            "revealing"
+          : "hidden"
+        : undefined
+      }
     >
       {activePanel !== "task_stream" && (
         <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert pointer-events-none" />
@@ -107,6 +118,7 @@ export const RHSPanelContainer = () => {
         className={cn("absolute inset-0 bg-background/50 z-8", activeSubPanel ? "block" : "hidden")}
         onClick={() => setActiveSubPanel(undefined)}
       ></div>
+      <TutorialRevealOverlay id="panel.container" />
     </div>
   )
 }

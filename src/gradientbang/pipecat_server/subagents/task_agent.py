@@ -1410,9 +1410,9 @@ class TaskAgent(LLMAgent):
         method = GAME_METHOD_ALIASES.get(tool_name, tool_name)
         required = schema.required or []
         optional = set(schema.properties or {}) - set(required)
-        kwargs = {k: args[k] for k in required}
+        kwargs = {k: args[k] for k in required if k != "character_id"}
         for k in optional:
-            if args.get(k) is not None:
+            if k != "character_id" and args.get(k) is not None:
                 kwargs[k] = args[k]
         return self._call_game(method, **kwargs)
 

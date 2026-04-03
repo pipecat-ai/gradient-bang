@@ -547,6 +547,7 @@ declare global {
     created_at: string
     last_active: string
     is_npc: boolean
+    is_first_visit: boolean
   }
 
   // --- CONVERSATION

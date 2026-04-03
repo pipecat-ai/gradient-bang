@@ -238,7 +238,7 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
 const PlayerShip = () => {
   const ship = useGameStore((state) => state.ship)
   return (
-    <div className="flex flex-col gap-2">
+    <div id="ship-card" className="flex flex-col gap-2">
       <div className="flex flex-row gap-ui-sm items-center">
         <div className="uppercase text-white font-semibold">{ship?.ship_name ?? "---"}</div>
         <div className="text-xxs uppercase text-subtle-foreground">
@@ -246,8 +246,8 @@ const PlayerShip = () => {
         </div>
         <div className="flex-1 h-3 dashed-bg-horizontal dashed-bg-accent"></div>
       </div>
-      <div className="flex flex-row items-center select-none gap-1">
-        <div className="flex-1">
+      <div id="ship-vitals" className="flex flex-row items-center select-none gap-1">
+        <div id="ship-fuel" className="flex-1">
           <PlayerShipFuelBadge className="w-full" />
         </div>
         <div className="flex-1">

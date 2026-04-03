@@ -48,7 +48,8 @@ export interface UISlice {
   setActiveSubPanel: (subPanel?: string) => void
 
   highlightElement: string | null
-  setHighlightElement: (elementId: string | null) => void
+  highlightLong: boolean
+  setHighlightElement: (elementId: string | null, options?: { long?: boolean }) => void
 
   lookMode: boolean
   setLookMode: (lookMode: boolean) => void
@@ -56,6 +57,14 @@ export interface UISlice {
   setLookAtTarget: (target: string | undefined) => void
   playerTargetId: string | undefined
   setPlayerTargetId: (targetId: string | undefined) => void
+
+  tutorialActive: boolean
+  tutorialStep: { target?: string; step: number } | null
+  tutorialRevealed: string[]
+  handleTutorialStart: () => void
+  handleTutorialStep: (step: { target?: string; step: number }) => void
+  handleTutorialComplete: () => void
+  revealTutorialElement: (id: string) => void
 
   debugLLMContext: string | null
   setDebugLLMContext: (context: string | null) => void
@@ -85,11 +94,72 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   toasts: [],
   displayingToastId: null,
   highlightElement: null,
+  highlightLong: false,
 
   lookMode: false,
   lookAtTarget: undefined,
   playerTargetId: undefined,
   llmIsWorking: false,
+
+  tutorialActive: false,
+  tutorialStep: null,
+  tutorialRevealed: [] as string[],
+  handleTutorialStart: () =>
+    set(
+      produce((state) => {
+        state.tutorialActive = true
+        state.tutorialStep = null
+        state.tutorialRevealed = []
+      })
+    ),
+  handleTutorialStep: (step: { target?: string; step: number }) => {
+    set(
+      produce((state) => {
+        state.tutorialStep = step
+      })
+    )
+    // Target-specific UI actions
+    if (step.target) {
+      switch (step.target) {
+        case "contracts":
+          get().setHighlightElement("contracts")
+          break
+        case "panel.contracts":
+          get().setActivePanel("contracts")
+          setTimeout(() => get().setHighlightElement("contracts-panel"), 100)
+          break
+        case "ship.card":
+          setTimeout(() => get().setHighlightElement("ship-card", { long: true }), 2000)
+          break
+        case "ship.vitals":
+          get().setHighlightElement("ship-vitals", { long: true })
+          break
+        case "ship.fuel":
+          get().setHighlightElement("ship-fuel", { long: true })
+          break
+        case "panel.container":
+          setTimeout(() => get().setHighlightElement("panel-container", { long: true }), 2000)
+          break
+      }
+    }
+  },
+  handleTutorialComplete: () =>
+    set(
+      produce((state) => {
+        state.tutorialActive = false
+        state.tutorialStep = null
+        state.tutorialRevealed = []
+        state.highlightElement = null
+      })
+    ),
+  revealTutorialElement: (id: string) =>
+    set(
+      produce((state) => {
+        if (!state.tutorialRevealed.includes(id)) {
+          state.tutorialRevealed.push(id)
+        }
+      })
+    ),
 
   debugLLMContext: null,
   setDebugLLMContext: (context: string | null) =>
@@ -258,10 +328,11 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
       })
     )
   },
-  setHighlightElement: (elementId: string | null) => {
+  setHighlightElement: (elementId: string | null, options?: { long?: boolean }) => {
     set(
       produce((state) => {
         state.highlightElement = elementId
+        state.highlightLong = options?.long ?? false
       })
     )
   },

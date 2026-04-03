@@ -168,7 +168,7 @@ export const ContractsPanel = () => {
   const hasContracts = contracts && contracts.length > 0
 
   return (
-    <RHSPanelContent>
+    <RHSPanelContent id="contracts-panel">
       <Button
         variant="ghost"
         disabled={!isMegaPort}

@@ -155,13 +155,18 @@ Deno.serve(traced("login", async (req, trace) => {
     }
 
     // Transform the junction table result to flat character list
-    const characterList = (characters || []).map((uc: any) => ({
-      character_id: uc.characters.character_id,
-      name: uc.characters.name,
-      created_at: uc.characters.created_at,
-      last_active: uc.characters.last_active,
-      is_npc: uc.characters.is_npc,
-    }));
+    const characterList = (characters || []).map((uc: any) => {
+      const fv = uc.characters.created_at ? new Date(uc.characters.created_at).getTime() : 0;
+      const la = uc.characters.last_active ? new Date(uc.characters.last_active).getTime() : 0;
+      return {
+        character_id: uc.characters.character_id,
+        name: uc.characters.name,
+        created_at: uc.characters.created_at,
+        last_active: uc.characters.last_active,
+        is_npc: uc.characters.is_npc,
+        is_first_visit: fv > 0 && Math.abs(la - fv) < 180_000,
+      };
+    });
 
     trace.setOutput({ user_id: data.user.id, character_count: characterList.length });
     return corsResponse(

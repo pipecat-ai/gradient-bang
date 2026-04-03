@@ -399,9 +399,17 @@ Deno.serve(traced("join", async (req, trace) => {
       );
     }
 
+    // Detect first visit by comparing first_visit and last_active (pre-update values).
+    // Both default to NOW() at character creation; last_active drifts on subsequent joins.
+    const isFirstVisit = (() => {
+      const fv = character.first_visit ? new Date(character.first_visit).getTime() : 0;
+      const la = character.last_active ? new Date(character.last_active).getTime() : 0;
+      return fv > 0 && Math.abs(la - fv) < 180_000; // within 3 min = first visit
+    })();
+
     console.log(`[join] Total time: ${(performance.now() - t0).toFixed(1)}ms`);
-    trace.setOutput({ request_id: requestId, characterId, targetSector, "map.local": mapPayload });
-    return successResponse({ request_id: requestId });
+    trace.setOutput({ request_id: requestId, characterId, targetSector, isFirstVisit, "map.local": mapPayload });
+    return successResponse({ request_id: requestId, is_first_visit: isFirstVisit });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       return errorResponse(err.message, err.status);

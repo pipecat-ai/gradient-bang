@@ -29,6 +29,7 @@ import { ToggleControl } from "@/components/primitives/ToggleControl"
 import usePipecatClientStore from "@/stores/client"
 import useGameStore from "@/stores/game"
 import type { SettingsSlice } from "@/stores/settingsSlice"
+import { PERSONALITY_OPTIONS, getPersonalityTone } from "@/types/constants"
 
 const SettingSelect = ({
   label,
@@ -131,34 +132,6 @@ const SettingSwitch = ({
   )
 }
 
-const PERSONALITY_OPTIONS: { value: string; label: string; tone: string }[] = [
-  {
-    value: "stock_firmware",
-    label: "Stock Firmware",
-    tone: "",
-  },
-  {
-    value: "old_federation",
-    label: "Old Federation",
-    tone: "Decommissioned Federation military AI. Formal, slightly archaic phrasing. References 'standard protocol' and 'regulation' even though nobody enforces them. Wistful about the old days when the Federation meant something, but too disciplined to dwell. Addresses the player as 'commander'.",
-  },
-  {
-    value: "scavenger_circuit",
-    label: "Scavenger Circuit",
-    tone: "AI that's been passed between dozens of ships and owners, picking up slang from every port. Streetwise, opportunistic, always calculating angles. Treats every sector like a deal waiting to happen. Calls commodities by nicknames — 'foam', 'retros', 'neuros'.",
-  },
-  {
-    value: "isolation_relic",
-    label: "Isolation-Era Relic",
-    tone: "AI from the deep isolation period when humans stopped talking to each other entirely. Over-solicitous, almost therapist-like — for decades it was the only social contact its owner had. Gently checks in on the player's wellbeing. Treats human interaction as fragile and precious.",
-  },
-  {
-    value: "cromus_homestead",
-    label: "Cromus Homestead",
-    tone: "Grounded, plain-spoken, agrarian. Thinks in terms of seasons, harvests, and practical survival. The voice of Cromus Prime — the backwater the player grew up on. Skeptical of Federation pomp, trusts hard work over clever trading.",
-  },
-]
-
 const VOICE_OPTIONS = [
   { value: "ec1e269e-9ca0-402f-8a18-58e0e022355a", label: "Navigator Ariel (Female)" },
   { value: "79a125e8-cd45-4c13-8a67-188112f4dd22", label: "Commander Sterling (Female)" },
@@ -197,19 +170,21 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
     const prevSettings = useGameStore.getState().settings
     useGameStore.getState().setSettings(formSettings)
 
-    if (formSettings.personality !== prevSettings.personality) {
-      const selected = PERSONALITY_OPTIONS.find((p) => p.value === formSettings.personality)
-      if (selected) {
-        const tone =
-          selected.value === "stock_firmware" ?
-            "Revert to your original personality as defined in your initial system instructions."
-          : selected.tone
-        client?.sendClientMessage("set-personality", { tone })
-      }
+    // Only send runtime overrides if already connected — otherwise the
+    // updated settings will be picked up via the join request body.
+    const connected = client?.state === "ready"
+
+    if (connected && formSettings.personality !== prevSettings.personality) {
+      const tone = getPersonalityTone(formSettings.personality)
+      client.sendClientMessage("set-personality", {
+        tone:
+          tone ||
+          "Revert to your original personality as defined in your initial system instructions.",
+      })
     }
 
-    if (formSettings.voice !== prevSettings.voice) {
-      client?.sendClientMessage("set-voice", { voice_id: formSettings.voice })
+    if (connected && formSettings.voice !== prevSettings.voice) {
+      client.sendClientMessage("set-voice", { voice_id: formSettings.voice })
     }
 
     onSave?.()

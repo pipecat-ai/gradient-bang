@@ -37,6 +37,7 @@ class ClientMessageHandler:
         user_unmuted_event: asyncio.Event,
         llm_context=None,
         voice_agent=None,
+        on_skip_tutorial=None,
     ):
         self._game_client = game_client
         self._character_id = character_id
@@ -49,6 +50,7 @@ class ClientMessageHandler:
         self._user_unmuted_event = user_unmuted_event
         self._llm_context = llm_context
         self._voice_agent = voice_agent
+        self._on_skip_tutorial = on_skip_tutorial
 
     @property
     def _pipeline_task(self):
@@ -689,6 +691,11 @@ class ClientMessageHandler:
             )
         )
 
+    async def _handle_skip_tutorial(self, msg_type, msg_data):
+        if self._on_skip_tutorial:
+            logger.info("Skipping tutorial")
+            await self._on_skip_tutorial()
+
     # ── Dispatch table ────────────────────────────────────────────────
 
     _HANDLERS = {
@@ -714,6 +721,7 @@ class ClientMessageHandler:
         "set-voice": _handle_set_voice,
         "set-personality": _handle_set_personality,
         "custom-message": _handle_custom_message,
+        "skip-tutorial": _handle_skip_tutorial,
         "dump-llm-context": _handle_dump_llm_context,
         "dump-task-context": _handle_dump_task_context,
     }

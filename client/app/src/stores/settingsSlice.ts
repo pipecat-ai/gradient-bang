@@ -3,6 +3,7 @@ import { type StateCreator } from "zustand"
 import type { PerformanceProfile } from "@gradient-bang/starfield"
 import { type APIRequest } from "@pipecat-ai/client-js"
 
+import { DEFAULT_VOICE_ID, getPersonalityTone } from "@/types/constants"
 import { getLocalSettings, setLocalSettings } from "@/utils/settings"
 
 export interface SettingsSlice {
@@ -103,7 +104,13 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
           createDailyRoom: false,
           enableDefaultIceServers: true,
         }),
-      ...(characterId && { body: { character_id: characterId } }),
+      body: {
+        ...(characterId && { character_id: characterId }),
+        ...(get().settings.voice !== DEFAULT_VOICE_ID && { voice_id: get().settings.voice }),
+        ...(getPersonalityTone(get().settings.personality) && {
+          personality_tone: getPersonalityTone(get().settings.personality),
+        }),
+      },
     }
 
     return {

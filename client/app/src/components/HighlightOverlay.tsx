@@ -18,6 +18,7 @@ export const HighlightOverlay = ({
   elementRefs = {},
 }: HighlightOverlayProps) => {
   const highlightedElement = useGameStore.use.highlightElement()
+  const highlightLong = useGameStore((state) => state.highlightLong)
   const setHighlightElement = useGameStore.use.setHighlightElement()
   const [position, setPosition] = useState<{
     top: number
@@ -158,7 +159,11 @@ export const HighlightOverlay = ({
   return createPortal(
     <div
       key={animationKey}
-      className={cn("fixed pointer-events-none z-50 animate-highlight ring-terminal", className)}
+      className={cn(
+        "fixed pointer-events-none z-50 ring-terminal",
+        highlightLong ? "highlight-animation-long" : "animate-highlight",
+        className
+      )}
       style={
         {
           top: position.top - offset,

@@ -38,6 +38,7 @@ import chime5Sound from "./sounds/chime-5.wav"
 import chime6Sound from "./sounds/chime-6.wav"
 import chime7Sound from "./sounds/chime-7.wav"
 import chime8Sound from "./sounds/chime-8.wav"
+import chime9Sound from "./sounds/chime-9.wav"
 import codec1Sound from "./sounds/codec-1.wav"
 import codec2Sound from "./sounds/codec-2.wav"
 import currencySound from "./sounds/currency.wav"
@@ -50,6 +51,7 @@ import impact4Sound from "./sounds/impact-4.wav"
 import messageSound from "./sounds/message.wav"
 import textSound from "./sounds/text.wav"
 import themeSound from "./sounds/theme.mp3"
+import tutorialSound from "./sounds/tutorial.mp3"
 import warpSound from "./sounds/warp.wav"
 // Videos
 import planetLoadingVideo from "./videos/planet-loader.mp4"
@@ -110,6 +112,7 @@ export const sounds = {
   chime6: chime6Sound,
   chime7: chime7Sound,
   chime8: chime8Sound,
+  chime9: chime9Sound,
   impact1: impact1Sound,
   impact2: impact2Sound,
   impact3: impact3Sound,
@@ -120,6 +123,7 @@ export const sounds = {
   codec2: codec2Sound,
   theme: themeSound,
   warp: warpSound,
+  tutorial: tutorialSound,
 } as const
 
 // JS Chunks - preload lazy-loaded components and their dependencies

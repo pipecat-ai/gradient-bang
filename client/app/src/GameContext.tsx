@@ -4,6 +4,7 @@ import { RTVIEvent } from "@pipecat-ai/client-js"
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
 
 import { GameContext } from "@/hooks/useGameContext"
+import useAudioStore from "@/stores/audio"
 import { useConversationStore } from "@/stores/conversation"
 import useGameStore, { GameInitStateMessage } from "@/stores/game"
 import {
@@ -1636,6 +1637,25 @@ export function GameProvider({ children }: GameProviderProps) {
             }
             case "debug.task-context-error": {
               useGameStore.getState().setDebugTaskContextError(e.payload.error as string)
+              break
+            }
+
+            // ----- TUTORIAL
+            case "tutorial.start": {
+              useGameStore.getState().handleTutorialStart()
+              useAudioStore.getState().fadeIn("tutorial", { volume: 0.3, duration: 6000 })
+              break
+            }
+            case "tutorial.step": {
+              useGameStore.getState().handleTutorialStep({
+                target: e.payload.target as string | undefined,
+                step: e.payload.step as number,
+              })
+              break
+            }
+            case "tutorial.complete": {
+              useGameStore.getState().handleTutorialComplete()
+              useAudioStore.getState().fadeOut("tutorial", { duration: 2000 })
               break
             }
 

@@ -28,6 +28,8 @@ import { SectorTitleBanner } from "@/components/SectorTitleBanner"
 import { Starfield } from "@/components/Starfield"
 import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { TopBar } from "@/components/TopBar"
+import { TutorialOverlay } from "@/components/TutorialOverlay"
+import { TutorialRevealOverlay } from "@/components/TutorialRevealOverlay"
 import { UIModeToggle } from "@/components/UIModeToggle"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
 import { usePlayerRank } from "@/hooks/usePlayerRank"
@@ -41,6 +43,8 @@ const enabledCx = "pointer-events-auto opacity-100"
 export const Game = () => {
   const uiState = useGameStore.use.uiState()
   const uiMode = useGameStore.use.uiMode()
+  const tutorialActive = useGameStore((state) => state.tutorialActive)
+  const tutorialRevealed = useGameStore((state) => state.tutorialRevealed)
   const asidePanelRef = usePanelRef()
   const lookMode = useGameStore.use.lookMode()
   const setLookMode = useGameStore.use.setLookMode?.()
@@ -109,13 +113,24 @@ export const Game = () => {
       >
         <Panel className="flex flex-col">
           <TopBar />
-          <main className=" @container/main relative flex-1 flex flex-col gap-0 gap-y-ui-sm overflow-hidden">
+          <main className="@container/main relative flex-1 flex flex-col gap-0 gap-y-ui-sm overflow-hidden">
             <div className="absolute left-0 top-1/2 -translate-y-1/2 h-60 w-full pointer-events-none z-20">
               <ActivityStream />
             </div>
 
             {uiState === "combat" && <CombatDamageVignette />}
-            <div className="flex-1 min-h-0">
+            <div
+              className="flex-1 min-h-0 relative"
+              data-tutorial={
+                tutorialActive ?
+                  tutorialRevealed.includes("main") ?
+                    "revealing"
+                  : "hidden"
+                : undefined
+              }
+            >
+              <TutorialRevealOverlay id="main" />
+
               {uiState === "combat" ?
                 <CombatActionPanel />
               : <>
@@ -147,7 +162,16 @@ export const Game = () => {
             <footer className="p-ui-xs py-0 mb-ui-xs h-ui-bottom grid grid-cols-[1fr_auto_auto]">
               <ConversationPanel className="min-w-0 max-w-2xl mr-ui-xs" />
               <UIModeToggle />
-              <div className="relative w-ui-minimap h-ui-bottom bracket-left bracket-offset-0 bracket-1 bracket-input overflow-hidden">
+              <div
+                className="relative w-ui-minimap h-ui-bottom bracket-left bracket-offset-0 bracket-1 bracket-input overflow-hidden"
+                data-tutorial={
+                  tutorialActive ?
+                    tutorialRevealed.includes("main") ?
+                      "revealing"
+                    : "hidden"
+                  : undefined
+                }
+              >
                 <motion.div
                   className="absolute inset-0 h-full w-ui-minimap"
                   animate={uiMode === "tasks" ? { opacity: 1, y: 0 } : { opacity: 0, y: -100 }}
@@ -199,7 +223,17 @@ export const Game = () => {
           panelRef={asidePanelRef}
           onResize={handleAsideResize}
         >
-          <aside className="h-full border-transparent border-l-(length:--separator) border-l-background flex-col hidden @sm/aside:flex">
+          <aside
+            id="aside"
+            className="relative h-full border-transparent border-l-(length:--separator) border-l-background flex-col hidden @sm/aside:flex"
+            data-tutorial={
+              tutorialActive ?
+                tutorialRevealed.includes("aside") ?
+                  "revealing"
+                : "hidden"
+              : undefined
+            }
+          >
             <header className="pb-separator flex flex-col gap-separator bg-black">
               <PlayerShipPanel />
             </header>
@@ -212,6 +246,7 @@ export const Game = () => {
               <RHSPanelContainer />
             </div>
             <RHSPanelNav />
+            <TutorialRevealOverlay id="aside" />
           </aside>
           {isCollapsed && (
             <div className="h-full flex-col items-center justify-center flex bg-background/80">
@@ -241,6 +276,7 @@ export const Game = () => {
       <HighlightOverlay />
       <QuestAcceptedOverlay />
       <QuestCompleteNotification />
+      <TutorialOverlay />
       <PipecatClientAudio />
     </>
   )

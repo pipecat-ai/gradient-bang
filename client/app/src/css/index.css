@@ -440,6 +440,32 @@ button {
   animation: highlight-focus 1.2s ease-out forwards;
 }
 
+.highlight-animation-long {
+  animation: highlight-focus-long 3s ease-in-out forwards;
+}
+
+@keyframes highlight-focus-long {
+  0% {
+    transform: scale(5);
+    opacity: 0.3;
+  }
+  15% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  25% { opacity: 0.3; }
+  35% { opacity: 1; }
+  45% { opacity: 0.3; }
+  55% { opacity: 1; }
+  65% { opacity: 0.3; }
+  75% { opacity: 1; }
+  85% { opacity: 0.3; }
+  92% { opacity: 1; }
+  100% {
+    opacity: var(--highlight-final-opacity, 0);
+  }
+}
+
 @keyframes flash-glow-increment {
   0% {
     transform: scale(1);
@@ -536,6 +562,23 @@ button {
 .tracing-border-wrapper-active::before {
   opacity: 1;
   transition: opacity 0.3s ease-in;
+}
+
+/* Tutorial: hide content but preserve layout */
+[data-tutorial="hidden"] > *:not([data-tutorial-overlay]) {
+  visibility: hidden;
+  opacity: 0;
+}
+
+/* Tutorial: fade in when revealed (attribute removed) */
+@keyframes tutorial-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+[data-tutorial="revealing"] > *:not([data-tutorial-overlay]) {
+  visibility: visible;
+  animation: tutorial-reveal 3s ease-in-out forwards;
 }
 
 .DialogOverlay {
