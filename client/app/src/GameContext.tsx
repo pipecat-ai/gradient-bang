@@ -1643,7 +1643,7 @@ export function GameProvider({ children }: GameProviderProps) {
             // ----- TUTORIAL
             case "tutorial.start": {
               useGameStore.getState().handleTutorialStart()
-              useAudioStore.getState().fadeIn("tutorial", { volume: 0.6, duration: 6000 })
+              useAudioStore.getState().fadeIn("tutorial", { volume: 0.3, duration: 6000 })
               break
             }
             case "tutorial.step": {

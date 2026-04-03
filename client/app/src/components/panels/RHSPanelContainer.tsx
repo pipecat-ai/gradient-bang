@@ -90,7 +90,7 @@ export const RHSPanelContainer = () => {
       id="panel-container"
       data-tutorial={
         tutorialActive ?
-          tutorialRevealed.includes("panel-container") ?
+          tutorialRevealed.includes("panel.container") ?
             "revealing"
           : "hidden"
         : undefined
@@ -118,7 +118,7 @@ export const RHSPanelContainer = () => {
         className={cn("absolute inset-0 bg-background/50 z-8", activeSubPanel ? "block" : "hidden")}
         onClick={() => setActiveSubPanel(undefined)}
       ></div>
-      <TutorialRevealOverlay id="panel-container" />
+      <TutorialRevealOverlay id="panel.container" />
     </div>
   )
 }

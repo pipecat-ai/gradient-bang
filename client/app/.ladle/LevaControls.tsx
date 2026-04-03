@@ -401,9 +401,11 @@ export const LevaControls = ({
             ShipFuel: "ship-fuel",
           },
         },
+        ["Long"]: { value: false },
         ["Highlight Target"]: button((get) => {
           const target = get("Highlight.Target")
-          useGameStore.getState().setHighlightElement(target)
+          const long = get("Highlight.Long") as boolean
+          useGameStore.getState().setHighlightElement(target, { long })
         }),
         ["Clear Highlight"]: button(() => {
           useGameStore.getState().setHighlightElement(null)

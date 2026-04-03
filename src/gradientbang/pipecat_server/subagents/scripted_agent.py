@@ -85,7 +85,7 @@ TUTORIAL_STEPS: list[TutorialStep] = [
             "A series of panels for managing your ship, tracking contracts, "
             "and observing the universe around you."
         ),
-        end_target="panel.container",
+        start_target="panel.container",
         pause=2.0,
     ),
     TutorialStep(

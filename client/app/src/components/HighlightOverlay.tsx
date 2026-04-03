@@ -161,7 +161,7 @@ export const HighlightOverlay = ({
       key={animationKey}
       className={cn(
         "fixed pointer-events-none z-50 ring-terminal",
-        highlightLong ? "animate-[highlight-focus-long_3s_ease-out_forwards]" : "animate-highlight",
+        highlightLong ? "highlight-animation-long" : "animate-highlight",
         className
       )}
       style={

@@ -124,6 +124,7 @@ export const TutorialRevealOverlay = ({ id }: TutorialRevealOverlayProps) => {
 
   const isRevealed = tutorialRevealed.includes(id)
   const isTargeted = tutorialStep?.target === id
+  const isIdle = !isRevealed && !isTargeted
 
   const canvasCallback = useCallback(
     (canvas: HTMLCanvasElement | null) => {
@@ -138,8 +139,22 @@ export const TutorialRevealOverlay = ({ id }: TutorialRevealOverlayProps) => {
 
   if (!tutorialActive) return null
 
+  if (isIdle) {
+    return (
+      <div
+        className="absolute inset-0 z-50 pointer-events-none cross-lines-muted-foreground/40 flex items-center justify-center animate-pulse"
+        data-tutorial-overlay
+      >
+        <span className="relative z-10 bg-black border border-muted-foreground/40 px-2.5 py-1 text-xxs font-semibold font-mono text-muted-foreground">
+          OFFLINE
+        </span>
+      </div>
+    )
+  }
+
   return (
     <canvas
+      key={isTargeted ? "active" : "done"}
       ref={canvasCallback}
       className="absolute inset-0 z-50 w-full h-full pointer-events-none"
       data-tutorial-overlay

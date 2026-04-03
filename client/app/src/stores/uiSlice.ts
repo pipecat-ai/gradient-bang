@@ -137,6 +137,9 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
         case "ship.fuel":
           get().setHighlightElement("ship-fuel", { long: true })
           break
+        case "panel.container":
+          setTimeout(() => get().setHighlightElement("panel-container", { long: true }), 2000)
+          break
       }
     }
   },

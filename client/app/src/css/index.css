@@ -440,9 +440,13 @@ button {
   animation: highlight-focus 1.2s ease-out forwards;
 }
 
+.highlight-animation-long {
+  animation: highlight-focus-long 3s ease-in-out forwards;
+}
+
 @keyframes highlight-focus-long {
   0% {
-    transform: scale(1.5);
+    transform: scale(5);
     opacity: 0.3;
   }
   15% {
@@ -562,6 +566,7 @@ button {
 
 /* Tutorial: hide content but preserve layout */
 [data-tutorial="hidden"] > *:not([data-tutorial-overlay]) {
+  visibility: hidden;
   opacity: 0;
 }
 
@@ -572,6 +577,7 @@ button {
 }
 
 [data-tutorial="revealing"] > *:not([data-tutorial-overlay]) {
+  visibility: visible;
   animation: tutorial-reveal 3s ease-in-out forwards;
 }
 
