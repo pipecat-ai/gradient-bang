@@ -45,6 +45,7 @@ export const Game = () => {
   const uiMode = useGameStore.use.uiMode()
   const tutorialActive = useGameStore((state) => state.tutorialActive)
   const tutorialRevealed = useGameStore((state) => state.tutorialRevealed)
+  const tutorialResetFlash = useGameStore((state) => state.tutorialResetFlash)
   const asidePanelRef = usePanelRef()
   const lookMode = useGameStore.use.lookMode()
   const setLookMode = useGameStore.use.setLookMode?.()
@@ -106,7 +107,8 @@ export const Game = () => {
         orientation="horizontal"
         className={cn(
           "relative z-(--z-ui) transition-opacity duration-500",
-          lookMode ? disabledCx : enabledCx
+          lookMode ? disabledCx : enabledCx,
+          tutorialResetFlash && "tutorial-reset-flash"
         )}
         {...(lookMode ? { inert: true } : {})}
       >

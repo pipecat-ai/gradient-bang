@@ -131,6 +131,14 @@ class VoiceAgent(LLMAgent):
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
+    async def on_activated(self, args: Optional[dict]) -> None:
+        """Activate the LLM agent, then poke EventRelay to deliver any
+        onboarding/session.start event that was deferred while we were inactive
+        (e.g. during the scripted tutorial)."""
+        await super().on_activated(args)
+        if self._event_relay is not None:
+            await self._event_relay._maybe_inject_onboarding()
+
     async def on_ready(self) -> None:
         """Register frame watchers for LLM response and bot speaking lifecycle."""
         await super().on_ready()

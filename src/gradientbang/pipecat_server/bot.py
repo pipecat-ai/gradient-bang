@@ -9,6 +9,7 @@ BOT_INSTANCE_ID: str | None = None
 DEFAULT_VOICE_ID = "ec1e269e-9ca0-402f-8a18-58e0e022355a"
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
+    InterruptionFrame,
     LLMFullResponseStartFrame,
     TTSUpdateSettingsFrame,
 )
@@ -564,15 +565,35 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     async def _on_tutorial_complete():
         logger.info("Tutorial complete, switching to VoiceAgent")
+        await rtvi.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": "tutorial.complete",
+                    "payload": {},
+                }
+            )
+        )
+        # Interrupt any in-flight scripted TTS by injecting directly into the
+        # TTS service. We can't push via the main pipeline source (the
+        # BusBridgeProcessor swallows upstream frames into the bus instead of
+        # forwarding downstream), and we can't route via the scripted agent's
+        # bus path either (the InterruptionFrame would broadcast to the voice
+        # agent and cancel its activation).
+        await tts.queue_frame(InterruptionFrame())
         await main_agent.deactivate_agent("scripted")
         # Reset mute strategy so the normal first-bot-speech logic applies fresh.
         # Release force_mute AFTER deactivating scripted agent to avoid any
         # in-flight BotStoppedSpeakingFrame from the tutorial triggering unmute.
         await mute_strategy.reset()
         mute_strategy.force_mute = False
+        # run_llm=False — VoiceAgent.on_activated will call
+        # event_relay._maybe_inject_onboarding(), which queues the
+        # onboarding/session.start event with run_llm=True. Letting activation
+        # also run the LLM would cause a double inference.
         await main_agent.activate_agent(
             "player",
-            args=LLMAgentActivationArgs(messages=messages, run_llm=True),
+            args=LLMAgentActivationArgs(messages=messages, run_llm=False),
         )
 
     scripted_agent = ScriptedAgent(
@@ -617,7 +638,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             if is_first_visit and not bypass_tutorial:
                 logger.info("First visit detected, activating ScriptedAgent")
                 mute_strategy.force_mute = True
-                event_relay._onboarding_complete = True
                 await main_agent.activate_agent("scripted")
             else:
                 if is_first_visit and bypass_tutorial:

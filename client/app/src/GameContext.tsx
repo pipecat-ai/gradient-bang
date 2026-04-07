@@ -1652,6 +1652,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "tutorial.complete": {
               useGameStore.getState().handleTutorialComplete()
               useAudioStore.getState().fadeOut("tutorial", { duration: 2000 })
+              useConversationStore.getState().clearMessages()
               break
             }
 

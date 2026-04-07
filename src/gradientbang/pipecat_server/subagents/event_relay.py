@@ -586,6 +586,13 @@ class EventRelay:
             return
         if not self._first_status_delivered or self.is_new_player is None:
             return
+        # Wait until the voice agent is active so the injection actually
+        # reaches the user. While inactive, the LLM run would produce no
+        # audible output (the edge sink drops outbound frames) and would
+        # pollute context. The caller (bot.py _on_tutorial_complete) re-invokes
+        # this method after activation to deliver the deferred event.
+        if not self._task_state.active:
+            return
         self._onboarding_complete = True
         if self.is_new_player:
             from gradientbang.utils.prompt_loader import load_prompt

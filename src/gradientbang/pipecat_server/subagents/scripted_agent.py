@@ -111,8 +111,10 @@ class ScriptedAgent(BaseAgent):
     ``TTSSpeakFrame`` frames flow through the bus bridge to TTS and
     transport output.
 
-    Sends RTVI events (``tutorial.start``, ``tutorial.step``,
-    ``tutorial.complete``) so the client can drive tutorial UI.
+    Sends RTVI events (``tutorial.start``, ``tutorial.step``) so the
+    client can drive tutorial UI. ``tutorial.complete`` is emitted by
+    the ``on_complete`` callback in ``bot.py`` so skip and natural
+    completion converge on a single emission.
 
     On completion, calls the ``on_complete`` callback which should
     deactivate this agent and activate VoiceAgent.
@@ -192,12 +194,10 @@ class ScriptedAgent(BaseAgent):
                 if step.pause > 0:
                     await asyncio.sleep(step.pause)
 
-            await self._send_event("tutorial.complete")
             logger.info("ScriptedAgent: tutorial complete, handing off")
             await self._on_complete()
         except asyncio.CancelledError:
             logger.info("ScriptedAgent: tutorial cancelled")
         except Exception:
             logger.exception("ScriptedAgent: tutorial error, forcing handoff")
-            await self._send_event("tutorial.complete")
             await self._on_complete()

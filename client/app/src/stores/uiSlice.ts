@@ -61,6 +61,7 @@ export interface UISlice {
   tutorialActive: boolean
   tutorialStep: { target?: string; step: number } | null
   tutorialRevealed: string[]
+  tutorialResetFlash: boolean
   handleTutorialStart: () => void
   handleTutorialStep: (step: { target?: string; step: number }) => void
   handleTutorialComplete: () => void
@@ -104,6 +105,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   tutorialActive: false,
   tutorialStep: null,
   tutorialRevealed: [] as string[],
+  tutorialResetFlash: false,
 
   handleTutorialStart: () =>
     set(
@@ -152,6 +154,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
         state.tutorialStep = null
         state.tutorialRevealed = []
         state.highlightElement = null
+        state.tutorialResetFlash = true
       })
     ),
   revealTutorialElement: (id: string) =>

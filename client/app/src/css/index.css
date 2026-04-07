@@ -581,6 +581,18 @@ button {
   animation: tutorial-reveal 3s ease-in-out forwards;
 }
 
+/* Tutorial: brief fade flash when the tutorial completes / resets */
+@keyframes tutorial-reset-flash {
+  0%   { opacity: 1; }
+  25%  { opacity: 0; }
+  55%  { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.tutorial-reset-flash {
+  animation: tutorial-reset-flash 800ms ease-in-out;
+}
+
 .DialogOverlay {
   position: fixed;
   top: 0;
