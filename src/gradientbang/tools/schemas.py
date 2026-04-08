@@ -947,8 +947,11 @@ START_TASK = FunctionSchema(
     description=(
         "Start a complex multi-step task for navigation, trading, or exploration. "
         "Can control your own ship or a corporation ship. "
-        "IMPORTANT: When a personal-ship task is running, wait for task.completed "
-        "before starting another personal-ship task."
+        "If a task is already running on the target ship, this call steers the "
+        "existing task with the new description instead of starting a fresh one — "
+        "the running task keeps its in-flight progress and reassesses with the "
+        "new instructions on its next turn. Use stop_task explicitly if you need "
+        "a clean slate."
     ),
     properties={
         "task_description": {
