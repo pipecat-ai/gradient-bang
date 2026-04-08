@@ -19,6 +19,7 @@ import useGameStore from "@/stores/game"
 const stateLabels: Record<TaskEngineState, string> = {
   idle: "Idle",
   active: "Working",
+  steering: "Steering",
   completed: "Completed",
   cancelling: "Cancelling",
   cancelled: "Cancelled",
@@ -75,17 +76,23 @@ const MiniEngine = ({
   const getTaskSummaryByTaskId = useGameStore.use.getTaskSummaryByTaskId?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
   const setActivePanel = useGameStore.use.setActivePanel?.()
+  const steeringExpiresAt = useGameStore.use.steeringExpiresAt?.()
 
   const [isCancelling, setIsCancelling] = useState(false)
 
   // Look up active task and summary by ID
   const task = taskId ? getTaskByTaskId?.(taskId) : undefined
   const summary = taskId ? getTaskSummaryByTaskId?.(taskId) : undefined
+  const steeringExpiry = taskId ? steeringExpiresAt?.[taskId] : undefined
+  const isSteering = Boolean(steeringExpiry)
 
   const { state, displayTask } = useMemo(() => {
     if (task) {
       return {
-        state: isCancelling ? "cancelling" : ("active" as TaskEngineState),
+        state:
+          isCancelling ? "cancelling"
+          : isSteering ? ("steering" as TaskEngineState)
+          : ("active" as TaskEngineState),
         displayTask: task,
       }
     }
@@ -98,22 +105,24 @@ const MiniEngine = ({
 
     // Idle state
     return { state: "idle" as TaskEngineState, displayTask: null }
-  }, [task, summary, isCancelling])
+  }, [task, summary, isCancelling, isSteering])
 
-  if (state !== "active" && state !== "cancelling" && isCancelling) {
+  if (state !== "active" && state !== "cancelling" && state !== "steering" && isCancelling) {
     setIsCancelling(false)
   }
 
+  const isRunning = state === "active" || state === "cancelling" || state === "steering"
+
   return (
-    <div className={cx({ subtle: state !== "active", hasTask: !!taskId })}>
+    <div className={cx({ subtle: !isRunning, hasTask: !!taskId })}>
       <MiniEngineBase>
         <TaskEngineSummaryText
           description={displayTask?.task_description}
           placeholder={isLocal ? "Local task engine" : "Corporation task engine"}
-          active={state === "active"}
+          active={isRunning}
         />
         <div className="relative pt-px">
-          {state === "active" && (
+          {(state === "active" || state === "steering") && (
             <Button
               size="icon-sm"
               variant="ghost"

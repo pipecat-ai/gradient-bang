@@ -383,7 +383,7 @@ class VoiceAgent(LLMAgent):
             await super().queue_frame(frame)
             if not self._inject_run_pending:
                 self._inject_run_pending = True
-                self._inject_run_task = self.create_task(
+                self._inject_run_task = asyncio.get_running_loop().create_task(
                     self._emit_coalesced_run()
                 )
             return
