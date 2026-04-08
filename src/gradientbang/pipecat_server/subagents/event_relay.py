@@ -434,6 +434,12 @@ class TaskStateProvider(Protocol):
     # LLM frame management (inherited from LLMAgent)
     @property
     def tool_call_active(self) -> bool: ...
+    # Agent activation state (inherited from BaseAgent). EventRelay gates
+    # onboarding injection on this so the welcome event doesn't fire while
+    # the voice agent is still bridged-inactive (e.g., tutorial scripted
+    # intro is running).
+    @property
+    def active(self) -> bool: ...
     async def queue_frame(self, frame) -> None: ...
 
 

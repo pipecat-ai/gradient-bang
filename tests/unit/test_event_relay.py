@@ -33,6 +33,10 @@ class StubTaskState:
         self.tool_call_inflight: bool = False
         self.deferred_events: list[tuple[str, bool]] = []
         self.broadcast_events: list[dict] = []
+        # EventRelay gates onboarding injection on this. Default True so
+        # tests don't have to opt in explicitly; individual tests can flip
+        # it False to exercise the inactive path.
+        self.active: bool = True
 
     async def broadcast_game_event(self, event: Dict[str, Any], *, voice_agent_originated: bool = False) -> None:
         self.broadcast_events.append(event)

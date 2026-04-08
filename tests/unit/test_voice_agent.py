@@ -591,6 +591,7 @@ class TestHandleSteerTask:
         agent.send_message = AsyncMock()
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
+        child._is_corp_ship = False
         agent._children = [child]
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
@@ -600,10 +601,13 @@ class TestHandleSteerTask:
         result = await agent._handle_steer_task(params)
         assert result["success"] is True
         assert result["task_id"] == full_id
+        assert result["task_type"] == "player_ship"
+        assert result["steered"] is True
         sent = agent.send_message.call_args[0][0]
         assert isinstance(sent, BusSteerTaskMessage)
         assert sent.target == "task_abc123"
         assert sent.task_id == full_id
+        assert sent.text.startswith("Steering instruction: ")
 
     async def test_steer_missing_args(self):
         agent = _make_voice_agent()
@@ -912,30 +916,29 @@ class TestTaskToolWrappers:
         assert len(agent._deferred_frames) == 0
 
     @pytest.mark.asyncio
-    async def test_start_task_tool_active_personal_task_queues_blocked_event(self):
+    async def test_start_task_tool_steered_result_queues_steered_event(self):
         from pipecat.frames.frames import LLMMessagesAppendFrame
         from pipecat.processors.frame_processor import FrameDirection
 
         agent = _make_voice_agent()
         agent._tool_call_inflight = 1
-        agent._has_active_player_task = MagicMock(return_value=True)
-        agent._handle_start_task = AsyncMock()
+        result = {
+            "success": True,
+            "summary": "Task already running; steered with new instructions.",
+            "task_id": "task_abc123",
+            "task_type": "player_ship",
+            "steered": True,
+        }
+        agent._handle_start_task = AsyncMock(return_value=result)
         params = _make_function_call_params(function_name="start_task", result_callback=AsyncMock())
 
         await agent._handle_start_task_tool(params)
 
-        agent._handle_start_task.assert_not_called()
+        agent._handle_start_task.assert_awaited_once()
         params.result_callback.assert_awaited_once()
-        assert params.result_callback.await_args.args[0] == {
-            "error": (
-                "Personal ship task is already running. "
-                "Wait for task.completed before starting another. "
-                "Tell the commander you will handle it after the current task finishes."
-            )
-        }
+        assert params.result_callback.await_args.args[0] == {"result": result}
         properties = params.result_callback.await_args.kwargs["properties"]
         assert properties.run_llm is False
-        assert agent._assistant_cycle_active is False
 
         assert len(agent._deferred_frames) == 1
         deferred_frame, direction = agent._deferred_frames[0]
@@ -943,9 +946,10 @@ class TestTaskToolWrappers:
         assert isinstance(deferred_frame, LLMMessagesAppendFrame)
         assert deferred_frame.run_llm is True
         assert deferred_frame.messages[0]["role"] == "user"
-        assert '<event name="task.start_blocked" task_type="player_ship">' in (
+        assert '<event name="task.steered" task_id="task_abc123" task_type="player_ship">' in (
             deferred_frame.messages[0]["content"]
         )
+        assert "steered with new instructions" in deferred_frame.messages[0]["content"]
 
 
 @pytest.mark.unit

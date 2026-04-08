@@ -383,7 +383,7 @@ class VoiceAgent(LLMAgent):
             await super().queue_frame(frame)
             if not self._inject_run_pending:
                 self._inject_run_pending = True
-                self._inject_run_task = self.pipeline_task.create_task(
+                self._inject_run_task = self.create_task(
                     self._emit_coalesced_run()
                 )
             return
@@ -1121,8 +1121,43 @@ class VoiceAgent(LLMAgent):
 
                 target_character_id = ship_id if ship_id else self._character_id
 
-                # Check ship lock
+                # If this ship already has an active task, route the new
+                # instruction into the existing steering path instead of
+                # starting a fresh task. This preserves in-flight progress
+                # (navigation, trade, combat) and reuses the BusSteerTaskMessage
+                # primitive the `steer_task` tool uses.
                 if target_character_id in self._locked_ships:
+                    active_child = next(
+                        (
+                            c for c in self.children
+                            if isinstance(c, TaskAgent)
+                            and c._character_id == target_character_id
+                            and c._active_task_id
+                        ),
+                        None,
+                    )
+                    active_task_id = None
+                    if active_child is not None:
+                        active_task_id = next(
+                            (
+                                tid for tid, group in self._task_groups.items()
+                                if active_child.name in group.agent_names
+                            ),
+                            None,
+                        )
+                    if active_child is not None and active_task_id is not None:
+                        steer_text = task_desc
+                        if isinstance(explicit_context, str) and explicit_context.strip():
+                            steer_text = f"{task_desc}\n\nContext: {explicit_context.strip()}"
+                        return await self._steer_existing_task(
+                            active_task_id,
+                            active_child,
+                            steer_text,
+                            summary="Task already running; steered with new instructions.",
+                        )
+                    # Lock is held but we can't resolve the child (race between
+                    # lock release and task_group cleanup). Surface the old
+                    # error rather than silently swallowing the request.
                     return {
                         "success": False,
                         "error": f"Ship {target_character_id[:8]}... already has a task running. Stop it first.",
@@ -1268,6 +1303,41 @@ class VoiceAgent(LLMAgent):
             logger.error(f"stop_task failed: {e}")
             return {"success": False, "error": str(e)}
 
+    async def _steer_existing_task(
+        self,
+        framework_task_id: str,
+        child: TaskAgent,
+        text: str,
+        *,
+        summary: str = "Steering instruction sent.",
+    ) -> dict:
+        """Send a BusSteerTaskMessage to an active TaskAgent.
+
+        Shared by `_handle_steer_task` and the busy-ship path in
+        `_handle_start_task` so the routing stays in one place.
+        """
+        steering_text = text.strip()
+        if not steering_text:
+            return {"success": False, "error": "Empty steering instruction"}
+        if not steering_text.lower().startswith("steering instruction:"):
+            steering_text = f"Steering instruction: {steering_text}"
+
+        await self.send_message(
+            BusSteerTaskMessage(
+                source=self.name,
+                target=child.name,
+                task_id=framework_task_id,
+                text=steering_text,
+            )
+        )
+        return {
+            "success": True,
+            "summary": summary,
+            "task_id": framework_task_id,
+            "task_type": "corp_ship" if child._is_corp_ship else "player_ship",
+            "steered": True,
+        }
+
     @traced
     async def _handle_steer_task(self, params: FunctionCallParams) -> dict:
         task_id = params.arguments.get("task_id")
@@ -1283,16 +1353,7 @@ class VoiceAgent(LLMAgent):
             return {"success": False, "error": f"Task {task_id} not found"}
         framework_task_id, child = resolved
 
-        steering_text = message.strip()
-        if not steering_text.lower().startswith("steering instruction:"):
-            steering_text = f"Steering instruction: {steering_text}"
-
-        await self.send_message(
-            BusSteerTaskMessage(
-                source=self.name, target=child.name, task_id=framework_task_id, text=steering_text
-            )
-        )
-        return {"success": True, "summary": "Steering instruction sent.", "task_id": framework_task_id}
+        return await self._steer_existing_task(framework_task_id, child, message)
 
     @traced
     async def _handle_query_task_progress(self, params: FunctionCallParams) -> dict:
@@ -1350,29 +1411,8 @@ class VoiceAgent(LLMAgent):
     # ── Task management tool wrappers ─────────────────────────────────
 
     async def _handle_start_task_tool(self, params: FunctionCallParams):
-        # If this is a personal-ship task and one is already running, reject
-        # immediately without calling the handler — nudge the LLM to wait.
-        ship_id = (params.arguments or {}).get("ship_id")
-        if not ship_id and self._has_active_player_task():
-            await params.result_callback(
-                {
-                    "error": (
-                        "Personal ship task is already running. "
-                        "Wait for task.completed before starting another. "
-                        "Tell the commander you will handle it after the current task finishes."
-                    )
-                },
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
-            event_xml = (
-                '<event name="task.start_blocked" task_type="player_ship">\n'
-                "Personal ship task already running. Handle the next personal-ship action "
-                "after the current task finishes.\n"
-                "</event>"
-            )
-            await self._inject_context([{"role": "user", "content": event_xml}], run_llm=True)
-            return
-
+        # Busy-ship handling is now inside `_handle_start_task`, which routes
+        # the request into the steering path instead of rejecting.
         result = await self._handle_start_task(params)
         await params.result_callback(
             {"result": result},
@@ -1381,9 +1421,14 @@ class VoiceAgent(LLMAgent):
         if result.get("success"):
             task_id = str(result.get("task_id", "")).strip()
             task_type = str(result.get("task_type", "player_ship")).strip() or "player_ship"
-            summary = str(result.get("message", "Task started")).strip() or "Task started"
+            steered = bool(result.get("steered"))
+            summary = (
+                str(result.get("message") or result.get("summary") or "Task started").strip()
+                or "Task started"
+            )
 
-            attrs = ['name="task.started"']
+            event_name = "task.steered" if steered else "task.started"
+            attrs = [f'name="{event_name}"']
             if task_id:
                 attrs.append(f'task_id="{task_id}"')
             attrs.append(f'task_type="{task_type}"')

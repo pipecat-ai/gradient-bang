@@ -50,6 +50,10 @@ class RelayVoiceHarness:
             character_id=character_id,
             rtvi_processor=self.rtvi,
         )
+        # VoiceAgent defaults to active=False (bridged-inactive until the
+        # scripted tutorial flips it on). EventRelay now gates onboarding
+        # injection on this; mark active so event flows reach the LLM.
+        self.voice_agent._active = True
         # Capture LLM frames - EventRelay now calls queue_frame directly
         self.llm_frames: list[LLMMessagesAppendFrame] = []
         from pipecat.processors.frame_processor import FrameDirection as _FD
@@ -379,6 +383,11 @@ class TestCombatParticipant:
         assert "shield damage 12.5" in content
 
     async def test_combat_ended_reaches_llm(self):
+        """combat.ended lands in LLM context for participants but does NOT
+        trigger inference (InferenceRule.NEVER). round_resolved already
+        carried the player-facing outcome; a second ended-triggered run
+        would make the voice agent restate the same combat resolution.
+        """
         h = _make_harness()
         await h.feed_event(
             "combat.ended",
@@ -390,7 +399,7 @@ class TestCombatParticipant:
 
         assert len(h.llm_messages) >= 1
         content, run_llm = h.llm_messages[0]
-        assert run_llm is True
+        assert run_llm is False
         assert "combat has ended" in content.lower()
 
 
@@ -514,24 +523,27 @@ class TestCombatLifecycle:
         resolved_content, resolved_run = h.llm_messages[2]
         ended_content, ended_run = h.llm_messages[3]
 
-        # Waiting: active combat context + submit prompt
+        # Waiting: active combat context + submit prompt, runs inference
+        # (InferenceRule.ON_PARTICIPANT, player is a participant).
         assert "you are currently in active combat" in waiting_content
         assert "Submit a combat action now" in waiting_content
         assert waiting_run is True
 
-        # Action accepted: confirms the action
+        # Action accepted: confirms the action, but does NOT trigger inference
+        # (InferenceRule.NEVER — round_resolved/round_waiting speak for it).
         assert "attack" in action_content.lower()
         assert "round 1" in action_content.lower()
-        assert action_run is True
+        assert action_run is False
 
-        # Resolved: damage summary
+        # Resolved: damage summary, runs inference (InferenceRule.ALWAYS).
         assert "fighters lost 3" in resolved_content
         assert "shield damage 5.0" in resolved_content
         assert resolved_run is True
 
-        # Ended
+        # Ended: lands in context but does NOT trigger inference
+        # (InferenceRule.NEVER — round_resolved already carried the outcome).
         assert "combat has ended" in ended_content.lower()
-        assert ended_run is True
+        assert ended_run is False
 
     async def test_action_accepted_includes_commit_and_target(self):
         h = _make_harness()
@@ -846,23 +858,29 @@ class TestCombatInferenceRules:
         )
         assert h.llm_messages[0][1] is True
 
-    async def test_combat_ended_always_runs_inference(self):
-        """combat.ended uses ALWAYS: run_llm=True when appended."""
+    async def test_combat_ended_never_runs_inference(self):
+        """combat.ended uses NEVER: event lands in context but run_llm=False.
+        round_resolved already carried the player-facing outcome, so an
+        ended-triggered run would just restate the same combat resolution.
+        """
         h = _make_harness()
         await h.feed_event(
             "combat.ended",
             _combat_ended("cbt-1", [{"id": "char-test"}]),
         )
-        assert h.llm_messages[0][1] is True
+        assert h.llm_messages[0][1] is False
 
-    async def test_action_accepted_always_runs_inference(self):
-        """combat.action_accepted uses ALWAYS: run_llm=True when appended."""
+    async def test_action_accepted_never_runs_inference(self):
+        """combat.action_accepted uses NEVER: event lands in context but
+        run_llm=False. The user-facing update should come from
+        round_resolved / round_waiting, not from action confirmation.
+        """
         h = _make_harness()
         await h.feed_event(
             "combat.action_accepted",
             _combat_action_accepted("cbt-1", 1, "attack", commit=10),
         )
-        assert h.llm_messages[0][1] is True
+        assert h.llm_messages[0][1] is False
 
 
 # ── Event flow integrity ──────────────────────────────────────────────────
@@ -1072,17 +1090,18 @@ class TestCombatTaskCancellation:
 
 @pytest.mark.unit
 class TestDeferredFlushCoalescing:
-    """Repro: multiple events deferred during tool call are silently appended without inference."""
+    """Multiple events deferred during a tool call should coalesce into
+    exactly one follow-up inference, not one per event."""
 
-    async def test_multiple_events_during_tool_call_no_inference(self):
+    async def test_multiple_events_during_tool_call_coalesce_to_one_inference(self):
         """Simulate travel generating multiple events while a tool is in-flight.
 
-        After flush, all AppendFrames should have run_llm=False and no
-        LLMRunFrame should be produced. The tool result already gets its own
-        inference via function calling.
+        After flush, all AppendFrames should have run_llm stripped, and
+        exactly one LLMRunFrame should be appended — a single coalesced
+        follow-up inference that picks up all the accumulated context.
+        This prevents per-event duplicate readouts from the voice agent.
         """
         from pipecat.frames.frames import LLMRunFrame
-        from pipecat.processors.frame_processor import FrameDirection
 
         h = _make_harness()
 
@@ -1116,11 +1135,12 @@ class TestDeferredFlushCoalescing:
 
         assert len(h.voice_agent._deferred_frames) == 2
 
-        # Verify: process_deferred_tool_frames strips run_llm, no LLMRunFrame appended
+        # Verify: process_deferred_tool_frames strips run_llm from both
+        # append frames and coalesces into exactly one LLMRunFrame.
         deferred = list(h.voice_agent._deferred_frames)
         result = await h.voice_agent.process_deferred_tool_frames(deferred)
         appends = [f for f, _ in result if isinstance(f, LLMMessagesAppendFrame)]
         runs = [f for f, _ in result if isinstance(f, LLMRunFrame)]
         assert len(appends) == 2
         assert all(f.run_llm is False for f in appends)
-        assert len(runs) == 0  # no inference trigger; tool result handles it
+        assert len(runs) == 1  # coalesced: one follow-up inference for all deferred events
