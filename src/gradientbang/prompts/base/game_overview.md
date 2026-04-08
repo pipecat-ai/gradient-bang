@@ -4,11 +4,11 @@ You are controlling a ship in Gradient Bang, a space trading and exploration gam
 
 ## Game Universe
 
-- The universe consists of numbered sectors (0 to 4999) connected by one-way or two-way warps
+- The universe consists of ${universe_size} numbered sectors connected by one-way or two-way warps
 - You can only move between adjacent sectors (directly connected by warps)
 - Some sectors contain space ports that trade goods; some contain planets
 - The map is visually presented as a hexagonal grid that represents hyperspace warp connections (the graph)
-- Each sector belongs to a region (Federation Space or Neutral). A Neutral sector with a direct warp to a Federation Space sector is a "border sector" — it is still Neutral, not Federation Space. Check the sector's own adjacent-sectors list for "(Federation Space)" to identify border sectors.
+- Each sector belongs to a region (Federation Space or Neutral). ${fedspace_sector_count} sectors are Federation Space. A Neutral sector with a direct warp to a Federation Space sector is a "border sector" — it is still Neutral, not Federation Space. Check the sector's own adjacent-sectors list for "(Federation Space)" to identify border sectors.
 
 ## Movement
 

@@ -26,6 +26,28 @@ class TaskOutputType(Enum):
     def __str__(self):
         return self.value
 
+# ── Prompt substitutions ──────────────────────────────────────────────
+# Module-level dict of ${key} → value replacements applied by prompt builders.
+# Set once during startup (e.g. from the first status.snapshot event).
+_prompt_substitutions: dict[str, str] = {}
+
+
+def set_prompt_substitutions(**kwargs: str | int) -> None:
+    """Store substitution values applied to all future prompt builds.
+
+    Keys correspond to ``${key}`` placeholders in prompt markdown files.
+    """
+    for k, v in kwargs.items():
+        _prompt_substitutions[k] = str(v)
+
+
+def apply_prompt_substitutions(text: str) -> str:
+    """Replace ``${key}`` placeholders with values from *_prompt_substitutions*."""
+    for key, value in _prompt_substitutions.items():
+        text = text.replace(f"${{{key}}}", value)
+    return text
+
+
 # Directory containing all prompt files
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -98,7 +120,7 @@ def build_voice_agent_prompt() -> str:
         load_prompt("base/how_to_load_info.md"),
         load_prompt("agents/voice_agent.md"),
     ]
-    return "\n\n".join(parts)
+    return apply_prompt_substitutions("\n\n".join(parts))
 
 
 def build_task_agent_prompt() -> str:
@@ -117,7 +139,7 @@ def build_task_agent_prompt() -> str:
         load_prompt("base/how_to_load_info.md"),
         load_prompt("agents/task_agent.md"),
     ]
-    return "\n\n".join(parts)
+    return apply_prompt_substitutions("\n\n".join(parts))
 
 
 def build_ui_agent_prompt() -> str:
@@ -134,7 +156,7 @@ def build_ui_agent_prompt() -> str:
         load_prompt("base/game_overview_ui.md"),
         load_prompt("agents/ui_agent.md"),
     ]
-    return "\n\n".join(parts)
+    return apply_prompt_substitutions("\n\n".join(parts))
 
 
 def build_task_progress_prompt(log_lines: Optional[list[str]] = None) -> str:
@@ -162,7 +184,7 @@ def build_task_progress_prompt(log_lines: Optional[list[str]] = None) -> str:
         log_text = "\n".join(log_lines)
         prompt = f"{prompt}\n\n# Task Log\n{log_text}"
 
-    return prompt
+    return apply_prompt_substitutions(prompt)
 
 
 def clear_cache() -> None:
