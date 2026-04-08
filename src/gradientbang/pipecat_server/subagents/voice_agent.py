@@ -383,7 +383,7 @@ class VoiceAgent(LLMAgent):
             await super().queue_frame(frame)
             if not self._inject_run_pending:
                 self._inject_run_pending = True
-                self._inject_run_task = self.create_task(
+                self._inject_run_task = asyncio.get_running_loop().create_task(
                     self._emit_coalesced_run()
                 )
             return
@@ -1330,11 +1330,21 @@ class VoiceAgent(LLMAgent):
                 text=steering_text,
             )
         )
+        task_type_value = "corp_ship" if child._is_corp_ship else "player_ship"
+        # Also push a STEERING-typed task_output frame so the client can
+        # flash the task status badge and append a log entry recording the
+        # steering instruction.
+        await self._task_output_handler(
+            steering_text,
+            message_type="STEERING",
+            task_id=framework_task_id,
+            task_type=task_type_value,
+        )
         return {
             "success": True,
             "summary": summary,
             "task_id": framework_task_id,
-            "task_type": "corp_ship" if child._is_corp_ship else "player_ship",
+            "task_type": task_type_value,
             "steered": True,
         }
 

@@ -413,6 +413,7 @@ declare global {
     | "COMPLETE"
     | "FINISHED"
     | "CANCELLED"
+    | "STEERING"
 
   interface Task {
     id: string

@@ -1,12 +1,24 @@
 import { produce } from "immer"
 import type { StateCreator } from "zustand"
 
+import { wait } from "@/utils/animation"
+
+// Duration of the "Steering" badge flash, in milliseconds. When the voice
+// agent sends a steering instruction to a running task, the badge briefly
+// flashes a "Steering" label before returning to its normal active state.
+export const STEERING_FLASH_MS = 3000
+
 export interface TaskSlice {
   activeTasks: Record<string, ActiveTask>
   taskSummaries: Record<string, TaskSummary>
   corpSlotAssignments: (string | null)[]
   localTaskId: string | null
   taskOutputs: Record<string, TaskOutput[]>
+  // task_id → epoch-ms timestamp when the current steering flash window ends.
+  // Absence means "not currently being steered". Entries are cleared by the
+  // markTaskSteering async cleanup phase or by removeActiveTask, whichever
+  // fires first.
+  steeringExpiresAt: Record<string, number>
   addTaskOutput: (taskOutput: TaskOutput) => void
   getTaskOutputsByTaskId: (taskId: string) => TaskOutput[]
   removeTaskOutputsByTaskId: (taskId: string) => void
@@ -19,16 +31,18 @@ export interface TaskSlice {
   assignTaskToCorpSlot: (taskId: string, maxSlots?: number) => number | null
   clearCorpSlot: (slotIndex: number) => void
   setLocalTaskId: (taskId: string) => void
+  markTaskSteering: (taskId: string) => Promise<void>
 }
 
 export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
   activeTasks: {},
   taskSummaries: {},
   taskOutputs: {},
+  steeringExpiresAt: {},
   corpSlotAssignments: [null, null, null],
   localTaskId: null,
 
-  addTaskOutput: (taskOutput: TaskOutput) =>
+  addTaskOutput: (taskOutput: TaskOutput) => {
     set((state) => {
       const existing = state.taskOutputs[taskOutput.task_id] ?? []
 
@@ -52,7 +66,15 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
           [taskOutput.task_id]: updated.length > 200 ? updated.slice(-200) : updated,
         },
       }
-    }),
+    })
+
+    // A STEERING-typed task_output is the signal that the voice agent
+    // routed a new instruction into a running task. Fire-and-forget the
+    // flash-window action so the badge briefly shows a "Steering" label.
+    if (taskOutput.task_message_type.toUpperCase() === "STEERING") {
+      void get().markTaskSteering(taskOutput.task_id)
+    }
+  },
 
   getTaskOutputsByTaskId: (taskId: string) => get().taskOutputs[taskId] ?? [],
   getTaskOutputs: () => get().taskOutputs,
@@ -93,6 +115,10 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
         if (Object.keys(state.activeTasks).length === 0) {
           state.taskInProgress = false
         }
+        // Clear any in-flight steering flash: the task is over, the badge
+        // must flip straight to its terminal state rather than linger on
+        // "Steering" for the remainder of the flash window.
+        delete state.steeringExpiresAt[taskId]
       })
     ),
 
@@ -215,4 +241,30 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
         state.localTaskId = taskId
       })
     ),
+
+  markTaskSteering: async (taskId: string) => {
+    // Stamp the flash window. A second call within the window writes a
+    // newer expiresAt; the older call's cleanup phase below then becomes
+    // a no-op because `current !== expiresAt`.
+    const expiresAt = Date.now() + STEERING_FLASH_MS
+    set(
+      produce((state) => {
+        state.steeringExpiresAt[taskId] = expiresAt
+      })
+    )
+
+    await wait(STEERING_FLASH_MS)
+
+    // If a newer markTaskSteering extended the window, leave cleanup to
+    // that call. If removeActiveTask cleared the entry because the task
+    // finished mid-flash, the delete below is a harmless no-op on a
+    // missing key.
+    const current = get().steeringExpiresAt[taskId]
+    if (current !== expiresAt) return
+    set(
+      produce((state) => {
+        delete state.steeringExpiresAt[taskId]
+      })
+    )
+  },
 })
