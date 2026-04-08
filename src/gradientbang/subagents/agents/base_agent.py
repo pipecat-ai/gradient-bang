@@ -819,6 +819,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         self,
         *agent_names: str,
         payload: Optional[dict] = None,
+        task_id: Optional[str] = None,
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
     ) -> str:
@@ -832,13 +833,17 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             *agent_names: Names of the agents to send the task to.
             payload: Optional structured data describing the work.
+            task_id: Optional explicit task identifier. If provided, the
+                caller is responsible for its uniqueness; otherwise a
+                fresh UUID is generated.
             timeout: Optional timeout in seconds. If set, the task is
                 automatically cancelled after this duration.
             cancel_on_error: Whether to cancel the entire group if a
                 worker responds with an error status. Defaults to True.
 
         Returns:
-            The generated task_id shared by all agents in the group.
+            The task_id shared by all agents in the group (the explicit
+            ``task_id`` if provided, otherwise a freshly generated UUID).
         """
         for name in agent_names:
             if not isinstance(name, str):
@@ -847,6 +852,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         group = await self.create_task_group_and_request_task(
             list(agent_names),
             payload=payload,
+            task_id=task_id,
             timeout=timeout,
             cancel_on_error=cancel_on_error,
         )
@@ -1101,10 +1107,12 @@ class BaseAgent(BaseObject, BusSubscriber):
         self,
         agent_names: list[str],
         *,
+        task_id: Optional[str] = None,
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
     ) -> TaskGroup:
-        task_id = str(uuid.uuid4())
+        if task_id is None:
+            task_id = str(uuid.uuid4())
         group = TaskGroup(
             task_id=task_id, agent_names=set(agent_names), cancel_on_error=cancel_on_error
         )
@@ -1146,6 +1154,7 @@ class BaseAgent(BaseObject, BusSubscriber):
         agent_names: list[str],
         *,
         payload: Optional[dict] = None,
+        task_id: Optional[str] = None,
         timeout: Optional[float] = None,
         cancel_on_error: bool = True,
     ) -> TaskGroup:
@@ -1159,6 +1168,9 @@ class BaseAgent(BaseObject, BusSubscriber):
         Args:
             agent_names: Names of the agents to send the task to.
             payload: Optional structured data describing the work.
+            task_id: Optional explicit task identifier. If provided, the
+                caller is responsible for its uniqueness; otherwise a
+                fresh UUID is generated.
             timeout: Optional timeout in seconds. Covers both the
                 ready-wait and task execution.
             cancel_on_error: Whether to cancel the group if a worker
@@ -1177,7 +1189,7 @@ class BaseAgent(BaseObject, BusSubscriber):
             raise TaskGroupError("agents not ready within timeout")
 
         group = self._create_task_group(
-            agent_names, timeout=timeout, cancel_on_error=cancel_on_error
+            agent_names, task_id=task_id, timeout=timeout, cancel_on_error=cancel_on_error
         )
 
         for name in agent_names:

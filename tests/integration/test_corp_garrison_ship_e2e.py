@@ -190,10 +190,9 @@ class TestCorpShipTaskIsolation:
             assert len(h.voice_agent._task_groups) > 0, "Task should be active"
 
             # Cancel the task while it's blocked on the gate.
-            # _find_task_agent_by_prefix prepends "task_", so pass just the hex suffix.
-            task_prefix = result["task_id"].removeprefix("task_")
+            # task_id is now the framework UUID; pass it directly.
             params = MagicMock(spec=FunctionCallParams)
-            params.arguments = {"task_id": task_prefix}
+            params.arguments = {"task_id": result["task_id"]}
             params.result_callback = AsyncMock()
             stop_result = await h.voice_agent._handle_stop_task(params)
             assert stop_result.get("success") is True, f"stop_task failed: {stop_result}"

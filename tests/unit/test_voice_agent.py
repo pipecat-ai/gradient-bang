@@ -123,17 +123,49 @@ class TestFrameworkTaskQueries:
         assert agent.is_our_task("tid-1") is True
         assert agent.is_our_task("tid-unknown") is False
 
-    def test_find_task_agent_by_prefix(self):
+    def test_find_task_agent_by_task_id(self):
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.subagents.agents.base_agent import TaskGroup
 
         agent = _make_voice_agent()
         mock_child = MagicMock(spec=TaskAgent)
         mock_child.name = "task_abc123"
         agent._children = [mock_child]
-        assert agent._find_task_agent_by_prefix("abc123") is mock_child
-        assert agent._find_task_agent_by_prefix("abc") is mock_child
-        assert agent._find_task_agent_by_prefix("xyz") is None
-        assert agent._find_task_agent_by_prefix("") is None
+        full_id = "ff3fa419-1234-5678-9abc-def012345678"
+        agent._task_groups = {
+            full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})
+        }
+
+        # Full UUID
+        assert agent._find_task_agent_by_task_id(full_id) == (full_id, mock_child)
+        # 8-char short prefix (what the LLM commonly receives in events)
+        assert agent._find_task_agent_by_task_id("ff3fa419") == (full_id, mock_child)
+        # Even shorter prefix
+        assert agent._find_task_agent_by_task_id("ff") == (full_id, mock_child)
+        # Negatives
+        assert agent._find_task_agent_by_task_id("deadbeef") is None
+        assert agent._find_task_agent_by_task_id("") is None
+        assert agent._find_task_agent_by_task_id("   ") is None
+
+    def test_find_task_agent_by_task_id_prefers_exact_match(self):
+        """When two tasks share a prefix, exact match wins over prefix match."""
+        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.subagents.agents.base_agent import TaskGroup
+
+        agent = _make_voice_agent()
+        c1 = MagicMock(spec=TaskAgent)
+        c1.name = "task_aaa"
+        c2 = MagicMock(spec=TaskAgent)
+        c2.name = "task_bbb"
+        agent._children = [c1, c2]
+        agent._task_groups = {
+            "ff": TaskGroup(task_id="ff", agent_names={"task_aaa"}),
+            "ff3fa419": TaskGroup(task_id="ff3fa419", agent_names={"task_bbb"}),
+        }
+        # Exact match on the short id resolves to its child, not the longer one.
+        assert agent._find_task_agent_by_task_id("ff") == ("ff", c1)
+        # Prefix-only resolves to the matching longer id.
+        assert agent._find_task_agent_by_task_id("ff3fa") == ("ff3fa419", c2)
 
     def test_count_active_corp_tasks(self):
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
@@ -475,7 +507,7 @@ class TestTaskCompletionCooldown:
 
 @pytest.mark.unit
 class TestHandleStopTask:
-    async def test_stop_specific_task(self):
+    async def test_stop_specific_task_full_uuid(self):
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
         from gradientbang.subagents.agents.base_agent import TaskGroup
 
@@ -485,12 +517,34 @@ class TestHandleStopTask:
         child.name = "task_abc123"
         child._is_corp_ship = False
         agent._children = [child]
-        agent._task_groups = {"tid-1": TaskGroup(task_id="tid-1", agent_names={"task_abc123"})}
+        full_id = "ff3fa419-1234-5678-9abc-def012345678"
+        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
         params = MagicMock()
-        params.arguments = {"task_id": "abc123"}
+        params.arguments = {"task_id": full_id}
         result = await agent._handle_stop_task(params)
         assert result["success"] is True
-        agent.cancel_task.assert_called_once_with("tid-1", reason="Cancelled by user")
+        assert result["task_id"] == full_id
+        agent.cancel_task.assert_called_once_with(full_id, reason="Cancelled by user")
+
+    async def test_stop_specific_task_short_prefix(self):
+        """Regression: the LLM passes the 8-char prefix it saw in an event."""
+        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+        from gradientbang.subagents.agents.base_agent import TaskGroup
+
+        agent = _make_voice_agent()
+        agent.cancel_task = AsyncMock()
+        child = MagicMock(spec=TaskAgent)
+        child.name = "task_abc123"
+        child._is_corp_ship = False
+        agent._children = [child]
+        full_id = "ff3fa419-1234-5678-9abc-def012345678"
+        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
+        params = MagicMock()
+        params.arguments = {"task_id": "ff3fa419"}
+        result = await agent._handle_stop_task(params)
+        assert result["success"] is True
+        assert result["task_id"] == full_id
+        agent.cancel_task.assert_called_once_with(full_id, reason="Cancelled by user")
 
     async def test_stop_player_ship_default(self):
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
@@ -507,6 +561,7 @@ class TestHandleStopTask:
         params.arguments = {}
         result = await agent._handle_stop_task(params)
         assert result["success"] is True
+        agent.cancel_task.assert_called_once_with("tid-1", reason="Cancelled by user")
 
     async def test_stop_no_task(self):
         agent = _make_voice_agent()
@@ -537,15 +592,18 @@ class TestHandleSteerTask:
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
         agent._children = [child]
-        agent._task_groups = {"tid-1": TaskGroup(task_id="tid-1", agent_names={"task_abc123"})}
+        full_id = "ff3fa419-1234-5678-9abc-def012345678"
+        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
         params = MagicMock()
-        params.arguments = {"task_id": "abc123", "message": "Change course"}
+        # LLM passes the short prefix from a task event
+        params.arguments = {"task_id": "ff3fa419", "message": "Change course"}
         result = await agent._handle_steer_task(params)
         assert result["success"] is True
+        assert result["task_id"] == full_id
         sent = agent.send_message.call_args[0][0]
         assert isinstance(sent, BusSteerTaskMessage)
         assert sent.target == "task_abc123"
-        assert sent.task_id == "tid-1"
+        assert sent.task_id == full_id
 
     async def test_steer_missing_args(self):
         agent = _make_voice_agent()
@@ -1195,7 +1253,7 @@ class TestCorpShipRouting:
         result = await agent._handle_start_task(params)
 
         assert result["success"] is True
-        pending_payload = next(iter(agent._pending_tasks.values()))
+        _task_id, pending_payload = next(iter(agent._pending_tasks.values()))
         assert pending_payload["context"] == "The commander asked about a sector visit."
 
     @pytest.mark.asyncio
@@ -1215,7 +1273,7 @@ class TestCorpShipRouting:
         result = await agent._handle_start_task(params)
 
         assert result["success"] is True
-        pending_payload = next(iter(agent._pending_tasks.values()))
+        _task_id, pending_payload = next(iter(agent._pending_tasks.values()))
         assert "Current session started at 2026-03-29T18:46:44+00:00." in pending_payload["context"]
         assert "last or previous session" in pending_payload["context"]
 
@@ -1276,12 +1334,11 @@ class TestCorpShipRouting:
         result = await agent._handle_start_task(params)
         assert result["success"]
         assert agent._character_id in agent._locked_ships
-        task_name = result["task_id"]
 
         # Simulate on_task_response — unlocks the ship
-        child = next(c for c in agent._children if c.name == task_name)
+        child = next(c for c in agent._children if isinstance(c, TaskAgent))
         msg = MagicMock(spec=BusTaskResponseMessage)
-        msg.source = task_name
+        msg.source = child.name
         msg.task_id = "framework-task-1"
         msg.status = TaskStatus.COMPLETED
         msg.response = {"message": "Done"}
@@ -1296,7 +1353,7 @@ class TestCorpShipRouting:
 
         assert agent._character_id not in agent._locked_ships
         # Player agent stays in _children for reuse (not ended)
-        assert any(c.name == task_name for c in agent._children)
+        assert any(c.name == child.name for c in agent._children)
         agent.send_message.assert_not_called()  # No BusEndAgentMessage sent
 
     @pytest.mark.asyncio
@@ -1342,29 +1399,38 @@ class TestCorpShipRouting:
             agent._children.append(task_agent)
 
         agent.add_agent = AsyncMock(side_effect=add_agent)
-        agent.request_task = AsyncMock()
+        agent.request_task = AsyncMock(return_value="framework-task-uuid")
 
         # First task — creates a new agent
         params1 = MagicMock()
         params1.arguments = {"task_description": "Mine resources"}
         result1 = await agent._handle_start_task(params1)
         assert result1["success"]
-        first_agent_name = result1["task_id"]
+        # First task is dispatched via on_agent_ready (deferred); task_id is the
+        # pre-generated framework UUID stored in _pending_tasks.
+        first_task_id = result1["task_id"]
         assert agent.add_agent.call_count == 1
 
         # Complete the first task
-        child = next(c for c in agent._children if c.name == first_agent_name)
+        child = next(c for c in agent._children if isinstance(c, TaskAgent))
+        first_agent_name = child.name
         child._active_task_id = None  # Mark as idle
         agent._locked_ships.discard(agent._character_id)
 
-        # Second task — should reuse the existing idle agent
+        # Second task — should reuse the existing idle agent.
+        # The reuse path returns request_task's return value as task_id.
         params2 = MagicMock()
         params2.arguments = {"task_description": "Trade goods"}
         result2 = await agent._handle_start_task(params2)
         assert result2["success"]
-        assert result2["task_id"] == first_agent_name  # Same agent reused
+        assert result2["task_id"] == "framework-task-uuid"  # from request_task
         assert agent.add_agent.call_count == 1  # No new add_agent call
         agent.request_task.assert_called_once()
+        # The reused agent name should still be the same internal bus name
+        assert any(c.name == first_agent_name for c in agent._children)
+        # And the pre-generated id from the first call should differ from the
+        # reused-path id (different code paths, different sources)
+        assert first_task_id != result2["task_id"]
 
     @pytest.mark.asyncio
     @patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient")
@@ -1394,13 +1460,12 @@ class TestCorpShipRouting:
         params.arguments = {"task_description": "Trade", "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}
         result = await agent._handle_start_task(params)
         assert result["success"]
-        task_name = result["task_id"]
         assert len(agent._children) == 1
 
         # Simulate on_task_response
         child = agent._children[0]
         msg = MagicMock(spec=BusTaskResponseMessage)
-        msg.source = task_name
+        msg.source = child.name
         msg.task_id = "framework-task-1"
         msg.status = TaskStatus.COMPLETED
         msg.response = {"message": "Done"}

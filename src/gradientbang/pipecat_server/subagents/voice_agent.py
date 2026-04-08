@@ -19,7 +19,7 @@ import re
 import time
 import uuid
 from collections import deque
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
 from loguru import logger
 from pipecat.frames.frames import (
@@ -103,8 +103,8 @@ class VoiceAgent(LLMAgent):
         _timeout = float(os.getenv("TASK_AGENT_TIMEOUT", 0))
         self._task_agent_timeout: float | None = _timeout if _timeout > 0 else None
 
-        # ── Transient: holds payload between add_agent and on_agent_ready ──
-        self._pending_tasks: Dict[str, dict] = {}  # agent_name -> payload
+        # ── Transient: holds (framework_task_id, payload) between add_agent and on_agent_ready ──
+        self._pending_tasks: Dict[str, Tuple[str, dict]] = {}  # agent_name -> (task_id, payload)
 
         # ── Request ID tracking ──
         self._voice_agent_request_ids: Dict[str, float] = {}
@@ -820,16 +820,37 @@ class VoiceAgent(LLMAgent):
 
     # ── Child agent helpers ───────────────────────────────────────────
 
-    def _find_task_agent_by_prefix(self, prefix: str) -> Optional[TaskAgent]:
-        """Find a TaskAgent child by name prefix match."""
-        cleaned = prefix.strip()
+    def _find_task_agent_by_task_id(
+        self, task_id: str
+    ) -> Optional[Tuple[str, TaskAgent]]:
+        """Resolve an active task to (framework_task_id, TaskAgent child).
+
+        Accepts the framework/game task UUID — full form or any unique
+        prefix (the LLM commonly receives the 8-char prefix in events such
+        as ``task.completed task_id="ff3fa419"``). Returns ``None`` if no
+        active task group matches.
+        """
+        cleaned = task_id.strip()
         if not cleaned:
             return None
-        for child in self.children:
-            if isinstance(child, TaskAgent) and (
-                child.name == f"task_{cleaned}" or child.name.startswith(f"task_{cleaned}")
-            ):
-                return child
+
+        matches = [
+            (tid, group)
+            for tid, group in self._task_groups.items()
+            if tid == cleaned or tid.startswith(cleaned)
+        ]
+        if not matches:
+            return None
+        # Prefer exact match over prefix match.
+        matches.sort(key=lambda kv: 0 if kv[0] == cleaned else 1)
+        framework_task_id, group = matches[0]
+        for name in group.agent_names:
+            child = next(
+                (c for c in self.children if isinstance(c, TaskAgent) and c.name == name),
+                None,
+            )
+            if child:
+                return framework_task_id, child
         return None
 
     def _count_active_corp_tasks(self) -> int:
@@ -918,8 +939,12 @@ class VoiceAgent(LLMAgent):
         await super().on_agent_ready(data)
         pending = self._pending_tasks.pop(data.agent_name, None)
         if pending:
+            framework_task_id, payload = pending
             await self.request_task(
-                data.agent_name, payload=pending, timeout=self._task_agent_timeout
+                data.agent_name,
+                payload=payload,
+                task_id=framework_task_id,
+                timeout=self._task_agent_timeout,
             )
             self._update_polling_scope()
             logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.agent_name)
@@ -1137,14 +1162,14 @@ class VoiceAgent(LLMAgent):
                     )
                     if existing:
                         self._locked_ships.add(target_character_id)
-                        await self.request_task(
+                        framework_task_id = await self.request_task(
                             existing.name, payload=payload, timeout=self._task_agent_timeout
                         )
                         self._update_polling_scope()
                         return {
                             "success": True,
                             "message": "Task started",
-                            "task_id": existing.name,
+                            "task_id": framework_task_id,
                             "task_type": task_type,
                         }
 
@@ -1160,6 +1185,11 @@ class VoiceAgent(LLMAgent):
                 else:
                     task_game_client = self._game_client
 
+                # Pre-generate the framework task UUID so we can return it to
+                # the LLM immediately. The bus name `task_xxxxxx` is purely
+                # internal routing; the framework UUID is the only identifier
+                # the LLM (and event_relay) ever sees.
+                framework_task_id = str(uuid.uuid4())
                 agent_name = f"task_{uuid.uuid4().hex[:6]}"
                 task_agent = TaskAgent(
                     agent_name,
@@ -1174,7 +1204,7 @@ class VoiceAgent(LLMAgent):
                 # Lock ship BEFORE add_agent — if add_agent partially fails
                 # (child in _children but pipeline not started), the ship stays
                 # locked so no second agent can be added for it.
-                self._pending_tasks[agent_name] = payload
+                self._pending_tasks[agent_name] = (framework_task_id, payload)
                 self._locked_ships.add(target_character_id)
                 try:
                     await self.add_agent(task_agent)
@@ -1193,7 +1223,7 @@ class VoiceAgent(LLMAgent):
                 return {
                     "success": True,
                     "message": "Task started",
-                    "task_id": agent_name,
+                    "task_id": framework_task_id,
                     "task_type": task_type,
                 }
             except Exception as e:
@@ -1213,9 +1243,10 @@ class VoiceAgent(LLMAgent):
             task_id_arg = params.arguments.get("task_id")
 
             if task_id_arg:
-                child = self._find_task_agent_by_prefix(str(task_id_arg).strip())
-                if not child:
+                resolved = self._find_task_agent_by_task_id(str(task_id_arg).strip())
+                if not resolved:
                     return {"success": False, "error": f"Task {task_id_arg} not found"}
+                framework_task_id, _child = resolved
             else:
                 # Default: find player ship task
                 child = next(
@@ -1224,14 +1255,15 @@ class VoiceAgent(LLMAgent):
                 )
                 if not child:
                     return {"success": False, "error": "No player ship task is currently running"}
+                framework_task_id = next(
+                    (tid for tid, group in self._task_groups.items() if child.name in group.agent_names),
+                    None,
+                )
+                if framework_task_id is None:
+                    return {"success": False, "error": "No active task group for player ship"}
 
-            # Find the framework task_id for this agent
-            for tid, group in self._task_groups.items():
-                if child.name in group.agent_names:
-                    await self.cancel_task(tid, reason="Cancelled by user")
-                    return {"success": True, "message": "Task cancelled", "task_id": child.name}
-
-            return {"success": False, "error": f"Task {child.name} not found in active groups"}
+            await self.cancel_task(framework_task_id, reason="Cancelled by user")
+            return {"success": True, "message": "Task cancelled", "task_id": framework_task_id}
         except Exception as e:
             logger.error(f"stop_task failed: {e}")
             return {"success": False, "error": str(e)}
@@ -1246,27 +1278,21 @@ class VoiceAgent(LLMAgent):
         if not isinstance(message, str) or not message.strip():
             return {"success": False, "error": "message is required"}
 
-        child = self._find_task_agent_by_prefix(task_id.strip())
-        if not child:
+        resolved = self._find_task_agent_by_task_id(task_id.strip())
+        if not resolved:
             return {"success": False, "error": f"Task {task_id} not found"}
+        framework_task_id, child = resolved
 
         steering_text = message.strip()
         if not steering_text.lower().startswith("steering instruction:"):
             steering_text = f"Steering instruction: {steering_text}"
 
-        # Find framework task_id
-        framework_tid = None
-        for tid, group in self._task_groups.items():
-            if child.name in group.agent_names:
-                framework_tid = tid
-                break
-
         await self.send_message(
             BusSteerTaskMessage(
-                source=self.name, target=child.name, task_id=framework_tid or "", text=steering_text
+                source=self.name, target=child.name, task_id=framework_task_id, text=steering_text
             )
         )
-        return {"success": True, "summary": "Steering instruction sent.", "task_id": child.name}
+        return {"success": True, "summary": "Steering instruction sent.", "task_id": framework_task_id}
 
     @traced
     async def _handle_query_task_progress(self, params: FunctionCallParams) -> dict:
@@ -1274,9 +1300,10 @@ class VoiceAgent(LLMAgent):
         task_id_arg = arguments.get("task_id")
 
         if task_id_arg:
-            child = self._find_task_agent_by_prefix(str(task_id_arg).strip())
-            if not child:
+            resolved = self._find_task_agent_by_task_id(str(task_id_arg).strip())
+            if not resolved:
                 return {"success": False, "error": f"Task {task_id_arg} not found"}
+            framework_task_id, child = resolved
         else:
             child = next(
                 (c for c in self.children if isinstance(c, TaskAgent) and not c._is_corp_ship),
@@ -1284,18 +1311,20 @@ class VoiceAgent(LLMAgent):
             )
             if not child:
                 return {"success": False, "error": "No active task found."}
+            framework_task_id = next(
+                (tid for tid, group in self._task_groups.items() if child.name in group.agent_names),
+                None,
+            )
+            if framework_task_id is None:
+                return {"success": False, "error": f"Task {child.name} not found in active groups"}
 
-        for tid, group in self._task_groups.items():
-            if child.name in group.agent_names:
-                await self.request_task_update(tid, child.name)
-                return {
-                    "success": True,
-                    "summary": "Checking task progress now.",
-                    "task_id": child.name,
-                    "async": True,
-                }
-
-        return {"success": False, "error": f"Task {child.name} not found in active groups"}
+        await self.request_task_update(framework_task_id, child.name)
+        return {
+            "success": True,
+            "summary": "Checking task progress now.",
+            "task_id": framework_task_id,
+            "async": True,
+        }
 
     # ── Task cleanup ───────────────────────────────────────────────────
 
