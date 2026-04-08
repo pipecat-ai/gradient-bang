@@ -16,6 +16,7 @@ import { TaskOutputStream } from "../TaskOutputStream"
 export type TaskEngineState =
   | "idle"
   | "active"
+  | "steering"
   | "completed"
   | "cancelling"
   | "cancelled"
@@ -24,6 +25,7 @@ export type TaskEngineState =
 const stateLabels: Record<TaskEngineState, string> = {
   idle: "Idle",
   active: "Working",
+  steering: "Steering",
   completed: "Completed",
   cancelling: "Cancelling",
   cancelled: "Cancelled",
@@ -41,6 +43,7 @@ const cx = cva(
         cancelled: "",
         failed: "",
         active: "elbow-foreground",
+        steering: "elbow-foreground",
       },
       subtle: {
         true: "border-transparent",
@@ -133,17 +136,33 @@ export const TaskEngine = ({
   const getTaskByTaskId = useGameStore.use.getTaskByTaskId?.()
   const getTaskSummaryByTaskId = useGameStore.use.getTaskSummaryByTaskId?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
+  const steeringExpiresAt = useGameStore.use.steeringExpiresAt?.()
 
   const [isCancelling, setIsCancelling] = useState(false)
 
   // Look up active task and summary by ID
   const task = taskId ? getTaskByTaskId?.(taskId) : undefined
   const summary = taskId ? getTaskSummaryByTaskId?.(taskId) : undefined
+  const steeringExpiry = taskId ? steeringExpiresAt?.[taskId] : undefined
+
+  // Presence of a steeringExpiresAt entry is the source of truth — the
+  // slice's markTaskSteering action removes the entry once the flash
+  // window ends, and removeActiveTask removes it eagerly if the task
+  // finishes mid-flash. We never need to compare against Date.now() at
+  // render time.
+  const isSteering = Boolean(steeringExpiry)
 
   const { state, displayTask } = useMemo(() => {
+    // Active task branch is checked first, so when the task finishes the
+    // terminal state always wins — even if a steering flash window is
+    // still technically "open" (removeActiveTask also clears the flag
+    // explicitly as a belt-and-suspenders cleanup).
     if (task) {
       return {
-        state: isCancelling ? "cancelling" : ("active" as TaskEngineState),
+        state:
+          isCancelling ? "cancelling"
+          : isSteering ? ("steering" as TaskEngineState)
+          : ("active" as TaskEngineState),
         displayTask: task,
       }
     }
@@ -156,20 +175,22 @@ export const TaskEngine = ({
 
     // Idle state
     return { state: "idle" as TaskEngineState, displayTask: null }
-  }, [task, summary, isCancelling])
+  }, [task, summary, isCancelling, isSteering])
 
-  if (state !== "active" && state !== "cancelling" && isCancelling) {
+  if (state !== "active" && state !== "cancelling" && state !== "steering" && isCancelling) {
     setIsCancelling(false)
   }
+
+  const isRunning = state === "active" || state === "cancelling" || state === "steering"
 
   return (
     <motion.div
       initial={{ opacity: 0.4 }}
-      animate={{ opacity: state === "active" || state === "cancelling" ? 1 : 0.4 }}
+      animate={{ opacity: isRunning ? 1 : 0.4 }}
       whileHover={{ opacity: 1, transition: { delay: 0, duration: 0.2 } }}
       transition={{
         opacity: {
-          delay: state === "active" || state === "cancelling" ? 0 : 6,
+          delay: isRunning ? 0 : 6,
           duration: 1,
         },
       }}
