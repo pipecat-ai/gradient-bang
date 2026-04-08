@@ -635,7 +635,14 @@ class TaskAgent(LLMAgent):
         if event_task_id and event_task_id != self._active_task_id:
             return
 
-        # Drop movement events for other characters
+        # Movement event filtering:
+        # - Actor events (movement.start/complete) are dropped for other
+        #   characters — we only care about our own movement.
+        # - Sector-observation events (character.moved/garrison.character_moved)
+        #   are dropped for self — the server already excludes the actor when
+        #   emitting them, so any self-match here is a bus rebroadcast from
+        #   another observer's perspective and is redundant with our own
+        #   movement.start/complete.
         if event_name in {
             "character.moved",
             "garrison.character_moved",
@@ -647,8 +654,16 @@ class TaskAgent(LLMAgent):
                 player = payload.get("player")
                 if isinstance(player, dict):
                     moving_id = player.get("id")
-                    if isinstance(moving_id, str) and moving_id != self._character_id:
-                        return
+                    if isinstance(moving_id, str):
+                        is_self = moving_id == self._character_id
+                        is_observer_event = event_name in {
+                            "character.moved",
+                            "garrison.character_moved",
+                        }
+                        if is_observer_event and is_self:
+                            return
+                        if not is_observer_event and not is_self:
+                            return
 
         # task.finish is terminal
         if event_name == "task.finish":
