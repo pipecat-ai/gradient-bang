@@ -583,7 +583,7 @@ PURCHASE_SHIP = FunctionSchema(
     description=(
         "Purchase a ship for personal use or on behalf of your corporation. "
         "Personal purchases use ship credits (with trade-in value from current ship). "
-        "Corporation purchases draw from bank credits and may seed initial ship credits. "
+        "Corporation purchases also use your ship credits and may seed initial ship credits into the new corp ship. "
         "If ship_name is omitted, the default display name is used and auto-suffixed "
         "for uniqueness. "
         "Note: autonomous ships (autonomous_probe, autonomous_light_hauler) can ONLY be "
@@ -642,7 +642,7 @@ PURCHASE_SHIP = FunctionSchema(
         },
         "initial_ship_credits": {
             "type": "integer",
-            "description": "Credits to seed into the ship when purchasing for a corporation",
+            "description": "Credits to seed into the new corp ship (deducted from your ship credits along with the price)",
             "minimum": 0,
         },
         "character_id": {

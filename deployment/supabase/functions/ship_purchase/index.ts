@@ -454,10 +454,10 @@ async function handleCorporationPurchase(
   }
 
   const totalCost = price + initialShipCredits;
-  const bankBalance = character.credits_in_megabank ?? 0;
-  if (bankBalance < totalCost) {
+  const shipCredits = currentShip.credits ?? 0;
+  if (shipCredits < totalCost) {
     throw new ShipPurchaseError(
-      `Insufficient bank balance (need ${totalCost})`,
+      `Insufficient credits (need ${totalCost})`,
     );
   }
 
@@ -474,16 +474,21 @@ async function handleCorporationPurchase(
     metadata: { acquired_by: characterId },
   });
 
-  const { error: bankUpdateError } = await supabase
+  const { error: creditUpdateError } = await supabase
+    .from("ship_instances")
+    .update({ credits: shipCredits - totalCost })
+    .eq("ship_id", currentShip.ship_id);
+  if (creditUpdateError) {
+    console.error("ship_purchase.credit_update", creditUpdateError);
+    throw new ShipPurchaseError("Failed to update ship credits", 500);
+  }
+
+  const { error: charActiveError } = await supabase
     .from("characters")
-    .update({
-      credits_in_megabank: bankBalance - totalCost,
-      last_active: timestamp,
-    })
+    .update({ last_active: timestamp })
     .eq("character_id", characterId);
-  if (bankUpdateError) {
-    console.error("ship_purchase.bank_update", bankUpdateError);
-    throw new ShipPurchaseError("Failed to update bank balance", 500);
+  if (charActiveError) {
+    console.error("ship_purchase.char_active_update", charActiveError);
   }
 
   const { error: corpShipInsertError } = await supabase
@@ -553,7 +558,7 @@ async function handleCorporationPurchase(
     ship_id: insertedShip.ship_id,
     ship_type: shipType,
     initial_ship_credits: initialShipCredits,
-    bank_after: bankBalance - totalCost,
+    credits_after: shipCredits - totalCost,
     request_id: requestId,
   });
 }

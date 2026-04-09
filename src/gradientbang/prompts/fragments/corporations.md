@@ -90,8 +90,8 @@ purchase_ship(
 )
 ```
 
-- Uses bank balance, not credits on hand
-- Can optionally seed initial ship credits
+- Uses your ship credits (same as personal purchases)
+- Can optionally seed initial ship credits (deducted along with the price)
 
 Example:
 ```

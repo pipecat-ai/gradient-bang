@@ -44,8 +44,8 @@ purchase_ship(
 ```
 
 ### Corporation Purchase Notes
-- Uses bank balance, not credits on hand
-- Can seed initial ship credits for the new ship
+- Uses your ship credits (same as personal purchases)
+- Can seed initial ship credits for the new ship (total cost = price + initial credits)
 - Autonomous ships can ONLY be purchased for corporations
 
 ## Selling Corporation Ships
@@ -86,8 +86,8 @@ Each ship type has different:
 
 1. Call `ship_definitions()` first
 2. Check the balance used by that purchase path
-   - Personal purchase: credits on hand, minus trade-in if applicable
-   - Corporation purchase: bank balance
+   - Personal purchase: ship credits, minus trade-in if applicable
+   - Corporation purchase: ship credits (no trade-in)
 3. Call `purchase_ship` with `expected_price` from `ship_definitions()` — server rejects incorrect prices
 
 **IMPORTANT:** Personal ship purchases never require creating, joining, or leaving a corporation. If a purchase fails, report the error — do not modify corporation membership.

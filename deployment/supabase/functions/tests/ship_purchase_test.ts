@@ -144,9 +144,7 @@ Deno.test({
       });
       corpId = (createResult as Record<string, unknown>).corp_id as string;
 
-      // Give P1 bank balance for corp purchase
-      // autonomous_probe costs 1000
-      await setMegabankBalance(p1Id, 10000);
+      // autonomous_probe costs 1000, ship credits cover it
     });
 
     let corpShipId: string;
@@ -161,6 +159,7 @@ Deno.test({
       assertExists(body.ship_id, "Should return new corp ship_id");
       assertEquals(body.ship_type, "autonomous_probe");
       assertEquals(body.corp_id, corpId);
+      assertEquals(body.credits_after, 49000, "50000 - 1000 = 49000");
       corpShipId = body.ship_id as string;
     });
 
@@ -193,11 +192,17 @@ Deno.test({
       });
     });
 
-    await t.step("DB: bank balance deducted", async () => {
+    await t.step("DB: ship credits deducted", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      // 50000 - 1000 (price) = 49000
+      assertEquals(ship.credits, 49000);
+    });
+
+    await t.step("DB: bank balance unchanged", async () => {
       const char = await queryCharacter(p1Id);
       assertExists(char);
-      // 10000 - 1000 (price) = 9000
-      assertEquals(char.credits_in_megabank, 9000);
+      assertEquals(char.credits_in_megabank, 0, "Bank should not be touched");
     });
   },
 });
@@ -223,7 +228,7 @@ Deno.test({
       });
       corpId = (createResult as Record<string, unknown>).corp_id as string;
       // autonomous_probe = 1000, initial credits = 500 → total cost = 1500
-      await setMegabankBalance(p1Id, 5000);
+      // ship credits = 50000, so 50000 - 1500 = 48500
     });
 
     let corpShipId: string;
@@ -238,7 +243,7 @@ Deno.test({
       const body = result as Record<string, unknown>;
       assertExists(body.ship_id);
       assertEquals(body.initial_ship_credits, 500);
-      assertEquals(body.bank_after, 3500, "5000 - 1000 - 500 = 3500");
+      assertEquals(body.credits_after, 48500, "50000 - 1000 - 500 = 48500");
       corpShipId = body.ship_id as string;
     });
 
@@ -318,13 +323,12 @@ Deno.test({
       );
     });
 
-    await t.step("fails: insufficient bank balance (corp)", async () => {
-      await setShipCredits(p1ShipId, 50000);
+    await t.step("fails: insufficient credits (corp)", async () => {
+      await setShipCredits(p1ShipId, 10); // not enough for anything
       const createResult = await apiOk("corporation_create", {
         character_id: p1Id,
         name: "Broke Corp",
       });
-      await setMegabankBalance(p1Id, 10); // not enough for anything
       const result = await api("ship_purchase", {
         character_id: p1Id,
         ship_type: "autonomous_probe",
@@ -406,7 +410,6 @@ Deno.test({
         name: "Purchase Event Corp",
       });
       corpId = (createResult as Record<string, unknown>).corp_id as string;
-      await setMegabankBalance(p1Id, 10000);
     });
 
     await t.step("capture cursor", async () => {
@@ -446,7 +449,160 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 8: ship.purchased event emitted on personal purchase
+// Group 8: Corp purchase uses ship credits, not bank
+// ============================================================================
+
+Deno.test({
+  name: "ship_purchase — corp purchase draws from ship credits, bank unchanged",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+
+    await t.step("reset and setup with known bank + ship credits", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 20000);
+      await setMegabankBalance(p1Id, 99999);
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Ship Credits Corp",
+      });
+      corpId = (createResult as Record<string, unknown>).corp_id as string;
+    });
+
+    await t.step("purchase autonomous_probe for corporation", async () => {
+      // autonomous_probe costs 1000, drawn from ship credits
+      const result = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      const body = result as Record<string, unknown>;
+      assertExists(body.ship_id);
+      assertEquals(body.credits_after, 19000, "20000 - 1000 = 19000");
+    });
+
+    await t.step("DB: ship credits debited", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      assertEquals(ship.credits, 19000, "Ship credits should be 20000 - 1000");
+    });
+
+    await t.step("DB: bank balance unchanged", async () => {
+      const char = await queryCharacter(p1Id);
+      assertExists(char);
+      assertEquals(
+        char.credits_in_megabank,
+        99999,
+        "Bank balance must not change on corp purchase",
+      );
+    });
+  },
+});
+
+// ============================================================================
+// Group 9: Corp purchase with initial_ship_credits uses ship credits
+// ============================================================================
+
+Deno.test({
+  name: "ship_purchase — corp purchase initial_ship_credits deducted from ship credits",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+
+    await t.step("reset and setup", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 10000);
+      await setMegabankBalance(p1Id, 50000);
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Seed Credits Corp",
+      });
+      corpId = (createResult as Record<string, unknown>).corp_id as string;
+    });
+
+    let corpShipId: string;
+
+    await t.step("purchase with initial_ship_credits=2000", async () => {
+      // autonomous_probe = 1000, initial = 2000, total = 3000
+      const result = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+        initial_ship_credits: 2000,
+      });
+      const body = result as Record<string, unknown>;
+      assertExists(body.ship_id);
+      assertEquals(body.credits_after, 7000, "10000 - 1000 - 2000 = 7000");
+      corpShipId = body.ship_id as string;
+    });
+
+    await t.step("DB: buyer ship credits debited for price + initial", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      assertEquals(ship.credits, 7000);
+    });
+
+    await t.step("DB: new corp ship has seeded credits", async () => {
+      const corpShip = await queryShip(corpShipId);
+      assertExists(corpShip);
+      assertEquals(corpShip.credits, 2000);
+    });
+
+    await t.step("DB: bank balance unchanged", async () => {
+      const char = await queryCharacter(p1Id);
+      assertExists(char);
+      assertEquals(char.credits_in_megabank, 50000, "Bank should not be touched");
+    });
+  },
+});
+
+// ============================================================================
+// Group 10: Corp purchase fails when ship credits insufficient but bank has funds
+// ============================================================================
+
+Deno.test({
+  name: "ship_purchase — corp purchase fails on low ship credits even with high bank",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 100); // too low
+      await setMegabankBalance(p1Id, 999999); // plenty in bank
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Low Ship Credits Corp",
+      });
+    });
+
+    await t.step("corp purchase fails with Insufficient credits", async () => {
+      const result = await api("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("Insufficient"),
+        `Expected insufficient error, got: ${result.body.error}`,
+      );
+    });
+
+    await t.step("DB: bank balance unchanged after failed purchase", async () => {
+      const char = await queryCharacter(p1Id);
+      assertExists(char);
+      assertEquals(char.credits_in_megabank, 999999);
+    });
+  },
+});
+
+// ============================================================================
+// Group 11: ship.purchased event emitted on personal purchase
 // ============================================================================
 
 Deno.test({
