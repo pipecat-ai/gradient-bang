@@ -391,6 +391,75 @@ class TestDeferredEventBatching:
 
 
 @pytest.mark.unit
+class TestInjectContextManagedTask:
+    """Verify _inject_context uses create_asyncio_task (managed) rather than bare asyncio tasks."""
+
+    async def test_inject_context_uses_managed_task(self):
+        """_inject_context with run_llm=True creates a managed task via create_asyncio_task."""
+        agent = _make_voice_agent()
+
+        # Provide a mock pipeline_task so queue_frame doesn't no-op.
+        agent._pipeline_task = MagicMock()
+        agent._pipeline_task.queue_frame = AsyncMock()
+
+        # Provide a mock task manager so create_asyncio_task works.
+        created_tasks = []
+
+        def fake_create_task(coro, name):
+            task = asyncio.get_event_loop().create_task(coro)
+            created_tasks.append((task, name))
+            return task
+
+        mock_tm = MagicMock()
+        mock_tm.create_task = fake_create_task
+        agent._task_manager = mock_tm
+
+        await agent._inject_context(
+            [{"role": "user", "content": "test idle report"}],
+            run_llm=True,
+        )
+
+        # Should have created a managed task for the coalesced run.
+        assert len(created_tasks) == 1
+        _, name = created_tasks[0]
+        assert "inject_coalesced_run" in name
+
+        # Let the coalesced run task complete.
+        await asyncio.sleep(0)
+
+    async def test_inject_context_no_duplicate_tasks(self):
+        """Multiple rapid _inject_context calls create only one coalesced task."""
+        agent = _make_voice_agent()
+        agent._pipeline_task = MagicMock()
+        agent._pipeline_task.queue_frame = AsyncMock()
+
+        created_tasks = []
+
+        def fake_create_task(coro, name):
+            task = asyncio.get_event_loop().create_task(coro)
+            created_tasks.append((task, name))
+            return task
+
+        mock_tm = MagicMock()
+        mock_tm.create_task = fake_create_task
+        agent._task_manager = mock_tm
+
+        # Call twice rapidly — second should reuse the pending flag.
+        await agent._inject_context(
+            [{"role": "user", "content": "event1"}], run_llm=True
+        )
+        await agent._inject_context(
+            [{"role": "user", "content": "event2"}], run_llm=True
+        )
+
+        assert len(created_tasks) == 1, (
+            f"Expected 1 managed task but got {len(created_tasks)}"
+        )
+
+        await asyncio.sleep(0)
+
+
+@pytest.mark.unit
 class TestTaskCompletionCooldown:
     @staticmethod
     def _make_task_response(agent: VoiceAgent):
