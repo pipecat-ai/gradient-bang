@@ -161,6 +161,7 @@ class OpenAIResponsesLLMService(BaseOpenAILLMService):
         summary text, output text, and function calls.
         """
         # Extract messages and tools from context
+        t_prep_start = time.perf_counter()
         if isinstance(context, OpenAILLMContext):
             messages = context.get_messages()
             tools_list = context.tools if context.tools else []
@@ -173,6 +174,15 @@ class OpenAIResponsesLLMService(BaseOpenAILLMService):
         # Convert to Responses API format
         instructions, input_items = self._convert_messages_to_responses_input(messages)
         response_tools = self._convert_tools_to_responses_format(tools_list)
+        t_prep_elapsed = time.perf_counter() - t_prep_start
+        if t_prep_elapsed > 0.05:
+            logger.warning(
+                "OpenAI Responses API: context preparation took {:.3f}s "
+                "(messages={}, tools={})",
+                t_prep_elapsed,
+                len(messages),
+                len(tools_list),
+            )
 
         # Build API call params
         reasoning_config = {
@@ -223,20 +233,43 @@ class OpenAIResponsesLLMService(BaseOpenAILLMService):
         # Track function calls: item_id -> {name, arguments, call_id}
         function_calls: Dict[str, Dict[str, str]] = {}
 
+        # Estimate request payload size for diagnostics
+        instructions_len = len(instructions) if instructions else 0
+        input_chars = sum(
+            len(json.dumps(item)) for item in input_items
+        )
         logger.info(
             "OpenAI Responses API: starting inference, model={}, reasoning_effort={}, "
-            "reasoning_summary={}, tools={}, input_items={}",
+            "reasoning_summary={}, tools={}, input_items={}, "
+            "instructions_chars={}, input_chars={}",
             self._responses_model,
             self._reasoning_effort,
             self._reasoning_summary,
             len(response_tools),
             len(input_items),
+            instructions_len,
+            input_chars,
         )
 
         try:
             stream = await self._client.responses.create(**api_kwargs)
+            t_stream_opened = time.perf_counter()
+            logger.info(
+                "OpenAI Responses API: stream opened in {:.3f}s, waiting for first event",
+                t_stream_opened - t_start,
+            )
 
+            t_first_event = None
             async for event in stream:
+                if t_first_event is None:
+                    t_first_event = time.perf_counter()
+                    logger.info(
+                        "OpenAI Responses API: first stream event at {:.3f}s (type={}), "
+                        "stream_wait={:.3f}s",
+                        t_first_event - t_start,
+                        event.type,
+                        t_first_event - t_stream_opened,
+                    )
                 event_type = event.type
 
                 # ── Reasoning summary text (thinking) ────────────────

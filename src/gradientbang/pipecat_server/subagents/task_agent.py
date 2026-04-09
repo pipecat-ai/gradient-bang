@@ -949,11 +949,16 @@ class TaskAgent(LLMAgent):
     # ── Inference timing callbacks (called by _ResponseStateTracker) ──
 
     def _inference_response_started(self) -> None:
-        """Called when LLMFullResponseStartFrame arrives (API call returned first chunk)."""
+        """Called when LLMFullResponseStartFrame arrives.
+
+        NOTE: This fires BEFORE the API call — it means the pipeline reached
+        the LLM service, not that the API returned data. The actual API timing
+        is logged by OpenAIResponsesLLMService (stream opened / first event).
+        """
         if self._inference_dispatch_time is not None:
             elapsed = time.perf_counter() - self._inference_dispatch_time
             logger.info(
-                "TaskAgent '{}': LLM response started {:.3f}s after dispatch",
+                "TaskAgent '{}': LLM processing started {:.3f}s after dispatch (pre-API)",
                 self.name,
                 elapsed,
             )
