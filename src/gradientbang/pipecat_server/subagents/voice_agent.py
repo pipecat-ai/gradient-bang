@@ -128,6 +128,12 @@ class VoiceAgent(LLMAgent):
         self._speech_start_grace_task: Optional[asyncio.Task] = None
         self._start_task_lock: asyncio.Lock = asyncio.Lock()
         self._locked_ships: set[str] = set()  # character_ids with an active task
+        # Tracks task.finished messages received from the bus that are
+        # waiting for on_task_response to deliver task.completed (after the
+        # cycle-idle wait + cooldown). While > 0, on_idle_report skips firing
+        # so the model doesn't narrate a premature "task is done" status and
+        # then re-acknowledge when task.completed actually lands.
+        self._task_completion_pending: int = 0
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -270,6 +276,16 @@ class VoiceAgent(LLMAgent):
         """
         if not self.task_groups:
             logger.debug("VoiceAgent: idle report skipped (no active tasks)")
+            return False
+        if self._task_completion_pending > 0:
+            # A task.finished message has been received and task.completed
+            # delivery is waiting in the cooldown window. Skipping the idle
+            # report prevents a premature "task is done" narration that gets
+            # immediately followed by the real task.completed ack.
+            logger.debug(
+                "VoiceAgent: idle report skipped ({} task completion(s) pending)",
+                self._task_completion_pending,
+            )
             return False
         logger.debug("VoiceAgent: idle report triggered, {} active task(s)", len(self.task_groups))
         await self._inject_context(
@@ -1015,23 +1031,30 @@ class VoiceAgent(LLMAgent):
         # before delivering task completion. Uses super().queue_frame() to bypass
         # LLMAgent's defer_tool_frames mechanism which would coalesce the task
         # completion into the tool result's inference.
-        while self.tool_call_active:
-            await asyncio.sleep(0.05)
+        # While we're waiting for the cycle + cooldown, on_idle_report must
+        # not fire — otherwise the model narrates a premature "task is done"
+        # status and then re-acknowledges when task.completed actually lands.
+        self._task_completion_pending += 1
+        try:
+            while self.tool_call_active:
+                await asyncio.sleep(0.05)
 
-        if self._assistant_cycle_active:
-            logger.debug("VoiceAgent: waiting for assistant response cycle to go idle")
-        await self._assistant_cycle_idle_event.wait()
+            if self._assistant_cycle_active:
+                logger.debug("VoiceAgent: waiting for assistant response cycle to go idle")
+            await self._assistant_cycle_idle_event.wait()
 
-        elapsed = time.monotonic() - self._bot_stopped_speaking_at
-        remaining = TASK_RESPONSE_COOLDOWN_SECONDS - elapsed
-        if remaining > 0:
-            logger.debug(
-                "VoiceAgent: cooling down {:.2f}s before task response inference",
-                remaining,
-            )
-            await asyncio.sleep(remaining)
+            elapsed = time.monotonic() - self._bot_stopped_speaking_at
+            remaining = TASK_RESPONSE_COOLDOWN_SECONDS - elapsed
+            if remaining > 0:
+                logger.debug(
+                    "VoiceAgent: cooling down {:.2f}s before task response inference",
+                    remaining,
+                )
+                await asyncio.sleep(remaining)
 
-        await self._queue_task_completion_event(event_xml)
+            await self._queue_task_completion_event(event_xml)
+        finally:
+            self._task_completion_pending -= 1
 
         # Release ship lock (both player and corp)
         ship_character_id = child._character_id if child else None
