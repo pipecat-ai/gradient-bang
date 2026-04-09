@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 from google.genai.types import Content
 from pipecat.adapters.services.gemini_adapter import GeminiLLMAdapter
@@ -22,8 +22,15 @@ class GradientBangGeminiLLMAdapter(GeminiLLMAdapter):
     ) -> List[Content]:
         return messages
 
-    def _from_universal_context_messages(self, universal_context_messages):
-        converted = super()._from_universal_context_messages(universal_context_messages)
+    def _from_universal_context_messages(
+        self,
+        universal_context_messages,
+        *,
+        system_instruction: Optional[str] = None,
+    ):
+        converted = super()._from_universal_context_messages(
+            universal_context_messages, system_instruction=system_instruction
+        )
         converted.messages = self._split_multi_function_call_model_messages(converted.messages)
         return converted
 
