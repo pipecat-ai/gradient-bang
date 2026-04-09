@@ -1281,7 +1281,7 @@ class VoiceAgent(LLMAgent):
                 resolved = self._find_task_agent_by_task_id(str(task_id_arg).strip())
                 if not resolved:
                     return {"success": False, "error": f"Task {task_id_arg} not found"}
-                framework_task_id, _child = resolved
+                framework_task_id, child = resolved
             else:
                 # Default: find player ship task
                 child = next(
@@ -1296,6 +1296,13 @@ class VoiceAgent(LLMAgent):
                 )
                 if framework_task_id is None:
                     return {"success": False, "error": "No active task group for player ship"}
+
+            # Release the ship lock synchronously so a follow-up start_task in
+            # the same turn can proceed. on_task_response releases the lock
+            # too, but it blocks on `tool_call_active` which is held by *this*
+            # tool call — so the async release can't land until we return.
+            # `.discard()` is idempotent, so the later release is a no-op.
+            self._locked_ships.discard(child._character_id)
 
             await self.cancel_task(framework_task_id, reason="Cancelled by user")
             return {"success": True, "message": "Task cancelled", "task_id": framework_task_id}
@@ -1443,7 +1450,15 @@ class VoiceAgent(LLMAgent):
                 attrs.append(f'task_id="{task_id}"')
             attrs.append(f'task_type="{task_type}"')
             event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
-            await self._inject_context([{"role": "user", "content": event_xml}], run_llm=True)
+            # For a genuinely new task, trigger inference so the model can
+            # announce the newly-started task. For a steered (busy-ship) path,
+            # suppress inference — the model already narrated the steer in the
+            # same turn as the tool call; a fresh inference here would produce
+            # a duplicate ack. Keep the event in context either way.
+            await self._inject_context(
+                [{"role": "user", "content": event_xml}],
+                run_llm=not steered,
+            )
 
     async def _handle_stop_task_tool(self, params: FunctionCallParams):
         result = await self._handle_stop_task(params)
@@ -1464,13 +1479,19 @@ class VoiceAgent(LLMAgent):
                 properties=FunctionCallResultProperties(run_llm=True),
             )
         else:
+            # Suppress post-tool inference so we don't get a second,
+            # rephrased ack. The model already narrated the steer in the
+            # same turn as the tool call (per the Critical Rule); a fresh
+            # inference driven by the tool result just produces a duplicate.
+            # Mirrors the pattern used by _handle_stop_task_tool and the
+            # guard comments in event_relay.py for task.finish / quest.step.
             summary = result.get("summary") if isinstance(result, dict) else None
             payload = {"summary": summary or "steer_task completed."}
             if isinstance(result, dict) and result.get("task_id"):
                 payload["task_id"] = result["task_id"]
-            self._begin_assistant_response_cycle()
             await params.result_callback(
-                payload, properties=FunctionCallResultProperties(run_llm=True)
+                payload,
+                properties=FunctionCallResultProperties(run_llm=False),
             )
 
     async def _handle_query_task_progress_tool(self, params: FunctionCallParams):

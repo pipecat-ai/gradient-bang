@@ -585,7 +585,9 @@ class TestHandleStopTask:
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
         child._is_corp_ship = False
+        child._character_id = "corp-ship-1"
         agent._children = [child]
+        agent._locked_ships.add("corp-ship-1")
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
         params = MagicMock()
@@ -594,6 +596,9 @@ class TestHandleStopTask:
         assert result["success"] is True
         assert result["task_id"] == full_id
         agent.cancel_task.assert_called_once_with(full_id, reason="Cancelled by user")
+        # Lock must be released synchronously so a follow-up start_task in
+        # the same turn can succeed.
+        assert "corp-ship-1" not in agent._locked_ships
 
     async def test_stop_specific_task_short_prefix(self):
         """Regression: the LLM passes the 8-char prefix it saw in an event."""
@@ -605,7 +610,9 @@ class TestHandleStopTask:
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
         child._is_corp_ship = False
+        child._character_id = "corp-ship-1"
         agent._children = [child]
+        agent._locked_ships.add("corp-ship-1")
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
         params = MagicMock()
@@ -614,6 +621,7 @@ class TestHandleStopTask:
         assert result["success"] is True
         assert result["task_id"] == full_id
         agent.cancel_task.assert_called_once_with(full_id, reason="Cancelled by user")
+        assert "corp-ship-1" not in agent._locked_ships
 
     async def test_stop_player_ship_default(self):
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
@@ -624,13 +632,16 @@ class TestHandleStopTask:
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
         child._is_corp_ship = False
+        child._character_id = agent._character_id
         agent._children = [child]
+        agent._locked_ships.add(agent._character_id)
         agent._task_groups = {"tid-1": TaskGroup(task_id="tid-1", agent_names={"task_abc123"})}
         params = MagicMock()
         params.arguments = {}
         result = await agent._handle_stop_task(params)
         assert result["success"] is True
         agent.cancel_task.assert_called_once_with("tid-1", reason="Cancelled by user")
+        assert agent._character_id not in agent._locked_ships
 
     async def test_stop_no_task(self):
         agent = _make_voice_agent()
@@ -1013,7 +1024,10 @@ class TestTaskToolWrappers:
         deferred_frame, direction = agent._deferred_frames[0]
         assert direction == FrameDirection.DOWNSTREAM
         assert isinstance(deferred_frame, LLMMessagesAppendFrame)
-        assert deferred_frame.run_llm is True
+        # Steered path must NOT trigger a second inference — the model
+        # already narrated the steer in the same turn as the tool call.
+        # A fresh inference here produces a duplicate ack.
+        assert deferred_frame.run_llm is False
         assert deferred_frame.messages[0]["role"] == "user"
         assert '<event name="task.steered" task_id="task_abc123" task_type="player_ship">' in (
             deferred_frame.messages[0]["content"]
