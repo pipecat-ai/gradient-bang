@@ -387,19 +387,23 @@ async function handleDeposit(
     );
   }
 
-  // Verify depositor and target are in the same corporation
+  // Verify depositor and target are in the same corporation (self-deposits always allowed)
   const depositorCharacterId =
     actorCharacterId ?? ship.owner_character_id ?? ship.owner_id;
-  const depositorCorpId =
-    ship.owner_type === "corporation"
-      ? ship.owner_corporation_id
-      : await getCharacterCorpId(supabase, depositorCharacterId);
+  const isSelfDeposit = depositorCharacterId === targetCharacterId;
 
-  if (!depositorCorpId || depositorCorpId !== target.corporation_id) {
-    throw new BankTransferError(
-      "Can only deposit to bank accounts of players in your corporation",
-      403,
-    );
+  if (!isSelfDeposit) {
+    const depositorCorpId =
+      ship.owner_type === "corporation"
+        ? ship.owner_corporation_id
+        : await getCharacterCorpId(supabase, depositorCharacterId);
+
+    if (!depositorCorpId || depositorCorpId !== target.corporation_id) {
+      throw new BankTransferError(
+        "Can only deposit to bank accounts of players in your corporation",
+        403,
+      );
+    }
   }
 
   // For rate limiting: use actor character ID for corp ships, owner ID for personal ships

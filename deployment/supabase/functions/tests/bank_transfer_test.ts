@@ -257,6 +257,118 @@ Deno.test({
 });
 
 // ============================================================================
+// Group 1c: Self-deposit (no corp membership required)
+// ============================================================================
+
+Deno.test({
+  name: "bank_transfer — self-deposit without corp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset — P3 has no corp", async () => {
+      await resetDatabase([P3]);
+      await apiOk("join", { character_id: p3Id });
+      await setShipCredits(p3ShipId, 5000);
+      await setMegabankBalance(p3Id, 0);
+    });
+
+    let cursor: number;
+
+    await t.step("capture cursor", async () => {
+      cursor = await getEventCursor(p3Id);
+    });
+
+    await t.step("P3 deposits 2000 to own bank", async () => {
+      const result = await apiOk("bank_transfer", {
+        character_id: p3Id,
+        direction: "deposit",
+        target_player_name: P3,
+        amount: 2000,
+      });
+      assertEquals(
+        (result as Record<string, unknown>).ship_credits_after,
+        3000,
+        "Ship should have 3000 credits left",
+      );
+      assertEquals(
+        (result as Record<string, unknown>).credits_in_bank_after,
+        2000,
+        "Bank should have 2000 credits",
+      );
+    });
+
+    await t.step("DB: P3 ship credits deducted", async () => {
+      const ship = await queryShip(p3ShipId);
+      assertExists(ship);
+      assertEquals(ship.credits, 3000);
+    });
+
+    await t.step("DB: P3 bank balance increased", async () => {
+      const char = await queryCharacter(p3Id);
+      assertExists(char);
+      assertEquals(char.credits_in_megabank, 2000);
+    });
+
+    await t.step("bank.transaction event emitted", async () => {
+      const events = await eventsOfType(p3Id, "bank.transaction", cursor);
+      assert(events.length >= 1, `Expected bank.transaction for P3, got ${events.length}`);
+      assertEquals(events[0].payload.direction, "deposit");
+      assertEquals(events[0].payload.amount, 2000);
+    });
+  },
+});
+
+// ============================================================================
+// Group 1d: Self-deposit (with corp membership)
+// ============================================================================
+
+Deno.test({
+  name: "bank_transfer — self-deposit with corp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup corp for P1", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Self Deposit Corp",
+      });
+      await setShipCredits(p1ShipId, 5000);
+      await setMegabankBalance(p1Id, 0);
+    });
+
+    await t.step("P1 deposits 1500 to own bank", async () => {
+      const result = await apiOk("bank_transfer", {
+        character_id: p1Id,
+        direction: "deposit",
+        target_player_name: P1,
+        amount: 1500,
+      });
+      assertEquals(
+        (result as Record<string, unknown>).ship_credits_after,
+        3500,
+        "Ship should have 3500 credits left",
+      );
+      assertEquals(
+        (result as Record<string, unknown>).credits_in_bank_after,
+        1500,
+        "Bank should have 1500 credits",
+      );
+    });
+
+    await t.step("DB: P1 bank balance increased", async () => {
+      const char = await queryCharacter(p1Id);
+      assertExists(char);
+      assertEquals(char.credits_in_megabank, 1500);
+    });
+  },
+});
+
+// ============================================================================
 // Group 2: Deposit failure cases
 // ============================================================================
 
