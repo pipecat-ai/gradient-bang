@@ -80,6 +80,7 @@ VOICE_TOOLS = ToolsSchema(
         RENAME_CORPORATION,
         CREATE_CORPORATION,
         LEAVE_CORPORATION,
+        SELL_SHIP,
         SEND_MESSAGE,
         # Combat
         COMBAT_INITIATE,

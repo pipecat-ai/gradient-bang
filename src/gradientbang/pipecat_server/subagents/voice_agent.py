@@ -311,6 +311,7 @@ class VoiceAgent(LLMAgent):
             "plot_course": self._handle_plot_course,
             "list_known_ports": self._handle_list_known_ports,
             "rename_ship": self._handle_rename_ship,
+            "sell_ship": self._handle_sell_ship,
             "rename_corporation": self._handle_rename_corporation,
             "create_corporation": self._handle_create_corporation,
             "leave_corporation": self._handle_leave_corporation,
@@ -557,6 +558,33 @@ class VoiceAgent(LLMAgent):
             await params.result_callback(
                 {"status": "Executed."},
                 properties=FunctionCallResultProperties(run_llm=False),
+            )
+        except Exception as exc:
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
+
+    async def _handle_sell_ship(self, params: FunctionCallParams):
+        args = params.arguments
+        if self._has_active_player_task():
+            self._begin_assistant_response_cycle()
+            await params.result_callback(
+                {"error": "Cannot sell a ship while a task is running. Stop the task first."},
+                properties=FunctionCallResultProperties(run_llm=True),
+            )
+            return
+        try:
+            result = await self._game_client.sell_ship(
+                ship_id=args["ship_id"],
+                character_id=self._character_id,
+            )
+            self._track_request_id_from_result(result)
+            self._begin_assistant_response_cycle()
+            await params.result_callback(
+                {
+                    "success": True,
+                    "trade_in_value": result.get("trade_in_value"),
+                    "credits_after": result.get("credits_after"),
+                },
+                properties=FunctionCallResultProperties(run_llm=True),
             )
         except Exception as exc:
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
