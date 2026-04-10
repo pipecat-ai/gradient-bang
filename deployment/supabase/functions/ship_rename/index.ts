@@ -410,7 +410,7 @@ async function ensureShipNameUnique(
   }
 
   if (data) {
-    throw new ShipRenameError("Ship name already exists", 409);
+    throw new ShipRenameError("A ship already exists in the universe with that name. Each ship must have a unique name.", 409);
   }
 }
 

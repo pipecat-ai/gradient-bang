@@ -681,7 +681,7 @@ async function ensureShipNameAvailable(
 ): Promise<void> {
   const available = await isShipNameAvailable(supabase, shipName);
   if (!available) {
-    throw new ShipPurchaseError("Ship name already exists", 409);
+    throw new ShipPurchaseError("A ship already exists in the universe with that name. Each ship must have a unique name.", 409);
   }
 }
 
