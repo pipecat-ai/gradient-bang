@@ -4,10 +4,11 @@ Resets the game database, generates a fresh universe, loads quest definitions, a
 
 ## Parameters
 
-The user specifies the environment as an argument: `/reset-world local`, `/reset-world dev`, or `/reset-world prod`. If not provided, ask which environment.
+The user specifies the environment as an argument: `/reset-world local`, `/reset-world dev`, `/reset-world eval`, or `/reset-world prod`. If not provided, ask which environment.
 
 - `local` → env file: `.env.supabase`
 - `dev` → env file: `.env.cloud.dev`
+- `eval` → env file: `.env.cloud.eval`
 - `prod` → env file: `.env.cloud`
 
 Additional optional parameters (ask if not provided, or use defaults):

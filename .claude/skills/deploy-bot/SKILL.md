@@ -4,9 +4,10 @@ Deploys the bot to Pipecat Cloud using cloud builds.
 
 ## Parameters
 
-The user specifies the environment as an argument: `/deploy-bot dev` or `/deploy-bot prod`. If not provided, ask which environment to deploy to.
+The user specifies the environment as an argument: `/deploy-bot dev`, `/deploy-bot eval`, or `/deploy-bot prod`. If not provided, ask which environment to deploy to.
 
 - `dev` → config file: `deployment/pcc-deploy.dev.toml`
+- `eval` → config file: `deployment/pcc-deploy.eval.toml`
 - `prod` → config file: `deployment/pcc-deploy.prod.toml`
 
 ## Steps

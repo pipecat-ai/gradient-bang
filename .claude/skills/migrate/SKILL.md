@@ -16,10 +16,11 @@ Applies pending Supabase migrations to the local or production database. This sk
 
 ## Parameters
 
-The user specifies the environment as an argument: `/migrate local`, `/migrate dev`, or `/migrate prod`. If not provided, ask which environment.
+The user specifies the environment as an argument: `/migrate local`, `/migrate dev`, `/migrate eval`, or `/migrate prod`. If not provided, ask which environment.
 
 - `local` → env file: `.env.supabase`
 - `dev` → env file: `.env.cloud.dev`
+- `eval` → env file: `.env.cloud.eval`
 - `prod` → env file: `.env.cloud`
 
 ## Steps
