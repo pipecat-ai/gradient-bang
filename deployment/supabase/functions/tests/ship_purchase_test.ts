@@ -144,7 +144,8 @@ Deno.test({
       });
       corpId = (createResult as Record<string, unknown>).corp_id as string;
 
-      // autonomous_probe costs 1000, ship credits cover it
+      // corporation_create costs 10000 ship credits, so reset to a known value
+      await setShipCredits(p1ShipId, 50000);
     });
 
     let corpShipId: string;
@@ -227,6 +228,8 @@ Deno.test({
         name: "Init Credits Corp",
       });
       corpId = (createResult as Record<string, unknown>).corp_id as string;
+      // corporation_create costs 10000, reset to known value
+      await setShipCredits(p1ShipId, 50000);
       // autonomous_probe = 1000, initial credits = 500 → total cost = 1500
       // ship credits = 50000, so 50000 - 1500 = 48500
     });
@@ -324,11 +327,12 @@ Deno.test({
     });
 
     await t.step("fails: insufficient credits (corp)", async () => {
-      await setShipCredits(p1ShipId, 10); // not enough for anything
+      await setShipCredits(p1ShipId, 50000);
       const createResult = await apiOk("corporation_create", {
         character_id: p1Id,
         name: "Broke Corp",
       });
+      await setShipCredits(p1ShipId, 10); // not enough for anything
       const result = await api("ship_purchase", {
         character_id: p1Id,
         ship_type: "autonomous_probe",
@@ -462,13 +466,15 @@ Deno.test({
     await t.step("reset and setup with known bank + ship credits", async () => {
       await resetDatabase([P1]);
       await apiOk("join", { character_id: p1Id });
-      await setShipCredits(p1ShipId, 20000);
-      await setMegabankBalance(p1Id, 99999);
+      await setShipCredits(p1ShipId, 50000);
       const createResult = await apiOk("corporation_create", {
         character_id: p1Id,
         name: "Ship Credits Corp",
       });
       corpId = (createResult as Record<string, unknown>).corp_id as string;
+      // corporation_create costs 10000 — reset to known values
+      await setShipCredits(p1ShipId, 20000);
+      await setMegabankBalance(p1Id, 99999);
     });
 
     await t.step("purchase autonomous_probe for corporation", async () => {
@@ -515,13 +521,15 @@ Deno.test({
     await t.step("reset and setup", async () => {
       await resetDatabase([P1]);
       await apiOk("join", { character_id: p1Id });
-      await setShipCredits(p1ShipId, 10000);
-      await setMegabankBalance(p1Id, 50000);
+      await setShipCredits(p1ShipId, 50000);
       const createResult = await apiOk("corporation_create", {
         character_id: p1Id,
         name: "Seed Credits Corp",
       });
       corpId = (createResult as Record<string, unknown>).corp_id as string;
+      // corporation_create costs 10000 — reset to known values
+      await setShipCredits(p1ShipId, 10000);
+      await setMegabankBalance(p1Id, 50000);
     });
 
     let corpShipId: string;
@@ -572,12 +580,14 @@ Deno.test({
     await t.step("reset and setup", async () => {
       await resetDatabase([P1]);
       await apiOk("join", { character_id: p1Id });
-      await setShipCredits(p1ShipId, 100); // too low
-      await setMegabankBalance(p1Id, 999999); // plenty in bank
+      await setShipCredits(p1ShipId, 50000);
       await apiOk("corporation_create", {
         character_id: p1Id,
         name: "Low Ship Credits Corp",
       });
+      // corporation_create costs 10000 — set low credits after
+      await setShipCredits(p1ShipId, 100); // too low
+      await setMegabankBalance(p1Id, 999999); // plenty in bank
     });
 
     await t.step("corp purchase fails with Insufficient credits", async () => {
