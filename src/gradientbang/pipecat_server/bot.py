@@ -644,8 +644,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     )
 
     idle_report_processor = IdleReportProcessor(
-        idle_seconds=float(os.getenv("BOT_IDLE_REPORT_TIME", "7.5")),
-        cooldown_seconds=float(os.getenv("BOT_IDLE_REPORT_COOLDOWN", "30")),
+        idle_seconds=float(os.getenv("BOT_IDLE_REPORT_TIME", "9")),
+        cooldown_seconds=float(os.getenv("BOT_IDLE_REPORT_COOLDOWN", "45")),
         on_idle=voice_agent.on_idle_report,
         enabled=os.getenv("BOT_IDLE_REPORT_ENABLED", "1") not in ("0", "false", ""),
     )
