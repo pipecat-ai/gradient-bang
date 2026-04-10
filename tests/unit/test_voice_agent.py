@@ -48,7 +48,7 @@ def _make_function_call_params(
 EXPECTED_TOOLS = {
     "my_status", "plot_course", "list_known_ports", "rename_ship",
     "rename_corporation", "create_corporation", "corporation_info",
-    "leave_corporation",
+    "leave_corporation", "sell_ship",
     "leaderboard_resources", "ship_definitions", "send_message",
     "combat_initiate", "combat_action", "load_game_info",
     "start_task", "stop_task", "steer_task", "query_task_progress",
@@ -1137,6 +1137,67 @@ class TestCorporationDirectTools:
         result = params.result_callback.call_args[0][0]
         assert result == {"success": True}
         assert agent.is_recent_request_id("req-rename")
+
+
+@pytest.mark.unit
+class TestSellShipVoiceTool:
+    """Verify sell_ship voice agent handler calls game_client and blocks when task active."""
+
+    @pytest.mark.asyncio
+    async def test_sell_ship_calls_game_client(self):
+        agent = _make_voice_agent()
+        agent._game_client.sell_ship = AsyncMock(
+            return_value={"request_id": "req-sell", "trade_in_value": 500, "credits_after": 1500}
+        )
+        params = MagicMock()
+        params.arguments = {"ship_id": "abc123"}
+        params.result_callback = AsyncMock()
+
+        await agent._handle_sell_ship(params)
+
+        agent._game_client.sell_ship.assert_called_once_with(
+            ship_id="abc123", character_id="char-123",
+        )
+        params.result_callback.assert_called_once()
+        result = params.result_callback.call_args[0][0]
+        assert result == {"success": True, "trade_in_value": 500, "credits_after": 1500}
+        properties = params.result_callback.call_args.kwargs["properties"]
+        assert properties.run_llm is True
+        assert agent.is_recent_request_id("req-sell")
+
+    @pytest.mark.asyncio
+    async def test_sell_ship_blocked_when_task_active(self):
+        agent = _make_voice_agent()
+        agent._game_client.sell_ship = AsyncMock()
+        agent._locked_ships = {agent._character_id}  # Simulate active player task
+        params = MagicMock()
+        params.arguments = {"ship_id": "abc123"}
+        params.result_callback = AsyncMock()
+
+        await agent._handle_sell_ship(params)
+
+        agent._game_client.sell_ship.assert_not_called()
+        params.result_callback.assert_called_once()
+        result = params.result_callback.call_args[0][0]
+        assert "error" in result
+        assert "task is running" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_sell_ship_error_propagated(self):
+        agent = _make_voice_agent()
+        agent._game_client.sell_ship = AsyncMock(
+            side_effect=RuntimeError("Not at mega-port")
+        )
+        params = MagicMock()
+        params.arguments = {"ship_id": "abc123"}
+        params.result_callback = AsyncMock()
+
+        await agent._handle_sell_ship(params)
+
+        params.result_callback.assert_called_once()
+        result = params.result_callback.call_args[0][0]
+        assert "error" in result
+        assert "Not at mega-port" in result["error"]
 
 
 @pytest.mark.unit
