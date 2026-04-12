@@ -22,7 +22,11 @@ Additional optional parameters (ask if not provided, or use defaults):
 set -a && source <env-file> && set +a
 ```
 
-### 2. Run the world reset script
+### 2. Confirm before proceeding (prod only)
+
+If the environment is **prod**, STOP and ask the user for explicit confirmation before doing anything destructive. Show them exactly what will happen: all game data tables will be truncated, a new universe will be generated, and quest definitions will be reloaded. Do NOT proceed until the user confirms.
+
+### 3. Run the world reset script
 
 This truncates all game data tables (preserving auth.users), generates a new universe, loads it into Supabase, and loads quest definitions.
 
@@ -41,7 +45,7 @@ Redirect output to a file and monitor with `tail`:
 scripts/reset-world.sh <args> > /tmp/reset-world.log 2>&1
 ```
 
-### 3. Seed combat cron config
+### 4. Seed combat cron config
 
 After the world reset, seed the combat cron runtime config into `app_runtime_config`.
 
@@ -62,7 +66,7 @@ For **dev** or **prod**, run:
 scripts/setup-production-combat-tick.sh
 ```
 
-### 4. Verify
+### 5. Verify
 
 Confirm the reset completed by checking the log output for the "Complete!" message and that no errors occurred.
 

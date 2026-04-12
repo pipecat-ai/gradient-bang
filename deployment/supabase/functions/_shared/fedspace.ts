@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAdjacentSectors } from "./map.ts";
+import { getAdjacentSectors, fetchAllAdjacencies } from "./map.ts";
 
 export interface UniverseMeta {
   mega_port_sectors?: number[] | null;
@@ -144,4 +144,121 @@ export function pickRandomFedspaceSector(
   }
   const index = Math.floor(Math.random() * candidates.length);
   return candidates[index] ?? fallbackSector;
+}
+
+const CHARACTER_SPAWN_MP_DISTANCE = Math.max(
+  2,
+  Number(Deno.env.get("CHARACTER_SPAWN_MP_DISTANCE") ?? "8") || 8,
+);
+const CHARACTER_SPAWN_MP_DISTANCE_MIN = 2;
+
+/**
+ * Multi-source BFS: compute shortest distance from every reachable sector
+ * to the nearest source sector.
+ */
+function computeDistancesFromSectors(
+  adjacency: Map<number, number[]>,
+  sources: number[],
+): Map<number, number> {
+  const distances = new Map<number, number>();
+  const queue: number[] = [];
+  for (const s of sources) {
+    if (adjacency.has(s)) {
+      distances.set(s, 0);
+      queue.push(s);
+    }
+  }
+  let head = 0;
+  while (head < queue.length) {
+    const current = queue[head++];
+    const dist = distances.get(current)!;
+    for (const neighbor of adjacency.get(current) ?? []) {
+      if (!distances.has(neighbor)) {
+        distances.set(neighbor, dist + 1);
+        queue.push(neighbor);
+      }
+    }
+  }
+  return distances;
+}
+
+/**
+ * Resolve the full set of fedspace sector IDs, handling the region-based
+ * fallback when no explicit fedspace_sectors list is configured.
+ */
+async function resolveFedspaceSectorSet(
+  supabase: SupabaseClient,
+  meta: UniverseMeta,
+): Promise<Set<number>> {
+  const explicit = getFedspaceSectors(meta);
+  if (explicit.length > 0) {
+    return new Set(explicit);
+  }
+
+  const regionName =
+    typeof meta.fedspace_region_name === "string" &&
+      meta.fedspace_region_name.trim()
+      ? meta.fedspace_region_name.trim()
+      : "Federation Space";
+
+  const { data, error } = await supabase
+    .from("universe_structure")
+    .select("sector_id")
+    .eq("region", regionName);
+
+  if (error || !data) {
+    console.error("fedspace.resolveFedspaceSectorSet", error);
+    return new Set();
+  }
+  return new Set(data.map((r: { sector_id: number }) => r.sector_id));
+}
+
+/**
+ * Pick a spawn sector for a new character at a controlled graph distance
+ * from the nearest mega port, within Federation Space.
+ *
+ * Tries the configured distance first, then decrements down to a minimum
+ * of 2 hops. Falls back to any random fedspace sector if no distance-based
+ * candidate is found.
+ */
+export async function pickSpawnSector(
+  supabase: SupabaseClient,
+  meta?: UniverseMeta,
+): Promise<number> {
+  const resolvedMeta = meta ?? (await loadUniverseMeta(supabase));
+  const megaPorts = getMegaPortSectors(resolvedMeta);
+
+  if (megaPorts.length === 0) {
+    console.warn("pickSpawnSector: no mega ports configured, using random fedspace sector");
+    return pickRandomFedspaceSector(resolvedMeta, 0);
+  }
+
+  const fedspaceSet = await resolveFedspaceSectorSet(supabase, resolvedMeta);
+  if (fedspaceSet.size === 0) {
+    console.warn("pickSpawnSector: no fedspace sectors found, using fallback sector 0");
+    return 0;
+  }
+
+  const megaSet = new Set(megaPorts);
+  const adjacency = await fetchAllAdjacencies();
+  const distances = computeDistancesFromSectors(adjacency, megaPorts);
+
+  for (
+    let dist = CHARACTER_SPAWN_MP_DISTANCE;
+    dist >= CHARACTER_SPAWN_MP_DISTANCE_MIN;
+    dist--
+  ) {
+    const candidates: number[] = [];
+    for (const [sector, d] of distances) {
+      if (d === dist && fedspaceSet.has(sector) && !megaSet.has(sector)) {
+        candidates.push(sector);
+      }
+    }
+    if (candidates.length > 0) {
+      return candidates[Math.floor(Math.random() * candidates.length)]!;
+    }
+  }
+
+  console.warn("pickSpawnSector: no sector found at any valid distance, using random fedspace sector");
+  return pickRandomFedspaceSector(resolvedMeta, 0);
 }
