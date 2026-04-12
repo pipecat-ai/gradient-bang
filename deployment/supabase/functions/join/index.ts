@@ -44,7 +44,8 @@ import {
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import { ActorAuthorizationError } from "../_shared/actors.ts";
 import { resolvePlayerType } from "../_shared/status.ts";
-import { normalizeMapKnowledge, fetchAllAdjacencies } from "../_shared/map.ts";
+import { normalizeMapKnowledge, fetchAllAdjacencies, findRouteToNearest } from "../_shared/map.ts";
+import { loadUniverseMeta, getMegaPortSectors } from "../_shared/fedspace.ts";
 import { traced } from "../_shared/weave.ts";
 import type { WeaveSpan } from "../_shared/weave.ts";
 
@@ -407,9 +408,44 @@ Deno.serve(traced("join", async (req, trace) => {
       return fv > 0 && Math.abs(la - fv) < 180_000; // within 3 min = first visit
     })();
 
+    // Compute onboarding route for players who haven't visited a mega port.
+    // Included in the response for the bot to seed into LLM context — NOT
+    // written to map_knowledge.
+    const sOnboardingRoute = trace.span("compute_onboarding_route");
+    let onboardingRoute: number[] | null = null;
+    try {
+      const meta = await loadUniverseMeta(supabase);
+      const megaPorts = getMegaPortSectors(meta);
+      if (megaPorts.length > 0) {
+        const megaSet = new Set(megaPorts);
+        const visitedSectors = Object.keys(knowledge.sectors_visited).map(Number);
+        const hasVisitedMega = visitedSectors.some((s) => megaSet.has(s));
+        if (!hasVisitedMega) {
+          const adjacency = await fetchAllAdjacencies();
+          const result = findRouteToNearest(adjacency, targetSector, megaSet);
+          if (result && result.path.length > 1) {
+            onboardingRoute = result.path;
+          }
+        }
+      }
+      sOnboardingRoute.end({ route_length: onboardingRoute?.length ?? 0 });
+    } catch (err) {
+      console.error("[join] onboarding route computation failed:", err);
+      sOnboardingRoute.end({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     console.log(`[join] Total time: ${(performance.now() - t0).toFixed(1)}ms`);
     trace.setOutput({ request_id: requestId, characterId, targetSector, isFirstVisit, "map.local": mapPayload });
-    return successResponse({ request_id: requestId, is_first_visit: isFirstVisit });
+    const responseBody: Record<string, unknown> = {
+      request_id: requestId,
+      is_first_visit: isFirstVisit,
+    };
+    if (onboardingRoute) {
+      responseBody.onboarding_route = onboardingRoute;
+    }
+    return successResponse(responseBody);
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       return errorResponse(err.message, err.status);

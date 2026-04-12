@@ -469,6 +469,7 @@ class EventRelay:
         self._first_status_delivered = False
         self._megaport_check_request_id: Optional[str] = None
         self._onboarding_complete = False
+        self._onboarding_route: Optional[list[int]] = None
         self._session_started_at: Optional[str] = None
         self._debounce_tasks: dict[str, asyncio.Task] = {}
 
@@ -496,9 +497,20 @@ class EventRelay:
         self.is_new_player = None
         self._first_status_delivered = False
         self._onboarding_complete = False
+        self._onboarding_route = None
         self._session_started_at = None
         result = await self._game_client.join(self._character_id)
         self._session_started_at = datetime.now(timezone.utc).isoformat()
+        # Extract onboarding route if present (new players only)
+        if isinstance(result, Mapping):
+            route = result.get("onboarding_route")
+            if isinstance(route, list) and len(route) > 1:
+                self._onboarding_route = [int(s) for s in route]
+                logger.info(
+                    f"Onboarding: route to mega port received, "
+                    f"{len(self._onboarding_route)} hops: "
+                    f"{self._onboarding_route[0]} → {self._onboarding_route[-1]}"
+                )
         await self._game_client.subscribe_my_messages()
         await self._game_client.list_user_ships(character_id=self._character_id)
         await self._game_client.quest_status(character_id=self._character_id)
@@ -529,6 +541,7 @@ class EventRelay:
         self.is_new_player = None
         self._first_status_delivered = False
         self._onboarding_complete = False
+        self._onboarding_route = None
         self._megaport_check_request_id = None
         self._session_started_at = None
 
@@ -603,8 +616,13 @@ class EventRelay:
         if self.is_new_player:
             from gradientbang.utils.prompt_loader import load_prompt
 
+            if self._onboarding_route:
+                route_str = " → ".join(str(s) for s in self._onboarding_route)
+            else:
+                route_str = "unavailable"
             content = load_prompt("fragments/onboarding.md").format(
                 display_name=self.display_name,
+                route_to_megaport=route_str,
             )
             onboarding_xml = f'<event name="onboarding">\n{content}</event>'
             logger.info("Onboarding: new player, injecting welcome message")

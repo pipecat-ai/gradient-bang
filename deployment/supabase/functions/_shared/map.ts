@@ -1136,6 +1136,61 @@ export async function findShortestPath(
   );
 }
 
+export interface RouteToNearestResult {
+  path: number[];
+  distance: number;
+  target: number;
+}
+
+/**
+ * BFS from a single source sector, stopping at the first sector found
+ * in the target set. Returns the full path [fromSector, ..., target].
+ * Pure function — no I/O. Uses the adjacency map directly.
+ *
+ * Returns null if no target is reachable.
+ */
+export function findRouteToNearest(
+  adjacency: Map<number, number[]>,
+  fromSector: number,
+  targets: Set<number>,
+): RouteToNearestResult | null {
+  if (targets.has(fromSector)) {
+    return { path: [fromSector], distance: 0, target: fromSector };
+  }
+  if (!adjacency.has(fromSector)) {
+    return null;
+  }
+
+  const visited = new Set<number>([fromSector]);
+  const parents = new Map<number, number | null>([[fromSector, null]]);
+  let frontier: number[] = [fromSector];
+
+  while (frontier.length > 0) {
+    const next: number[] = [];
+    for (const current of frontier) {
+      for (const neighbor of adjacency.get(current) ?? []) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          parents.set(neighbor, current);
+          if (targets.has(neighbor)) {
+            const path: number[] = [];
+            let cur: number | null | undefined = neighbor;
+            while (cur !== null && cur !== undefined) {
+              path.unshift(cur);
+              cur = parents.get(cur) ?? null;
+            }
+            return { path, distance: path.length - 1, target: neighbor };
+          }
+          next.push(neighbor);
+        }
+      }
+    }
+    frontier = next;
+  }
+
+  return null;
+}
+
 /**
  * Load all sector adjacencies from universe_structure in a single query.
  * Returns a Map from sector_id to an array of neighbor sector_ids.
