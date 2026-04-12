@@ -27,11 +27,10 @@ import {
 } from "../_shared/request.ts";
 import {
   loadUniverseMeta,
-  pickRandomFedspaceSector,
+  pickSpawnSector,
 } from "../_shared/fedspace.ts";
 import { traced } from "../_shared/weave.ts";
 
-const DEFAULT_START_SECTOR = 0;
 const DEFAULT_SHIP_TYPE = "sparrow_scout";
 const DEFAULT_CREDITS = 12000;
 const MAX_CHARACTERS_PER_USER = 5;
@@ -253,10 +252,7 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
     const characterId = character.character_id;
 
     const universeMeta = await loadUniverseMeta(supabase);
-    const startSector = pickRandomFedspaceSector(
-      universeMeta,
-      DEFAULT_START_SECTOR,
-    );
+    const startSector = await pickSpawnSector(supabase, universeMeta);
 
     // Create ship for character
     const sCreateShip = trace.span("create_ship");
