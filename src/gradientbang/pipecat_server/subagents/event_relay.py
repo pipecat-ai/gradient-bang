@@ -471,6 +471,7 @@ class EventRelay:
         self._onboarding_complete = False
         self._session_started_at: Optional[str] = None
         self._debounce_tasks: dict[str, asyncio.Task] = {}
+        self._debounce_held_messages: dict[str, list[dict]] = {}
 
         # Subscribe to game events from config registry
         for event_name in EVENT_CONFIGS:
@@ -526,6 +527,7 @@ class EventRelay:
         for task in self._debounce_tasks.values():
             task.cancel()
         self._debounce_tasks.clear()
+        self._debounce_held_messages.clear()
         self.is_new_player = None
         self._first_status_delivered = False
         self._onboarding_complete = False
@@ -712,15 +714,33 @@ class EventRelay:
 
     # ── Debounced inference ─────────────────────────────────────────────
 
-    def _schedule_debounced_inference(self, event_name: str, delay: float) -> None:
-        """Start or reset a debounce timer for the given event type."""
+    def _schedule_debounced_inference(
+        self, event_name: str, delay: float, held_message: Optional[str] = None
+    ) -> None:
+        """Start or reset a debounce timer for the given event type.
+
+        When *held_message* is provided the event XML is not delivered
+        immediately — the timer owns both delivery and inference so the
+        events appear fresh in context after any in-flight tool-completion
+        response.
+        """
         existing = self._debounce_tasks.get(event_name)
         if existing and not existing.done():
             existing.cancel()
 
+        if held_message is not None:
+            self._debounce_held_messages.setdefault(event_name, []).append(
+                {"role": "user", "content": held_message}
+            )
+
         async def _fire():
             await asyncio.sleep(delay)
             self._debounce_tasks.pop(event_name, None)
+            held = self._debounce_held_messages.pop(event_name, None)
+            if held:
+                await self._task_state.queue_frame(
+                    LLMMessagesAppendFrame(messages=held, run_llm=False)
+                )
             await self._task_state.queue_frame(LLMRunFrame())
 
         self._debounce_tasks[event_name] = asyncio.get_event_loop().create_task(_fire())
@@ -1028,10 +1048,14 @@ class EventRelay:
             cfg, event_name, is_our_task, request_id, combat_for_player
         )
 
-        # Debounce rapid-fire inference triggers
+        # Debounce rapid-fire inference triggers.
+        # Hold delivery so events appear fresh in context when the timer
+        # fires, avoiding them being buried behind a tool-completion response.
         if should_run_llm and cfg.debounce_seconds is not None:
-            should_run_llm = False
-            self._schedule_debounced_inference(event_name, cfg.debounce_seconds)
+            self._schedule_debounced_inference(
+                event_name, cfg.debounce_seconds, held_message=event_xml
+            )
+            return
 
         # Deferred batching
         if payload_task_id and self._task_state.tool_call_active:
