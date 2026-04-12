@@ -47,6 +47,10 @@ venv.bak/
 # System
 .DS_Store
 
+# Supabase CLI local state
+supabase/.branches/
+supabase/.temp/
+
 # Deployment
 deployment/pcc-deploy*.toml
 !deployment/pcc-deploy.example.toml

@@ -225,7 +225,7 @@ def _create_google_service(
             tools = []
             if isinstance(context, PcLLMContext):
                 adapter = self.get_llm_adapter()
-                params = adapter.get_llm_invocation_params(context, convert_developer_to_user=False)
+                params = adapter.get_llm_invocation_params(context)
                 messages = params["messages"]
                 system = params["system_instruction"]
                 tools = params["tools"]

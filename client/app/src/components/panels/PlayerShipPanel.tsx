@@ -262,7 +262,7 @@ const PlayerShip = () => {
 }
 
 export const PlayerShipTabControls = () => {
-  const [activeTab, setActiveTab] = useState<string>("")
+  const [activeTab, setActiveTab] = useState<string>("ships")
 
   const handleTabClick = (value: string) => {
     setActiveTab((prev) => (prev === value ? "" : value))
