@@ -83,10 +83,14 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
     )
     setCharacterId(characterId)
 
-    // Set player event from character data
-    const characters = useGameStore.getState().characters
-    const selected = characters.find((c) => c.character_id === characterId)
-    useGameStore.getState().setPlayerEvent(selected?.event ?? null)
+    // Set player event from character data (skip for new characters —
+    // CreateCharacter already set it from the create response, and the
+    // new character isn't in the store's characters list yet)
+    if (!isNewCharacter) {
+      const characters = useGameStore.getState().characters
+      const selected = characters.find((c) => c.character_id === characterId)
+      useGameStore.getState().setPlayerEvent(selected?.event ?? null)
+    }
     if (isNewCharacter) {
       titleVideoRef.current?.pause()
       setActiveModal("intro_tutorial")
