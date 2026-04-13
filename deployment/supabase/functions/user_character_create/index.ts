@@ -393,10 +393,22 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
       if (eventLinkError) {
         sEventLink.end({ error: eventLinkError.message });
         console.error("character_create.event_link", eventLinkError);
-        // Don't fail character creation if event link fails
-      } else {
-        sEventLink.end({ event_id: validatedEventId });
+        // Event join is only possible at creation time, so this must succeed.
+        // Clean up the character and fail the request.
+        await supabase
+          .from("ship_instances")
+          .delete()
+          .eq("ship_id", ship.ship_id);
+        await supabase
+          .from("characters")
+          .delete()
+          .eq("character_id", characterId);
+        throw new CharacterCreateError(
+          "Failed to join event. Please try again.",
+          500,
+        );
       }
+      sEventLink.end({ event_id: validatedEventId });
     }
 
     // Return success response

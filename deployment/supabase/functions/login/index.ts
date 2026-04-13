@@ -168,6 +168,29 @@ Deno.serve(traced("login", async (req, trace) => {
       };
     });
 
+    // Fetch event memberships for all characters
+    const characterIds = characterList.map((c: { character_id: string }) => c.character_id);
+    if (characterIds.length > 0) {
+      const { data: eventMemberships } = await serviceClient
+        .from("world_event_participants")
+        .select(
+          "character_id, event_id, world_events!inner(event_id, title, ends_at, visible_until)",
+        )
+        .in("character_id", characterIds)
+        .gt("world_events.visible_until", new Date().toISOString());
+
+      if (eventMemberships) {
+        const eventMap = new Map<string, { event_id: string; title: string }>();
+        for (const mem of eventMemberships) {
+          const ev = (mem as any).world_events;
+          eventMap.set(mem.character_id, { event_id: ev.event_id, title: ev.title });
+        }
+        for (const c of characterList) {
+          (c as any).event = eventMap.get(c.character_id) ?? null;
+        }
+      }
+    }
+
     trace.setOutput({ user_id: data.user.id, character_count: characterList.length });
     return corsResponse(
       {

@@ -33,6 +33,8 @@ const TOP_N = 3;
 const LEADERBOARD_SELECT = {
   wealth:
     "player_id:character_id, player_name:name, player_type, total_wealth",
+  territory:
+    "player_id:character_id, player_name:name, player_type, sectors_controlled",
   trading:
     "player_id:character_id, player_name:name, player_type, total_trade_volume",
   exploration:
@@ -87,6 +89,10 @@ Deno.serve(traced("world_events_list", async (req, trace) => {
     if (partError) {
       sParticipants.end({ error: partError.message });
       console.error("world_events_list.participants", partError);
+      return corsResponse(
+        { success: false, error: "Failed to fetch participant data" },
+        500,
+      );
     }
 
     // Build participant count and ID maps
@@ -112,6 +118,7 @@ Deno.serve(traced("world_events_list", async (req, trace) => {
 
       let topPlayers: Record<string, unknown[]> = {
         wealth: [],
+        territory: [],
         trading: [],
         exploration: [],
       };
@@ -121,6 +128,7 @@ Deno.serve(traced("world_events_list", async (req, trace) => {
         const frozen = event.frozen_results as Record<string, unknown[]>;
         topPlayers = {
           wealth: (frozen.wealth ?? []).slice(0, TOP_N),
+          territory: (frozen.territory ?? []).slice(0, TOP_N),
           trading: (frozen.trading ?? []).slice(0, TOP_N),
           exploration: (frozen.exploration ?? []).slice(0, TOP_N),
         };
@@ -128,29 +136,58 @@ Deno.serve(traced("world_events_list", async (req, trace) => {
         // Live event: query views filtered to participants
         const ids = participantIdMap.get(event.event_id) ?? [];
         if (ids.length > 0) {
-          const [wealthRes, tradingRes, explorationRes] = await Promise.all([
-            supabase
-              .from("leaderboard_wealth")
-              .select(LEADERBOARD_SELECT.wealth)
-              .in("character_id", ids)
-              .order("total_wealth", { ascending: false })
-              .limit(TOP_N),
-            supabase
-              .from("leaderboard_trading")
-              .select(LEADERBOARD_SELECT.trading)
-              .in("character_id", ids)
-              .order("total_trade_volume", { ascending: false })
-              .limit(TOP_N),
-            supabase
-              .from("leaderboard_exploration")
-              .select(LEADERBOARD_SELECT.exploration)
-              .in("character_id", ids)
-              .order("sectors_visited", { ascending: false })
-              .limit(TOP_N),
-          ]);
+          const [wealthRes, territoryRes, tradingRes, explorationRes] =
+            await Promise.all([
+              supabase
+                .from("leaderboard_wealth")
+                .select(LEADERBOARD_SELECT.wealth)
+                .in("character_id", ids)
+                .order("total_wealth", { ascending: false })
+                .limit(TOP_N),
+              supabase
+                .from("leaderboard_territory")
+                .select(LEADERBOARD_SELECT.territory)
+                .in("character_id", ids)
+                .order("sectors_controlled", { ascending: false })
+                .limit(TOP_N),
+              supabase
+                .from("leaderboard_trading")
+                .select(LEADERBOARD_SELECT.trading)
+                .in("character_id", ids)
+                .order("total_trade_volume", { ascending: false })
+                .limit(TOP_N),
+              supabase
+                .from("leaderboard_exploration")
+                .select(LEADERBOARD_SELECT.exploration)
+                .in("character_id", ids)
+                .order("sectors_visited", { ascending: false })
+                .limit(TOP_N),
+            ]);
+
+          for (const [name, res] of Object.entries({
+            wealth: wealthRes,
+            territory: territoryRes,
+            trading: tradingRes,
+            exploration: explorationRes,
+          })) {
+            if (res.error) {
+              console.error(
+                `world_events_list.top_players.${name}`,
+                res.error,
+              );
+              return corsResponse(
+                {
+                  success: false,
+                  error: `Failed to fetch ${name} leaderboard for event ${event.event_id}`,
+                },
+                500,
+              );
+            }
+          }
 
           topPlayers = {
             wealth: wealthRes.data ?? [],
+            territory: territoryRes.data ?? [],
             trading: tradingRes.data ?? [],
             exploration: explorationRes.data ?? [],
           };

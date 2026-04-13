@@ -103,12 +103,17 @@ const explorationColumns: ColumnDef<LeaderboardExploration>[] = [
 
 type LeaderboardTab = LeaderboardCategory | "world_events"
 
-export const LeaderboardPanel = ({ className }: { className?: string }) => {
-  const leaderboardData = useGameStore((state) => state.leaderboard_data)
+export const LeaderboardPanel = ({
+  className,
+  onScopeChange,
+}: {
+  className?: string
+  onScopeChange?: (scope: "global" | "event") => void
+}) => {
+  const leaderboardData = useGameStore((state) => state.leaderboardDialogData)
   const player = useGameStore((state) => state.player)
   const playerEvent = useGameStore((state) => state.playerEvent)
   const leaderboardScope = useGameStore((state) => state.leaderboardScope)
-  const setLeaderboardScope = useGameStore((state) => state.setLeaderboardScope)
   const worldEvents = useGameStore((state) => state.worldEvents)
   const [filter, setFilter] = useState<LeaderboardTab>("wealth")
 
@@ -172,7 +177,7 @@ export const LeaderboardPanel = ({ className }: { className?: string }) => {
           setFilter={setFilter}
           playerEvent={playerEvent}
           leaderboardScope={leaderboardScope}
-          setLeaderboardScope={setLeaderboardScope}
+          onScopeChange={onScopeChange}
         />
         <div className="flex flex-col h-full min-h-0 gap-2 relative p-ui-xs overflow-y-auto">
           <WorldEventsList events={worldEvents} />
@@ -192,7 +197,7 @@ export const LeaderboardPanel = ({ className }: { className?: string }) => {
         setFilter={setFilter}
         playerEvent={playerEvent}
         leaderboardScope={leaderboardScope}
-        setLeaderboardScope={setLeaderboardScope}
+        onScopeChange={onScopeChange}
       />
       {leaderboardData.frozen && (
         <div className="px-ui-xs py-1 text-center text-xs uppercase tracking-wider text-muted-foreground bg-muted/30 border-b">
@@ -222,13 +227,13 @@ function LeaderboardHeader({
   setFilter,
   playerEvent,
   leaderboardScope,
-  setLeaderboardScope,
+  onScopeChange,
 }: {
   filter: LeaderboardTab
   setFilter: (f: LeaderboardTab) => void
   playerEvent: { event_id: string; title: string } | null
   leaderboardScope: "global" | "event"
-  setLeaderboardScope: (scope: "global" | "event") => void
+  onScopeChange?: (scope: "global" | "event") => void
 }) {
   return (
     <div className="border-b p-ui-xs flex flex-col gap-ui-xs">
@@ -239,7 +244,7 @@ function LeaderboardHeader({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setLeaderboardScope("event")}
+              onClick={() => onScopeChange?.("event")}
               className={leaderboardScope === "event" ? "bg-background text-accent-foreground" : ""}
             >
               {playerEvent.title}
@@ -247,7 +252,7 @@ function LeaderboardHeader({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setLeaderboardScope("global")}
+              onClick={() => onScopeChange?.("global")}
               className={
                 leaderboardScope === "global" ? "bg-background text-accent-foreground" : ""
               }
@@ -353,13 +358,21 @@ function WorldEventCard({ event }: { event: WorldEvent }) {
           <span>{event.participant_count} participants</span>
         </div>
         <Divider color="secondary" decoration="none" />
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <TopPlayersColumn
             title="Wealth"
             players={event.top_players.wealth.map((p) => ({
               player_id: p.player_id,
               player_name: p.player_name,
               value: p.total_wealth,
+            }))}
+          />
+          <TopPlayersColumn
+            title="Territory"
+            players={event.top_players.territory.map((p) => ({
+              player_id: p.player_id,
+              player_name: p.player_name,
+              value: p.sectors_controlled,
             }))}
           />
           <TopPlayersColumn

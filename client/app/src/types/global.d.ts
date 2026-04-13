@@ -559,6 +559,7 @@ declare global {
 
   interface WorldEventTopPlayers {
     wealth: LeaderboardWealth[]
+    territory: LeaderboardTerritory[]
     trading: LeaderboardTrading[]
     exploration: LeaderboardExploration[]
   }

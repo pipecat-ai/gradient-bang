@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useCallback, useEffect } from "react"
 
 import { MedalIcon } from "@phosphor-icons/react"
 
@@ -17,62 +17,60 @@ const LEADERBOARD_URL =
 const WORLD_EVENTS_URL =
   (import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1") + "/world_events_list"
 
-const LEADERBOARD_CACHE_TTL = 1000 * 60 * 5 // 5 minutes
-const WORLD_EVENTS_CACHE_TTL = 1000 * 60 * 5 // 5 minutes
+const WORLD_EVENTS_CACHE_TTL = 1000 * 60 * 1 // 1 minute
+
+async function fetchLeaderboardForScope(scope: "global" | "event") {
+  const { playerEvent } = useGameStore.getState()
+  const url =
+    scope === "event" && playerEvent ?
+      `${LEADERBOARD_URL}?event_id=${playerEvent.event_id}`
+    : LEADERBOARD_URL
+  const response = await fetch(url)
+  const data = await response.json()
+  useGameStore.getState().setLeaderboardDialogData(data, scope)
+}
+
+async function fetchWorldEvents() {
+  try {
+    const response = await fetch(WORLD_EVENTS_URL)
+    const data = await response.json()
+    if (data.success) {
+      useGameStore.getState().setWorldEvents(data.events)
+    }
+  } catch (e) {
+    console.debug("[LEADERBOARD] World events fetch failed", e)
+  }
+}
 
 export const Leaderboard = () => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
+  const leaderboardScope = useGameStore((state) => state.leaderboardScope)
+  const leaderboardDialogScope = useGameStore((state) => state.leaderboardDialogScope)
 
+  // Fetch dialog data on open and when scope changes
   useEffect(() => {
     if (activeModal?.modal !== "leaderboard") return
 
-    const state = useGameStore.getState()
-
-    // Fetch leaderboard (scope-aware)
-    const fetchLeaderboard = async () => {
-      console.debug("[LEADERBOARD] Fetching leaderboard data...")
-      const { leaderboardScope, playerEvent } = useGameStore.getState()
-      const url =
-        leaderboardScope === "event" && playerEvent ?
-          `${LEADERBOARD_URL}?event_id=${playerEvent.event_id}`
-        : LEADERBOARD_URL
-      const response = await fetch(url)
-      const data = await response.json()
-      useGameStore.getState().setLeaderboardData(data)
-      console.debug("[LEADERBOARD] Fetched leaderboard data:", data)
+    // Refetch if scope changed or no dialog data yet
+    if (leaderboardDialogScope !== leaderboardScope) {
+      fetchLeaderboardForScope(leaderboardScope)
     }
 
-    const leaderboardLastUpdated = state.leaderboard_last_updated
-    if (
-      !leaderboardLastUpdated ||
-      new Date(leaderboardLastUpdated).getTime() + LEADERBOARD_CACHE_TTL <= Date.now()
-    ) {
-      fetchLeaderboard()
-    }
-
-    // Fetch world events
-    const fetchWorldEvents = async () => {
-      console.debug("[LEADERBOARD] Fetching world events...")
-      try {
-        const response = await fetch(WORLD_EVENTS_URL)
-        const data = await response.json()
-        if (data.success) {
-          useGameStore.getState().setWorldEvents(data.events)
-        }
-      } catch (e) {
-        console.debug("[LEADERBOARD] World events fetch failed", e)
-      }
-    }
-
-    const worldEventsLastUpdated = state.worldEventsLastUpdated
+    // Fetch world events (with TTL check)
+    const worldEventsLastUpdated = useGameStore.getState().worldEventsLastUpdated
     if (
       !worldEventsLastUpdated ||
       new Date(worldEventsLastUpdated).getTime() + WORLD_EVENTS_CACHE_TTL <= Date.now()
     ) {
       fetchWorldEvents()
     }
-  }, [activeModal])
+  }, [activeModal, leaderboardScope, leaderboardDialogScope])
+
+  const handleScopeChange = useCallback((scope: "global" | "event") => {
+    useGameStore.getState().setLeaderboardScope(scope)
+    // The useEffect above will detect the mismatch and refetch
+  }, [])
 
   return (
     <BaseDialog modalName="leaderboard" title="Leaderboard" size="3xl">
@@ -84,7 +82,7 @@ export const Leaderboard = () => {
           </CardTitle>
         </CardHeader>
         <CardContent className="h-full min-h-0">
-          <LeaderboardPanel />
+          <LeaderboardPanel onScopeChange={handleScopeChange} />
         </CardContent>
         <CardFooter className="flex flex-col gap-6">
           <Divider decoration="plus" color="accent" />
