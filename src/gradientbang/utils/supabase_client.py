@@ -567,6 +567,12 @@ class AsyncGameClient(BaseAsyncGameClient):
         payload: Dict[str, Any] = {
             "character_ids": self._poll_character_ids,
         }
+        # `ship_ids` holds corp-ship pseudo-character ids (corp ships are
+        # registered in `characters` with character_id == ship_id). They live
+        # in the same namespace as `character_ids` and the events_since edge
+        # function unions them into the recipient_character_id filter.
+        if self._poll_ship_ids:
+            payload["ship_ids"] = self._poll_ship_ids
         if self._poll_corp_id:
             payload["corp_id"] = self._poll_corp_id
         if initial_only:
