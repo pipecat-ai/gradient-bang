@@ -118,6 +118,10 @@ const PINNED_SECTORS: Record<string, number> = {
   // Ship purchase tests: sector 0 (mega-port)
   test_shoppurch_p1: 0,
   test_shoppurch_p2: 0,
+  // Corp ship map knowledge tests: P1 at mega-port (buys corp ship),
+  // P2 in a distant sector (drives the ship but never visited sector 0)
+  test_corp_ship_map_p1: 0,
+  test_corp_ship_map_p2: 2,
   // Salvage economy tests: sector 3
   test_salvage_p1: 3,
   test_salvage_p2: 3,

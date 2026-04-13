@@ -78,28 +78,6 @@ async function insertRecipientEvent(
   });
 }
 
-/**
- * Seed the pseudo-character's map knowledge so list_known_ports accepts
- * `from_sector` as a visited sector.
- */
-async function seedCorpShipVisited(
-  corpShipCharacterId: string,
-  sectorId: number,
-): Promise<void> {
-  await withPg(async (pg) => {
-    await pg.queryObject(
-      `UPDATE characters
-         SET map_knowledge = jsonb_build_object(
-           'total_sectors_visited', 1,
-           'sectors_visited', jsonb_build_object($2::text, jsonb_build_object(
-             'last_visited', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-           ))
-         )
-       WHERE character_id = $1`,
-      [corpShipCharacterId, String(sectorId)],
-    );
-  });
-}
 
 // ============================================================================
 // Group 0: Start server
@@ -267,7 +245,9 @@ Deno.test({
     let corpShipId: string;
     let cursor: number;
 
-    await t.step("reset + create corp with ship + seed sector visited", async () => {
+    let actorKnownSector: number;
+
+    await t.step("reset + create corp with ship at actor's known sector", async () => {
       await resetDatabase([P1]);
       await apiOk("join", { character_id: p1Id });
       await setShipCredits(p1ShipId, 50000);
@@ -276,11 +256,31 @@ Deno.test({
         name: "E2E Corp",
       });
       corpId = (createResult as Record<string, unknown>).corp_id as string;
-      // Place the corp ship in fed space sector 8 (known visited-safe in
-      // practice; we still seed explicitly so the test is self-contained).
-      const shipResult = await createCorpShip(corpId, 8, "E2E Probe");
+      // Place the corp ship in a sector the actor already knows so that
+      // Option B's read-time merge (actor personal → corp ship view)
+      // makes `from_sector` pass the visited-sector check in
+      // list_known_ports. createCorpShip bypasses the ship_purchase
+      // endpoint so Option A's corp-knowledge seeding is not applied
+      // here — the actor merge is what we rely on.
+      const p1Rows = await withPg(async (pg) => {
+        const r = await pg.queryObject<{ map_knowledge: unknown }>(
+          `SELECT map_knowledge FROM characters WHERE character_id = $1`,
+          [p1Id],
+        );
+        return r.rows;
+      });
+      const mk = p1Rows[0].map_knowledge as {
+        sectors_visited?: Record<string, unknown>;
+      } | null;
+      const visited = Object.keys(mk?.sectors_visited ?? {}).map(Number);
+      assert(visited.length > 0, "P1 should know at least one sector post-join");
+      actorKnownSector = visited[0];
+      const shipResult = await createCorpShip(
+        corpId,
+        actorKnownSector,
+        "E2E Probe",
+      );
       corpShipId = shipResult.pseudoCharacterId;
-      await seedCorpShipVisited(corpShipId, 8);
     });
 
     await t.step("capture cursor, call list_known_ports for corp ship", async () => {
@@ -288,7 +288,7 @@ Deno.test({
       const result = await apiOk("list_known_ports", {
         character_id: corpShipId,
         actor_character_id: p1Id,
-        from_sector: 8,
+        from_sector: actorKnownSector,
         max_hops: 10,
       });
       assert(result.success);
