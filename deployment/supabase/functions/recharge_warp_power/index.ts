@@ -295,6 +295,7 @@ async function handleRecharge(
       character,
       ship: updatedShip,
       shipDefinition,
+      actorCharacterId,
     });
   } finally {
     pgClient.release();

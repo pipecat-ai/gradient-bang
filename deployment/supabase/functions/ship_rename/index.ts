@@ -326,7 +326,9 @@ async function handleRename(params: {
       const pgClient = await acquirePgClient();
       let statusPayload: Record<string, unknown>;
       try {
-        statusPayload = await pgBuildStatusPayload(pgClient, characterId);
+        statusPayload = await pgBuildStatusPayload(pgClient, characterId, {
+          actorCharacterId,
+        });
       } finally {
         pgClient.release();
       }

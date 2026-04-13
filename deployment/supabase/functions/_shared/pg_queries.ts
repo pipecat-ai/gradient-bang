@@ -684,15 +684,18 @@ function setPlayerSource(knowledge: MapKnowledge): MapKnowledge {
 export async function pgLoadMapKnowledge(
   pg: QueryClient,
   characterId: string,
+  actorCharacterId?: string | null,
 ): Promise<MapKnowledge> {
   const result = await pg.queryObject<{
     map_knowledge: unknown;
     corporation_id: string | null;
     corp_map_knowledge: unknown | null;
+    player_metadata: Record<string, unknown> | null;
   }>(
     `SELECT
       c.map_knowledge,
       c.corporation_id,
+      c.player_metadata,
       cmk.map_knowledge as corp_map_knowledge
     FROM characters c
     LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
@@ -701,7 +704,29 @@ export async function pgLoadMapKnowledge(
   );
 
   const row = result.rows[0];
-  const personal = normalizeMapKnowledge(row?.map_knowledge ?? null);
+
+  // For corp-ship pseudo-characters driven by an actor, substitute the
+  // actor's personal map_knowledge for the corp ship's own (which is
+  // never written to — see pgMarkSectorVisited, which routes corp-ship
+  // moves into corporation_map_knowledge instead). This mirrors the
+  // supabase-path loadMapKnowledge in _shared/map.ts.
+  const playerType = (row?.player_metadata as Record<string, unknown> | null)
+    ?.player_type;
+  const isCorpShip = playerType === "corporation_ship";
+
+  let personal: MapKnowledge;
+  if (isCorpShip && actorCharacterId) {
+    const actorResult = await pg.queryObject<{ map_knowledge: unknown }>(
+      `SELECT map_knowledge FROM characters WHERE character_id = $1`,
+      [actorCharacterId],
+    );
+    personal = normalizeMapKnowledge(
+      actorResult.rows[0]?.map_knowledge ?? null,
+    );
+  } else {
+    personal = normalizeMapKnowledge(row?.map_knowledge ?? null);
+  }
+
   const corp = row?.corp_map_knowledge
     ? normalizeMapKnowledge(row.corp_map_knowledge)
     : null;
@@ -1400,6 +1425,10 @@ function buildShipSnapshot(
 export interface PgBuildStatusPayloadOptions {
   pg: QueryClient;
   characterId: string;
+  // For corp-ship targets: the player driving the ship. When set, the ship's
+  // map knowledge is unioned with this actor's personal knowledge before
+  // building the `player.sectors_visited` / `total_sectors_known` fields.
+  actorCharacterId?: string | null;
   // Optional pre-loaded data to avoid re-fetching
   character?: CharacterRow;
   ship?: ShipRow;
@@ -1480,7 +1509,7 @@ export async function pgBuildStatusPayload(
     sectorSnapshot,
     corporationPayload,
   ] = await Promise.all([
-    pgLoadMapKnowledge(pg, characterId).then((r) => { sKnowledge.end(); return r; }),
+    pgLoadMapKnowledge(pg, characterId, options?.actorCharacterId).then((r) => { sKnowledge.end(); return r; }),
     pgLoadUniverseSize(pg).then((r) => { sUniverse.end(); return r; }),
     pgLoadUniverseMeta(pg).then((r) => { sMeta.end(); return r; }),
     (options?.sectorSnapshot
@@ -1742,6 +1771,10 @@ export async function pgBuildLocalMapRegion(
     maxHops?: number;
     maxSectors?: number;
     parentSpan?: WeaveSpan;
+    // For corp-ship targets: the player driving the ship. When set, the
+    // ship's map knowledge is unioned with this actor's personal knowledge
+    // (mirrors pgBuildStatusPayload).
+    actorCharacterId?: string | null;
   },
 ): Promise<LocalMapRegionPayload> {
   const noopSpan: WeaveSpan = { span() { return noopSpan; }, end() {} };
@@ -1753,7 +1786,11 @@ export async function pgBuildLocalMapRegion(
   let knowledge = params.mapKnowledge;
   if (!knowledge) {
     const sKnowledge = ws.span("load_map_knowledge");
-    knowledge = await pgLoadMapKnowledge(pg, characterId);
+    knowledge = await pgLoadMapKnowledge(
+      pg,
+      characterId,
+      params.actorCharacterId,
+    );
     sKnowledge.end({ visitedCount: Object.keys(knowledge.sectors_visited).length });
   }
 

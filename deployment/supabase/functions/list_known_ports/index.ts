@@ -340,7 +340,13 @@ async function handleListKnownPorts(
   sActorAuth.end();
 
   const sMapKnowledge = ws.span("load_map_knowledge");
-  const knowledge = await loadMapKnowledge(supabase, characterId);
+  // For corp ships, pass actorCharacterId so the ship inherits the driving
+  // player's personal exploration (see loadMapKnowledge in _shared/map.ts).
+  const knowledge = await loadMapKnowledge(
+    supabase,
+    characterId,
+    actorCharacterId,
+  );
   const visitedCount = Object.keys(knowledge.sectors_visited).length;
   sMapKnowledge.end({ visitedSectors: visitedCount });
 

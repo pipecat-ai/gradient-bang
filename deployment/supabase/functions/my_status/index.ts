@@ -197,6 +197,7 @@ Deno.serve(traced("my_status", async (req, trace) => {
       character,
       ship,
       shipDefinition,
+      actorCharacterId,
       parentSpan: sBuildStatus,
     });
     statusPayload["source"] = source;

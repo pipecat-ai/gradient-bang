@@ -130,7 +130,7 @@ async function handleEventsSinceRequest(
 
   if (!characterIds.length && !corpId) {
     throw new RequestValidationError(
-      "character_id, character_ids, or corp_id must be provided",
+      "character_id, character_ids, ship_ids, or corp_id must be provided",
       400,
     );
   }
@@ -193,6 +193,17 @@ async function resolveCharacterIds(payload: JsonRecord): Promise<string[]> {
   const list = parseStringArray(payload, "character_ids");
   if (list.length) {
     ids.push(...list);
+  }
+  // `ship_ids` carries corp-ship pseudo-character ids: corp ships are
+  // registered as rows in `characters` with `character_id = ship_id` (see
+  // ship_purchase/ensureCorporationShipCharacter), so these values live in
+  // the same namespace as `character_ids` and can be unioned into the
+  // `recipient_character_id` filter directly. The field is named `ship_ids`
+  // on the polling scope for historical reasons; don't be misled — it is
+  // NOT a list of `ship_instances.ship_id`.
+  const shipIds = parseStringArray(payload, "ship_ids");
+  if (shipIds.length) {
+    ids.push(...shipIds);
   }
   if (!ids.length) {
     return [];

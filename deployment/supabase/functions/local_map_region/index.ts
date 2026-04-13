@@ -178,7 +178,11 @@ async function handleLocalMapRegion(
     adminOverride,
     targetCharacterId: characterId,
   });
-  const knowledge = await loadMapKnowledge(supabase, characterId);
+  const knowledge = await loadMapKnowledge(
+    supabase,
+    characterId,
+    actorCharacterId,
+  );
 
   let fitSectors: number[] | null = null;
   const fitRaw = payload["fit_sectors"];

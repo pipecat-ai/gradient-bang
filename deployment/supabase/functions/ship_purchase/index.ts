@@ -22,7 +22,11 @@ import {
   type ShipDefinitionRow,
 } from "../_shared/status.ts";
 import { acquirePgClient } from "../_shared/pg.ts";
-import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
+import {
+  pgBuildStatusPayload,
+  pgUpsertCorporationSectorKnowledge,
+} from "../_shared/pg_queries.ts";
+import { buildSectorSnapshot } from "../_shared/map.ts";
 import {
   emitCorporationEvent,
   isActiveCorporationMember,
@@ -305,6 +309,8 @@ async function handlePersonalPurchase(
   const pgClient = await acquirePgClient();
   let statusPayload: Record<string, unknown>;
   try {
+    // ship_purchase validates actor === characterId at the top, so the
+    // target is always a human player; the actor merge would be a no-op.
     statusPayload = await pgBuildStatusPayload(pgClient, characterId);
   } finally {
     pgClient.release();
@@ -503,19 +509,37 @@ async function handleCorporationPurchase(
     throw new ShipPurchaseError("Failed to register corporation ship", 500);
   }
 
+  const spawnSector = currentShip.current_sector ?? 0;
+
   await ensureCorporationShipCharacter({
     supabase,
     shipId: insertedShip.ship_id,
     corpId,
-    sectorId: currentShip.current_sector ?? 0,
+    sectorId: spawnSector,
     timestamp,
     shipName: shipNameOverride ? shipName : undefined,
   });
+
+  // Seed the spawn sector into the corporation's map knowledge so the new
+  // ship knows its own location from the moment it exists. Without this,
+  // loadMapKnowledge for the fresh corp ship returns zero visited sectors
+  // (corp ship pseudo-characters never accumulate personal knowledge) and
+  // tools like list_known_ports reject with "must be a visited sector" on
+  // the ship's own current sector. Writing into corporation_map_knowledge
+  // mirrors the convention used by pgMarkSectorVisited for corp-ship moves.
+  const spawnSnapshot = await buildSectorSnapshot(supabase, spawnSector);
 
   const source = buildEventSource("ship_purchase", requestId);
   const pgClient = await acquirePgClient();
   let statusPayload: Record<string, unknown>;
   try {
+    await pgUpsertCorporationSectorKnowledge(pgClient, {
+      corpId,
+      sectorId: spawnSector,
+      sectorSnapshot: spawnSnapshot,
+    });
+    // ship_purchase validates actor === characterId at the top, so the
+    // target is always a human player; the actor merge would be a no-op.
     statusPayload = await pgBuildStatusPayload(pgClient, characterId);
   } finally {
     pgClient.release();

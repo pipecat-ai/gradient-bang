@@ -1880,21 +1880,49 @@ function setPlayerSource(knowledge: MapKnowledge): MapKnowledge {
 export async function loadMapKnowledge(
   supabase: SupabaseClient,
   characterId: string,
+  actorCharacterId?: string | null,
 ): Promise<MapKnowledge> {
-  // Load character's personal knowledge and corporation_id
+  // Load target character's personal knowledge, corporation_id, and
+  // player_metadata (needed to detect corporation-ship pseudo-characters).
   const { data: charData, error: charError } = await supabase
     .from("characters")
-    .select("map_knowledge, corporation_id")
+    .select("map_knowledge, corporation_id, player_metadata")
     .eq("character_id", characterId)
     .maybeSingle();
   if (charError) {
     throw new Error(`failed to load map knowledge: ${charError.message}`);
   }
 
-  const personal = normalizeMapKnowledge(charData?.map_knowledge ?? null);
   const corporationId = charData?.corporation_id ?? null;
+  const playerType =
+    (charData?.player_metadata as Record<string, unknown> | null)?.player_type;
+  const isCorpShip = playerType === "corporation_ship";
 
-  // If character is in a corporation, load corp knowledge
+  // For corp ships driven by an actor, use the actor's personal knowledge as
+  // the "personal" half of the merge. Corp ship pseudo-characters never have
+  // their own personal knowledge updated (pgMarkSectorVisited routes corp
+  // ship moves to corporation_map_knowledge instead), so treating the
+  // actor's knowledge as the ship's personal view lets the ship see through
+  // the player driving it. Without this, a corp ship is blind to every
+  // sector the actor explored alone.
+  let personal: MapKnowledge;
+  if (isCorpShip && actorCharacterId) {
+    const { data: actorData, error: actorError } = await supabase
+      .from("characters")
+      .select("map_knowledge")
+      .eq("character_id", actorCharacterId)
+      .maybeSingle();
+    if (actorError) {
+      throw new Error(
+        `failed to load actor map knowledge: ${actorError.message}`,
+      );
+    }
+    personal = normalizeMapKnowledge(actorData?.map_knowledge ?? null);
+  } else {
+    personal = normalizeMapKnowledge(charData?.map_knowledge ?? null);
+  }
+
+  // If the target is in a corporation, load corp knowledge
   let corp: MapKnowledge | null = null;
   if (corporationId) {
     const { data: corpData, error: corpError } = await supabase

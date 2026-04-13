@@ -450,6 +450,7 @@ async function handleMove({
       ship,
       shipDefinition,
       characterId,
+      actorCharacterId,
       shipId: ship.ship_id,
       destination,
       requestId,
@@ -598,6 +599,7 @@ async function completeMovement({
   ship,
   shipDefinition,
   characterId,
+  actorCharacterId,
   shipId,
   destination,
   requestId,
@@ -616,6 +618,7 @@ async function completeMovement({
   ship: ShipRow;
   shipDefinition: ShipDefinitionRow;
   characterId: string;
+  actorCharacterId: string | null;
   shipId: string;
   destination: number;
   requestId: string;
@@ -678,6 +681,7 @@ async function completeMovement({
       ship: updatedShip,
       shipDefinition,
       sectorSnapshot: destinationSnapshot,
+      actorCharacterId,
     });
     mark("build_status_complete");
     sBuildStatus.end();
