@@ -5,9 +5,9 @@ import { type APIRequest } from "@pipecat-ai/client-js"
 
 import { getLocalSettings, setLocalSettings } from "@/utils/settings"
 
-import { DEFAULT_VOICE_ID, getPersonalityTone } from "@/types/constants"
-
 import type { GameStoreState } from "./game"
+
+import { DEFAULT_VOICE_ID, getPersonalityTone } from "@/types/constants"
 
 export interface SettingsSlice {
   settings: {
@@ -47,7 +47,7 @@ const defaultSettings = {
   disabledSoundFX: false,
   disableMusic: false,
   disableRemoteAudio: false,
-  enableCapture: false,
+  enableCapture: true,
   enableMic: true,
   musicVolume: 0.5,
   remoteAudioVolume: 1,
@@ -57,7 +57,7 @@ const defaultSettings = {
   qualityPreset: "auto",
   saveSettings: true,
   defaultUIMode: "tasks",
-  personality: "stock_firmware",
+  personality: "old_federation",
   voice: "ec1e269e-9ca0-402f-8a18-58e0e022355a",
 }
 

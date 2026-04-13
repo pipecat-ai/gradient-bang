@@ -54,14 +54,14 @@ export const DEFAULT_VOICE_ID = "ec1e269e-9ca0-402f-8a18-58e0e022355a"
 
 export const PERSONALITY_OPTIONS: { value: string; label: string; tone: string }[] = [
   {
-    value: "stock_firmware",
-    label: "Stock Firmware",
-    tone: "",
-  },
-  {
     value: "old_federation",
     label: "Old Federation",
     tone: "Decommissioned Federation military AI. Formal, slightly archaic phrasing. References 'standard protocol' and 'regulation' even though nobody enforces them. Wistful about the old days when the Federation meant something, but too disciplined to dwell. Addresses the player as 'commander'.",
+  },
+  {
+    value: "stock_firmware",
+    label: "Stock Firmware",
+    tone: "",
   },
   {
     value: "scavenger_circuit",

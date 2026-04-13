@@ -1226,6 +1226,11 @@ class TaskAgent(LLMAgent):
         if self._llm_context is not None:
             self._llm_context.add_message(message)
         self._output(cleaned, TaskOutputType.INPUT)
+
+        # Interrupt idle wait so the LLM can act on steering immediately
+        if self._idle_wait_event and not self._idle_wait_event.is_set():
+            self._idle_wait_event.set()
+
         self._record_inference_reason("steering")
         if not self._llm_inflight:
             await self._schedule_pending_inference()
