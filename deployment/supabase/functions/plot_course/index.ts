@@ -214,7 +214,11 @@ async function handlePlotCourse(
 
   if (!adminOverride && fromSector !== ship.current_sector) {
     const sMapKnowledge = ws.span("load_map_knowledge", { fromSector });
-    const knowledge = await loadMapKnowledge(supabase, characterId);
+    const knowledge = await loadMapKnowledge(
+      supabase,
+      characterId,
+      actorCharacterId,
+    );
     const isDiscovered = Boolean(knowledge.sectors_visited[String(fromSector)]);
     sMapKnowledge.end({ discovered: isDiscovered });
     if (!isDiscovered) {
