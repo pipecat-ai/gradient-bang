@@ -18,6 +18,8 @@ export const CreateCharacter = ({
 }) => {
   const [error, setError] = useState<string | null>(null)
   const [newCharacterName, setNewCharacterName] = useState<string>("")
+  const [eventJoinCode, setEventJoinCode] = useState<string>("")
+  const [showEventCode, setShowEventCode] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const accessToken = useGameStore.use.access_token?.()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -36,6 +38,7 @@ export const CreateCharacter = ({
           },
           body: JSON.stringify({
             name: newCharacterName,
+            ...(eventJoinCode.trim() ? { event_join_code: eventJoinCode.trim() } : {}),
           }),
         }
       )
@@ -93,6 +96,26 @@ export const CreateCharacter = ({
                     setNewCharacterName(e.target.value)
                   }}
                 />
+                {!showEventCode ?
+                  <button
+                    type="button"
+                    onClick={() => setShowEventCode(true)}
+                    className="text-xs text-muted-foreground hover:text-foreground uppercase tracking-wider transition-colors"
+                  >
+                    Have an event code?
+                  </button>
+                : <Input
+                    type="text"
+                    placeholder="Event Code (optional)"
+                    className="text-center"
+                    size="default"
+                    value={eventJoinCode}
+                    onChange={(e) => {
+                      setEventJoinCode(e.target.value)
+                    }}
+                    autoFocus
+                  />
+                }
                 <Button
                   type="submit"
                   variant="default"

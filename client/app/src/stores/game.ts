@@ -84,6 +84,15 @@ export interface GameState {
   leaderboard_last_updated: string | null
   setLeaderboardData: (leaderboardData: LeaderboardResponse) => void
 
+  /* World Events */
+  playerEvent: { event_id: string; title: string } | null
+  setPlayerEvent: (event: { event_id: string; title: string } | null) => void
+  worldEvents?: WorldEvent[]
+  worldEventsLastUpdated: string | null
+  setWorldEvents: (events: WorldEvent[]) => void
+  leaderboardScope: "global" | "event"
+  setLeaderboardScope: (scope: "global" | "event") => void
+
   /* Ship definitions (from DB) */
   shipDefinitions: ShipDefinition[]
 
@@ -163,6 +172,11 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   playerCategoryRank: null,
   playerCategoryRankPrev: null,
   playerRankLastUpdated: null,
+
+  playerEvent: null,
+  worldEvents: undefined,
+  worldEventsLastUpdated: null,
+  leaderboardScope: "global",
 
   starfieldReady: false,
   diamondFXInstance: undefined,
@@ -481,6 +495,14 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
         state.leaderboard_last_updated = new Date().toISOString()
       })
     ),
+
+  setPlayerEvent: (event: { event_id: string; title: string } | null) =>
+    set({ playerEvent: event, leaderboardScope: event ? "event" : "global" }),
+
+  setWorldEvents: (events: WorldEvent[]) =>
+    set({ worldEvents: events, worldEventsLastUpdated: new Date().toISOString() }),
+
+  setLeaderboardScope: (scope: "global" | "event") => set({ leaderboardScope: scope }),
 
   setGameState: (gameState: GameInitState) => set({ gameState }),
 

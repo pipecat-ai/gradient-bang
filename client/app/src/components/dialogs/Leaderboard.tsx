@@ -14,6 +14,12 @@ const LEADERBOARD_URL =
   (import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1") +
   (import.meta.env.VITE_SERVER_LEADERBOARD_ENDPOINT ?? "/leaderboard_resources")
 
+const WORLD_EVENTS_URL =
+  (import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1") + "/world_events_list"
+
+const LEADERBOARD_CACHE_TTL = 1000 * 60 * 5 // 5 minutes
+const WORLD_EVENTS_CACHE_TTL = 1000 * 60 * 5 // 5 minutes
+
 export const Leaderboard = () => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
@@ -21,22 +27,51 @@ export const Leaderboard = () => {
   useEffect(() => {
     if (activeModal?.modal !== "leaderboard") return
 
+    const state = useGameStore.getState()
+
+    // Fetch leaderboard (scope-aware)
     const fetchLeaderboard = async () => {
       console.debug("[LEADERBOARD] Fetching leaderboard data...")
-      const response = await fetch(`${LEADERBOARD_URL}`)
+      const { leaderboardScope, playerEvent } = useGameStore.getState()
+      const url =
+        leaderboardScope === "event" && playerEvent ?
+          `${LEADERBOARD_URL}?event_id=${playerEvent.event_id}`
+        : LEADERBOARD_URL
+      const response = await fetch(url)
       const data = await response.json()
       useGameStore.getState().setLeaderboardData(data)
       console.debug("[LEADERBOARD] Fetched leaderboard data:", data)
     }
-    const leaderboardLastUpdated = useGameStore.getState().leaderboard_last_updated
+
+    const leaderboardLastUpdated = state.leaderboard_last_updated
     if (
-      leaderboardLastUpdated &&
-      new Date(leaderboardLastUpdated).getTime() + 1000 * 60 * 5 > Date.now()
+      !leaderboardLastUpdated ||
+      new Date(leaderboardLastUpdated).getTime() + LEADERBOARD_CACHE_TTL <= Date.now()
     ) {
-      console.debug("[LEADERBOARD] Leaderboard data is up to date, skipping fetch")
-      return
+      fetchLeaderboard()
     }
-    fetchLeaderboard()
+
+    // Fetch world events
+    const fetchWorldEvents = async () => {
+      console.debug("[LEADERBOARD] Fetching world events...")
+      try {
+        const response = await fetch(WORLD_EVENTS_URL)
+        const data = await response.json()
+        if (data.success) {
+          useGameStore.getState().setWorldEvents(data.events)
+        }
+      } catch (e) {
+        console.debug("[LEADERBOARD] World events fetch failed", e)
+      }
+    }
+
+    const worldEventsLastUpdated = state.worldEventsLastUpdated
+    if (
+      !worldEventsLastUpdated ||
+      new Date(worldEventsLastUpdated).getTime() + WORLD_EVENTS_CACHE_TTL <= Date.now()
+    ) {
+      fetchWorldEvents()
+    }
   }, [activeModal])
 
   return (

@@ -540,6 +540,9 @@ declare global {
     trading: LeaderboardTrading[]
     exploration: LeaderboardExploration[]
     territory: LeaderboardTerritory[]
+    event_id?: string
+    event_title?: string
+    frozen?: boolean
   }
 
   interface CharacterSelectResponse {
@@ -549,6 +552,33 @@ declare global {
     last_active: string
     is_npc: boolean
     is_first_visit: boolean
+    event?: { event_id: string; title: string } | null
+  }
+
+  // --- WORLD EVENTS
+
+  interface WorldEventTopPlayers {
+    wealth: LeaderboardWealth[]
+    trading: LeaderboardTrading[]
+    exploration: LeaderboardExploration[]
+  }
+
+  interface WorldEvent {
+    event_id: string
+    title: string
+    description: string
+    link_url: string | null
+    image_url: string | null
+    starts_at: string
+    ends_at: string
+    is_ended: boolean
+    participant_count: number
+    top_players: WorldEventTopPlayers
+  }
+
+  interface WorldEventsResponse {
+    success: boolean
+    events: WorldEvent[]
   }
 
   // --- CONVERSATION
