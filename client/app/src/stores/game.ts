@@ -94,6 +94,7 @@ export interface GameState {
   setLeaderboardScope: (scope: "global" | "event") => void
   leaderboardDialogData?: LeaderboardResponse
   leaderboardDialogScope: "global" | "event" | null
+  leaderboardDialogLastUpdated: string | null
   setLeaderboardDialogData: (data: LeaderboardResponse, scope: "global" | "event") => void
 
   /* Ship definitions (from DB) */
@@ -182,6 +183,7 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   leaderboardScope: "global",
   leaderboardDialogData: undefined,
   leaderboardDialogScope: null,
+  leaderboardDialogLastUpdated: null,
 
   starfieldReady: false,
   diamondFXInstance: undefined,
@@ -510,7 +512,11 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   setLeaderboardScope: (scope: "global" | "event") => set({ leaderboardScope: scope }),
 
   setLeaderboardDialogData: (data: LeaderboardResponse, scope: "global" | "event") =>
-    set({ leaderboardDialogData: data, leaderboardDialogScope: scope }),
+    set({
+      leaderboardDialogData: data,
+      leaderboardDialogScope: scope,
+      leaderboardDialogLastUpdated: new Date().toISOString(),
+    }),
 
   setGameState: (gameState: GameInitState) => set({ gameState }),
 

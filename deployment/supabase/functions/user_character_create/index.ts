@@ -212,6 +212,7 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
 
     // Validate event join code if provided (fail fast before creating anything)
     let validatedEventId: string | null = null;
+    let validatedEventTitle: string | null = null;
     if (eventJoinCode) {
       const sEventCheck = trace.span("validate_event_code");
       const { data: eventId, error: eventError } = await supabase
@@ -232,7 +233,16 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
       }
 
       validatedEventId = eventId;
-      sEventCheck.end({ event_id: validatedEventId });
+
+      // Fetch event title for the client response
+      const { data: eventRow } = await supabase
+        .from("world_events")
+        .select("title")
+        .eq("event_id", validatedEventId)
+        .single();
+      validatedEventTitle = eventRow?.title ?? null;
+
+      sEventCheck.end({ event_id: validatedEventId, title: validatedEventTitle });
     }
 
     // Get ship definition
@@ -419,6 +429,7 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
         character_id: characterId,
         name,
         event_id: validatedEventId ?? undefined,
+        event_title: validatedEventTitle ?? undefined,
         ship: {
           ship_id: ship.ship_id,
           ship_type: DEFAULT_SHIP_TYPE,

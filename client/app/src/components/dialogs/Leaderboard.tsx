@@ -17,6 +17,8 @@ const LEADERBOARD_URL =
 const WORLD_EVENTS_URL =
   (import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1") + "/world_events_list"
 
+const GLOBAL_DIALOG_CACHE_TTL = 1000 * 60 * 5 // 5 minutes
+const EVENT_DIALOG_CACHE_TTL = 1000 * 60 * 1 // 1 minute
 const WORLD_EVENTS_CACHE_TTL = 1000 * 60 * 1 // 1 minute
 
 async function fetchLeaderboardForScope(scope: "global" | "event") {
@@ -42,18 +44,32 @@ async function fetchWorldEvents() {
   }
 }
 
+function isDialogDataStale(): boolean {
+  const { leaderboardDialogLastUpdated, leaderboardDialogScope, leaderboardScope } =
+    useGameStore.getState()
+
+  // Scope changed — always refetch
+  if (leaderboardDialogScope !== leaderboardScope) return true
+
+  // No data yet
+  if (!leaderboardDialogLastUpdated) return true
+
+  const age = Date.now() - new Date(leaderboardDialogLastUpdated).getTime()
+  const ttl = leaderboardScope === "event" ? EVENT_DIALOG_CACHE_TTL : GLOBAL_DIALOG_CACHE_TTL
+  return age > ttl
+}
+
 export const Leaderboard = () => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
   const leaderboardScope = useGameStore((state) => state.leaderboardScope)
   const leaderboardDialogScope = useGameStore((state) => state.leaderboardDialogScope)
 
-  // Fetch dialog data on open and when scope changes
+  // Fetch dialog data on open and when scope changes or data is stale
   useEffect(() => {
     if (activeModal?.modal !== "leaderboard") return
 
-    // Refetch if scope changed or no dialog data yet
-    if (leaderboardDialogScope !== leaderboardScope) {
+    if (isDialogDataStale()) {
       fetchLeaderboardForScope(leaderboardScope)
     }
 
@@ -69,7 +85,6 @@ export const Leaderboard = () => {
 
   const handleScopeChange = useCallback((scope: "global" | "event") => {
     useGameStore.getState().setLeaderboardScope(scope)
-    // The useEffect above will detect the mismatch and refetch
   }, [])
 
   return (

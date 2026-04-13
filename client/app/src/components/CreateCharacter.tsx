@@ -48,6 +48,12 @@ export const CreateCharacter = ({
         throw new Error(data.error)
       }
       const data = await response.json()
+      if (data.event_id && data.event_title) {
+        useGameStore.getState().setPlayerEvent({
+          event_id: data.event_id,
+          title: data.event_title,
+        })
+      }
       onCharacterCreate(data.character_id)
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to create character")
