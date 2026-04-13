@@ -271,6 +271,7 @@ async function handlePurchase(
       character,
       // Don't pass pre-update ship; let it reload from DB with current values
       shipDefinition: definition,
+      actorCharacterId,
     });
   } finally {
     pgClient.release();

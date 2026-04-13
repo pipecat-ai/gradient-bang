@@ -343,7 +343,11 @@ async function handleTransfer(
   let toStatus: Record<string, unknown>;
   try {
     [fromStatus, toStatus] = await Promise.all([
-      pgBuildStatusPayload(pgClient, fromCharacterId),
+      // Source is driven by the actor calling this endpoint.
+      pgBuildStatusPayload(pgClient, fromCharacterId, { actorCharacterId }),
+      // Destination has no actor context from this request; if it is a
+      // corp ship, whoever is driving it today is unknown here, so leave
+      // the actor merge off to avoid cross-session knowledge bleed.
       pgBuildStatusPayload(pgClient, toRecord.character.character_id),
     ]);
   } finally {

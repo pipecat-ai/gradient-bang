@@ -309,6 +309,8 @@ async function handlePersonalPurchase(
   const pgClient = await acquirePgClient();
   let statusPayload: Record<string, unknown>;
   try {
+    // ship_purchase validates actor === characterId at the top, so the
+    // target is always a human player; the actor merge would be a no-op.
     statusPayload = await pgBuildStatusPayload(pgClient, characterId);
   } finally {
     pgClient.release();
@@ -536,6 +538,8 @@ async function handleCorporationPurchase(
       sectorId: spawnSector,
       sectorSnapshot: spawnSnapshot,
     });
+    // ship_purchase validates actor === characterId at the top, so the
+    // target is always a human player; the actor merge would be a no-op.
     statusPayload = await pgBuildStatusPayload(pgClient, characterId);
   } finally {
     pgClient.release();

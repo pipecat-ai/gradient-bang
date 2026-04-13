@@ -515,6 +515,7 @@ async function handleSalvageCollect(params: {
       character,
       // Don't pass pre-update ship; let it reload from DB with current values
       shipDefinition,
+      actorCharacterId,
     });
   } finally {
     pgClient.release();

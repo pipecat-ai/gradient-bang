@@ -332,6 +332,9 @@ async function handleShipSell(
   const pgClient = await acquirePgClient();
   let statusPayload: Record<string, unknown>;
   try {
+    // ship_sell re-resolves characterId to the actor (the player) before
+    // this call, so the target is always a human character and the actor
+    // merge is a no-op.
     statusPayload = await pgBuildStatusPayload(pgClient, characterId);
   } finally {
     pgClient.release();

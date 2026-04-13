@@ -322,6 +322,7 @@ async function handleTrade({
     character,
     ship: updatedShip,
     shipDefinition,
+    actorCharacterId,
   });
   mark("build_status");
   const universeMeta = await pgLoadUniverseMeta(pgClient);

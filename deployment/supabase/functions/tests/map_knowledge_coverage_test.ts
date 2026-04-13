@@ -20,6 +20,12 @@
  *     merge's source tagging correctly reports 'player' / 'corp' / 'both'.
  *   - Regression: human-player endpoints still work when actor_character_id
  *     is supplied and equals character_id.
+ *   - TDD (currently failing): my_status for a corp ship reports explored
+ *     counts derived from the union of actor personal + corp knowledge.
+ *     Fails today because my_status goes through pgBuildStatusPayload ->
+ *     pgLoadMapKnowledge (the pg path), which has not been updated to
+ *     accept an actor override — so corp ships always report
+ *     player.sectors_visited === 0 regardless of who is driving.
  *
  * Single-player setup: P1 is pinned to sector 0 (mega-port), creates a
  * corp, buys corp ships, moves around. Each group resets the DB.
@@ -527,6 +533,173 @@ Deno.test({
         assert(
           "error" in result,
           `Expected plot_course to fail from unknown sector ${unknownSector}, got success`,
+        );
+      },
+    );
+  },
+});
+
+// ============================================================================
+// Group 7: TDD — my_status explored counts should reflect the actor-merged
+// union for corp ships. CURRENTLY FAILING because pgBuildStatusPayload ->
+// pgLoadMapKnowledge does not accept an actor override, so the corp ship
+// always reports zero personal sectors regardless of who is driving.
+//
+// Flip/fix plan: thread actorCharacterId through pgBuildStatusPayload and
+// pgLoadMapKnowledge (or have pgLoadMapKnowledge detect corp-ship targets
+// and route to the actor's personal knowledge, same as the supabase-path
+// loadMapKnowledge already does).
+// ============================================================================
+
+/**
+ * Query the latest status.snapshot event delivered to `recipientId` since
+ * `cursor` and return its `player` subtree.
+ */
+async function getLatestStatusPlayer(
+  recipientId: string,
+  cursor: number,
+): Promise<{
+  sectors_visited: number;
+  corp_sectors_visited: number | null;
+  total_sectors_known: number;
+}> {
+  const events = await eventsOfType(recipientId, "status.snapshot", cursor);
+  assert(
+    events.length >= 1,
+    `Expected at least one status.snapshot event since cursor ${cursor}, got ${events.length}`,
+  );
+  const latest = events[events.length - 1];
+  const player = (latest.payload as { player?: Record<string, unknown> })
+    .player;
+  assertExists(player, "status.snapshot event missing player payload");
+  return {
+    sectors_visited: (player as { sectors_visited: number }).sectors_visited,
+    corp_sectors_visited: (player as { corp_sectors_visited: number | null })
+      .corp_sectors_visited,
+    total_sectors_known: (player as { total_sectors_known: number })
+      .total_sectors_known,
+  };
+}
+
+Deno.test({
+  name: "map_knowledge — TDD: my_status for corp ship reflects actor's personal sectors",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    let cursor: number;
+
+    await t.step("setup corp + corp ship (corp knows only spawn sector)", async () => {
+      await setupCorp("Status Union Corp");
+      corpShipId = await purchaseCorpShip();
+      // Sanity: after purchase, corp knowledge contains spawn sector 0.
+      // P1's personal knowledge contains {0} (from join).
+    });
+
+    await t.step("sanity: P1 knows only sector 0, corp knows only sector 0", async () => {
+      const p1Visited = await getPersonalVisitedSectors(p1Id);
+      assertEquals(p1Visited, [0]);
+      // We intentionally don't assert the corp state here — Option A's
+      // seed makes {0} the current expected state, verified in Group 1.
+    });
+
+    await t.step(
+      "my_status for corp ship reports sector 0 as known to the actor",
+      async () => {
+        // status.snapshot for a corp ship is routed to the actor's event
+        // stream (see my_status/index.ts eventRecipientId logic), so we
+        // poll as P1. Once the actor merge reaches the pg path, the
+        // merged source for sector 0 becomes 'both' and the
+        // personal/corp/total counts all report 1.
+        cursor = await getEventCursor(p1Id);
+        await apiOk("my_status", {
+          character_id: corpShipId,
+          actor_character_id: p1Id,
+        });
+        const player = await getLatestStatusPlayer(p1Id, cursor);
+        assertEquals(
+          player.sectors_visited,
+          1,
+          "Corp ship my_status should report P1's 1 personal sector (0) " +
+            "merged in. Currently reports 0 because pgLoadMapKnowledge " +
+            "uses the corp ship's own (empty) personal knowledge.",
+        );
+        assertEquals(
+          player.corp_sectors_visited,
+          1,
+          "Corp knowledge still has sector 0 from Option A seeding.",
+        );
+        assertEquals(
+          player.total_sectors_known,
+          1,
+          "Union of {0} (actor) and {0} (corp) is 1 sector.",
+        );
+      },
+    );
+  },
+});
+
+Deno.test({
+  name: "map_knowledge — TDD: my_status reflects disjoint actor + corp exploration",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    let cursor: number;
+
+    await t.step("setup corp + corp ship", async () => {
+      await setupCorp("Disjoint Status Corp");
+      corpShipId = await purchaseCorpShip();
+    });
+
+    await t.step("P1 moves personal ship 0 → 1 (now knows {0, 1})", async () => {
+      await apiOk("move", { character_id: p1Id, to_sector: 1 });
+      const visited = await getPersonalVisitedSectors(p1Id);
+      assert(
+        visited.includes(0) && visited.includes(1),
+        `P1 should know {0, 1}, got ${JSON.stringify(visited)}`,
+      );
+    });
+
+    await t.step(
+      "my_status for corp ship unions actor's {0, 1} with corp's {0}",
+      async () => {
+        // Expected union under fix: actor knows {0, 1}, corp knows {0}.
+        //   sector 0 → source='both'  (counts for both personal and corp)
+        //   sector 1 → source='player' (counts for personal only)
+        //
+        // Status fields (see buildPlayerSnapshot in pg_queries.ts):
+        //   sectors_visited        = # entries where source is 'player' or 'both' = 2
+        //   corp_sectors_visited   = # entries where source is 'corp' or 'both'   = 1
+        //   total_sectors_known    = # entries in merged sectors_visited           = 2
+        //
+        // Currently: personal=empty, merged={0(corp)}, so sectors_visited=0,
+        // corp_sectors_visited=1, total=1. This test fails on sectors_visited
+        // and total_sectors_known.
+        cursor = await getEventCursor(p1Id);
+        await apiOk("my_status", {
+          character_id: corpShipId,
+          actor_character_id: p1Id,
+        });
+        const player = await getLatestStatusPlayer(p1Id, cursor);
+        assertEquals(
+          player.sectors_visited,
+          2,
+          "Corp ship my_status should report both of P1's personal sectors " +
+            "(0 and 1) as 'player' or 'both'. Currently 0 because the pg " +
+            "path ignores the actor when loading map knowledge.",
+        );
+        assertEquals(
+          player.corp_sectors_visited,
+          1,
+          "Corp knowledge has only sector 0 (spawn seed); sector 1 was " +
+            "visited by P1's personal ship, not a corp ship, so corp " +
+            "knowledge should not contain it.",
+        );
+        assertEquals(
+          player.total_sectors_known,
+          2,
+          "Union of P1's {0,1} and corp's {0} is 2 sectors. Currently 1.",
         );
       },
     );

@@ -499,6 +499,10 @@ async function handleDeposit(
   let targetStatus;
   const pgClient = await acquirePgClient();
   try {
+    // Do NOT thread actorCharacterId here: the target is a third-party
+    // recipient looked up by name, not the character the actor is driving.
+    // Applying the actor merge to a stranger's status would bleed knowledge
+    // across sessions.
     targetStatus = await pgBuildStatusPayload(pgClient, targetCharacterId);
     console.log("[bank_transfer.deposit] Built target status payload");
   } catch (err) {
@@ -541,6 +545,7 @@ async function handleDeposit(
       sourceStatus = await pgBuildStatusPayload(
         pgClient2,
         resolvedSourceCharacter,
+        { actorCharacterId },
       );
       console.log("[bank_transfer.deposit] Built source status payload");
     } catch (err) {
@@ -639,7 +644,9 @@ async function handleDeposit(
     if (!ownerStatus) {
       const pgClient3 = await acquirePgClient();
       try {
-        ownerStatus = await pgBuildStatusPayload(pgClient3, resolvedSourceCharacter);
+        ownerStatus = await pgBuildStatusPayload(pgClient3, resolvedSourceCharacter, {
+          actorCharacterId,
+        });
       } finally {
         pgClient3.release();
       }
@@ -763,7 +770,9 @@ async function handleWithdraw(
   const pgClientW = await acquirePgClient();
   let statusPayload: Record<string, unknown>;
   try {
-    statusPayload = await pgBuildStatusPayload(pgClientW, characterId);
+    statusPayload = await pgBuildStatusPayload(pgClientW, characterId, {
+      actorCharacterId,
+    });
   } finally {
     pgClientW.release();
   }
