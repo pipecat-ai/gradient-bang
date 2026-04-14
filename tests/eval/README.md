@@ -146,13 +146,13 @@ Each eval character has a deterministic starting state (ship type, credits, map 
 
 ### Characters
 
-| Character            | Ship(s)                            | Notes                                    |
-|----------------------|------------------------------------|------------------------------------------|
-| Alpha Sparrow Eval   | sparrow_scout                      | Fresh starter character                  |
-| Beta Kestrel Eval    | kestrel_courier                    | 10k ship credits, 5k megabank            |
-| Gamma Explorer Eval  | parhelion_seeker                   | 40 sectors visited, well-explored map    |
-| Delta Fleet Eval     | wayfarer_freighter, corsair_raider, kestrel_courier | Multi-ship owner, 50k megabank |
-| Epsilon Corp Eval    | sparrow_scout + corp pike_frigate  | Corporation member with corp-owned ship  |
+| Character            | Ship(s)                            | Notes                                    | Cekura Agent                  | Character ID                          |
+|----------------------|------------------------------------|------------------------------------------|-------------------------------|---------------------------------------|
+| Alpha Sparrow Eval   | sparrow_scout                      | Fresh starter character                  | gb-bot-eval-sparrow-scout     | a0000000-0000-4000-8000-000000000001  |
+| Beta Kestrel Eval    | kestrel_courier                    | 10k ship credits, 5k megabank            | gb-bot-eval-kestrel-courier   | b0000000-0000-4000-8000-000000000002  |
+| Gamma Explorer Eval  | parhelion_seeker                   | 40 sectors visited, well-explored map    | gb-bot-eval-gamma-explorer    | c0000000-0000-4000-8000-000000000003  |
+| Delta Fleet Eval     | wayfarer_freighter, corsair_raider, kestrel_courier | Multi-ship owner, 50k megabank | gb-bot-eval-delta-fleet | d0000000-0000-4000-8000-000000000004 |
+| Epsilon Corp Eval    | sparrow_scout + corp pike_frigate  | Corporation member with corp-owned ship  | gb-bot-eval-epsilon-corp      | e0000000-0000-4000-8000-000000000005  |
 
 All characters are linked to a single eval user (`352373e1-...`).
 
