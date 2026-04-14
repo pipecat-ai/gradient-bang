@@ -311,7 +311,19 @@ Deno.test({
     });
 
     await t.step("P2 (corp member) sees corp-discovered ports", async () => {
-      await apiOk("list_known_ports", { character_id: p2Id });
+      const result = await apiOk<{
+        request_id: string;
+        from_sector: number;
+        ports: Array<Record<string, unknown>>;
+      }>("list_known_ports", { character_id: p2Id });
+
+      // Response body must include the full payload inline (direct-response tool);
+      // the matching ports.list event still fires for async consumers.
+      assertExists(result.request_id, "response.request_id");
+      assertExists(result.from_sector, "response.from_sector");
+      assertExists(result.ports, "response.ports");
+      assert(Array.isArray(result.ports), "response.ports must be an array");
+
       const events = await eventsOfType(p2Id, "ports.list", cursorP2);
       assert(events.length >= 1, `Expected >= 1 ports.list, got ${events.length}`);
       const ports = events[0].payload.ports as Array<Record<string, unknown>>;
@@ -326,6 +338,17 @@ Deno.test({
       assert(
         hasSector1 || hasSector3,
         `P2 should see corp-discovered ports at sectors 1/3, got: ${JSON.stringify(sectorIds)}`,
+      );
+
+      // Response body and event payload must agree on sector ids.
+      const responseSectorIds = result.ports.map((p) => {
+        const sector = p.sector as Record<string, unknown> | undefined;
+        return sector?.id;
+      });
+      assertEquals(
+        responseSectorIds.sort(),
+        sectorIds.sort(),
+        "inline response ports must match ports.list event payload",
       );
     });
 

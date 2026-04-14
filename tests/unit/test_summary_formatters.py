@@ -5,7 +5,10 @@ import pytest
 from gradientbang.utils.summary_formatters import (
     _EVENT_QUERY_MAX_EVENTS,
     _EVENT_QUERY_MAX_TOTAL_CHARS,
+    _format_port_prices_compact,
     event_query_summary,
+    list_known_ports_summary,
+    port_update_summary,
 )
 
 
@@ -145,3 +148,63 @@ class TestEventQuerySummary:
 
         assert "nested query returned 30 events (more available)" in result
         assert "event.query row omitted" not in result
+
+
+@pytest.mark.unit
+class TestPortMegaMarker:
+    """Every rendered port string must carry an affirmative MEGA/STD marker.
+
+    Non-mega had previously been encoded as absence of the "MEGA" prefix —
+    the LLM missed non-mega ports because it looked for a presence signal.
+    Both states now carry an explicit token so there is no negative-space
+    inference.
+    """
+
+    def _port(self, *, mega: bool, code: str = "BBS") -> dict:
+        return {
+            "code": code,
+            "mega": mega,
+            "prices": {"quantum_foam": 33, "retro_organics": 13, "neuro_symbolics": 52},
+        }
+
+    def test_compact_formatter_marks_mega(self):
+        rendered = _format_port_prices_compact(self._port(mega=True))
+        assert rendered.startswith("MEGA "), rendered
+
+    def test_compact_formatter_marks_standard(self):
+        rendered = _format_port_prices_compact(self._port(mega=False))
+        assert rendered.startswith("STD "), rendered
+        assert "MEGA" not in rendered
+
+    def test_list_known_ports_summary_marks_each_port(self):
+        result = {
+            "from_sector": 100,
+            "total_ports_found": 2,
+            "ports": [
+                {
+                    "sector": {"id": 305, "port": self._port(mega=True, code="SSS")},
+                    "hops_from_start": 3,
+                },
+                {
+                    "sector": {"id": 3344, "port": self._port(mega=False, code="BSB")},
+                    "hops_from_start": 0,
+                },
+            ],
+        }
+        summary = list_known_ports_summary(result)
+        assert "MEGA SSS" in summary
+        assert "STD BSB" in summary
+
+    def test_port_update_summary_marks_mega(self):
+        event = {
+            "sector": {"id": 42, "port": self._port(mega=True, code="SSS")},
+        }
+        summary = port_update_summary(event)
+        assert "MEGA SSS" in summary
+
+    def test_port_update_summary_marks_standard(self):
+        event = {
+            "sector": {"id": 42, "port": self._port(mega=False, code="BSB")},
+        }
+        summary = port_update_summary(event)
+        assert "STD BSB" in summary

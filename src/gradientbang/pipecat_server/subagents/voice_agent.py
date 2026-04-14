@@ -544,24 +544,6 @@ class VoiceAgent(LLMAgent):
         except Exception as exc:
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
-    async def _handle_list_known_ports(self, params: FunctionCallParams):
-        args = params.arguments
-        kwargs = {}
-        for key in ("from_sector", "max_hops", "port_type", "commodity", "trade_type", "mega"):
-            if args.get(key) is not None:
-                kwargs[key] = args[key]
-        try:
-            result = await self._game_client.list_known_ports(
-                character_id=self._character_id, **kwargs
-            )
-            self._track_request_id_from_result(result)
-            await params.result_callback(
-                {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
-        except Exception as exc:
-            await self._finish_event_tool_with_error(params, exc, run_llm=True)
-
     async def _handle_rename_ship(self, params: FunctionCallParams):
         args = params.arguments
         try:
@@ -752,6 +734,26 @@ class VoiceAgent(LLMAgent):
         )
         definitions = result.get("definitions", result)
         summary = summarize_ship_definitions(definitions)
+        self._begin_assistant_response_cycle()
+        await params.result_callback({"summary": summary})
+
+    async def _handle_list_known_ports(self, params: FunctionCallParams):
+        # Direct-response tool: the edge function returns the full payload
+        # inline, so we format it and hand it straight to the LLM. The matching
+        # ports.list event is dropped from voice context in event_relay.py
+        # (AppendRule.NEVER) to avoid duplicating the data.
+        from gradientbang.utils.summary_formatters import list_known_ports_summary
+
+        args = params.arguments
+        kwargs = {}
+        for key in ("from_sector", "max_hops", "port_type", "commodity", "trade_type", "mega"):
+            if args.get(key) is not None:
+                kwargs[key] = args[key]
+
+        result = await self._game_client.list_known_ports(
+            character_id=self._character_id, **kwargs
+        )
+        summary = list_known_ports_summary(result)
         self._begin_assistant_response_cycle()
         await params.result_callback({"summary": summary})
 

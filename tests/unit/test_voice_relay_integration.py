@@ -1114,20 +1114,22 @@ class TestDeferredFlushCoalescing:
         # Simulate tool in-flight
         h.voice_agent._tool_call_inflight = 1
 
-        # Feed multiple ports.list events through the real EventRelay while tool is active.
+        # Feed multiple course.plot events through the real EventRelay while tool is active.
+        # (ports.list is AppendRule.NEVER now that it's a direct-response tool, so we
+        # use course.plot — still InferenceRule.VOICE_AGENT — to exercise the deferral path.)
         # These go through _deliver_llm_event → queue_frame → deferred (tool inflight).
         await h.feed_event(
-            "ports.list",
+            "course.plot",
             {
-                "ports": [{"sector": 1}],
+                "path": [1, 2, 3],
                 "__event_context": {"scope": "direct", "reason": "direct"},
             },
             request_id="travel-req",
         )
         await h.feed_event(
-            "ports.list",
+            "course.plot",
             {
-                "ports": [{"sector": 2}],
+                "path": [4, 5, 6],
                 "__event_context": {"scope": "direct", "reason": "direct"},
             },
             request_id="travel-req",

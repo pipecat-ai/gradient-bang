@@ -208,7 +208,9 @@ def _format_port_prices_compact(port: Dict[str, Any]) -> str:
     mega = port.get("mega") is True
     prices = port.get("prices", {})
 
-    prefix = "MEGA " if mega else ""
+    # Affirmative marker on both states: the LLM was missing non-mega ports by
+    # the absence of the "MEGA " prefix. "STD" makes the non-mega state explicit.
+    prefix = "MEGA " if mega else "STD "
     if not code or not prices:
         return f"{prefix}{code}".strip()
 
@@ -1109,8 +1111,9 @@ def port_update_summary(event: Dict[str, Any]) -> str:
         port = {}
 
     code = port.get("code", "???")
-    if port.get("mega") is True:
-        code = f"MEGA {code}"
+    # Affirmative marker on both states — matches _format_port_prices_compact
+    # so the LLM never has to infer mega status from absence of a prefix.
+    code = f"MEGA {code}" if port.get("mega") is True else f"STD {code}"
 
     pieces: List[str] = []
     prices = port.get("prices", {}) if isinstance(port, dict) else {}

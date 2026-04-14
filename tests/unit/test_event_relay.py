@@ -1183,8 +1183,9 @@ class TestInferenceRules:
         _, run_llm = task_state.deferred_events[0]
         assert run_llm is True
 
-    async def test_voice_agent_with_matching_request(self):
-        """InferenceRule.VOICE_AGENT — True when request_id matches."""
+    async def test_ports_list_never_appended_with_matching_request(self):
+        """ports.list is AppendRule.NEVER — voice agent gets data via the direct-response
+        tool result, so the follow-up event must not duplicate it in LLM context."""
         relay, task_state, _, _ = _make_relay()
         relay._onboarding_pending = False
         task_state.recent_request_ids.add("req-1")
@@ -1194,9 +1195,7 @@ class TestInferenceRules:
             request_id="req-1",
         )
         await relay._relay_event(event)
-        assert len(task_state.deferred_events) == 1
-        _, run_llm = task_state.deferred_events[0]
-        assert run_llm is True
+        assert task_state.deferred_events == []
 
     async def test_course_plot_with_matching_request(self):
         """course.plot stays inference-triggering for matching voice requests."""
@@ -1216,13 +1215,31 @@ class TestInferenceRules:
         _, run_llm = task_state.deferred_events[0]
         assert run_llm is True
 
-    async def test_voice_agent_without_matching_request(self):
-        """InferenceRule.VOICE_AGENT — False when request_id doesn't match."""
+    async def test_ports_list_never_appended_without_matching_request(self):
+        """ports.list stays out of voice LLM context regardless of request_id match."""
         relay, task_state, _, _ = _make_relay()
         relay._onboarding_pending = False
         event = _make_event(
             "ports.list",
             {"ports": [], "__event_context": {"scope": "direct", "reason": "direct"}},
+            request_id="unknown-req",
+        )
+        await relay._relay_event(event)
+        assert task_state.deferred_events == []
+
+    async def test_voice_agent_without_matching_request(self):
+        """InferenceRule.VOICE_AGENT — False when request_id doesn't match.
+
+        course.plot still exercises this rule; ports.list switched to NEVER.
+        """
+        relay, task_state, _, _ = _make_relay()
+        relay._onboarding_pending = False
+        event = _make_event(
+            "course.plot",
+            {
+                "path": [1, 5, 10],
+                "__event_context": {"scope": "direct", "reason": "direct"},
+            },
             request_id="unknown-req",
         )
         await relay._relay_event(event)

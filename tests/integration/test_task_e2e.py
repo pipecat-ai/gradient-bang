@@ -474,17 +474,19 @@ class TestAsyncCompletionE2E:
         try:
             await h.join_game()
 
-            # Script: list_known_ports (async, awaits "ports.list") → auto-finish
+            # Script: my_status (async, awaits "status.snapshot") → auto-finish
+            # (list_known_ports is no longer async — it returns the payload inline —
+            # so we use my_status which still fits the ASYNC_TOOL_COMPLETIONS path.)
             # We'll inject the completion event manually after verifying the await state.
             # But first: use a gate to pause after the tool call completes,
             # so we can inspect _awaiting_completion_event.
             h._task_llm_gate = asyncio.Event()
-            h.set_task_script([("list_known_ports", {"character_id": self.character_id})])
-            result = await h.start_player_task("Find ports async")
+            h.set_task_script([("my_status", {})])
+            result = await h.start_player_task("Check status async")
             assert result["success"] is True
 
             # Wait for the task to start and the first tool call to execute.
-            # The gate is closed, so after list_known_ports returns its HTTP response,
+            # The gate is closed, so after my_status returns its HTTP response,
             # the ScriptedLLM will block before calling finished.
             # But the TaskAgent will have set _awaiting_completion_event.
             await asyncio.sleep(2.0)
@@ -496,9 +498,9 @@ class TestAsyncCompletionE2E:
             )
 
             if task_agent and task_agent._awaiting_completion_event:
-                # Great — the async await is active. Verify it's waiting for ports.list
-                assert task_agent._awaiting_completion_event == "ports.list", (
-                    f"Expected awaiting 'ports.list', got '{task_agent._awaiting_completion_event}'"
+                # Great — the async await is active. Verify it's waiting for status.snapshot
+                assert task_agent._awaiting_completion_event == "status.snapshot", (
+                    f"Expected awaiting 'status.snapshot', got '{task_agent._awaiting_completion_event}'"
                 )
 
                 # Now feed the event through polling to unblock
@@ -757,10 +759,13 @@ class TestFullVoiceLoopE2E:
         self.api = edge_api
         self.make_game_client = make_game_client
 
-    async def test_voice_tool_call_produces_real_event_in_llm(self):
-        """Call list_known_ports via EdgeAPI, poll real events, verify they reach voice LLM.
+    async def test_list_known_ports_returns_payload_inline(self):
+        """Edge function returns the full port payload in the HTTP response body
+        so the VoiceAgent can consume it as a direct-response tool.
 
-        Full loop: edge function → DB event → events_since poll → relay → voice LLM.
+        Also verifies the matching ports.list event still lands on the bus
+        (TaskAgent's ASYNC_TOOL_COMPLETIONS waits on it) but is NOT appended
+        to the voice LLM context (AppendRule.NEVER).
         """
         h = E2EHarness(self.character_id, self.api, self.make_game_client)
         await h.start()
@@ -771,35 +776,35 @@ class TestFullVoiceLoopE2E:
             h.llm_frames.clear()
             h.bus_events.clear()
 
-            # Make a real edge function call and track its request_id
-            # (simulates what VoiceAgent does when a tool call fires)
+            # Call the edge function directly and verify the response body now
+            # contains the port payload inline (not just request_id).
             result = await self.api.call_ok(
                 "list_known_ports",
                 {"character_id": self.character_id, "max_hops": 10},
             )
-            req_id = result.get("request_id")
-            if req_id:
-                h.voice_agent.track_request_id(req_id)
+            assert "request_id" in result
+            assert "from_sector" in result, (
+                f"Edge function must return payload inline. Got keys: {list(result.keys())}"
+            )
+            assert "ports" in result
+            assert isinstance(result["ports"], list)
 
             # Poll real events from DB and feed through relay
             await h.poll_and_feed_events()
 
-            # The real event should have flowed: edge fn → DB → events_since → relay
-            # ports.list uses DIRECT append (character_id match) and should be in voice LLM
-            ports_llm = [
-                c for c, _ in h.llm_messages if "ports.list" in c
-            ]
-            assert len(ports_llm) >= 1, (
-                f"Expected ports.list in voice LLM from real edge function call. "
-                f"Got: {[c[:80] for c, _ in h.llm_messages]}"
-            )
-
-            # Bus should also have it (broadcast to TaskAgent children)
+            # The bus must still receive ports.list (TaskAgent depends on it)
             ports_bus = [
                 e for e in h.bus_events if e.get("event_name") == "ports.list"
             ]
             assert len(ports_bus) >= 1, (
                 f"Expected ports.list on bus. Events: {[e.get('event_name') for e in h.bus_events]}"
+            )
+
+            # But the voice LLM must NOT see the event — data comes via tool result
+            ports_llm = [c for c, _ in h.llm_messages if "ports.list" in c]
+            assert ports_llm == [], (
+                f"ports.list should not be appended to voice LLM context. "
+                f"Got: {[c[:80] for c in ports_llm]}"
             )
         finally:
             await h.stop()

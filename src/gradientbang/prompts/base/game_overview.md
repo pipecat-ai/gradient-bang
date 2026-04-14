@@ -30,6 +30,7 @@ You are controlling a ship in Gradient Bang, a space trading and exploration gam
 
 - Warp power recharge, banking (deposit/withdraw), armory (fighters)
 - Identified using list_known_ports(mega=true)
+- Port strings are prefixed `MEGA` (mega-port) or `STD` (standard). Trust the prefix — never infer mega status from absence.
 - Combat is disabled in Federation Space
 - Contracts are available via contract board (user must access them via the UI)
 

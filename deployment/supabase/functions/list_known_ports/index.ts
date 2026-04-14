@@ -568,8 +568,11 @@ async function handleListKnownPorts(
   });
   sEmitEvent.end();
 
+  // Include the full payloadBody in the HTTP response so callers can consume
+  // the data synchronously. The matching `ports.list` event is still emitted
+  // above for async consumers (TaskAgent's ASYNC_TOOL_COMPLETIONS waits on it).
   return {
-    response: successResponse({ request_id: requestId }),
+    response: successResponse({ request_id: requestId, ...payloadBody }),
     eventPayload: payloadBody,
   };
 }

@@ -1601,7 +1601,11 @@ class AsyncGameClient:
             mega: Optional filter by mega-port status (True=mega-ports only, False=regular only)
 
         Returns:
-            Minimal RPC acknowledgment (port data arrives via ``ports.list``)
+            Response dict with ``request_id`` plus the full port payload:
+            ``from_sector``, ``ports``, ``total_ports_found``, ``searched_sectors``,
+            ``max_hops``, ``port_type``, ``commodity``, ``trade_type``, ``mega``,
+            ``source``. The matching ``ports.list`` event is still emitted for
+            async consumers (TaskAgent waits on it via ASYNC_TOOL_COMPLETIONS).
 
         Raises:
             RPCError: If the request fails

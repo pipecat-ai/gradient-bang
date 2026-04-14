@@ -352,7 +352,13 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "status.update": EventConfig(sync_display_name=True, task_scoped_allowlisted=True),
     "movement.complete": EventConfig(track_sector=True, task_scoped_allowlisted=True),
     # Voice-agent inference
-    "ports.list": EventConfig(inference=InferenceRule.VOICE_AGENT),
+    # ports.list is emitted whenever anyone queries known ports. The VoiceAgent
+    # now calls list_known_ports as a direct-response tool (data returns inline
+    # in the tool result), so appending the event would duplicate the data and
+    # trigger a redundant second inference pass. Suppress append; onboarding's
+    # passive observers and the TaskAgent's bus consumer both run before the
+    # append check and are unaffected.
+    "ports.list": EventConfig(append=AppendRule.NEVER),
     "course.plot": EventConfig(inference=InferenceRule.VOICE_AGENT),
     "error": EventConfig(inference=InferenceRule.VOICE_AGENT),
     # Always-trigger inference

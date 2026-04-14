@@ -99,7 +99,6 @@ ASYNC_TOOL_COMPLETIONS = {
     "move": "movement.complete",
     "path_with_region": "path.region",
     "my_status": "status.snapshot",
-    "list_known_ports": "ports.list",
     "trade": "trade.executed",
     "recharge_warp_power": "warp.purchase",
     "transfer_warp_power": "warp.transfer",
@@ -122,9 +121,16 @@ ASYNC_TOOL_COMPLETIONS = {
 
 # Sync tools whose events should NOT be added to LLM context (data already
 # in the tool result).
+#
+# list_known_ports is synchronous on the server side: the edge function returns
+# the full port payload inline. The ports.list event still fires (voice-side
+# onboarding observers consume it, and it flows to RTVI for the client), but
+# it must be skipped here because the data already reached the LLM via the
+# tool result.
 SYNC_TOOL_EVENTS = {
     "local_map_region": "map.region",
     "plot_course": "course.plot",
+    "list_known_ports": "ports.list",
 }
 
 

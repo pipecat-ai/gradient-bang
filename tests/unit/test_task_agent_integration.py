@@ -147,18 +147,20 @@ class TestAsyncToolCompletion:
         h.agent._llm_inflight = False
         h.queued_frames.clear()
 
-        # Call list_known_ports (async tool expecting "ports.list" event)
-        params = h.make_function_call_params("list_known_ports", {})
+        # Call trade (async tool expecting "trade.executed" event)
+        params = h.make_function_call_params(
+            "trade", {"commodity": "ore", "quantity": 10, "trade_type": "buy"},
+        )
         await h.agent._handle_function_call(params)
 
         # Tool was executed
-        h.game_client.list_known_ports.assert_called_once()
+        h.game_client.trade.assert_called_once()
 
         # Result callback was called with run_llm=False
         params.result_callback.assert_called_once()
 
         # Should be awaiting completion event
-        assert h.agent._awaiting_completion_event == "ports.list"
+        assert h.agent._awaiting_completion_event == "trade.executed"
 
     async def test_completion_event_clears_await_and_triggers_inference(self):
         h = TaskAgentHarness()
@@ -167,19 +169,21 @@ class TestAsyncToolCompletion:
         h.queued_frames.clear()
 
         # Execute async tool
-        params = h.make_function_call_params("list_known_ports", {})
+        params = h.make_function_call_params(
+            "trade", {"commodity": "ore", "quantity": 10, "trade_type": "buy"},
+        )
         await h.agent._handle_function_call(params)
-        assert h.agent._awaiting_completion_event == "ports.list"
+        assert h.agent._awaiting_completion_event == "trade.executed"
 
         # Send the completion event
-        await h.send_game_event("ports.list", {"ports": [1, 2, 3]}, task_id="task-001")
+        await h.send_game_event("trade.executed", {"profit": 100}, task_id="task-001")
 
         # Await cleared
         assert h.agent._awaiting_completion_event is None
 
         # Event should be in LLM context
         messages = h.agent._llm_context.get_messages()
-        event_messages = [m for m in messages if "<event name=ports.list>" in m.get("content", "")]
+        event_messages = [m for m in messages if "<event name=trade.executed>" in m.get("content", "")]
         assert len(event_messages) == 1
 
     async def test_move_defers_until_movement_complete(self):
@@ -192,6 +196,41 @@ class TestAsyncToolCompletion:
 
         h.game_client.move.assert_called_once_with(character_id="char-test", to_sector=5)
         assert h.agent._awaiting_completion_event == "movement.complete"
+
+    async def test_list_known_ports_does_not_defer_inference(self):
+        """list_known_ports is now a sync tool — the edge function returns the
+        payload inline, so the task agent must NOT wait for a ports.list event."""
+        h = TaskAgentHarness()
+        await h.start_task()
+        h.agent._llm_inflight = False
+        h.queued_frames.clear()
+
+        params = h.make_function_call_params("list_known_ports", {})
+        await h.agent._handle_function_call(params)
+
+        # No completion event awaited — data was already in the tool result
+        assert h.agent._awaiting_completion_event is None
+
+    async def test_list_known_ports_event_skipped_from_context(self):
+        """The ports.list event still fires on the bus (for other consumers)
+        but must not duplicate into the task agent's LLM context."""
+        h = TaskAgentHarness()
+        await h.start_task()
+        h.agent._llm_inflight = False
+
+        # Issue the sync list_known_ports call — pre-marks ports.list for skip
+        params = h.make_function_call_params("list_known_ports", {})
+        await h.agent._handle_function_call(params)
+
+        msg_count_before = len(h.agent._llm_context.get_messages())
+
+        # Arrive ports.list event — should be skipped, not appended
+        await h.send_game_event(
+            "ports.list", {"ports": [{"sector": 1}]}, task_id="task-001",
+        )
+
+        msg_count_after = len(h.agent._llm_context.get_messages())
+        assert msg_count_after == msg_count_before
 
 
 @pytest.mark.unit
