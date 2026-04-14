@@ -20,13 +20,11 @@ export const ShipPurchasedToast = ({
   onAnimationComplete,
   onDismiss,
 }: ShipPurchasedToastProps) => {
-  const playSound = useAudioStore.use.playSound()
-
   const { meta } = toast
 
   useEffect(() => {
-    playSound("chime8")
-  }, [playSound])
+    useAudioStore.getState().playSound("chime10")
+  }, [])
 
   const shipLogo = getShipLogoImage(meta?.ship?.ship_type ?? "")
   if (!shipLogo) {
