@@ -4,6 +4,7 @@ import { cva } from "class-variance-authority"
 import { motion } from "motion/react"
 import { CircleNotchIcon, LockSimpleIcon, ProhibitIcon } from "@phosphor-icons/react"
 
+import { CopyTaskContextButton } from "@/components/CopyTaskContextButton"
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent } from "@/components/primitives/Card"
 import { TaskEngineSummaryText } from "@/components/TaskEngineSummaryText"
@@ -210,13 +211,21 @@ export const TaskEngine = ({
         </CardContent>
 
         <div className="relative flex-1 min-h-0 overflow-hidden">
-          <TaskEngineSummaryText
-            description={displayTask?.task_description}
-            showArrow
-            className="mx-ui-xs z-20 gap-ui-xs"
-          />
+          <div className="mx-ui-xs relative z-20 flex flex-row items-stretch gap-ui-xs">
+            <TaskEngineSummaryText
+              description={displayTask?.task_description}
+              showArrow
+              className="flex-1 min-w-0 gap-ui-xs"
+            />
+            {taskId && (
+              <div className="flex items-center">
+                <CopyTaskContextButton taskId={taskId} />
+              </div>
+            )}
+          </div>
           <TaskOutputStream
             taskId={taskId}
+            showCopyButton={false}
             className="absolute inset-0 pointer-events-none [&_*[data-slot^=scroll-area]]:pointer-events-auto px-ui-xs"
           />
         </div>

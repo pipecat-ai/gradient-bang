@@ -44,7 +44,7 @@ export const ToastBase = ({
         }
       }}
       onClick={onClick}
-      className="pointer-events-auto cursor-pointer w-full h-full overflow-hidden"
+      className="pointer-events-auto cursor-pointer w-full h-full shadow-long"
     >
       {children}
     </motion.div>

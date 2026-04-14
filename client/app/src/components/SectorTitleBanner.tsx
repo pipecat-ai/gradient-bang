@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { StarIcon, SwapIcon, UserIcon } from "@phosphor-icons/react"
 import { AnimatePresence, motion } from "motion/react"
 
 import { ScrambleText, type ScrambleTextRef } from "@/fx/ScrambleText"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { getPortCode } from "@/utils/port"
+import { cn } from "@/utils/tailwind"
 
 import { Divider } from "./primitives/Divider"
 import { DotDivider } from "./primitives/DotDivider"
@@ -165,9 +167,9 @@ export const SectorTitleBanner = () => {
   // Cleanup on unmount
   useEffect(() => clearTimers, [clearTimers])
 
-  const showSubBadge =
-    (sector && sector.players && sector.players.length > 0) || (sector && sector.port)
+  const shipCount = sector?.players?.length ?? 0
   const portCode = getPortCode(sector?.port ?? null)
+  const isMegaPort = sector?.port?.mega ?? false
   return (
     <AnimatePresence onExitComplete={onExitComplete}>
       {isShowing && (
@@ -185,25 +187,30 @@ export const SectorTitleBanner = () => {
             </p>
             <div className="dotted-bg-sm dotted-bg-subtle self-stretch w-[160px]" />
           </div>
-          {showSubBadge && (
-            <div className="flex flex-row w-fit mx-auto gap-3 items-center text-sm font-semibold uppercase mt-2 px-2 py-0.5 text-subtle-foreground bg-background/70">
-              <Divider className="w-8 bg-subtle" />
-              {sector.players && sector.players.length > 0 && (
-                <>
-                  <span>{sector.players?.length ?? 0} Ships</span>
-                  <DotDivider className="bg-subtle" />
-                </>
-              )}
-              {sector.port && (
-                <>
-                  <span className={sector.port?.mega ? "text-fuel" : "text-terminal"}>
-                    {sector.port?.mega ? "Mega" : ""} {portCode} Port
-                  </span>
-                </>
-              )}
-              <Divider className="w-8 bg-subtle" />
-            </div>
-          )}
+          <div className="flex flex-row w-fit mx-auto gap-3 items-center text-sm font-semibold uppercase mt-2 px-2 py-0.5 text-subtle-foreground bg-background/70">
+            <Divider className="w-8 bg-subtle" />
+            {sector?.port && (
+              <>
+                <span
+                  className={cn(
+                    "flex flex-row items-center gap-1.5",
+                    isMegaPort ? "text-fuel" : "text-terminal"
+                  )}
+                >
+                  {isMegaPort ?
+                    <StarIcon weight="fill" className="size-4" />
+                  : <SwapIcon weight="bold" className="size-4" />}
+                  {isMegaPort ? "Mega" : portCode}
+                </span>
+                <DotDivider className="bg-subtle" />
+              </>
+            )}
+            <span className="flex flex-row items-center gap-1.5">
+              <UserIcon weight="duotone" className="size-4" />
+              {shipCount}
+            </span>
+            <Divider className="w-8 bg-subtle" />
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

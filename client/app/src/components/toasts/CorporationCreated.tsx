@@ -1,4 +1,8 @@
+import { useEffect } from "react"
+
 import { UsersIcon } from "@phosphor-icons/react"
+
+import useAudioStore from "@/stores/audio"
 
 import { Card, CardContent } from "../primitives/Card"
 import { ToastBase, ToastTitle } from "./ToastBase"
@@ -18,6 +22,10 @@ export const CorporationCreatedToast = ({
   onDismiss,
 }: CorporationCreatedToastProps) => {
   const { meta } = toast
+
+  useEffect(() => {
+    useAudioStore.getState().playSound("chime10")
+  }, [])
 
   const corporationName = meta?.corporation?.name ?? "Unknown"
   if (!corporationName) {

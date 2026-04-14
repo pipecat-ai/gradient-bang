@@ -182,6 +182,9 @@
   --animate-outline-pulse: outline-pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --animate-blink: blink 0.2s step-end infinite;
   --animate-new-msg: new-msg 1.2s ease-out forwards;
+  --animate-new-msg-pulse:
+    new-msg 1.2s ease-out forwards,
+    pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 1.2s infinite;
 
   @keyframes outline-pulse {
     0%,

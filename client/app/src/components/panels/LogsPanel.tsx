@@ -155,7 +155,7 @@ export const LogsPanel = () => {
     resetAutoScroll()
   }, [messageFilters, resetAutoScroll])
 
-  // Track items for the new-messages badge and detect activity
+  // Detect new-message activity for the filter badge
   useEffect(() => {
     if (!filteredMessages?.length) return
 
@@ -166,11 +166,9 @@ export const LogsPanel = () => {
       prevMessagesLengthRef.current = filteredMessages.length
 
       if (isNewMessage) {
-        // Find new messages by comparing with previous
         const prevIds = new Set(prevMessagesRef.current?.map((m) => m.id) ?? [])
         const newMessages = messages?.filter((m) => !prevIds.has(m.id)) ?? []
 
-        // Check if any new message should trigger activity
         const shouldTriggerActivity = newMessages.some(
           (m) => !(muteBroadcastActivity && m.type === "broadcast")
         )

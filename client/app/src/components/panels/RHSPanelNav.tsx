@@ -78,6 +78,7 @@ export const RHSPanelNavItem = ({
 export const RHSPanelNav = () => {
   const activePanel = useGameStore.use.activePanel?.()
   const setActivePanel = useGameStore.use.setActivePanel?.()
+  const markPanelInteraction = useGameStore.use.markPanelInteraction?.()
   const uiState = useGameStore.use.uiState?.()
 
   const hotkeyMap = React.useMemo(
@@ -104,12 +105,13 @@ export const RHSPanelNav = () => {
       if (uiState === "combat" && tabId !== "logs" && tabId !== "sector") return
 
       e.preventDefault()
+      markPanelInteraction()
       setActivePanel(activePanel === tabId ? undefined : (tabId as UIPanel))
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [activePanel, setActivePanel, uiState, hotkeyMap])
+  }, [activePanel, setActivePanel, markPanelInteraction, uiState, hotkeyMap])
 
   const tabs = [
     {
@@ -133,7 +135,12 @@ export const RHSPanelNav = () => {
   ]
 
   return (
-    <div className="flex flex-col gap-1 items-center select-none relative flex-1 max-h-min border-l bg-background">
+    <div
+      className="flex flex-col gap-1 items-center select-none relative flex-1 max-h-min border-l bg-background overflow-x-clip"
+      onPointerDownCapture={markPanelInteraction}
+      onKeyDownCapture={markPanelInteraction}
+      onWheelCapture={markPanelInteraction}
+    >
       <div className="relative flex flex-row gap-panel-gap w-full px-panel-gap">
         {tabs.map((tab) => (
           <RHSPanelNavItem

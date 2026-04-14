@@ -1,6 +1,7 @@
 import { useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
+import { SpeakerHighIcon, SpeakerSlashIcon } from "@phosphor-icons/react"
 
 import TitleVideo from "@/assets/videos/title.mp4"
 import { CharacterSelectDialog } from "@/components/dialogs/CharacterSelect"
@@ -27,8 +28,20 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [state, setState] = useState<"idle" | "join">("idle")
   const [error, setError] = useState<boolean>(false)
-  const hasStartedMusic = useRef(false)
+  const [isMusicPlaying, setIsMusicPlaying] = useState<boolean>(false)
+  const [hasInteractedWithMusic, setHasInteractedWithMusic] = useState<boolean>(false)
   const titleVideoRef = useRef<HTMLVideoElement>(null)
+
+  const startMusic = () => {
+    setIsMusicPlaying(true)
+    setHasInteractedWithMusic(true)
+    useAudioStore.getState().fadeIn("theme", { volume: 0.2, duration: 5000 })
+  }
+
+  const stopMusic = () => {
+    setIsMusicPlaying(false)
+    useAudioStore.getState().fadeOut("theme", { duration: 2000 })
+  }
 
   const handleSignIn = async () => {
     setIsLoading(true)
@@ -111,18 +124,22 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                 <motion.div
                   key="idle"
                   initial={{ x: -50, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: -50, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                  animate={{
+                    x: 0,
+                    opacity: 1,
+                    transition: { duration: 0.2, ease: "easeInOut" },
+                  }}
+                  exit={{
+                    x: -50,
+                    opacity: 0,
+                    transition: { duration: 0.2, ease: "easeInOut" },
+                  }}
                   className="w-full flex flex-col gap-5"
                 >
                   <Button
                     onClick={() => {
                       setState("join")
-                      if (!hasStartedMusic.current) {
-                        hasStartedMusic.current = true
-                        useAudioStore.getState().fadeIn("theme", { volume: 0.2, duration: 5000 })
-                      }
+                      if (!isMusicPlaying) startMusic()
                     }}
                     className="w-full"
                     size="xl"
@@ -151,9 +168,16 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                 <motion.div
                   key="join"
                   initial={{ x: 50, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: 50, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                  animate={{
+                    x: 0,
+                    opacity: 1,
+                    transition: { duration: 0.2, ease: "easeInOut" },
+                  }}
+                  exit={{
+                    x: 50,
+                    opacity: 0,
+                    transition: { duration: 0.2, ease: "easeInOut" },
+                  }}
                   className="w-full flex flex-col gap-5"
                 >
                   {error && (
@@ -225,10 +249,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                     variant="secondary"
                     onClick={() => {
                       setState("idle")
-                      if (hasStartedMusic.current) {
-                        hasStartedMusic.current = false
-                        useAudioStore.getState().fadeOut("theme", { duration: 2000 })
-                      }
+                      stopMusic()
                     }}
                     className="w-full"
                     size="xl"
@@ -241,9 +262,21 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
           </CardContent>
           <div className="flex flex-row gap-5 text-center justify-center items-center px-6 border-t border-border pt-5">
             <div className="bg-dotted-sm bg-dotted-white/30 self-stretch flex-1" />
-            <p className="text-muted-foreground text-sm font-bold uppercase tracking-wider leading-tight">
-              Dev Build {import.meta.env.VITE_APP_VERSION}
-            </p>
+            {state === "join" && hasInteractedWithMusic ?
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={isMusicPlaying ? stopMusic : startMusic}
+              >
+                {isMusicPlaying ?
+                  <SpeakerSlashIcon />
+                : <SpeakerHighIcon />}
+                {isMusicPlaying ? "Stop Music" : "Play Music"}
+              </Button>
+            : <p className="text-muted-foreground text-sm font-bold uppercase tracking-wider leading-tight">
+                Dev Build {import.meta.env.VITE_APP_VERSION}
+              </p>
+            }
             <div className="bg-dotted-sm bg-dotted-white/30 self-stretch flex-1" />
           </div>
         </Card>
@@ -251,7 +284,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
       <Settings />
       <Leaderboard />
       <CharacterSelectDialog onCharacterSelect={handleCharacterSelect} />
-      <div className="absolute bottom-0 right-0 p-4 z-99 flex flex-row items-center gap-2 bg-background select-none">
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 p-4 z-99 flex flex-row items-center gap-2 bg-background select-none">
         <span className="text-xs text-muted-foreground uppercase tracking-wider">Built by</span>
         <PipecatSVG className="h-[16px] text-white" />
       </div>

@@ -87,7 +87,7 @@ const STATUS_CONFIG: Record<
   active: { label: "In Progress", variant: "highlight" },
   completed: { label: "Complete", variant: "success", icon: CheckCircleIcon },
   available: { label: "Accept contract", variant: "success" },
-  locked: { label: "Locked", variant: "default", icon: LockSimpleIcon },
+  locked: { label: "Coming soon", variant: "default", icon: LockSimpleIcon },
 }
 
 const QuestGiverCard = ({
@@ -138,7 +138,7 @@ const QuestGiverCard = ({
                 {questGiver.locked ? "???" : questGiver.name}
               </span>
               <span className="text-center uppercase block text-xxs text-subtle-foreground truncate mt-2">
-                {questGiver.locked ? "Locked" : questGiver.description}
+                {questGiver.locked ? "More contracts coming soon" : questGiver.description}
               </span>
             </div>
           </CardContent>

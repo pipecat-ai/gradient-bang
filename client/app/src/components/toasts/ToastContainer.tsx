@@ -104,7 +104,7 @@ export const ToastContainer = () => {
   )
 
   return (
-    <div className="absolute top-ui-sm left-1/2 -translate-x-1/2 pointer-events-none w-toast z-(--z-toasts) mb-auto flex flex-col">
+    <div className="absolute top-ui-2xl left-1/2 -translate-x-1/2 pointer-events-none w-toast z-(--z-toasts) mb-auto flex flex-col">
       <div className={containerClasses} style={{ transformOrigin: "top center" }}>
         <AnimatePresence mode="wait" onExitComplete={handleAnimationComplete}>
           {currentToast && !isExiting && (

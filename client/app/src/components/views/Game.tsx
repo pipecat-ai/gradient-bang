@@ -115,10 +115,6 @@ export const Game = () => {
         <Panel className="flex flex-col">
           <TopBar />
           <main className="@container/main relative flex-1 flex flex-col gap-0 gap-y-ui-sm overflow-hidden">
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 h-60 w-full pointer-events-none z-20">
-              <ActivityStream />
-            </div>
-
             {uiState === "combat" && <CombatDamageVignette />}
             <div
               className="flex-1 min-h-0 relative"
@@ -130,6 +126,9 @@ export const Game = () => {
                 : undefined
               }
             >
+              <div className="absolute left-0 bottom-0 h-60 w-full pointer-events-none z-20">
+                <ActivityStream />
+              </div>
               <TutorialRevealOverlay id="main" />
 
               {uiState === "combat" ?

@@ -7,6 +7,8 @@ import { getLocalSettings, updateLocalSettings } from "@/utils/settings"
 import { UI_PANELS } from "@/types/constants"
 import type { Toast, ToastInput } from "@/types/toasts"
 
+export const ACTIVE_PANEL_REST_SECS = 7
+
 interface Notifications {
   newChatMessage: boolean
   rankChanged: boolean
@@ -46,6 +48,10 @@ export interface UISlice {
   setActiveModal: (modal?: UIModal, data?: unknown) => void
   setActivePanel: (panel?: UIPanel, data?: unknown) => void
   setActiveSubPanel: (subPanel?: string) => void
+
+  lastPanelInteractionAt: number
+  markPanelInteraction: () => void
+  focusTaskStreamPanel: (taskId: string) => void
 
   highlightElement: string | null
   highlightLong: boolean
@@ -101,6 +107,22 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   lookAtTarget: undefined,
   playerTargetId: undefined,
   llmIsWorking: false,
+
+  lastPanelInteractionAt: 0,
+  markPanelInteraction: () =>
+    set(
+      produce((state) => {
+        state.lastPanelInteractionAt = Date.now()
+      })
+    ),
+  focusTaskStreamPanel: (taskId: string) =>
+    set(
+      produce((state) => {
+        state.activePanel = "task_stream"
+        state.activePanelData = taskId
+        state.activeSubPanel = undefined
+      })
+    ),
 
   tutorialActive: false,
   tutorialStep: null,
