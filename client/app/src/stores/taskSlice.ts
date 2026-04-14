@@ -2,6 +2,8 @@ import { produce } from "immer"
 import type { StateCreator } from "zustand"
 
 import { wait } from "@/utils/animation"
+import { ACTIVE_PANEL_REST_SECS } from "./uiSlice"
+import type { UISlice } from "./uiSlice"
 
 // Duration of the "Steering" badge flash, in milliseconds. When the voice
 // agent sends a steering instruction to a running task, the badge briefly
@@ -103,6 +105,14 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
         ships.data?.filter((ship) => ship.owner_type === "corporation").length ?? 0
       const maxSlots = Math.min(corpShipCount, 3)
       get().assignTaskToCorpSlot(task.task_id, maxSlots)
+    }
+
+    if (task.task_scope === "player_ship") {
+      const ui = get() as unknown as UISlice
+      const idle = Date.now() - ui.lastPanelInteractionAt > ACTIVE_PANEL_REST_SECS * 1000
+      if (ui.uiMode === "map" && idle) {
+        ui.focusTaskStreamPanel(task.task_id)
+      }
     }
   },
 

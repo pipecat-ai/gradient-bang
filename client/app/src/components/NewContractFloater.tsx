@@ -17,7 +17,7 @@ export const NewContractFloater = () => {
   }, [count, activePanel])
 
   return shouldShow ?
-      <div className="absolute -top-9 -inset-x-px h-8 bg-terminal-background text-terminal-foreground z-10 stripe-frame stripe-frame-1 stripe-frame-size-2 stripe-frame-terminal flex flex-row items-center justify-center gap-1 animate-new-msg">
+      <div className="absolute -top-9 -inset-x-px h-8 bg-terminal-background text-terminal-foreground z-10 stripe-frame stripe-frame-1 stripe-frame-size-2 stripe-frame-terminal flex flex-row items-center justify-center gap-1 animate-new-msg-pulse">
         <WaveSineIcon size={12} weight="bold" className="size-3 animate-pulse" />
         <span className="text-xxs font-bold tabular-nums">{count}</span>
       </div>

@@ -32,13 +32,11 @@ export const IntroTutorial = ({ onContinue }: { onContinue: () => void }) => {
     setShowConfirmTutorial(true)
   }
 
-  const handleContinue = (bypassTutorial: boolean = false) => {
+  const handleContinue = (_bypassTutorial: boolean = false) => {
     // Note: we do not hide the modal here to prevent FOUS
 
-    useGameStore.getState().setBypassTutorial(bypassTutorial)
-    if (!bypassTutorial) {
-      useGameStore.getState().handleTutorialStart()
-    }
+    // Tutorial is not ready yet — always bypass regardless of user choice
+    useGameStore.getState().setBypassTutorial(true)
 
     // Continue to connect
     onContinue()

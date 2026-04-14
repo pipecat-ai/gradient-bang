@@ -82,12 +82,16 @@ export const RHSPanelContainer = () => {
   const activePanel = useGameStore.use.activePanel?.()
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
+  const markPanelInteraction = useGameStore.use.markPanelInteraction?.()
   const tutorialActive = useGameStore((state) => state.tutorialActive)
   const tutorialRevealed = useGameStore((state) => state.tutorialRevealed)
   return (
     <div
       className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/60 border-t border-l"
       id="panel-container"
+      onPointerDownCapture={markPanelInteraction}
+      onKeyDownCapture={markPanelInteraction}
+      onWheelCapture={markPanelInteraction}
       data-tutorial={
         tutorialActive ?
           tutorialRevealed.includes("panel.container") ?

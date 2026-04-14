@@ -197,7 +197,7 @@ export const LeaderboardPanel = ({ className }: { className?: string }) => {
           striped
           getRowClassName={(row) =>
             row.player_name === player?.name ?
-              "bg-terminal-background/50 text-terminal-foreground font-bold"
+              "bg-fuel-background text-fuel-foreground font-bold"
             : undefined
           }
           className="text-background dither-mask-sm dither-mask-invert h-full"

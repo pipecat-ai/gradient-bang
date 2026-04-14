@@ -113,8 +113,19 @@ const MiniEngine = ({
 
   const isRunning = state === "active" || state === "cancelling" || state === "steering"
 
+  const openTaskStream = () => {
+    if (!taskId) return
+    setActivePanel("task_stream", taskId)
+  }
+
   return (
-    <div className={cx({ subtle: !isRunning, hasTask: !!taskId })}>
+    <div
+      className={cx({ subtle: !isRunning, hasTask: !!taskId })}
+      onClick={taskId ? openTaskStream : undefined}
+      role={taskId ? "button" : undefined}
+      tabIndex={taskId ? 0 : undefined}
+      style={taskId ? { cursor: "pointer" } : undefined}
+    >
       <MiniEngineBase>
         <TaskEngineSummaryText
           description={displayTask?.task_description}
@@ -128,7 +139,8 @@ const MiniEngine = ({
               variant="ghost"
               disabled={isCancelling}
               className="absolute z-20 top-1 right-1 size-6.5 bg-success-background/50 text-success-foreground hover:bg-success-background"
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation()
                 if (!taskId) return
                 setIsCancelling(true)
                 dispatchAction({ type: "cancel-task", payload: { task_id: taskId } })
@@ -148,10 +160,7 @@ const MiniEngine = ({
             size="ui"
             variant="bland"
             className="shrink-0 h-full text-accent group-hover:text-foreground in-[.group\/subtle]:text-foreground border-l border-accent px-1.5 hover:text-terminal hover:bg-subtle-background hover:border-l-border"
-            onClick={() => {
-              if (!taskId) return
-              setActivePanel("task_stream", taskId)
-            }}
+            onClick={openTaskStream}
           >
             <CaretRightIcon weight="bold" size={14} className="size-3.5" />
           </Button>

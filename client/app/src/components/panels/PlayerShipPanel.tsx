@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
-import { CircleNotchIcon, ShieldIcon, UserIcon, XIcon } from "@phosphor-icons/react"
+import { ArrowUpIcon, CircleNotchIcon, ShieldIcon, UserIcon } from "@phosphor-icons/react"
 
 import { CreditsIcon, CurrentSectorIcon, FighterIcon, FuelIcon } from "@/icons"
 import useGameStore from "@/stores/game"
@@ -303,12 +303,12 @@ export const PlayerShipTabControls = () => {
           <Button
             variant="ghost"
             size="ui"
-            className="text-xs grow shrink-0 border-t-0 justify-between w-full hover:outline-0 focus-visible:outline-0 hover:bg-muted bg-accent-background"
+            className="text-xs grow shrink-0 border-t-0 justify-between w-full hover:outline-0 focus-visible:outline-0 hover:bg-accent bg-accent-background"
             onClick={() => setActiveTab("")}
           >
-            <XIcon className="shrink-0 my-auto text-subtle" />
-            Close
-            <XIcon className="shrink-0 my-auto text-subtle" />
+            <ArrowUpIcon className="shrink-0 my-auto text-subtle" />
+            Hide
+            <ArrowUpIcon className="shrink-0 my-auto text-subtle" />
           </Button>
         </div>
       )}

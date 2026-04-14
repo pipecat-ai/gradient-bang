@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react"
 
+const MAX_THINKING_MS = 30_000
+
 interface ThinkingProps {
   "aria-label"?: string
   className?: string
@@ -18,8 +20,9 @@ export const Thinking: React.FC<ThinkingProps> = ({
   startTime,
 }) => {
   const [dots, setDots] = useState(initialDots)
+  const [expired, setExpired] = useState(false)
   const timerRef = useRef<HTMLSpanElement>(null)
-  const rafRef = useRef<number>()
+  const rafRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     const i = setInterval(() => {
@@ -29,9 +32,16 @@ export const Thinking: React.FC<ThinkingProps> = ({
     return () => clearInterval(i)
   }, [interval, maxDots])
 
+  const start =
+    startTime === undefined ? undefined
+    : typeof startTime === "string" ? new Date(startTime).getTime()
+    : startTime
+
   useEffect(() => {
-    if (!startTime) return
-    const start = typeof startTime === "string" ? new Date(startTime).getTime() : startTime
+    if (start === undefined) return
+
+    const remaining = Math.max(0, MAX_THINKING_MS - (Date.now() - start))
+    const expiry = setTimeout(() => setExpired(true), remaining)
 
     const tick = () => {
       if (timerRef.current) {
@@ -42,9 +52,12 @@ export const Thinking: React.FC<ThinkingProps> = ({
     }
     rafRef.current = requestAnimationFrame(tick)
     return () => {
+      clearTimeout(expiry)
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
-  }, [startTime])
+  }, [start])
+
+  if (expired) return null
 
   const renderDots = () => {
     return ".".repeat(dots)

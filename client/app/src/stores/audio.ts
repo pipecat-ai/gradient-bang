@@ -127,6 +127,7 @@ interface ActiveSound {
   baseVolume: number
   soundType: SoundType
   suspended: boolean
+  pendingStop?: ReturnType<typeof setTimeout>
 }
 
 function getTypeMultiplier(
@@ -294,6 +295,11 @@ const useAudioStoreBase = create<AudioState>()(
         const entry = get().activeOnceSounds.get(soundName)
         if (!entry) return false
 
+        if (entry.pendingStop) {
+          clearTimeout(entry.pendingStop)
+          entry.pendingStop = undefined
+        }
+
         const targetBaseVolume = options?.volume ?? 1
         entry.baseVolume = targetBaseVolume
 
@@ -336,8 +342,11 @@ const useAudioStoreBase = create<AudioState>()(
       entry.gain.gain.setValueAtTime(entry.gain.gain.value, now)
       entry.gain.gain.linearRampToValueAtTime(0, now + duration / 1000)
 
-      // Cleanup after fade completes
-      setTimeout(() => {
+      // Cleanup after fade completes (cancelable if fadeIn is called again)
+      if (entry.pendingStop) clearTimeout(entry.pendingStop)
+      entry.pendingStop = setTimeout(() => {
+        const current = get().activeOnceSounds.get(soundName)
+        if (current !== entry || current.pendingStop === undefined) return
         try {
           entry.source.stop()
         } catch {
