@@ -1463,3 +1463,131 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 23: Corp ship movement — no duplicates when bot polls with full scope
+// The pipecat bot polls events_since with character_ids=[actor],
+// ship_ids=[corpShipPseudoChar], corp_id=corpA. A corp ship move must result
+// in exactly one movement.start and one movement.complete reaching the poller,
+// regardless of how the events are denormalized in the DB. Duplicates here
+// manifest as repeated events in TaskAgent logs.
+// ============================================================================
+
+Deno.test({
+  name: "event_dedup — corp ship move: bot poll returns exactly 1 movement.start/complete",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    let corpShipCharacterId: string;
+
+    await t.step("setup: buy corp ship for Corp A (P1)", async () => {
+      await setShipSector(p1ShipId, 0);
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+      corpShipCharacterId = corpShipId;
+      await setShipWarpPower(corpShipId, 500);
+      await setShipSector(corpShipId, 0);
+    });
+
+    let cursor: number;
+
+    await t.step("capture cursor via bot-style poll (initial_only)", async () => {
+      const result = await apiOk<{ last_event_id: number | null }>(
+        "events_since",
+        {
+          character_ids: [p1Id],
+          ship_ids: [corpShipCharacterId],
+          corp_id: corpAId,
+          initial_only: true,
+        },
+      );
+      cursor = result.last_event_id ?? 0;
+    });
+
+    await t.step("move corp ship from sector 0 → 1", async () => {
+      await apiOk("move", {
+        character_id: corpShipCharacterId,
+        to_sector: 1,
+        actor_character_id: p1Id,
+      });
+    });
+
+    await t.step(
+      "bot-style poll returns exactly 1 movement.start and 1 movement.complete",
+      async () => {
+        const result = await apiOk<{ events: EventRow[] }>("events_since", {
+          character_ids: [p1Id],
+          ship_ids: [corpShipCharacterId],
+          corp_id: corpAId,
+          since_event_id: cursor,
+          limit: 250,
+        });
+        const events = result.events ?? [];
+        const starts = events.filter(
+          (e) =>
+            e.event_type === "movement.start" &&
+            (e.payload as Record<string, unknown> | null)?.player &&
+            ((e.payload as Record<string, unknown>).player as Record<string, unknown>)
+                .id === corpShipCharacterId,
+        );
+        const completes = events.filter(
+          (e) =>
+            e.event_type === "movement.complete" &&
+            (e.payload as Record<string, unknown> | null)?.player &&
+            ((e.payload as Record<string, unknown>).player as Record<string, unknown>)
+                .id === corpShipCharacterId,
+        );
+        assertEquals(
+          starts.length,
+          1,
+          `Expected 1 movement.start for corp ship, got ${starts.length}. ` +
+            `Row ids: ${starts.map((e) => e.id).join(",")}`,
+        );
+        assertEquals(
+          completes.length,
+          1,
+          `Expected 1 movement.complete for corp ship, got ${completes.length}. ` +
+            `Row ids: ${completes.map((e) => e.id).join(",")}`,
+        );
+      },
+    );
+
+    await t.step("DB has exactly 1 row per movement event for this corp ship", async () => {
+      const startRows = await queryEvents(
+        `event_type = 'movement.start' AND character_id = $1 AND id > $2`,
+        [corpShipCharacterId, cursor],
+      );
+      const completeRows = await queryEvents(
+        `event_type = 'movement.complete' AND character_id = $1 AND id > $2`,
+        [corpShipCharacterId, cursor],
+      );
+      assertEquals(
+        startRows.length,
+        1,
+        `Expected 1 movement.start row in DB, got ${startRows.length}. ` +
+          `Rows: ${startRows.map((r) =>
+            `id=${r.id} recipient=${r.recipient_character_id} corp=${r.corp_id} reason=${r.recipient_reason}`
+          ).join(" | ")}`,
+      );
+      assertEquals(
+        completeRows.length,
+        1,
+        `Expected 1 movement.complete row in DB, got ${completeRows.length}. ` +
+          `Rows: ${completeRows.map((r) =>
+            `id=${r.id} recipient=${r.recipient_character_id} corp=${r.corp_id} reason=${r.recipient_reason}`
+          ).join(" | ")}`,
+      );
+    });
+
+    await t.step("cleanup: move corp ship back", async () => {
+      await setShipSector(corpShipId, 0);
+    });
+  },
+});
