@@ -1128,7 +1128,7 @@ class TaskAgent(LLMAgent):
                 )
             else:
                 logger.warning(
-                    "TaskAgent '%s': timeout waiting for %s, proceeding",
+                    "TaskAgent '{}': timeout waiting for {}, proceeding",
                     self.name,
                     self._awaiting_completion_event,
                 )

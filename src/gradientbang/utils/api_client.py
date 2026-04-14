@@ -412,7 +412,7 @@ class AsyncGameClient:
                     if inspect.isawaitable(result):
                         await result
                 except Exception:  # noqa: BLE001
-                    logger.exception("Unhandled error in %s handler", event_name)
+                    logger.exception("Unhandled error in {} handler", event_name)
 
         bucket = self._event_handlers.setdefault(event_name, [])
         bucket.append(async_handler)
