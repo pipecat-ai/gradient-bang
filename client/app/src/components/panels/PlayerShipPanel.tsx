@@ -162,7 +162,12 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
           >
             <ShipBlankSlate>
               <span className="flex flex-row gap-2 items-center justify-center">
-                No corporation ships <PopoverHelper className="text-subtle-foreground" />
+                No corporation ships{" "}
+                <PopoverHelper
+                  className="text-subtle-foreground"
+                  title="Requires corporation"
+                  description="Grow your fleet by founding a corporation and purchasing new vessels. Ask voice agent for more info."
+                />
               </span>
             </ShipBlankSlate>
           </motion.div>
@@ -303,12 +308,12 @@ export const PlayerShipTabControls = () => {
           <Button
             variant="ghost"
             size="ui"
-            className="text-xs grow shrink-0 border-t-0 justify-between w-full hover:outline-0 focus-visible:outline-0 hover:bg-accent bg-accent-background"
+            className="text-xs grow shrink-0 border-t-0 justify-between w-full hover:outline-0 focus-visible:outline-0 hover:bg-muted bg-subtle-background"
             onClick={() => setActiveTab("")}
           >
-            <ArrowUpIcon className="shrink-0 my-auto text-subtle" />
+            <ArrowUpIcon size={12} className="shrink-0 my-auto text-subtle" />
             Hide
-            <ArrowUpIcon className="shrink-0 my-auto text-subtle" />
+            <ArrowUpIcon size={12} className="shrink-0 my-auto text-subtle" />
           </Button>
         </div>
       )}

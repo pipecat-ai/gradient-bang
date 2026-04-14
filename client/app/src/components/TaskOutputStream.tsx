@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react"
+import { memo, useEffect } from "react"
 
 import { CopyTaskContextButton } from "@/components/CopyTaskContextButton"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
@@ -8,6 +8,7 @@ import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
 const MAX_TASK_SUMMARY_LENGTH = 100
+const EMPTY_OUTPUTS: TaskOutput[] = []
 
 const TaskTypeBadge = ({ type }: { type: Task["type"] }) => {
   return (
@@ -37,10 +38,7 @@ const TaskTypeBadge = ({ type }: { type: Task["type"] }) => {
 }
 
 const formatTaskSummary = (summary: string) => {
-  // First remove leading numbers
   const cleaned = summary.replace(/^[0-9]+ - /, "")
-
-  // Match pattern like "movement.complete:" or "map.local:" at the start
   const match = cleaned.match(/^([a-zA-Z_]+\.[a-zA-Z_]+:)\s*/)
 
   if (match) {
@@ -85,35 +83,38 @@ const TaskRow = memo(({ task, className }: { task: TaskOutput; className?: strin
   )
 })
 
-export const TaskOutputStreamComponent = ({
-  tasks,
+export const TaskOutputStream = ({
   taskId,
-  onResetAutoScroll,
   className,
+  showCopyButton = true,
 }: {
-  tasks: TaskOutput[]
   taskId?: string | null
-  onResetAutoScroll?: (reset: () => void) => void
   className?: string
+  showCopyButton?: boolean
 }) => {
-  const { scrollRef, contentRef, hasNewItems, dismissLock, resetAutoScroll, trackItems } =
-    useAutoScroll({ behavior: "instant" })
+  const tasks = useGameStore((state) =>
+    taskId ? (state.taskOutputs[taskId] ?? EMPTY_OUTPUTS) : EMPTY_OUTPUTS
+  )
 
-  useEffect(() => {
-    onResetAutoScroll?.(resetAutoScroll)
-  }, [onResetAutoScroll, resetAutoScroll])
+  const { scrollRef, contentRef, hasNewItems, dismissLock, scrollToBottom, trackItems } =
+    useAutoScroll({ behavior: "instant" })
 
   useEffect(() => {
     trackItems(tasks.length)
   }, [tasks.length, trackItems])
+
+  // Snap to the bottom when switching tasks so the new stream starts engaged.
+  useEffect(() => {
+    if (taskId) scrollToBottom()
+  }, [taskId, scrollToBottom])
 
   const visibleTasks = tasks.slice(-MAX_TASK_SUMMARY_LENGTH)
   const visibleStartIndex = Math.max(tasks.length - visibleTasks.length, 0)
 
   return (
     <div className={cn("group flex flex-col w-full h-full min-h-0 select-none", className)}>
-      {taskId && (
-        <div className="absolute right-ui-sm top-ui-sm z-10">
+      {taskId && showCopyButton && (
+        <div className="absolute right-ui-sm top-ui-sm z-10 pointer-events-auto">
           <CopyTaskContextButton taskId={taskId} />
         </div>
       )}
@@ -132,70 +133,5 @@ export const TaskOutputStreamComponent = ({
         {hasNewItems && <ScrollNewItemsButton onClick={dismissLock} className="bottom-1" />}
       </div>
     </div>
-  )
-}
-
-const EMPTY_OUTPUTS: TaskOutput[] = []
-
-export const TaskOutputStream = ({
-  taskId,
-  className,
-}: {
-  taskId?: string | null
-  className?: string
-}) => {
-  const [cachedOutputs, setCachedOutputs] = useState<TaskOutput[]>([])
-  const resetAutoScrollRef = useRef<(() => void) | null>(null)
-
-  const tasks = useGameStore((state) =>
-    taskId ? (state.taskOutputs[taskId] ?? EMPTY_OUTPUTS) : EMPTY_OUTPUTS
-  )
-
-  // Keep cache in sync with live outputs via store subscription.
-  // First callback (fireImmediately) clears/sets cache for the current taskId.
-  useEffect(() => {
-    if (!taskId) return
-
-    let isFirst = true
-    const unsubscribe = useGameStore.subscribe(
-      (state) => state.taskOutputs[taskId],
-      (outputs) => {
-        if (isFirst) {
-          isFirst = false
-          setCachedOutputs(outputs ?? [])
-          return
-        }
-        if (outputs && outputs.length > 0) {
-          setCachedOutputs(outputs)
-        }
-      },
-      { fireImmediately: true }
-    )
-
-    return unsubscribe
-  }, [taskId])
-
-  // Reset auto-scroll when taskId changes
-  useEffect(() => {
-    if (taskId) {
-      resetAutoScrollRef.current?.()
-    }
-  }, [taskId])
-
-  // Stable callback to capture reset function
-  const handleResetAutoScroll = useCallback((reset: () => void) => {
-    resetAutoScrollRef.current = reset
-  }, [])
-
-  // Use live outputs if available, otherwise fall back to cached outputs
-  const displayTasks = tasks.length > 0 ? tasks : cachedOutputs
-
-  return (
-    <TaskOutputStreamComponent
-      tasks={displayTasks}
-      taskId={taskId}
-      onResetAutoScroll={handleResetAutoScroll}
-      className={className}
-    />
   )
 }

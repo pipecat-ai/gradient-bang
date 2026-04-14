@@ -78,12 +78,12 @@ export const MiniMapPanel = ({ className, paused }: { className?: string; paused
         <Card
           size="xxs"
           variant="stripes"
-          className="absolute top-0 left-0 right-0 bg-fuel-background/80 stripe-frame-fuel text-xs"
+          className="absolute top-0 left-ui-md right-0 z-2 bg-fuel-background/80 stripe-frame-fuel text-xs"
         >
           <CardContent className="flex flex-row justify-between">
             <div className="flex flex-col gap-1 justify-between">
               <header className="font-extrabold uppercase text-fuel-foreground animate-pulse">
-                Route Highlighted
+                Course Plot Active
               </header>
               <div className="flex flex-row text-xxs gap-2 items-center">
                 <span className="uppercase">{coursePlot.from_sector}</span>

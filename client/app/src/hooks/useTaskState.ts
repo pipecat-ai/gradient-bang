@@ -17,8 +17,8 @@ export function useTaskState() {
     return ships.data?.filter((ship) => ship.owner_type === "corporation").length ?? 0
   }, [ships.data])
 
-  // Number of task engines = corp ships capped at 4
-  const numTaskEngines = Math.min(Math.max((ships.data?.length ?? 0) - 1, 0), 4)
+  // Number of task engines = 1 local player engine + corp ships, capped at 4 total
+  const numTaskEngines = Math.min(1 + corpShipCount, 4)
 
   // Number of currently active tasks
   const numActiveTasks = Object.keys(activeTasks ?? {}).length

@@ -136,7 +136,7 @@ export const RHSPanelNav = () => {
 
   return (
     <div
-      className="flex flex-col gap-1 items-center select-none relative flex-1 max-h-min border-l bg-background"
+      className="flex flex-col gap-1 items-center select-none relative flex-1 max-h-min border-l bg-background overflow-x-clip"
       onPointerDownCapture={markPanelInteraction}
       onKeyDownCapture={markPanelInteraction}
       onWheelCapture={markPanelInteraction}

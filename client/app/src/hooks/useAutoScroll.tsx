@@ -16,102 +16,62 @@ interface UseAutoScrollReturn {
   contentRef: React.RefCallback<HTMLElement> & React.MutableRefObject<HTMLElement | null>
   /** Whether the scroll is currently at the bottom */
   isAtBottom: boolean
-  /** Whether the user has scrolled away from the bottom (locked) */
-  isScrollLocked: boolean
   /** Programmatically scroll to the bottom */
   scrollToBottom: () => void
-  /** Reset scroll lock and scroll to bottom */
+  /** Reset auto-scroll by jumping to the bottom (alias for scrollToBottom) */
   resetAutoScroll: () => void
-  /** Call when new items arrive to track the badge count */
-  trackItems: (totalCount: number) => void
-  /** Whether there are new items since the user scrolled away */
+  /** Report the current item count so the hook can detect "new since seen" */
+  trackItems: (count: number) => void
+  /** True when off-bottom AND content has grown since the last time we were at bottom */
   hasNewItems: boolean
-  /** Dismiss the scroll lock and scroll to bottom */
+  /** Jump to the bottom (used by the "jump to latest" button) */
   dismissLock: () => void
 }
 
 /**
- * Hook for managing auto-scroll behavior in scrollable containers.
- * Backed by `use-stick-to-bottom` for reliable, layout-shift-free scrolling.
- *
- * @example
- * ```tsx
- * const {
- *   scrollRef, contentRef, isAtBottom, isScrollLocked,
- *   hasNewItems, dismissLock, trackItems
- * } = useAutoScroll()
- *
- * // Track items for the "new messages" badge
- * useEffect(() => {
- *   trackItems(items.length)
- * }, [items.length, trackItems])
- *
- * return (
- *   <div ref={scrollRef} style={{ overflow: 'auto' }}>
- *     <div ref={contentRef}>
- *       {items.map(item => <Item key={item.id} />)}
- *     </div>
- *     {hasNewItems && <NewItemsBadge onClick={dismissLock} />}
- *   </div>
- * )
- * ```
+ * Thin wrapper over `use-stick-to-bottom`. The library handles stick-to-bottom,
+ * user-escape, and auto-scroll on new content. This hook adds one extra signal:
+ * `hasNewItems`, which is true only when the viewport is off-bottom AND the
+ * caller-reported item count has grown since the last time we were at bottom.
  */
 export function useAutoScroll(options: UseAutoScrollOptions = {}): UseAutoScrollReturn {
   const { behavior = "smooth", startAtBottom = false } = options
 
   const animation = behavior === "instant" ? "instant" : behavior
 
-  const { scrollRef, contentRef, scrollToBottom: stickyScrollToBottom, isAtBottom } =
-    useStickToBottom({
-      resize: animation,
-      // When startAtBottom is true, we handle the initial scroll ourselves
-      // via useLayoutEffect (before paint) to avoid any visible flash
-      initial: startAtBottom ? false : animation,
-    })
+  const {
+    scrollRef,
+    contentRef,
+    scrollToBottom: stickyScrollToBottom,
+    isAtBottom,
+  } = useStickToBottom({
+    resize: animation,
+    initial: startAtBottom ? false : animation,
+  })
 
-  // Synchronously scroll to bottom before first paint to avoid flash
   useLayoutEffect(() => {
     if (startAtBottom && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [startAtBottom, scrollRef])
 
-  // Scroll-lock state for "new items" badge
-  const [lockState, setLockState] = useState<{ locked: boolean; lockedAt: number }>({
-    locked: false,
-    lockedAt: 0,
-  })
   const [latestCount, setLatestCount] = useState(0)
+  const [seenCount, setSeenCount] = useState(0)
 
-  // Sync scroll-lock with isAtBottom (queueMicrotask avoids cascading-render lint)
+  // Whenever the viewport is at the bottom, the current count is "seen".
   useEffect(() => {
-    queueMicrotask(() => {
-      if (isAtBottom) {
-        setLockState((prev) => (prev.locked ? { locked: false, lockedAt: 0 } : prev))
-      } else {
-        setLockState((prev) => (prev.locked ? prev : { locked: true, lockedAt: latestCount }))
-      }
-    })
+    if (isAtBottom) setSeenCount(latestCount)
   }, [isAtBottom, latestCount])
 
-  const trackItems = useCallback((totalCount: number) => {
-    setLatestCount(totalCount)
+  const trackItems = useCallback((count: number) => {
+    setLatestCount(count)
   }, [])
-
-  const isScrollLocked = lockState.locked
-  const hasNewItems = lockState.locked && latestCount > lockState.lockedAt
 
   const scrollToBottom = useCallback(() => {
     stickyScrollToBottom(animation)
   }, [stickyScrollToBottom, animation])
 
-  const resetAutoScroll = useCallback(() => {
-    setLockState({ locked: false, lockedAt: 0 })
-    stickyScrollToBottom(animation)
-  }, [stickyScrollToBottom, animation])
-
   const dismissLock = useCallback(() => {
-    setLockState({ locked: false, lockedAt: 0 })
     stickyScrollToBottom("smooth")
   }, [stickyScrollToBottom])
 
@@ -119,11 +79,10 @@ export function useAutoScroll(options: UseAutoScrollOptions = {}): UseAutoScroll
     scrollRef,
     contentRef,
     isAtBottom,
-    isScrollLocked,
     scrollToBottom,
-    resetAutoScroll,
+    resetAutoScroll: scrollToBottom,
     trackItems,
-    hasNewItems,
+    hasNewItems: !isAtBottom && latestCount > seenCount,
     dismissLock,
   }
 }

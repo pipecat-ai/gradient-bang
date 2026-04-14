@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { format, parseISO } from "date-fns"
 import { ArrowDownRightIcon, ArrowRightIcon } from "@phosphor-icons/react"
@@ -16,7 +16,7 @@ import { DottedTitle } from "../DottedTitle"
 import { PanelContentLoader } from "../PanelContentLoader"
 import { Button } from "../primitives/Button"
 import { Card, CardContent, CardHeader, CardTitle } from "../primitives/Card"
-import { Select, SelectTrigger } from "../primitives/Select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../primitives/Select"
 import { ChevronSM } from "../svg/ChevronSM"
 import { RHSPanelContent, RHSSubPanel } from "./RHSPanelContainer"
 
@@ -195,12 +195,39 @@ export const TaskPanel = () => {
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
 
   const [selectedTask, setSelectedTask] = useState<TaskHistoryEntry | ActiveTask | null>(null)
+  const [shipFilter, setShipFilter] = useState<string>("all")
 
   useEffect(() => {
     if (!taskHistory) {
       dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
     }
   }, [dispatchAction, taskHistory])
+
+  const shipOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const task of Object.values(activeTasks ?? {})) {
+      if (task.ship_id && task.ship_name) byId.set(task.ship_id, task.ship_name)
+    }
+    for (const task of taskHistory ?? []) {
+      if (task.ship_id && task.ship_name) byId.set(task.ship_id, task.ship_name)
+    }
+    return Array.from(byId, ([id, name]) => ({ id, name }))
+  }, [activeTasks, taskHistory])
+
+  const filteredActiveTasks = useMemo(() => {
+    const all = Object.values(activeTasks ?? {})
+    return shipFilter === "all" ? all : all.filter((t) => t.ship_id === shipFilter)
+  }, [activeTasks, shipFilter])
+
+  const filteredTaskHistory = useMemo(() => {
+    if (!taskHistory) return taskHistory
+    return shipFilter === "all" ? taskHistory : taskHistory.filter((t) => t.ship_id === shipFilter)
+  }, [taskHistory, shipFilter])
+
+  const selectedShipName =
+    shipFilter === "all" ? "All Ships" : (
+      (shipOptions.find((s) => s.id === shipFilter)?.name ?? "All Ships")
+    )
 
   return (
     <RHSPanelContent>
@@ -234,12 +261,23 @@ export const TaskPanel = () => {
         <CardContent
           className={`flex flex-col gap-ui-sm ${activeSubPanel ? "overflow-hidden" : ""}`}
         >
-          <Select>
+          <Select value={shipFilter} onValueChange={setShipFilter}>
             <SelectTrigger variant="secondary" className="w-full">
               <div className="flex flex-row gap-2 items-center justify-center">
-                Filter: <span className="text-foreground">All Ships</span>
+                Filter:{" "}
+                <SelectValue>
+                  <span className="text-foreground">{selectedShipName}</span>
+                </SelectValue>
               </div>
             </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Ships</SelectItem>
+              {shipOptions.map(({ id, name }) => (
+                <SelectItem key={id} value={id}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
           <div className="flex flex-row gap-2 items-center justify-center">
             <ChevronSM className="size-3 text-accent" />
@@ -249,9 +287,9 @@ export const TaskPanel = () => {
             <ChevronSM className="size-3 text-accent" />
           </div>
           <DottedTitle title="In Progress" />
-          {Object.values(activeTasks ?? {}).length > 0 ?
+          {filteredActiveTasks.length > 0 ?
             <div className="flex flex-col gap-3 w-full min-w-0">
-              {Object.values(activeTasks ?? {}).map((task) => (
+              {filteredActiveTasks.map((task) => (
                 <TaskInProgressRow
                   key={task.task_id}
                   task={task}
@@ -267,9 +305,9 @@ export const TaskPanel = () => {
             </div>
           }
           <DottedTitle title="Ended" />
-          {taskHistory ?
+          {filteredTaskHistory ?
             <div className="flex flex-col gap-3 w-full min-w-0">
-              {taskHistory?.map((task) => (
+              {filteredTaskHistory.map((task) => (
                 <TaskHistoryRow
                   key={task.task_id}
                   task={task}
