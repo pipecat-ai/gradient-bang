@@ -47,8 +47,8 @@ def _make_function_call_params(
 
 EXPECTED_TOOLS = {
     "my_status", "plot_course", "list_known_ports", "rename_ship",
-    "rename_corporation", "create_corporation", "corporation_info",
-    "leave_corporation", "sell_ship",
+    "rename_corporation", "create_corporation", "join_corporation",
+    "corporation_info", "leave_corporation", "sell_ship",
     "leaderboard_resources", "ship_definitions", "send_message",
     "combat_initiate", "combat_action", "load_game_info",
     "start_task", "stop_task", "steer_task", "query_task_progress",
@@ -1117,6 +1117,47 @@ class TestCorporationDirectTools:
         result = params.result_callback.call_args[0][0]
         assert result == {"success": True}
         assert agent.is_recent_request_id("req-create")
+
+    @pytest.mark.asyncio
+    async def test_join_corporation_with_corp_id(self):
+        agent = _make_voice_agent()
+        agent._game_client.join_corporation = AsyncMock(
+            return_value={"request_id": "req-join"}
+        )
+        params = MagicMock()
+        params.arguments = {"corp_id": "corp-abc", "invite_code": "INVITE-1"}
+        params.result_callback = AsyncMock()
+
+        await agent._handle_join_corporation(params)
+
+        agent._game_client.join_corporation.assert_called_once_with(
+            corp_id="corp-abc", invite_code="INVITE-1", character_id="char-123",
+        )
+        params.result_callback.assert_called_once()
+        assert params.result_callback.call_args[0][0] == {"success": True}
+        assert agent.is_recent_request_id("req-join")
+
+    @pytest.mark.asyncio
+    async def test_join_corporation_resolves_name_to_id(self):
+        agent = _make_voice_agent()
+        agent._game_client.list_corporations = AsyncMock(
+            return_value=[
+                {"corp_id": "corp-xyz", "name": "Crimson Fleet"},
+                {"corp_id": "corp-abc", "name": "Blue Sun"},
+            ]
+        )
+        agent._game_client.join_corporation = AsyncMock(
+            return_value={"request_id": "req-join-name"}
+        )
+        params = MagicMock()
+        params.arguments = {"corp_name": "crimson fleet", "invite_code": "ABC"}
+        params.result_callback = AsyncMock()
+
+        await agent._handle_join_corporation(params)
+
+        agent._game_client.join_corporation.assert_called_once_with(
+            corp_id="corp-xyz", invite_code="ABC", character_id="char-123",
+        )
 
     @pytest.mark.asyncio
     async def test_rename_corporation_calls_game_client(self):
