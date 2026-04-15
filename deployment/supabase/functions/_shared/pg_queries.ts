@@ -926,6 +926,7 @@ export async function pgBuildSectorSnapshot(
       SELECT ship_id, ship_type, ship_name, owner_id, owner_character_id, owner_type,
              former_owner_name, became_unowned,
              current_fighters::int, current_shields::int,
+             current_warp_power::int AS current_warp_power,
              cargo_qf::int, cargo_ro::int, cargo_ns::int
       FROM ship_instances
       WHERE current_sector = $1 AND in_hyperspace = false AND destroyed_at IS NULL
@@ -1033,6 +1034,7 @@ export async function pgBuildSectorSnapshot(
     became_unowned: string | null;
     current_fighters: number;
     current_shields: number;
+    current_warp_power: number | null;
     cargo_qf: number;
     cargo_ro: number;
     cargo_ns: number;
@@ -1215,6 +1217,13 @@ export async function pgBuildSectorSnapshot(
   const players: Record<string, unknown>[] = [];
   const unownedShips: Record<string, unknown>[] = [];
 
+  // Determine the viewer's corporation so we can surface warp state for
+  // same-corp ships (needed for corp-ship TaskAgents to size transfers).
+  const viewerCorpId = currentCharacterId
+    ? (occupants.find((o) => o.character_id === currentCharacterId)?.corporation_id ?? null)
+    : null;
+  const shipDefinitionCache = new Map<string, ShipDefinitionRow>();
+
   for (const ship of ships) {
     const occupant = ship.ship_id ? occupantMap.get(ship.ship_id) : null;
 
@@ -1271,17 +1280,42 @@ export async function pgBuildSectorSnapshot(
       }
     }
 
+    const shipPayload: Record<string, unknown> = {
+      ship_id: ship.ship_id,
+      ship_type: ship.ship_type,
+      ship_name: shipDisplayName,
+    };
+
+    if (
+      viewerCorpId &&
+      occupant.corporation_id &&
+      occupant.corporation_id === viewerCorpId
+    ) {
+      let definition = shipDefinitionCache.get(ship.ship_type);
+      if (!definition) {
+        try {
+          definition = await pgLoadShipDefinition(pg, ship.ship_type);
+          shipDefinitionCache.set(ship.ship_type, definition);
+        } catch (err) {
+          console.warn("pgBuildSectorSnapshot.ship_definition", {
+            ship_type: ship.ship_type,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      if (definition) {
+        shipPayload.current_warp_power = ship.current_warp_power ?? 0;
+        shipPayload.warp_power_capacity = definition.warp_power_capacity;
+      }
+    }
+
     players.push({
       created_at: occupant.first_visit ?? null,
       id: occupant.character_id,
       name: displayName,
       player_type: playerType,
       corporation: corporationInfo,
-      ship: {
-        ship_id: ship.ship_id,
-        ship_type: ship.ship_type,
-        ship_name: shipDisplayName,
-      },
+      ship: shipPayload,
     });
   }
 

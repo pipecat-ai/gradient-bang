@@ -378,11 +378,11 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 8: Warp transfer — insufficient warp power
+// Group 8: Warp transfer — sender clamp (over-request becomes partial)
 // ============================================================================
 
 Deno.test({
-  name: "transfer — warp insufficient power",
+  name: "transfer — warp over-request clamps to sender available",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -390,17 +390,71 @@ Deno.test({
       await resetDatabase([P1, P2]);
       await apiOk("join", { character_id: p1Id });
       await apiOk("join", { character_id: p2Id });
+      // P1 has 5 warp, P2 drained so receiver has plenty of room.
       await setShipWarpPower(p1ShipId, 5);
+      await setShipWarpPower(p2ShipId, 10);
     });
 
-    await t.step("transfer more than available fails", async () => {
+    let cursorP1: number;
+
+    await t.step("capture cursor", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+    });
+
+    await t.step("over-request succeeds with partial amount", async () => {
+      const result = await apiOk("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        units: 50,
+      });
+      assert(result.success);
+    });
+
+    await t.step("warp.transfer event reports actual amount (5)", async () => {
+      const events = await eventsOfType(p1Id, "warp.transfer", cursorP1);
+      assert(events.length >= 1, `Expected >= 1 warp.transfer, got ${events.length}`);
+      const payload = events[0].payload as Record<string, unknown>;
+      const details = payload.transfer_details as Record<string, unknown>;
+      assertEquals(details.warp_power, 5, "Expected clamped amount 5, not requested 50");
+    });
+
+    await t.step("sender drained to 0", async () => {
+      const ship = await queryShip(p1ShipId);
+      assertExists(ship);
+      assertEquals(ship.current_warp_power, 0);
+    });
+  },
+});
+
+// ============================================================================
+// Group 8b: Warp transfer — sender at 0 warp still errors
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp fails when sender has zero warp",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and drain sender to zero", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipWarpPower(p1ShipId, 0);
+      await setShipWarpPower(p2ShipId, 10);
+    });
+
+    await t.step("transfer fails with zero-warp sender", async () => {
       const result = await api("transfer_warp_power", {
         from_character_id: p1Id,
         to_player_name: P2,
         units: 50,
       });
-      assert(!result.ok || !result.body.success, "Expected insufficient warp to fail");
-      assertEquals(result.status, 400, "Expected 400");
+      assert(!result.ok || !result.body.success);
+      assertEquals(result.status, 400);
+      assert(
+        result.body.error?.includes("no warp power"),
+        `Expected 'no warp power' error, got: ${result.body.error}`,
+      );
     });
   },
 });
@@ -790,6 +844,60 @@ Deno.test({
       });
       assertEquals(result.status, 400);
       assert(result.body.error?.includes("hyperspace"));
+    });
+  },
+});
+
+// ============================================================================
+// Group 20b: Warp transfer — clamped by both sender and receiver (min wins)
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp clamp picks minimum of sender, receiver, request",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset with tight bounds on both sides", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      // kestrel_courier warp_power_capacity=500.
+      // Sender has 40 warp. Receiver at 480/500 (room = 20). Request 100.
+      // Expected transfer: min(100, 40, 20) = 20.
+      await setShipWarpPower(p1ShipId, 40);
+      await setShipWarpPower(p2ShipId, 480);
+    });
+
+    let cursorP1: number;
+
+    await t.step("capture cursor", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+    });
+
+    await t.step("transfer succeeds with receiver-capped amount", async () => {
+      const result = await apiOk("transfer_warp_power", {
+        from_character_id: p1Id,
+        to_player_name: P2,
+        units: 100,
+      });
+      assert(result.success);
+    });
+
+    await t.step("warp.transfer event reports clamped amount (20)", async () => {
+      const events = await eventsOfType(p1Id, "warp.transfer", cursorP1);
+      assert(events.length >= 1);
+      const payload = events[0].payload as Record<string, unknown>;
+      const details = payload.transfer_details as Record<string, unknown>;
+      assertEquals(details.warp_power, 20);
+    });
+
+    await t.step("DB: sender lost 20, receiver at max", async () => {
+      const p1Ship = await queryShip(p1ShipId);
+      const p2Ship = await queryShip(p2ShipId);
+      assertExists(p1Ship);
+      assertExists(p2Ship);
+      assertEquals(p1Ship.current_warp_power, 20);
+      assertEquals(p2Ship.current_warp_power, 500);
     });
   },
 });

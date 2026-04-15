@@ -285,6 +285,13 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
         corp = player.get("corporation")
         corp_name = corp.get("name") if isinstance(corp, dict) else None
         corp_suffix = f" [{corp_name}]" if corp_name else ""
+        warp_current = ship.get("current_warp_power")
+        warp_capacity = ship.get("warp_power_capacity")
+        warp_suffix = (
+            f" (warp {warp_current}/{warp_capacity})"
+            if isinstance(warp_current, int) and isinstance(warp_capacity, int)
+            else ""
+        )
         player_type = player.get("player_type")
         if player_type == "corporation_ship":
             # Use ship name (not character name) so ship-targeting tools can match.
@@ -293,11 +300,11 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
             ship_id_prefix = _short_id(ship_id)
             ship_id_suffix = f" ship_id={ship_id_prefix}" if ship_id_prefix else ""
             lines.append(
-                f'  - Corp ship "{display_name}" ({ship_type}){corp_suffix}{ship_id_suffix}'
+                f'  - Corp ship "{display_name}" ({ship_type}){corp_suffix}{ship_id_suffix}{warp_suffix}'
             )
         else:
             lines.append(
-                f"  - {name} in {ship_name} ({ship_type}){corp_suffix}"
+                f"  - {name} in {ship_name} ({ship_type}){corp_suffix}{warp_suffix}"
             )
 
     return lines

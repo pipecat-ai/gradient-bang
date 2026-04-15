@@ -278,12 +278,6 @@ async function handleTransfer(
   }
 
   const senderWarp = fromShip.current_warp_power ?? 0;
-  if (senderWarp < unitsRequested) {
-    throw new TransferWarpPowerError(
-      `Insufficient warp power. ${fromCharacterId} only has ${senderWarp} units`,
-      400,
-    );
-  }
 
   if (toCharacter.character_id === fromCharacterId) {
     throw new TransferWarpPowerError(
@@ -295,8 +289,14 @@ async function handleTransfer(
   const toDefinition = await loadShipDefinition(supabase, toShip.ship_type);
   const receiverCapacity =
     toDefinition.warp_power_capacity - (toShip.current_warp_power ?? 0);
-  const unitsToTransfer = Math.min(unitsRequested, receiverCapacity);
+  const unitsToTransfer = Math.min(unitsRequested, senderWarp, receiverCapacity);
   if (unitsToTransfer <= 0) {
+    if (senderWarp <= 0) {
+      throw new TransferWarpPowerError(
+        `Sender has no warp power to transfer`,
+        400,
+      );
+    }
     throw new TransferWarpPowerError(
       `${toCharacter.character_id}'s warp power is already at maximum`,
       400,
