@@ -238,16 +238,32 @@ def create_task_instruction_user_message(
                 "",
             ]
         )
-        actor_ship_id = (
-            task_metadata.get("actor_ship_id") if isinstance(task_metadata, dict) else None
-        )
-        if isinstance(actor_ship_id, str) and actor_ship_id.strip():
-            prompt_parts.extend(
-                [
-                    f'Commander ship_id: {actor_ship_id}  (for transfers: to_ship_id="{actor_ship_id}")',
-                    "",
-                ]
-            )
+        if isinstance(task_metadata, dict):
+            actor_name = task_metadata.get("actor_character_name")
+            actor_cid = task_metadata.get("actor_character_id")
+            actor_sid = task_metadata.get("actor_ship_id")
+        else:
+            actor_name = actor_cid = actor_sid = None
+
+        name_ok = isinstance(actor_name, str) and actor_name.strip()
+        cid_ok = isinstance(actor_cid, str) and actor_cid.strip()
+        sid_ok = isinstance(actor_sid, str) and actor_sid.strip()
+
+        if name_ok or cid_ok or sid_ok:
+            fields = []
+            if cid_ok:
+                fields.append(f"character_id={actor_cid}")
+            if sid_ok:
+                fields.append(f"ship_id={actor_sid}")
+            suffix = f" ({', '.join(fields)})" if fields else ""
+            commander_name = actor_name if name_ok else "commander"
+            identity_lines = [f"Commander: {commander_name}{suffix}"]
+            if sid_ok:
+                identity_lines.append(
+                    f'For transfers back to the commander: to_ship_id="{actor_sid}"'
+                )
+            identity_lines.append("")
+            prompt_parts.extend(identity_lines)
 
     if context and context.strip():
         prompt_parts.extend(
