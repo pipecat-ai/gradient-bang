@@ -14,6 +14,8 @@ DELETE FROM user_characters WHERE user_id = '352373e1-aa29-49c7-b929-2cba86ca4a3
     'd0000000-0000-4000-8000-000000000004',
     'e0000000-0000-4000-8000-000000000005'
   );
+DELETE FROM user_characters WHERE user_id = 'cf73d883-41fd-4fc5-ba5d-b82241d26ca7'
+  AND character_id = 'f0000000-0000-4000-8000-000000000006';
 
 -- 2. Delete events referencing eval characters' ships
 DELETE FROM events WHERE ship_id IN (
@@ -22,18 +24,23 @@ DELETE FROM events WHERE ship_id IN (
     'b0000000-0000-4000-8000-000000000002',
     'c0000000-0000-4000-8000-000000000003',
     'd0000000-0000-4000-8000-000000000004',
-    'e0000000-0000-4000-8000-000000000005'
+    'e0000000-0000-4000-8000-000000000005',
+    'f0000000-0000-4000-8000-000000000006'
   )
 );
 DELETE FROM events WHERE ship_id IN (
-  SELECT ship_id FROM ship_instances WHERE owner_corporation_id = 'e0000000-0000-4000-8000-c00b00000001'
+  SELECT ship_id FROM ship_instances WHERE owner_corporation_id IN (
+    'e0000000-0000-4000-8000-c00b00000001',
+    'f0000000-0000-4000-8000-c00b00000002'
+  )
 );
 DELETE FROM events WHERE character_id IN (
   'a0000000-0000-4000-8000-000000000001',
   'b0000000-0000-4000-8000-000000000002',
   'c0000000-0000-4000-8000-000000000003',
   'd0000000-0000-4000-8000-000000000004',
-  'e0000000-0000-4000-8000-000000000005'
+  'e0000000-0000-4000-8000-000000000005',
+  'f0000000-0000-4000-8000-000000000006'
 );
 
 -- 3. Null out ship refs on characters
@@ -42,30 +49,52 @@ UPDATE characters SET current_ship_id = NULL WHERE character_id IN (
   'b0000000-0000-4000-8000-000000000002',
   'c0000000-0000-4000-8000-000000000003',
   'd0000000-0000-4000-8000-000000000004',
-  'e0000000-0000-4000-8000-000000000005'
+  'e0000000-0000-4000-8000-000000000005',
+  'f0000000-0000-4000-8000-000000000006'
 );
 
--- 3. Delete all eval ships (character-owned and corp-owned)
+-- 3b. Delete corp ship/member associations
+DELETE FROM corporation_ships WHERE corp_id IN (
+  'e0000000-0000-4000-8000-c00b00000001',
+  'f0000000-0000-4000-8000-c00b00000002'
+);
+DELETE FROM corporation_members WHERE corp_id IN (
+  'e0000000-0000-4000-8000-c00b00000001',
+  'f0000000-0000-4000-8000-c00b00000002'
+);
+
+-- 4. Delete all eval ships (character-owned and corp-owned)
 DELETE FROM ship_instances WHERE owner_character_id IN (
   'a0000000-0000-4000-8000-000000000001',
   'b0000000-0000-4000-8000-000000000002',
   'c0000000-0000-4000-8000-000000000003',
   'd0000000-0000-4000-8000-000000000004',
-  'e0000000-0000-4000-8000-000000000005'
+  'e0000000-0000-4000-8000-000000000005',
+  'f0000000-0000-4000-8000-000000000006'
 );
-DELETE FROM ship_instances WHERE owner_corporation_id = 'e0000000-0000-4000-8000-c00b00000001';
+DELETE FROM ship_instances WHERE owner_corporation_id IN (
+  'e0000000-0000-4000-8000-c00b00000001',
+  'f0000000-0000-4000-8000-c00b00000002'
+);
 
--- 4. Null out corp refs on characters, then delete corp before characters
-UPDATE characters SET corporation_id = NULL WHERE corporation_id = 'e0000000-0000-4000-8000-c00b00000001';
-DELETE FROM corporations WHERE corp_id = 'e0000000-0000-4000-8000-c00b00000001';
+-- 5. Null out corp refs on characters, then delete corps before characters
+UPDATE characters SET corporation_id = NULL WHERE corporation_id IN (
+  'e0000000-0000-4000-8000-c00b00000001',
+  'f0000000-0000-4000-8000-c00b00000002'
+);
+DELETE FROM corporations WHERE corp_id IN (
+  'e0000000-0000-4000-8000-c00b00000001',
+  'f0000000-0000-4000-8000-c00b00000002'
+);
 
--- 5. Delete characters
+-- 6. Delete characters
 DELETE FROM characters WHERE character_id IN (
   'a0000000-0000-4000-8000-000000000001',
   'b0000000-0000-4000-8000-000000000002',
   'c0000000-0000-4000-8000-000000000003',
   'd0000000-0000-4000-8000-000000000004',
-  'e0000000-0000-4000-8000-000000000005'
+  'e0000000-0000-4000-8000-000000000005',
+  'f0000000-0000-4000-8000-000000000006'
 );
 
 -- === SEED ===
@@ -249,6 +278,9 @@ VALUES (
   '{"total_sectors_visited": 1, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}}}'
 );
 
+INSERT INTO corporation_members (corp_id, character_id)
+VALUES ('e0000000-0000-4000-8000-c00b00000001', 'e0000000-0000-4000-8000-000000000005');
+
 INSERT INTO ship_instances (
   ship_id, owner_id, owner_type, owner_character_id,
   ship_type, current_sector, credits,
@@ -271,9 +303,78 @@ INSERT INTO ship_instances (
   900, 600, 2000
 );
 
+INSERT INTO corporation_ships (corp_id, ship_id, added_by)
+VALUES ('e0000000-0000-4000-8000-c00b00000001', 'e0000000-0000-4000-8000-e00000000002', 'e0000000-0000-4000-8000-000000000005');
+
 UPDATE characters
 SET current_ship_id = 'e0000000-0000-4000-8000-e00000000001'
 WHERE character_id = 'e0000000-0000-4000-8000-000000000005';
+
+-- Phi Trader Eval — corp member with personal kestrel + two corp ships (credit transfer evals)
+INSERT INTO characters (character_id, name, credits_in_megabank, map_knowledge)
+VALUES (
+  'f0000000-0000-4000-8000-000000000006',
+  'Phi Trader Eval',
+  25000,
+  '{"total_sectors_visited": 3, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}, "15": {"adjacent_sectors": [0, 1], "last_visited": "2026-04-09T00:00:00Z", "position": [16, 30]}, "42": {"adjacent_sectors": [21, 32], "last_visited": "2026-04-08T00:00:00Z", "position": [14, 16]}}}'
+);
+
+INSERT INTO corporations (corp_id, name, founder_id, invite_code)
+VALUES (
+  'f0000000-0000-4000-8000-c00b00000002',
+  'Phi Trading Co',
+  'f0000000-0000-4000-8000-000000000006',
+  'PHITRADE'
+);
+
+UPDATE characters
+SET corporation_id = 'f0000000-0000-4000-8000-c00b00000002'
+WHERE character_id = 'f0000000-0000-4000-8000-000000000006';
+
+INSERT INTO corporation_members (corp_id, character_id)
+VALUES ('f0000000-0000-4000-8000-c00b00000002', 'f0000000-0000-4000-8000-000000000006');
+
+INSERT INTO ship_instances (
+  ship_id, owner_id, owner_type, owner_character_id,
+  ship_type, current_sector, credits,
+  current_warp_power, current_shields, current_fighters
+) VALUES (
+  'f0000000-0000-4000-8000-f00000000001',
+  'f0000000-0000-4000-8000-000000000006', 'character', 'f0000000-0000-4000-8000-000000000006',
+  'kestrel_courier', 0, 5000,
+  500, 150, 300
+);
+
+INSERT INTO ship_instances (
+  ship_id, owner_id, owner_type, owner_corporation_id,
+  ship_type, current_sector, credits,
+  current_warp_power, current_shields, current_fighters
+) VALUES (
+  'f0000000-0000-4000-8000-f00000000002',
+  'f0000000-0000-4000-8000-c00b00000002', 'corporation', 'f0000000-0000-4000-8000-c00b00000002',
+  'wayfarer_freighter', 0, 30000,
+  800, 300, 600
+);
+
+INSERT INTO ship_instances (
+  ship_id, owner_id, owner_type, owner_corporation_id,
+  ship_type, current_sector, credits,
+  current_warp_power, current_shields, current_fighters
+) VALUES (
+  'f0000000-0000-4000-8000-f00000000003',
+  'f0000000-0000-4000-8000-c00b00000002', 'corporation', 'f0000000-0000-4000-8000-c00b00000002',
+  'autonomous_light_hauler', 15, 15000,
+  200, 0, 0
+);
+
+INSERT INTO corporation_ships (corp_id, ship_id, added_by)
+VALUES
+  ('f0000000-0000-4000-8000-c00b00000002', 'f0000000-0000-4000-8000-f00000000002', 'f0000000-0000-4000-8000-000000000006'),
+  ('f0000000-0000-4000-8000-c00b00000002', 'f0000000-0000-4000-8000-f00000000003', 'f0000000-0000-4000-8000-000000000006');
+
+UPDATE characters
+SET current_ship_id = 'f0000000-0000-4000-8000-f00000000001'
+WHERE character_id = 'f0000000-0000-4000-8000-000000000006';
 
 -- Link all to eval user
 INSERT INTO user_characters (user_id, character_id) VALUES
@@ -281,6 +382,7 @@ INSERT INTO user_characters (user_id, character_id) VALUES
   ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'b0000000-0000-4000-8000-000000000002'),
   ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'c0000000-0000-4000-8000-000000000003'),
   ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'd0000000-0000-4000-8000-000000000004'),
-  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'e0000000-0000-4000-8000-000000000005');
+  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'e0000000-0000-4000-8000-000000000005'),
+  ('cf73d883-41fd-4fc5-ba5d-b82241d26ca7', 'f0000000-0000-4000-8000-000000000006');
 
 COMMIT;
