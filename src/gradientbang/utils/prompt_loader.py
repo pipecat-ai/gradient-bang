@@ -202,6 +202,7 @@ def create_task_instruction_user_message(
     context: Optional[str] = None,
     *,
     is_corp_ship: bool = False,
+    task_metadata: Optional[dict[str, object]] = None,
 ) -> str:
     """Create a task-specific user message for the LLM.
 
@@ -243,6 +244,30 @@ def create_task_instruction_user_message(
                 "# Additional Context",
                 "",
                 context.strip(),
+                "",
+            ]
+        )
+
+    actor_character_id = None
+    actor_character_name = None
+    if isinstance(task_metadata, dict):
+        actor_character_id = task_metadata.get("actor_character_id")
+        actor_character_name = task_metadata.get("actor_character_name")
+    if is_corp_ship and (
+        isinstance(actor_character_id, str) or isinstance(actor_character_name, str)
+    ):
+        prompt_parts.extend(
+            [
+                "# Commander Identity",
+                "",
+                f"Commander display name: {actor_character_name or 'unknown'}",
+                f"Commander character ID: {actor_character_id or 'unknown'}",
+                (
+                    "If you need to transfer credits or warp to the commander or "
+                    "another player ship and you have a player UUID, prefer "
+                    "`to_player_id`. Do not combine player and ship targeting fields "
+                    "in the same tool call."
+                ),
                 "",
             ]
         )

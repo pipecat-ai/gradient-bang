@@ -425,6 +425,7 @@ class AsyncGameClient(BaseAsyncGameClient):
         *,
         units: int,
         character_id: str,
+        to_player_id: Optional[str] = None,
         to_player_name: Optional[str] = None,
         to_ship_id: Optional[str] = None,
         to_ship_name: Optional[str] = None,
@@ -434,12 +435,18 @@ class AsyncGameClient(BaseAsyncGameClient):
                 f"AsyncGameClient is bound to character_id {self._character_id!r}; "
                 f"received {character_id!r}"
             )
-        if not to_player_name and not to_ship_id and not to_ship_name:
-            raise ValueError("Must provide to_player_name, to_ship_id, or to_ship_name")
+        if not to_player_id and not to_player_name and not to_ship_id and not to_ship_name:
+            raise ValueError(
+                "Must provide to_player_id, to_player_name, to_ship_id, or to_ship_name"
+            )
         payload: Dict[str, Any] = {
             "from_character_id": character_id,
             "units": units,
         }
+        if to_player_id:
+            if not isinstance(to_player_id, str) or not to_player_id.strip():
+                raise ValueError("to_player_id must be a non-empty string")
+            payload["to_player_id"] = to_player_id
         if to_player_name:
             if not isinstance(to_player_name, str) or not to_player_name.strip():
                 raise ValueError("to_player_name must be a non-empty string")
@@ -459,6 +466,7 @@ class AsyncGameClient(BaseAsyncGameClient):
         *,
         amount: int,
         character_id: str,
+        to_player_id: Optional[str] = None,
         to_player_name: Optional[str] = None,
         to_ship_id: Optional[str] = None,
         to_ship_name: Optional[str] = None,
@@ -468,12 +476,18 @@ class AsyncGameClient(BaseAsyncGameClient):
                 f"AsyncGameClient is bound to character_id {self._character_id!r}; "
                 f"received {character_id!r}"
             )
-        if not to_player_name and not to_ship_id and not to_ship_name:
-            raise ValueError("Must provide to_player_name, to_ship_id, or to_ship_name")
+        if not to_player_id and not to_player_name and not to_ship_id and not to_ship_name:
+            raise ValueError(
+                "Must provide to_player_id, to_player_name, to_ship_id, or to_ship_name"
+            )
         payload: Dict[str, Any] = {
             "from_character_id": character_id,
             "amount": amount,
         }
+        if to_player_id:
+            if not isinstance(to_player_id, str) or not to_player_id.strip():
+                raise ValueError("to_player_id must be a non-empty string")
+            payload["to_player_id"] = to_player_id
         if to_player_name:
             if not isinstance(to_player_name, str) or not to_player_name.strip():
                 raise ValueError("to_player_name must be a non-empty string")

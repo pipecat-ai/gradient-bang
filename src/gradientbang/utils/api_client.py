@@ -1762,6 +1762,7 @@ class AsyncGameClient:
         *,
         units: int,
         character_id: str,
+        to_player_id: Optional[str] = None,
         to_player_name: Optional[str] = None,
         to_ship_id: Optional[str] = None,
         to_ship_name: Optional[str] = None,
@@ -1771,6 +1772,7 @@ class AsyncGameClient:
         Args:
             units: Number of warp power units to transfer
             character_id: Character transferring warp power (must match bound ID)
+            to_player_id: Recipient character UUID for a player ship in the same sector
             to_player_name: Display name of the recipient in the same sector
             to_ship_id: Ship UUID for the recipient ship
             to_ship_name: Unique ship name for the recipient ship
@@ -1788,13 +1790,19 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        if not to_player_name and not to_ship_id and not to_ship_name:
-            raise ValueError("Must provide to_player_name, to_ship_id, or to_ship_name")
+        if not to_player_id and not to_player_name and not to_ship_id and not to_ship_name:
+            raise ValueError(
+                "Must provide to_player_id, to_player_name, to_ship_id, or to_ship_name"
+            )
 
         payload: Dict[str, Any] = {
             "from_character_id": character_id,
             "units": units,
         }
+        if to_player_id:
+            if not isinstance(to_player_id, str) or not to_player_id.strip():
+                raise ValueError("to_player_id must be a non-empty string")
+            payload["to_player_id"] = to_player_id
         if to_player_name:
             if not isinstance(to_player_name, str) or not to_player_name.strip():
                 raise ValueError("to_player_name must be a non-empty string")
@@ -1816,6 +1824,7 @@ class AsyncGameClient:
         *,
         amount: int,
         character_id: str,
+        to_player_id: Optional[str] = None,
         to_player_name: Optional[str] = None,
         to_ship_id: Optional[str] = None,
         to_ship_name: Optional[str] = None,
@@ -1825,6 +1834,7 @@ class AsyncGameClient:
         Args:
             amount: Credits to transfer (must be positive)
             character_id: Sender's character ID
+            to_player_id: Recipient character UUID for a player ship in the same sector
             to_player_name: Display name of the recipient in the same sector
             to_ship_id: Ship UUID for the recipient ship
             to_ship_name: Unique ship name for the recipient ship
@@ -1843,14 +1853,20 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        if not to_player_name and not to_ship_id and not to_ship_name:
-            raise ValueError("Must provide to_player_name, to_ship_id, or to_ship_name")
+        if not to_player_id and not to_player_name and not to_ship_id and not to_ship_name:
+            raise ValueError(
+                "Must provide to_player_id, to_player_name, to_ship_id, or to_ship_name"
+            )
 
         payload: Dict[str, Any] = {
             "from_character_id": character_id,
             "amount": amount,
         }
 
+        if to_player_id:
+            if not isinstance(to_player_id, str) or not to_player_id.strip():
+                raise ValueError("to_player_id must be a non-empty string")
+            payload["to_player_id"] = to_player_id
         if to_player_name:
             if not isinstance(to_player_name, str) or not to_player_name.strip():
                 raise ValueError("to_player_name must be a non-empty string")

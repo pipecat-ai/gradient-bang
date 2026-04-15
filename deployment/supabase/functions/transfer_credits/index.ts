@@ -2,30 +2,30 @@ import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
   errorResponse,
   successResponse,
+  unauthorizedResponse,
+  validateApiToken,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
+  buildEventSource,
   emitCharacterEvent,
   emitErrorEvent,
-  buildEventSource,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
+  buildPublicPlayerSnapshotFromStatus,
+  type CharacterRow,
   loadCharacter,
   loadShip,
-  buildPublicPlayerSnapshotFromStatus,
   type ShipRow,
-  type CharacterRow,
 } from "../_shared/status.ts";
 import { acquirePgClient } from "../_shared/pg.ts";
 import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import {
-  ensureActorAuthorization,
   ActorAuthorizationError,
+  ensureActorAuthorization,
 } from "../_shared/actors.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import { loadCombatForSector } from "../_shared/combat_state.ts";
@@ -34,11 +34,11 @@ import {
   type ShipNameLookupError,
 } from "../_shared/ship_names.ts";
 import {
-  parseJsonRequest,
-  requireString,
-  optionalString,
   optionalBoolean,
   optionalNumber,
+  optionalString,
+  parseJsonRequest,
+  requireString,
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
@@ -58,6 +58,7 @@ class TransferCreditsError extends Error {
 }
 
 type TransferTargetQuery = {
+  toPlayerId: string | null;
   toPlayerName: string | null;
   toShipId: string | null;
   toShipIdPrefix: string | null;
@@ -104,14 +105,19 @@ Deno.serve(traced("transfer_credits", async (req, trace) => {
   const requestId = resolveRequestId(payload);
   const fromCharacterLabel = requireString(payload, "from_character_id");
   const fromCharacterId = await canonicalizeCharacterId(fromCharacterLabel);
+  const toPlayerIdLabel = optionalString(payload, "to_player_id");
+  const toPlayerId = toPlayerIdLabel
+    ? await canonicalizeCharacterId(toPlayerIdLabel)
+    : null;
   const toPlayerName = optionalString(payload, "to_player_name");
   const toShipIdLabel = optionalString(payload, "to_ship_id");
   const toShipName = optionalString(payload, "to_ship_name");
   let toShipId: string | null = null;
   let toShipIdPrefix: string | null = null;
   try {
-    ({ shipId: toShipId, shipIdPrefix: toShipIdPrefix } =
-      parseShipIdInput(toShipIdLabel));
+    ({ shipId: toShipId, shipIdPrefix: toShipIdPrefix } = parseShipIdInput(
+      toShipIdLabel,
+    ));
   } catch (err) {
     if (err instanceof TransferCreditsError) {
       return errorResponse(err.message, err.status, err.extra);
@@ -128,6 +134,7 @@ Deno.serve(traced("transfer_credits", async (req, trace) => {
 
   trace.setInput({
     fromCharacterId,
+    toPlayerId,
     toPlayerName,
     toShipId,
     toShipName,
@@ -163,7 +170,7 @@ Deno.serve(traced("transfer_credits", async (req, trace) => {
       supabase,
       payload,
       fromCharacterId,
-      { toPlayerName, toShipId, toShipIdPrefix, toShipName },
+      { toPlayerId, toPlayerName, toShipId, toShipIdPrefix, toShipName },
       requestId,
       actorCharacterId,
       adminOverride,
@@ -223,17 +230,20 @@ async function handleTransfer(
     adminOverride,
     targetCharacterId: fromCharacterId,
   });
-  const { toPlayerName, toShipId, toShipIdPrefix, toShipName } = target;
-  if (!toPlayerName && !toShipId && !toShipIdPrefix && !toShipName) {
+  const { toPlayerId, toPlayerName, toShipId, toShipIdPrefix, toShipName } =
+    target;
+  if (
+    !toPlayerId && !toPlayerName && !toShipId && !toShipIdPrefix && !toShipName
+  ) {
     throw new TransferCreditsError(
-      "Must provide to_player_name, to_ship_id, or to_ship_name",
+      "Must provide to_player_id, to_player_name, to_ship_id, or to_ship_name",
       400,
     );
   }
 
   const toRecord = await resolveTransferTarget(
     supabase,
-    { toPlayerName, toShipId, toShipIdPrefix, toShipName },
+    { toPlayerId, toPlayerName, toShipId, toShipIdPrefix, toShipName },
     fromRecord.ship.current_sector,
     fromCharacterId,
   );
@@ -356,8 +366,8 @@ async function handleTransfer(
 
   const fromPlayer = buildPublicPlayerSnapshotFromStatus(fromStatus);
   const toPlayer = buildPublicPlayerSnapshotFromStatus(toStatus);
-  const finalSectorId =
-    fromRecord.ship.current_sector ?? toRecord.ship.current_sector ?? 0;
+  const finalSectorId = fromRecord.ship.current_sector ??
+    toRecord.ship.current_sector ?? 0;
   const timestamp = new Date().toISOString();
 
   await emitCharacterEvent({
@@ -474,7 +484,7 @@ async function resolveCharacterByNameAndSector(
   const pattern = playerName.replace(/[%_]/g, (ch) => `\\${ch}`);
   const { data, error } = await supabase
     .from("characters")
-    .select("character_id, name, current_ship_id")
+    .select("character_id, name, current_ship_id, is_npc, player_metadata")
     .ilike("name", `${pattern}%`)
     .neq("character_id", excludeCharacterId)
     .limit(5);
@@ -487,7 +497,14 @@ async function resolveCharacterByNameAndSector(
     return null;
   }
 
-  for (const candidate of data) {
+  const preferredCandidates = (data ?? []).filter((candidate) =>
+    !isCorporationShipCharacter(candidate)
+  );
+  const candidatesToCheck = preferredCandidates.length > 0
+    ? preferredCandidates
+    : (data ?? []);
+
+  for (const candidate of candidatesToCheck) {
     if (!candidate.current_ship_id) {
       continue;
     }
@@ -530,6 +547,9 @@ async function resolveTransferTarget(
   sectorId: number | null,
   excludeCharacterId: string,
 ): Promise<TransferTarget | null> {
+  if (target.toPlayerId) {
+    return await resolveCharacterById(supabase, target.toPlayerId);
+  }
   if (target.toShipId) {
     return await resolveCharacterByShipId(supabase, target.toShipId);
   }
@@ -580,15 +600,32 @@ async function resolveCharacterByShipId(
     console.error("transfer_credits.lookup_ship_character", error);
     throw new TransferCreditsError("Failed to lookup target ship", 500);
   }
-  if (!data || !data.current_ship_id) {
-    return null;
+  let resolvedCharacter = data;
+  if (!resolvedCharacter || !resolvedCharacter.current_ship_id) {
+    const { data: directData, error: directError } = await supabase
+      .from("characters")
+      .select("character_id, name, current_ship_id")
+      .eq("character_id", ship.ship_id)
+      .maybeSingle();
+
+    if (directError) {
+      console.error(
+        "transfer_credits.lookup_ship_character_direct",
+        directError,
+      );
+      throw new TransferCreditsError("Failed to lookup target ship", 500);
+    }
+    if (!directData || !directData.current_ship_id) {
+      return null;
+    }
+    resolvedCharacter = directData;
   }
 
   return {
     character: {
-      character_id: data.character_id,
-      name: data.name,
-      current_ship_id: data.current_ship_id,
+      character_id: resolvedCharacter.character_id,
+      name: resolvedCharacter.name,
+      current_ship_id: resolvedCharacter.current_ship_id,
     },
     ship: {
       ship_id: ship.ship_id,
@@ -610,10 +647,9 @@ async function resolveCharacterByShipName(
     lookup = await resolveShipByNameWithSuffixFallback(supabase, shipName);
   } catch (err) {
     const stage = (err as ShipNameLookupError | null)?.stage;
-    const cause =
-      err instanceof Error && "cause" in err
-        ? (err as Error & { cause?: unknown }).cause
-        : err;
+    const cause = err instanceof Error && "cause" in err
+      ? (err as Error & { cause?: unknown }).cause
+      : err;
     if (stage === "suffix") {
       console.error("transfer_credits.lookup_ship_name_suffix", cause);
     } else {
@@ -639,6 +675,57 @@ async function resolveCharacterByShipName(
   }
 
   return await resolveCharacterByShipId(supabase, lookup.ship.ship_id);
+}
+
+async function resolveCharacterById(
+  supabase: SupabaseClient,
+  characterId: string,
+): Promise<TransferTarget | null> {
+  let character;
+  try {
+    character = await loadCharacter(supabase, characterId);
+  } catch (err) {
+    console.error("transfer_credits.lookup_player_id", err);
+    return null;
+  }
+
+  let ship;
+  try {
+    ship = await loadShip(supabase, character.current_ship_id);
+  } catch (err) {
+    console.error("transfer_credits.lookup_player_ship", err);
+    return null;
+  }
+
+  return {
+    character: {
+      character_id: character.character_id,
+      name: character.name,
+      current_ship_id: character.current_ship_id,
+    },
+    ship: {
+      ship_id: ship.ship_id,
+      ship_type: ship.ship_type,
+      ship_name: ship.ship_name,
+      current_sector: ship.current_sector,
+      in_hyperspace: ship.in_hyperspace,
+      credits: ship.credits,
+    },
+  };
+}
+
+function isCorporationShipCharacter(candidate: {
+  is_npc?: boolean | null;
+  player_metadata?: Record<string, unknown> | null;
+}): boolean {
+  if (candidate.is_npc !== true) {
+    return false;
+  }
+  const metadata = candidate.player_metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return false;
+  }
+  return metadata["player_type"] === "corporation_ship";
 }
 
 async function resolveShipIdByPrefixInSector(

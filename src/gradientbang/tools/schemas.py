@@ -251,7 +251,7 @@ TRANSFER_WARP_POWER = FunctionSchema(
     name="transfer_warp_power",
     description=(
         "Transfer warp power to another ship in the same sector. Provide one of "
-        "to_player_name, to_ship_id, or to_ship_name. For corporation ships, "
+        "to_player_id, to_player_name, to_ship_id, or to_ship_name. For corporation ships, "
         "use corporation_info to find the ship_id. to_ship_id accepts a full UUID "
         "or a 6-8 hex prefix (unique in the current sector). If you see a name like "
         "'Fast Probe [abcd1234]', the bracket suffix is just a short id. If the "
@@ -259,6 +259,13 @@ TRANSFER_WARP_POWER = FunctionSchema(
         "successful partial transfer rather than a total failure."
     ),
     properties={
+        "to_player_id": {
+            "type": "string",
+            "description": (
+                "Character UUID for the recipient player ship. Prefer this when you "
+                "already know the player's ID."
+            ),
+        },
         "to_player_name": {
             "type": "string",
             "description": "Display name of the recipient currently in your sector",
@@ -286,12 +293,19 @@ TRANSFER_CREDITS = FunctionSchema(
     name="transfer_credits",
     description=(
         "Transfer on-hand credits to another ship in the same sector. Provide "
-        "one of to_player_name, to_ship_id, or to_ship_name. For corporation ships, "
+        "one of to_player_id, to_player_name, to_ship_id, or to_ship_name. For corporation ships, "
         "use corporation_info to find the ship_id. to_ship_id accepts a full UUID "
         "or a 6-8 hex prefix (unique in the current sector). If you see a name like "
         "'Fast Probe [abcd1234]', the bracket suffix is just a short id."
     ),
     properties={
+        "to_player_id": {
+            "type": "string",
+            "description": (
+                "Character UUID for the recipient player ship. Prefer this when you "
+                "already know the player's ID."
+            ),
+        },
         "to_player_name": {
             "type": "string",
             "description": "Display name of the recipient currently in your sector",

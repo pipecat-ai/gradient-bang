@@ -174,30 +174,31 @@ export function buildPublicPlayerSnapshotFromStatus(
   const player = (statusPayload["player"] ?? {}) as Record<string, unknown>;
   const ship = (statusPayload["ship"] ?? {}) as Record<string, unknown>;
 
-  const displayName =
-    typeof player["name"] === "string" ? (player["name"] as string) : null;
-  const canonicalId =
-    typeof player["id"] === "string" ? (player["id"] as string) : null;
-  const playerId = displayName ?? canonicalId;
+  const displayName = typeof player["name"] === "string"
+    ? (player["name"] as string)
+    : null;
+  const canonicalId = typeof player["id"] === "string"
+    ? (player["id"] as string)
+    : null;
 
-  const shipType =
-    typeof ship["ship_type"] === "string"
-      ? (ship["ship_type"] as string)
-      : null;
+  const shipType = typeof ship["ship_type"] === "string"
+    ? (ship["ship_type"] as string)
+    : null;
   const shipName =
     (typeof ship["ship_name"] === "string"
       ? (ship["ship_name"] as string)
       : null) ??
-    (typeof ship["display_name"] === "string"
-      ? (ship["display_name"] as string)
-      : null) ??
-    shipType;
-  const shipId =
-    typeof ship["ship_id"] === "string" ? (ship["ship_id"] as string) : null;
+      (typeof ship["display_name"] === "string"
+        ? (ship["display_name"] as string)
+        : null) ??
+      shipType;
+  const shipId = typeof ship["ship_id"] === "string"
+    ? (ship["ship_id"] as string)
+    : null;
 
   return {
     created_at: player["created_at"] ?? null,
-    id: playerId,
+    id: canonicalId,
     name: displayName ?? canonicalId,
     player_type: player["player_type"] ?? "human",
     corporation: Object.prototype.hasOwnProperty.call(player, "corporation")
@@ -220,8 +221,8 @@ function buildShipSnapshot(
     retro_organics: ship.cargo_ro ?? 0,
     neuro_symbolics: ship.cargo_ns ?? 0,
   };
-  const cargoUsed =
-    cargo.quantum_foam + cargo.retro_organics + cargo.neuro_symbolics;
+  const cargoUsed = cargo.quantum_foam + cargo.retro_organics +
+    cargo.neuro_symbolics;
   const cargoCapacity = definition.cargo_holds;
   return {
     ship_id: ship.ship_id,
@@ -240,4 +241,3 @@ function buildShipSnapshot(
     max_fighters: definition.fighters,
   };
 }
-
