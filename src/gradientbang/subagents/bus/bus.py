@@ -9,7 +9,7 @@ from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Coroutine, Optional
 
-from loguru import logger
+from pipecat.frames.frames import SystemFrame
 from pipecat.utils.asyncio.task_manager import TaskManager
 from pipecat.utils.base_object import BaseObject
 
@@ -24,13 +24,21 @@ class BusSubscription:
 
     Parameters:
         subscriber: The subscriber receiving messages.
-        queue: Priority queue for message delivery.
-        task: The dispatch task, set once the bus is started.
+        queue: Priority queue for incoming messages.
+        data_queue: Secondary queue for data messages dispatched by
+            the router task.
+        router_task: Task that reads from the priority queue, handles
+            system messages inline, and routes data messages to the
+            data queue.
+        data_task: Task that processes data messages sequentially from
+            the data queue.
     """
 
     subscriber: BusSubscriber
     queue: BusMessageQueue = field(default_factory=BusMessageQueue, repr=False)
-    task: Optional[asyncio.Task] = field(default=None, repr=False)
+    data_queue: asyncio.Queue = field(default_factory=asyncio.Queue, repr=False)
+    router_task: Optional[asyncio.Task] = field(default=None, repr=False)
+    data_task: Optional[asyncio.Task] = field(default=None, repr=False)
 
 
 class AgentBus(BaseObject):
@@ -57,6 +65,11 @@ class AgentBus(BaseObject):
         self._subscriptions: list[BusSubscription] = []
         self._running = False
         self._task_manager: Optional[TaskManager] = None
+
+    @property
+    def task_manager(self) -> Optional[TaskManager]:
+        """The shared task manager for asyncio task creation."""
+        return self._task_manager
 
     def set_task_manager(self, task_manager: TaskManager) -> None:
         """Set the shared task manager for asyncio task creation.
@@ -112,9 +125,12 @@ class AgentBus(BaseObject):
             return
         self._running = False
         for sub in self._subscriptions:
-            if sub.task:
-                await self.cancel_asyncio_task(sub.task)
-                sub.task = None
+            if sub.router_task:
+                await self.cancel_asyncio_task(sub.router_task)
+                sub.router_task = None
+            if sub.data_task:
+                await self.cancel_asyncio_task(sub.data_task)
+                sub.data_task = None
 
     async def subscribe(self, subscriber: BusSubscriber) -> None:
         """Register a subscriber to receive messages from the bus.
@@ -130,15 +146,17 @@ class AgentBus(BaseObject):
         self._subscriptions.append(sub)
 
     async def unsubscribe(self, subscriber: BusSubscriber) -> None:
-        """Remove a subscriber and cancel its dispatch task.
+        """Remove a subscriber and cancel its dispatch tasks.
 
         Args:
             subscriber: The `BusSubscriber` to remove.
         """
         for i, sub in enumerate(self._subscriptions):
             if sub.subscriber is subscriber:
-                if sub.task:
-                    await self.cancel_asyncio_task(sub.task)
+                if sub.router_task:
+                    await self.cancel_asyncio_task(sub.router_task)
+                if sub.data_task:
+                    await self.cancel_asyncio_task(sub.data_task)
                 self._subscriptions.pop(i)
                 return
 
@@ -178,15 +196,31 @@ class AgentBus(BaseObject):
             sub.queue.put_nowait(message)
 
     def _start_dispatch_task(self, sub: BusSubscription) -> None:
-        sub.task = self.create_asyncio_task(
-            self._dispatch_task(sub), f"bus_dispatch_{sub.subscriber}"
+        sub.router_task = self.create_asyncio_task(
+            self._router_task(sub), f"bus_router_{sub.subscriber}"
+        )
+        sub.data_task = self.create_asyncio_task(
+            self._data_dispatch_task(sub), f"bus_data_{sub.subscriber}"
         )
 
-    async def _dispatch_task(self, sub: BusSubscription):
-        """Read from a subscriber's priority queue and dispatch to handler."""
+    async def _router_task(self, sub: BusSubscription):
+        """Read from the priority queue, handle system messages inline,
+        and route data messages to the data queue."""
         try:
             while True:
                 message = await sub.queue.get()
+                if isinstance(message, SystemFrame):
+                    await sub.subscriber.on_bus_message(message)
+                else:
+                    sub.data_queue.put_nowait(message)
+        except asyncio.CancelledError:
+            pass
+
+    async def _data_dispatch_task(self, sub: BusSubscription):
+        """Process data messages sequentially from the data queue."""
+        try:
+            while True:
+                message = await sub.data_queue.get()
                 await sub.subscriber.on_bus_message(message)
         except asyncio.CancelledError:
             pass
