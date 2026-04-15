@@ -23,6 +23,10 @@ import {
 } from "../_shared/request.ts";
 import { loadCharacter } from "../_shared/status.ts";
 import {
+  validateDisplayName,
+  NameValidationError,
+} from "../_shared/name_validation.ts";
+import {
   buildCorporationMemberPayload,
   fetchCorporationMembers,
   fetchCorporationShipSummaries,
@@ -105,6 +109,9 @@ Deno.serve(traced("corporation_rename", async (req, trace) => {
     sRename.end(result);
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
+    if (err instanceof NameValidationError) {
+      return errorResponse(err.message, err.status, { code: err.code });
+    }
     if (err instanceof CorporationRenameError) {
       return errorResponse(err.message, err.status);
     }
@@ -132,10 +139,7 @@ async function handleRename(params: {
     throw new CorporationRenameError("Not authorized for this corporation", 403);
   }
 
-  const trimmedName = nameInput.trim();
-  if (trimmedName.length < 3 || trimmedName.length > 50) {
-    throw new CorporationRenameError("Name must be 3-50 characters", 400);
-  }
+  const trimmedName = validateDisplayName(nameInput, "corporation");
 
   // Case-insensitive uniqueness check (exclude own corporation and disbanded)
   const { data: duplicate, error: dupError } = await supabase

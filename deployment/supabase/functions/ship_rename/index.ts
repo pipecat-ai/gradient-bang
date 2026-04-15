@@ -44,6 +44,10 @@ import {
 } from "../_shared/status.ts";
 import { acquirePgClient } from "../_shared/pg.ts";
 import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
+import {
+  validateDisplayName,
+  NameValidationError,
+} from "../_shared/name_validation.ts";
 import { traced } from "../_shared/weave.ts";
 
 class ShipRenameError extends Error {
@@ -145,6 +149,24 @@ Deno.serve(traced("ship_rename", async (req, trace) => {
     if (validationResponse) {
       return validationResponse;
     }
+    if (err instanceof NameValidationError) {
+      const rawCharacterId = payload.character_id as string | undefined;
+      if (rawCharacterId) {
+        try {
+          const characterId = await canonicalizeCharacterId(rawCharacterId);
+          await emitErrorEvent(supabase, {
+            characterId,
+            method: "ship_rename",
+            requestId,
+            detail: err.message,
+            status: err.status,
+          });
+        } catch (emitErr) {
+          console.error("ship_rename.emit_error", emitErr);
+        }
+      }
+      return errorResponse(err.message, err.status, { code: err.code });
+    }
     if (err instanceof ActorAuthorizationError) {
       const rawCharacterId = payload.character_id as string | undefined;
       if (rawCharacterId) {
@@ -242,10 +264,7 @@ async function handleRename(params: {
     targetCharacterId: ship.owner_character_id ?? ship.owner_id ?? ship.ship_id,
   });
 
-  const trimmedName = shipName.trim();
-  if (!trimmedName) {
-    throw new ShipRenameError("ship_name cannot be empty", 400);
-  }
+  const trimmedName = validateDisplayName(shipName, "ship");
 
   const oldName = ship.ship_name ?? null;
   const changed = oldName !== trimmedName;

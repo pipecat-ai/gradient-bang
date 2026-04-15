@@ -3,6 +3,7 @@
     "imports": {
         "@supabase/supabase-js": "jsr:@supabase/supabase-js@2",
         "postgres": "https://deno.land/x/postgres@v0.17.0/mod.ts",
-        "disposable-email-domains": "npm:disposable-email-domains@^1.0.0"
+        "disposable-email-domains": "npm:disposable-email-domains@^1.0.0",
+        "obscenity": "npm:obscenity@^0.4.3"
     }
 }

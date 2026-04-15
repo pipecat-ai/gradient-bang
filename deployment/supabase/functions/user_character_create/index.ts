@@ -29,6 +29,10 @@ import {
   loadUniverseMeta,
   pickSpawnSector,
 } from "../_shared/fedspace.ts";
+import {
+  validateDisplayName,
+  NameValidationError,
+} from "../_shared/name_validation.ts";
 import { traced } from "../_shared/weave.ts";
 
 const DEFAULT_SHIP_TYPE = "sparrow_scout";
@@ -149,18 +153,10 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
   try {
     // Parse and validate request
     const sValidate = trace.span("validate_input");
-    const name = requireString(payload, "name");
+    const rawName = requireString(payload, "name");
+    const name = validateDisplayName(rawName, "character");
 
     trace.setInput({ user_id: user.id, name });
-
-    // Validate name format (alphanumeric, underscores, spaces, 3-20 chars)
-    if (!/^[a-zA-Z0-9_ ]{3,20}$/.test(name)) {
-      sValidate.end({ error: "Invalid name format" });
-      throw new CharacterCreateError(
-        "Character name must be 3-20 characters, alphanumeric, underscores, and spaces only",
-        400,
-      );
-    }
     sValidate.end({ name });
 
     // Check character limit for this user via junction table
@@ -370,6 +366,12 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
       201,
     );
   } catch (err) {
+    if (err instanceof NameValidationError) {
+      return corsResponse(
+        { success: false, error: err.message, code: err.code },
+        err.status,
+      );
+    }
     if (err instanceof CharacterCreateError) {
       return corsResponse({ success: false, error: err.message }, err.status);
     }
