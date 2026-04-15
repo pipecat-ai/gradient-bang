@@ -1241,6 +1241,9 @@ class VoiceAgent(LLMAgent):
                     "actor_character_name": self._display_name,
                     "task_scope": task_type,
                     "ship_id": ship_id if ship_id else None,
+                    "actor_ship_id": (
+                        self._event_relay.actor_ship_id if self._event_relay else None
+                    ),
                 }
                 task_context = self._build_task_start_context(task_desc, explicit_context)
                 payload = {"task_description": task_desc, "task_metadata": task_metadata}

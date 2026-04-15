@@ -473,6 +473,7 @@ class EventRelay:
         self._task_state = task_state
 
         self.display_name: str = character_id
+        self.actor_ship_id: Optional[str] = None
         self._current_sector_id: Optional[int] = None
         # Onboarding (passive observation)
         self.is_new_player: Optional[bool] = None  # None=unknown, True=new, False=veteran
@@ -571,6 +572,13 @@ class EventRelay:
         candidate = extract_display_name(payload)
         if isinstance(candidate, str) and candidate and candidate != self.display_name:
             self.display_name = candidate
+
+    def _update_actor_ship_id(self, payload: Mapping[str, Any]) -> None:
+        ship = payload.get("ship")
+        if isinstance(ship, Mapping):
+            ship_id = ship.get("ship_id")
+            if isinstance(ship_id, str) and ship_id.strip():
+                self.actor_ship_id = ship_id
 
     # ── Onboarding (passive observation) ─────────────────────────────
 
@@ -1021,6 +1029,7 @@ class EventRelay:
         # Display name / corp sync
         if cfg.sync_display_name and not is_other_player and isinstance(clean_payload, Mapping):
             self._update_display_name(clean_payload)
+            self._update_actor_ship_id(clean_payload)
 
         # ── Phase 3: RTVI push ──
         await self._rtvi.push_frame(

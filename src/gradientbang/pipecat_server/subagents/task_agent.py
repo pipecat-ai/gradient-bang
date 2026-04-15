@@ -364,6 +364,7 @@ class TaskAgent(LLMAgent):
                     self._task_description,
                     context=task_context,
                     is_corp_ship=self._is_corp_ship,
+                    task_metadata=self._task_metadata,
                 ),
             },
         ]

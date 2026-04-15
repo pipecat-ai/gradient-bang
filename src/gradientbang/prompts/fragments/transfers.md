@@ -9,19 +9,24 @@ Transfer warp power to another ship in the same sector for rescue operations or 
 ```
 transfer_warp_power(
     units=100,
-    to_player_name="Player Name"   # OR
     to_ship_id="<UUID or short ID>" # OR
-    to_ship_name="Ship Name"
+    to_ship_name="Ship Name"        # OR
+    to_player_name="Player Name"
 )
 ```
 
-Provide ONE of: to_player_name, to_ship_id, or to_ship_name
+Provide ONE of: to_ship_id, to_ship_name, or to_player_name. Prefer `to_ship_id` — read the recipient's `ship.ship_id` from your latest sector snapshot.
+
+```
+# Prefer ship_id (from sector snapshot):
+transfer_warp_power(units=100, to_ship_id="<uuid>")
+```
 
 ### Targeting Options
 
-- **to_player_name**: Display name of the recipient in your sector
 - **to_ship_id**: Full UUID or 6-8 hex prefix (unique in sector)
 - **to_ship_name**: Ship name without bracket suffix
+- **to_player_name**: Display name of the recipient in your sector (fallback when no ship_id known)
 
 ### Short IDs
 
@@ -65,15 +70,20 @@ Transfer on-hand credits to another ship in the same sector.
 ```
 transfer_credits(
     amount=5000,
-    to_player_name="Player Name"   # OR
     to_ship_id="<UUID or short ID>" # OR
-    to_ship_name="Ship Name"
+    to_ship_name="Ship Name"        # OR
+    to_player_name="Player Name"
 )
+```
+
+```
+# Prefer ship_id (from sector snapshot):
+transfer_credits(amount=5000, to_ship_id="<uuid>")
 ```
 
 ### Same Targeting Options
 
-- to_player_name, to_ship_id, or to_ship_name
+- to_ship_id, to_ship_name, or to_player_name (prefer ship_id)
 - Short IDs work the same as warp transfers
 
 ### Use Cases

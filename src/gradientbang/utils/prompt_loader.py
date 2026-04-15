@@ -202,6 +202,7 @@ def create_task_instruction_user_message(
     context: Optional[str] = None,
     *,
     is_corp_ship: bool = False,
+    task_metadata: Optional[dict[str, object]] = None,
 ) -> str:
     """Create a task-specific user message for the LLM.
 
@@ -209,6 +210,7 @@ def create_task_instruction_user_message(
         task: The task to be completed.
         context: Optional additional context to include with the task.
         is_corp_ship: Whether this task is executing on a corporation ship.
+        task_metadata: Optional spawn-time metadata (e.g. actor_ship_id).
 
     Returns:
         Formatted prompt for the current decision point.
@@ -236,6 +238,16 @@ def create_task_instruction_user_message(
                 "",
             ]
         )
+        actor_ship_id = (
+            task_metadata.get("actor_ship_id") if isinstance(task_metadata, dict) else None
+        )
+        if isinstance(actor_ship_id, str) and actor_ship_id.strip():
+            prompt_parts.extend(
+                [
+                    f'Commander ship_id: {actor_ship_id}  (for transfers: to_ship_id="{actor_ship_id}")',
+                    "",
+                ]
+            )
 
     if context and context.strip():
         prompt_parts.extend(
