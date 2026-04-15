@@ -22,6 +22,10 @@ import {
   requireString,
   respondWithError,
 } from "../_shared/request.ts";
+import {
+  validateSignupEmail,
+  EmailValidationError,
+} from "../_shared/email_validation.ts";
 import { traced } from "../_shared/weave.ts";
 
 // CORS headers for public access from web clients
@@ -93,18 +97,23 @@ Deno.serve(traced("register", async (req, trace) => {
   try {
     // Parse and validate request
     const sValidate = trace.span("validate_input");
-    const email = requireString(payload, "email");
+    const rawEmail = requireString(payload, "email");
     const password = requireString(payload, "password");
 
     trace.setInput({});
 
-    // Basic email validation
-    if (!email.includes("@") || email.length < 3) {
-      sValidate.end({ error: "Invalid email address" });
-      return corsResponse(
-        { success: false, error: "Invalid email address" },
-        400,
-      );
+    let email: string;
+    try {
+      email = validateSignupEmail(rawEmail);
+    } catch (err) {
+      if (err instanceof EmailValidationError) {
+        sValidate.end({ error: err.code });
+        return corsResponse(
+          { success: false, error: err.message, code: err.code },
+          err.status,
+        );
+      }
+      throw err;
     }
 
     // Password validation
