@@ -597,6 +597,7 @@ PURCHASE_SHIP = FunctionSchema(
             "enum": [
                 "kestrel_courier",
                 "sparrow_scout",
+                "parhelion_seeker",
                 "wayfarer_freighter",
                 "pioneer_lifter",
                 "atlas_hauler",
