@@ -2,29 +2,29 @@ import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
+  validateApiToken,
+  unauthorizedResponse,
   errorResponse,
   successResponse,
-  unauthorizedResponse,
-  validateApiToken,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
-  buildEventSource,
   emitCharacterEvent,
   emitErrorEvent,
+  buildEventSource,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
-  buildPublicPlayerSnapshotFromStatus,
   loadCharacter,
   loadShip,
   loadShipDefinition,
+  buildPublicPlayerSnapshotFromStatus,
 } from "../_shared/status.ts";
 import { acquirePgClient } from "../_shared/pg.ts";
 import { pgBuildStatusPayload } from "../_shared/pg_queries.ts";
 import {
-  ActorAuthorizationError,
   ensureActorAuthorization,
+  ActorAuthorizationError,
 } from "../_shared/actors.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import {
@@ -32,11 +32,11 @@ import {
   type ShipNameLookupError,
 } from "../_shared/ship_names.ts";
 import {
-  optionalBoolean,
-  optionalNumber,
-  optionalString,
   parseJsonRequest,
   requireString,
+  optionalString,
+  optionalBoolean,
+  optionalNumber,
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
@@ -56,7 +56,6 @@ class TransferWarpPowerError extends Error {
 }
 
 type TransferTargetQuery = {
-  toPlayerId: string | null;
   toPlayerName: string | null;
   toShipId: string | null;
   toShipIdPrefix: string | null;
@@ -109,19 +108,14 @@ Deno.serve(traced("transfer_warp_power", async (req, trace) => {
   const requestId = resolveRequestId(payload);
   const fromCharacterLabel = requireString(payload, "from_character_id");
   const fromCharacterId = await canonicalizeCharacterId(fromCharacterLabel);
-  const toPlayerIdLabel = optionalString(payload, "to_player_id");
-  const toPlayerId = toPlayerIdLabel
-    ? await canonicalizeCharacterId(toPlayerIdLabel)
-    : null;
   const toPlayerName = optionalString(payload, "to_player_name");
   const toShipIdLabel = optionalString(payload, "to_ship_id");
   const toShipName = optionalString(payload, "to_ship_name");
   let toShipId: string | null = null;
   let toShipIdPrefix: string | null = null;
   try {
-    ({ shipId: toShipId, shipIdPrefix: toShipIdPrefix } = parseShipIdInput(
-      toShipIdLabel,
-    ));
+    ({ shipId: toShipId, shipIdPrefix: toShipIdPrefix } =
+      parseShipIdInput(toShipIdLabel));
   } catch (err) {
     if (err instanceof TransferWarpPowerError) {
       return errorResponse(err.message, err.status, err.extra);
@@ -138,7 +132,6 @@ Deno.serve(traced("transfer_warp_power", async (req, trace) => {
 
   trace.setInput({
     fromCharacterId,
-    toPlayerId,
     toPlayerName,
     toShipId,
     toShipName,
@@ -174,7 +167,7 @@ Deno.serve(traced("transfer_warp_power", async (req, trace) => {
       supabase,
       payload,
       fromCharacterId,
-      { toPlayerId, toPlayerName, toShipId, toShipIdPrefix, toShipName },
+      { toPlayerName, toShipId, toShipIdPrefix, toShipName },
       requestId,
       actorCharacterId,
       adminOverride,
@@ -251,20 +244,17 @@ async function handleTransfer(
     );
   }
 
-  const { toPlayerId, toPlayerName, toShipId, toShipIdPrefix, toShipName } =
-    target;
-  if (
-    !toPlayerId && !toPlayerName && !toShipId && !toShipIdPrefix && !toShipName
-  ) {
+  const { toPlayerName, toShipId, toShipIdPrefix, toShipName } = target;
+  if (!toPlayerName && !toShipId && !toShipIdPrefix && !toShipName) {
     throw new TransferWarpPowerError(
-      "Must provide to_player_id, to_player_name, to_ship_id, or to_ship_name",
+      "Must provide to_player_name, to_ship_id, or to_ship_name",
       400,
     );
   }
 
   const toCharacterRecord = await resolveTransferTarget(
     supabase,
-    { toPlayerId, toPlayerName, toShipId, toShipIdPrefix, toShipName },
+    { toPlayerName, toShipId, toShipIdPrefix, toShipName },
     fromShip.current_sector ?? null,
     fromCharacterId,
   );
@@ -297,13 +287,9 @@ async function handleTransfer(
   }
 
   const toDefinition = await loadShipDefinition(supabase, toShip.ship_type);
-  const receiverCapacity = toDefinition.warp_power_capacity -
-    (toShip.current_warp_power ?? 0);
-  const unitsToTransfer = Math.min(
-    unitsRequested,
-    senderWarp,
-    receiverCapacity,
-  );
+  const receiverCapacity =
+    toDefinition.warp_power_capacity - (toShip.current_warp_power ?? 0);
+  const unitsToTransfer = Math.min(unitsRequested, senderWarp, receiverCapacity);
   if (unitsToTransfer <= 0) {
     if (senderWarp <= 0) {
       throw new TransferWarpPowerError(
@@ -457,9 +443,7 @@ async function findCharacterByNameInSector(
   const pattern = name.replace(/[%_]/g, (ch) => `\\${ch}`);
   const { data, error } = await supabase
     .from("characters")
-    .select(
-      "character_id, name, first_visit, player_metadata, current_ship_id, is_npc",
-    )
+    .select("character_id, name, first_visit, player_metadata, current_ship_id")
     .ilike("name", `${pattern}%`)
     .neq("character_id", excludeCharacterId)
     .limit(5);
@@ -472,14 +456,7 @@ async function findCharacterByNameInSector(
     return null;
   }
 
-  const preferredCandidates = data.filter((candidate) =>
-    !isCorporationShipCharacter(candidate)
-  );
-  const candidatesToCheck = preferredCandidates.length > 0
-    ? preferredCandidates
-    : data;
-
-  for (const candidate of candidatesToCheck) {
+  for (const candidate of data) {
     if (!candidate.current_ship_id) {
       continue;
     }
@@ -524,9 +501,6 @@ async function resolveTransferTarget(
   sectorId: number | null,
   excludeCharacterId: string,
 ): Promise<TransferTarget | null> {
-  if (target.toPlayerId) {
-    return await resolveCharacterById(supabase, target.toPlayerId);
-  }
   if (target.toShipId) {
     return await resolveCharacterByShipId(supabase, target.toShipId);
   }
@@ -577,36 +551,17 @@ async function resolveCharacterByShipId(
     console.error("transfer_warp_power.lookup_ship_character", error);
     throw new TransferWarpPowerError("Failed to lookup target ship", 500);
   }
-  let resolvedCharacter = data;
-  if (!resolvedCharacter || !resolvedCharacter.current_ship_id) {
-    const { data: directData, error: directError } = await supabase
-      .from("characters")
-      .select(
-        "character_id, name, first_visit, player_metadata, current_ship_id",
-      )
-      .eq("character_id", ship.ship_id)
-      .maybeSingle();
-
-    if (directError) {
-      console.error(
-        "transfer_warp_power.lookup_ship_character_direct",
-        directError,
-      );
-      throw new TransferWarpPowerError("Failed to lookup target ship", 500);
-    }
-    if (!directData || !directData.current_ship_id) {
-      return null;
-    }
-    resolvedCharacter = directData;
+  if (!data || !data.current_ship_id) {
+    return null;
   }
 
   return {
     character: {
-      character_id: resolvedCharacter.character_id,
-      name: resolvedCharacter.name,
-      first_visit: resolvedCharacter.first_visit,
-      player_metadata: resolvedCharacter.player_metadata,
-      current_ship_id: resolvedCharacter.current_ship_id,
+      character_id: data.character_id,
+      name: data.name,
+      first_visit: data.first_visit,
+      player_metadata: data.player_metadata,
+      current_ship_id: data.current_ship_id,
     },
     ship: {
       ship_id: ship.ship_id,
@@ -628,9 +583,10 @@ async function resolveCharacterByShipName(
     lookup = await resolveShipByNameWithSuffixFallback(supabase, shipName);
   } catch (err) {
     const stage = (err as ShipNameLookupError | null)?.stage;
-    const cause = err instanceof Error && "cause" in err
-      ? (err as Error & { cause?: unknown }).cause
-      : err;
+    const cause =
+      err instanceof Error && "cause" in err
+        ? (err as Error & { cause?: unknown }).cause
+        : err;
     if (stage === "suffix") {
       console.error("transfer_warp_power.lookup_ship_name_suffix", cause);
     } else {
@@ -656,59 +612,6 @@ async function resolveCharacterByShipName(
   }
 
   return await resolveCharacterByShipId(supabase, lookup.ship.ship_id);
-}
-
-async function resolveCharacterById(
-  supabase: SupabaseClient,
-  characterId: string,
-): Promise<TransferTarget | null> {
-  let character;
-  try {
-    character = await loadCharacter(supabase, characterId);
-  } catch (err) {
-    console.error("transfer_warp_power.lookup_player_id", err);
-    return null;
-  }
-
-  let ship;
-  try {
-    ship = await loadShip(supabase, character.current_ship_id);
-  } catch (err) {
-    console.error("transfer_warp_power.lookup_player_ship", err);
-    return null;
-  }
-
-  return {
-    character: {
-      character_id: character.character_id,
-      name: character.name,
-      first_visit: character.first_visit,
-      player_metadata: character.player_metadata,
-      current_ship_id: character.current_ship_id,
-    },
-    ship: {
-      ship_id: ship.ship_id,
-      ship_type: ship.ship_type,
-      ship_name: ship.ship_name,
-      current_sector: ship.current_sector,
-      in_hyperspace: ship.in_hyperspace,
-      current_warp_power: ship.current_warp_power,
-    },
-  };
-}
-
-function isCorporationShipCharacter(candidate: {
-  is_npc?: boolean | null;
-  player_metadata?: Record<string, unknown> | null;
-}): boolean {
-  if (candidate.is_npc !== true) {
-    return false;
-  }
-  const metadata = candidate.player_metadata;
-  if (!metadata || typeof metadata !== "object") {
-    return false;
-  }
-  return metadata["player_type"] === "corporation_ship";
 }
 
 async function resolveShipIdByPrefixInSector(
