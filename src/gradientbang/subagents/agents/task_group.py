@@ -212,8 +212,11 @@ class TaskGroupContext:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
         if exc_type is not None:
             if self._group and self._group.task_id in self._agent.task_groups:
-                await self._agent.cancel_task(
-                    self._group.task_id, reason="context exited with error"
+                # Shield the cleanup so it completes even if the
+                # surrounding task is being cancelled (e.g. tool
+                # interruption).
+                await asyncio.shield(
+                    self._agent.cancel_task(self._group.task_id, reason="context exited with error")
                 )
             return False
 
