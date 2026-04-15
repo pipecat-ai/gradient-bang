@@ -44,6 +44,9 @@ class StubTaskState:
     def is_our_task(self, task_id: str) -> bool:
         return task_id in self.our_task_ids
 
+    def active_tasks_summary(self) -> str:
+        return "Active tasks: 0/1 personal, 0/3 corp."
+
     def is_recent_request_id(self, request_id: str) -> bool:
         return request_id in self.recent_request_ids
 

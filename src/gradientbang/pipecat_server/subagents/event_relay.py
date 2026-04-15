@@ -435,6 +435,10 @@ class TaskStateProvider(Protocol):
     # Task awareness (for routing decisions)
     def is_our_task(self, task_id: str) -> bool: ...
 
+    # Current task slot usage (appended to status.snapshot summaries so the
+    # voice agent knows whether it has capacity to start another task).
+    def active_tasks_summary(self) -> str: ...
+
     # Request ID tracking
     def is_recent_request_id(self, request_id: str) -> bool: ...
     # LLM frame management (inherited from LLMAgent)
@@ -1057,6 +1061,11 @@ class EventRelay:
 
         # ── Phase 5: Summary, inference, delivery ──
         summary = self._resolve_voice_summary(cfg, event_for_bus, task_summary)
+
+        # Append current task slot usage to our own status.snapshot summaries
+        # so the voice agent sees capacity info every time status refreshes.
+        if event_name == "status.snapshot" and not is_other_player and isinstance(summary, str):
+            summary = f"{summary}\n{self._task_state.active_tasks_summary()}"
 
         # Build XML
         attrs = [f'name="{event_name}"']
