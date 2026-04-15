@@ -147,6 +147,20 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                     Sign In
                   </Button>
                   <Button
+                    asChild
+                    variant="secondary"
+                    size="xl"
+                    className="w-full"
+                  >
+                    <a
+                      href="https://www.gradient-bang.com/join"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Sign Up
+                    </a>
+                  </Button>
+                  <Button
                     onClick={() => setActiveModal("leaderboard")}
                     variant="secondary"
                     size="xl"
