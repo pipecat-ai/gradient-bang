@@ -61,6 +61,7 @@ if TYPE_CHECKING:
 # ── Constants ─────────────────────────────────────────────────────────────
 
 MAX_CORP_SHIP_TASKS = 3
+MAX_PERSONAL_SHIP_TASKS = 1
 REQUEST_ID_CACHE_TTL_SECONDS = 15 * 60
 REQUEST_ID_CACHE_MAX_SIZE = 5000
 TASK_RESPONSE_COOLDOWN_SECONDS = 1.5
@@ -901,6 +902,15 @@ class VoiceAgent(LLMAgent):
 
     def _count_active_corp_tasks(self) -> int:
         return sum(1 for c in self.children if isinstance(c, TaskAgent) and c._is_corp_ship)
+
+    def active_tasks_summary(self) -> str:
+        """One-line summary of current task slot usage for LLM context."""
+        personal = 1 if self._has_active_player_task() else 0
+        corp = self._count_active_corp_tasks()
+        return (
+            f"Active tasks: {personal}/{MAX_PERSONAL_SHIP_TASKS} personal, "
+            f"{corp}/{MAX_CORP_SHIP_TASKS} corp."
+        )
 
     def _update_polling_scope(self) -> None:
         """Derive corp ship IDs from children and update game_client polling."""

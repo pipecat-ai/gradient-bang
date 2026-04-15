@@ -96,12 +96,13 @@ Functions requiring a task (use `start_task` immediately, in the same response):
 - Banking (deposit/withdraw), all garrison operations (place, collect, change mode, disband)
 - Map exploration or scouting in unknown space
 
-## Personal Ship Task Limit
+## Task Slot Limits
 
-- Personal-ship tasks are sequential: when one is running, wait for `task.completed` before starting the next
-- If you call `start_task` for a personal-ship action in this response, do not call `start_task` again in the same response
-- Corporation-ship tasks may run concurrently up to the configured limit
-- Transfers TO a corp ship are personal-ship tasks, so OMIT `ship_id`; transfers FROM a corp ship are corp-ship tasks, so PASS `ship_id`
+- Personal ship: **1 task at a time** (sequential). Wait for `task.completed` before starting another.
+- Corporation ships: **up to 3 concurrent tasks** across all corp ships.
+- Each `status.snapshot` includes an `Active tasks:` line — check it before calling `start_task`. If a slot is full, tell the commander and wait rather than calling `start_task`.
+- If you call `start_task` for a personal-ship action in this response, do not call `start_task` again in the same response.
+- Transfers TO a corp ship are personal-ship tasks, so OMIT `ship_id`; transfers FROM a corp ship are corp-ship tasks, so PASS `ship_id`.
 
 ### After stop_task
 
