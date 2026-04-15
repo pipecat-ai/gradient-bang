@@ -117,7 +117,7 @@ class LLMServiceConfig:
     cache_system_prompt: bool = False
 
 
-def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
+def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> Optional[str]:
     """Get API key for provider from environment or override.
 
     Args:
@@ -125,10 +125,10 @@ def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
         override: Optional explicit API key.
 
     Returns:
-        The API key string.
+        The API key string, or None for Anthropic when CLI OAuth is available.
 
     Raises:
-        ValueError: If no API key is available.
+        ValueError: If no API key is available (and no CLI OAuth for Anthropic).
     """
     if override:
         return override
@@ -140,9 +140,12 @@ def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
     }
 
     env_var = env_var_map[provider]
-    api_key = os.getenv(env_var)
+    api_key = (os.getenv(env_var) or "").strip() or None
 
     if not api_key:
+        # For Anthropic, CLI OAuth may be available — defer the error
+        if provider == LLMProvider.ANTHROPIC:
+            return None
         raise ValueError(
             f"{provider.value.capitalize()} API key required. Set {env_var} environment variable."
         )
@@ -292,14 +295,18 @@ def _create_google_service(
 
 
 def _create_anthropic_service(
-    api_key: str,
+    api_key: Optional[str],
     model: str,
     thinking: Optional[UnifiedThinkingConfig],
     function_call_timeout_secs: Optional[float] = None,
     *,
     cache_system_prompt: bool = False,
 ) -> LLMService:
-    """Create Anthropic (Claude) LLM service."""
+    """Create Anthropic (Claude) LLM service.
+
+    Auth priority: API key (if provided) → Claude CLI OAuth → error.
+    CLI OAuth uses the developer's Claude Code subscription via Bearer token.
+    """
     from pipecat.services.anthropic.llm import AnthropicLLMService
 
     params_kwargs: dict = {"enable_prompt_caching": True}
@@ -320,6 +327,44 @@ def _create_anthropic_service(
     service_cls = AnthropicLLMService
     if cache_system_prompt:
         service_cls = _get_system_cached_anthropic_cls()
+
+    # Try CLI OAuth when no API key is available
+    if not api_key:
+        from gradientbang.utils.claude_cli_auth import (
+            OAUTH_BETA_HEADER,
+            create_async_anthropic_client,
+        )
+
+        client = create_async_anthropic_client()
+        if not client:
+            raise ValueError(
+                "Anthropic API key required. Set ANTHROPIC_API_KEY, "
+                "or sign into Claude Code CLI (`claude`)."
+            )
+
+        # Pipecat hardcodes betas=["interleaved-thinking-..."] in its
+        # beta.messages.create() call. The SDK turns that into an
+        # extra_headers["anthropic-beta"] value that OVERRIDES default_headers.
+        # So our oauth-2025-04-20 from default_headers gets dropped.
+        # Fix: wrap beta.messages.create to always append the OAuth beta.
+        oauth_beta = OAUTH_BETA_HEADER
+        original_create = client.beta.messages.create
+
+        async def _create_with_oauth_beta(*args, **kwargs):
+            betas = kwargs.get("betas", [])
+            if oauth_beta not in betas:
+                kwargs["betas"] = list(betas) + [oauth_beta]
+            return await original_create(*args, **kwargs)
+
+        client.beta.messages.create = _create_with_oauth_beta
+
+        return service_cls(
+            api_key="unused-cli-oauth",
+            model=model,
+            params=params,
+            client=client,
+            **llm_kwargs,
+        )
 
     return service_cls(
         api_key=api_key,
@@ -437,7 +482,7 @@ def get_voice_llm_config() -> LLMServiceConfig:
     # Default models per provider
     default_models = {
         LLMProvider.GOOGLE: "gemini-2.5-flash",
-        LLMProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
+        LLMProvider.ANTHROPIC: "claude-sonnet-4-6",
         LLMProvider.OPENAI: "gpt-4.1",
     }
 
@@ -506,7 +551,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
     # Default models per provider (prefer preview/reasoning models)
     default_models = {
         LLMProvider.GOOGLE: "gemini-2.5-flash",
-        LLMProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
+        LLMProvider.ANTHROPIC: "claude-sonnet-4-6",
         LLMProvider.OPENAI: "gpt-4.1",
     }
 
