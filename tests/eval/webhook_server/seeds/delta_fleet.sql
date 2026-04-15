@@ -10,8 +10,8 @@ DELETE FROM events WHERE ship_id IN (
 DELETE FROM user_characters
 WHERE user_id = '352373e1-aa29-49c7-b929-2cba86ca4a3c'
   AND character_id = 'd0000000-0000-4000-8000-000000000004';
-DELETE FROM ship_instances WHERE owner_character_id = 'd0000000-0000-4000-8000-000000000004';
 UPDATE characters SET current_ship_id = NULL WHERE character_id = 'd0000000-0000-4000-8000-000000000004';
+DELETE FROM ship_instances WHERE owner_character_id = 'd0000000-0000-4000-8000-000000000004';
 DELETE FROM characters WHERE character_id = 'd0000000-0000-4000-8000-000000000004';
 
 INSERT INTO characters (character_id, name, credits_in_megabank, map_knowledge)
