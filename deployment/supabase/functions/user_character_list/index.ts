@@ -164,12 +164,47 @@ Deno.serve(traced("user_character_list", async (req, trace) => {
       };
     });
 
-    trace.setOutput({ count: formattedCharacters.length });
+    // Fetch event memberships for all characters
+    const sEvents = trace.span("fetch_event_memberships");
+    const characterIds = formattedCharacters.map(
+      (c: { character_id: string }) => c.character_id,
+    );
+    const { data: eventMemberships } = await supabase
+      .from("world_event_participants")
+      .select(
+        "character_id, event_id, world_events!inner(event_id, title, ends_at, visible_until)",
+      )
+      .in("character_id", characterIds)
+      .gt("world_events.visible_until", new Date().toISOString());
+
+    // Build character_id -> event map
+    const eventMap = new Map<
+      string,
+      { event_id: string; title: string }
+    >();
+    for (const mem of eventMemberships ?? []) {
+      const ev = mem.world_events as any;
+      eventMap.set(mem.character_id, {
+        event_id: ev.event_id,
+        title: ev.title,
+      });
+    }
+    sEvents.end({ count: eventMap.size });
+
+    // Attach event info to each character
+    const enrichedCharacters = formattedCharacters.map(
+      (c: { character_id: string }) => ({
+        ...c,
+        event: eventMap.get(c.character_id) ?? null,
+      }),
+    );
+
+    trace.setOutput({ count: enrichedCharacters.length });
     return corsResponse(
       {
         success: true,
-        characters: formattedCharacters,
-        count: formattedCharacters.length,
+        characters: enrichedCharacters,
+        count: enrichedCharacters.length,
       },
       200,
     );

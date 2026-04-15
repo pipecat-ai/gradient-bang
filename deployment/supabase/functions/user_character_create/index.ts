@@ -22,6 +22,7 @@ import {
 import {
   parseJsonRequest,
   requireString,
+  optionalString,
   respondWithError,
   RequestValidationError,
 } from "../_shared/request.ts";
@@ -150,8 +151,9 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
     // Parse and validate request
     const sValidate = trace.span("validate_input");
     const name = requireString(payload, "name");
+    const eventJoinCode = optionalString(payload, "event_join_code");
 
-    trace.setInput({ user_id: user.id, name });
+    trace.setInput({ user_id: user.id, name, has_event_code: !!eventJoinCode });
 
     // Validate name format (alphanumeric, underscores, spaces, 3-20 chars)
     if (!/^[a-zA-Z0-9_ ]{3,20}$/.test(name)) {
@@ -207,6 +209,41 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
       );
     }
     sNameCheck.end();
+
+    // Validate event join code if provided (fail fast before creating anything)
+    let validatedEventId: string | null = null;
+    let validatedEventTitle: string | null = null;
+    if (eventJoinCode) {
+      const sEventCheck = trace.span("validate_event_code");
+      const { data: eventId, error: eventError } = await supabase
+        .rpc("validate_event_join_code", { p_join_code: eventJoinCode });
+
+      if (eventError) {
+        sEventCheck.end({ error: eventError.message });
+        console.error("character_create.event_check", eventError);
+        throw new CharacterCreateError("Failed to validate event code", 500);
+      }
+
+      if (!eventId) {
+        sEventCheck.end({ error: "Invalid code" });
+        throw new CharacterCreateError(
+          "Invalid or expired event join code",
+          400,
+        );
+      }
+
+      validatedEventId = eventId;
+
+      // Fetch event title for the client response
+      const { data: eventRow } = await supabase
+        .from("world_events")
+        .select("title")
+        .eq("event_id", validatedEventId)
+        .single();
+      validatedEventTitle = eventRow?.title ?? null;
+
+      sEventCheck.end({ event_id: validatedEventId, title: validatedEventTitle });
+    }
 
     // Get ship definition
     const sShipDef = trace.span("load_ship_definition");
@@ -353,13 +390,46 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
     }
     sQuests.end({ count: autoQuests?.length ?? 0 });
 
+    // Link character to event if join code was provided
+    if (validatedEventId) {
+      const sEventLink = trace.span("link_event");
+      const { error: eventLinkError } = await supabase
+        .from("world_event_participants")
+        .insert({
+          event_id: validatedEventId,
+          character_id: characterId,
+        });
+
+      if (eventLinkError) {
+        sEventLink.end({ error: eventLinkError.message });
+        console.error("character_create.event_link", eventLinkError);
+        // Event join is only possible at creation time, so this must succeed.
+        // Clean up the character and fail the request.
+        await supabase
+          .from("ship_instances")
+          .delete()
+          .eq("ship_id", ship.ship_id);
+        await supabase
+          .from("characters")
+          .delete()
+          .eq("character_id", characterId);
+        throw new CharacterCreateError(
+          "Failed to join event. Please try again.",
+          500,
+        );
+      }
+      sEventLink.end({ event_id: validatedEventId });
+    }
+
     // Return success response
-    trace.setOutput({ character_id: characterId, ship_id: ship.ship_id, name });
+    trace.setOutput({ character_id: characterId, ship_id: ship.ship_id, name, event_id: validatedEventId });
     return corsResponse(
       {
         success: true,
         character_id: characterId,
         name,
+        event_id: validatedEventId ?? undefined,
+        event_title: validatedEventTitle ?? undefined,
         ship: {
           ship_id: ship.ship_id,
           ship_type: DEFAULT_SHIP_TYPE,

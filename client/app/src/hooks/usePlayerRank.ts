@@ -9,6 +9,10 @@ const LEADERBOARD_URL =
   (import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1") +
   (import.meta.env.VITE_SERVER_LEADERBOARD_ENDPOINT ?? "/leaderboard_resources")
 
+const LEADERBOARD_SESSION_URL =
+  (import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1") +
+  "/leaderboard_session"
+
 const POLL_INTERVAL_MS = 60_000
 
 export const usePlayerRank = () => {
@@ -48,7 +52,10 @@ export const usePlayerRank = () => {
     const pollLeaderboard = async () => {
       console.debug("[GAME] Polling leaderboard")
       try {
-        const response = await fetch(LEADERBOARD_URL)
+        const characterId = useGameStore.getState().character_id
+        const url =
+          characterId ? `${LEADERBOARD_SESSION_URL}?character_id=${characterId}` : LEADERBOARD_URL
+        const response = await fetch(url)
         const data = await response.json()
         useGameStore.getState().setLeaderboardData(data)
       } catch (e) {
