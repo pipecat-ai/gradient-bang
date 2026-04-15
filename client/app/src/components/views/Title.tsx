@@ -146,20 +146,16 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                   >
                     Sign In
                   </Button>
-                  <Button
-                    asChild
-                    variant="secondary"
-                    size="xl"
-                    className="w-full"
+                  <a
+                    href="https://www.gradient-bang.com/join"
+                    target="_blank"
+                    rel="noopener noreferrer w-fit"
                   >
-                    <a
-                      href="https://www.gradient-bang.com/join"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Sign Up
-                    </a>
-                  </Button>
+                    <p className="text-xs uppercase text-subtle-foreground hover:text-foreground w-fit">
+                      Need an account? Sign up here!
+                    </p>
+                  </a>
+                  <Separator />
                   <Button
                     onClick={() => setActiveModal("leaderboard")}
                     variant="secondary"
