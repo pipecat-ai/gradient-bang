@@ -829,7 +829,10 @@ class EventRelay:
         if not task_id_to_cancel:
             return
         # Broadcast to bus so TaskAgents and VoiceAgent can react
-        await self._task_state.broadcast_game_event(event)
+        try:
+            await self._task_state.broadcast_game_event(event)
+        except Exception:
+            logger.exception("task.cancel handler failed")
 
     # ── Router helpers ─────────────────────────────────────────────────
 
