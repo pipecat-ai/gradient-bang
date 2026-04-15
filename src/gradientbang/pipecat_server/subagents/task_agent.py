@@ -725,6 +725,12 @@ class TaskAgent(LLMAgent):
             await self._complete_task()
             return
 
+        # After cancel, don't kick off further inferences. task.finish
+        # has its own handler above and still runs; other events still
+        # log and append to context but must not trigger new LLM work.
+        if self._cancelled:
+            return
+
         reason = event_name or "unknown"
         self._record_inference_reason(reason)
 
@@ -756,6 +762,15 @@ class TaskAgent(LLMAgent):
     async def _handle_function_call(self, params: FunctionCallParams) -> None:
         tool_name = params.function_name
         arguments = params.arguments or {}
+
+        # If cancel has fired, discard any still-in-flight tool calls
+        # emitted by a stream that hadn't finished when cancel arrived.
+        if self._cancelled:
+            await params.result_callback(
+                {"error": "Task cancelled"},
+                properties=FunctionCallResultProperties(run_llm=False),
+            )
+            return
 
         # Corp ship restriction guard
         if self._is_corp_ship and tool_name in PLAYER_ONLY_TOOLS:
