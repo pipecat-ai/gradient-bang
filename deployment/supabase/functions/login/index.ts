@@ -42,10 +42,25 @@ function corsResponse(body: unknown, status = 200): Response {
   });
 }
 
+function isMaintenanceMode(): boolean {
+  const raw = (Deno.env.get("MAINTENANCE_MODE") ?? "").trim().toLowerCase();
+  return raw !== "" && raw !== "0" && raw !== "false";
+}
+
 Deno.serve(traced("login", async (req, trace) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  if (isMaintenanceMode()) {
+    const message =
+      Deno.env.get("MAINTENANCE_MESSAGE")?.trim() ||
+      "Gradient Bang is down for maintenance. Please try again shortly.";
+    return corsResponse(
+      { success: false, error: message, code: "maintenance_mode" },
+      503,
+    );
   }
 
   const serviceClient = createServiceRoleClient();

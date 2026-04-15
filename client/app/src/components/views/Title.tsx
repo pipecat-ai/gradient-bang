@@ -27,7 +27,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const [password, setPassword] = useState<string>("")
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [state, setState] = useState<"idle" | "join">("idle")
-  const [error, setError] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
   const [isMusicPlaying, setIsMusicPlaying] = useState<boolean>(false)
   const [hasInteractedWithMusic, setHasInteractedWithMusic] = useState<boolean>(false)
   const titleVideoRef = useRef<HTMLVideoElement>(null)
@@ -56,20 +56,20 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
           body: JSON.stringify({ email: username, password }),
         }
       )
+      const data = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error("Failed to sign in")
+        throw new Error(data?.error || "Failed to sign in")
       }
-      const data = await response.json()
-      if (data.success && data.session.access_token) {
-        setError(false)
+      if (data?.success && data.session?.access_token) {
+        setError(null)
         setCharacters(data.characters)
         setAccessToken(data.session.access_token)
         setActiveModal("character_select")
       } else {
-        throw new Error("Invalid login response or no characters found")
+        throw new Error(data?.error || "Invalid login response or no characters found")
       }
-    } catch {
-      setError(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Incorrect username or password")
     } finally {
       await wait(500).then(() => setIsLoading(false))
     }
@@ -198,9 +198,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                       className="bg-destructive/10 stripe-frame-2 stripe-frame-destructive animate-in motion-safe:fade-in-0 motion-safe:duration-1000"
                     >
                       <CardContent className="flex flex-col h-full justify-between items-center gap-1">
-                        <p className="uppercase text-sm tracking-wider">
-                          Incorrect username or password
-                        </p>
+                        <p className="uppercase text-sm tracking-wider text-center">{error}</p>
                       </CardContent>
                     </Card>
                   )}
@@ -215,7 +213,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                         value={username}
                         disabled={isLoading}
                         onChange={(e) => {
-                          if (error) setError(false)
+                          if (error) setError(null)
                           setUsername(e.target.value)
                         }}
                       />
@@ -228,7 +226,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                         value={password}
                         disabled={isLoading}
                         onChange={(e) => {
-                          if (error) setError(false)
+                          if (error) setError(null)
                           setPassword(e.target.value)
                         }}
                       />
