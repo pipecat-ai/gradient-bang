@@ -1338,8 +1338,12 @@ class TaskAgent(LLMAgent):
         task.add_done_callback(self._pending_task_output_tasks.discard)
 
     async def _drain_pending_task_outputs(self) -> None:
-        while self._pending_task_output_tasks:
-            pending = tuple(self._pending_task_output_tasks)
+        # Snapshot once. Outputs scheduled after this (e.g. LLM frames
+        # still flowing while cancel is being processed) are not
+        # awaited — otherwise on_task_cancelled spins indefinitely
+        # while the frame processor keeps flushing thinking tokens.
+        pending = tuple(self._pending_task_output_tasks)
+        if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
     async def _send_task_output(self, text: str, message_type: TaskOutputType) -> None:
