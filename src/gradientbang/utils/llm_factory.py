@@ -1,23 +1,23 @@
 """
 Flexible LLM service factory for Pipecat pipelines.
 
-Supports Google, Anthropic, and OpenAI models with environment-based configuration.
+Supports Google, Anthropic, OpenAI, and MiniMax models with environment-based configuration.
 
 Environment Variables:
     # Voice LLM (bot.py pipeline - typically no thinking mode)
-    VOICE_LLM_PROVIDER: google, anthropic, openai (default: google)
+    VOICE_LLM_PROVIDER: google, anthropic, openai, minimax (default: google)
     VOICE_LLM_MODEL: Model name (default: gemini-2.5-flash)
     VOICE_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
     VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
     # Task Agent LLM (TaskAgent - with thinking mode)
-    TASK_LLM_PROVIDER: google, anthropic, openai (default: google)
+    TASK_LLM_PROVIDER: google, anthropic, openai, minimax (default: google)
     TASK_LLM_MODEL: Model name (default: gemini-2.5-flash)
     TASK_LLM_THINKING_BUDGET: Token budget for thinking (default: 4096)
     TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
 
     # UI Agent LLM (UI agent branch - lightweight, no thinking by default)
-    UI_AGENT_LLM_PROVIDER: google, anthropic, openai (default: google)
+    UI_AGENT_LLM_PROVIDER: google, anthropic, openai, minimax (default: google)
     UI_AGENT_LLM_MODEL: Model name (default: gemini-2.5-flash)
     UI_AGENT_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
 
@@ -25,6 +25,7 @@ Environment Variables:
     GOOGLE_API_KEY
     ANTHROPIC_API_KEY
     OPENAI_API_KEY
+    MINIMAX_API_KEY
 """
 
 from __future__ import annotations
@@ -74,6 +75,7 @@ class LLMProvider(Enum):
     GOOGLE = "google"
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
+    MINIMAX = "minimax"
 
 
 @dataclass
@@ -137,6 +139,7 @@ def _get_api_key(provider: LLMProvider, override: Optional[str] = None) -> str:
         LLMProvider.GOOGLE: "GOOGLE_API_KEY",
         LLMProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
         LLMProvider.OPENAI: "OPENAI_API_KEY",
+        LLMProvider.MINIMAX: "MINIMAX_API_KEY",
     }
 
     env_var = env_var_map[provider]
@@ -184,6 +187,12 @@ def create_llm_service(config: LLMServiceConfig) -> LLMService:
             api_key,
             config.model,
             config.thinking,
+            config.function_call_timeout_secs,
+        )
+    elif config.provider == LLMProvider.MINIMAX:
+        service = _create_minimax_service(
+            api_key,
+            config.model,
             config.function_call_timeout_secs,
         )
     else:
@@ -415,11 +424,37 @@ def _create_openai_service(
     )
 
 
+def _create_minimax_service(
+    api_key: str,
+    model: str,
+    function_call_timeout_secs: Optional[float] = None,
+) -> LLMService:
+    """Create MiniMax LLM service using OpenAI-compatible interface.
+
+    MiniMax supports the OpenAI-compatible Chat Completions API at
+    https://api.minimax.io/v1. Temperature must be in (0.0, 1.0] — never 0.
+    """
+    from pipecat.services.openai.llm import OpenAILLMService
+
+    llm_kwargs: dict = {}
+    if function_call_timeout_secs is not None:
+        llm_kwargs["function_call_timeout_secs"] = function_call_timeout_secs
+
+    base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
+
+    return OpenAILLMService(
+        api_key=api_key,
+        base_url=base_url,
+        settings=OpenAILLMService.Settings(model=model, temperature=1.0),
+        **llm_kwargs,
+    )
+
+
 def get_voice_llm_config() -> LLMServiceConfig:
     """Read VOICE_LLM_* environment variables and return config.
 
     Environment Variables:
-        VOICE_LLM_PROVIDER: google, anthropic, openai (default: google)
+        VOICE_LLM_PROVIDER: google, anthropic, openai, minimax (default: google)
         VOICE_LLM_MODEL: Model name (default: gemini-2.5-flash)
         VOICE_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
         VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
@@ -439,6 +474,7 @@ def get_voice_llm_config() -> LLMServiceConfig:
         LLMProvider.GOOGLE: "gemini-2.5-flash",
         LLMProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
         LLMProvider.OPENAI: "gpt-4.1",
+        LLMProvider.MINIMAX: "MiniMax-M2.7",
     }
 
     model = os.getenv("VOICE_LLM_MODEL", default_models[provider])
@@ -488,7 +524,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
     """Read TASK_LLM_* environment variables and return config.
 
     Environment Variables:
-        TASK_LLM_PROVIDER: google, anthropic, openai (default: google)
+        TASK_LLM_PROVIDER: google, anthropic, openai, minimax (default: google)
         TASK_LLM_MODEL: Model name (default: gemini-2.5-flash)
         TASK_LLM_THINKING_BUDGET: Token budget for thinking (default: 4096)
         TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
@@ -508,6 +544,7 @@ def get_task_agent_llm_config() -> LLMServiceConfig:
         LLMProvider.GOOGLE: "gemini-2.5-flash",
         LLMProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
         LLMProvider.OPENAI: "gpt-4.1",
+        LLMProvider.MINIMAX: "MiniMax-M2.7",
     }
 
     model = os.getenv("TASK_LLM_MODEL", default_models[provider])
@@ -576,6 +613,7 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
         LLMProvider.GOOGLE: "gemini-2.5-flash",
         LLMProvider.ANTHROPIC: "claude-haiku-4-5-20251001",
         LLMProvider.OPENAI: "gpt-4.1",
+        LLMProvider.MINIMAX: "MiniMax-M2.7",
     }
     model = os.getenv("UI_AGENT_LLM_MODEL", default_models[provider])
 
