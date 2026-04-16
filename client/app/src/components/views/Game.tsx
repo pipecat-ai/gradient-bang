@@ -3,10 +3,10 @@ import { useCallback, useEffect, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
 import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
-import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { useVoiceCapture } from "@/capture/useVoiceCapture"
 import { ActivityStream } from "@/components/ActivityStream"
+import { BotAudio } from "@/components/BotAudio"
 import { ConversationPanel } from "@/components/conversation/ConversationPanel"
 import { GameDialogs } from "@/components/dialogs/GameDialogs"
 import { HighlightOverlay } from "@/components/HighlightOverlay"
@@ -277,7 +277,7 @@ export const Game = () => {
       <QuestAcceptedOverlay />
       <QuestCompleteNotification />
       <TutorialOverlay />
-      <PipecatClientAudio />
+      <BotAudio />
     </>
   )
 }
