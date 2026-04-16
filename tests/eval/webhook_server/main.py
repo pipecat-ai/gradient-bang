@@ -3,6 +3,7 @@
 
 import os
 import subprocess
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,8 +12,6 @@ from supabase import Client, create_client
 
 load_dotenv()
 
-app = FastAPI()
-
 SEEDS_DIR = Path(__file__).parent / "seeds"
 POSTGRES_URL = os.environ["LOCAL_API_POSTGRES_URL"]
 
@@ -20,6 +19,36 @@ supabase: Client = create_client(
     os.environ["SUPABASE_URL"],
     os.environ["SUPABASE_SERVICE_ROLE_KEY"],
 )
+
+
+def run_seed(seed_file: Path) -> tuple[bool, str]:
+    """Execute a single seed .sql file via psql. Returns (ok, stdout_or_stderr)."""
+    result = subprocess.run(
+        ["psql", POSTGRES_URL, "-f", str(seed_file)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False, result.stderr
+    return True, result.stdout
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """On startup, load every seed file in seeds/ so eval characters exist
+    before the first webhook fires."""
+    seed_files = sorted(SEEDS_DIR.glob("*.sql"))
+    print(f"_____main.py * startup seeding {len(seed_files)} character(s)")
+    for seed_file in seed_files:
+        ok, output = run_seed(seed_file)
+        if ok:
+            print(f"_____main.py * seeded {seed_file.name} ok")
+        else:
+            print(f"_____main.py * seed {seed_file.name} failed: {output}")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 async def verify_cekura_secret(x_cekura_secret: str = Header(...)):
@@ -59,17 +88,12 @@ async def handle_webhook(request: Request):
                     return {"error": f"no seed file for: {character_slug}"}, 400
 
                 print(f"_____main.py * re-seeding character: {character_slug}")
-                result = subprocess.run(
-                    ["psql", POSTGRES_URL, "-f", str(seed_file)],
-                    capture_output=True,
-                    text=True,
-                )
+                ok, output = run_seed(seed_file)
+                if not ok:
+                    print(f"_____main.py * seed failed: {output}")
+                    return {"error": f"seed failed: {output}"}, 400
 
-                if result.returncode != 0:
-                    print(f"_____main.py * seed failed: {result.stderr}")
-                    return {"error": f"seed failed: {result.stderr}"}, 400
-
-                print(f"_____main.py * seed ok: {result.stdout}")
+                print(f"_____main.py * seed ok: {output}")
             except Exception as e:
                 print(f"_____main.py * general 'result.completed' error: {e}")
                 return {"error": f"general 'result.completed' error: {e}"}, 400

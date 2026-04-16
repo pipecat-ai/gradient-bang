@@ -30,7 +30,8 @@ tests/eval/
         ├── gamma_explorer.sql
         ├── delta_fleet.sql
         ├── epsilon_corp.sql
-        └── phi_trader.sql
+        ├── phi_trader.sql
+        └── orion_vale.sql
 ```
 
 ## Webhook server
@@ -155,6 +156,15 @@ Each eval character has a deterministic starting state (ship type, credits, map 
 | Delta Fleet Eval     | wayfarer_freighter, corsair_raider, kestrel_courier | Multi-ship owner, 50k megabank | gb-bot-eval-delta-fleet | d0000000-0000-4000-8000-000000000004 | eval@gradientbang.com |
 | Epsilon Corp Eval    | sparrow_scout + corp pike_frigate  | Corporation member with corp-owned ship  | gb-bot-eval-epsilon-corp      | e0000000-0000-4000-8000-000000000005 | eval@gradientbang.com |
 | Phi Trader Eval      | kestrel_courier + corp wayfarer_freighter + corp autonomous_light_hauler | Corp founder with personal + 2 corp ships, credit transfer evals | gb-bot-eval | f0000000-0000-4000-8000-000000000006 | eval2@gradientbang.com |
+| Orion Vale Eval      | kestrel_courier + 2 corp ships     | Voice-agent-full world: peers (Starfall, Drifter NPC, Nova Prime, Moonshadow), 2 corps, mega-port at sector 305 | gb-bot-eval-orion-vale | 1a000000-0000-4000-8000-000000000001 | orion-eval@gradientbang.com |
+
+NPC characters (e.g. Drifter in the Orion Vale world) are not linked to any eval user.
+
+### Orion Vale — voice-agent-full eval world
+
+[seeds/orion_vale.sql](webhook_server/seeds/orion_vale.sql) seeds a richer ecosystem than the other per-character scripts because its 21 Cekura scenarios exercise rules that require props: a hostile NPC in the commander's sector, a second corporation with its own founder, an extra corp member to kick, and a peer player to reference. Everything is owned by the `1a*` UUID namespace (Orion Vale's own hex-valid namespace, reserved entirely for this seed). Future multi-character eval worlds should claim `1b*`, `1c*`, etc.
+
+Cekura agent slug: `gb-bot-eval-orion-vale` (webhook routing relies on this exact prefix).
 
 ### Usage
 
