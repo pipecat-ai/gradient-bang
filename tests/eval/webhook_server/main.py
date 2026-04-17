@@ -20,6 +20,8 @@ supabase: Client = create_client(
     os.environ["SUPABASE_SERVICE_ROLE_KEY"],
 )
 
+def get_character_slug(name: str) -> str:
+      return "_".join(name.split()[:2]).lower()
 
 def run_seed(seed_file: Path) -> tuple[bool, str]:
     """Execute a single seed .sql file via psql. Returns (ok, stdout_or_stderr)."""
@@ -31,7 +33,6 @@ def run_seed(seed_file: Path) -> tuple[bool, str]:
     if result.returncode != 0:
         return False, result.stderr
     return True, result.stdout
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -74,14 +75,18 @@ async def handle_webhook(request: Request):
             try:
                 agent_name = payload.get("data", {}).get("agent_name", "")
                 print(f"_____main.py * agent_name: {agent_name}")
-                ## heads up: this is brittle; assumes we are desciplined in naming agents
-                ## "gb-bot-eval-" + <character name>
-                # gb-bot-eval-alpha-sparrow -> alpha_sparrow
-                prefix = "gb-bot-eval-"
-                if not agent_name.startswith(prefix):
-                    return {"error": f"unexpected agent_name: {agent_name}"}, 400
+                # ## heads up: this is brittle; assumes we are desciplined in naming agents
+                # ## "gb-bot-eval-" + <character name>
+                # # gb-bot-eval-alpha-sparrow -> alpha_sparrow
+                # prefix = "gb-bot-eval-"
+                # if not agent_name.startswith(prefix):
+                #     return {"error": f"unexpected agent_name: {agent_name}"}, 400
+                # character_slug = agent_name[len(prefix) :].replace("-", "_")
 
-                character_slug = agent_name[len(prefix) :].replace("-", "_")
+                ### since all tests use same agent, just different test profiles,
+                ### reset seed by test profile name, not agent name
+                test_profile_name = payload.get("data", {}).get("test_profile_name", "")
+                character_slug = get_character_slug(test_profile_name)
                 seed_file = SEEDS_DIR / f"{character_slug}.sql"
 
                 if not seed_file.exists():
