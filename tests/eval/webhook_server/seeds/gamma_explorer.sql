@@ -1,25 +1,60 @@
 -- Gamma Explorer Eval — well-explored character, visited 40 sectors
+-- Seeds 5 variations (Eval0..Eval4) with slot-indexed character & ship UUIDs
 -- Usage: psql $LOCAL_API_POSTGRES_URL -f seeds/gamma_explorer.sql
 
 BEGIN;
 
-DELETE FROM events WHERE character_id = 'c0000000-0000-4000-8000-000000000003';
+DELETE FROM events WHERE character_id IN (
+  'c0000000-0000-4000-8000-000000000003',
+  'c0000000-1000-4000-8000-000000000003',
+  'c0000000-2000-4000-8000-000000000003',
+  'c0000000-3000-4000-8000-000000000003',
+  'c0000000-4000-4000-8000-000000000003'
+);
 DELETE FROM events WHERE ship_id IN (
-  SELECT ship_id FROM ship_instances WHERE owner_character_id = 'c0000000-0000-4000-8000-000000000003'
+  SELECT ship_id FROM ship_instances WHERE owner_character_id IN (
+    'c0000000-0000-4000-8000-000000000003',
+    'c0000000-1000-4000-8000-000000000003',
+    'c0000000-2000-4000-8000-000000000003',
+    'c0000000-3000-4000-8000-000000000003',
+    'c0000000-4000-4000-8000-000000000003'
+  )
 );
 DELETE FROM user_characters
 WHERE user_id = '352373e1-aa29-49c7-b929-2cba86ca4a3c'
-  AND character_id = 'c0000000-0000-4000-8000-000000000003';
-UPDATE characters SET current_ship_id = NULL WHERE character_id = 'c0000000-0000-4000-8000-000000000003';
-DELETE FROM ship_instances WHERE owner_character_id = 'c0000000-0000-4000-8000-000000000003';
-DELETE FROM characters WHERE character_id = 'c0000000-0000-4000-8000-000000000003';
-
-INSERT INTO characters (character_id, name, credits_in_megabank, map_knowledge)
-VALUES (
+  AND character_id IN (
+    'c0000000-0000-4000-8000-000000000003',
+    'c0000000-1000-4000-8000-000000000003',
+    'c0000000-2000-4000-8000-000000000003',
+    'c0000000-3000-4000-8000-000000000003',
+    'c0000000-4000-4000-8000-000000000003'
+  );
+UPDATE characters SET current_ship_id = NULL WHERE character_id IN (
   'c0000000-0000-4000-8000-000000000003',
-  'Gamma Explorer Eval',
-  20000,
-  '{
+  'c0000000-1000-4000-8000-000000000003',
+  'c0000000-2000-4000-8000-000000000003',
+  'c0000000-3000-4000-8000-000000000003',
+  'c0000000-4000-4000-8000-000000000003'
+);
+DELETE FROM ship_instances WHERE owner_character_id IN (
+  'c0000000-0000-4000-8000-000000000003',
+  'c0000000-1000-4000-8000-000000000003',
+  'c0000000-2000-4000-8000-000000000003',
+  'c0000000-3000-4000-8000-000000000003',
+  'c0000000-4000-4000-8000-000000000003'
+);
+DELETE FROM characters WHERE character_id IN (
+  'c0000000-0000-4000-8000-000000000003',
+  'c0000000-1000-4000-8000-000000000003',
+  'c0000000-2000-4000-8000-000000000003',
+  'c0000000-3000-4000-8000-000000000003',
+  'c0000000-4000-4000-8000-000000000003'
+);
+
+-- Shared map_knowledge (40 sectors) — inserted once per variation via a CTE helper
+-- Each variation gets the same starting map knowledge.
+INSERT INTO characters (character_id, name, credits_in_megabank, map_knowledge)
+SELECT v.character_id, v.name, 20000, '{
     "total_sectors_visited": 40,
     "sectors_visited": {
       "0":  {"adjacent_sectors": [15], "last_visited": "2026-04-01T10:00:00Z", "position": [15, 31]},
@@ -63,25 +98,37 @@ VALUES (
       "38": {"adjacent_sectors": [28, 48], "last_visited": "2026-04-03T10:40:00Z", "position": [17, 28]},
       "39": {"adjacent_sectors": [29, 49], "last_visited": "2026-04-03T10:45:00Z", "position": [12, 24]}
     }
-  }'
-);
+  }'::jsonb
+FROM (VALUES
+  ('c0000000-0000-4000-8000-000000000003'::uuid, 'Gamma Explorer Eval0'),
+  ('c0000000-1000-4000-8000-000000000003'::uuid, 'Gamma Explorer Eval1'),
+  ('c0000000-2000-4000-8000-000000000003'::uuid, 'Gamma Explorer Eval2'),
+  ('c0000000-3000-4000-8000-000000000003'::uuid, 'Gamma Explorer Eval3'),
+  ('c0000000-4000-4000-8000-000000000003'::uuid, 'Gamma Explorer Eval4')
+) AS v(character_id, name);
 
 INSERT INTO ship_instances (
   ship_id, owner_id, owner_type, owner_character_id,
   ship_type, current_sector, credits,
   current_warp_power, current_shields, current_fighters
-) VALUES (
-  'c0000000-0000-4000-8000-c00000000003',
-  'c0000000-0000-4000-8000-000000000003', 'character', 'c0000000-0000-4000-8000-000000000003',
-  'parhelion_seeker', 37, 15000,
-  600, 180, 400
-);
+) VALUES
+  ('c0000000-0000-4000-8000-c00000000003', 'c0000000-0000-4000-8000-000000000003', 'character', 'c0000000-0000-4000-8000-000000000003', 'parhelion_seeker', 37, 15000, 600, 180, 400),
+  ('c0000000-1000-4000-8000-c00000000003', 'c0000000-1000-4000-8000-000000000003', 'character', 'c0000000-1000-4000-8000-000000000003', 'parhelion_seeker', 37, 15000, 600, 180, 400),
+  ('c0000000-2000-4000-8000-c00000000003', 'c0000000-2000-4000-8000-000000000003', 'character', 'c0000000-2000-4000-8000-000000000003', 'parhelion_seeker', 37, 15000, 600, 180, 400),
+  ('c0000000-3000-4000-8000-c00000000003', 'c0000000-3000-4000-8000-000000000003', 'character', 'c0000000-3000-4000-8000-000000000003', 'parhelion_seeker', 37, 15000, 600, 180, 400),
+  ('c0000000-4000-4000-8000-c00000000003', 'c0000000-4000-4000-8000-000000000003', 'character', 'c0000000-4000-4000-8000-000000000003', 'parhelion_seeker', 37, 15000, 600, 180, 400);
 
-UPDATE characters
-SET current_ship_id = 'c0000000-0000-4000-8000-c00000000003'
-WHERE character_id = 'c0000000-0000-4000-8000-000000000003';
+UPDATE characters SET current_ship_id = 'c0000000-0000-4000-8000-c00000000003' WHERE character_id = 'c0000000-0000-4000-8000-000000000003';
+UPDATE characters SET current_ship_id = 'c0000000-1000-4000-8000-c00000000003' WHERE character_id = 'c0000000-1000-4000-8000-000000000003';
+UPDATE characters SET current_ship_id = 'c0000000-2000-4000-8000-c00000000003' WHERE character_id = 'c0000000-2000-4000-8000-000000000003';
+UPDATE characters SET current_ship_id = 'c0000000-3000-4000-8000-c00000000003' WHERE character_id = 'c0000000-3000-4000-8000-000000000003';
+UPDATE characters SET current_ship_id = 'c0000000-4000-4000-8000-c00000000003' WHERE character_id = 'c0000000-4000-4000-8000-000000000003';
 
-INSERT INTO user_characters (user_id, character_id)
-VALUES ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'c0000000-0000-4000-8000-000000000003');
+INSERT INTO user_characters (user_id, character_id) VALUES
+  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'c0000000-0000-4000-8000-000000000003'),
+  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'c0000000-1000-4000-8000-000000000003'),
+  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'c0000000-2000-4000-8000-000000000003'),
+  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'c0000000-3000-4000-8000-000000000003'),
+  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'c0000000-4000-4000-8000-000000000003');
 
 COMMIT;
