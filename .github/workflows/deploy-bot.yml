@@ -1,7 +1,17 @@
-name: Deploy Bot (Dev)
+name: Deploy Bot (`dev` and `eval` envs)
 
 on:
   workflow_dispatch:
+    inputs:
+      env:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - eval
+          - prod
   push:
     branches: [dev]
     paths:
@@ -13,22 +23,59 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to Pipecat Cloud
+    name: Deploy to Pipecat Cloud (${{ inputs.env || 'dev' }})
     runs-on: ubuntu-latest
 
+    env:
+      TARGET_ENV: ${{ inputs.env || 'dev' }}
+
     steps:
+      - name: Set environment variables
+        run: |
+          case "$TARGET_ENV" in
+            dev)
+              echo "AGENT_NAME=gb-bot-dev" >> $GITHUB_ENV
+              echo "SECRET_SET=gb-bot-secrets-dev" >> $GITHUB_ENV
+              echo "MAX_AGENTS=10" >> $GITHUB_ENV
+              ;;
+            eval)
+              echo "AGENT_NAME=gb-bot-eval" >> $GITHUB_ENV
+              echo "SECRET_SET=gb-bot-secrets-eval" >> $GITHUB_ENV
+              echo "MAX_AGENTS=10" >> $GITHUB_ENV
+              ;;
+            prod)
+              echo "AGENT_NAME=gb-bot" >> $GITHUB_ENV
+              echo "SECRET_SET=gb-bot-secrets" >> $GITHUB_ENV
+              echo "MAX_AGENTS=50" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "::error::Unknown environment: $TARGET_ENV. Must be dev, eval, or prod."
+              exit 1
+              ;;
+          esac
+
+      - name: Prod deploy placeholder
+        if: env.TARGET_ENV == 'prod'
+        run: |
+          echo "::warning::Prod deployment is not yet implemented. Skipping."
+          exit 0
+
       - name: Checkout
+        if: env.TARGET_ENV != 'prod'
         uses: actions/checkout@v4
 
       - name: Setup Python
+        if: env.TARGET_ENV != 'prod'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install Pipecat CLI
-        run: pip install pipecat-ai-cli==0.3.2 pipecatcloud==0.4.1
+        if: env.TARGET_ENV != 'prod'
+        run: pip install pipecat-ai-cli==0.3.3 pipecatcloud==0.4.1
 
       - name: Configure Pipecat Cloud credentials
+        if: env.TARGET_ENV != 'prod'
         run: |
           mkdir -p ~/.config/pipecatcloud
           cat > ~/.config/pipecatcloud/pipecatcloud.toml << EOF
@@ -37,18 +84,19 @@ jobs:
           EOF
 
       - name: Generate deploy config
+        if: env.TARGET_ENV != 'prod'
         run: |
-          cat > deployment/pcc-deploy.dev.toml << 'EOF'
-          agent_name = "gb-bot-dev"
+          cat > deployment/pcc-deploy.toml << EOF
+          agent_name = "${{ env.AGENT_NAME }}"
           agent_profile = "agent-2x"
-          secret_set = "gb-bot-secrets-dev"
+          secret_set = "${{ env.SECRET_SET }}"
 
           [krisp_viva]
           audio_filter = "tel"
 
           [scaling]
           min_agents = 1
-          max_agents = 10
+          max_agents = ${{ env.MAX_AGENTS }}
 
           [build]
           context_dir = "."
@@ -56,4 +104,5 @@ jobs:
           EOF
 
       - name: Deploy
-        run: pipecat cloud deploy --config-file deployment/pcc-deploy.dev.toml --yes
+        if: env.TARGET_ENV != 'prod'
+        run: pipecat cloud deploy --config-file deployment/pcc-deploy.toml --yes
