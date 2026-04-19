@@ -288,6 +288,16 @@ export function GameProvider({ children }: GameProviderProps) {
           // --- EVENT HANDLERS ---
 
           switch (e.event) {
+            // ----- VERSION
+            case "session.version": {
+              const { version } = e.payload as { version: string }
+              console.log(
+                `%cGradient Bang v${version}`,
+                "background: #000; color: #fff; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+              )
+              break
+            }
+
             // ----- STATUS
             case "status.snapshot":
             case "status.update": {

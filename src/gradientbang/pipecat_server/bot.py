@@ -776,6 +776,9 @@ async def bot(runner_args: RunnerArguments):
 
     configure_logging(instance_id=BOT_INSTANCE_ID)
 
+    from gradientbang import __version__
+
+    logger.info(f"Gradient Bang v{__version__}")
     logger.info(f"Bot started with runner_args: {runner_args}")
 
     transport_params = {
