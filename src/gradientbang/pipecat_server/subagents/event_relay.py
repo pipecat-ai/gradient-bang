@@ -544,6 +544,13 @@ class EventRelay:
         if isinstance(result, Mapping):
             self._update_display_name(result)
         logger.info(f"Join successful as {self.display_name}: {result}")
+        from gradientbang import __version__
+
+        await self._rtvi.push_frame(
+            RTVIServerMessageFrame(
+                {"frame_type": "event", "event": "session.version", "payload": {"version": __version__}}
+            )
+        )
         return result
 
     async def close(self) -> None:

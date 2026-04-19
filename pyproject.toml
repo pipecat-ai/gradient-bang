@@ -1,6 +1,6 @@
 [project]
 name = "gradient-bang"
-version = "0.1.0"
+version = "0.1.1"
 description = "Game of the Millennium"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
