@@ -6,6 +6,8 @@ Combat begins whenever armed ships or garrisons share a sector and an encounter 
 
 Combat is disabled in Federation Space (fedspace).
 
+Any ship in your sector is a valid target — including corporation ships that don't belong to you. The only restriction is Federation Space, where all combat is disabled.
+
 ## Round Actions
 
 Each round, every participant declares one action:

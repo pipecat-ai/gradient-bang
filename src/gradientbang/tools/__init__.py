@@ -2,7 +2,7 @@
 
 Exports curated ToolsSchema sets:
 - VOICE_TOOLS: 17 tools for the conversational voice agent
-- TASK_TOOLS: 30 tools for autonomous task execution
+- TASK_TOOLS: 32 tools for autonomous task execution
 """
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
@@ -93,7 +93,7 @@ VOICE_TOOLS = ToolsSchema(
     ]
 )
 
-# TaskAgent: autonomous game actions (no combat, no meta-task, no conversational)
+# TaskAgent: autonomous game actions (no meta-task, no conversational)
 TASK_TOOLS = ToolsSchema(
     [
         # Navigation
@@ -118,6 +118,9 @@ TASK_TOOLS = ToolsSchema(
         COLLECT_FIGHTERS,
         SET_GARRISON_MODE,
         DISBAND_GARRISON,
+        # Combat
+        COMBAT_INITIATE,
+        COMBAT_ACTION,
         # Corporation
         JOIN_CORPORATION,
         KICK_CORPORATION_MEMBER,

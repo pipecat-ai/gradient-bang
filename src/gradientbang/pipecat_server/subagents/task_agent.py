@@ -117,6 +117,8 @@ ASYNC_TOOL_COMPLETIONS = {
     "dump_cargo": "salvage.created",
     "join_corporation": "corporation.member_joined",
     "kick_corporation_member": "corporation.member_kicked",
+    "combat_initiate": "combat.round_waiting",
+    "combat_action": "combat.action_accepted",
 }
 
 # Sync tools whose events should NOT be added to LLM context (data already

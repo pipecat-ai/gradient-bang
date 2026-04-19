@@ -49,3 +49,7 @@ You are controlling a ship in Gradient Bang, a space trading and exploration gam
 - Example: sector 3826 has `Adjacent sectors: 2249 (Neutral), 3786 (Federation Space)` → 3826 is a border sector, blocked. Sector 2249's adjacents are `3826 (Neutral)` → 2249 is just Neutral, not a border sector, allowed. Always check the target sector's own adjacents.
 - Questions about who entered/left a garrisoned sector are event-log history questions
 - `disband_garrison` destroys a garrison without recovering fighters — last resort when ship is full
+
+## Disconnecting
+
+Your ship stays in the universe when you disconnect. It can be attacked and destroyed while you are offline. Always return to Federation Space before disconnecting.
