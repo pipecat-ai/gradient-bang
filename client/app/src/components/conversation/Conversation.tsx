@@ -186,7 +186,7 @@ export const Conversation: React.FC<ConversationProps> = memo(
         variant={panelActive ? "default" : "stripes"}
         className={
           panelActive ?
-            "group flex-1 h-full bg-card/70 relative border-0 border-b border-b-foreground/30"
+            "group flex-1 h-full bg-card/70 relative border-0 border-b border-b-foreground/30 pt-0 @md:pt-ui-xs"
           : "group relative flex-1 h-full opacity-50 stripe-frame-white/30"
         }
       >
@@ -197,16 +197,16 @@ export const Conversation: React.FC<ConversationProps> = memo(
             </div>
           </CardContent>
         : <>
-            <div className="absolute right-ui-sm bottom-ui-sm group-hover:bg-background/60 w-fit h-fit inline-flex items-center gap-ui-xs px-ui-xxs py-ui-xxs z-20 opacity-50 group-hover:opacity-100 transition-opacity">
+            <div className="absolute right-0 @md:right-ui-sm bottom-ui-xs @md:bottom-ui-sm group-hover:bg-background/60 w-fit h-fit inline-flex items-center gap-ui-xs @md:px-ui-xxs py-ui-xxs z-20 opacity-50 group-hover:opacity-100 transition-opacity">
               <CopyContextButton />
-              <span className="text-xxs uppercase text-foreground px-ui-xxs opacity-0 group-hover:opacity-100 transition-opacity">
+              <span className="text-xxs uppercase text-foreground px-ui-xxs @md:opacity-0 group-hover:opacity-100 transition-opacity">
                 Show system
               </span>
               <ToggleControl size="sm" checked={showSystem} onCheckedChange={setShowSystem} />
             </div>
             <div className="relative flex-1 mb-0 text-foreground">
               {!sayTextActive && (
-                <div className="absolute bottom-0 inset-x-0 h-15 z-10 pointer-events-none pl-ui-xs">
+                <div className="absolute bottom-0 inset-x-0 h-15 z-10 pointer-events-none @md:pl-ui-xs">
                   <div className="relative inline-block">
                     <ShipOSDVisualizer
                       barLineCap="square"
@@ -244,7 +244,7 @@ export const Conversation: React.FC<ConversationProps> = memo(
                   </div>
                 </div>
               )}
-              <CardContent className="absolute inset-0 min-h-0  mask-[linear-gradient(to_bottom,black_60%,transparent_100%)]">
+              <CardContent className="absolute inset-0 min-h-0 mask-[linear-gradient(to_bottom,black_60%,transparent_100%)] -mx-ui-xs @md:mx-0">
                 <ScrollArea className="relative w-full h-full pointer-events-auto">
                   <div className="flex flex-col gap-2 pb-20">
                     {messages.map((message, index) => (

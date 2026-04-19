@@ -3,8 +3,10 @@ import { useEffect } from "react"
 import { button, folder, useControls } from "leva"
 import { faker } from "@faker-js/faker"
 import type { Story } from "@ladle/react"
+import { useMediaQuery } from "@uidotdev/usehooks"
 
 import { CharacterSelect } from "@/components/CharacterSelect"
+import { Mobile } from "@/components/mobile"
 import { SettingsPanel } from "@/components/SettingsPanel"
 import { Game } from "@/components/views/Game"
 import { Title } from "@/components/views/Title"
@@ -34,6 +36,7 @@ Settings.meta = {
 
 export const GameViewStory: Story = () => {
   const setGameState = useGameStore.use.setGameState()
+  const isSmallDevice = useMediaQuery("only screen and (max-width : 768px)")
 
   useControls(() => ({
     Game: folder(
@@ -50,7 +53,9 @@ export const GameViewStory: Story = () => {
   }))
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <Game />
+      {isSmallDevice ?
+        <Mobile />
+      : <Game />}
       <AnimatedFrame />
     </div>
   )
@@ -76,6 +81,7 @@ export const CharacterSelectStory: Story = () => {
         created_at: new Date().toISOString(),
         last_active: new Date().toISOString(),
         is_npc: false,
+        is_first_visit: false,
       },
       {
         character_id: faker.string.uuid(),
@@ -83,6 +89,7 @@ export const CharacterSelectStory: Story = () => {
         created_at: new Date().toISOString(),
         last_active: new Date().toISOString(),
         is_npc: false,
+        is_first_visit: false,
       },
       {
         character_id: faker.string.uuid(),
@@ -90,6 +97,7 @@ export const CharacterSelectStory: Story = () => {
         created_at: new Date().toISOString(),
         last_active: new Date().toISOString(),
         is_npc: false,
+        is_first_visit: false,
       },
     ])
   }, [setCharacters])
@@ -105,6 +113,7 @@ export const CharacterSelectStory: Story = () => {
           created_at: new Date().toISOString(),
           last_active: new Date().toISOString(),
           is_npc: false,
+          is_first_visit: false,
         },
       ])
     }),

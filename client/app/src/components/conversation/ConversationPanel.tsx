@@ -28,15 +28,18 @@ export const ConversationPanel = ({ className }: { className?: string }) => {
       <ConversationProvider>
         <Conversation />
       </ConversationProvider>
-      <div className="flex flex-row gap-ui-xs items-center">
+      <div className="flex gap-ui-xxs @md:gap-ui-xs items-center flex-col @md:flex-row">
         <TextInputControl
           onSend={(text) => {
             sendUserTextInput?.(text)
           }}
         />
-        <UserMicControl className="@2xl/main:min-w-30" isRemoteMuted={remoteMuted} />
+        <UserMicControl
+          className="min-w-full @md:min-w-auto @2xl/main:min-w-30"
+          isRemoteMuted={remoteMuted}
+        />
       </div>
-      <Divider variant="dashed" className="h-1.5 text-foreground/30 " />
+      <Divider variant="dashed" className="h-1.5 text-foreground/30 hidden @md:block" />
     </div>
   )
 }
