@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { ScrambleText, type ScrambleTextRef } from "@/fx/ScrambleText"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
+import { formatSectorLabel } from "@/utils/formatting"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -51,7 +52,7 @@ export const SectorTitleBanner = () => {
   )
 
   const shouldDisplay = sector?.id !== undefined && !hasActiveTask && uiState !== "combat"
-  const sectorText = `SECTOR ${sector?.id ?? "unknown"}`
+  const sectorText = formatSectorLabel(sector).toUpperCase()
 
   // Timer management
   const clearTimers = useCallback(() => {

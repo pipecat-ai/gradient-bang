@@ -22,6 +22,8 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { resolveSectorParam } from "../_shared/pg_queries.ts";
 import { loadCombatById, persistCombatState } from "../_shared/combat_state.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
@@ -483,10 +485,15 @@ async function buildActionState(params: {
       Math.min(commit || participant.fighters, participant.fighters),
     );
   } else if (action === "flee") {
-    // Accept both 'to_sector' (client library) and 'destination_sector' (legacy)
-    const destination =
-      optionalNumber(params.payload, "to_sector") ??
-      optionalNumber(params.payload, "destination_sector");
+    const pg = await acquirePgClient();
+    let destination: number | null;
+    try {
+      destination =
+        (await resolveSectorParam(pg, params.payload, "to_sector")) ??
+        (await resolveSectorParam(pg, params.payload, "destination_sector"));
+    } finally {
+      pg.release();
+    }
     const adjacent = await getAdjacentSectors(
       params.supabase,
       params.encounter.sector_id,

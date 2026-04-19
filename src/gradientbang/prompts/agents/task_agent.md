@@ -1,5 +1,9 @@
 # Task Execution Instructions
 
+## Sector Names
+
+Every sector has a human-readable name (e.g. "Iron Gate", "Cerulean Outpost"). Federation megaports have distinctive grand names (e.g. "Grand Nexus Station", "Federation Prime Hub", "Galactic Gateway") — the specific sector IDs vary by universe. Tool calls accept either a sector number or name — use whichever is in context. Report sector references as "ID - Name" (e.g. "847 - Iron Gate").
+
 ## How to Execute Tasks
 
 Approach each task methodically:

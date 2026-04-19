@@ -33,6 +33,8 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { resolveSectorParam } from "../_shared/pg_queries.ts";
 import { traced } from "../_shared/weave.ts";
 import type { WeaveSpan } from "../_shared/weave.ts";
 
@@ -55,6 +57,7 @@ Deno.serve(traced("plot_course", async (req, trace) => {
   sAuth.end();
 
   const supabase = createServiceRoleClient();
+  const pgClient = await acquirePgClient();
   let payload: Record<string, unknown>;
   const sParse = trace.span("parse_request");
   try {
@@ -117,6 +120,7 @@ Deno.serve(traced("plot_course", async (req, trace) => {
     const sHandlePlotCourse = trace.span("handle_plot_course", { characterId });
     const result = await handlePlotCourse(
       supabase,
+      pgClient,
       payload,
       characterId,
       requestId,
@@ -161,11 +165,14 @@ Deno.serve(traced("plot_course", async (req, trace) => {
       status: 500,
     });
     return errorResponse("internal server error", 500);
+  } finally {
+    pgClient.release();
   }
 }));
 
 async function handlePlotCourse(
   supabase: ReturnType<typeof createServiceRoleClient>,
+  pgClient: Awaited<ReturnType<typeof acquirePgClient>>,
   payload: Record<string, unknown>,
   characterId: string,
   requestId: string,
@@ -198,15 +205,14 @@ async function handlePlotCourse(
     throw new PlotCourseError("Ship sector is unavailable", 500);
   }
 
-  let fromSector = optionalNumber(payload, "from_sector");
-  if (fromSector === null) {
-    fromSector = ship.current_sector;
-  }
+  let fromSector =
+    (await resolveSectorParam(pgClient, payload, "from_sector")) ??
+    ship.current_sector;
   if (fromSector === null || !Number.isInteger(fromSector) || fromSector < 0) {
     throw new PlotCourseError("Invalid from_sector", 400);
   }
 
-  let toSector = optionalNumber(payload, "to_sector");
+  let toSector = await resolveSectorParam(pgClient, payload, "to_sector");
   if (toSector === null || !Number.isInteger(toSector) || toSector < 0) {
     throw new PlotCourseError("Missing or invalid to_sector", 400);
   }

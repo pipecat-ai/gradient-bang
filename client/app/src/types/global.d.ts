@@ -124,6 +124,7 @@ declare global {
 
   interface Sector {
     id: number
+    name?: string | null
     adjacent_sectors?: Record<string, AdjacentSectorInfo>
     position: [number, number]
     last_visited?: string
@@ -133,7 +134,6 @@ declare global {
     garrison?: Garrison
     region?: string
     unowned_ships?: ShipUnowned[]
-    last_visited?: string
     salvage?: Salvage[]
     scene_config?: unknown
   }
@@ -218,6 +218,7 @@ declare global {
 
   interface MapSectorNode {
     id: number
+    name?: string | null
     port?: PortBase | null
     lanes: MapLane[]
     source?: "player" | "corp" | "both"
