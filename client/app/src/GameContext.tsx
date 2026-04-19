@@ -1621,6 +1621,7 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Ships list", e.payload)
               const data = e.payload as Msg.ShipsListMessage
               useGameStore.getState().setShips(data.ships)
+              useGameStore.getState().setCorpMemberShips(data.corp_member_ships ?? [])
               useGameStore.getState().resolveFetchPromise("get-my-ships")
               break
             }

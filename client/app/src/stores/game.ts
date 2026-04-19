@@ -15,6 +15,7 @@ import { createTaskSlice, type TaskSlice } from "./taskSlice"
 import { createUISlice, type UISlice } from "./uiSlice"
 
 import type { ActionType, GameAction } from "@/types/actions"
+import type { CorpMemberShip } from "@/types/messages"
 
 type WithSelectors<S> =
   S extends { getState: () => infer T } ? S & { use: { [K in keyof T]: () => T[K] } } : never
@@ -61,6 +62,7 @@ export interface GameState {
   bypassTutorial: boolean
   ship: ShipSelf
   ships: ActiveProperty<ShipSelf[]>
+  corpMemberShips: ActiveProperty<CorpMemberShip[]>
   sector?: Sector
   messages: ChatMessage[] | null
   messageFilters: "all" | "direct" | "broadcast" | "corporation"
@@ -105,6 +107,7 @@ export interface GameSlice extends GameState {
   setPlayer: (player: Partial<PlayerSelf>) => void
   setShip: (ship: Partial<ShipSelf>) => void
   setShips: (ships: ShipSelf[]) => void
+  setCorpMemberShips: (corpMemberShips: CorpMemberShip[]) => void
   addShip: (ship: Partial<ShipSelf>) => void
   updateShip: (ship: Partial<ShipSelf> & { ship_id: string }) => void
   removeShip: (shipId: string) => void
@@ -154,6 +157,7 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
   bypassTutorial: false,
   ship: {} as ShipSelf,
   ships: { data: undefined, last_updated: null },
+  corpMemberShips: { data: undefined, last_updated: null },
   sector: undefined,
   messages: null, // @TODO: move to chat slice
   messageFilters: "all",
@@ -292,6 +296,16 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
           last_updated: now,
         }
         state.destroyedShips = ships.filter((s: ShipSelf) => !!s.destroyed_at)
+      })
+    ),
+
+  setCorpMemberShips: (corpMemberShips: CorpMemberShip[]) =>
+    set(
+      produce((state) => {
+        state.corpMemberShips = {
+          data: corpMemberShips,
+          last_updated: new Date().toISOString(),
+        }
       })
     ),
 

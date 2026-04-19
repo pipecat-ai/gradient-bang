@@ -437,8 +437,18 @@ export interface ShipRenameMessage extends ServerMessagePayload {
   timestamp: string
 }
 
+export interface CorpMemberShip {
+  character_id: string
+  character_name: string
+  ship_id: string
+  ship_name: string
+  ship_type: string
+  sector: number
+}
+
 export interface ShipsListMessage extends ServerMessagePayload {
   ships: ShipSelf[]
+  corp_member_ships?: CorpMemberShip[]
 }
 
 // --- Event Query Messages (for task events)

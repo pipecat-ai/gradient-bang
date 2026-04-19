@@ -50,8 +50,18 @@ export interface ShipSummary {
   destroyed_at: string | null;
 }
 
+export interface CorpMemberShipSummary {
+  character_id: string;
+  character_name: string;
+  ship_id: string;
+  ship_name: string;
+  ship_type: string;
+  sector: number;
+}
+
 interface ShipsListResult {
   ships: ShipSummary[];
+  corp_member_ships: CorpMemberShipSummary[];
 }
 
 Deno.serve(traced("list_user_ships", async (req, trace) => {
@@ -86,7 +96,10 @@ Deno.serve(traced("list_user_ships", async (req, trace) => {
 
     const sFetch = trace.span("fetch_user_ships");
     const result = await fetchUserShips(supabase, characterId);
-    sFetch.end({ ship_count: result.ships.length });
+    sFetch.end({
+      ship_count: result.ships.length,
+      corp_member_ship_count: result.corp_member_ships.length,
+    });
 
     // Emit event with results so client receives them via WebSocket
     const sEmit = trace.span("emit_ships_list_event");
@@ -117,6 +130,7 @@ async function fetchUserShips(
   characterId: string,
 ): Promise<ShipsListResult> {
   const ships: ShipSummary[] = [];
+  const corpMemberShips: CorpMemberShipSummary[] = [];
 
   // 1. Get the user's personal ship
   const { data: character, error: charError } = await supabase
@@ -166,7 +180,7 @@ async function fetchUserShips(
   }
 
   if (!shipIds.length && !corporationId) {
-    return { ships: [] };
+    return { ships: [], corp_member_ships: [] };
   }
 
   // 3. Fetch all active ship instances
@@ -297,7 +311,117 @@ async function fetchUserShips(
     return a.ship_name.localeCompare(b.ship_name);
   });
 
-  return { ships };
+  if (corporationId) {
+    const { data: memberRows, error: memberError } = await supabase
+      .from("corporation_members")
+      .select("character_id")
+      .eq("corp_id", corporationId)
+      .is("left_at", null);
+
+    if (memberError) {
+      console.error("list_user_ships.corp_members", memberError);
+    } else {
+      const memberIds = (memberRows ?? [])
+        .map((row) => row?.character_id)
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value !== characterId,
+        );
+
+      if (memberIds.length) {
+        const { data: memberCharRows, error: memberCharError } = await supabase
+          .from("characters")
+          .select("character_id, name, current_ship_id")
+          .in("character_id", memberIds);
+
+        if (memberCharError) {
+          console.error("list_user_ships.corp_member_chars", memberCharError);
+        } else {
+          const memberShipIds = (memberCharRows ?? [])
+            .map((row) => row?.current_ship_id)
+            .filter(
+              (value): value is string =>
+                typeof value === "string" && value.length > 0,
+            );
+
+          if (memberShipIds.length) {
+            const { data: memberShipRows, error: memberShipError } =
+              await supabase
+                .from("ship_instances")
+                .select(
+                  "ship_id, ship_type, ship_name, current_sector, in_hyperspace, destroyed_at",
+                )
+                .in("ship_id", memberShipIds)
+                .eq("in_hyperspace", false)
+                .is("destroyed_at", null);
+
+            if (memberShipError) {
+              console.error(
+                "list_user_ships.corp_member_ships",
+                memberShipError,
+              );
+            } else {
+              const shipById = new Map<
+                string,
+                {
+                  ship_type: string;
+                  ship_name: string | null;
+                  current_sector: number | null;
+                }
+              >();
+              for (const row of memberShipRows ?? []) {
+                if (!row || typeof row.ship_id !== "string") continue;
+                shipById.set(row.ship_id, {
+                  ship_type:
+                    typeof row.ship_type === "string" ? row.ship_type : "unknown",
+                  ship_name:
+                    typeof row.ship_name === "string" ? row.ship_name : null,
+                  current_sector:
+                    typeof row.current_sector === "number"
+                      ? row.current_sector
+                      : null,
+                });
+              }
+
+              const shipDefsMap = await loadShipDefinitions(
+                supabase,
+                memberShipRows ?? [],
+              );
+
+              for (const charRow of memberCharRows ?? []) {
+                if (
+                  !charRow ||
+                  typeof charRow.character_id !== "string" ||
+                  typeof charRow.current_ship_id !== "string"
+                ) {
+                  continue;
+                }
+                const ship = shipById.get(charRow.current_ship_id);
+                if (!ship || ship.current_sector === null) continue;
+                const definition = shipDefsMap.get(ship.ship_type) ?? null;
+                corpMemberShips.push({
+                  character_id: charRow.character_id,
+                  character_name:
+                    typeof charRow.name === "string" && charRow.name.length > 0
+                      ? charRow.name
+                      : charRow.character_id,
+                  ship_id: charRow.current_ship_id,
+                  ship_name:
+                    ship.ship_name && ship.ship_name.length > 0
+                      ? ship.ship_name
+                      : (definition?.display_name ?? ship.ship_type),
+                  ship_type: ship.ship_type,
+                  sector: ship.current_sector,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return { ships, corp_member_ships: corpMemberShips };
 }
 
 async function loadShipDefinitions(
