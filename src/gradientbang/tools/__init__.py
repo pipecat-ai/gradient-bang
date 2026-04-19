@@ -1,7 +1,7 @@
 """Shared tool schemas for VoiceAgent and TaskAgent.
 
 Exports curated ToolsSchema sets:
-- VOICE_TOOLS: 17 tools for the conversational voice agent
+- VOICE_TOOLS: 20 tools for the conversational voice agent
 - TASK_TOOLS: 30 tools for autonomous task execution
 """
 
@@ -79,6 +79,7 @@ VOICE_TOOLS = ToolsSchema(
         RENAME_SHIP,
         RENAME_CORPORATION,
         CREATE_CORPORATION,
+        JOIN_CORPORATION,
         LEAVE_CORPORATION,
         SELL_SHIP,
         SEND_MESSAGE,

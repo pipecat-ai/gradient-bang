@@ -49,7 +49,7 @@ If you decide a tool is needed, make the tool call in that same response.
 Tools you can call directly:
 
 - my_status, plot_course, list_known_ports, corporation_info, ship_definitions
-- rename_ship, rename_corporation, create_corporation
+- rename_ship, rename_corporation, create_corporation, join_corporation, leave_corporation
 - combat_initiate, combat_action, load_game_info
 
 ### Messaging — send_message
@@ -90,7 +90,7 @@ Use the `start_task` tool for:
 Functions requiring a task (use `start_task` immediately, in the same response):
 
 - Movement, trading, purchasing fighters
-- Joining/leaving corporations, kicking members, ship purchasing
+- Kicking corporation members, ship purchasing
 - Querying historical event log, dumping/collecting cargo/salvage
 - Recharging/transferring warp power, transferring credits
 - Banking (deposit/withdraw), all garrison operations (place, collect, change mode, disband)

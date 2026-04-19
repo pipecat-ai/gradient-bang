@@ -331,6 +331,7 @@ class VoiceAgent(LLMAgent):
             "sell_ship": self._handle_sell_ship,
             "rename_corporation": self._handle_rename_corporation,
             "create_corporation": self._handle_create_corporation,
+            "join_corporation": self._handle_join_corporation,
             "leave_corporation": self._handle_leave_corporation,
             "send_message": self._handle_send_message,
             "combat_initiate": self._handle_combat_initiate,
@@ -609,6 +610,38 @@ class VoiceAgent(LLMAgent):
         try:
             result = await self._game_client.create_corporation(
                 name=args["name"],
+                character_id=self._character_id,
+            )
+            self._track_request_id_from_result(result)
+            self._begin_assistant_response_cycle()
+            await params.result_callback(
+                {"success": True},
+                properties=FunctionCallResultProperties(run_llm=True),
+            )
+        except Exception as exc:
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
+
+    async def _handle_join_corporation(self, params: FunctionCallParams):
+        args = params.arguments
+        try:
+            corp_id = (args.get("corp_id") or "").strip()
+            if not corp_id:
+                corp_name = args.get("corp_name")
+                if not corp_name:
+                    raise ValueError(
+                        "join_corporation requires either corp_id or corp_name."
+                    )
+                corps = await self._game_client.list_corporations()
+                match_name = corp_name.strip().lower()
+                for corp in corps:
+                    if str(corp.get("name", "")).strip().lower() == match_name:
+                        corp_id = corp.get("corp_id", "")
+                        break
+                if not corp_id:
+                    raise ValueError(f"Corporation named '{corp_name}' not found.")
+            result = await self._game_client.join_corporation(
+                corp_id=corp_id,
+                invite_code=args["invite_code"],
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
