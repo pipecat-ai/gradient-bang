@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Disabled event pruning cron by default; extended retention from 72 hours to 14 days
+
 ## [0.1.2] - 2026-04-19
 
 ### Added
