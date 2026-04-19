@@ -193,7 +193,8 @@ export const Conversation: React.FC<ConversationProps> = memo(
         {!panelActive ?
           <CardContent className="flex h-full items-center justify-center">
             <div className="text-center text-xs">
-              <PlugsIcon weight="thin" size={72} className="animate-pulse" />
+              <PlugsIcon weight="thin" size={72} className="animate-pulse" aria-hidden="true" />
+              <span className="sr-only">Disconnected</span>
             </div>
           </CardContent>
         : <>
@@ -229,6 +230,9 @@ export const Conversation: React.FC<ConversationProps> = memo(
                       {llmIsWorking && (
                         <motion.div
                           key="thinking-badge"
+                          role="status"
+                          aria-live="polite"
+                          aria-label="Assistant is thinking"
                           initial={{ y: 20, opacity: 0 }}
                           animate={{ y: 0, opacity: 1 }}
                           exit={{ y: 20, opacity: 0 }}
@@ -246,7 +250,12 @@ export const Conversation: React.FC<ConversationProps> = memo(
               )}
               <CardContent className="absolute inset-0 min-h-0  mask-[linear-gradient(to_bottom,black_60%,transparent_100%)]">
                 <ScrollArea className="relative w-full h-full pointer-events-auto">
-                  <div className="flex flex-col gap-2 pb-20">
+                  <div
+                    role="log"
+                    aria-live="polite"
+                    aria-label="Conversation messages"
+                    className="flex flex-col gap-2 pb-20"
+                  >
                     {messages.map((message, index) => (
                       <MessageContainer
                         key={index}

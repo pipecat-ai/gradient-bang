@@ -215,6 +215,45 @@ event_query(
 ```
 Then paginate until `has_more` is false.
 
+## Ship Destruction Playbook
+
+Use these steps when the player asks why their ship was destroyed or about a destruction event.
+
+### "Why was my ship destroyed?" / "What destroyed my ship?"
+
+Step 1 — Find the destruction event:
+```
+event_query(
+    start=<7 days ago>, end=<now>,
+    filter_event_type="ship.destroyed",
+    filter_string_match="<ship_name if known>",
+    sort_direction="reverse",
+    max_rows=1
+)
+```
+The payload contains `combat_id`, `sector`, `player_name`, `ship_type`, and `salvage_created`.
+
+Step 2 — Get combat details using the `combat_id` from step 1:
+```
+event_query(
+    start=<destruction timestamp - 1h>, end=<destruction timestamp + 1m>,
+    filter_event_type="combat.ended",
+    filter_string_match="<combat_id>"
+)
+```
+The `combat.ended` payload contains the full outcome: `result`, `participants`, round logs, and `flee_results`.
+
+Step 3 (optional) — For round-by-round breakdown:
+```
+event_query(
+    start=<destruction timestamp - 1h>, end=<destruction timestamp + 1m>,
+    filter_event_type="combat.round_resolved",
+    filter_string_match="<combat_id>"
+)
+```
+
+For corp ship destruction, use `event_scope="corporation"` in step 1.
+
 ## Filter Parameters
 
 All filter parameters use the `filter_` prefix:
@@ -238,7 +277,8 @@ All filter parameters use the `filter_` prefix:
 | trade.executed | commodity, units, price, total_price, trade_type |
 | movement.complete | sector arrivals, first_visit flag |
 | garrison.character_moved | arrivals/departures detected by garrisons (includes player + movement) |
-| combat.ended | combat results |
+| combat.ended | combat results (result, participants, flee_results) |
+| combat.round_resolved | per-round combat detail (hits, losses, shields, fighters, actions) |
 | bank.transaction | deposits/withdrawals |
 | warp.purchase | warp power recharges |
 | task.start | task_description, task_id |
@@ -246,6 +286,7 @@ All filter parameters use the `filter_` prefix:
 | session.started | session boundary marker (sector, ship_name, ship_type) |
 | ship.purchased | personal ship purchase (ship_type, ship_name, purchase_price, net_cost, old_ship_type) |
 | ship.traded_in | personal ship trade-in detail (old_ship_type, new_ship_type, price, trade_in_value) |
+| ship.destroyed | ship destroyed in combat (ship_name, ship_type, player_name, combat_id, sector, salvage_created) |
 | corporation.ship_purchased | corp ship purchase (ship_type, ship_name, purchase_price, buyer_name) |
 
 ## Calculating Trade Profit

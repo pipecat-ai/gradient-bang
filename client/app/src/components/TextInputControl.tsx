@@ -42,6 +42,7 @@ export const TextInputControl = ({
       <Input
         ref={inputRef}
         variant="default"
+        aria-label="Enter command"
         placeholder="Enter command"
         value={command}
         disabled={isDisabled}
@@ -56,6 +57,7 @@ export const TextInputControl = ({
       />
       <Button
         size="icon"
+        aria-label="Send command"
         variant={isBusy || !command ? "ghost" : "default"}
         disabled={isBusy}
         onClick={() => handleSend(command)}

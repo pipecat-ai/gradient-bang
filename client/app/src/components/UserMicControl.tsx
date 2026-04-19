@@ -49,6 +49,15 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
 
   const initializing = transportState === "disconnected" || transportState === "initializing"
 
+  const micAriaLabel =
+    disabled ? "Microphone off"
+    : initializing ? "Microphone connecting"
+    : isRemoteMuted ? "Microphone muted, please wait"
+    : isMicEnabled ? "Microphone on"
+    : "Microphone off"
+
+  const micAriaPressed = disabled || initializing || isRemoteMuted ? undefined : isMicEnabled
+
   const handleToggleMic = useCallback(() => {
     if (disabled || isRemoteMuted) return
 
@@ -68,6 +77,8 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
             "micEnabled"
           : "micDisabled"
         }
+        aria-label={micAriaLabel}
+        aria-pressed={micAriaPressed}
         onClick={handleToggleMic}
         disabled={disabled || initializing || isRemoteMuted}
         loader="icon"

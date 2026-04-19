@@ -754,7 +754,7 @@ EVENT_QUERY = FunctionSchema(
         },
         "filter_event_type": {
             "type": "string",
-            "description": "Filter to a specific event type. e.g., 'session.started', 'task.start', 'task.finish', 'movement.complete' (for player's own movements), 'garrison.character_moved' (for monitoring events in a sector where we have placed fighters)",
+            "description": "Filter to a specific event type. e.g., 'session.started', 'task.start', 'task.finish', 'movement.complete' (for player's own movements), 'garrison.character_moved' (for monitoring events in a sector where we have placed fighters), 'ship.destroyed' (when a ship is destroyed in combat), 'combat.ended' (combat outcome details)",
         },
         "filter_string_match": {
             "type": "string",

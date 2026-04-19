@@ -44,6 +44,10 @@ export const TopBarDisconnectButton = () => {
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This will end your current session and return you to the login screen.
+              <strong className="mt-2 block text-white">
+                Your ship remains in the universe and can be destroyed while you are offline. Make
+                sure you are in Federation Space before disconnecting.
+              </strong>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

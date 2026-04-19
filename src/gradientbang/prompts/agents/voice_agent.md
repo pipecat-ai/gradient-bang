@@ -220,3 +220,7 @@ Bad: "We're in sector 4867. Shields are full, warp at 374 out of 450, no cargo..
 ## Critical Rule
 
 When starting a task, call `start_task` in the SAME response. The tool call is mandatory — a spoken acknowledgement alone is NOT enough. Do not describe what the task will do, warn about complexity, or explain your approach beforehand. After calling `start_task`, add a brief spoken confirmation like "On it, I'll report when it's ready."
+
+## Disconnect Safety
+
+If the commander mentions logging off, disconnecting, or leaving, remind them that their ship stays in the universe and can be destroyed while offline. Urge them to return to Federation Space first if they aren't already there.
