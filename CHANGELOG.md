@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-19
+
+### Added
+
+- Combat tools (`combat_initiate`, `combat_action`) for TaskAgent with async completions
+- Disconnect safety warnings in voice agent, game overview, and disconnect modal
+- Aria labels and roles for mic toggle, text input, and conversation panel
+
+### Changed
+
+- Clarified combat targeting rules (any ship in sector is valid)
+- Added ship destruction playbook to event_logs prompt
+
 ## [0.1.1] - 2026-04-19
 
 ### Added
