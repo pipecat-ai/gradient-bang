@@ -27,9 +27,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy LICENSE (required by pyproject.toml)
 COPY LICENSE ./
 
-# Copy the application code
-RUN mkdir -p gradientbang
-COPY src/gradientbang/__init__.py gradientbang/__init__.py
+# Copy the application code and bake in the version from pyproject.toml
+COPY pyproject.toml /tmp/pyproject.toml
+RUN mkdir -p gradientbang \
+    && VERSION=$(grep '^version' /tmp/pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/') \
+    && echo "__version__ = \"${VERSION}\"" > gradientbang/_version.py \
+    && rm /tmp/pyproject.toml
 COPY src/gradientbang/utils/ gradientbang/utils/
 COPY src/gradientbang/scripts/ gradientbang/scripts/
 COPY src/gradientbang/prompts/ gradientbang/prompts/
