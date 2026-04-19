@@ -24,11 +24,11 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_prunable_inserted
     'status.snapshot', 'status.update',
     'sector.update', 'port.update',
     'ship.definitions', 'ships.list', 'ports.list',
-    'path.region', 'session.started',
+    'path.region',
     'movement.start', 'course.plot',
     'combat.action_accepted', 'combat.round_waiting',
     'task.start', 'task.finish', 'task.cancel',
-    'error', 'event.query'
+    'event.query'
   ]);
 
 -- Prune function: batched deletes, capped per invocation
@@ -43,11 +43,11 @@ DECLARE
     'status.snapshot', 'status.update',
     'sector.update', 'port.update',
     'ship.definitions', 'ships.list', 'ports.list',
-    'path.region', 'session.started',
+    'path.region',
     'movement.start', 'course.plot',
     'combat.action_accepted', 'combat.round_waiting',
     'task.start', 'task.finish', 'task.cancel',
-    'error', 'event.query'
+    'event.query'
   ];
   batch_size CONSTANT INTEGER := 5000;
   max_rows_per_run CONSTANT INTEGER := 500000;
@@ -109,9 +109,9 @@ SELECT cron.schedule(
 --   'map.update','map.local','map.region','map.knowledge',
 --   'status.snapshot','status.update','sector.update','port.update',
 --   'ship.definitions','ships.list','ports.list','path.region',
---   'session.started','movement.start','course.plot',
+--   'movement.start','course.plot',
 --   'combat.action_accepted','combat.round_waiting',
---   'task.start','task.finish','task.cancel','error','event.query'
+--   'task.start','task.finish','task.cancel','event.query'
 -- ])
 -- GROUP BY event_type ORDER BY COUNT(*) DESC;
 -- ============================================================================
