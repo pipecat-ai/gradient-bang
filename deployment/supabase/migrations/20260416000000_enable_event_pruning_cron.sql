@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Enable Hourly Event Pruning Worker
 -- ============================================================================
--- Prunes non-important events older than 48 hours to control table growth.
+-- Prunes non-important events older than 72 hours to control table growth.
 -- Events are fire-and-forget: consumed via polling and not used for game state
 -- reconstruction. Only meaningful gameplay events (combat outcomes, trades,
 -- quests, chat, corp actions, etc.) are retained for activity history.
@@ -51,7 +51,7 @@ DECLARE
   ];
   batch_size CONSTANT INTEGER := 5000;
   max_rows_per_run CONSTANT INTEGER := 500000;
-  cutoff TIMESTAMPTZ := NOW() - INTERVAL '48 hours';
+  cutoff TIMESTAMPTZ := NOW() - INTERVAL '72 hours';
   rows_deleted INTEGER;
   total_deleted INTEGER := 0;
 BEGIN
@@ -77,7 +77,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION prune_stale_events() IS
-'Prune non-important events older than 48 hours. Called hourly by cron. Deletes in 5k-row batches, capped at 500k per run.';
+'Prune non-important events older than 72 hours. Called hourly by cron. Deletes in 5k-row batches, capped at 500k per run.';
 
 -- Schedule hourly at minute 0 (same cadence as port-regeneration-worker)
 SELECT cron.schedule(
