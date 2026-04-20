@@ -23,6 +23,7 @@ import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
   apiOk,
+  createCorpShip,
   characterIdFor,
   shipIdFor,
   eventsOfType,
@@ -175,6 +176,104 @@ Deno.test({
       assert(events.length >= 1, `Expected >= 1 warp.transfer for P2, got ${events.length}`);
       const payload = events[0].payload;
       assertEquals(payload.transfer_direction, "received");
+    });
+  },
+});
+
+// ============================================================================
+// Group 2b: Warp transfer — corporation ship to corporation ship
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp power between corporation ships",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipAId: string;
+    let corpShipBId: string;
+
+    await t.step("reset, create corporation, and create two corp ships", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+
+      const corpResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Warp Movers",
+      });
+      const corpId = (corpResult as Record<string, unknown>).corp_id as string;
+
+      const shipA = await createCorpShip(corpId, 0, "Red Probe");
+      const shipB = await createCorpShip(corpId, 0, "Blue Hauler");
+      corpShipAId = shipA.shipId;
+      corpShipBId = shipB.shipId;
+
+      await setShipWarpPower(corpShipAId, 300);
+      await setShipWarpPower(corpShipBId, 100);
+    });
+
+    await t.step("corp ship A transfers warp to corp ship B via member actor", async () => {
+      const result = await apiOk("transfer_warp_power", {
+        from_character_id: corpShipAId,
+        actor_character_id: p1Id,
+        to_ship_id: corpShipBId,
+        units: 50,
+      });
+      assert(result.success);
+    });
+
+    await t.step("DB: warp moves between corporation ships", async () => {
+      const shipA = await queryShip(corpShipAId);
+      const shipB = await queryShip(corpShipBId);
+      assertExists(shipA);
+      assertExists(shipB);
+      assertEquals(shipA.current_warp_power, 250);
+      assertEquals(shipB.current_warp_power, 150);
+    });
+  },
+});
+
+// ============================================================================
+// Group 2c: Warp transfer — unauthorized actor cannot control corp ship
+// ============================================================================
+
+Deno.test({
+  name: "transfer — warp rejects unauthorized corporation ship actor",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipAId: string;
+    let corpShipBId: string;
+
+    await t.step("reset, create corporation, and create two corp ships", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+
+      const corpResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Locked Warp Movers",
+      });
+      const corpId = (corpResult as Record<string, unknown>).corp_id as string;
+
+      const shipA = await createCorpShip(corpId, 0, "Red Probe");
+      const shipB = await createCorpShip(corpId, 0, "Blue Hauler");
+      corpShipAId = shipA.shipId;
+      corpShipBId = shipB.shipId;
+    });
+
+    await t.step("non-member actor is rejected", async () => {
+      const result = await api("transfer_warp_power", {
+        from_character_id: corpShipAId,
+        actor_character_id: p2Id,
+        to_ship_id: corpShipBId,
+        units: 50,
+      });
+      assertEquals(result.status, 403);
+      assert(
+        result.body.error?.includes("not authorized"),
+        `Expected authorization error, got: ${result.body.error}`,
+      );
     });
   },
 });

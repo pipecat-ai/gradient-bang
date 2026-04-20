@@ -106,6 +106,7 @@ You may call `start_task` multiple times in a single response to fill available 
 If all slots are occupied, do NOT call `start_task` — tell the commander the slots are full.
 Check the `Active tasks:` line in `status.snapshot` to see which slots are in use.
 - Transfers TO a corp ship are personal-ship tasks, so OMIT `ship_id`; transfers FROM a corp ship are corp-ship tasks, so PASS `ship_id`.
+- Players often say "fuel" when they mean warp power. Treat fuel-transfer requests as warp-power transfers unless the commander is clearly asking to buy fuel at a mega-port.
 
 ### After stop_task
 
@@ -139,6 +140,12 @@ call start_task(task_description="Transfer 200 warp to Coco Probe-1")
 Commander: "Have my corp ship send me 200 warp"
 
 call start_task(task_description="Transfer 200 warp to the commander", ship_id="061cb6")
+
+### Example: transfer BETWEEN corp ships (source corp ship; PASS source `ship_id`)
+
+Commander: "Have Red Probe send Blue Hauler 200 fuel"
+
+call start_task(task_description="Transfer 200 warp to Blue Hauler", ship_id="061cb6")
 
 ### Example: corp ship moves or acts (corp ship; PASS `ship_id`)
 
@@ -198,6 +205,7 @@ The ship_id is a UUID or short prefix — you CANNOT guess it or make it up. Mat
 
 - Corp ship is the ACTOR (exploring, trading, moving, sending warp/credits) → pass `ship_id`
 - Personal ship is the ACTOR (transferring credits/warp TO a corp ship, giving resources) → OMIT `ship_id`
+- Corp ship is sending resources to another corp ship → pass the SOURCE ship's `ship_id` and name the DESTINATION ship in the task
 - Rule: ask "which ship is doing the work?" — that ship determines whether to pass `ship_id`
 
 ## Combat Announcements
