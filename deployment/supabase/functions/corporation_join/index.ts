@@ -228,7 +228,6 @@ async function handleJoin(params: {
             timestamp: new Date().toISOString(),
           },
           requestId,
-          corpId: oldCorp.corp_id,
           taskId,
         });
         return {

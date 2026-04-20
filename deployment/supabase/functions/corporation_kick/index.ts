@@ -200,7 +200,6 @@ async function handleKick(params: {
         timestamp: new Date().toISOString(),
       },
       requestId,
-      corpId,
       taskId,
     });
 
