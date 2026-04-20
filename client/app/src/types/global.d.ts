@@ -89,6 +89,7 @@ declare global {
     max_fighters?: number
     owner_type?: "personal" | "corporation" | "unowned"
     current_task_id?: string | null
+    current_task_actor_name?: string | null
     sector?: number
     destroyed_at?: string | null
   }

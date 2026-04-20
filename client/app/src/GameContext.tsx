@@ -1334,10 +1334,12 @@ export function GameProvider({ children }: GameProviderProps) {
 
               const taskId = normalizeTaskId(data.task_id)
               const myId = useGameStore.getState().character_id
+              const isMyTask = !data.actor_character_id || data.actor_character_id === myId
+
               // Only track tasks initiated by this player in the task engine.
-              // Other corp members' tasks show ship "busy" status via status
-              // events, but don't fill our task engine badges.
-              if (taskId && (!data.actor_character_id || data.actor_character_id === myId)) {
+              // Other corp members' tasks show ship "busy" status via the
+              // ship's current_task_id but don't fill our task engine badges.
+              if (taskId && isMyTask) {
                 useGameStore.getState().addActiveTask({
                   task_id: taskId,
                   task_description: data.task_description,
@@ -1350,6 +1352,14 @@ export function GameProvider({ children }: GameProviderProps) {
                   ship_type: data.ship_type,
                 })
               }
+
+              // Update corp ship's task state so ShipCard shows busy status
+              if (taskId && data.ship_id && isKnownFleetShip(data.ship_id)) {
+                upsertCorporationShip(data.ship_id, {
+                  current_task_id: taskId,
+                  current_task_actor_name: data.actor_character_name ?? null,
+                })
+              }
               break
             }
 
@@ -1357,9 +1367,19 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Task finish", e.payload)
               const data = e.payload as Msg.TaskFinishMessage
 
-              // Only process if this task is in our active tasks (i.e. we
-              // tracked it on task.start because it belongs to us).
               const taskId = normalizeTaskId(data.task_id)
+
+              // Clear corp ship's task state regardless of who owns the task
+              if (data.ship_id && isKnownFleetShip(data.ship_id)) {
+                upsertCorporationShip(data.ship_id, {
+                  current_task_id: null,
+                  current_task_actor_name: null,
+                })
+              }
+
+              // Only process task engine cleanup if this task is in our
+              // active tasks (i.e. we tracked it on task.start because it
+              // belongs to us).
               if (taskId && useGameStore.getState().activeTasks[taskId]) {
                 useGameStore.getState().removeActiveTask(taskId)
 
