@@ -14,7 +14,6 @@ import {
   respondWithError,
   RequestValidationError,
 } from "../_shared/request.ts";
-import { computeCorpMemberRecipients } from "../_shared/visibility.ts";
 import { traced } from "../_shared/weave.ts";
 
 /**
@@ -224,19 +223,12 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       }
     }
 
-    // Get corp member recipients if in a corp
-    const sCorpLookup = trace.span("corp_lookup");
-    let additionalRecipients: { characterId: string; reason: string }[] = [];
-    if (effectiveCorpId) {
-      additionalRecipients = await computeCorpMemberRecipients(
-        supabase,
-        [effectiveCorpId],
-        [characterId], // exclude the acting character
-      );
-    }
-    sCorpLookup.end();
-
-    // Emit the task lifecycle event
+    // Task events are actor-private. Whether the ship is personal or
+    // corp-owned, only the acting character sees task lifecycle updates in
+    // their UI and LLM context. Cross-member awareness of ship busyness is
+    // enforced synchronously at start_task time (the server rejects an
+    // attempt to start a second task on a ship whose current_task_id is
+    // already set) — not by fanning out task events to corpmates.
     const sEmit = trace.span("emit_event");
     await emitCharacterEvent({
       supabase,
@@ -251,7 +243,6 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       corpId: effectiveCorpId ?? undefined,
       recipientReason: "task_owner",
       scope: "self",
-      additionalRecipients, // Corp members added here
     });
     sEmit.end();
 

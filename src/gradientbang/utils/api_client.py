@@ -1444,6 +1444,24 @@ class AsyncGameClient:
             return corps
         return []
 
+    async def regenerate_invite_code(
+        self,
+        *,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Regenerate the corporation's invite passphrase (founder only)."""
+
+        if character_id is None:
+            character_id = self._character_id
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {"character_id": character_id}
+        return await self._request("corporation.regenerate_invite_code", payload)
+
     async def purchase_ship(
         self,
         *,

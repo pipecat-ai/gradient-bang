@@ -14,7 +14,6 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
-import { computeCorpMemberRecipients } from "../_shared/visibility.ts";
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("task_cancel", async (req, trace) => {
@@ -143,15 +142,10 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     }
     sAuthCheck.end();
 
-    let additionalRecipients: { characterId: string; reason: string }[] = [];
-    if (taskCorpId) {
-      additionalRecipients = await computeCorpMemberRecipients(
-        supabase,
-        [taskCorpId],
-        [characterId, taskOwnerCharacterId],
-      );
-    }
-
+    // Task events are actor-private — see task_lifecycle for the full
+    // rationale. The cancel event goes to the task owner directly; if a
+    // corpmate triggered the cancel, they do NOT get a copy in their UI.
+    // Anyone who cares can query task history or corporation_info.
     const sEmit = trace.span("emit_event");
     await emitCharacterEvent({
       supabase,
@@ -169,7 +163,6 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
       recipientReason: "task_owner",
       scope: "self",
       corpId: taskCorpId ?? undefined,
-      additionalRecipients,
     });
     sEmit.end();
 

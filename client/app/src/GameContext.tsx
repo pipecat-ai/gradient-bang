@@ -328,6 +328,17 @@ export function GameProvider({ children }: GameProviderProps) {
                   type: "join",
                   message: "Joined the game",
                 })
+
+                // status.snapshot only carries the lightweight corporation
+                // row (id/name/member_count). The details modal and founder
+                // gating need the full payload — members, ships, is_founder,
+                // invite_code. Fetch it once on connect if the player is in
+                // a corp.
+                if (status.corporation) {
+                  useGameStore.getState().dispatchAction({
+                    type: "get-my-corporation",
+                  })
+                }
               }
 
               // Handle status update accordingly
@@ -674,6 +685,59 @@ export function GameProvider({ children }: GameProviderProps) {
                 old_corp_name: data.old_corp_name,
                 will_disband: data.will_disband,
               } satisfies ConfirmJoinData)
+              break
+            }
+
+            case "corporation.invite_code_regenerated": {
+              // Corp-scoped event. Optimistically patch the invite code in
+              // the local store so the open CorporationDetailsDialog updates
+              // immediately, then fetch the full corp payload so
+              // `invite_code_generated` / `invite_code_generated_by` come
+              // along too. Non-founders will simply get the full refresh.
+              console.debug("[GAME EVENT] Corporation invite code regenerated", e.payload)
+              const data = e.payload as { new_invite_code?: string }
+              const corp = useGameStore.getState().corporation
+              if (corp && typeof data.new_invite_code === "string") {
+                useGameStore.getState().setCorporation({
+                  ...corp,
+                  invite_code: data.new_invite_code,
+                })
+              }
+              useGameStore.getState().dispatchAction({
+                type: "get-my-corporation",
+              })
+              break
+            }
+
+            case "corporation.member_joined": {
+              // Emitted corp-scoped when any member joins. Show a toast to
+              // every corp member (including the joiner themselves) and
+              // refresh the roster so the members list picks up the new
+              // entry without waiting for the next poll.
+              console.debug("[GAME EVENT] Corporation member joined", e.payload)
+              const data = e.payload as {
+                corp_id: string
+                name: string
+                member_name: string
+                member_count: number
+                actor_character_id?: string
+              }
+              const myId = useGameStore.getState().character_id
+              const isSelf = Boolean(
+                data.actor_character_id && myId && data.actor_character_id === myId
+              )
+              useGameStore.getState().addToast({
+                type: "corporation.member_joined",
+                meta: {
+                  corp_name: data.name,
+                  member_name: data.member_name,
+                  member_count: data.member_count,
+                  is_self: isSelf,
+                },
+              })
+              useGameStore.getState().dispatchAction({
+                type: "get-my-corporation",
+              })
               break
             }
 

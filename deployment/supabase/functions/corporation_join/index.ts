@@ -29,6 +29,7 @@ import {
   fetchCorporationShipSummaries,
   loadCorporationById,
   markCorporationMembershipLeft,
+  normalizeInviteCode,
   upsertCorporationMembership,
   type CorporationRecord,
 } from "../_shared/corporations.ts";
@@ -330,6 +331,11 @@ async function handleJoin(params: {
     name: corporation.name,
     member_id: memberName, // Use display name for legacy compatibility
     member_name: memberName,
+    // Canonical character id so the client can reliably distinguish
+    // "you joined" vs "someone else joined your corp" without matching
+    // on display name. The legacy `member_id` is a name for backward
+    // compat with existing consumers.
+    actor_character_id: characterId,
     member_count: members.length,
     timestamp,
   };
@@ -404,8 +410,11 @@ async function validateJoin(params: {
   // code — they originally created it. Any other joiner must match it.
   const isFounderRejoin = corporation.founder_id === characterId;
   if (!isFounderRejoin) {
-    const provided = (inviteCode ?? "").trim().toLowerCase();
-    const expected = (corporation.invite_code ?? "").trim().toLowerCase();
+    // normalizeInviteCode tolerates speech input ("nebula cortex"), mixed
+    // case, underscores, and extra whitespace — folding all separators into
+    // the canonical single-dash form before comparison.
+    const provided = normalizeInviteCode(inviteCode);
+    const expected = normalizeInviteCode(corporation.invite_code);
     if (!provided) {
       throw new CorporationJoinError("Invite code is required", 400);
     }

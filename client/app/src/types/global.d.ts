@@ -41,9 +41,34 @@ declare global {
     member_count: number
     joined_at?: string
     timestamp?: string
+    founded?: string
     founder_id?: string
+    // Present for members (true only for founder). Undefined for the public
+    // non-member payload.
+    is_founder?: boolean
+    // Founder-only fields — the edge function omits these for non-founder
+    // members and non-members.
     invite_code?: string
-    member_count?: number
+    invite_code_generated?: string
+    invite_code_generated_by?: string | null
+    members?: Array<{ character_id: string; name: string; joined_at?: string | null }>
+    ships?: Array<{
+      ship_id: string
+      ship_type: string
+      name: string
+      sector: number | null
+      owner_type: string
+      credits: number
+      cargo: Record<Resource, number>
+      cargo_capacity: number
+      warp_power: number
+      warp_power_capacity: number
+      shields: number
+      max_shields: number
+      fighters: number
+      max_fighters: number
+      current_task_id: string | null
+    }>
     destroyed_ships?: DestroyedCorporationShip[]
   }
 
@@ -272,6 +297,7 @@ declare global {
     | "social_replay"
     | "confirm_kick"
     | "confirm_join"
+    | "corporation_details"
 
   // Data payloads for corp-confirmation modals. Stored on
   // `activeModal.data` when GameContext handles the pending event and

@@ -900,3 +900,146 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 18: tasks are actor-private — no fan-out to corpmates
+// ============================================================================
+//
+// Task events (task.start, task.finish, task.cancel) are per-player. Whether
+// the ship is personal or corp-owned, only the acting character receives
+// task lifecycle events in their UI and LLM context. Cross-member awareness
+// of ship busyness is handled synchronously at start_task time, not by
+// broadcasting events.
+
+Deno.test({
+  name: "task_lifecycle — personal-ship task does NOT reach corpmate",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and set up corp with P1 + P2", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Actor Private Personal Corp",
+      });
+      const corpId = (createResult as Record<string, unknown>).corp_id as string;
+      const inviteCode = (createResult as Record<string, unknown>)
+        .invite_code as string;
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: inviteCode,
+      });
+    });
+
+    let cursorP2: number;
+    const taskId = crypto.randomUUID();
+
+    await t.step("capture P2 cursor", async () => {
+      cursorP2 = await getEventCursor(p2Id);
+    });
+
+    await t.step("P1 starts a personal-ship task", async () => {
+      await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: taskId,
+        event_type: "start",
+        task_description: "Personal ship scout",
+      });
+    });
+
+    await t.step("P2 receives NO task.start for P1's personal task", async () => {
+      const events = await eventsOfType(p2Id, "task.start", cursorP2);
+      assertEquals(
+        events.length,
+        0,
+        `P2 should not see P1's personal task; got ${events.length} events`,
+      );
+    });
+
+    await t.step("P1 finishes the task", async () => {
+      await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: taskId,
+        event_type: "finish",
+        task_status: "completed",
+      });
+    });
+
+    await t.step("P2 receives NO task.finish either", async () => {
+      const events = await eventsOfType(p2Id, "task.finish", cursorP2);
+      assertEquals(
+        events.length,
+        0,
+        `P2 should not see P1's task.finish; got ${events.length} events`,
+      );
+    });
+  },
+});
+
+Deno.test({
+  name: "task_lifecycle — corp-ship task does NOT reach corpmate either",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+
+    await t.step(
+      "P1 founds corp with P2 + buys corp ship, captures cursors",
+      async () => {
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipCredits(p1ShipId, 50000);
+        const createResult = await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Actor Private Corp",
+        });
+        const corpId = (createResult as Record<string, unknown>).corp_id as string;
+        const inviteCode = (createResult as Record<string, unknown>)
+          .invite_code as string;
+        await apiOk("corporation_join", {
+          character_id: p2Id,
+          corp_id: corpId,
+          invite_code: inviteCode,
+        });
+
+        const { shipId } = await createCorpShip(corpId, 0, "ShareableProbe");
+        corpShipId = shipId;
+      },
+    );
+
+    let cursorP2: number;
+    const taskId = crypto.randomUUID();
+
+    await t.step("capture P2 cursor", async () => {
+      cursorP2 = await getEventCursor(p2Id);
+    });
+
+    await t.step("P1 starts a corp-ship task", async () => {
+      const result = await apiOk("task_lifecycle", {
+        character_id: corpShipId,
+        actor_character_id: p1Id,
+        task_id: taskId,
+        event_type: "start",
+        task_description: "Corp probe on errand",
+      });
+      assertEquals(
+        (result as Record<string, unknown>).event_type,
+        "start",
+      );
+    });
+
+    await t.step("P2 receives NO task.start for the corp ship either", async () => {
+      const events = await eventsOfType(p2Id, "task.start", cursorP2);
+      assertEquals(
+        events.length,
+        0,
+        `P2 should not see P1's corp-ship task; got ${events.length} events`,
+      );
+    });
+  },
+});

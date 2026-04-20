@@ -91,6 +91,7 @@ class EventConfig:
 
     # Append modifiers for DIRECT rule
     corp_scope_if_own_action: bool = False  # Also append corp-scoped events from our own tool calls
+    corp_scope_always_append: bool = False  # Append corp-scoped events for ANY corp member, not just the actor
     task_scoped_allowlisted: bool = False  # Pass through task-scoped direct filter
 
     # Side-effect flags
@@ -402,7 +403,10 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "corporation.created": EventConfig(corp_scope_if_own_action=True),
     "corporation.ship_purchased": EventConfig(corp_scope_if_own_action=True),
     "corporation.ship_sold": EventConfig(corp_scope_if_own_action=True),
-    "corporation.member_joined": EventConfig(corp_scope_if_own_action=True),
+    # Always append to every corp member's LLM context so corpmates learn
+    # about new members without a forced refresh. InferenceRule.NEVER (default)
+    # means context updates but no spontaneous narration is triggered.
+    "corporation.member_joined": EventConfig(corp_scope_always_append=True),
     "corporation.member_left": EventConfig(corp_scope_if_own_action=True),
     "corporation.member_kicked": EventConfig(corp_scope_if_own_action=True),
     "corporation.disbanded": EventConfig(corp_scope_if_own_action=True),
@@ -971,6 +975,13 @@ class EventRelay:
                 return cfg.task_scoped_allowlisted or is_voice
             return True
         if scope == "corp" and cfg.corp_scope_if_own_action and is_voice:
+            return True
+        # corp_scope_always_append is deliberately broader than
+        # corp_scope_if_own_action: we append corp-scoped events to ANY corp
+        # member's voice context, not only when the voice agent was the actor.
+        # Used for e.g. corporation.member_joined so every corpmate's LLM
+        # learns about the new member (inference still gated by InferenceRule).
+        if scope == "corp" and cfg.corp_scope_always_append:
             return True
         return False
 

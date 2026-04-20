@@ -1,5 +1,6 @@
 import { SocialReplayDialog } from "@/capture/SocialReplayDialog"
 
+import { CorporationDetailsDialog } from "./CorporationDetailsDialog"
 import { Disconnect } from "./Disconnect"
 import { JoinConfirmDialog } from "./JoinConfirmDialog"
 import { KickConfirmDialog } from "./KickConfirmDialog"
@@ -20,5 +21,6 @@ export const GameDialogs = () => (
     <SocialReplayDialog />
     <KickConfirmDialog />
     <JoinConfirmDialog />
+    <CorporationDetailsDialog />
   </>
 )

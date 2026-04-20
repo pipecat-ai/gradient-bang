@@ -38,7 +38,16 @@ export const TopBar = () => {
         <div className="shrink-0">
           <CharacterBadge />
         </div>
-        {corporation && <TopBarTextItem value={corporation.name} />}
+        {corporation && (
+          <button
+            type="button"
+            onClick={() => setActiveModal("corporation_details")}
+            className="flex flex-row gap-1.5 text-xs uppercase min-w-0 hover:text-terminal transition-colors cursor-pointer"
+            aria-label="View corporation details"
+          >
+            <TopBarTextItem value={corporation.name} />
+          </button>
+        )}
       </div>
       <div className="relative h-full shrink-0 w-56">
         <TopBarCreditBalance />

@@ -31,11 +31,13 @@ import {
   queryCharacter,
   queryShip,
   assertNoEventsOfType,
+  createCorpShip,
   setShipCredits,
   setShipSector,
   setShipWarpPower,
   setShipHyperspace,
   setShipFighters,
+  setMegabankBalance,
 } from "./helpers.ts";
 
 const P1 = "test_xfer_p1";
@@ -1183,5 +1185,118 @@ Deno.test({
       assertEquals(result.status, 400);
       assert(result.body.error?.includes("UUID or 6-8 hex"));
     });
+  },
+});
+
+// ============================================================================
+// Group 27: Credit transfer to a corp ship fans status.update corp-scoped
+// ============================================================================
+//
+// When the recipient is a corp-owned ship, the direct `status.update` lands
+// only on the ship's pseudo-character (no active session). Without the
+// corp-scoped fan-out, corpmate clients never see the new credit balance in
+// real time. This asserts the fan-out fires.
+
+Deno.test({
+  name: "transfer — credits to corp ship fans status.update corp-scoped",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+
+    await t.step(
+      "P1 founds corp with P2 + buys corp ship in sector 0",
+      async () => {
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipCredits(p1ShipId, 100_000);
+        const createResult = await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Corp Credit Fan Corp",
+        });
+        const corpId = (createResult as Record<string, unknown>).corp_id as string;
+        const inviteCode = (createResult as Record<string, unknown>)
+          .invite_code as string;
+        await apiOk("corporation_join", {
+          character_id: p2Id,
+          corp_id: corpId,
+          invite_code: inviteCode,
+        });
+
+        const { shipId } = await createCorpShip(corpId, 0, "CreditSink");
+        corpShipId = shipId;
+      },
+    );
+
+    let cursorP1: number;
+    let cursorP2: number;
+
+    await t.step("capture cursors before transfer", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+      cursorP2 = await getEventCursor(p2Id);
+    });
+
+    await t.step("P1 transfers 500 credits to the corp ship", async () => {
+      const result = await apiOk("transfer_credits", {
+        from_character_id: p1Id,
+        to_ship_id: corpShipId,
+        amount: 500,
+      });
+      assert(result.success);
+    });
+
+    await t.step(
+      "P1 (sender + corpmate) receives status.update for the corp ship",
+      async () => {
+        // Two status.update events are reachable: the direct-to-sender one
+        // (for P1's own ship post-transfer) AND the corp-scoped one (for
+        // the corp ship's new balance). The corp-scoped one is the fix.
+        // Fetch with corp scope so we see the corp fan-out too.
+        const result = await apiOk("my_corporation", { character_id: p1Id });
+        const corp = (result as Record<string, unknown>)
+          .corporation as Record<string, unknown> | null;
+        assertExists(corp);
+        const corpId = corp.corp_id as string;
+
+        const events = await eventsOfType(p1Id, "status.update", cursorP1, corpId);
+        // At least one status.update must describe the corp ship with the new credit balance.
+        const corpShipUpdate = events.find((ev) => {
+          const ship = (ev.payload as { ship?: Record<string, unknown> }).ship;
+          return ship && ship.ship_id === corpShipId;
+        });
+        assertExists(
+          corpShipUpdate,
+          `Expected a status.update for corp ship ${corpShipId}`,
+        );
+        const ship = (corpShipUpdate.payload as { ship: Record<string, unknown> }).ship;
+        assertEquals(
+          ship.credits,
+          1500, // createCorpShip seeds 1000, transfer adds 500
+          `Corp ship credits should be 1500, got ${ship.credits}`,
+        );
+      },
+    );
+
+    await t.step(
+      "P2 (non-actor corpmate) also receives status.update for the corp ship",
+      async () => {
+        const result = await apiOk("my_corporation", { character_id: p2Id });
+        const corp = (result as Record<string, unknown>)
+          .corporation as Record<string, unknown> | null;
+        assertExists(corp);
+        const corpId = corp.corp_id as string;
+
+        const events = await eventsOfType(p2Id, "status.update", cursorP2, corpId);
+        const corpShipUpdate = events.find((ev) => {
+          const ship = (ev.payload as { ship?: Record<string, unknown> }).ship;
+          return ship && ship.ship_id === corpShipId;
+        });
+        assertExists(
+          corpShipUpdate,
+          "Non-actor corpmate must receive corp-scoped status.update for the corp ship",
+        );
+      },
+    );
   },
 });

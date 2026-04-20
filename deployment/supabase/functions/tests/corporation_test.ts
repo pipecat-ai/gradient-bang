@@ -1918,3 +1918,105 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 39: corporation_join — invite code accepts varied separator input
+// ============================================================================
+
+Deno.test({
+  name: "corporation — invite code normalization tolerates varied separators",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let canonical: string;
+
+    await t.step("reset and create corp", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50_000);
+      const result = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Normalize Corp",
+      });
+      corpId = (result as Record<string, unknown>).corp_id as string;
+      canonical = (result as Record<string, unknown>).invite_code as string;
+      // Canonical form is always lowercase `word-word`.
+      assert(
+        /^[a-z]+-[a-z]+$/.test(canonical),
+        `Expected canonical word-word code, got: ${canonical}`,
+      );
+    });
+
+    // The code generator produces `word-word` — the two words are separated
+    // by a single dash. Users can deliver the same passphrase many ways
+    // depending on speech-to-text, typing habits, copy-paste, etc. The
+    // validation path should treat all of these as equivalent.
+    const variants = (code: string): string[] => {
+      const [a, b] = code.split("-");
+      return [
+        `${a} ${b}`, // spoken (space)
+        `${a}  ${b}`, // double space
+        `  ${a}  ${b}  `, // leading/trailing whitespace
+        `${a.toUpperCase()}-${b.toUpperCase()}`, // shouty
+        `${a[0].toUpperCase()}${a.slice(1)}-${b}`, // title-ish
+        `${a}_${b}`, // underscore
+        `${a}--${b}`, // double dash
+      ];
+    };
+
+    await t.step("join succeeds for each variant (separate attempt each)", async () => {
+      const codeVariants = variants(canonical);
+      for (const variant of codeVariants) {
+        // Fresh join each time — reset P2 between attempts so we're really
+        // testing the validator rather than side-effects of a prior join.
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipCredits(p1ShipId, 50_000);
+        const createAgain = await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Normalize Corp",
+        });
+        const freshCorpId = (createAgain as Record<string, unknown>).corp_id as string;
+        // The generator is random per create, so rebuild variants from the
+        // fresh canonical code for correctness.
+        const freshCanonical = (createAgain as Record<string, unknown>)
+          .invite_code as string;
+        const [a, b] = freshCanonical.split("-");
+        // Apply the same transformation as `variant` was derived from canonical,
+        // by locating its index in the original variants array.
+        const idx = codeVariants.indexOf(variant);
+        const reshaped = variants(freshCanonical)[idx];
+        const result = await apiOk("corporation_join", {
+          character_id: p2Id,
+          corp_id: freshCorpId,
+          invite_code: reshaped,
+        });
+        assert(
+          result.success,
+          `Variant [${reshaped}] (derived from canonical ${freshCanonical}, a=${a} b=${b}) should be accepted`,
+        );
+      }
+    });
+
+    await t.step("join still rejects genuinely wrong code", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50_000);
+      const result = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Normalize Corp Reject",
+      });
+      const corpIdReject = (result as Record<string, unknown>).corp_id as string;
+      const bad = await api("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpIdReject,
+        invite_code: "not-a-real-code",
+      });
+      assertEquals(bad.status, 400);
+    });
+  },
+});

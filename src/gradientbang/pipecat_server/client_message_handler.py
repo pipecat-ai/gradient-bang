@@ -792,6 +792,48 @@ class ClientMessageHandler:
             f"was taken. Acknowledge briefly.</event>"
         )
 
+    async def _handle_regenerate_invite_code(self, msg_type, msg_data):
+        # Triggered by the CorporationDetailsDialog's Regenerate button.
+        # Founder-only authorization is enforced by the edge function.
+        try:
+            result = await self._game_client.regenerate_invite_code(
+                character_id=self._character_id,
+            )
+        except Exception as exc:
+            logger.exception("regenerate-invite-code failed")
+            # Surface the error as spoken context (triggers inference so the
+            # LLM can actually tell the player).
+            await self._inject_llm_event(
+                f"<event>The player tried to regenerate the corporation's "
+                f"invite code but the server rejected it: {exc}. "
+                f"Briefly tell them.</event>"
+            )
+            return
+        if self._voice_agent is not None and isinstance(result, dict):
+            self._voice_agent.track_request_id(result.get("request_id"))
+        # Success path: update LLM context silently so the voice agent knows
+        # the code rotated if asked later, but DO NOT trigger inference —
+        # the modal already shows the new code, the player doesn't need a
+        # spoken acknowledgement.
+        pipeline_task = self._pipeline_task
+        if pipeline_task:
+            await pipeline_task.queue_frame(
+                LLMMessagesAppendFrame(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                "<event>The player regenerated the corporation's "
+                                "invite code. The new code has been displayed on "
+                                "their screen. Do not speak the code aloud unless "
+                                "asked.</event>"
+                            ),
+                        }
+                    ],
+                    run_llm=False,
+                )
+            )
+
     # ── Dispatch table ────────────────────────────────────────────────
 
     _HANDLERS = {
@@ -824,4 +866,5 @@ class ClientMessageHandler:
         "cancel-join": _handle_cancel_join,
         "confirm-kick": _handle_confirm_kick,
         "cancel-kick": _handle_cancel_kick,
+        "regenerate-invite-code": _handle_regenerate_invite_code,
     }
