@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `is_founder` flag on member payloads so LLM/UI can gate founder-only actions
 - New `KickConfirmDialog` and `JoinConfirmDialog` on the client
 - New `_shared/friendly.ts` helper (`areFriendly`, `areFriendlyFromMeta`, `buildCorporationMap`) — single source of truth for combat friendly checks. `combat_garrison` and `combat_resolution` migrated to it.
+- `VITE_BOT_URL` support in client for routing Pipecat sessions to a local bot while using prod Supabase (dev-only, dead-code-eliminated in prod builds)
 
 ### Changed
 
@@ -35,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Client now handles `corporation.member_left` / `corporation.member_kicked` to refresh the corp roster
 - Friendly-fire: corporation-owned ship garrisons no longer target corpmates. `loadGarrisonCombatants` was resolving owner corp via `corporation_members` alone, which doesn't include corp-ship pseudo-characters; their corp_id came back null and the round resolver treated corpmates as hostile. Same gap fixed in `combat_initiate`'s targetability check.
 - `combat_action` friendly-fire guard extended to character targets — previously only garrison targets were rejected, so a player dragged into combat with a corpmate could attack them.
+- Corp-ship events no longer leak into voice agent context — remote sector activity was appearing as if it were the player's own
+- Task slot limits now explicit in game prompts — LLM was telling players they could run unlimited concurrent tasks
+- Dockerfile: copy real `__init__.py` instead of empty stub that crashed bot on startup
 
 ## [0.1.2] - 2026-04-19
 
