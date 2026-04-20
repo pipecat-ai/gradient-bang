@@ -74,6 +74,7 @@ export const usePipecatConversation = ({ onMessageAdded, aggregationMetadata }: 
 
     // Process messages: convert string parts to BotOutputText based on position state
     const processedMessages = messages.map((message) => {
+      if (!message) return message
       if (message.role === "assistant") {
         const messageId = message.createdAt
         const messageState = botOutputMessageState.get(messageId)
