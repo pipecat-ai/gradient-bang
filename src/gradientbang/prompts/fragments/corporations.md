@@ -45,6 +45,13 @@ To look up a specific corp: `corporation_info(corp_id="...")`
 
 Corporation ships can be tasked and controlled by any member.
 
+### Destroyed Ships
+
+Ships marked `[DESTROYED]` in fleet summaries or the `Destroyed ships` block of
+`corporation_info()` are permanently gone. Do not task, move, trade with,
+transfer credits to/from, or otherwise command them. They are retained in
+listings only as history. If the pilot asks about one, say it was destroyed.
+
 ### Tasking a Corporation Ship
 
 **CRITICAL: Two-step process required:**

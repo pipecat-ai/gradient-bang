@@ -307,6 +307,88 @@ class TestVoiceSummary:
         event = {"payload": {"ships": []}}
         assert _summarize_ships_list(relay, event) == "No ships available."
 
+    def test_ships_list_active_only(self):
+        relay, _, _, _ = _make_relay()
+        event = {
+            "payload": {
+                "ships": [
+                    {
+                        "ship_id": "aaaaaaaa-1111-2222-3333-444444444444",
+                        "ship_name": "Scout",
+                        "ship_type": "autonomous_probe",
+                        "sector": 7,
+                        "owner_type": "corporation",
+                        "destroyed_at": None,
+                    },
+                ],
+            }
+        }
+        result = _summarize_ships_list(relay, event)
+        assert result.startswith("Fleet: 1 active\n")
+        assert "destroyed" not in result.lower()
+        assert "Corporation ships (1):" in result
+        assert "Scout" in result
+
+    def test_ships_list_mixed_active_and_destroyed(self):
+        relay, _, _, _ = _make_relay()
+        event = {
+            "payload": {
+                "ships": [
+                    {
+                        "ship_id": "aaaaaaaa-1111-2222-3333-444444444444",
+                        "ship_name": "Scout",
+                        "ship_type": "autonomous_probe",
+                        "sector": 7,
+                        "owner_type": "corporation",
+                        "destroyed_at": None,
+                    },
+                    {
+                        "ship_id": "bbbbbbbb-1111-2222-3333-444444444444",
+                        "ship_name": "Old Hauler",
+                        "ship_type": "autonomous_light_hauler",
+                        "sector": 12,
+                        "owner_type": "corporation",
+                        "destroyed_at": "2026-04-01T00:00:00Z",
+                    },
+                ],
+            }
+        }
+        result = _summarize_ships_list(relay, event)
+        assert result.startswith("Fleet: 1 active, 1 destroyed\n")
+        assert "Corporation ships (1):" in result
+        assert "Destroyed ships (1):" in result
+        # [DESTROYED] tag must be on the destroyed line only
+        destroyed_lines = [
+            line for line in result.splitlines() if "[DESTROYED]" in line
+        ]
+        assert len(destroyed_lines) == 1
+        assert "Old Hauler" in destroyed_lines[0]
+        assert "last seen sector 12" in destroyed_lines[0]
+        # Active ship must not be tagged
+        assert "[DESTROYED] Scout" not in result
+
+    def test_ships_list_all_destroyed(self):
+        relay, _, _, _ = _make_relay()
+        event = {
+            "payload": {
+                "ships": [
+                    {
+                        "ship_id": "bbbbbbbb-1111-2222-3333-444444444444",
+                        "ship_name": "Old Hauler",
+                        "ship_type": "autonomous_light_hauler",
+                        "sector": 12,
+                        "owner_type": "corporation",
+                        "destroyed_at": "2026-04-01T00:00:00Z",
+                    },
+                ],
+            }
+        }
+        result = _summarize_ships_list(relay, event)
+        assert result.startswith("Fleet: 0 active, 1 destroyed\n")
+        assert "Corporation ships" not in result
+        assert "Destroyed ships (1):" in result
+        assert "[DESTROYED] Old Hauler" in result
+
     def test_combat_action_accepted(self):
         relay, _, _, _ = _make_relay()
         event = {"payload": {"round": 2, "action": "Attack", "commit": 10}}

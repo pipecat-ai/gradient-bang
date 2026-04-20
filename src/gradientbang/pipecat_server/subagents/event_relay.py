@@ -32,6 +32,7 @@ from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_ch
 from gradientbang.utils.formatting import (
     extract_display_name,
     format_ship_summary_line,
+    friendly_ship_type,
     short_id,
     shorten_embedded_ids,
 )
@@ -174,9 +175,14 @@ def _summarize_ships_list(relay: EventRelay, event: dict) -> Optional[str]:
     ships = payload.get("ships", [])
     if not ships:
         return "No ships available."
-    personal = [s for s in ships if s.get("owner_type") == "personal"]
-    corp = [s for s in ships if s.get("owner_type") == "corporation"]
-    lines = [f"Fleet: {len(ships)} ship{'s' if len(ships) != 1 else ''}"]
+    active = [s for s in ships if not s.get("destroyed_at")]
+    destroyed = [s for s in ships if s.get("destroyed_at")]
+    personal = [s for s in active if s.get("owner_type") == "personal"]
+    corp = [s for s in active if s.get("owner_type") == "corporation"]
+    header = f"Fleet: {len(active)} active"
+    if destroyed:
+        header += f", {len(destroyed)} destroyed"
+    lines = [header]
     if personal:
         lines.append("Your ship:")
         for ship in personal:
@@ -185,6 +191,18 @@ def _summarize_ships_list(relay: EventRelay, event: dict) -> Optional[str]:
         lines.append(f"Corporation ships ({len(corp)}):")
         for ship in corp:
             lines.append(format_ship_summary_line(ship, include_id=True))
+    if destroyed:
+        lines.append(f"Destroyed ships ({len(destroyed)}):")
+        for ship in destroyed:
+            name = shorten_embedded_ids(
+                str(ship.get("ship_name") or ship.get("name") or "Unnamed Vessel")
+            )
+            ship_type = friendly_ship_type(ship.get("ship_type"))
+            sector = ship.get("sector")
+            sector_display = sector if isinstance(sector, int) else "unknown"
+            lines.append(
+                f"- [DESTROYED] {name} ({ship_type}) last seen sector {sector_display}"
+            )
     return "\n".join(lines)
 
 
