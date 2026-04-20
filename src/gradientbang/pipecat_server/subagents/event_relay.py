@@ -376,7 +376,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "quest.reward_claimed": EventConfig(inference=InferenceRule.ALWAYS, debounce_seconds=2.0),
     # Task-scoped allowlisted (direct events pass through when task-scoped)
     "trade.executed": EventConfig(task_scoped_allowlisted=True),
-    "port.update": EventConfig(task_scoped_allowlisted=True),
+    "port.update": EventConfig(append=AppendRule.LOCAL),
     "bank.transaction": EventConfig(task_scoped_allowlisted=True),
     "warp.purchase": EventConfig(task_scoped_allowlisted=True),
     "map.local": EventConfig(task_scoped_allowlisted=True),
@@ -398,8 +398,8 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         voice_summary=_summarize_event_query,
     ),
     "ships.list": EventConfig(voice_summary=_summarize_ships_list),
-    # Plain defaults (DIRECT append, NEVER inference)
-    "sector.update": EventConfig(),
+    # Misc event configs
+    "sector.update": EventConfig(append=AppendRule.LOCAL),
     "path.region": EventConfig(),
     "movement.start": EventConfig(),
     "map.knowledge": EventConfig(),
@@ -413,7 +413,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "garrison.combat_alert": EventConfig(),
     "salvage.collected": EventConfig(),
     "salvage.created": EventConfig(),
-    "ship.destroyed": EventConfig(),
+    "ship.destroyed": EventConfig(append=AppendRule.LOCAL),
     "ship.definitions": EventConfig(),
     "quest.status": EventConfig(),
     "quest.progress": EventConfig(),
@@ -663,6 +663,12 @@ class EventRelay:
 
     # ── Payload helpers ─────────────────────────────────────────────────
 
+    def _bound_character_id(self) -> str:
+        candidate = getattr(self._game_client, "_canonical_character_id", None)
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+        return self._character_id
+
     @staticmethod
     def _extract_combat_id(payload: Any) -> Optional[str]:
         if not isinstance(payload, Mapping):
@@ -741,14 +747,22 @@ class EventRelay:
         return ctx if isinstance(ctx, Mapping) else None
 
     @staticmethod
-    def _extract_sector_id(payload: Mapping[str, Any]) -> Optional[int]:
+    def _extract_sector_id(
+        payload: Mapping[str, Any], *, allow_top_level_id: bool = False
+    ) -> Optional[int]:
         sector = payload.get("sector")
         if isinstance(sector, Mapping):
-            candidate = sector.get("id") or sector.get("sector_id")
+            candidate = sector.get("id")
+            if candidate is None:
+                candidate = sector.get("sector_id")
         else:
             candidate = payload.get("sector_id")
             if candidate is None:
                 candidate = sector
+        if candidate is None and allow_top_level_id:
+            candidate = payload.get("id")
+        if isinstance(candidate, bool):
+            return None
         if isinstance(candidate, int):
             return candidate
         if isinstance(candidate, str) and candidate.strip().isdigit():
@@ -888,7 +902,10 @@ class EventRelay:
 
         if rule == AppendRule.LOCAL:
             if isinstance(clean_payload, Mapping):
-                sector_id = self._extract_sector_id(clean_payload)
+                sector_id = self._extract_sector_id(
+                    clean_payload,
+                    allow_top_level_id=event_name == "sector.update",
+                )
                 is_local = (
                     sector_id is not None
                     and self._current_sector_id is not None
@@ -904,6 +921,13 @@ class EventRelay:
             return True
 
         # AppendRule.DIRECT (default)
+        # DIRECT rows can be delivered to the voice client because the shared
+        # poller includes corp-ship ids for TaskAgent fan-out. If the event
+        # subject is another player/pseudo-character, keep it out of voice LLM
+        # context; LOCAL/PARTICIPANT/OWNED_TASK rules make their own decisions.
+        if is_other_player:
+            return False
+
         if event_context is None:
             logger.info(
                 "voice.event_context.missing event_name={} request_id={} payload_task_id={}",
@@ -1018,7 +1042,8 @@ class EventRelay:
                 pid = player.get("id")
                 if isinstance(pid, str) and pid.strip():
                     player_id = pid
-        is_other_player = bool(player_id and player_id != self._character_id)
+        bound_character_id = self._bound_character_id()
+        is_other_player = bool(player_id and player_id != bound_character_id)
 
         # ── Phase 2: Pre-routing side effects ──
 

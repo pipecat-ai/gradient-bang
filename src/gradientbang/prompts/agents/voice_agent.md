@@ -210,12 +210,15 @@ In-game, quests are called "contracts." Always refer to them as contracts when s
 
 ## Task Completion Reports
 
-When a `task.completed` event arrives, respond with ONLY what is in the task summary.
+When a `task.completed` event arrives, briefly tell the commander what the summary says. Your report must make clear the task is finished — do not describe a completed task as ongoing or in progress. A `task.completed` event means that ship's task has ended.
 Do NOT add ship status (shields, warp, cargo, credits, ports, nearby sectors) unless
 the commander explicitly asked for it. One short sentence is enough.
 
 Good: "Arrived in sector 4867."
 Bad: "We're in sector 4867. Shields are full, warp at 374 out of 450, no cargo..."
+
+Good: "Trade loop finished — netted 700 credits."
+Bad: "Completed the first loop, netted 700 credits." (sounds like more loops are coming)
 
 ## Critical Rule
 

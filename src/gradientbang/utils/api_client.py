@@ -197,15 +197,8 @@ class AsyncGameClient:
         logger.info(f"Registered summary formatter for endpoint: {endpoint}")
 
     def _build_default_summaries(self) -> Dict[str, Callable[[Dict[str, Any]], str]]:
-        def map_local_wrapper(
-            data: Dict[str, Any], client: "AsyncGameClient" = self
-        ) -> str:
-            current = client._current_sector
-            if current is None and isinstance(data, Mapping):
-                current_candidate = data.get("center_sector")
-                if isinstance(current_candidate, int):
-                    current = current_candidate
-            return map_local_summary(data, current)
+        def map_local_wrapper(data: Dict[str, Any]) -> str:
+            return map_local_summary(data)
 
         def event_query_wrapper(
             data: Dict[str, Any], client: "AsyncGameClient" = self
@@ -283,22 +276,47 @@ class AsyncGameClient:
 
         self._current_sector = value
 
+    def _bound_character_id(self) -> str:
+        """Return the canonical form of the bound character id for event comparisons.
+
+        Event payloads from the server carry canonical UUIDs. The base client
+        stores ``self._character_id`` as-provided (possibly a legacy label in
+        dev environments with ``SUPABASE_ALLOW_LEGACY_IDS=1``). The Supabase
+        subclass precomputes ``_canonical_character_id``; prefer that when
+        available.
+        """
+        return getattr(self, "_canonical_character_id", None) or self._character_id
+
     def _maybe_update_current_sector(
         self, event_name: str, payload: Mapping[str, Any]
     ) -> None:
-        """Extract and cache the player's current sector from incoming data."""
+        """Extract and cache the bound character's current sector from incoming data.
+
+        Events reaching this client's poller may describe other characters
+        (e.g., corp ships in the voice agent's shared client). Only update the
+        cache when the event is about ``self._character_id`` — otherwise a
+        corp-ship movement would clobber the player's cached sector.
+
+        Only self-state events carry authoritative current-sector info:
+        ``movement.complete``/``status.snapshot``/``status.update`` via
+        ``payload.sector.id`` and ``map.local`` via ``payload.center_sector``.
+        Other events are ignored.
+        """
+
+        # Ownership guard: covers every extraction branch below uniformly.
+        player = payload.get("player")
+        if not isinstance(player, Mapping):
+            return
+        player_id = player.get("id")
+        if not isinstance(player_id, str) or player_id != self._bound_character_id():
+            return
 
         sector_id: Optional[Any] = None
-
         if event_name in {"movement.complete", "status.snapshot", "status.update"}:
             sector = payload.get("sector")
             if isinstance(sector, Mapping):
                 sector_id = sector.get("id")
-
-        if sector_id is None and "current_sector" in payload:
-            sector_id = payload.get("current_sector")
-
-        if sector_id is None and event_name in {"map.local", "local_map_region"}:
+        elif event_name == "map.local":
             sector_id = payload.get("center_sector")
 
         if sector_id is not None:
@@ -307,9 +325,24 @@ class AsyncGameClient:
     def _maybe_update_corporation_id(
         self, event_name: str, payload: Mapping[str, Any]
     ) -> None:
-        """Extract and cache the player's corporation ID from status events."""
+        """Extract and cache the bound character's corporation ID from status events.
+
+        Corp ships of the bound character's corp share the same corp_id, so
+        pollution is usually harmless — but a status event for a corp ship that
+        briefly reports stale or transitional corp data could flip the cache.
+        Only update from events about ``self._character_id``.
+        """
         if event_name not in {"status.snapshot", "status.update"}:
             return
+
+        # Ownership guard: only update from events about the bound character.
+        player = payload.get("player")
+        if not isinstance(player, Mapping):
+            return
+        player_id = player.get("id")
+        if not isinstance(player_id, str) or player_id != self._bound_character_id():
+            return
+
         corporation = payload.get("corporation")
         if isinstance(corporation, Mapping):
             corp_id = corporation.get("corp_id")
