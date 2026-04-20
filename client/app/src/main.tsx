@@ -42,10 +42,37 @@ const queryParams = new URLSearchParams(window.location.search)
 const transport =
   queryParams.get("transport") || import.meta.env.VITE_PIPECAT_TRANSPORT || "smallwebrtc"
 
-const endpoint =
-  (queryParams.get("server") ||
-    import.meta.env.VITE_SERVER_URL ||
-    "http://localhost:54321/functions/v1") + "/start"
+const queryServer = queryParams.get("server")
+
+// VITE_BOT_URL (dev builds only): routes bot session-create + WebRTC offer
+// straight to a local Pipecat bot, while other edge-function calls (login,
+// leaderboard, etc.) still go through VITE_SERVER_URL. Bypasses the Supabase
+// /start edge-function shim — and its character-ownership check — so it must
+// never be active in a prod bundle. import.meta.env.DEV is inlined to false
+// by Vite for production builds, so this branch is dead-code-eliminated.
+// A trailing /start is tolerated so pasting a full "start URL" still works.
+const envBotUrl =
+  import.meta.env.DEV ?
+    import.meta.env.VITE_BOT_URL?.replace(/\/start\/?$/, "") || undefined
+  : undefined
+
+// directBot must reflect who won the precedence chain. ?server= preserves its
+// historical meaning (override VITE_SERVER_URL for a different edge-function
+// env), so we force edge-function mode whenever it is set.
+const directBot = !queryServer && Boolean(envBotUrl)
+
+const botBase =
+  queryServer ||
+  envBotUrl ||
+  import.meta.env.VITE_SERVER_URL ||
+  "http://localhost:54321/functions/v1"
+
+// Native Pipecat bot uses /sessions/:id/api/offer for the WebRTC offer; the
+// Supabase edge-function shim exposes /start/:id/api/offer and rewrites
+// internally. Use whichever matches the base we picked.
+const endpoint = botBase + "/start"
+const offerUrlTemplate =
+  directBot ? `${botBase}/sessions/:sessionId/api/offer` : `${botBase}/start/:sessionId/api/offer`
 
 useGameStore.getState().setBotConfig(
   {
@@ -71,9 +98,7 @@ const App = lazy(async () => {
       async () => {
         const { SmallWebRTCTransport } = await import("@pipecat-ai/small-webrtc-transport")
         return new SmallWebRTCTransport({
-          offerUrlTemplate: `${
-            import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1"
-          }/start/:sessionId/api/offer`,
+          offerUrlTemplate,
         })
       }
     : async () => {

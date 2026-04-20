@@ -64,7 +64,7 @@ Configure in `app/.env` (see `app/env.example`). All are optional.
 | ---------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `VITE_SERVER_URL`                  | `http://localhost:54321/functions/v1` | Supabase edge functions URL                                                               |
 | `VITE_PIPECAT_TRANSPORT`           | `smallwebrtc`                         | WebRTC transport (`smallwebrtc` or `daily`). Also settable via `?transport=` query string |
-| `VITE_BOT_URL`                     | `http://localhost:7860`               | Bot start URL (SmallWebRTC direct connect). Also used in Ladle                            |
+| `VITE_BOT_URL`                     | unset (Ladle: `http://localhost:7860`) | Dev-only. Pipecat bot base URL (no trailing `/start`). When set in dev builds, the client bypasses the Supabase `/start` edge-function shim and talks to a local bot directly. Ignored in production builds. |
 | `VITE_MAINTENANCE_MODE`            | —                                     | Set to any truthy value to show maintenance screen                                        |
 | `VITE_SERVER_LEADERBOARD_ENDPOINT` | `/leaderboard_resources`              | Leaderboard edge function path                                                            |
 | `VITE_APP_VERSION`                 | from `package.json`                   | Injected at build time via `vite.config.ts` — not user-set                                |
