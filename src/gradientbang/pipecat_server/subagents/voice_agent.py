@@ -865,10 +865,9 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
-            self._begin_assistant_response_cycle()
             await params.result_callback(
                 {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=True),
+                properties=FunctionCallResultProperties(run_llm=False),
             )
         except Exception as exc:
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
