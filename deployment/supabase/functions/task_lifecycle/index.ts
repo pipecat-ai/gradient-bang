@@ -240,7 +240,7 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       requestId,
       taskId,
       shipId: shipId ?? undefined,
-      corpId: effectiveCorpId ?? undefined,
+      corpId: taskScope === "corp_ship" ? (effectiveCorpId ?? undefined) : undefined,
       recipientReason: "task_owner",
       scope: "self",
     });

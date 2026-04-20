@@ -1333,7 +1333,11 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as Msg.TaskStartMessage
 
               const taskId = normalizeTaskId(data.task_id)
-              if (taskId) {
+              const myId = useGameStore.getState().character_id
+              // Only track tasks initiated by this player in the task engine.
+              // Other corp members' tasks show ship "busy" status via status
+              // events, but don't fill our task engine badges.
+              if (taskId && (!data.actor_character_id || data.actor_character_id === myId)) {
                 useGameStore.getState().addActiveTask({
                   task_id: taskId,
                   task_description: data.task_description,
@@ -1353,9 +1357,10 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Task finish", e.payload)
               const data = e.payload as Msg.TaskFinishMessage
 
-              // Remove task from active task map
+              // Only process if this task is in our active tasks (i.e. we
+              // tracked it on task.start because it belongs to us).
               const taskId = normalizeTaskId(data.task_id)
-              if (taskId) {
+              if (taskId && useGameStore.getState().activeTasks[taskId]) {
                 useGameStore.getState().removeActiveTask(taskId)
 
                 // Backward compatibility while old short IDs may still exist in local state.
@@ -1369,15 +1374,15 @@ export function GameProvider({ children }: GameProviderProps) {
                     }
                   }
                 }
+
+                // Add task summary to store
+                useGameStore.getState().addTaskSummary(data as unknown as TaskSummary)
+
+                // Refetch task history
+                useGameStore
+                  .getState()
+                  .dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
               }
-
-              // Add task summary to store
-              useGameStore.getState().addTaskSummary(data as unknown as TaskSummary)
-
-              // Refetch task history
-              useGameStore
-                .getState()
-                .dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
               break
             }
 
@@ -1402,9 +1407,10 @@ export function GameProvider({ children }: GameProviderProps) {
                   )
                 )
                 .find((taskId): taskId is string => !!taskId)
-              const fullTaskId = taskIdCandidates.find((candidate) => candidate.includes("-"))
-              const selectedTaskId =
-                activeTaskId ?? prefixedActiveTaskId ?? fullTaskId ?? taskIdCandidates[0]
+
+              // Only process output for tasks we're tracking (our own tasks).
+              const selectedTaskId = activeTaskId ?? prefixedActiveTaskId
+              if (!selectedTaskId) break
 
               useGameStore.getState().addTaskOutput({
                 task_id: selectedTaskId,
