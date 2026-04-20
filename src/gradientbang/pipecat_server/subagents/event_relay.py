@@ -477,6 +477,9 @@ class TaskStateProvider(Protocol):
     # voice agent knows whether it has capacity to start another task).
     def active_tasks_summary(self) -> str: ...
 
+    # Polling scope management
+    def update_polling_scope(self) -> None: ...
+
     # Request ID tracking
     def is_recent_request_id(self, request_id: str) -> bool: ...
     # LLM frame management (inherited from LLMAgent)
@@ -513,6 +516,7 @@ class EventRelay:
         self.display_name: str = character_id
         self.actor_ship_id: Optional[str] = None
         self._current_sector_id: Optional[int] = None
+        self._last_poll_corp_id: Optional[str] = game_client.corporation_id
         # Onboarding (passive observation)
         self.is_new_player: Optional[bool] = None  # None=unknown, True=new, False=veteran
         self._first_status_delivered = False
@@ -624,6 +628,18 @@ class EventRelay:
             ship_id = ship.get("ship_id")
             if isinstance(ship_id, str) and ship_id.strip():
                 self.actor_ship_id = ship_id
+
+    def _sync_corp_polling_scope(self) -> None:
+        """Sync polling scope when corporation_id changes on the game client.
+
+        Called after status.snapshot/status.update sets corporation_id.
+        Mirrors the pattern from the old VoiceTaskManager._sync_corp_polling_scope.
+        """
+        corp_id = self._game_client.corporation_id
+        if corp_id == self._last_poll_corp_id:
+            return
+        self._last_poll_corp_id = corp_id
+        self._task_state.update_polling_scope()
 
     # ── Onboarding (passive observation) ─────────────────────────────
 
@@ -1103,10 +1119,11 @@ class EventRelay:
         if payload_task_id:
             is_our_task = self._task_state.is_our_task(payload_task_id)
 
-        # Display name / corp sync
+        # Display name / corp polling scope sync
         if cfg.sync_display_name and not is_other_player and isinstance(clean_payload, Mapping):
             self._update_display_name(clean_payload)
             self._update_actor_ship_id(clean_payload)
+            self._sync_corp_polling_scope()
 
         # ── Phase 3: RTVI push ──
         await self._rtvi.push_frame(

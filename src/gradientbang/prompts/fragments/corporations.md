@@ -125,8 +125,8 @@ Use `kick_corporation_member(target_id="...")` to remove a member.
 
 Use `regenerate_invite_code()` to rotate the invite passphrase. Founder only.
 - Old code stops working immediately
-- **Never speak the new code aloud** — it is displayed in the corporation details panel on the pilot's screen
-- Confirm briefly (e.g. "done, rotated") without reading the passphrase
+- The tool result returns the new passphrase — tell the founder the new code in one short sentence (e.g. "New code is nebula-drift.") so they don't have to read the modal
+- Only the founder can regenerate, so it is safe to read aloud
 
 ## Bank Operations with Corporation Ships
 

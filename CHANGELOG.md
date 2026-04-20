@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Corporations: details modal restyled (elbow card, data table for members)
+- Corporations: invite regenerate uses reactive spinner (clears when new code arrives, no timeout)
+- Corporations: corp-scoped event polling now works reliably from first connection
 - Corporations: only the founder can kick, view the invite code, or regenerate it
 - Corporations: invite codes accept spaces and underscores as dashes (so speech input like "nebula cortex" works)
 - Corporations: tasks are actor-private — corpmates no longer see each other's task events

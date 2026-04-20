@@ -639,24 +639,27 @@ class VoiceAgent(LLMAgent):
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     async def _handle_regenerate_invite_code(self, params: FunctionCallParams):
-        # Founder-only. On success the new code is broadcast via
-        # corporation.invite_code_regenerated and surfaced in the
-        # CorporationDetailsDialog. We deliberately do NOT return the new
-        # code here — the LLM's acknowledgement should say "rotated" /
-        # "done" without reading the passphrase aloud.
+        # Founder-only. The new code is also surfaced in the
+        # CorporationDetailsDialog via the corp-scoped event; returning it
+        # in the tool result lets the voice agent tell the founder the
+        # new passphrase directly so they don't have to read the modal.
         try:
             result = await self._game_client.regenerate_invite_code(
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
+            new_code = (
+                result.get("new_invite_code") if isinstance(result, dict) else None
+            )
             self._begin_assistant_response_cycle()
             await params.result_callback(
                 {
                     "success": True,
+                    "new_invite_code": new_code,
                     "note": (
-                        "New invite code is shown in the corporation "
-                        "details panel on the player's screen. Do NOT "
-                        "speak the code aloud."
+                        "Tell the founder the new invite code in one short "
+                        "sentence (e.g. 'New code is <code>.'). Only the "
+                        "founder can regenerate, so it is safe to read aloud."
                     ),
                 },
                 properties=FunctionCallResultProperties(run_llm=True),
@@ -1126,8 +1129,11 @@ class VoiceAgent(LLMAgent):
             f"{corp}/{MAX_CORP_SHIP_TASKS} corp."
         )
 
-    def _update_polling_scope(self) -> None:
-        """Derive corp ship IDs from children and update game_client polling."""
+    def update_polling_scope(self) -> None:
+        """Derive corp ship IDs from children and update game_client polling.
+
+        Public interface for EventRelay's TaskStateProvider protocol.
+        """
         ship_ids = sorted(
             {c._character_id for c in self.children if isinstance(c, TaskAgent) and c._is_corp_ship}
         )
@@ -1136,6 +1142,9 @@ class VoiceAgent(LLMAgent):
             corp_id=self._game_client.corporation_id,
             ship_ids=ship_ids,
         )
+
+    # Keep private alias for internal callers
+    _update_polling_scope = update_polling_scope
 
     def _get_task_type(self, ship_id: Optional[str]) -> str:
         if ship_id and ship_id != self._character_id:

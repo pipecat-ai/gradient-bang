@@ -1642,6 +1642,11 @@ export function GameProvider({ children }: GameProviderProps) {
                     .setUIModeFromAgent(uiPayload.show_panel as UIMode | "default")
                 }
 
+                // Modal opening from the UI agent (e.g. corporation_details)
+                if (typeof uiPayload.show_modal === "string") {
+                  useGameStore.getState().setActiveModal(uiPayload.show_modal as UIModal)
+                }
+
                 // Everything else is map-domain
                 useGameStore.getState().handleMapUIAction({
                   mapCenterSector:
@@ -1685,6 +1690,17 @@ export function GameProvider({ children }: GameProviderProps) {
                   parts: [
                     {
                       text: "Show Panel(" + (uiPayload.show_panel as UIMode | "default") + ")",
+                      final: true,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ],
+                })
+              } else if (typeof uiPayload.show_modal === "string") {
+                useConversationStore.getState().injectMessage({
+                  role: "ui",
+                  parts: [
+                    {
+                      text: "Open Modal(" + (uiPayload.show_modal as UIModal) + ")",
                       final: true,
                       createdAt: new Date().toISOString(),
                     },

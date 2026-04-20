@@ -100,6 +100,10 @@ export interface CombatActionAction {
 
 type ActionMeta = { async?: boolean }
 
+export interface RegenerateInviteCodeAction {
+  type: "regenerate-invite-code"
+}
+
 export interface DumpLLMContextAction {
   type: "dump-llm-context"
 }
@@ -126,6 +130,7 @@ export type GameAction = (
   | AssignQuestAction
   | ClaimStepRewardAction
   | CombatActionAction
+  | RegenerateInviteCodeAction
   | DumpLLMContextAction
   | DumpTaskContextAction
 ) &

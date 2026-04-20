@@ -801,20 +801,18 @@ class ClientMessageHandler:
             )
         except Exception as exc:
             logger.exception("regenerate-invite-code failed")
-            # Surface the error as spoken context (triggers inference so the
-            # LLM can actually tell the player).
             await self._inject_llm_event(
                 f"<event>The player tried to regenerate the corporation's "
                 f"invite code but the server rejected it: {exc}. "
                 f"Briefly tell them.</event>"
             )
             return
+        # Track the request_id so EventRelay recognises the follow-up
+        # corporation.invite_code_regenerated as an own-action event.
         if self._voice_agent is not None and isinstance(result, dict):
             self._voice_agent.track_request_id(result.get("request_id"))
-        # Success path: update LLM context silently so the voice agent knows
-        # the code rotated if asked later, but DO NOT trigger inference —
-        # the modal already shows the new code, the player doesn't need a
-        # spoken acknowledgement.
+        # Silent LLM context update — the player used the modal, not voice,
+        # so we update context for continuity but skip spoken acknowledgement.
         pipeline_task = self._pipeline_task
         if pipeline_task:
             await pipeline_task.queue_frame(
