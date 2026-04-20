@@ -20,11 +20,11 @@ import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   apiOk,
   characterIdFor,
-  shipIdFor,
   createCorpShip,
-  setShipCredits,
-  setShipCargo,
   setMegabankBalance,
+  setShipCargo,
+  setShipCredits,
+  shipIdFor,
   withPg,
 } from "./helpers.ts";
 
@@ -80,6 +80,7 @@ async function expectedMemberBreakdown(
          JOIN ship_definitions sd ON sd.ship_type = si.ship_type
          WHERE NOT si.is_escape_pod
            AND si.owner_id = $1
+           AND si.destroyed_at IS NULL
            AND si.owner_type IS DISTINCT FROM 'corporation'
        ),
        corp AS (
@@ -91,6 +92,7 @@ async function expectedMemberBreakdown(
          FROM ship_instances si
          JOIN ship_definitions sd ON sd.ship_type = si.ship_type
          WHERE NOT si.is_escape_pod
+           AND si.destroyed_at IS NULL
            AND si.owner_type = 'corporation'
            AND si.owner_corporation_id = $2
        )
@@ -162,7 +164,9 @@ async function personalWealth(charId: string): Promise<number> {
            )
            FROM ship_instances si
            JOIN ship_definitions sd ON sd.ship_type = si.ship_type
-           WHERE si.owner_id = c.character_id AND NOT si.is_escape_pod
+           WHERE si.owner_id = c.character_id
+             AND NOT si.is_escape_pod
+             AND si.destroyed_at IS NULL
          ), 0)
        )::text AS w
        FROM characters c WHERE c.character_id = $1`,
@@ -185,7 +189,8 @@ async function corpShipWealth(corpId: string): Promise<number> {
        JOIN ship_definitions sd ON sd.ship_type = si.ship_type
        WHERE si.owner_type = 'corporation'
          AND si.owner_corporation_id = $1
-         AND NOT si.is_escape_pod`,
+         AND NOT si.is_escape_pod
+         AND si.destroyed_at IS NULL`,
       [corpId],
     );
     return Number(r.rows[0]?.w ?? 0);
@@ -261,75 +266,85 @@ Deno.test({
   async fn(t) {
     let corpId: string;
 
-    await t.step("reset and form a 2-member corp with a solo control", async () => {
-      await resetDatabase([P1, P2, P3]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await apiOk("join", { character_id: p3Id });
+    await t.step(
+      "reset and form a 2-member corp with a solo control",
+      async () => {
+        await resetDatabase([P1, P2, P3]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await apiOk("join", { character_id: p3Id });
 
-      await setMegabankBalance(p1Id, 500);
-      await setMegabankBalance(p2Id, 200);
-      await setMegabankBalance(p3Id, 100);
+        await setMegabankBalance(p1Id, 500);
+        await setMegabankBalance(p2Id, 200);
+        await setMegabankBalance(p3Id, 100);
 
-      // P1 funds and creates corp, P2 joins, P3 stays solo
-      await setShipCredits(p1ShipId, 50000);
-      const create = await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "Wealth Corp",
-      });
-      corpId = (create as Record<string, unknown>).corp_id as string;
-      const invite = (create as Record<string, unknown>).invite_code as string;
-      await apiOk("corporation_join", {
-        character_id: p2Id,
-        corp_id: corpId,
-        invite_code: invite,
-      });
+        // P1 funds and creates corp, P2 joins, P3 stays solo
+        await setShipCredits(p1ShipId, 50000);
+        const create = await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Wealth Corp",
+        });
+        corpId = (create as Record<string, unknown>).corp_id as string;
+        const invite = (create as Record<string, unknown>)
+          .invite_code as string;
+        await apiOk("corporation_join", {
+          character_id: p2Id,
+          corp_id: corpId,
+          invite_code: invite,
+        });
 
-      // Predictable personal ship credits (post-fee state)
-      await setShipCredits(p1ShipId, 1234);
-      await setShipCredits(p2ShipId, 2345);
-    });
+        // Predictable personal ship credits (post-fee state)
+        await setShipCredits(p1ShipId, 1234);
+        await setShipCredits(p2ShipId, 2345);
+      },
+    );
 
-    await t.step("insert one corp-owned ship with credits + cargo", async () => {
-      const { shipId } = await createCorpShip(corpId, 0, "WealthShip");
-      await setShipCredits(shipId, 7000);
-      await setShipCargo(shipId, { qf: 3, ro: 2, ns: 1 }); // 600 cargo value
-    });
+    await t.step(
+      "insert one corp-owned ship with credits + cargo",
+      async () => {
+        const { shipId } = await createCorpShip(corpId, 0, "WealthShip");
+        await setShipCredits(shipId, 7000);
+        await setShipCargo(shipId, { qf: 3, ro: 2, ns: 1 }); // 600 cargo value
+      },
+    );
 
-    await t.step("both members' total_wealth includes full corp ship value", async () => {
-      const lb = await fetchLeaderboard();
+    await t.step(
+      "both members' total_wealth includes full corp ship value",
+      async () => {
+        const lb = await fetchLeaderboard();
 
-      const expectedCorp = await corpShipWealth(corpId);
-      assert(expectedCorp > 0, "precondition: corp has positive ship wealth");
+        const expectedCorp = await corpShipWealth(corpId);
+        assert(expectedCorp > 0, "precondition: corp has positive ship wealth");
 
-      const p1Expected = (await personalWealth(p1Id)) + expectedCorp;
-      const p2Expected = (await personalWealth(p2Id)) + expectedCorp;
-      const p3Expected = await personalWealth(p3Id);
+        const p1Expected = (await personalWealth(p1Id)) + expectedCorp;
+        const p2Expected = (await personalWealth(p2Id)) + expectedCorp;
+        const p3Expected = await personalWealth(p3Id);
 
-      const p1Row = findRow(lb.wealth, p1Id);
-      const p2Row = findRow(lb.wealth, p2Id);
-      const p3Row = findRow(lb.wealth, p3Id);
+        const p1Row = findRow(lb.wealth, p1Id);
+        const p2Row = findRow(lb.wealth, p2Id);
+        const p3Row = findRow(lb.wealth, p3Id);
 
-      assert(p1Row, "P1 present in wealth leaderboard");
-      assert(p2Row, "P2 present in wealth leaderboard");
-      assert(p3Row, "P3 (solo) present in wealth leaderboard");
+        assert(p1Row, "P1 present in wealth leaderboard");
+        assert(p2Row, "P2 present in wealth leaderboard");
+        assert(p3Row, "P3 (solo) present in wealth leaderboard");
 
-      assertEquals(
-        Number(p1Row!.total_wealth),
-        p1Expected,
-        "P1 total = personal + full corp ship wealth",
-      );
-      assertEquals(
-        Number(p2Row!.total_wealth),
-        p2Expected,
-        "P2 total = personal + full corp ship wealth",
-      );
-      assertEquals(
-        Number(p3Row!.total_wealth),
-        p3Expected,
-        "P3 (no corp) total is personal-only",
-      );
-    });
+        assertEquals(
+          Number(p1Row!.total_wealth),
+          p1Expected,
+          "P1 total = personal + full corp ship wealth",
+        );
+        assertEquals(
+          Number(p2Row!.total_wealth),
+          p2Expected,
+          "P2 total = personal + full corp ship wealth",
+        );
+        assertEquals(
+          Number(p3Row!.total_wealth),
+          p3Expected,
+          "P3 (no corp) total is personal-only",
+        );
+      },
+    );
 
     await t.step("breakdown columns reflect personal + corp sums", async () => {
       const lb = await fetchLeaderboard();
@@ -340,41 +355,84 @@ Deno.test({
       const p2Exp = await expectedMemberBreakdown(p2Id, corpId);
 
       // P1
-      assertEquals(Number(p1Row.bank_credits), p1Exp.bank_credits, "P1 bank_credits");
-      assertEquals(Number(p1Row.ship_credits), p1Exp.ship_credits, "P1 ship_credits = personal + corp");
-      assertEquals(Number(p1Row.cargo_value), p1Exp.cargo_value, "P1 cargo_value = personal + corp");
-      assertEquals(Number(p1Row.ship_value), p1Exp.ship_value, "P1 ship_value = personal + corp");
-      assertEquals(Number(p1Row.ships_owned), p1Exp.ships_owned, "P1 ships_owned = personal + corp");
+      assertEquals(
+        Number(p1Row.bank_credits),
+        p1Exp.bank_credits,
+        "P1 bank_credits",
+      );
+      assertEquals(
+        Number(p1Row.ship_credits),
+        p1Exp.ship_credits,
+        "P1 ship_credits = personal + corp",
+      );
+      assertEquals(
+        Number(p1Row.cargo_value),
+        p1Exp.cargo_value,
+        "P1 cargo_value = personal + corp",
+      );
+      assertEquals(
+        Number(p1Row.ship_value),
+        p1Exp.ship_value,
+        "P1 ship_value = personal + corp",
+      );
+      assertEquals(
+        Number(p1Row.ships_owned),
+        p1Exp.ships_owned,
+        "P1 ships_owned = personal + corp",
+      );
 
       // P2
-      assertEquals(Number(p2Row.ship_credits), p2Exp.ship_credits, "P2 ship_credits = personal + corp");
-      assertEquals(Number(p2Row.cargo_value), p2Exp.cargo_value, "P2 cargo_value = personal + corp");
-      assertEquals(Number(p2Row.ship_value), p2Exp.ship_value, "P2 ship_value = personal + corp");
-      assertEquals(Number(p2Row.ships_owned), p2Exp.ships_owned, "P2 ships_owned = personal + corp");
+      assertEquals(
+        Number(p2Row.ship_credits),
+        p2Exp.ship_credits,
+        "P2 ship_credits = personal + corp",
+      );
+      assertEquals(
+        Number(p2Row.cargo_value),
+        p2Exp.cargo_value,
+        "P2 cargo_value = personal + corp",
+      );
+      assertEquals(
+        Number(p2Row.ship_value),
+        p2Exp.ship_value,
+        "P2 ship_value = personal + corp",
+      );
+      assertEquals(
+        Number(p2Row.ships_owned),
+        p2Exp.ships_owned,
+        "P2 ships_owned = personal + corp",
+      );
 
       // Sanity: total_wealth equals the four breakdown columns + bank
-      const p1Sum = Number(p1Row.bank_credits) + Number(p1Row.ship_credits)
-        + Number(p1Row.cargo_value) + Number(p1Row.ship_value);
-      assertEquals(Number(p1Row.total_wealth), p1Sum, "P1 total_wealth reconciles with breakdown");
+      const p1Sum = Number(p1Row.bank_credits) + Number(p1Row.ship_credits) +
+        Number(p1Row.cargo_value) + Number(p1Row.ship_value);
+      assertEquals(
+        Number(p1Row.total_wealth),
+        p1Sum,
+        "P1 total_wealth reconciles with breakdown",
+      );
     });
 
-    await t.step("corp pseudo-char rows must NOT receive the corp bonus", async () => {
-      const lb = await fetchLeaderboard();
-      const pseudoRows = lb.wealth.filter(
-        (r) => r.player_type === "corporation_ship",
-      );
-      for (const row of pseudoRows) {
-        // Either excluded entirely, or present with only their own personal calc.
-        // Guards against naive join on characters.corporation_id double-counting
-        // the ship against itself.
-        const expected = await personalWealth(row.player_id);
-        assertEquals(
-          Number(row.total_wealth),
-          expected,
-          `pseudo-char ${row.player_id} should not receive corp bonus`,
+    await t.step(
+      "corp pseudo-char rows must NOT receive the corp bonus",
+      async () => {
+        const lb = await fetchLeaderboard();
+        const pseudoRows = lb.wealth.filter(
+          (r) => r.player_type === "corporation_ship",
         );
-      }
-    });
+        for (const row of pseudoRows) {
+          // Either excluded entirely, or present with only their own personal calc.
+          // Guards against naive join on characters.corporation_id double-counting
+          // the ship against itself.
+          const expected = await personalWealth(row.player_id);
+          assertEquals(
+            Number(row.total_wealth),
+            expected,
+            `pseudo-char ${row.player_id} should not receive corp bonus`,
+          );
+        }
+      },
+    );
   },
 });
 
@@ -409,35 +467,164 @@ Deno.test({
       await setShipCredits(p2ShipId, 0);
     });
 
-    await t.step("insert three corp ships with distinct credit balances", async () => {
-      const a = await createCorpShip(corpId, 0, "Alpha");
-      const b = await createCorpShip(corpId, 0, "Bravo");
-      const c = await createCorpShip(corpId, 0, "Charlie");
-      await setShipCredits(a.shipId, 1000);
-      await setShipCredits(b.shipId, 2000);
-      await setShipCredits(c.shipId, 3000);
-    });
+    await t.step(
+      "insert three corp ships with distinct credit balances",
+      async () => {
+        const a = await createCorpShip(corpId, 0, "Alpha");
+        const b = await createCorpShip(corpId, 0, "Bravo");
+        const c = await createCorpShip(corpId, 0, "Charlie");
+        await setShipCredits(a.shipId, 1000);
+        await setShipCredits(b.shipId, 2000);
+        await setShipCredits(c.shipId, 3000);
+      },
+    );
 
-    await t.step("both members' total_wealth includes the whole corp fleet", async () => {
-      const lb = await fetchLeaderboard();
-      const expectedCorp = await corpShipWealth(corpId);
-      const p1Expected = (await personalWealth(p1Id)) + expectedCorp;
-      const p2Expected = (await personalWealth(p2Id)) + expectedCorp;
+    await t.step(
+      "both members' total_wealth includes the whole corp fleet",
+      async () => {
+        const lb = await fetchLeaderboard();
+        const expectedCorp = await corpShipWealth(corpId);
+        const p1Expected = (await personalWealth(p1Id)) + expectedCorp;
+        const p2Expected = (await personalWealth(p2Id)) + expectedCorp;
 
-      assertEquals(
-        Number(findRow(lb.wealth, p1Id)!.total_wealth),
-        p1Expected,
-      );
-      assertEquals(
-        Number(findRow(lb.wealth, p2Id)!.total_wealth),
-        p2Expected,
-      );
-    });
+        assertEquals(
+          Number(findRow(lb.wealth, p1Id)!.total_wealth),
+          p1Expected,
+        );
+        assertEquals(
+          Number(findRow(lb.wealth, p2Id)!.total_wealth),
+          p2Expected,
+        );
+      },
+    );
   },
 });
 
 // ============================================================================
-// Group 3: exploration — corp map knowledge unioned into sectors_visited
+// Group 3: wealth — destroyed corp ships must not contribute ghost wealth
+// ============================================================================
+
+Deno.test({
+  name:
+    "leaderboard_corp_stats — wealth: destroyed corporation ships are excluded",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let destroyedShipId: string;
+
+    await t.step("reset, form corp, and zero personal wealth", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50000);
+      const create = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Ghost Wealth Corp",
+      });
+      corpId = (create as Record<string, unknown>).corp_id as string;
+      const invite = (create as Record<string, unknown>).invite_code as string;
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: invite,
+      });
+      await setShipCredits(p1ShipId, 0);
+      await setShipCredits(p2ShipId, 0);
+      await setMegabankBalance(p1Id, 0);
+      await setMegabankBalance(p2Id, 0);
+    });
+
+    await t.step(
+      "create one active corp ship and one destroyed corp ship",
+      async () => {
+        const active = await createCorpShip(corpId, 0, "Active Corp Ship");
+        const destroyed = await createCorpShip(
+          corpId,
+          0,
+          "Destroyed Corp Ship",
+        );
+        destroyedShipId = destroyed.shipId;
+
+        await setShipCredits(active.shipId, 1500);
+        await setShipCargo(active.shipId, { qf: 2, ro: 1, ns: 0 }); // 300 cargo
+        await setShipCredits(destroyed.shipId, 9000);
+        await setShipCargo(destroyed.shipId, { qf: 5, ro: 5, ns: 5 }); // 1500 cargo
+
+        await withPg(async (pg) => {
+          await pg.queryObject(
+            `UPDATE ship_instances
+           SET destroyed_at = NOW()
+           WHERE ship_id = $1`,
+            [destroyed.shipId],
+          );
+        });
+      },
+    );
+
+    await t.step(
+      "destroyed ship is excluded from both corp members' totals",
+      async () => {
+        const lb = await fetchLeaderboard();
+        const expectedCorp = await corpShipWealth(corpId);
+        const corpIfDestroyedIncluded = await withPg(async (pg) => {
+          const result = await pg.queryObject<{ w: string }>(
+            `SELECT COALESCE(SUM(
+             si.credits
+             + si.cargo_qf * 100 + si.cargo_ro * 100 + si.cargo_ns * 100
+             + sd.base_value
+           ), 0)::text AS w
+           FROM ship_instances si
+           JOIN ship_definitions sd ON sd.ship_type = si.ship_type
+           WHERE si.owner_type = 'corporation'
+             AND si.owner_corporation_id = $1
+             AND NOT si.is_escape_pod`,
+            [corpId],
+          );
+          return Number(result.rows[0].w);
+        });
+
+        assert(
+          corpIfDestroyedIncluded > expectedCorp,
+          "precondition: destroyed corp ship would inflate wealth if not filtered",
+        );
+        assertEquals(
+          Number(findRow(lb.wealth, p1Id)!.total_wealth),
+          expectedCorp,
+          "P1 total excludes destroyed corp ship wealth",
+        );
+        assertEquals(
+          Number(findRow(lb.wealth, p2Id)!.total_wealth),
+          expectedCorp,
+          "P2 total excludes destroyed corp ship wealth",
+        );
+      },
+    );
+
+    await t.step(
+      "destroyed ship row still exists for history and later pruning",
+      async () => {
+        const ship = await withPg(async (pg) => {
+          const result = await pg.queryObject<{ destroyed_at: string | null }>(
+            `SELECT destroyed_at::text
+           FROM ship_instances
+           WHERE ship_id = $1`,
+            [destroyedShipId],
+          );
+          return result.rows[0];
+        });
+        assert(ship, "Destroyed corp ship row should still exist");
+        assert(
+          ship.destroyed_at,
+          "Destroyed corp ship should remain soft-deleted",
+        );
+      },
+    );
+  },
+});
+
+// ============================================================================
+// Group 4: exploration — corp map knowledge unioned into sectors_visited
 // ============================================================================
 
 Deno.test({
@@ -474,24 +661,27 @@ Deno.test({
       await setCorpMapKnowledge(corpId, [500, 501, 502, 503]); // 4
     });
 
-    await t.step("sectors_visited equals personal ∪ corp for members", async () => {
-      const lb = await fetchLeaderboard();
-      assertEquals(
-        Number(findRow(lb.exploration, p1Id)!.sectors_visited),
-        3 + 4,
-        "P1: 3 personal + 4 corp, no overlap",
-      );
-      assertEquals(
-        Number(findRow(lb.exploration, p2Id)!.sectors_visited),
-        2 + 4,
-        "P2: 2 personal + 4 corp, no overlap",
-      );
-      assertEquals(
-        Number(findRow(lb.exploration, p3Id)!.sectors_visited),
-        1,
-        "P3 (solo) unchanged = 1",
-      );
-    });
+    await t.step(
+      "sectors_visited equals personal ∪ corp for members",
+      async () => {
+        const lb = await fetchLeaderboard();
+        assertEquals(
+          Number(findRow(lb.exploration, p1Id)!.sectors_visited),
+          3 + 4,
+          "P1: 3 personal + 4 corp, no overlap",
+        );
+        assertEquals(
+          Number(findRow(lb.exploration, p2Id)!.sectors_visited),
+          2 + 4,
+          "P2: 2 personal + 4 corp, no overlap",
+        );
+        assertEquals(
+          Number(findRow(lb.exploration, p3Id)!.sectors_visited),
+          1,
+          "P3 (solo) unchanged = 1",
+        );
+      },
+    );
   },
 });
 
