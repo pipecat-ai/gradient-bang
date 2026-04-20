@@ -69,6 +69,7 @@ def _make_relay(**overrides) -> tuple[EventRelay, StubTaskState, MagicMock, Magi
     """Create an EventRelay with mock game_client and rtvi_processor."""
     mock_client = MagicMock()
     mock_client.corporation_id = "corp-1"
+    mock_client._canonical_character_id = None
     mock_client._get_summary = MagicMock(return_value=None)
     mock_client.on = MagicMock(return_value=lambda fn: fn)
     mock_client.join = AsyncMock(return_value={"request_id": "join-req"})
@@ -195,8 +196,29 @@ class TestPayloadHelpers:
     def test_extract_sector_id_from_nested(self):
         assert EventRelay._extract_sector_id({"sector": {"id": 42}}) == 42
 
+    def test_extract_sector_id_preserves_nested_zero(self):
+        assert EventRelay._extract_sector_id({"sector": {"id": 0}}) == 0
+
     def test_extract_sector_id_from_flat(self):
         assert EventRelay._extract_sector_id({"sector_id": 7}) == 7
+
+    def test_extract_sector_id_from_top_level_when_allowed(self):
+        assert EventRelay._extract_sector_id({"id": 42}, allow_top_level_id=True) == 42
+
+    def test_extract_sector_id_from_top_level_string_when_allowed(self):
+        assert EventRelay._extract_sector_id({"id": "42"}, allow_top_level_id=True) == 42
+
+    def test_extract_sector_id_preserves_top_level_zero_when_allowed(self):
+        assert EventRelay._extract_sector_id({"id": 0}, allow_top_level_id=True) == 0
+
+    def test_extract_sector_id_ignores_top_level_without_flag(self):
+        assert EventRelay._extract_sector_id({"id": 42}) is None
+
+    def test_extract_sector_id_rejects_top_level_bool(self):
+        assert EventRelay._extract_sector_id({"id": True}, allow_top_level_id=True) is None
+
+    def test_extract_sector_id_rejects_scalar_sector_bool(self):
+        assert EventRelay._extract_sector_id({"sector": True}) is None
 
     def test_extract_combat_id(self):
         assert EventRelay._extract_combat_id({"combat_id": "cbt-99"}) == "cbt-99"
@@ -794,6 +816,7 @@ class TestCorpShipMovement:
         await relay._relay_event(event)
         # Should push RTVI but NOT append to LLM (corp ship movement handled by task agent)
         assert mock_rtvi.push_frame.call_count == 1  # Only RTVI push
+        assert len(task_state.deferred_events) == 0
 
 
 @pytest.mark.unit
@@ -963,7 +986,7 @@ class TestAppendRuleDirect:
     async def test_appended_for_direct_recipient(self):
         relay, task_state, _, mock_rtvi = _make_relay()
         event = _make_event(
-            "sector.update",
+            "path.region",
             {
                 "data": "sector info",
                 "__event_context": {"scope": "direct", "reason": "direct"},
@@ -976,7 +999,7 @@ class TestAppendRuleDirect:
     async def test_not_appended_for_corp_scope(self):
         relay, task_state, _, mock_rtvi = _make_relay()
         event = _make_event(
-            "sector.update",
+            "path.region",
             {
                 "data": "sector info",
                 "__event_context": {"scope": "corp"},
@@ -988,7 +1011,7 @@ class TestAppendRuleDirect:
 
     async def test_not_appended_without_event_context(self):
         relay, task_state, _, mock_rtvi = _make_relay()
-        event = _make_event("sector.update", {"data": "sector info"})
+        event = _make_event("path.region", {"data": "sector info"})
         await relay._relay_event(event)
         assert mock_rtvi.push_frame.call_count == 1
         assert len(task_state.deferred_events) == 0
@@ -996,9 +1019,9 @@ class TestAppendRuleDirect:
     async def test_task_scoped_direct_needs_allowlist_or_voice(self):
         """Direct event with task_id only appended if task_scoped_allowlisted or voice agent."""
         relay, task_state, _, mock_rtvi = _make_relay()
-        # sector.update has task_scoped_allowlisted=False
+        # path.region has task_scoped_allowlisted=False
         event = _make_event(
-            "sector.update",
+            "path.region",
             {
                 "__task_id": "task-1",
                 "__event_context": {"scope": "direct", "reason": "direct"},
@@ -1025,9 +1048,9 @@ class TestAppendRuleDirect:
         """Direct event with task_id passes if request_id is from voice agent."""
         relay, task_state, _, mock_rtvi = _make_relay()
         task_state.recent_request_ids.add("req-voice")
-        # sector.update is NOT task_scoped_allowlisted but voice agent request passes
+        # path.region is NOT task_scoped_allowlisted but voice agent request passes
         event = _make_event(
-            "sector.update",
+            "path.region",
             {
                 "__task_id": "task-1",
                 "__event_context": {"scope": "direct", "reason": "direct"},
@@ -1064,6 +1087,21 @@ class TestAppendRuleDirect:
         )
         await relay._relay_event(event)
         assert len(task_state.deferred_events) == 0
+
+    async def test_canonical_character_id_used_for_other_player_guard(self):
+        relay, task_state, mock_client, _ = _make_relay(character_id="legacy-name")
+        mock_client._canonical_character_id = "canonical-char-id"
+        event = _make_event(
+            "path.region",
+            {
+                "player": {"id": "canonical-char-id"},
+                "__event_context": {"scope": "direct", "reason": "direct"},
+            },
+        )
+
+        await relay._relay_event(event)
+
+        assert len(task_state.deferred_events) == 1
 
 
 @pytest.mark.unit
@@ -1138,9 +1176,9 @@ class TestInferenceRules:
         """InferenceRule.NEVER — run_llm is False even when appended."""
         relay, task_state, _, _ = _make_relay()
         # map.update is NEVER append, use a DIRECT+NEVER combo
-        # sector.update has DIRECT append + NEVER inference
+        # path.region has DIRECT append + NEVER inference
         event = _make_event(
-            "sector.update",
+            "path.region",
             {"data": "info", "__event_context": {"scope": "direct", "reason": "direct"}},
         )
         await relay._relay_event(event)
@@ -1341,13 +1379,13 @@ class TestXmlFormat:
     async def test_basic_event_xml(self):
         relay, task_state, _, _ = _make_relay()
         event = _make_event(
-            "sector.update",
+            "path.region",
             {"data": "info", "__event_context": {"scope": "direct", "reason": "direct"}},
         )
         await relay._relay_event(event)
         assert len(task_state.deferred_events) == 1
         content, _ = task_state.deferred_events[0]
-        assert content.startswith('<event name="sector.update">')
+        assert content.startswith('<event name="path.region">')
         assert content.endswith("</event>")
 
     async def test_task_id_in_xml(self):
@@ -1425,7 +1463,7 @@ class TestXmlFormat:
     async def test_internal_metadata_stripped_from_xml(self):
         relay, task_state, _, _ = _make_relay()
         event = _make_event(
-            "sector.update",
+            "path.region",
             {
                 "data": "info",
                 "__event_context": {"scope": "direct", "reason": "direct"},

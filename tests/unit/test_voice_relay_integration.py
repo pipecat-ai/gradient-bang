@@ -106,6 +106,11 @@ def _make_harness(**kwargs) -> RelayVoiceHarness:
     return RelayVoiceHarness(**kwargs)
 
 
+def _llm_event_frames(h: RelayVoiceHarness, event_name: str) -> list[tuple[str, bool]]:
+    opener = f'<event name="{event_name}"'
+    return [(c, r) for c, r in h.llm_messages if opener in c]
+
+
 # ── Onboarding ────────────────────────────────────────────────────────────
 
 
@@ -916,6 +921,171 @@ class TestEventFlowIntegrity:
 
         assert h.rtvi_push_count == len(never_events)
         assert len(h.llm_messages) == 0
+
+
+# ── Voice LLM routing policy ──────────────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestVoiceLlmRoutingPolicy:
+    """Policy-level coverage through real EventRelay + VoiceAgent wiring."""
+
+    def _direct_context(self):
+        return {
+            "scope": "direct",
+            "reason": "direct",
+            "character_id": "char-test",
+            "recipient_ids": ["char-test"],
+            "recipient_reasons": ["direct"],
+        }
+
+    async def test_corporation_data_with_corp_ship_subject_not_appended(self):
+        h = _make_harness()
+
+        await h.feed_event(
+            "corporation.data",
+            {
+                "player": {"id": "ship-blue-hauler-uuid"},
+                "corporation": {"id": "corp-1", "name": "Blue Haulers"},
+                "__event_context": self._direct_context(),
+            },
+            request_id="some-corp-task-req",
+        )
+
+        assert len(_llm_event_frames(h, "corporation.data")) == 0
+        assert len(h.bus_events) >= 1
+
+    async def test_corporation_data_with_player_subject_appended(self):
+        h = _make_harness()
+
+        await h.feed_event(
+            "corporation.data",
+            {
+                "player": {"id": "char-test"},
+                "corporation": {"id": "corp-1", "name": "Blue Haulers"},
+                "__event_context": self._direct_context(),
+            },
+        )
+
+        assert len(_llm_event_frames(h, "corporation.data")) == 1
+
+    async def test_port_update_for_non_local_sector_not_appended(self):
+        h = _make_harness()
+        h.relay._current_sector_id = 690
+
+        await h.feed_event(
+            "port.update",
+            {"sector": {"id": 472}, "port": {"id": "port-472"}},
+        )
+
+        assert len(_llm_event_frames(h, "port.update")) == 0
+
+    async def test_port_update_for_local_sector_appended(self):
+        h = _make_harness()
+        h.relay._current_sector_id = 472
+
+        await h.feed_event(
+            "port.update",
+            {
+                "sector": {"id": 472},
+                "player": {"id": "char-test"},
+                "port": {"id": "port-472"},
+            },
+        )
+
+        assert len(_llm_event_frames(h, "port.update")) == 1
+
+    async def test_port_update_local_corp_ship_subject_without_task_tag_appended(self):
+        h = _make_harness()
+        h.relay._current_sector_id = 472
+
+        await h.feed_event(
+            "port.update",
+            {
+                "sector": {"id": 472},
+                "player": {"id": "ship-blue-hauler-uuid"},
+                "port": {"id": "port-472"},
+            },
+        )
+
+        assert len(_llm_event_frames(h, "port.update")) == 1
+
+    async def test_port_update_local_corp_ship_task_event_not_appended(self):
+        h = _make_harness()
+        h.relay._current_sector_id = 472
+        h.voice_agent.is_our_task = lambda task_id: task_id == "task-1"
+
+        await h.feed_event(
+            "port.update",
+            {
+                "sector": {"id": 472},
+                "player": {"id": "ship-blue-hauler-uuid"},
+                "port": {"id": "port-472"},
+                "__task_id": "task-1",
+            },
+        )
+
+        assert len(_llm_event_frames(h, "port.update")) == 0
+
+    async def test_sector_update_uses_top_level_id_for_locality(self):
+        non_local = _make_harness()
+        non_local.relay._current_sector_id = 690
+
+        await non_local.feed_event(
+            "sector.update",
+            {"id": 472, "name": "Remote sector", "ports": []},
+        )
+
+        assert len(_llm_event_frames(non_local, "sector.update")) == 0
+
+        local = _make_harness()
+        local.relay._current_sector_id = 472
+
+        await local.feed_event(
+            "sector.update",
+            {"id": 472, "name": "Local sector", "ports": []},
+        )
+
+        assert len(_llm_event_frames(local, "sector.update")) == 1
+
+    async def test_ship_destroyed_uses_locality(self):
+        non_local = _make_harness()
+        non_local.relay._current_sector_id = 690
+
+        await non_local.feed_event(
+            "ship.destroyed",
+            {"sector": {"id": 472}, "ship": {"id": "ship-1"}},
+        )
+
+        assert len(_llm_event_frames(non_local, "ship.destroyed")) == 0
+
+        local = _make_harness()
+        local.relay._current_sector_id = 472
+
+        await local.feed_event(
+            "ship.destroyed",
+            {"sector": {"id": 472}, "ship": {"id": "ship-1"}},
+        )
+
+        assert len(_llm_event_frames(local, "ship.destroyed")) == 1
+
+    async def test_combat_round_resolved_with_non_player_subject_still_appended(self):
+        h = _make_harness()
+
+        await h.feed_event(
+            "combat.round_resolved",
+            {
+                "player": {"id": "ship-blue-hauler-uuid"},
+                "participants": [
+                    {"id": "char-test", "ship": {"fighter_loss": 0, "shield_damage": 0}},
+                    {"id": "opponent", "ship": {"fighter_loss": 2, "shield_damage": 10}},
+                ],
+                "combat_id": "c-1",
+                "__event_context": {"scope": "local", "reason": "observer"},
+            },
+        )
+
+        assert len(_llm_event_frames(h, "combat.round_resolved")) == 1
 
 
 # ── Combat + Task interaction ────────────────────────────────────────────

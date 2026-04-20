@@ -99,7 +99,6 @@ class AsyncGameClient(BaseAsyncGameClient):
         self._http = httpx.AsyncClient(timeout=10.0)
         self._requested_transport = requested_transport
 
-        self._current_sector_id: Optional[int] = None
         self._recent_event_ids: Deque[int] = deque()
         self._recent_event_ids_max = 512
         self._canonical_character_id = canonicalize_character_id(character_id)
@@ -757,18 +756,22 @@ class AsyncGameClient(BaseAsyncGameClient):
         self._set_current_sector(sector_id)
 
     async def _maybe_update_sector_from_event(self, event_name: str, payload: Mapping[str, Any]) -> None:
+        # Ownership guard: only mutate from events about the bound character.
+        # The shared client polls corp-ship events (for bus fanout); their
+        # sector data must not clobber the bound character's cached sector.
+        # Compare against the canonical id — server events carry canonical UUIDs
+        # while ``self._character_id`` may be a legacy label in dev mode.
+        player = payload.get("player") if isinstance(payload, Mapping) else None
+        if not isinstance(player, Mapping):
+            return
+        player_id = player.get("id")
+        if not isinstance(player_id, str) or player_id != self._canonical_character_id:
+            return
+
         sector_id = self._extract_sector_id_from_event(event_name, payload)
         if sector_id is None:
             return
         self._set_current_sector(sector_id)
-
-    def _set_current_sector(self, sector_id: Optional[int]) -> None:
-        if sector_id is None:
-            return
-        super()._set_current_sector(sector_id)
-        if sector_id == self._current_sector_id:
-            return
-        self._current_sector_id = sector_id
 
     def _extract_sector_id_from_event(self, event_name: str, payload: Mapping[str, Any]) -> Optional[int]:
         ctx = payload.get("__event_context") if isinstance(payload, Mapping) else None

@@ -8,6 +8,7 @@ from gradientbang.utils.summary_formatters import (
     _format_port_prices_compact,
     event_query_summary,
     list_known_ports_summary,
+    map_local_summary,
     port_update_summary,
 )
 
@@ -208,3 +209,51 @@ class TestPortMegaMarker:
         }
         summary = port_update_summary(event)
         assert "STD BSB" in summary
+
+
+@pytest.mark.unit
+class TestMapLocalSummary:
+    """Regression tests for the removed 'We are currently in sector X' line.
+
+    The shared AsyncGameClient's _current_sector cache can represent only one
+    entity, but map.local / map.region / map.update events flow through the
+    client for multiple entities (player + corp ships). Embedding _current_sector
+    into these summaries leaked one entity's sector into another's context. The
+    line was removed; this test guards against reintroduction. See
+    planning-docs/shared-client-sector-pollution-2026-04-18.md.
+    """
+
+    @staticmethod
+    def _realistic_result() -> dict:
+        return {
+            "center_sector": 3815,
+            "total_visited": 14,
+            "total_sectors": 19,
+            "total_unvisited": 5,
+            "sectors": [
+                {
+                    "id": 3815,
+                    "visited": True,
+                    "hops_from_center": 0,
+                    "region": "Neutral",
+                    "adjacent_sectors": {
+                        "4074": {"region": "Neutral"},
+                        "4149": {"region": "Neutral"},
+                    },
+                },
+                {"id": 4074, "visited": False, "hops_from_center": 1, "region": "Neutral"},
+                {"id": 4149, "visited": False, "hops_from_center": 1, "region": "Neutral"},
+                {"id": 2495, "visited": False, "hops_from_center": 3, "region": "Neutral"},
+            ],
+        }
+
+    def test_omits_we_are_currently_line(self):
+        summary = map_local_summary(self._realistic_result())
+        assert "We are currently" not in summary
+
+    def test_retains_core_content(self):
+        summary = map_local_summary(self._realistic_result())
+        assert "Local map around sector 3815" in summary
+        assert "14/19 visited" in summary
+        assert "5 unvisited" in summary
+        assert "Nearest unvisited" in summary

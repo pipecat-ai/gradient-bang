@@ -46,7 +46,7 @@ If you issue multiple exploratory history queries, answer from the query that ac
 Tools return "Executed." immediately — actual results arrive as server events. If uncertain about state, call `my_status()`.
 
 - One mutating tool call per response (move, trade, combat, transfers, etc.)
-- Wait for events before next action
+- Each turn, take your next action based on the task instructions and the most recent events
 - Rely on events to determine action completion
 - NEVER output XML `<event>` blocks in assistant messages — only the server generates events
 - NEVER generate fake events in your responses — only call tools

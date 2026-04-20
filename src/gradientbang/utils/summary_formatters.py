@@ -664,7 +664,7 @@ def movement_start_summary(event: Dict[str, Any]) -> str:
     return f"Entering hyperspace to sector {destination} (ETA: {eta_str}).{region_part}"
 
 
-def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> str:
+def map_local_summary(result: Dict[str, Any]) -> str:
     """Summarize map.local events and tool responses."""
 
     center = result.get("center_sector", "unknown")
@@ -738,11 +738,14 @@ def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> 
         if entries:
             lines.append("Nearest unvisited: " + ", ".join(entries) + ".")
 
-    if isinstance(current_sector, (int, float)):
-        sector_display = int(current_sector)
-    else:
-        sector_display = "unknown"
-    lines.append(f"We are currently in sector {sector_display}.")
+    # Intentionally omit "We are currently in sector X". The shared client's
+    # _current_sector cache represents the bound character only, but this
+    # formatter runs for events about multiple entities (corp-ship events are
+    # polled by the shared client and fanned out to TaskAgents via the bus).
+    # Including this line made those summaries embed the wrong character's
+    # sector. Consumers learn their current sector from other events in
+    # context (status.snapshot, status.update, movement.complete). See
+    # planning-docs/shared-client-sector-pollution-2026-04-18.md.
 
     return "\n".join(lines)
 
