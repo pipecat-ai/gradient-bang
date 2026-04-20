@@ -1,7 +1,8 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 import { SpeakerHighIcon, SpeakerSlashIcon } from "@phosphor-icons/react"
+import { cva } from "class-variance-authority"
 
 import TitleVideo from "@/assets/videos/title.mp4"
 import { CharacterSelectDialog } from "@/components/dialogs/CharacterSelect"
@@ -9,6 +10,7 @@ import { IntroTutorial } from "@/components/dialogs/IntroTutorial"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
 import PipecatSVG from "@/components/PipecatSVG"
+import { Badge, BadgeTitle } from "@/components/primitives/Badge"
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card"
 import { Input } from "@/components/primitives/Input"
@@ -17,6 +19,43 @@ import { ScrambleText } from "@/fx/ScrambleText"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { wait } from "@/utils/animation"
+import {
+  buildServerFunctionUrl,
+  getLoginScreenServerBadge,
+  parsePublicServerStatus,
+  type LoginScreenServerState,
+} from "@/utils/serverStatus"
+
+const SERVER_STATUS_REFRESH_MS = 30_000
+
+const serverStatusBadgeStyles = cva("mx-auto min-w-[14rem] justify-center text-center", {
+  variants: {
+    state: {
+      checking: "bg-muted/60 border-border text-subtle-foreground bracket-muted-foreground",
+      online: "bg-success-background border-success text-success-foreground bracket-success",
+      maintenance: "bg-warning-background border-warning text-warning-foreground bracket-warning",
+      offline:
+        "bg-destructive-background/60 border-destructive/60 text-destructive bracket-destructive",
+    },
+  },
+  defaultVariants: {
+    state: "checking",
+  },
+})
+
+const serverStatusDotStyles = cva("size-2 rounded-full", {
+  variants: {
+    state: {
+      checking: "bg-subtle-foreground animate-pulse",
+      online: "bg-success animate-pulse",
+      maintenance: "bg-warning animate-pulse",
+      offline: "bg-destructive",
+    },
+  },
+  defaultVariants: {
+    state: "checking",
+  },
+})
 
 export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const setActiveModal = useGameStore.use.setActiveModal()
@@ -30,7 +69,78 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const [error, setError] = useState<string | null>(null)
   const [isMusicPlaying, setIsMusicPlaying] = useState<boolean>(false)
   const [hasInteractedWithMusic, setHasInteractedWithMusic] = useState<boolean>(false)
+  const [serverStatus, setServerStatus] = useState<{
+    state: LoginScreenServerState
+    message: string
+  }>({
+    state: "checking",
+    message: "",
+  })
   const titleVideoRef = useRef<HTMLVideoElement>(null)
+  const serverStatusBadge = getLoginScreenServerBadge(serverStatus.state, serverStatus.message)
+
+  useEffect(() => {
+    let disposed = false
+    let activeController: AbortController | null = null
+
+    const refreshServerStatus = async () => {
+      activeController?.abort()
+      const controller = new AbortController()
+      activeController = controller
+
+      try {
+        const response = await fetch(
+          buildServerFunctionUrl("server_status", import.meta.env.VITE_SERVER_URL),
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            signal: controller.signal,
+          }
+        )
+        const data = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(
+            data && typeof data === "object" && "error" in data && typeof data.error === "string"
+              ? data.error
+              : "Unable to reach the public status endpoint."
+          )
+        }
+
+        const parsed = parsePublicServerStatus(data)
+        if (!parsed) {
+          throw new Error("Unexpected response from the public status endpoint.")
+        }
+
+        if (!disposed) {
+          setServerStatus(parsed)
+        }
+      } catch (err) {
+        if (controller.signal.aborted || disposed) {
+          return
+        }
+
+        setServerStatus({
+          state: "offline",
+          message:
+            err instanceof Error ? err.message : "Unable to reach the public status endpoint.",
+        })
+      }
+    }
+
+    void refreshServerStatus()
+    const intervalId = window.setInterval(() => {
+      void refreshServerStatus()
+    }, SERVER_STATUS_REFRESH_MS)
+
+    return () => {
+      disposed = true
+      activeController?.abort()
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   const startMusic = () => {
     setIsMusicPlaying(true)
@@ -46,16 +156,13 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const handleSignIn = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1"}/login`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ email: username, password }),
-        }
-      )
+      const response = await fetch(buildServerFunctionUrl("login", import.meta.env.VITE_SERVER_URL), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: username, password }),
+      })
       const data = await response.json().catch(() => null)
       if (!response.ok) {
         throw new Error(data?.error || "Failed to sign in")
@@ -116,6 +223,22 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
             <h1 className="text-white text-3xl font-bold uppercase text-center">
               <ScrambleText>Gradient Bang</ScrambleText>
             </h1>
+            <div className="mt-4 flex flex-col items-center gap-2">
+              <Badge
+                border="bracket"
+                size="sm"
+                aria-label={serverStatusBadge.label}
+                className={serverStatusBadgeStyles({ state: serverStatusBadge.state })}
+              >
+                <span className={serverStatusDotStyles({ state: serverStatusBadge.state })} />
+                <BadgeTitle>{serverStatusBadge.label}</BadgeTitle>
+              </Badge>
+              {serverStatusBadge.detail && (
+                <p className="max-w-sm text-center text-xs text-subtle-foreground">
+                  {serverStatusBadge.detail}
+                </p>
+              )}
+            </div>
           </CardHeader>
           <Separator />
           <CardContent className="flex flex-col items-center justify-center gap-5">
