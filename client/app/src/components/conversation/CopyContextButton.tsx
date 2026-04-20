@@ -44,6 +44,13 @@ export function CopyContextButton() {
     <Tooltip>
       <TooltipTrigger asChild>
         <button
+          type="button"
+          aria-label={
+            loading ? "Copying conversation context"
+            : copied ?
+              "Conversation context copied"
+            : "Copy conversation context"
+          }
           onClick={handleClick}
           className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-white"
         >

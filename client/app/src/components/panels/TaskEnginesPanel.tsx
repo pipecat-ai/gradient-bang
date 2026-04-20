@@ -183,6 +183,10 @@ export const TaskEngine = ({
   }
 
   const isRunning = state === "active" || state === "cancelling" || state === "steering"
+  const taskEngineLabel =
+    isLocal ? "local task engine"
+    : displayTask?.ship_name ? `${displayTask.ship_name} task engine`
+    : "task engine"
 
   return (
     <motion.div
@@ -239,6 +243,9 @@ export const TaskEngine = ({
               <Button
                 size="icon-sm"
                 variant="ghost"
+                aria-label={
+                  isCancelling ? `Cancelling ${taskEngineLabel}` : `Cancel ${taskEngineLabel}`
+                }
                 disabled={isCancelling}
                 className="absolute top-1 right-1 size-6.5 bg-success-background/50 text-success-foreground hover:bg-success-background"
                 onClick={() => {

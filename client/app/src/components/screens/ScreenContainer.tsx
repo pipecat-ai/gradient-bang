@@ -97,6 +97,7 @@ export const ScreenContainer = () => {
             <Button
               variant="secondary"
               size="icon-lg"
+              aria-label="Close screen"
               onClick={handleClose}
               className="fixed top-ui-md right-ui-md z-50"
             >

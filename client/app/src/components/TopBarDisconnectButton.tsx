@@ -30,6 +30,7 @@ export const TopBarDisconnectButton = () => {
             <Button
               variant="outline"
               size="icon-sm"
+              aria-label="Disconnect"
               className="hover:text-destructive-foreground hover:bg-destructive-background hover:border-destructive"
             >
               <SignOutIcon weight="bold" size={16} />

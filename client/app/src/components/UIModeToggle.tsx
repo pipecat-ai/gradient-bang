@@ -14,6 +14,7 @@ export const UIModeToggle = () => {
   const handleClick = () => {
     setUIMode(uiMode === "tasks" ? "map" : "tasks")
   }
+  const modeToggleLabel = `Expand ${uiMode === "tasks" ? "map" : "task engines"}`
 
   return (
     <div className="flex flex-col z-20 -mr-2 -mt-2 outline-2 outline-offset-0 outline-background bracket bracket-offset-3 bracket-1 bracket-input h-fit divide-y divide-border">
@@ -22,15 +23,14 @@ export const UIModeToggle = () => {
           <Button
             variant="bland"
             size="icon-sm"
+            aria-label={modeToggleLabel}
             onClick={handleClick}
             className="shrink-0 bg-subtle-background focus-visible:outline-0 hover:text-terminal hover:bg-accent-background focus-visible:bg-background"
           >
             <ArrowsDownUpIcon className="size-5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="left">
-          Expand {uiMode === "tasks" ? "Map" : "Task Engines"}
-        </TooltipContent>
+        <TooltipContent side="left">{modeToggleLabel}</TooltipContent>
       </Tooltip>
 
       {settings.renderStarfield && (
@@ -39,6 +39,7 @@ export const UIModeToggle = () => {
             <Button
               variant="bland"
               size="icon-sm"
+              aria-label="Look around"
               onClick={() => setLookMode(true)}
               className="shrink-0 bg-subtle-background focus-visible:outline-0 hover:text-terminal hover:bg-accent-background focus-visible:bg-background"
             >

@@ -51,6 +51,7 @@ const CharacterCard = ({
       <motion.div
         tabIndex={0}
         role="button"
+        aria-label={`Select character ${character.name}, last active ${lastActiveString}`}
         className="interactive-card group bg-card focus-outline focus-hover relative py-0 border h-full w-48 elbow select-none elbow-offset-1 elbow-subtle-foreground hover:elbow-foreground hover:-elbow-offset-3 focus-visible:-elbow-offset-3 focus-visible:elbow-foreground hover:scale-105 focus-visible:scale-105 transition-transform duration-300 ease-in-out cursor-pointer"
         initial={{ opacity: 0, y: 20, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}

@@ -114,8 +114,15 @@ const QuestGiverCard = ({
       <div
         tabIndex={0}
         role="button"
+        aria-label={`Open contracts from ${questGiver.locked ? "locked contact" : questGiver.name}`}
         className={cn(questCardVariants({ status }))}
         onClick={() => onSelect(questGiver)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            onSelect(questGiver)
+          }
+        }}
       >
         <Card className={cn(questCardInnerVariants({ status }))} size="none">
           <CardContent className="relative h-full">

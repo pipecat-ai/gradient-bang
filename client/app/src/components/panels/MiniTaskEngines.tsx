@@ -112,17 +112,33 @@ const MiniEngine = ({
   }
 
   const isRunning = state === "active" || state === "cancelling" || state === "steering"
+  const taskEngineLabel =
+    isLocal ? "local task engine"
+    : displayTask?.ship_name ? `${displayTask.ship_name} task engine`
+    : "corporation task engine"
+  const openTaskStreamLabel = `Open ${taskEngineLabel}`
 
   const openTaskStream = () => {
     if (!taskId) return
     setActivePanel("task_stream", taskId)
   }
 
+  const handleTaskStreamKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!taskId) return
+    if (event.target !== event.currentTarget) return
+    if (event.key !== "Enter" && event.key !== " ") return
+
+    event.preventDefault()
+    openTaskStream()
+  }
+
   return (
     <div
       className={cx({ subtle: !isRunning, hasTask: !!taskId })}
       onClick={taskId ? openTaskStream : undefined}
+      onKeyDown={taskId ? handleTaskStreamKeyDown : undefined}
       role={taskId ? "button" : undefined}
+      aria-label={taskId ? openTaskStreamLabel : undefined}
       tabIndex={taskId ? 0 : undefined}
       style={taskId ? { cursor: "pointer" } : undefined}
     >
@@ -137,6 +153,9 @@ const MiniEngine = ({
             <Button
               size="icon-sm"
               variant="ghost"
+              aria-label={
+                isCancelling ? `Cancelling ${taskEngineLabel}` : `Cancel ${taskEngineLabel}`
+              }
               disabled={isCancelling}
               className="absolute z-20 top-1 right-1 size-6.5 bg-success-background/50 text-success-foreground hover:bg-success-background"
               onClick={(e) => {
@@ -159,6 +178,7 @@ const MiniEngine = ({
           <Button
             size="ui"
             variant="bland"
+            aria-label={openTaskStreamLabel}
             className="shrink-0 h-full text-accent group-hover:text-foreground in-[.group\/subtle]:text-foreground border-l border-accent px-1.5 hover:text-terminal hover:bg-subtle-background hover:border-l-border"
             onClick={openTaskStream}
           >

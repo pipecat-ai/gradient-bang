@@ -253,6 +253,7 @@ export const Game = () => {
               <Button
                 variant="secondary"
                 size="icon"
+                aria-label="Expand side panel"
                 className="bg-background"
                 onClick={() => asidePanelRef?.current?.expand()}
               >

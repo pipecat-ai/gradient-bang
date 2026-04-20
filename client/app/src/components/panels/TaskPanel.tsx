@@ -142,6 +142,7 @@ export const TaskHistoryRow = ({
       <Button
         size="icon-sm"
         variant="ghost"
+        aria-label={`Open task details: ${task.start_instructions}`}
         className="bg-accent-background/50 text-foreground hover:bg-accent-background"
         onClick={() => onTaskClick(task)}
       >
@@ -179,6 +180,7 @@ export const TaskInProgressRow = ({
       <Button
         size="icon-sm"
         variant="ghost"
+        aria-label={`Open task details: ${task.task_description}`}
         className="bg-accent-background/50 text-foreground hover:bg-accent-background"
         onClick={() => onTaskClick(task)}
       >

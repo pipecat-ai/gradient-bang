@@ -15,7 +15,7 @@ export const PlayerActionDropdown = ({ player }: { player: Player }) => {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ui" size="icon-sm">
+        <Button variant="ui" size="icon-sm" aria-label={`Player actions for ${player.name}`}>
           <DotsThreeIcon size={16} />
         </Button>
       </DropdownMenuTrigger>

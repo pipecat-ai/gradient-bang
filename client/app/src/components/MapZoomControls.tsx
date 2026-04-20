@@ -55,6 +55,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
     500,
     { trailing: true }
   )
+  const legendToggleLabel = mapLegendVisible ? "Hide map legend" : "Show map legend"
 
   return (
     <>
@@ -62,6 +63,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
         <Button
           size="icon-sm"
           variant="bland"
+          aria-label="Zoom out map"
           disabled={disabled}
           onClick={() => {
             const nextIndex = clampZoomIndex(currentIndex + 1)
@@ -90,6 +92,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
         <Button
           variant="bland"
           size="icon-sm"
+          aria-label="Zoom in map"
           disabled={disabled}
           onClick={() => {
             const nextIndex = clampZoomIndex(currentIndex - 1)
@@ -108,6 +111,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
             <Button
               variant="bland"
               size="icon-sm"
+              aria-label="Reset map"
               disabled={disabled}
               onClick={() => {
                 resetMapView?.()
@@ -125,6 +129,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
             <Button
               variant="bland"
               size="icon-sm"
+              aria-label={legendToggleLabel}
               disabled={disabled}
               onClick={() => setMapLegendVisible?.(!mapLegendVisible)}
               className="shrink-0 hover:bg-accent-background"
@@ -134,7 +139,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
               : <EyeIcon weight="bold" />}
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="left">Show legend</TooltipContent>
+          <TooltipContent side="left">{legendToggleLabel}</TooltipContent>
         </Tooltip>
         <Popover>
           <Tooltip>
@@ -143,6 +148,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
                 <Button
                   variant="bland"
                   size="icon-sm"
+                  aria-label="Map settings"
                   disabled={disabled}
                   className="shrink-0 hover:bg-accent-background"
                 >

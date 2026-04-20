@@ -17,6 +17,7 @@ export const ModalCloseButton = ({
       <Button
         variant="secondary"
         size="icon-lg"
+        aria-label="Close dialog"
         onClick={handleClose}
         data-modal-close
         className={cn("fixed top-ui-md right-ui-md", className)}

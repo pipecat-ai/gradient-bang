@@ -25,6 +25,7 @@ export const PopoverHelper = ({
         <Button
           variant="link"
           size="icon-xs"
+          aria-label={`Open help: ${title}`}
           className={cn("p-0 hover:text-terminal data-[state=open]:text-terminal", className)}
         >
           <InfoIconSM className="shrink-0 size-3" />

@@ -50,6 +50,7 @@ export const TopBar = () => {
               <Button
                 variant="outline"
                 size="icon-sm"
+                aria-label="Save replay"
                 onClick={() => setActiveModal("social_replay")}
               >
                 <FilmStripIcon weight="bold" size={16} />
@@ -63,7 +64,12 @@ export const TopBar = () => {
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="outline" size="icon-sm" onClick={() => setActiveModal("leaderboard")}>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Open leaderboard"
+              onClick={() => setActiveModal("leaderboard")}
+            >
               <MedalIcon weight="bold" size={16} />
             </Button>
           </TooltipTrigger>
@@ -74,7 +80,12 @@ export const TopBar = () => {
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="outline" size="icon-sm" onClick={() => setActiveModal("settings")}>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Open settings"
+              onClick={() => setActiveModal("settings")}
+            >
               <SlidersHorizontalIcon weight="bold" size={16} />
             </Button>
           </TooltipTrigger>

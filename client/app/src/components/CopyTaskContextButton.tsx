@@ -62,7 +62,19 @@ export function CopyTaskContextButton({ taskId }: { taskId: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button onClick={handleClick} className="z-90 p-0.5 hover:text-white">
+        <button
+          type="button"
+          aria-label={
+            loading ? "Copying task context"
+            : copied ?
+              "Task context copied"
+            : errored ?
+              "Task context copy failed"
+            : "Copy task context"
+          }
+          onClick={handleClick}
+          className="z-90 p-0.5 hover:text-white"
+        >
           {loading ?
             <SpinnerGapIcon size={14} weight="bold" className="animate-spin" />
           : copied ?
