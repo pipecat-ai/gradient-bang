@@ -37,6 +37,7 @@ from gradientbang.tools.schemas import (
     JOIN_CORPORATION,
     LEAVE_CORPORATION,
     KICK_CORPORATION_MEMBER,
+    REGENERATE_INVITE_CODE,
     CORPORATION_INFO,
     # Ship
     MY_STATUS,
@@ -82,6 +83,7 @@ VOICE_TOOLS = ToolsSchema(
         JOIN_CORPORATION,
         LEAVE_CORPORATION,
         KICK_CORPORATION_MEMBER,
+        REGENERATE_INVITE_CODE,
         SELL_SHIP,
         SEND_MESSAGE,
         # Combat

@@ -572,6 +572,25 @@ KICK_CORPORATION_MEMBER = FunctionSchema(
     required=["target_id"],
 )
 
+REGENERATE_INVITE_CODE = FunctionSchema(
+    name="regenerate_invite_code",
+    description=(
+        "Rotate the corporation's invite passphrase. Founder only. The old "
+        "code stops working immediately — anyone holding it can no longer "
+        "join. Use when the founder asks to regenerate/reset/rotate the "
+        "code, or when they suspect the code has leaked. The new code is "
+        "shown in the corporation details panel on the player's screen; "
+        "DO NOT speak the code aloud."
+    ),
+    properties={
+        "character_id": {
+            "type": "string",
+            "description": "Character requesting the regeneration (defaults to the authenticated pilot)",
+        },
+    },
+    required=[],
+)
+
 CORPORATION_INFO = FunctionSchema(
     name="corporation_info",
     description=(

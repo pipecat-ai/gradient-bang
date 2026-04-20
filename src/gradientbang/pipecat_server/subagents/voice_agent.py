@@ -335,6 +335,7 @@ class VoiceAgent(LLMAgent):
             "join_corporation": self._handle_join_corporation,
             "leave_corporation": self._handle_leave_corporation,
             "kick_corporation_member": self._handle_kick_corporation_member,
+            "regenerate_invite_code": self._handle_regenerate_invite_code,
             "send_message": self._handle_send_message,
             "combat_initiate": self._handle_combat_initiate,
             "combat_action": self._handle_combat_action,
@@ -632,6 +633,32 @@ class VoiceAgent(LLMAgent):
             self._begin_assistant_response_cycle()
             await params.result_callback(
                 {"success": True},
+                properties=FunctionCallResultProperties(run_llm=True),
+            )
+        except Exception as exc:
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
+
+    async def _handle_regenerate_invite_code(self, params: FunctionCallParams):
+        # Founder-only. On success the new code is broadcast via
+        # corporation.invite_code_regenerated and surfaced in the
+        # CorporationDetailsDialog. We deliberately do NOT return the new
+        # code here — the LLM's acknowledgement should say "rotated" /
+        # "done" without reading the passphrase aloud.
+        try:
+            result = await self._game_client.regenerate_invite_code(
+                character_id=self._character_id,
+            )
+            self._track_request_id_from_result(result)
+            self._begin_assistant_response_cycle()
+            await params.result_callback(
+                {
+                    "success": True,
+                    "note": (
+                        "New invite code is shown in the corporation "
+                        "details panel on the player's screen. Do NOT "
+                        "speak the code aloud."
+                    ),
+                },
                 properties=FunctionCallResultProperties(run_llm=True),
             )
         except Exception as exc:

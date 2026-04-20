@@ -2020,3 +2020,83 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 40: my_status corporation payload — founder-aware gating
+// ============================================================================
+//
+// Status snapshots carry a lightweight corp summary used by the client to
+// drive founder-only UI (e.g. the CorporationDetailsDialog invite section).
+// The payload must include `is_founder` and `founder_id` for any corp
+// member, and must include `invite_code` ONLY for the founder. Non-corp
+// players get `corporation: null`. Regression test for the modal-stale
+// bug where status.update wiped founder fields.
+
+Deno.test({
+  name: "corporation — status.corporation includes founder-aware fields",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let inviteCode: string;
+
+    await t.step("reset, create corp with P1, P2 joins, P3 stays solo", async () => {
+      await resetDatabase([P1, P2, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipCredits(p1ShipId, 50_000);
+      const result = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Status Gating Corp",
+      });
+      corpId = (result as Record<string, unknown>).corp_id as string;
+      inviteCode = (result as Record<string, unknown>).invite_code as string;
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: inviteCode,
+      });
+    });
+
+    await t.step("founder P1 status: is_founder=true, founder_id set, invite_code present", async () => {
+      const cursor = await getEventCursor(p1Id);
+      await apiOk("my_status", { character_id: p1Id });
+      const snapshots = await eventsOfType(p1Id, "status.snapshot", cursor);
+      assert(snapshots.length >= 1, "my_status should emit status.snapshot");
+      const payload = snapshots[snapshots.length - 1].payload as Record<string, unknown>;
+      const corp = payload.corporation as Record<string, unknown> | null;
+      assertExists(corp, "P1's status should include corporation");
+      assertEquals(corp.corp_id, corpId);
+      assertEquals(corp.founder_id, p1Id);
+      assertEquals(corp.is_founder, true);
+      assertEquals(corp.invite_code, inviteCode);
+    });
+
+    await t.step("non-founder P2 status: is_founder=false, founder_id set, NO invite_code", async () => {
+      const cursor = await getEventCursor(p2Id);
+      await apiOk("my_status", { character_id: p2Id });
+      const snapshots = await eventsOfType(p2Id, "status.snapshot", cursor);
+      assert(snapshots.length >= 1, "my_status should emit status.snapshot");
+      const payload = snapshots[snapshots.length - 1].payload as Record<string, unknown>;
+      const corp = payload.corporation as Record<string, unknown> | null;
+      assertExists(corp, "P2's status should include corporation");
+      assertEquals(corp.corp_id, corpId);
+      assertEquals(corp.founder_id, p1Id);
+      assertEquals(corp.is_founder, false);
+      assert(
+        !("invite_code" in corp),
+        "Non-founder status.corporation must NOT include invite_code",
+      );
+    });
+
+    await t.step("non-corp P3 status: corporation is null", async () => {
+      const cursor = await getEventCursor(p3Id);
+      await apiOk("my_status", { character_id: p3Id });
+      const snapshots = await eventsOfType(p3Id, "status.snapshot", cursor);
+      assert(snapshots.length >= 1, "my_status should emit status.snapshot");
+      const payload = snapshots[snapshots.length - 1].payload as Record<string, unknown>;
+      assertEquals(payload.corporation, null);
+    });
+  },
+});

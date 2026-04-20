@@ -1488,27 +1488,43 @@ async function pgLoadCorporationInfo(
   pg: QueryClient,
   corpId: string,
   joinedAt: string | null,
+  characterId: string,
 ): Promise<Record<string, unknown> | null> {
+  // Founder-aware lightweight corp summary for status payloads. Gates
+  // invite_code to the founder only (matches `buildCorporationMemberPayload`
+  // in _shared/corporations.ts). Members and ships are deliberately NOT
+  // included here — those are heavy and come from `my_corporation` /
+  // `corporation_info` on demand.
   const corpResult = await pg.queryObject<{
     corp_id: string;
     name: string;
     member_count: number;
+    founder_id: string;
+    invite_code: string;
   }>(
-    `SELECT c.corp_id, c.name, COUNT(cm.character_id)::int as member_count
+    `SELECT c.corp_id, c.name, c.founder_id, c.invite_code,
+            COUNT(cm.character_id)::int as member_count
     FROM corporations c
     LEFT JOIN corporation_members cm ON cm.corp_id = c.corp_id AND cm.left_at IS NULL
     WHERE c.corp_id = $1
-    GROUP BY c.corp_id, c.name`,
+    GROUP BY c.corp_id, c.name, c.founder_id, c.invite_code`,
     [corpId],
   );
   const corp = corpResult.rows[0];
   if (!corp) return null;
-  return {
+  const isFounder = corp.founder_id === characterId;
+  const payload: Record<string, unknown> = {
     corp_id: corp.corp_id,
     name: corp.name,
     member_count: corp.member_count ?? 0,
     joined_at: joinedAt,
+    founder_id: corp.founder_id,
+    is_founder: isFounder,
   };
+  if (isFounder) {
+    payload.invite_code = corp.invite_code;
+  }
+  return payload;
 }
 
 export async function pgBuildStatusPayload(
@@ -1557,6 +1573,7 @@ export async function pgBuildStatusPayload(
           pg,
           character.corporation_id,
           character.corporation_joined_at,
+          characterId,
         )
       : Promise.resolve(null)
     ).then((r) => { sCorp.end(); return r; }),

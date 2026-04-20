@@ -63,6 +63,11 @@ CONTROL_UI_SCHEMA = FunctionSchema(
             ],
             "description": "Toggle between map (map) or tasks (default or 'tasks'). Alternatively, highlight and show sub panels: sector, player, trade, task_history ('history'), contracts, logs.",
         },
+        "show_modal": {
+            "type": "string",
+            "enum": ["corporation_details"],
+            "description": "Open a modal dialog. Use 'corporation_details' when the user asks to see / show / view their corporation info, members, or invite code.",
+        },
         "map_center_sector": {
             "type": "integer",
             "description": "Center the map on this sector ID (discovered sector only)",
@@ -1816,6 +1821,10 @@ class UIAgentContext(FrameProcessor):
             if self._last_map_highlight_path not in {None, tuple()}:
                 changed = True
             self._last_map_highlight_path = tuple()
+
+        # Modals always send: the user may close and re-request the same modal.
+        if isinstance(arguments.get("show_modal"), str):
+            changed = True
 
         return changed
 

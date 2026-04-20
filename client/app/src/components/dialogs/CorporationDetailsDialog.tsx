@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { CopyIcon, ArrowsClockwiseIcon } from "@phosphor-icons/react"
 
@@ -17,17 +17,28 @@ import { BaseDialog } from "./BaseDialog"
  * button) and a Regenerate action. Non-founder members see a note
  * explaining that only the founder can view/regenerate the code.
  *
- * The modal reads directly from `useGameStore.use.corporation()`; data is
- * hydrated by the existing `corporation.data` / `corporation_info` event
- * handlers.
+ * Reads directly from `useGameStore.use.corporation()`. The store's
+ * lightweight corp summary (from `status.update`/`status.snapshot`)
+ * carries `is_founder` and (for founders) `invite_code`, but not
+ * `members`/`ships`. We refresh those heavy fields on mount via
+ * `get-my-corporation` so the roster/fleet is current every time
+ * the modal is opened.
  */
 export const CorporationDetailsDialog = () => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const corporation = useGameStore.use.corporation?.()
+  const dispatchAction = useGameStore.use.dispatchAction()
   const client = usePipecatClientStore((state) => state.client)
 
   const [copied, setCopied] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+
+  // Refresh members/ships on mount. `status.*` events carry only the
+  // founder-aware essentials; the heavy roster/fleet lists come from
+  // `my_corporation` and are only re-fetched on explicit dispatch.
+  useEffect(() => {
+    dispatchAction({ type: "get-my-corporation" })
+  }, [dispatchAction])
 
   const close = () => setActiveModal(undefined)
 

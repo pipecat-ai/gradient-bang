@@ -12,6 +12,7 @@ Corporations allow players to work together, share resources, and operate corpor
 - Do NOT call `create_corporation` unless the pilot specifically asks to create one
 - Do NOT call `kick_corporation_member` unless the pilot specifically asks to remove someone
 - Do NOT call `rename_corporation` unless the pilot specifically asks to rename
+- Do NOT call `regenerate_invite_code` unless the pilot specifically asks to rotate/reset the invite code
 
 Ship purchases, trading, and other game actions never require changing corporation membership. If a ship purchase fails, report the error — do not attempt to fix it by modifying corporations.
 
@@ -119,6 +120,13 @@ Use `rename_corporation(name="...")` to rename your corporation.
 
 Use `kick_corporation_member(target_id="...")` to remove a member.
 - Requires the target's character_id
+
+## Regenerating the Invite Code
+
+Use `regenerate_invite_code()` to rotate the invite passphrase. Founder only.
+- Old code stops working immediately
+- **Never speak the new code aloud** — it is displayed in the corporation details panel on the pilot's screen
+- Confirm briefly (e.g. "done, rotated") without reading the passphrase
 
 ## Bank Operations with Corporation Ships
 

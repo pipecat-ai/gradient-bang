@@ -419,6 +419,14 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # before the confirm fires.
     "corporation.kick_pending": EventConfig(append=AppendRule.NEVER),
     "corporation.join_pending": EventConfig(append=AppendRule.NEVER),
+    # Invite-code regeneration: client-only UI signal. The founder's
+    # CorporationDetailsDialog listens for it to refresh the displayed
+    # code. LLM context is injected separately by
+    # client_message_handler._handle_regenerate_invite_code (modal path)
+    # and by the voice-agent tool handler's run_llm=True acknowledgement
+    # (LLM path). We must still subscribe here so the event reaches the
+    # RTVI push that feeds the client.
+    "corporation.invite_code_regenerated": EventConfig(append=AppendRule.NEVER),
     # Audited legacy overrides:
     # - event.query needs a shared bounded task/bus summary plus a shorter voice summary
     # - chat.message, ships.list, and combat overrides remain voice-only; generic client summaries
