@@ -23,9 +23,14 @@ set -euo pipefail
 ENV_FILE=".env.supabase"
 SECTOR_COUNT="5000"
 SEED=""
+ALLOW_PRODUCTION=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --allow-production)
+      ALLOW_PRODUCTION=true
+      shift
+      ;;
     --env)
       ENV_FILE="$2"
       shift 2
@@ -77,6 +82,33 @@ if [[ "${POSTGRES_POOLER_URL:-}" == *"supabase.co"* || "${POSTGRES_POOLER_URL:-}
 fi
 
 # ---------------------------------------------------------------------------
+# Production guard: .env.cloud (no suffix) = production
+# Require --allow-production flag to proceed
+# ---------------------------------------------------------------------------
+
+IS_PRODUCTION=false
+BASENAME=$(basename "$ENV_FILE")
+if [[ "$BASENAME" == ".env.cloud" ]]; then
+  IS_PRODUCTION=true
+fi
+
+if [[ "$IS_PRODUCTION" == true && "$ALLOW_PRODUCTION" != true ]]; then
+  echo "" >&2
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+  echo "  BLOCKED: This env file targets PRODUCTION." >&2
+  echo "" >&2
+  echo "  Env file : $ENV_FILE" >&2
+  echo "  URL      : ${SUPABASE_URL:-<not set>}" >&2
+  echo "" >&2
+  echo "  To run against production, pass --allow-production:" >&2
+  echo "" >&2
+  echo "    scripts/reset-world.sh --env $ENV_FILE --allow-production" >&2
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+  echo "" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # SQL helper: run a SQL command against the database
 # ---------------------------------------------------------------------------
 
@@ -125,17 +157,41 @@ echo ""
 if [[ "$IS_CLOUD" == true ]]; then
   # Extract project ref from URL for easy visual confirmation
   PROJECT_REF=$(echo "${SUPABASE_URL:-}" | sed -n 's|https://\([^.]*\)\.supabase\.co.*|\1|p')
-  echo "[reset-world] WARNING: This will wipe all game data on cloud project:"
-  echo ""
-  echo "    Project ref : ${PROJECT_REF:-<unknown>}"
-  echo "    URL         : ${SUPABASE_URL:-<not set>}"
-  echo ""
-  read -r -p "[reset-world] Type the project ref to confirm: " confirm
-  if [[ "$confirm" != "$PROJECT_REF" ]]; then
-    echo "[reset-world] Aborted. (expected '$PROJECT_REF', got '$confirm')"
-    exit 0
+
+  if [[ "$IS_PRODUCTION" == true ]]; then
+    echo ""
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "  WARNING: YOU ARE ABOUT TO WIPE PRODUCTION"
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo ""
+    echo "    Project ref : ${PROJECT_REF:-<unknown>}"
+    echo "    URL         : ${SUPABASE_URL:-<not set>}"
+    echo "    Env file    : $ENV_FILE"
+    echo ""
+    echo "  This will PERMANENTLY DELETE all game data including:"
+    echo "    - All player ships, inventories, and progress"
+    echo "    - All sectors, stations, and universe data"
+    echo "    - All combat logs and quest progress"
+    echo ""
+    read -r -p "[reset-world] Type 'DESTROY PRODUCTION' to confirm: " confirm
+    if [[ "$confirm" != "DESTROY PRODUCTION" ]]; then
+      echo "[reset-world] Aborted. (expected 'DESTROY PRODUCTION')"
+      exit 0
+    fi
+    echo ""
+  else
+    echo "[reset-world] WARNING: This will wipe all game data on cloud project:"
+    echo ""
+    echo "    Project ref : ${PROJECT_REF:-<unknown>}"
+    echo "    URL         : ${SUPABASE_URL:-<not set>}"
+    echo ""
+    read -r -p "[reset-world] Type the project ref to confirm: " confirm
+    if [[ "$confirm" != "$PROJECT_REF" ]]; then
+      echo "[reset-world] Aborted. (expected '$PROJECT_REF', got '$confirm')"
+      exit 0
+    fi
+    echo ""
   fi
-  echo ""
 else
   read -r -p "[reset-world] This will wipe all local game data. Type 'yes' to continue: " confirm
   if [[ "$confirm" != "yes" ]]; then

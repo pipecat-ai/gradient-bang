@@ -2,13 +2,24 @@
 
 Resets the game database, generates a fresh universe, loads quest definitions, and seeds combat cron config.
 
+## Production safety
+
+**This skill MUST NEVER run against production (`.env.cloud`).** If the user asks for `/reset-world prod` or `/reset-world production`, REFUSE. Tell them:
+
+> Production resets cannot be run through this skill. To reset production, run the script manually where you get interactive confirmation prompts:
+>
+> ```bash
+> scripts/reset-world.sh --env .env.cloud --allow-production [sector_count] [seed]
+> ```
+
+Do NOT offer to proceed, do NOT ask for confirmation, do NOT accept "I'm sure" — just refuse and show the manual command.
+
 ## Parameters
 
-The user specifies the environment as an argument: `/reset-world local`, `/reset-world dev`, or `/reset-world prod`. If not provided, ask which environment.
+The user specifies the environment as an argument: `/reset-world local` or `/reset-world dev`. If not provided, ask which environment.
 
 - `local` → env file: `.env.supabase`
 - `dev` → env file: `.env.cloud.dev`
-- `prod` → env file: `.env.cloud`
 
 Additional optional parameters (ask if not provided, or use defaults):
 - **Sector count**: number of sectors to generate (default: `5000`)
@@ -22,11 +33,7 @@ Additional optional parameters (ask if not provided, or use defaults):
 set -a && source <env-file> && set +a
 ```
 
-### 2. Confirm before proceeding (prod only)
-
-If the environment is **prod**, STOP and ask the user for explicit confirmation before doing anything destructive. Show them exactly what will happen: all game data tables will be truncated, a new universe will be generated, and quest definitions will be reloaded. Do NOT proceed until the user confirms.
-
-### 3. Run the world reset script
+### 2. Run the world reset script
 
 This truncates all game data tables (preserving auth.users), generates a new universe, loads it into Supabase, and loads quest definitions.
 
