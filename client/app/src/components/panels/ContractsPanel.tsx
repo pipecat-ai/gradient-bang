@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useCallback, useId, useState } from "react"
 
 import { CheckerboardIcon, CheckIcon } from "@phosphor-icons/react"
 
@@ -18,6 +18,24 @@ import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
 const HEX_PATH = "M8.66 1.5 15.32 5.35V13.05l-6.66 3.85L2 13.05V5.35Z"
+const ACCORDION_ITEM_SELECTOR = "[data-slot='accordion-item']"
+const ACCORDION_TRIGGER_SELECTOR = "[data-slot='accordion-trigger']"
+
+const isPlainEscapeKey = (event: React.KeyboardEvent<HTMLElement>) =>
+  event.key === "Escape" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+
+const getAccordionTrigger = (element: HTMLElement) => {
+  const item = element.closest(ACCORDION_ITEM_SELECTOR)
+  if (!(item instanceof HTMLElement)) return null
+
+  const trigger = item.querySelector(ACCORDION_TRIGGER_SELECTOR)
+  return trigger instanceof HTMLButtonElement ? trigger : null
+}
+
+const focusWithoutScroll = (element: HTMLElement | null) => {
+  if (!element) return
+  requestAnimationFrame(() => element.focus({ preventScroll: true }))
+}
 
 const HexCompleted = () => (
   <svg viewBox="0 0 17.32 16.9" className="size-6 shrink-0">
@@ -164,12 +182,45 @@ export const ContractsPanel = () => {
   const sector = useGameStore.use.sector?.()
   const setActiveModal = useGameStore.use.setActiveModal()
   const isMegaPort = !!sector?.port?.mega
+  const contractBoardButtonId = useId()
 
   const hasContracts = contracts && contracts.length > 0
+
+  const handleTriggerEscape = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!isPlainEscapeKey(event)) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    if (event.currentTarget.getAttribute("aria-expanded") === "true") {
+      event.currentTarget.click()
+      focusWithoutScroll(event.currentTarget)
+      return
+    }
+
+    focusWithoutScroll(document.getElementById(contractBoardButtonId) as HTMLButtonElement | null)
+  }, [contractBoardButtonId])
+
+  const handleContentEscape = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!isPlainEscapeKey(event)) return
+
+    const trigger = getAccordionTrigger(event.currentTarget)
+    if (!trigger) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    if (trigger.getAttribute("aria-expanded") === "true") {
+      trigger.click()
+    }
+
+    focusWithoutScroll(trigger)
+  }, [])
 
   return (
     <RHSPanelContent id="contracts-panel">
       <Button
+        id={contractBoardButtonId}
         variant="ghost"
         disabled={!isMegaPort}
         onClick={() => setActiveModal("quest_list")}
@@ -212,7 +263,10 @@ export const ContractsPanel = () => {
                     value={contract.quest_id}
                     className="corner-dots p-ui-xs flex flex-col gap-0.5 border border-accent border-r-0 bg-subtle-background not-last:border-b-0!"
                   >
-                    <AccordionTrigger className="p-0 rounded-none hover:no-underline">
+                    <AccordionTrigger
+                      className="p-0 rounded-none hover:no-underline"
+                      onKeyDown={handleTriggerEscape}
+                    >
                       <div className="flex items-center justify-between flex-1">
                         <span className="text-xs font-medium uppercase">{contract.name}</span>
                         <Badge
@@ -229,7 +283,7 @@ export const ContractsPanel = () => {
                         </Badge>
                       </div>
                     </AccordionTrigger>
-                    <AccordionContent className="pb-0">
+                    <AccordionContent className="pb-0" onKeyDownCapture={handleContentEscape}>
                       {contract.meta.giver && (
                         <div className="text-xxs text-subtle-foreground uppercase">
                           Issued by: {contract.meta.giver}
