@@ -18,6 +18,9 @@ import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { wait } from "@/utils/animation"
 
+const SIGN_UP_URL = "https://www.gradient-bang.com/join"
+const DISCORD_URL = "https://discord.gg/QwDQ8kkNJ"
+
 export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const setCharacterId = useGameStore.use.setCharacterId()
@@ -146,16 +149,29 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                   >
                     Sign In
                   </Button>
-                  <a
-                    href="https://www.gradient-bang.com/join"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="self-center w-fit text-center"
-                  >
-                    <p className="text-xs uppercase text-subtle-foreground hover:text-foreground">
-                      Need an account? Sign up here!
-                    </p>
-                  </a>
+                  <div className="flex flex-col items-center gap-1 text-center">
+                    <a
+                      href={SIGN_UP_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="self-center w-fit text-center"
+                    >
+                      <p className="text-xs uppercase text-subtle-foreground hover:text-foreground transition-colors">
+                        Need an account? Sign up here!
+                      </p>
+                    </a>
+                    <a
+                      href={DISCORD_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Join the Gradient Bang Discord community"
+                      className="self-center w-fit text-center"
+                    >
+                      <p className="text-xs uppercase text-subtle-foreground hover:text-foreground transition-colors">
+                        Talk about the game on Discord
+                      </p>
+                    </a>
+                  </div>
                   <Separator />
                   <Button
                     onClick={() => setActiveModal("leaderboard")}
