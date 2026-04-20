@@ -53,7 +53,7 @@ jobs:
           audio_filter = "tel"
 
           [scaling]
-          min_agents = 1
+          min_agents = 3
           max_agents = 10
 
           [build]

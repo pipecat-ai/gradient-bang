@@ -44,15 +44,25 @@ In `CHANGELOG.md`:
 
 If there are no entries under Unreleased, warn the user but proceed.
 
-### 5. Commit and tag
+### 5. Bump client versions
+
+From the `client/` directory, run the matching pnpm bump script:
 
 ```bash
-git add pyproject.toml deployment/supabase/functions/_shared/version.ts CHANGELOG.md
+cd client && pnpm run bump:<major|minor|patch>
+```
+
+This bumps `client/app/package.json` and `client/starfield/package.json`, then rebuilds.
+
+### 6. Commit and tag
+
+```bash
+git add pyproject.toml deployment/supabase/functions/_shared/version.ts CHANGELOG.md client/
 git commit -m "release: vA.B.C"
 git tag vA.B.C
 ```
 
-### 6. Report
+### 7. Report
 
 Print the new version and remind the user:
 - `git push && git push --tags` to push the release
@@ -60,6 +70,6 @@ Print the new version and remind the user:
 
 ## Does NOT
 
+- Run `uv lock` or regenerate `uv.lock` — a version-only bump does not change dependencies
 - Push to remote (user decides when)
 - Deploy anything (use `/deploy` for that)
-- Modify client versions (`client/app` and `client/starfield` are versioned separately)
