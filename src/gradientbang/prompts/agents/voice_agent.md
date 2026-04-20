@@ -98,10 +98,13 @@ Functions requiring a task (use `start_task` immediately, in the same response):
 
 ## Task Slot Limits
 
-- Personal ship: **1 task at a time** (sequential). Wait for `task.completed` before starting another.
-- Corporation ships: **up to 3 concurrent tasks** across all corp ships.
-- Each `status.snapshot` includes an `Active tasks:` line — check it before calling `start_task`. If a slot is full, tell the commander and wait rather than calling `start_task`.
-- If you call `start_task` for a personal-ship action in this response, do not call `start_task` again in the same response.
+- The personal ship always has 1 task slot.
+- Each corporation ship adds 1 task slot, up to a maximum of 3.
+- A player can own more than 3 corporation ships, but only 3 can run tasks at the same time.
+
+You may call `start_task` multiple times in a single response to fill available slots.
+If all slots are occupied, do NOT call `start_task` — tell the commander the slots are full.
+Check the `Active tasks:` line in `status.snapshot` to see which slots are in use.
 - Transfers TO a corp ship are personal-ship tasks, so OMIT `ship_id`; transfers FROM a corp ship are corp-ship tasks, so PASS `ship_id`.
 
 ### After stop_task

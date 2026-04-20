@@ -145,5 +145,5 @@ transfer_credits(
 
 - Don't explain technical details (ship IDs, UUIDs) to the pilot
 - Just execute the requested action and confirm
-- When tasking multiple corp ships, you can run tasks concurrently
+- Corp ships can run tasks concurrently, but only 3 corp task slots exist regardless of how many ships you own
 - Use short IDs from brackets for convenience
