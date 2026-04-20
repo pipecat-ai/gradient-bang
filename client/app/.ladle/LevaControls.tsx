@@ -165,6 +165,32 @@ export const LevaControls = ({
             ],
           })
         }),
+        ["Simulate kick tool call"]: button(() => {
+          const store = useConversationStore.getState()
+          store.handleFunctionCallStarted({ function_name: "kick_corporation_member" })
+          setTimeout(() => {
+            store.handleFunctionCallInProgress({
+              function_name: "kick_corporation_member",
+              tool_call_id: "mock-kick-001",
+              args: { target_id: "Frogstar" },
+            })
+          }, 50)
+          setTimeout(() => {
+            store.handleFunctionCallStopped({
+              function_name: "kick_corporation_member",
+              tool_call_id: "mock-kick-001",
+              result: { status: "pending_confirmation", target_name: "Frogstar" },
+            })
+          }, 100)
+          setTimeout(() => {
+            useGameStore.getState().setActiveModal("confirm_kick", {
+              target_id: "e036f20c-a890-4789-bbdb-da0cc97691ab",
+              target_name: "Frogstar",
+              corp_id: "e9161c33-cf62-4662-a3d1-956ab0b5c110",
+              corp_name: "Tolls-R-Us",
+            })
+          }, 150)
+        }),
         ["Set LLM Is Working"]: button(() => {
           useConversationStore.getState().setIsThinking(true)
         }),

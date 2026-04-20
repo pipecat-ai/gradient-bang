@@ -744,20 +744,14 @@ class VoiceAgent(LLMAgent):
         # now — the confirm/cancel client message will drive the next step
         # and inject context from client_message_handler.
         if isinstance(result, dict) and result.get("pending"):
-            self._begin_assistant_response_cycle()
             await params.result_callback(
                 {
                     "status": "pending_confirmation",
                     "will_disband": bool(result.get("will_disband")),
                     "old_corp_name": result.get("old_corp_name"),
                     "new_corp_name": result.get("corp_name"),
-                    "note": (
-                        "A confirmation dialog has been shown to the player "
-                        "because this will disband their current corporation. "
-                        "Briefly acknowledge that you're waiting for their decision."
-                    ),
                 },
-                properties=FunctionCallResultProperties(run_llm=True),
+                properties=FunctionCallResultProperties(run_llm=False),
             )
             return
 
@@ -839,17 +833,12 @@ class VoiceAgent(LLMAgent):
             return
 
         if isinstance(result, dict) and result.get("pending"):
-            self._begin_assistant_response_cycle()
             await params.result_callback(
                 {
                     "status": "pending_confirmation",
                     "target_name": result.get("target_name"),
-                    "note": (
-                        "A confirmation dialog has been shown to the player. "
-                        "Briefly acknowledge that you're waiting for their decision."
-                    ),
                 },
-                properties=FunctionCallResultProperties(run_llm=True),
+                properties=FunctionCallResultProperties(run_llm=False),
             )
             return
 

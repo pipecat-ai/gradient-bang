@@ -767,9 +767,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "corporation.data": {
               console.debug("[GAME EVENT] Corporation data", e.payload)
               const data = e.payload as { corporation: Corporation | null }
-              if (data.corporation) {
-                useGameStore.getState().setCorporation(data.corporation)
-              }
+              useGameStore.getState().setCorporation(data.corporation ?? undefined)
               useGameStore.getState().resolveFetchPromise("get-my-corporation")
               break
             }

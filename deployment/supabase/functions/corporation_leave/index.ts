@@ -7,7 +7,11 @@ import {
   errorResponse,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
-import { buildEventSource, emitErrorEvent } from "../_shared/events.ts";
+import {
+  buildEventSource,
+  emitCharacterEvent,
+  emitErrorEvent,
+} from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
   parseJsonRequest,
@@ -174,6 +178,19 @@ async function handleLeave(params: {
     console.error("corporation_leave.character_update", characterUpdateError);
     throw new CorporationLeaveError("Failed to update character state", 500);
   }
+
+  // Emit corporation.data directly to the leaving user so their client
+  // clears corp state. The corp-scoped member_left event (below) won't
+  // reach them because their corporation_id is already null.
+  const leaveSource = buildEventSource("corporation_leave", requestId);
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "corporation.data",
+    payload: { source: leaveSource, corporation: null },
+    requestId,
+    taskId,
+  });
 
   const remainingMembers = await fetchCorporationMembers(supabase, corpId);
   if (!remainingMembers.length) {

@@ -59,8 +59,6 @@ export const MessageContainer = ({
   botOutputRenderers,
   aggregationMetadata,
 }: Props) => {
-  if (!message) return null
-
   if (message.role === "ui") {
     return (
       <div className={cn("flex flex-col gap-2")}>

@@ -197,7 +197,7 @@ const deduplicateFunctionCalls = (messages: ConversationMessage[]): Conversation
 
 const normalizeMessagesForUI = (messages: ConversationMessage[]): ConversationMessage[] => {
   return mergeMessages(
-    deduplicateFunctionCalls(filterEmptyMessages(messages.filter(Boolean).sort(sortByCreatedAt)))
+    deduplicateFunctionCalls(filterEmptyMessages(messages.sort(sortByCreatedAt)))
   )
 }
 
