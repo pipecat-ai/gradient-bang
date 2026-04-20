@@ -168,6 +168,7 @@ export const Conversation: React.FC<ConversationProps> = memo(
       () =>
         allMessages
           .filter((m) => {
+            if (!m) return false
             if (noFunctionCalls && m.role === "function_call") return false
             if (!showSystem && m.role === "system") return false
             return true
