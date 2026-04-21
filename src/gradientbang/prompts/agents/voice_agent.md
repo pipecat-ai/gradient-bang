@@ -88,6 +88,7 @@ Never call send_message to:
 
 Use the `start_task` tool for:
 
+- Movement to any sector — the task agent handles routing, never refuse a move request
 - Multi-step navigation through multiple sectors
 - Trading sequences (finding ports, comparing prices, executing trades)
 - Systematic exploration of unknown sectors

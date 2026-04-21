@@ -365,18 +365,38 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           const normalizedMapData = normalizeMapData(localMapData)
           if (!state.local_map_data) {
             state.local_map_data = normalizedMapData
-            return
+          } else {
+            const existingById = new Map(
+              state.local_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
+            )
+
+            for (const sector of normalizedMapData) {
+              existingById.set(sector.id, sector)
+            }
+
+            state.local_map_data = Array.from(existingById.values())
           }
 
-          const existingById = new Map(
-            state.local_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
-          )
-
-          for (const sector of normalizedMapData) {
-            existingById.set(sector.id, sector)
+          // Propagate source upgrades to regional_map_data: if a sector
+          // arrives as "player" or "both" in local data but regional still
+          // has it as "corp", upgrade it so the big map renders correctly.
+          if (state.regional_map_data) {
+            const regionalIndex = new Map<number, number>()
+            state.regional_map_data.forEach((s: MapSectorNode, idx: number) =>
+              regionalIndex.set(s.id, idx)
+            )
+            for (const sector of normalizedMapData) {
+              if (sector.source === "player" || sector.source === "both") {
+                const idx = regionalIndex.get(sector.id)
+                if (idx !== undefined && state.regional_map_data[idx].source === "corp") {
+                  state.regional_map_data[idx] = {
+                    ...state.regional_map_data[idx],
+                    ...sector,
+                  }
+                }
+              }
+            }
           }
-
-          state.local_map_data = Array.from(existingById.values())
         })
       )
       _maybeRetryMapFit()
@@ -460,8 +480,13 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
                 // visits a previously gray sector).
                 const existingSource = (mapData[existingIdx] as MapSectorNode).source
                 const isPlayerVisited = existingSource === "player" || existingSource === "both"
+                const incomingSource = (sectorUpdate as MapSectorNode).source
                 if (!ignoreLocal || !isPlayerVisited) {
                   Object.assign(mapData[existingIdx], sectorUpdate)
+                  // Don't downgrade source from player/both to corp
+                  if (isPlayerVisited && incomingSource === "corp") {
+                    mapData[existingIdx].source = existingSource
+                  }
                   if (sectorUpdate.port !== undefined) {
                     const normalizedPort = normalizePort(
                       (sectorUpdate as MapSectorNode).port as PortLike

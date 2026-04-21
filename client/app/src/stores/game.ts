@@ -299,6 +299,9 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
     set(
       produce((state) => {
         const existingShips = state.ships.data ?? []
+        if (ship.ship_id && existingShips.some((s: ShipSelf) => s.ship_id === ship.ship_id)) {
+          return
+        }
         state.ships = {
           data: [...existingShips, ship as ShipSelf],
           last_updated: new Date().toISOString(),

@@ -323,6 +323,11 @@ export function GameProvider({ children }: GameProviderProps) {
                   )
                   useGameStore.getState().setPlayerSessionId(status.player.id)
                 }
+                // Backfill character_id when it wasn't set during login
+                // (e.g. Ladle dev environment skips character select).
+                if (!useGameStore.getState().character_id && status.player.id) {
+                  useGameStore.getState().setCharacterId(status.player.id)
+                }
 
                 useGameStore.getState().addActivityLogEntry({
                   type: "join",
