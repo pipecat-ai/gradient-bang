@@ -55,15 +55,23 @@ Each round, every participant declares one action:
 ### Hit Chance
 
 - Base hit chance is roughly 50%
-- Enemy shields and BRACE reduce that chance
+- Enemy shields and BRACE reduce that chance (up to 50% mitigation)
 - Your own shields add a small bonus
 - Final odds stay between 15% and 85%
 
-### Defensive Losses
+### Fighter Losses
 
-- Defensive losses remove fighters immediately
+Each committed fighter rolls once:
+- **Hit** → one enemy fighter destroyed
+- **Miss** → the attacker's own fighter is destroyed
+
+This is critical: attacking costs fighters on misses. A well-shielded target lowers your hit chance, so more of YOUR fighters die per round. Attacking a stronger ship head-on can destroy your own fleet faster than theirs.
+
+### Shield Ablation
+
 - Shields ablate by about half the incoming hits (less while bracing)
 - Lower shields weaken mitigation in future rounds
+- Shields regenerate 10 points per round
 
 ## Ending the Fight
 
@@ -84,9 +92,10 @@ Encounters conclude when:
 
 ## Strategy Tips
 
-- **BRACE** when outnumbered, buying time for allies, or rebuilding shields
-- **Attack** only with the fighters you can afford to lose
-- Probe with small commits before committing everything
+- **BRACE** when outnumbered, outshielded, or rebuilding shields
+- **Attack** only with fighters you can afford to lose — every miss kills one of yours
+- Probe with small commits to gauge hit rates before committing everything
+- Against a high-shield target, small probes lose fewer fighters to misses
 - **FLEE** toward safe adjacent sectors when your fighters or shields are nearly depleted and you have better warp agility
 - **PAY** tolls when a garrison blocks progress and combat is unwinnable
 - Once the toll clears, a round of universal BRACE ends the encounter
