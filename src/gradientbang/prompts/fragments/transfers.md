@@ -39,7 +39,21 @@ If you see a ship listed like "Fast Probe [abcd1234]":
 
 - Rescue a stranded ship that's out of warp power
 - Fuel up a corporation ship before a long mission
+- Move fuel between two corporation ships in the same sector
 - Share warp power with an ally
+
+Players often say "fuel" when they mean warp power. Treat "transfer fuel" as `transfer_warp_power(...)`.
+
+### Corporation Ship to Corporation Ship
+
+If a corporation ship is the source, run the task on that source ship and target the destination ship by name or `to_ship_id`.
+
+```python
+# Source ship is Red Probe [061cb6], destination is Blue Hauler [9af41c]
+transfer_warp_power(units=200, to_ship_id="9af41c")
+```
+
+The acting ship is determined by the task's `ship_id`. The destination ship still belongs in `to_ship_id`, `to_ship_name`, or `to_player_name`.
 
 ### Partial Transfer Rule
 
