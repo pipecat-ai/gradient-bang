@@ -5,11 +5,12 @@ pipeline and automatic tool registration.
 """
 
 import asyncio
+import dataclasses
 import functools
 from abc import abstractmethod
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
@@ -114,6 +115,14 @@ class LLMAgent(BaseAgent):
         self._tool_call_inflight: int = 0
         self._deferred_frames: deque[tuple[Frame, FrameDirection]] = deque()
 
+        # Batch tracking. The LLM service fires on_function_calls_started
+        # with the full list of tool calls before any handler runs. We use
+        # this to defer flushing until the entire batch is done, and to
+        # suppress run_llm on non-final tool result callbacks so the
+        # aggregator's built-in batch tracking handles inference timing.
+        self._tool_batch_id: int = 0
+        self._tool_batch_remaining: int = 0
+
     async def on_activated(self, args: Optional[dict]) -> None:
         """Configure the LLM with tools and activation messages.
 
@@ -138,6 +147,13 @@ class LLMAgent(BaseAgent):
     def tool_call_active(self) -> bool:
         """True when one or more ``@tool`` methods are executing."""
         return self._tool_call_inflight > 0
+
+    async def _on_tool_batch_started(
+        self, llm_service: LLMService, function_calls: Sequence
+    ) -> None:
+        """Track expected tool count when a batch of tool calls begins."""
+        self._tool_batch_id += 1
+        self._tool_batch_remaining = len(function_calls)
 
     async def queue_frame(
         self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM
@@ -201,6 +217,7 @@ class LLMAgent(BaseAgent):
                 tracked,
                 cancel_on_interruption=method.cancel_on_interruption,
             )
+        llm.add_event_handler("on_function_calls_started", self._on_tool_batch_started)
         return llm
 
     async def build_pipeline(self) -> Pipeline:
@@ -297,12 +314,32 @@ class LLMAgent(BaseAgent):
     def _track_tool_call(self, method: Callable) -> Callable:
         @functools.wraps(method)
         async def wrapper(params, *args, **kwargs):
+            batch_id = self._tool_batch_id
             self._tool_call_inflight += 1
+
+            # For non-final tools in a batch, suppress explicit run_llm=True
+            # so the Pipecat aggregator's built-in batch tracking decides
+            # when to trigger inference (only after the last tool completes).
+            original_cb = params.result_callback
+
+            async def _batched_result_cb(result, *, properties=None):
+                if (
+                    self._tool_batch_remaining > 1
+                    and properties is not None
+                    and properties.run_llm
+                ):
+                    properties = dataclasses.replace(properties, run_llm=None)
+                await original_cb(result, properties=properties)
+
+            params = dataclasses.replace(params, result_callback=_batched_result_cb)
+
             try:
                 return await method(params, *args, **kwargs)
             finally:
                 self._tool_call_inflight = max(0, self._tool_call_inflight - 1)
-                if self._tool_call_inflight == 0:
+                if batch_id == self._tool_batch_id:
+                    self._tool_batch_remaining = max(0, self._tool_batch_remaining - 1)
+                if self._tool_call_inflight == 0 and self._tool_batch_remaining == 0:
                     await self._flush_deferred_frames()
 
         return wrapper

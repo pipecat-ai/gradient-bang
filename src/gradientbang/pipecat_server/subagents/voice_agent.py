@@ -365,6 +365,7 @@ class VoiceAgent(LLMAgent):
             safe = self._wrap_tool_errors(schema.name, handler)
             tracked = self._track_tool_call(safe)
             llm.register_function(schema.name, tracked)
+        llm.add_event_handler("on_function_calls_started", self._on_tool_batch_started)
         return llm
 
     def build_tools(self) -> list:
