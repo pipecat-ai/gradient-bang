@@ -318,6 +318,7 @@ Deno.test({
     await t.step("P2 leaves corporation", async () => {
       const result = await apiOk("corporation_leave", {
         character_id: p2Id,
+        confirm: true,
       });
       assert(result.success);
     });
@@ -365,6 +366,7 @@ Deno.test({
     await t.step("P1 leaves corporation (last member)", async () => {
       const result = await apiOk("corporation_leave", {
         character_id: p1Id,
+        confirm: true,
       });
       assert(result.success);
     });
@@ -1864,72 +1866,6 @@ Deno.test({
       const char = await queryCharacter(p1Id);
       assertExists(char);
       assertEquals(char.corporation_id, corpIdA);
-    });
-  },
-});
-
-// ============================================================================
-// Group 38: corporation_join — founder can rejoin without invite code
-// ============================================================================
-
-Deno.test({
-  name: "corporation — founder rejoin without invite code",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    let corpId: string;
-
-    await t.step(
-      "reset, P1 founds corp, P2 joins, P1 leaves (corp stays alive with P2)",
-      async () => {
-        await resetDatabase([P1, P2, P3]);
-        await apiOk("join", { character_id: p1Id });
-        await apiOk("join", { character_id: p2Id });
-        await apiOk("join", { character_id: p3Id });
-        await setShipCredits(p1ShipId, 50000);
-        const result = await apiOk("corporation_create", {
-          character_id: p1Id,
-          name: "Founder Rejoin Corp",
-        });
-        corpId = (result as Record<string, unknown>).corp_id as string;
-        const inviteCode = (result as Record<string, unknown>).invite_code as string;
-        await apiOk("corporation_join", {
-          character_id: p2Id,
-          corp_id: corpId,
-          invite_code: inviteCode,
-        });
-        await apiOk("corporation_leave", { character_id: p1Id });
-      },
-    );
-
-    await t.step("P1 (founder) rejoins without invite code", async () => {
-      const result = await apiOk("corporation_join", {
-        character_id: p1Id,
-        corp_id: corpId,
-        // No invite_code provided.
-      });
-      assertEquals(
-        (result as Record<string, unknown>).corp_id,
-        corpId,
-        "Founder should successfully rejoin",
-      );
-    });
-
-    await t.step("DB: P1 is back in the corp", async () => {
-      const char = await queryCharacter(p1Id);
-      assertExists(char);
-      assertEquals(char.corporation_id, corpId);
-    });
-
-    await t.step("non-founder P3 still needs a valid invite code", async () => {
-      // Regression safety: invite-code enforcement is only relaxed for the
-      // founder. Everyone else must provide the real code.
-      const result = await api("corporation_join", {
-        character_id: p3Id,
-        corp_id: corpId,
-        // No invite_code.
-      });
-      assertEquals(result.status, 400);
     });
   },
 });

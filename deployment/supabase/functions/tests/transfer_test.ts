@@ -31,7 +31,6 @@ import {
   queryCharacter,
   queryShip,
   assertNoEventsOfType,
-  createCorpShip,
   setShipCredits,
   setShipSector,
   setShipWarpPower,
@@ -198,6 +197,7 @@ Deno.test({
       await resetDatabase([P1, P2]);
       await apiOk("join", { character_id: p1Id });
       await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 100_000);
 
       const corpResult = await apiOk("corporation_create", {
         character_id: p1Id,
@@ -251,6 +251,7 @@ Deno.test({
       await resetDatabase([P1, P2]);
       await apiOk("join", { character_id: p1Id });
       await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 100_000);
 
       const corpResult = await apiOk("corporation_create", {
         character_id: p1Id,

@@ -149,6 +149,7 @@ Deno.test({
       // corporation and detaches (rather than deletes) pseudo-characters.
       const result = await api("corporation_leave", {
         character_id: p1Id,
+        confirm: true,
       });
       assert(
         result.body.success,
@@ -212,9 +213,9 @@ Deno.test({
     });
 
     await t.step("P2 leaves, then P1 leaves (triggers disband)", async () => {
-      await apiOk("corporation_leave", { character_id: p2Id });
+      await apiOk("corporation_leave", { character_id: p2Id, confirm: true });
 
-      const result = await api("corporation_leave", { character_id: p1Id });
+      const result = await api("corporation_leave", { character_id: p1Id, confirm: true });
       assert(
         result.body.success,
         `disband should succeed but got: ${JSON.stringify(result.body)}`,
@@ -415,7 +416,7 @@ Deno.test({
     });
 
     await t.step("disband succeeds after selling ship", async () => {
-      const result = await apiOk("corporation_leave", { character_id: p1Id });
+      const result = await apiOk("corporation_leave", { character_id: p1Id, confirm: true });
       assert(result.success);
     });
 
@@ -463,7 +464,7 @@ Deno.test({
       inviteCode = (createResult as Record<string, unknown>).invite_code as string;
 
       // Disband by leaving as last member
-      await apiOk("corporation_leave", { character_id: p1Id });
+      await apiOk("corporation_leave", { character_id: p1Id, confirm: true });
     });
 
     await t.step("disbanded corp not in corporation_list", async () => {
@@ -509,7 +510,7 @@ Deno.test({
         name: corpName,
       });
       // Disband
-      await apiOk("corporation_leave", { character_id: p1Id });
+      await apiOk("corporation_leave", { character_id: p1Id, confirm: true });
     });
 
     await t.step("can create new corp with same name", async () => {
@@ -562,6 +563,7 @@ Deno.test({
     await t.step("leaving as last member fails — corp has ships", async () => {
       const result = await api("corporation_leave", {
         character_id: p1Id,
+        confirm: true,
       });
       assert(
         !result.body.success,
@@ -633,6 +635,7 @@ Deno.test({
     await t.step("now leaving as last member succeeds", async () => {
       const result = await apiOk("corporation_leave", {
         character_id: p1Id,
+        confirm: true,
       });
       assert(result.success);
     });
