@@ -52,6 +52,7 @@ class IdleReportProcessor(FrameProcessor):
 
         self._timer_task: Optional[asyncio.Task] = None
         self._started = False
+        self._stopped = False
         self._report_in_flight = False
         self._report_safety_task: Optional[asyncio.Task] = None
 
@@ -113,6 +114,8 @@ class IdleReportProcessor(FrameProcessor):
     # ── Timer management ──────────────────────────────────────────────
 
     def _start_timer(self, delay: float) -> None:
+        if self._stopped:
+            return
         self._cancel_timer()
         self._timer_task = self.create_task(self._timer_expired(delay))
 
@@ -129,6 +132,7 @@ class IdleReportProcessor(FrameProcessor):
 
     def _shutdown(self) -> None:
         """Cancel all tasks immediately. Must never block."""
+        self._stopped = True
         self._cancel_timer()
         self._clear_report_in_flight()
         self._started = False
