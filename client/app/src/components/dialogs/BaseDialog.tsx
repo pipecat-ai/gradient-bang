@@ -55,6 +55,7 @@ export interface BaseDialogProps {
   onOpenAutoFocus?: (e: Event) => void
   onCloseAutoFocus?: (e: Event) => void
   showCloseButton?: boolean
+  showOverlay?: boolean
 }
 
 export const BaseDialog = ({
@@ -74,6 +75,7 @@ export const BaseDialog = ({
   onOpenAutoFocus,
   onCloseAutoFocus,
   showCloseButton = true,
+  showOverlay = true,
 }: BaseDialogProps) => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const activeModal = useGameStore.use.activeModal?.()
@@ -117,16 +119,18 @@ export const BaseDialog = ({
         <AnimatePresence>
           {isOpen && (
             <>
-              <Dialog.Overlay asChild forceMount>
-                <motion.div
-                  {...OVERLAY_ANIMATION}
-                  className={cn(
-                    "DialogOverlay z-[90] bg-muted/80 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle",
-                    overlayVariantClass,
-                    overlayClassName
-                  )}
-                />
-              </Dialog.Overlay>
+              {showOverlay && (
+                <Dialog.Overlay asChild forceMount>
+                  <motion.div
+                    {...OVERLAY_ANIMATION}
+                    className={cn(
+                      "DialogOverlay z-[90] bg-muted/80 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm text-subtle",
+                      overlayVariantClass,
+                      overlayClassName
+                    )}
+                  />
+                </Dialog.Overlay>
+              )}
               <Dialog.Content
                 asChild
                 forceMount

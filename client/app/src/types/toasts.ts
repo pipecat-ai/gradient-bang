@@ -76,6 +76,17 @@ export type CorporationCreatedToastData = {
   corporation: Corporation
 }
 
+export type CorporationMemberJoinedToastData = {
+  corp_name: string
+  member_name: string
+  member_count: number
+  is_self: boolean
+}
+
+export type CorporationLeftToastData = {
+  corp_name: string
+}
+
 export type ToastInput = Omit<Toast, "id" | "timestamp">
 
 type ToastBase = {
@@ -87,6 +98,14 @@ export type Toast =
   | (ToastBase & {
       type: "corporation.created"
       meta?: CorporationCreatedToastData
+    })
+  | (ToastBase & {
+      type: "corporation.member_joined"
+      meta?: CorporationMemberJoinedToastData
+    })
+  | (ToastBase & {
+      type: "corporation.left"
+      meta?: CorporationLeftToastData
     })
   | (ToastBase & {
       type: "ship.purchased"

@@ -22,7 +22,7 @@ from loguru import logger
 from gradientbang.utils.config import get_repo_root
 from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
 
-DEFAULT_MODEL = os.getenv("TASK_LLM_MODEL", "gemini-2.5-flash-preview-09-2025")
+BOT_ENV_FILE = ".env.bot"
 
 logger.enable("pipecat")
 _log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
@@ -147,8 +147,9 @@ Examples:
   %(prog)s corp-member-01 --ship-id ship-123 "Move to sector 5 and scan"
 
 Environment Variables:
-  GOOGLE_API_KEY             Required. Google Generative AI key.
   SUPABASE_URL               Required. Base URL for Supabase (edge functions + REST).
+  TASK_LLM_PROVIDER          LLM provider: google, anthropic, openai (default: google).
+  TASK_LLM_MODEL             LLM model name (provider-specific default).
 """,
     )
 
@@ -165,9 +166,8 @@ Environment Variables:
     )
 
     parser.add_argument(
-        "--model",
-        default=os.getenv("AGENT_MODEL", DEFAULT_MODEL),
-        help="Gemini model name (default: %(default)s)",
+        "--instructions",
+        help="Additional context/instructions for the task agent (included as 'Additional Context' in the LLM prompt)",
     )
     parser.add_argument(
         "--ship-id",
@@ -189,14 +189,74 @@ async def run_task(args: argparse.Namespace) -> int:
     if not args.server:
         logger.error("SUPABASE_URL is required (or pass --server).")
         return 1
+
+    # Load .env.bot for LLM config (TASK_LLM_*, API keys).
+    bot_env = REPO_ROOT / BOT_ENV_FILE
+    if bot_env.exists():
+        from dotenv import load_dotenv
+
+        load_dotenv(bot_env, override=False)
+    else:
+        logger.warning("No {} found — LLM config may be missing", BOT_ENV_FILE)
+
     target_character_id = args.ship_id or args.actor_id
     actor_character_id = args.actor_id if args.ship_id else None
 
     from gradientbang.subagents.agents.base_agent import BaseAgent
     from gradientbang.subagents.runner import AgentRunner
-    from gradientbang.subagents.types import TaskStatus
+    from gradientbang.subagents.agents.task_group import TaskStatus
 
     from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+    from gradientbang.tools import (
+        CREATE_CORPORATION,
+        JOIN_CORPORATION,
+        LEAVE_CORPORATION,
+        KICK_CORPORATION_MEMBER,
+        REGENERATE_INVITE_CODE,
+        RENAME_SHIP,
+        RENAME_CORPORATION,
+        SEND_MESSAGE,
+    )
+
+    # NPC-specific tools that TaskAgent normally lacks (voice-only in the bot
+    # because they require UI confirmation flows that don't apply to NPCs).
+    _NPC_EXTRA_TOOLS = [
+        CREATE_CORPORATION,
+        JOIN_CORPORATION,
+        LEAVE_CORPORATION,
+        KICK_CORPORATION_MEMBER,
+        REGENERATE_INVITE_CODE,
+        RENAME_SHIP,
+        RENAME_CORPORATION,
+        SEND_MESSAGE,
+    ]
+
+    class NPCTaskAgent(TaskAgent):
+        """TaskAgent with the full tool set for autonomous NPC operation."""
+
+        def build_tools(self) -> list:
+            return super().build_tools() + _NPC_EXTRA_TOOLS
+
+        # Tools where schema param names don't match the RPC method signature.
+        _NPC_SPECIAL_HANDLERS = {
+            "send_message": "_tool_send_message",
+        }
+
+        def _get_tool_handler(self, tool_name):
+            npc_special = self._NPC_SPECIAL_HANDLERS.get(tool_name)
+            if npc_special:
+                return getattr(self, npc_special, None)
+            return super()._get_tool_handler(tool_name)
+
+        async def _tool_send_message(self, args: dict):
+            return await self._game_client.send_message(
+                content=args["content"],
+                msg_type=args.get("msg_type", "broadcast"),
+                to_name=args.get("to_player"),
+                to_ship_id=args.get("to_ship_id"),
+                to_ship_name=args.get("to_ship_name"),
+                character_id=self._character_id,
+            )
 
     success = False
     async with AsyncGameClient(
@@ -224,6 +284,27 @@ async def run_task(args: argparse.Namespace) -> int:
 
         logger.info("JOINED target={}", target_character_id)
 
+        # Forward game events from the game client to the bus so TaskAgent
+        # receives completion events (status.snapshot, movement.complete, etc.).
+        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+        from gradientbang.pipecat_server.subagents.task_agent import ASYNC_TOOL_COMPLETIONS
+
+        # Every event type TaskAgent may wait on, plus ambient ones it filters for.
+        _NPC_FORWARDED_EVENTS = set(ASYNC_TOOL_COMPLETIONS.values()) | {
+            "error",
+            "chat.message",
+            "task.start",
+            "task.finish",
+            "task.cancel",
+            "combat.round_waiting",
+            "combat.round_resolved",
+            "combat.ended",
+            "combat.action_accepted",
+            "status.update",
+            "quest.progress",
+            "quest.complete",
+        }
+
         # Minimal launcher agent that starts a TaskAgent child and waits for completion.
         task_done = asyncio.Event()
         task_success = {"value": False}
@@ -231,9 +312,37 @@ async def run_task(args: argparse.Namespace) -> int:
         class Launcher(BaseAgent):
             def __init__(self, name, *, bus):
                 super().__init__(name, bus=bus)
+                self._pending_payload = None
 
-            async def build_pipeline(self):
-                return None
+            async def on_ready(self):
+                # Wire up game event forwarding to the bus
+                for event_name in _NPC_FORWARDED_EVENTS:
+                    game_client.add_event_handler(event_name, self._forward_event)
+
+                task_agent = NPCTaskAgent(
+                    "npc_task",
+                    bus=self._bus,
+                    game_client=game_client,
+                    character_id=target_character_id,
+                    is_corp_ship=bool(args.ship_id),
+                )
+                payload = {"task_description": args.task}
+                if args.instructions:
+                    payload["context"] = args.instructions
+                self._pending_payload = payload
+                await self.add_agent(task_agent)
+
+            async def _forward_event(self, event):
+                await self.send_message(
+                    BusGameEventMessage(source=self.name, event=event)
+                )
+
+            async def on_agent_ready(self, data):
+                await super().on_agent_ready(data)
+                if data.agent_name == "npc_task" and self._pending_payload:
+                    payload = self._pending_payload
+                    self._pending_payload = None
+                    await self.request_task("npc_task", payload=payload)
 
             async def on_task_response(self, message):
                 await super().on_task_response(message)
@@ -247,20 +356,6 @@ async def run_task(args: argparse.Namespace) -> int:
         runner = AgentRunner(handle_sigint=True)
         launcher = Launcher("launcher", bus=runner.bus)
         await runner.add_agent(launcher)
-
-        @runner.event_handler("on_ready")
-        async def on_ready(r):
-            task_agent = TaskAgent(
-                "npc_task",
-                bus=runner.bus,
-                game_client=game_client,
-                character_id=target_character_id,
-                is_corp_ship=bool(args.ship_id),
-            )
-            await launcher.start_task(
-                task_agent,
-                payload={"task_description": args.task},
-            )
 
         # Run in background, wait for task completion
         runner_task = asyncio.create_task(runner.run())

@@ -88,7 +88,10 @@ export const ShipDetails = () => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const { sendUserTextInput } = useGameContext()
 
-  const ship = activeModal?.data as ShipDefinition | undefined
+  const ship =
+    activeModal?.modal === "ship_details" ?
+      (activeModal.data as ShipDefinition | undefined)
+    : undefined
 
   const shipImage = ship ? SHIP_IMAGE_MAP[ship.ship_type as keyof typeof SHIP_IMAGE_MAP] : undefined
   const shipLogo = ship ? getShipLogoImage(ship.ship_type) : undefined

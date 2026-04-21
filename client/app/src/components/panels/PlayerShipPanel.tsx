@@ -48,6 +48,8 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
   const activeTask = useGameStore((state) =>
     Object.values(state.activeTasks).find((task) => task.ship_id === ship.ship_id)
   )
+  const isBusy = !!(activeTask || ship.current_task_id)
+  const actorName = activeTask?.actor_character_name ?? ship.current_task_actor_name
   return (
     <div className="uppercase shrink-0 py-2 pb-3.5 flex flex-row gap-2 items-center justify-between">
       <div className="flex flex-col gap-2 flex-1 min-w-0">
@@ -73,12 +75,12 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
           </Badge>
           <DotDivider />
           <Badge
-            variant={activeTask ? "success" : "secondary"}
+            variant={isBusy ? "success" : "secondary"}
             border="bracket"
             size="sm"
             className="font-semibold w-20"
           >
-            {activeTask ?
+            {isBusy ?
               <>
                 <CircleNotchIcon weight="duotone" size={16} className="animate-spin" /> Active
               </>
@@ -87,11 +89,11 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
           <div
             className={cn(
               "flex flex-row gap-1 items-center text-xs truncate flex-1 min-w-0 overflow-hidden w-full",
-              activeTask ? "gap-1.5 text-white" : "text-accent-foreground"
+              isBusy ? "gap-1.5 text-white" : "text-accent-foreground"
             )}
           >
             <UserIcon weight="duotone" className="size-4 shrink-0" />
-            <span className="truncate">{activeTask ? activeTask.actor_character_name : "---"}</span>
+            <span className="truncate">{actorName ?? "---"}</span>
           </div>
         </div>
       </div>

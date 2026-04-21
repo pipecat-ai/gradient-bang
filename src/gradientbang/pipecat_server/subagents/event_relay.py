@@ -91,6 +91,7 @@ class EventConfig:
 
     # Append modifiers for DIRECT rule
     corp_scope_if_own_action: bool = False  # Also append corp-scoped events from our own tool calls
+    corp_scope_always_append: bool = False  # Append corp-scoped events for ANY corp member, not just the actor
     task_scoped_allowlisted: bool = False  # Pass through task-scoped direct filter
 
     # Side-effect flags
@@ -400,9 +401,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "map.local": EventConfig(task_scoped_allowlisted=True),
     # Corp events (allow corp scope when voice agent)
     "corporation.created": EventConfig(corp_scope_if_own_action=True),
-    "corporation.ship_purchased": EventConfig(corp_scope_if_own_action=True),
-    "corporation.ship_sold": EventConfig(corp_scope_if_own_action=True),
-    "corporation.member_joined": EventConfig(corp_scope_if_own_action=True),
+    "corporation.ship_purchased": EventConfig(corp_scope_always_append=True),
+    "corporation.ship_sold": EventConfig(corp_scope_always_append=True),
+    # Always append to every corp member's LLM context so corpmates learn
+    # about new members without a forced refresh. InferenceRule.NEVER (default)
+    # means context updates but no spontaneous narration is triggered.
+    "corporation.member_joined": EventConfig(corp_scope_always_append=True),
     "corporation.member_left": EventConfig(corp_scope_if_own_action=True),
     "corporation.member_kicked": EventConfig(corp_scope_if_own_action=True),
     "corporation.disbanded": EventConfig(corp_scope_if_own_action=True),
@@ -414,7 +418,15 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # would cause duplicate narration ("you're about to remove Bob...")
     # before the confirm fires.
     "corporation.kick_pending": EventConfig(append=AppendRule.NEVER),
-    "corporation.join_pending": EventConfig(append=AppendRule.NEVER),
+    "corporation.leave_pending": EventConfig(append=AppendRule.NEVER),
+    # Invite-code regeneration: client-only UI signal. The founder's
+    # CorporationDetailsDialog listens for it to refresh the displayed
+    # code. LLM context is injected separately by
+    # client_message_handler._handle_regenerate_invite_code (modal path)
+    # and by the voice-agent tool handler's run_llm=True acknowledgement
+    # (LLM path). We must still subscribe here so the event reaches the
+    # RTVI push that feeds the client.
+    "corporation.invite_code_regenerated": EventConfig(append=AppendRule.NEVER),
     # Audited legacy overrides:
     # - event.query needs a shared bounded task/bus summary plus a shorter voice summary
     # - chat.message, ships.list, and combat overrides remain voice-only; generic client summaries
@@ -465,6 +477,9 @@ class TaskStateProvider(Protocol):
     # voice agent knows whether it has capacity to start another task).
     def active_tasks_summary(self) -> str: ...
 
+    # Polling scope management
+    def update_polling_scope(self) -> None: ...
+
     # Request ID tracking
     def is_recent_request_id(self, request_id: str) -> bool: ...
     # LLM frame management (inherited from LLMAgent)
@@ -501,6 +516,7 @@ class EventRelay:
         self.display_name: str = character_id
         self.actor_ship_id: Optional[str] = None
         self._current_sector_id: Optional[int] = None
+        self._last_poll_corp_id: Optional[str] = game_client.corporation_id
         # Onboarding (passive observation)
         self.is_new_player: Optional[bool] = None  # None=unknown, True=new, False=veteran
         self._first_status_delivered = False
@@ -612,6 +628,18 @@ class EventRelay:
             ship_id = ship.get("ship_id")
             if isinstance(ship_id, str) and ship_id.strip():
                 self.actor_ship_id = ship_id
+
+    def _sync_corp_polling_scope(self) -> None:
+        """Sync polling scope when corporation_id changes on the game client.
+
+        Called after status.snapshot/status.update sets corporation_id.
+        Mirrors the pattern from the old VoiceTaskManager._sync_corp_polling_scope.
+        """
+        corp_id = self._game_client.corporation_id
+        if corp_id == self._last_poll_corp_id:
+            return
+        self._last_poll_corp_id = corp_id
+        self._task_state.update_polling_scope()
 
     # ── Onboarding (passive observation) ─────────────────────────────
 
@@ -972,6 +1000,13 @@ class EventRelay:
             return True
         if scope == "corp" and cfg.corp_scope_if_own_action and is_voice:
             return True
+        # corp_scope_always_append is deliberately broader than
+        # corp_scope_if_own_action: we append corp-scoped events to ANY corp
+        # member's voice context, not only when the voice agent was the actor.
+        # Used for e.g. corporation.member_joined so every corpmate's LLM
+        # learns about the new member (inference still gated by InferenceRule).
+        if scope == "corp" and cfg.corp_scope_always_append:
+            return True
         return False
 
     def _should_run_llm(
@@ -1084,10 +1119,11 @@ class EventRelay:
         if payload_task_id:
             is_our_task = self._task_state.is_our_task(payload_task_id)
 
-        # Display name / corp sync
+        # Display name / corp polling scope sync
         if cfg.sync_display_name and not is_other_player and isinstance(clean_payload, Mapping):
             self._update_display_name(clean_payload)
             self._update_actor_ship_id(clean_payload)
+            self._sync_corp_polling_scope()
 
         # ── Phase 3: RTVI push ──
         await self._rtvi.push_frame(

@@ -391,6 +391,7 @@ Deno.test({
     await t.step("P1 leaves — corp should disband", async () => {
       const result = await apiOk("corporation_leave", {
         character_id: p1Id,
+        confirm: true,
       });
       assertExists(result);
     });

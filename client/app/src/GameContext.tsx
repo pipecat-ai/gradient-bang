@@ -323,23 +323,38 @@ export function GameProvider({ children }: GameProviderProps) {
                   )
                   useGameStore.getState().setPlayerSessionId(status.player.id)
                 }
-
-                useGameStore.getState().addActivityLogEntry({
-                  type: "join",
-                  message: "Joined the game",
-                })
+                // Backfill character_id when it wasn't set during login
+                // (e.g. Ladle dev environment skips character select).
+                if (!useGameStore.getState().character_id && status.player.id) {
+                  useGameStore.getState().setCharacterId(status.player.id)
+                }
               }
 
               // Handle status update accordingly
               if (isPlayerSessionPayload(e.event, status)) {
-                // Update store
+                if (status.source?.method === "join") {
+                  useGameStore.getState().addActivityLogEntry({
+                    type: "join",
+                    message: "Joined the game",
+                  })
+                }
+                // Update store — corporation goes through setCorporation
+                // so ship upsert/strip logic runs (same as corporation.data).
                 useGameStore.getState().setState({
                   player: status.player,
-                  corporation: status.corporation,
                   ship: status.ship,
                   sector: status.sector,
                 })
+                useGameStore.getState().setCorporation(status.corporation ?? undefined)
               } else {
+                // Corp member connected — show their name in the activity log
+                if (status.source?.method === "join" && status.player?.name) {
+                  useGameStore.getState().addActivityLogEntry({
+                    type: "join",
+                    message: `[${status.player.name}] joined the game`,
+                  })
+                }
+
                 // Check if this is a fleet/corp ship status update
                 const shipId = status.ship?.ship_id ?? getPayloadShipId(status)
                 const isCorpShip =
@@ -650,30 +665,74 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
-            case "corporation.join_pending": {
-              // Character-scoped event — only the joiner receives it.
-              // Fires only in the last-member-of-old-corp case where the
-              // old corp would be disbanded. The modal warns about the
-              // disband and echoes corp_id + invite_code back via
-              // confirm-join; the edge function re-validates before
-              // mutating.
-              console.debug("[GAME EVENT] Corporation join pending", e.payload)
+            case "corporation.leave_pending": {
+              // Character-scoped event — only the leaving player receives
+              // it. Emitted by both corporation_leave (explicit leave) and
+              // corporation_join (leave-to-join). The modal adapts its copy
+              // based on the payload fields.
+              console.debug("[GAME EVENT] Corporation leave pending", e.payload)
+              const data = e.payload as {
+                corp_name: string
+                is_founder: boolean
+                will_disband: boolean
+                member_count: number
+                joining_corp_id?: string
+                joining_corp_name?: string
+                joining_invite_code?: string
+              }
+              useGameStore.getState().setActiveModal("confirm_leave", {
+                corp_name: data.corp_name,
+                is_founder: data.is_founder,
+                will_disband: data.will_disband,
+                member_count: data.member_count,
+                joining_corp_id: data.joining_corp_id,
+                joining_corp_name: data.joining_corp_name,
+                joining_invite_code: data.joining_invite_code,
+              } satisfies ConfirmLeaveData)
+              break
+            }
+
+            case "corporation.invite_code_regenerated": {
+              // Corp-scoped event. Optimistically patch the invite code in
+              // the local store so the open CorporationDetailsDialog updates
+              // immediately, then fetch the full corp payload so
+              // `invite_code_generated` / `invite_code_generated_by` come
+              // along too. Non-founders will simply get the full refresh.
+              console.debug("[GAME EVENT] Corporation invite code regenerated", e.payload)
+              const data = e.payload as { new_invite_code?: string }
+              const corp = useGameStore.getState().corporation
+              if (corp && typeof data.new_invite_code === "string") {
+                useGameStore.getState().setCorporation({
+                  ...corp,
+                  invite_code: data.new_invite_code,
+                })
+              }
+              break
+            }
+
+            case "corporation.member_joined": {
+              // Emitted corp-scoped when any member joins (including self).
+              console.debug("[GAME EVENT] Corporation member joined", e.payload)
               const data = e.payload as {
                 corp_id: string
-                corp_name: string
-                invite_code: string
-                old_corp_id: string
-                old_corp_name: string
-                will_disband: boolean
+                name: string
+                member_name: string
+                member_count: number
+                actor_character_id?: string
               }
-              useGameStore.getState().setActiveModal("confirm_join", {
-                corp_id: data.corp_id,
-                corp_name: data.corp_name,
-                invite_code: data.invite_code,
-                old_corp_id: data.old_corp_id,
-                old_corp_name: data.old_corp_name,
-                will_disband: data.will_disband,
-              } satisfies ConfirmJoinData)
+              const myId = useGameStore.getState().character_id
+              const isSelf = Boolean(
+                data.actor_character_id && myId && data.actor_character_id === myId
+              )
+              useGameStore.getState().addToast({
+                type: "corporation.member_joined",
+                meta: {
+                  corp_name: data.name,
+                  member_name: data.member_name,
+                  member_count: data.member_count,
+                  is_self: isSelf,
+                },
+              })
               break
             }
 
@@ -703,8 +762,48 @@ export function GameProvider({ children }: GameProviderProps) {
             case "corporation.data": {
               console.debug("[GAME EVENT] Corporation data", e.payload)
               const data = e.payload as { corporation: Corporation | null }
-              if (data.corporation) {
-                useGameStore.getState().setCorporation(data.corporation)
+              const prevCorp = useGameStore.getState().corporation
+              const wasCorp = !!prevCorp
+              useGameStore.getState().setCorporation(data.corporation ?? undefined)
+
+              // Sync fleet ships from the corporation payload so the
+              // PlayerShipsPanel sees them immediately (join) or drops them
+              // (leave/kick, handled by setCorporation stripping corp ships).
+              if (data.corporation?.ships) {
+                for (const ship of data.corporation.ships) {
+                  upsertCorporationShip(ship.ship_id, {
+                    ship_id: ship.ship_id,
+                    ship_name: ship.name,
+                    ship_type: ship.ship_type,
+                    sector: ship.sector ?? undefined,
+                    owner_type: "corporation",
+                    credits: ship.credits,
+                    cargo: ship.cargo,
+                    cargo_capacity: ship.cargo_capacity,
+                    warp_power: ship.warp_power,
+                    warp_power_capacity: ship.warp_power_capacity,
+                    shields: ship.shields,
+                    max_shields: ship.max_shields,
+                    fighters: ship.fighters,
+                    max_fighters: ship.max_fighters,
+                    current_task_id: ship.current_task_id,
+                  })
+                }
+              }
+
+              // Left/kicked from a corp — show toast. Map invalidation is
+              // handled by setCorporation detecting the corp transition.
+              if (wasCorp && !data.corporation) {
+                // Dismiss any corp confirmation modal (covers the voice-
+                // confirm path where the UI button wasn't clicked).
+                const modal = useGameStore.getState().activeModal?.modal
+                if (modal === "confirm_leave" || modal === "confirm_kick") {
+                  useGameStore.getState().setActiveModal(undefined)
+                }
+                useGameStore.getState().addToast({
+                  type: "corporation.left",
+                  meta: { corp_name: prevCorp?.name ?? "Corporation" },
+                })
               }
               useGameStore.getState().resolveFetchPromise("get-my-corporation")
               break
@@ -1269,7 +1368,13 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as Msg.TaskStartMessage
 
               const taskId = normalizeTaskId(data.task_id)
-              if (taskId) {
+              const myId = useGameStore.getState().character_id
+              const isMyTask = !data.actor_character_id || data.actor_character_id === myId
+
+              // Only track tasks initiated by this player in the task engine.
+              // Other corp members' tasks show ship "busy" status via the
+              // ship's current_task_id but don't fill our task engine badges.
+              if (taskId && isMyTask) {
                 useGameStore.getState().addActiveTask({
                   task_id: taskId,
                   task_description: data.task_description,
@@ -1282,6 +1387,14 @@ export function GameProvider({ children }: GameProviderProps) {
                   ship_type: data.ship_type,
                 })
               }
+
+              // Update corp ship's task state so ShipCard shows busy status
+              if (taskId && data.ship_id && isKnownFleetShip(data.ship_id)) {
+                upsertCorporationShip(data.ship_id, {
+                  current_task_id: taskId,
+                  current_task_actor_name: data.actor_character_name ?? null,
+                })
+              }
               break
             }
 
@@ -1289,9 +1402,20 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Task finish", e.payload)
               const data = e.payload as Msg.TaskFinishMessage
 
-              // Remove task from active task map
               const taskId = normalizeTaskId(data.task_id)
-              if (taskId) {
+
+              // Clear corp ship's task state regardless of who owns the task
+              if (data.ship_id && isKnownFleetShip(data.ship_id)) {
+                upsertCorporationShip(data.ship_id, {
+                  current_task_id: null,
+                  current_task_actor_name: null,
+                })
+              }
+
+              // Only process task engine cleanup if this task is in our
+              // active tasks (i.e. we tracked it on task.start because it
+              // belongs to us).
+              if (taskId && useGameStore.getState().activeTasks[taskId]) {
                 useGameStore.getState().removeActiveTask(taskId)
 
                 // Backward compatibility while old short IDs may still exist in local state.
@@ -1305,15 +1429,15 @@ export function GameProvider({ children }: GameProviderProps) {
                     }
                   }
                 }
+
+                // Add task summary to store
+                useGameStore.getState().addTaskSummary(data as unknown as TaskSummary)
+
+                // Refetch task history
+                useGameStore
+                  .getState()
+                  .dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
               }
-
-              // Add task summary to store
-              useGameStore.getState().addTaskSummary(data as unknown as TaskSummary)
-
-              // Refetch task history
-              useGameStore
-                .getState()
-                .dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
               break
             }
 
@@ -1338,9 +1462,10 @@ export function GameProvider({ children }: GameProviderProps) {
                   )
                 )
                 .find((taskId): taskId is string => !!taskId)
-              const fullTaskId = taskIdCandidates.find((candidate) => candidate.includes("-"))
-              const selectedTaskId =
-                activeTaskId ?? prefixedActiveTaskId ?? fullTaskId ?? taskIdCandidates[0]
+
+              // Only process output for tasks we're tracking (our own tasks).
+              const selectedTaskId = activeTaskId ?? prefixedActiveTaskId
+              if (!selectedTaskId) break
 
               useGameStore.getState().addTaskOutput({
                 task_id: selectedTaskId,
@@ -1578,6 +1703,11 @@ export function GameProvider({ children }: GameProviderProps) {
                     .setUIModeFromAgent(uiPayload.show_panel as UIMode | "default")
                 }
 
+                // Modal opening from the UI agent (e.g. corporation_details)
+                if (typeof uiPayload.show_modal === "string") {
+                  useGameStore.getState().setActiveModal(uiPayload.show_modal as UIModal)
+                }
+
                 // Everything else is map-domain
                 useGameStore.getState().handleMapUIAction({
                   mapCenterSector:
@@ -1621,6 +1751,17 @@ export function GameProvider({ children }: GameProviderProps) {
                   parts: [
                     {
                       text: "Show Panel(" + (uiPayload.show_panel as UIMode | "default") + ")",
+                      final: true,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ],
+                })
+              } else if (typeof uiPayload.show_modal === "string") {
+                useConversationStore.getState().injectMessage({
+                  role: "ui",
+                  parts: [
+                    {
+                      text: "Open Modal(" + (uiPayload.show_modal as UIModal) + ")",
                       final: true,
                       createdAt: new Date().toISOString(),
                     },

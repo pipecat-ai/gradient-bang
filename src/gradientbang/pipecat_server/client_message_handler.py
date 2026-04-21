@@ -716,46 +716,70 @@ class ClientMessageHandler:
             )
         )
 
-    async def _handle_confirm_join(self, msg_type, msg_data):
+    async def _handle_confirm_leave(self, msg_type, msg_data):
+        if self._voice_agent is not None:
+            self._voice_agent._pending_confirmation = None
         data = msg_data if isinstance(msg_data, dict) else {}
-        corp_id = str(data.get("corp_id") or "").strip()
-        invite_code = str(data.get("invite_code") or "").strip()
-        if not corp_id:
-            logger.warning("confirm-join: missing corp_id")
-            return
-        try:
-            result = await self._game_client.join_corporation(
-                corp_id=corp_id,
-                invite_code=invite_code,
-                character_id=self._character_id,
-                confirm=True,
-            )
-        except Exception as exc:
-            logger.exception("confirm-join: join failed")
-            await self._inject_llm_event(
-                f"<event>The player confirmed the corporation switch, but "
-                f"the server rejected it: {exc}. Apologize and ask what "
-                f"they'd like to do.</event>"
-            )
-            return
-        # Track the confirm call's request_id so EventRelay recognises the
-        # follow-up corporation.disbanded / corporation.member_joined as
-        # own-action events (corp-scoped routing depends on this).
-        if self._voice_agent is not None and isinstance(result, dict):
-            self._voice_agent.track_request_id(result.get("request_id"))
-        await self._inject_llm_event(
-            "<event>The player confirmed the corporation switch. Their old "
-            "corporation has been disbanded and they have joined the new "
-            "one. Acknowledge briefly.</event>"
-        )
+        joining_corp_id = str(data.get("joining_corp_id") or "").strip()
+        joining_invite_code = str(data.get("joining_invite_code") or "").strip()
 
-    async def _handle_cancel_join(self, msg_type, msg_data):
+        if joining_corp_id:
+            # Leave-to-join: complete the join (which leaves the old corp
+            # atomically on the server side).
+            try:
+                result = await self._game_client.join_corporation(
+                    corp_id=joining_corp_id,
+                    invite_code=joining_invite_code,
+                    character_id=self._character_id,
+                    confirm=True,
+                )
+            except Exception as exc:
+                logger.exception("confirm-leave: join failed")
+                await self._inject_llm_event(
+                    f"<event>The player confirmed leaving their corporation "
+                    f"to join a new one, but the server rejected it: {exc}. "
+                    f"Apologize and ask what they'd like to do.</event>"
+                )
+                return
+            if self._voice_agent is not None and isinstance(result, dict):
+                self._voice_agent.track_request_id(result.get("request_id"))
+            await self._inject_llm_event(
+                "<event>The player confirmed leaving their old corporation "
+                "and has joined the new one. Acknowledge briefly.</event>"
+            )
+        else:
+            # Explicit leave (no join).
+            try:
+                result = await self._game_client.leave_corporation(
+                    character_id=self._character_id,
+                    confirm=True,
+                )
+            except Exception as exc:
+                logger.exception("confirm-leave: leave failed")
+                await self._inject_llm_event(
+                    f"<event>The player confirmed leaving their corporation, "
+                    f"but the server rejected it: {exc}. Apologize and "
+                    f"explain.</event>"
+                )
+                return
+            if self._voice_agent is not None and isinstance(result, dict):
+                self._voice_agent.track_request_id(result.get("request_id"))
+            await self._inject_llm_event(
+                "<event>The player confirmed leaving their corporation. "
+                "The leave completed successfully. Acknowledge briefly.</event>"
+            )
+
+    async def _handle_cancel_leave(self, msg_type, msg_data):
+        if self._voice_agent is not None:
+            self._voice_agent._pending_confirmation = None
         await self._inject_llm_event(
-            "<event>The player cancelled the corporation switch. They "
-            "remain in their current corporation. Acknowledge briefly.</event>"
+            "<event>The player cancelled leaving their corporation. No "
+            "action was taken. Acknowledge briefly.</event>"
         )
 
     async def _handle_confirm_kick(self, msg_type, msg_data):
+        if self._voice_agent is not None:
+            self._voice_agent._pending_confirmation = None
         data = msg_data if isinstance(msg_data, dict) else {}
         target_id = str(data.get("target_id") or "").strip()
         target_name = str(data.get("target_name") or "").strip() or target_id
@@ -785,12 +809,54 @@ class ClientMessageHandler:
         )
 
     async def _handle_cancel_kick(self, msg_type, msg_data):
+        if self._voice_agent is not None:
+            self._voice_agent._pending_confirmation = None
         data = msg_data if isinstance(msg_data, dict) else {}
         target_name = str(data.get("target_name") or "").strip() or "that member"
         await self._inject_llm_event(
             f"<event>The player cancelled removing {target_name}. No action "
             f"was taken. Acknowledge briefly.</event>"
         )
+
+    async def _handle_regenerate_invite_code(self, msg_type, msg_data):
+        # Triggered by the CorporationDetailsDialog's Regenerate button.
+        # Founder-only authorization is enforced by the edge function.
+        try:
+            result = await self._game_client.regenerate_invite_code(
+                character_id=self._character_id,
+            )
+        except Exception as exc:
+            logger.exception("regenerate-invite-code failed")
+            await self._inject_llm_event(
+                f"<event>The player tried to regenerate the corporation's "
+                f"invite code but the server rejected it: {exc}. "
+                f"Briefly tell them.</event>"
+            )
+            return
+        # Track the request_id so EventRelay recognises the follow-up
+        # corporation.invite_code_regenerated as an own-action event.
+        if self._voice_agent is not None and isinstance(result, dict):
+            self._voice_agent.track_request_id(result.get("request_id"))
+        # Silent LLM context update — the player used the modal, not voice,
+        # so we update context for continuity but skip spoken acknowledgement.
+        pipeline_task = self._pipeline_task
+        if pipeline_task:
+            await pipeline_task.queue_frame(
+                LLMMessagesAppendFrame(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                "<event>The player regenerated the corporation's "
+                                "invite code. The new code has been displayed on "
+                                "their screen. Do not speak the code aloud unless "
+                                "asked.</event>"
+                            ),
+                        }
+                    ],
+                    run_llm=False,
+                )
+            )
 
     # ── Dispatch table ────────────────────────────────────────────────
 
@@ -820,8 +886,9 @@ class ClientMessageHandler:
         "skip-tutorial": _handle_skip_tutorial,
         "dump-llm-context": _handle_dump_llm_context,
         "dump-task-context": _handle_dump_task_context,
-        "confirm-join": _handle_confirm_join,
-        "cancel-join": _handle_cancel_join,
+        "confirm-leave": _handle_confirm_leave,
+        "cancel-leave": _handle_cancel_leave,
         "confirm-kick": _handle_confirm_kick,
         "cancel-kick": _handle_cancel_kick,
+        "regenerate-invite-code": _handle_regenerate_invite_code,
     }

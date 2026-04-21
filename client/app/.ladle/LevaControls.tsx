@@ -165,6 +165,32 @@ export const LevaControls = ({
             ],
           })
         }),
+        ["Simulate kick tool call"]: button(() => {
+          const store = useConversationStore.getState()
+          store.handleFunctionCallStarted({ function_name: "kick_corporation_member" })
+          setTimeout(() => {
+            store.handleFunctionCallInProgress({
+              function_name: "kick_corporation_member",
+              tool_call_id: "mock-kick-001",
+              args: { target_id: "Frogstar" },
+            })
+          }, 50)
+          setTimeout(() => {
+            store.handleFunctionCallStopped({
+              function_name: "kick_corporation_member",
+              tool_call_id: "mock-kick-001",
+              result: { status: "pending_confirmation", target_name: "Frogstar" },
+            })
+          }, 100)
+          setTimeout(() => {
+            useGameStore.getState().setActiveModal("confirm_kick", {
+              target_id: "e036f20c-a890-4789-bbdb-da0cc97691ab",
+              target_name: "Frogstar",
+              corp_id: "e9161c33-cf62-4662-a3d1-956ab0b5c110",
+              corp_name: "Tolls-R-Us",
+            })
+          }, 150)
+        }),
         ["Set LLM Is Working"]: button(() => {
           useConversationStore.getState().setIsThinking(true)
         }),
@@ -212,6 +238,66 @@ export const LevaControls = ({
         }),
       },
       { collapsed: true, order: 1 }
+    ),
+
+    Dialogs: folder(
+      {
+        ["Leave Corp (non-founder)"]: button(() => {
+          useGameStore.getState().setActiveModal("confirm_leave", {
+            corp_name: "The Department of Silly Walks, Ltd.",
+            is_founder: false,
+            will_disband: false,
+            member_count: 3,
+          } satisfies ConfirmLeaveData)
+        }),
+        ["Leave Corp (founder, disband)"]: button(() => {
+          useGameStore.getState().setActiveModal("confirm_leave", {
+            corp_name: "Tolls-R-Us",
+            is_founder: true,
+            will_disband: true,
+            member_count: 4,
+          } satisfies ConfirmLeaveData)
+        }),
+        ["Leave Corp (last member)"]: button(() => {
+          useGameStore.getState().setActiveModal("confirm_leave", {
+            corp_name: "Solo Corp",
+            is_founder: true,
+            will_disband: true,
+            member_count: 1,
+          } satisfies ConfirmLeaveData)
+        }),
+        ["Leave to Join (disband)"]: button(() => {
+          useGameStore.getState().setActiveModal("confirm_leave", {
+            corp_name: "Old Corp",
+            is_founder: true,
+            will_disband: true,
+            member_count: 1,
+            joining_corp_id: "abc-123",
+            joining_corp_name: "New Corp",
+            joining_invite_code: "nebula-drift",
+          } satisfies ConfirmLeaveData)
+        }),
+        ["Leave to Join (no disband)"]: button(() => {
+          useGameStore.getState().setActiveModal("confirm_leave", {
+            corp_name: "Old Corp",
+            is_founder: false,
+            will_disband: false,
+            member_count: 3,
+            joining_corp_id: "abc-123",
+            joining_corp_name: "New Corp",
+            joining_invite_code: "nebula-drift",
+          } satisfies ConfirmLeaveData)
+        }),
+        ["Kick Confirm"]: button(() => {
+          useGameStore.getState().setActiveModal("confirm_kick", {
+            target_id: "e036f20c-a890-4789-bbdb-da0cc97691ab",
+            target_name: "Frogstar",
+            corp_id: "e9161c33-cf62-4662-a3d1-956ab0b5c110",
+            corp_name: "Tolls-R-Us",
+          } satisfies ConfirmKickData)
+        }),
+      },
+      { collapsed: true }
     ),
 
     Player: folder(

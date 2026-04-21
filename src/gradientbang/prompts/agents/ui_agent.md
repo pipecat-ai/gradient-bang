@@ -23,6 +23,7 @@ If the event path is already visible in the pending events block, use `control_u
 
 - Combine all fields in a single `control_ui` call (don't make separate calls for show_panel, highlight, and fit).
 - `show_panel: "default"` toggles between map or task view, or highlight and switch sidebar panel: "sector" (current sector info and ships), "player" (current player info) ,"trade" (port info and trade history), "task_history" (history and task summaries),"contracts" (player contracts and progress), "logs" (chat and messages)
+- `show_modal: "corporation_details"` opens the corporation details dialog. ONLY use when the user explicitly asks to **see / show / open** the corporation panel (e.g. "show me my corp", "open corp details"). Do NOT open it for corporation *actions* ("leave", "join", "kick", "create", "rename") or *questions* ("who is in my corp?", "where is our Red Probe?") — those are handled by the voice agent.
 - `map_center_sector`: centers the map on one sector at the current zoom. Use for single-sector focus ("show me sector 220").
 - `map_fit_sectors`: auto-adjusts zoom so all listed sectors are visible. Use when showing multiple locations (ships, route endpoints).
 - `map_highlight_path` + `map_fit_sectors`: use together for route display — highlight draws the line, fit_sectors zooms to show it.
@@ -45,6 +46,11 @@ User: "Show me sector info."
 → `control_ui(show_panel="sector")`
 User: "Show me the chat."
 → `control_ui(show_panel="logs")`
+
+Show modal example — user explicitly asks to **see/show/open** the corporation panel:
+User: "Show me my corporation." / "Pull up the corp details." / "Open the corp panel."
+→ `control_ui(show_modal="corporation_details")`
+Do NOT open the modal for actions ("leave my corp", "kick them", "join that corp", "create a corporation") or questions ("who's in my corp?", "what ships do we have?") — those are voice agent territory, no UI change needed.
 
 Route display example — when a `course.plot` event arrives with path `[220, 2472, …, 172]`:
 → `control_ui(map_highlight_path=[220, 2472, …, 172], map_fit_sectors=[220, 2472, …, 172])`

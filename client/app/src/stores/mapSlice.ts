@@ -84,6 +84,7 @@ export interface MapSlice {
   setCoursePlotZoomEnabled: (enabled: boolean) => void
   setMapLegendVisible: (visible: boolean) => void
   resetMapView: () => void
+  invalidateMapCoverage: (resetCenterSector?: number) => void
 
   // --- Compound actions ---
   handleMapUIAction: (payload: MapUIActionPayload) => void
@@ -211,6 +212,10 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
   // -----------------------------------------------------------------------
   let _confirmedCoverage: WorldRect[] = []
   let _inFlightRequests: { key: string; rect: WorldRect | undefined; requestedAt: number }[] = []
+  // When true, the next setRegionalMapData call replaces all existing
+  // data instead of merging. Set by invalidateMapCoverage (corp
+  // join/leave) so stale corp-knowledge sectors are purged.
+  let _replaceNextMapData = false
 
   const _pruneStaleInFlightRequests = () => {
     const now = Date.now()
@@ -360,18 +365,38 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           const normalizedMapData = normalizeMapData(localMapData)
           if (!state.local_map_data) {
             state.local_map_data = normalizedMapData
-            return
+          } else {
+            const existingById = new Map(
+              state.local_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
+            )
+
+            for (const sector of normalizedMapData) {
+              existingById.set(sector.id, sector)
+            }
+
+            state.local_map_data = Array.from(existingById.values())
           }
 
-          const existingById = new Map(
-            state.local_map_data.map((s: MapSectorNode) => [s.id, s] as [number, MapSectorNode])
-          )
-
-          for (const sector of normalizedMapData) {
-            existingById.set(sector.id, sector)
+          // Propagate source upgrades to regional_map_data: if a sector
+          // arrives as "player" or "both" in local data but regional still
+          // has it as "corp", upgrade it so the big map renders correctly.
+          if (state.regional_map_data) {
+            const regionalIndex = new Map<number, number>()
+            state.regional_map_data.forEach((s: MapSectorNode, idx: number) =>
+              regionalIndex.set(s.id, idx)
+            )
+            for (const sector of normalizedMapData) {
+              if (sector.source === "player" || sector.source === "both") {
+                const idx = regionalIndex.get(sector.id)
+                if (idx !== undefined && state.regional_map_data[idx].source === "corp") {
+                  state.regional_map_data[idx] = {
+                    ...state.regional_map_data[idx],
+                    ...sector,
+                  }
+                }
+              }
+            }
           }
-
-          state.local_map_data = Array.from(existingById.values())
         })
       )
       _maybeRetryMapFit()
@@ -379,10 +404,14 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     },
 
     setRegionalMapData: (regionalMapData: MapData) => {
+      const shouldReplace = _replaceNextMapData
+      if (shouldReplace) {
+        _replaceNextMapData = false
+      }
       set(
         produce((state) => {
           const normalizedMapData = normalizeMapData(regionalMapData)
-          if (!state.regional_map_data) {
+          if (!state.regional_map_data || shouldReplace) {
             state.regional_map_data = normalizedMapData
             return
           }
@@ -451,8 +480,13 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
                 // visits a previously gray sector).
                 const existingSource = (mapData[existingIdx] as MapSectorNode).source
                 const isPlayerVisited = existingSource === "player" || existingSource === "both"
+                const incomingSource = (sectorUpdate as MapSectorNode).source
                 if (!ignoreLocal || !isPlayerVisited) {
                   Object.assign(mapData[existingIdx], sectorUpdate)
+                  // Don't downgrade source from player/both to corp
+                  if (isPlayerVisited && incomingSource === "corp") {
+                    mapData[existingIdx].source = existingSource
+                  }
                   if (sectorUpdate.port !== undefined) {
                     const normalizedPort = normalizePort(
                       (sectorUpdate as MapSectorNode).port as PortLike
@@ -578,6 +612,29 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           state.mapResetEpoch = (state.mapResetEpoch ?? 0) + 1
         })
       ),
+
+    invalidateMapCoverage: (resetCenterSector?: number) => {
+      _confirmedCoverage = []
+      _inFlightRequests = []
+      _replaceNextMapData = true
+      const center = resetCenterSector ?? get().sector?.id
+      if (typeof center === "number") {
+        set(
+          produce((state) => {
+            state.mapCenterSector = center
+            state.mapCenterWorld = undefined
+            state.mapFitBoundsWorld = undefined
+          })
+        )
+        // Trigger a full map re-fetch so setRegionalMapData consumes
+        // the replace flag with fresh data at the current zoom level.
+        const bounds = get().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+        get().dispatchAction({
+          type: "get-my-map",
+          payload: { center_sector: center, bounds },
+        })
+      }
+    },
 
     requestMapFetch: (centerSectorId: number, bounds: number): boolean => {
       const centerWorld = _resolveCenterWorld(centerSectorId)

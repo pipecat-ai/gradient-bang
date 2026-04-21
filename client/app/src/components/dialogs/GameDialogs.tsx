@@ -1,7 +1,8 @@
 import { SocialReplayDialog } from "@/capture/SocialReplayDialog"
 
+import { CorporationDetailsDialog } from "./CorporationDetailsDialog"
 import { Disconnect } from "./Disconnect"
-import { JoinConfirmDialog } from "./JoinConfirmDialog"
+import { LeaveConfirmDialog } from "./LeaveConfirmDialog"
 import { KickConfirmDialog } from "./KickConfirmDialog"
 import { Leaderboard } from "./Leaderboard"
 import { QuestCodec } from "./QuestCodec"
@@ -19,6 +20,7 @@ export const GameDialogs = () => (
     <ShipDetails />
     <SocialReplayDialog />
     <KickConfirmDialog />
-    <JoinConfirmDialog />
+    <LeaveConfirmDialog />
+    <CorporationDetailsDialog />
   </>
 )

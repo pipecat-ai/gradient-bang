@@ -13,6 +13,7 @@ import {
   emitErrorEvent,
   buildEventSource,
 } from "../_shared/events.ts";
+import { emitCorporationEvent } from "../_shared/corporations.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
   loadCharacter,
@@ -428,6 +429,35 @@ async function handleTransfer(
     corpId: toRecord.character.corporation_id,
     taskId,
   });
+
+  // When the recipient is a corporation-owned ship, the direct status.update
+  // above only lands on the ship's pseudo-character — a character row that
+  // has no active client session. Without a corp-scoped fan-out, real corp
+  // members never learn that the corp ship's credit balance changed until
+  // the next full `corporation_info` refresh. Mirror the status payload
+  // corp-scoped so every corpmate's UI updates in real time.
+  //
+  // `TransferTarget.ship` doesn't carry owner_type, so query it directly.
+  // The client already handles corp-ship status updates in its existing
+  // status.update path (upserts via `isKnownFleetShip`), so no client
+  // change is needed.
+  const { data: recipientOwnership } = await supabase
+    .from("ship_instances")
+    .select("owner_type, owner_corporation_id")
+    .eq("ship_id", toRecord.ship.ship_id)
+    .maybeSingle();
+  const recipientCorpId =
+    recipientOwnership?.owner_type === "corporation"
+      ? (recipientOwnership?.owner_corporation_id as string | null)
+      : null;
+  if (recipientCorpId) {
+    await emitCorporationEvent(supabase, recipientCorpId, {
+      eventType: "status.update",
+      payload: toStatus,
+      requestId,
+      taskId,
+    });
+  }
 
   return successResponse({ request_id: requestId });
 }

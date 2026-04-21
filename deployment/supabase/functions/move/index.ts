@@ -743,11 +743,23 @@ async function completeMovement({
     if (firstPersonalVisit && !knownToCorp) {
       const sCorpMapUpdate = ws.span("corp_map_update");
 
+      // Re-tag all sectors as "corp" for the map.update broadcast. Each
+      // recipient's client preserves their own higher-priority "player"
+      // source via the updateMapSectors guard.
+      const mapUpdateKnowledge: MapKnowledge = {
+        ...mergedKnowledge,
+        sectors_visited: Object.fromEntries(
+          Object.entries(mergedKnowledge.sectors_visited).map(([k, v]) => [
+            k,
+            { ...v, source: "corp" as const },
+          ]),
+        ),
+      };
       const sBuildUpdateRegion = sCorpMapUpdate.span("build_map_update_region");
       const mapUpdateRegion = await pgBuildLocalMapRegion(pg, {
         characterId,
         centerSector: destination,
-        mapKnowledge: mergedKnowledge,
+        mapKnowledge: mapUpdateKnowledge,
         maxHops: 1,
         maxSectors: MAX_LOCAL_MAP_NODES,
       });

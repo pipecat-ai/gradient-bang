@@ -49,6 +49,7 @@ EXPECTED_TOOLS = {
     "my_status", "plot_course", "list_known_ports", "rename_ship",
     "rename_corporation", "create_corporation", "corporation_info",
     "join_corporation", "leave_corporation", "kick_corporation_member",
+    "regenerate_invite_code",
     "sell_ship",
     "leaderboard_resources", "ship_definitions", "send_message",
     "combat_initiate", "combat_action", "load_game_info",

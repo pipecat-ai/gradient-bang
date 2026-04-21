@@ -492,9 +492,9 @@ JOIN_CORPORATION = FunctionSchema(
         "`create_corporation`. Only call this tool when the user explicitly asks "
         "to join a specific named corporation AND provides an invite code. If "
         "either the name or invite code is missing, ask the user for them before "
-        "calling this tool. Switching corporations while already in one triggers "
-        "a confirmation modal on the user's screen (the bot handles confirm/cancel "
-        "automatically), so a high-stakes verbal heads-up is still good practice."
+        "calling this tool. If the user is already in a corporation, this tool "
+        "returns a confirmation prompt — relay the warning and call confirm_action "
+        "only after they verbally agree."
     ),
     properties={
         "corp_name": {
@@ -532,10 +532,9 @@ JOIN_CORPORATION = FunctionSchema(
 LEAVE_CORPORATION = FunctionSchema(
     name="leave_corporation",
     description=(
-        "Leave your current corporation. High-stakes action, confirm with the user before calling. "
-        "You lose corporation access and would need a new invite to rejoin. "
-        "Corporation ships you own remain with the corporation and are not lost, but you lose access to them until you rejoin. "
-        "Note: if you are the last member, the corporation is automatically disbanded and any remaining assets are lost."
+        "Leave your current corporation. This tool returns a confirmation "
+        "prompt — relay the warning to the user and call confirm_action "
+        "only after they verbally agree."
     ),
     properties={
         "character_id": {
@@ -550,9 +549,9 @@ KICK_CORPORATION_MEMBER = FunctionSchema(
     name="kick_corporation_member",
     description=(
         "Remove another member from your corporation. Only the corporation "
-        "founder can kick members. The action opens a confirmation modal on "
-        "the user's screen; the bot handles confirm/cancel automatically, "
-        "so do not call the tool again after the first call."
+        "founder can kick members. This tool returns a confirmation prompt "
+        "— relay the warning to the user and call confirm_action only "
+        "after they verbally agree."
     ),
     properties={
         "target_id": {
@@ -570,6 +569,36 @@ KICK_CORPORATION_MEMBER = FunctionSchema(
         },
     },
     required=["target_id"],
+)
+
+CONFIRM_ACTION = FunctionSchema(
+    name="confirm_action",
+    description=(
+        "Confirm a pending high-stakes action (leave corporation, kick member, "
+        "switch corporation). Only call this AFTER the user has verbally confirmed "
+        "they want to proceed. Returns an error if no action is pending."
+    ),
+    properties={},
+    required=[],
+)
+
+REGENERATE_INVITE_CODE = FunctionSchema(
+    name="regenerate_invite_code",
+    description=(
+        "Rotate the corporation's invite passphrase. Founder only. The old "
+        "code stops working immediately — anyone holding it can no longer "
+        "join. Use when the founder asks to regenerate/reset/rotate the "
+        "code, or when they suspect the code has leaked. The tool result "
+        "includes the new passphrase; tell the founder the new code in one "
+        "short sentence so they don't have to read the details panel."
+    ),
+    properties={
+        "character_id": {
+            "type": "string",
+            "description": "Character requesting the regeneration (defaults to the authenticated pilot)",
+        },
+    },
+    required=[],
 )
 
 CORPORATION_INFO = FunctionSchema(

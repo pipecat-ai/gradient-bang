@@ -112,6 +112,21 @@ export function generateInviteCode(): string {
 }
 
 /**
+ * Normalize an invite passphrase for equality comparison. Generated codes
+ * are canonical `word-word` (lowercase, single dash). Player input may arrive
+ * spoken ("nebula cortex"), underscored, uppercased, or with extra whitespace.
+ * Fold any run of whitespace/dash/underscore into a single dash and lowercase
+ * everything so all variants compare equal.
+ *
+ * Safe because INVITE_WORDS contains only lowercase alphanumerics (no internal
+ * dashes or spaces).
+ */
+export function normalizeInviteCode(raw: string | null | undefined): string {
+  if (typeof raw !== "string") return "";
+  return raw.trim().toLowerCase().replace(/[\s\-_]+/g, "-");
+}
+
+/**
  * Generates a two-word passphrase and verifies no other *active* corporation
  * is already using it. Retries a small number of times before giving up —
  * with ~200 words the chance of repeated collisions is negligible.
@@ -443,7 +458,8 @@ export async function emitCorporationEvent(
 export type DisbandReason =
   | "last_member_left"
   | "last_member_joined_other"
-  | "kick_emptied_corp";
+  | "kick_emptied_corp"
+  | "founder_disbanded";
 
 export interface DisbandCorporationOptions {
   corpId: string;

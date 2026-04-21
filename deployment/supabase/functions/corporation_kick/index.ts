@@ -200,7 +200,6 @@ async function handleKick(params: {
         timestamp: new Date().toISOString(),
       },
       requestId,
-      corpId,
       taskId,
     });
 
@@ -255,6 +254,18 @@ async function handleKick(params: {
     taskId,
   });
 
+  // Emit directly to the kicked player: clear their corp state, refresh
+  // their status (drops corp ships), and rebuild map with personal-only
+  // knowledge. The corp-scoped event above won't reach them since their
+  // corporation_id is already null.
+  await emitCharacterEvent({
+    supabase,
+    characterId: targetId,
+    eventType: "corporation.data",
+    payload: { source, corporation: null },
+    requestId,
+    taskId,
+  });
   return {
     success: true,
     corp_id: corpId,

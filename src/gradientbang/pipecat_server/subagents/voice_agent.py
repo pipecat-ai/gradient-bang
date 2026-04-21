@@ -137,6 +137,9 @@ class VoiceAgent(LLMAgent):
         # then re-acknowledge when task.completed actually lands.
         self._task_completion_pending: int = 0
 
+        # ── Pending confirmation for confirm_action tool ──
+        self._pending_confirmation: Optional[Dict[str, Any]] = None
+
     # ── Lifecycle ───────────────────────────────────────────────────────
 
     async def on_activated(self, args: Optional[dict]) -> None:
@@ -184,6 +187,14 @@ class VoiceAgent(LLMAgent):
     def _mark_assistant_cycle_idle(self) -> None:
         self._assistant_cycle_active = False
         self._assistant_cycle_idle_event.set()
+        # Pending confirmation lifecycle: on the first idle after
+        # creation, arm it so confirm_action can proceed. On the
+        # second idle (user's turn passed without confirming), expire it.
+        if self._pending_confirmation:
+            if self._pending_confirmation.get("armed"):
+                self._pending_confirmation = None
+            else:
+                self._pending_confirmation["armed"] = True
 
     def _begin_assistant_response_cycle(self) -> None:
         self._cancel_speech_start_grace_task()
@@ -335,6 +346,8 @@ class VoiceAgent(LLMAgent):
             "join_corporation": self._handle_join_corporation,
             "leave_corporation": self._handle_leave_corporation,
             "kick_corporation_member": self._handle_kick_corporation_member,
+            "confirm_action": self._handle_confirm_action,
+            "regenerate_invite_code": self._handle_regenerate_invite_code,
             "send_message": self._handle_send_message,
             "combat_initiate": self._handle_combat_initiate,
             "combat_action": self._handle_combat_action,
@@ -624,14 +637,63 @@ class VoiceAgent(LLMAgent):
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     async def _handle_leave_corporation(self, params: FunctionCallParams):
+        self._pending_confirmation = None
         try:
             result = await self._game_client.leave_corporation(
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
+        except Exception as exc:
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
+            return
+
+        # Pending: store state for confirm_action, let the LLM relay
+        # the warning verbally. The client modal also appears in parallel.
+        if isinstance(result, dict) and result.get("pending"):
+            self._pending_confirmation = {"action": "leave", "armed": False}
             self._begin_assistant_response_cycle()
             await params.result_callback(
-                {"success": True},
+                {
+                    "status": "awaiting_confirmation",
+                    "will_disband": bool(result.get("will_disband")),
+                    "is_founder": bool(result.get("is_founder")),
+                    "corp_name": result.get("corp_name"),
+                    "member_count": result.get("member_count"),
+                },
+                properties=FunctionCallResultProperties(run_llm=True),
+            )
+            return
+
+        self._begin_assistant_response_cycle()
+        await params.result_callback(
+            {"success": True},
+            properties=FunctionCallResultProperties(run_llm=True),
+        )
+
+    async def _handle_regenerate_invite_code(self, params: FunctionCallParams):
+        # Founder-only. The new code is also surfaced in the
+        # CorporationDetailsDialog via the corp-scoped event; returning it
+        # in the tool result lets the voice agent tell the founder the
+        # new passphrase directly so they don't have to read the modal.
+        try:
+            result = await self._game_client.regenerate_invite_code(
+                character_id=self._character_id,
+            )
+            self._track_request_id_from_result(result)
+            new_code = (
+                result.get("new_invite_code") if isinstance(result, dict) else None
+            )
+            self._begin_assistant_response_cycle()
+            await params.result_callback(
+                {
+                    "success": True,
+                    "new_invite_code": new_code,
+                    "note": (
+                        "Tell the founder the new invite code in one short "
+                        "sentence (e.g. 'New code is <code>.'). Only the "
+                        "founder can regenerate, so it is safe to read aloud."
+                    ),
+                },
                 properties=FunctionCallResultProperties(run_llm=True),
             )
         except Exception as exc:
@@ -641,7 +703,8 @@ class VoiceAgent(LLMAgent):
         # Voice-only tool. The LLM supplies corp_name + invite_code; we
         # resolve corp_name → corp_id here (LLM has no way to know corp_ids).
         # The `confirm` flag is NOT in the tool schema and is NEVER set
-        # here — only client_message_handler.confirm-join passes it.
+        # here — only confirm_action / client_message_handler passes it.
+        self._pending_confirmation = None
         args = params.arguments
         corp_name = (args.get("corp_name") or "").strip()
         corp_id = (args.get("corp_id") or "").strip()
@@ -709,19 +772,26 @@ class VoiceAgent(LLMAgent):
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
             return
 
-        # Pending response means the server emitted corporation.join_pending
-        # and the client will open a confirmation modal. Do NOT run the LLM
-        # now — the confirm/cancel client message will drive the next step
-        # and inject context from client_message_handler.
+        # Pending: store state for confirm_action, let the LLM relay
+        # the warning verbally. The client modal also appears in parallel.
         if isinstance(result, dict) and result.get("pending"):
+            self._pending_confirmation = {
+                "action": "join",
+                "corp_id": corp_id,
+                "invite_code": invite_code,
+                "armed": False,
+            }
+            self._begin_assistant_response_cycle()
             await params.result_callback(
                 {
-                    "status": "pending_confirmation",
+                    "status": "awaiting_confirmation",
                     "will_disband": bool(result.get("will_disband")),
+                    "is_founder": bool(result.get("is_founder")),
                     "old_corp_name": result.get("old_corp_name"),
                     "new_corp_name": result.get("corp_name"),
+                    "member_count": result.get("member_count"),
                 },
-                properties=FunctionCallResultProperties(run_llm=False),
+                properties=FunctionCallResultProperties(run_llm=True),
             )
             return
 
@@ -733,10 +803,10 @@ class VoiceAgent(LLMAgent):
         )
 
     async def _handle_kick_corporation_member(self, params: FunctionCallParams):
-        # Voice-only tool. The kick ALWAYS opens a confirmation modal —
-        # the first call (without `confirm`) returns pending and emits
-        # corporation.kick_pending; client_message_handler.confirm-kick
-        # performs the actual kick. The LLM never sets `confirm`.
+        # Voice-only tool. The kick ALWAYS returns pending on the first
+        # call (without `confirm`). The LLM relays the warning, then the
+        # user confirms via confirm_action (voice) or the modal (UI).
+        self._pending_confirmation = None
         args = params.arguments
         target_id = (args.get("target_id") or "").strip()
         if not target_id:
@@ -803,12 +873,18 @@ class VoiceAgent(LLMAgent):
             return
 
         if isinstance(result, dict) and result.get("pending"):
+            self._pending_confirmation = {
+                "action": "kick",
+                "target_id": target_id,
+                "armed": False,
+            }
+            self._begin_assistant_response_cycle()
             await params.result_callback(
                 {
-                    "status": "pending_confirmation",
+                    "status": "awaiting_confirmation",
                     "target_name": result.get("target_name"),
                 },
-                properties=FunctionCallResultProperties(run_llm=False),
+                properties=FunctionCallResultProperties(run_llm=True),
             )
             return
 
@@ -820,6 +896,68 @@ class VoiceAgent(LLMAgent):
             {"success": True},
             properties=FunctionCallResultProperties(run_llm=True),
         )
+
+    async def _handle_confirm_action(self, params: FunctionCallParams):
+        pending = self._pending_confirmation
+        if not pending:
+            await params.result_callback(
+                {"error": "No action is awaiting confirmation."},
+                properties=FunctionCallResultProperties(run_llm=True),
+            )
+            return
+
+        if not pending.get("armed"):
+            # The LLM tried to chain confirm_action in the same turn
+            # as the action that set the pending state. Reject it so
+            # the user has a chance to respond first.
+            await params.result_callback(
+                {
+                    "error": (
+                        "The user has not confirmed yet. Wait for their "
+                        "response before calling confirm_action."
+                    )
+                },
+                properties=FunctionCallResultProperties(run_llm=True),
+            )
+            return
+
+        action = pending.get("action")
+        self._pending_confirmation = None
+
+        try:
+            if action == "leave":
+                result = await self._game_client.leave_corporation(
+                    character_id=self._character_id,
+                    confirm=True,
+                )
+            elif action == "kick":
+                result = await self._game_client.kick_corporation_member(
+                    target_id=pending["target_id"],
+                    character_id=self._character_id,
+                    confirm=True,
+                )
+            elif action == "join":
+                result = await self._game_client.join_corporation(
+                    corp_id=pending["corp_id"],
+                    invite_code=pending["invite_code"],
+                    character_id=self._character_id,
+                    confirm=True,
+                )
+            else:
+                await params.result_callback(
+                    {"error": f"Unknown pending action: {action}"},
+                    properties=FunctionCallResultProperties(run_llm=True),
+                )
+                return
+
+            self._track_request_id_from_result(result)
+            self._begin_assistant_response_cycle()
+            await params.result_callback(
+                {"success": True, "action": action},
+                properties=FunctionCallResultProperties(run_llm=True),
+            )
+        except Exception as exc:
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     # ── Fire-and-forget tools ──────────────────────────────────────────
 
@@ -835,10 +973,9 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
-            self._begin_assistant_response_cycle()
             await params.result_callback(
                 {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=True),
+                properties=FunctionCallResultProperties(run_llm=False),
             )
         except Exception as exc:
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
@@ -1099,8 +1236,11 @@ class VoiceAgent(LLMAgent):
             f"{corp}/{MAX_CORP_SHIP_TASKS} corp."
         )
 
-    def _update_polling_scope(self) -> None:
-        """Derive corp ship IDs from children and update game_client polling."""
+    def update_polling_scope(self) -> None:
+        """Derive corp ship IDs from children and update game_client polling.
+
+        Public interface for EventRelay's TaskStateProvider protocol.
+        """
         ship_ids = sorted(
             {c._character_id for c in self.children if isinstance(c, TaskAgent) and c._is_corp_ship}
         )
@@ -1109,6 +1249,9 @@ class VoiceAgent(LLMAgent):
             corp_id=self._game_client.corporation_id,
             ship_ids=ship_ids,
         )
+
+    # Keep private alias for internal callers
+    _update_polling_scope = update_polling_scope
 
     def _get_task_type(self, ship_id: Optional[str]) -> str:
         if ship_id and ship_id != self._character_id:
