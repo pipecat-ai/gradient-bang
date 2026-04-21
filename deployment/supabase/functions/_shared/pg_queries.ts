@@ -1490,39 +1490,161 @@ async function pgLoadCorporationInfo(
   joinedAt: string | null,
   characterId: string,
 ): Promise<Record<string, unknown> | null> {
-  // Founder-aware lightweight corp summary for status payloads. Gates
-  // invite_code to the founder only (matches `buildCorporationMemberPayload`
-  // in _shared/corporations.ts). Members and ships are deliberately NOT
-  // included here — those are heavy and come from `my_corporation` /
-  // `corporation_info` on demand.
-  const corpResult = await pg.queryObject<{
-    corp_id: string;
-    name: string;
-    member_count: number;
-    founder_id: string;
-    invite_code: string;
-  }>(
-    `SELECT c.corp_id, c.name, c.founder_id, c.invite_code,
-            COUNT(cm.character_id)::int as member_count
-    FROM corporations c
-    LEFT JOIN corporation_members cm ON cm.corp_id = c.corp_id AND cm.left_at IS NULL
-    WHERE c.corp_id = $1
-    GROUP BY c.corp_id, c.name, c.founder_id, c.invite_code`,
-    [corpId],
-  );
+  // Full corp payload for status.update / status.snapshot so the client
+  // has members, ships, and founder fields immediately. Gates invite_code
+  // to the founder only.
+  const [corpResult, membersResult, shipsResult, destroyedResult] =
+    await Promise.all([
+      pg.queryObject<{
+        corp_id: string;
+        name: string;
+        founded: string;
+        member_count: number;
+        founder_id: string;
+        invite_code: string;
+        invite_code_generated: string | null;
+        invite_code_generated_by: string | null;
+      }>(
+        `SELECT c.corp_id, c.name, c.founded, c.founder_id, c.invite_code,
+                c.invite_code_generated, c.invite_code_generated_by,
+                COUNT(cm.character_id)::int as member_count
+        FROM corporations c
+        LEFT JOIN corporation_members cm ON cm.corp_id = c.corp_id AND cm.left_at IS NULL
+        WHERE c.corp_id = $1
+        GROUP BY c.corp_id`,
+        [corpId],
+      ),
+      pg.queryObject<{
+        character_id: string;
+        name: string | null;
+        joined_at: string | null;
+      }>(
+        `SELECT cm.character_id, ch.name, cm.joined_at
+        FROM corporation_members cm
+        JOIN characters ch ON ch.character_id = cm.character_id
+        WHERE cm.corp_id = $1 AND cm.left_at IS NULL
+        ORDER BY cm.joined_at`,
+        [corpId],
+      ),
+      pg.queryObject<{
+        ship_id: string;
+        ship_type: string;
+        ship_name: string | null;
+        current_sector: number | null;
+        owner_type: string;
+        credits: number;
+        cargo_qf: number;
+        cargo_ro: number;
+        cargo_ns: number;
+        current_warp_power: number;
+        current_shields: number;
+        current_fighters: number;
+      }>(
+        `SELECT si.ship_id, si.ship_type, si.ship_name, si.current_sector,
+                si.owner_type, si.credits, si.cargo_qf, si.cargo_ro, si.cargo_ns,
+                si.current_warp_power, si.current_shields, si.current_fighters
+        FROM corporation_ships cs
+        JOIN ship_instances si ON si.ship_id = cs.ship_id
+        WHERE cs.corp_id = $1
+          AND si.owner_type != 'unowned'
+          AND si.destroyed_at IS NULL`,
+        [corpId],
+      ),
+      pg.queryObject<{
+        ship_id: string;
+        ship_type: string;
+        ship_name: string | null;
+        current_sector: number | null;
+        destroyed_at: string;
+      }>(
+        `SELECT si.ship_id, si.ship_type, si.ship_name, si.current_sector, si.destroyed_at
+        FROM ship_instances si
+        WHERE si.owner_corporation_id = $1
+          AND si.destroyed_at IS NOT NULL
+        ORDER BY si.destroyed_at DESC`,
+        [corpId],
+      ),
+    ]);
+
   const corp = corpResult.rows[0];
   if (!corp) return null;
   const isFounder = corp.founder_id === characterId;
+
+  // Load ship definitions for display names and capacities
+  const shipTypes = new Set<string>();
+  for (const row of shipsResult.rows) shipTypes.add(row.ship_type);
+  for (const row of destroyedResult.rows) shipTypes.add(row.ship_type);
+  const defMap = new Map<string, { display_name: string; cargo_holds: number; warp_power_capacity: number; shields: number; fighters: number }>();
+  if (shipTypes.size > 0) {
+    const defResult = await pg.queryObject<{
+      ship_type: string; display_name: string; cargo_holds: number;
+      warp_power_capacity: number; shields: number; fighters: number;
+    }>(
+      `SELECT ship_type, display_name, cargo_holds, warp_power_capacity, shields, fighters
+      FROM ship_definitions WHERE ship_type = ANY($1)`,
+      [Array.from(shipTypes)],
+    );
+    for (const d of defResult.rows) defMap.set(d.ship_type, d);
+  }
+
+  const members = membersResult.rows.map((m) => ({
+    character_id: m.character_id,
+    name: m.name?.trim() || m.character_id,
+    joined_at: m.joined_at ?? null,
+  }));
+
+  const ships = shipsResult.rows.map((s) => {
+    const def = defMap.get(s.ship_type);
+    return {
+      ship_id: s.ship_id,
+      ship_type: s.ship_type,
+      name: s.ship_name?.trim() || def?.display_name || s.ship_type || s.ship_id,
+      sector: s.current_sector,
+      owner_type: s.owner_type,
+      credits: Number(s.credits ?? 0),
+      cargo: {
+        quantum_foam: Number(s.cargo_qf ?? 0),
+        retro_organics: Number(s.cargo_ro ?? 0),
+        neuro_symbolics: Number(s.cargo_ns ?? 0),
+      },
+      cargo_capacity: def?.cargo_holds ?? 0,
+      warp_power: Number(s.current_warp_power ?? 0),
+      warp_power_capacity: def?.warp_power_capacity ?? 0,
+      shields: Number(s.current_shields ?? 0),
+      max_shields: def?.shields ?? 0,
+      fighters: Number(s.current_fighters ?? 0),
+      max_fighters: def?.fighters ?? 0,
+      current_task_id: null as string | null,
+    };
+  });
+
+  const destroyed_ships = destroyedResult.rows.map((s) => {
+    const def = defMap.get(s.ship_type);
+    return {
+      ship_id: s.ship_id,
+      ship_type: s.ship_type,
+      name: s.ship_name?.trim() || def?.display_name || s.ship_type || s.ship_id,
+      sector: s.current_sector,
+      destroyed_at: s.destroyed_at,
+    };
+  });
+
   const payload: Record<string, unknown> = {
     corp_id: corp.corp_id,
     name: corp.name,
+    founded: corp.founded,
     member_count: corp.member_count ?? 0,
     joined_at: joinedAt,
     founder_id: corp.founder_id,
     is_founder: isFounder,
+    members,
+    ships,
+    destroyed_ships,
   };
   if (isFounder) {
     payload.invite_code = corp.invite_code;
+    payload.invite_code_generated = corp.invite_code_generated;
+    payload.invite_code_generated_by = corp.invite_code_generated_by;
   }
   return payload;
 }

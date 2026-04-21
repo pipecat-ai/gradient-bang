@@ -328,28 +328,18 @@ export function GameProvider({ children }: GameProviderProps) {
                   type: "join",
                   message: "Joined the game",
                 })
-
-                // status.snapshot only carries the lightweight corporation
-                // row (id/name/member_count). The details modal and founder
-                // gating need the full payload — members, ships, is_founder,
-                // invite_code. Fetch it once on connect if the player is in
-                // a corp.
-                if (status.corporation) {
-                  useGameStore.getState().dispatchAction({
-                    type: "get-my-corporation",
-                  })
-                }
               }
 
               // Handle status update accordingly
               if (isPlayerSessionPayload(e.event, status)) {
-                // Update store
+                // Update store — corporation goes through setCorporation
+                // so ship upsert/strip logic runs (same as corporation.data).
                 useGameStore.getState().setState({
                   player: status.player,
-                  corporation: status.corporation,
                   ship: status.ship,
                   sector: status.sector,
                 })
+                useGameStore.getState().setCorporation(status.corporation ?? undefined)
               } else {
                 // Check if this is a fleet/corp ship status update
                 const shipId = status.ship?.ship_id ?? getPayloadShipId(status)
@@ -661,30 +651,30 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
-            case "corporation.join_pending": {
-              // Character-scoped event — only the joiner receives it.
-              // Fires only in the last-member-of-old-corp case where the
-              // old corp would be disbanded. The modal warns about the
-              // disband and echoes corp_id + invite_code back via
-              // confirm-join; the edge function re-validates before
-              // mutating.
-              console.debug("[GAME EVENT] Corporation join pending", e.payload)
+            case "corporation.leave_pending": {
+              // Character-scoped event — only the leaving player receives
+              // it. Emitted by both corporation_leave (explicit leave) and
+              // corporation_join (leave-to-join). The modal adapts its copy
+              // based on the payload fields.
+              console.debug("[GAME EVENT] Corporation leave pending", e.payload)
               const data = e.payload as {
-                corp_id: string
                 corp_name: string
-                invite_code: string
-                old_corp_id: string
-                old_corp_name: string
+                is_founder: boolean
                 will_disband: boolean
+                member_count: number
+                joining_corp_id?: string
+                joining_corp_name?: string
+                joining_invite_code?: string
               }
-              useGameStore.getState().setActiveModal("confirm_join", {
-                corp_id: data.corp_id,
+              useGameStore.getState().setActiveModal("confirm_leave", {
                 corp_name: data.corp_name,
-                invite_code: data.invite_code,
-                old_corp_id: data.old_corp_id,
-                old_corp_name: data.old_corp_name,
+                is_founder: data.is_founder,
                 will_disband: data.will_disband,
-              } satisfies ConfirmJoinData)
+                member_count: data.member_count,
+                joining_corp_id: data.joining_corp_id,
+                joining_corp_name: data.joining_corp_name,
+                joining_invite_code: data.joining_invite_code,
+              } satisfies ConfirmLeaveData)
               break
             }
 
@@ -703,17 +693,11 @@ export function GameProvider({ children }: GameProviderProps) {
                   invite_code: data.new_invite_code,
                 })
               }
-              useGameStore.getState().dispatchAction({
-                type: "get-my-corporation",
-              })
               break
             }
 
             case "corporation.member_joined": {
-              // Emitted corp-scoped when any member joins. Show a toast to
-              // every corp member (including the joiner themselves) and
-              // refresh the roster so the members list picks up the new
-              // entry without waiting for the next poll.
+              // Emitted corp-scoped when any member joins (including self).
               console.debug("[GAME EVENT] Corporation member joined", e.payload)
               const data = e.payload as {
                 corp_id: string
@@ -734,9 +718,6 @@ export function GameProvider({ children }: GameProviderProps) {
                   member_count: data.member_count,
                   is_self: isSelf,
                 },
-              })
-              useGameStore.getState().dispatchAction({
-                type: "get-my-corporation",
               })
               break
             }
@@ -767,7 +748,49 @@ export function GameProvider({ children }: GameProviderProps) {
             case "corporation.data": {
               console.debug("[GAME EVENT] Corporation data", e.payload)
               const data = e.payload as { corporation: Corporation | null }
+              const prevCorp = useGameStore.getState().corporation
+              const wasCorp = !!prevCorp
               useGameStore.getState().setCorporation(data.corporation ?? undefined)
+
+              // Sync fleet ships from the corporation payload so the
+              // PlayerShipsPanel sees them immediately (join) or drops them
+              // (leave/kick, handled by setCorporation stripping corp ships).
+              if (data.corporation?.ships) {
+                for (const ship of data.corporation.ships) {
+                  upsertCorporationShip(ship.ship_id, {
+                    ship_id: ship.ship_id,
+                    ship_name: ship.name,
+                    ship_type: ship.ship_type,
+                    sector: ship.sector ?? undefined,
+                    owner_type: "corporation",
+                    credits: ship.credits,
+                    cargo: ship.cargo,
+                    cargo_capacity: ship.cargo_capacity,
+                    warp_power: ship.warp_power,
+                    warp_power_capacity: ship.warp_power_capacity,
+                    shields: ship.shields,
+                    max_shields: ship.max_shields,
+                    fighters: ship.fighters,
+                    max_fighters: ship.max_fighters,
+                    current_task_id: ship.current_task_id,
+                  })
+                }
+              }
+
+              // Left/kicked from a corp — show toast. Map invalidation is
+              // handled by setCorporation detecting the corp transition.
+              if (wasCorp && !data.corporation) {
+                // Dismiss any corp confirmation modal (covers the voice-
+                // confirm path where the UI button wasn't clicked).
+                const modal = useGameStore.getState().activeModal?.modal
+                if (modal === "confirm_leave" || modal === "confirm_kick") {
+                  useGameStore.getState().setActiveModal(undefined)
+                }
+                useGameStore.getState().addToast({
+                  type: "corporation.left",
+                  meta: { corp_name: prevCorp?.name ?? "Corporation" },
+                })
+              }
               useGameStore.getState().resolveFetchPromise("get-my-corporation")
               break
             }

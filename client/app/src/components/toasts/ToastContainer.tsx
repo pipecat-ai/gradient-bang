@@ -15,6 +15,7 @@ import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
 import { CorporationCreatedToast } from "./CorporationCreated"
+import { CorporationLeftToast } from "./CorporationLeft"
 import { CorporationMemberJoinedToast } from "./CorporationMemberJoined"
 
 import type { Toast } from "@/types/toasts"
@@ -71,6 +72,8 @@ export const ToastContainer = () => {
         return <CorporationCreatedToast toast={toast} {...baseProps} />
       case "corporation.member_joined":
         return <CorporationMemberJoinedToast toast={toast} {...baseProps} />
+      case "corporation.left":
+        return <CorporationLeftToast toast={toast} {...baseProps} />
       case "ship.purchased":
         return <ShipPurchasedToast toast={toast} {...baseProps} />
       case "ship.sold":

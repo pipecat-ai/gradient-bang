@@ -458,7 +458,8 @@ export async function emitCorporationEvent(
 export type DisbandReason =
   | "last_member_left"
   | "last_member_joined_other"
-  | "kick_emptied_corp";
+  | "kick_emptied_corp"
+  | "founder_disbanded";
 
 export interface DisbandCorporationOptions {
   corpId: string;

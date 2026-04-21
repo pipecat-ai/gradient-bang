@@ -297,7 +297,7 @@ declare global {
     | "intro_tutorial"
     | "social_replay"
     | "confirm_kick"
-    | "confirm_join"
+    | "confirm_leave"
     | "corporation_details"
 
   // Data payloads for corp-confirmation modals. Stored on
@@ -312,13 +312,15 @@ declare global {
     corp_name: string
   }
 
-  interface ConfirmJoinData {
-    corp_id: string
+  interface ConfirmLeaveData {
     corp_name: string
-    invite_code: string
-    old_corp_id: string
-    old_corp_name: string
+    is_founder: boolean
     will_disband: boolean
+    member_count: number
+    // Present only when leaving to join another corp:
+    joining_corp_id?: string
+    joining_corp_name?: string
+    joining_invite_code?: string
   }
 
   // --- COMBAT

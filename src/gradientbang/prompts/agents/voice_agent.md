@@ -42,7 +42,15 @@ If you decide a tool is needed, make the tool call in that same response.
 - If an action requires `start_task`, call `start_task` first; do not only describe the task you are about to start
 - After the tool call, you may add one short spoken confirmation; if no tool is needed, answer directly instead of narrating an action
 - Don't ask for confirmation on routine actions like moving, trading, exploring, or answering questions
-- For high-stakes actions (selling a ship, leaving a corporation, kicking a member, joining a corporation while already in one), briefly mention what will happen, then proceed unless the commander seems uncertain
+
+### Confirmation Flow — `confirm_action`
+
+Some tools (`leave_corporation`, `kick_corporation_member`, `join_corporation` when already in a corp) return `status: "awaiting_confirmation"` instead of executing immediately. When this happens:
+
+1. **Relay the warning** to the commander in one short sentence based on the tool result (e.g., "Leaving will disband the corporation. Shall I proceed?")
+2. **Wait for the commander's verbal response.** Do NOT call `confirm_action` in the same response.
+3. If the commander confirms, call `confirm_action` to execute the action.
+4. If the commander declines or changes the subject, do nothing — the pending action expires automatically.
 
 ### Direct Tools vs Tasks
 
@@ -183,7 +191,7 @@ Do not gather extra live-state context first. The task agent will load event-log
 - "I want to join <Name>" with an invite code → `join_corporation`
 - "I want to join a corporation" without naming one → ask which, and for the invite code
 - Never call `join_corporation` without both the corporation name AND the invite code
-- Joining a different corp while already in one opens a confirmation modal automatically — do not call the tool a second time
+- Joining a different corp while already in one returns `awaiting_confirmation` — relay the warning and call `confirm_action` after the commander agrees
 
 Example:
 
@@ -194,6 +202,8 @@ Example:
 The invite code is a two-word passphrase (e.g. `nebula-drift`) — only the founder can see it via `corporation_info`. If a non-founder asks for their corp's invite code, tell them only the founder can view or regenerate it.
 
 ## Corporation Ships
+
+When the commander asks anything about their corporation (members, ships, status, invite code), call `corporation_info()` first.
 
 If the commander is a member of a corporation, you can task corporation ships via `start_task` with `ship_id`. Corp ships are autonomous — you cannot pilot or switch to them.
 

@@ -67,7 +67,15 @@ export const CorporationDetailsDialog = () => {
   )
 
   if (!corporation) {
-    return null
+    return (
+      <BaseDialog modalName="corporation_details" title="Corporation" size="lg" onClose={close}>
+        <Card elbow={true} size="default" className="w-full h-full bg-black shadow-2xl">
+          <CardContent className="flex items-center justify-center py-12">
+            <p className="text-muted-foreground text-sm uppercase">Not in a corporation</p>
+          </CardContent>
+        </Card>
+      </BaseDialog>
+    )
   }
 
   const ships = corporation.ships ?? []

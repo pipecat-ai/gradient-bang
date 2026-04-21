@@ -748,19 +748,19 @@ Deno.test({
       assertEquals(body.old_corp_id, corpId1);
     });
 
-    await t.step("P1 receives corporation.join_pending (character-scoped)", async () => {
+    await t.step("P1 receives corporation.leave_pending (character-scoped)", async () => {
       const events = await eventsOfType(
         p1Id,
-        "corporation.join_pending",
+        "corporation.leave_pending",
         cursorP1,
       );
       assert(
         events.length >= 1,
-        `Expected >= 1 corporation.join_pending, got ${events.length}`,
+        `Expected >= 1 corporation.leave_pending, got ${events.length}`,
       );
       const payload = events[0].payload;
-      assertEquals(payload.corp_id, corpId2);
-      assertEquals(payload.old_corp_id, corpId1);
+      assertEquals(payload.corp_id, corpId1);
+      assertEquals(payload.joining_corp_id, corpId2);
       assertEquals(payload.will_disband, true);
     });
 
@@ -1737,19 +1737,34 @@ Deno.test({
       cursorP2 = await getEventCursor(p2Id);
     });
 
-    await t.step("P2 joins corp B (no confirm needed — still a member in A)", async () => {
+    await t.step("P2 joins corp B — pending (confirmation required)", async () => {
       const result = await apiOk("corporation_join", {
         character_id: p2Id,
         corp_id: corpIdB,
         invite_code: inviteB,
       });
       const body = result as Record<string, unknown>;
-      assertEquals(body.pending, undefined, "Should NOT be pending (not last member)");
-      assertEquals(body.corp_id, corpIdB);
+      assertEquals(body.pending, true, "Should be pending (leave confirmation required)");
     });
 
-    await t.step("P2 does NOT receive corporation.join_pending", async () => {
-      await assertNoEventsOfType(p2Id, "corporation.join_pending", cursorP2);
+    await t.step("P2 receives corporation.leave_pending", async () => {
+      const events = await eventsOfType(
+        p2Id,
+        "corporation.leave_pending",
+        cursorP2,
+      );
+      assert(events.length >= 1, "P2 should see corporation.leave_pending");
+    });
+
+    await t.step("P2 confirms join (with confirm=true)", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+      cursorP2 = await getEventCursor(p2Id);
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpIdB,
+        invite_code: inviteB,
+        confirm: true,
+      });
     });
 
     await t.step("P1 receives corporation.member_left for corp A", async () => {

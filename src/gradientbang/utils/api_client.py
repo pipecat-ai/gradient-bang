@@ -1366,6 +1366,7 @@ class AsyncGameClient:
         self,
         *,
         character_id: Optional[str] = None,
+        confirm: bool = False,
     ) -> Dict[str, Any]:
         """Leave the current corporation."""
 
@@ -1378,6 +1379,8 @@ class AsyncGameClient:
             )
 
         payload: Dict[str, Any] = {"character_id": character_id}
+        if confirm:
+            payload["confirm"] = True
         return await self._request("corporation.leave", payload)
 
     async def kick_corporation_member(

@@ -84,6 +84,7 @@ export interface MapSlice {
   setCoursePlotZoomEnabled: (enabled: boolean) => void
   setMapLegendVisible: (visible: boolean) => void
   resetMapView: () => void
+  invalidateMapCoverage: (resetCenterSector?: number) => void
 
   // --- Compound actions ---
   handleMapUIAction: (payload: MapUIActionPayload) => void
@@ -211,6 +212,10 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
   // -----------------------------------------------------------------------
   let _confirmedCoverage: WorldRect[] = []
   let _inFlightRequests: { key: string; rect: WorldRect | undefined; requestedAt: number }[] = []
+  // When true, the next setRegionalMapData call replaces all existing
+  // data instead of merging. Set by invalidateMapCoverage (corp
+  // join/leave) so stale corp-knowledge sectors are purged.
+  let _replaceNextMapData = false
 
   const _pruneStaleInFlightRequests = () => {
     const now = Date.now()
@@ -379,10 +384,14 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     },
 
     setRegionalMapData: (regionalMapData: MapData) => {
+      const shouldReplace = _replaceNextMapData
+      if (shouldReplace) {
+        _replaceNextMapData = false
+      }
       set(
         produce((state) => {
           const normalizedMapData = normalizeMapData(regionalMapData)
-          if (!state.regional_map_data) {
+          if (!state.regional_map_data || shouldReplace) {
             state.regional_map_data = normalizedMapData
             return
           }
@@ -578,6 +587,29 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           state.mapResetEpoch = (state.mapResetEpoch ?? 0) + 1
         })
       ),
+
+    invalidateMapCoverage: (resetCenterSector?: number) => {
+      _confirmedCoverage = []
+      _inFlightRequests = []
+      _replaceNextMapData = true
+      const center = resetCenterSector ?? get().sector?.id
+      if (typeof center === "number") {
+        set(
+          produce((state) => {
+            state.mapCenterSector = center
+            state.mapCenterWorld = undefined
+            state.mapFitBoundsWorld = undefined
+          })
+        )
+        // Trigger a full map re-fetch so setRegionalMapData consumes
+        // the replace flag with fresh data at the current zoom level.
+        const bounds = get().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
+        get().dispatchAction({
+          type: "get-my-map",
+          payload: { center_sector: center, bounds },
+        })
+      }
+    },
 
     requestMapFetch: (centerSectorId: number, bounds: number): boolean => {
       const centerWorld = _resolveCenterWorld(centerSectorId)

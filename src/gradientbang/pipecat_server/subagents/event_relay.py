@@ -418,7 +418,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # would cause duplicate narration ("you're about to remove Bob...")
     # before the confirm fires.
     "corporation.kick_pending": EventConfig(append=AppendRule.NEVER),
-    "corporation.join_pending": EventConfig(append=AppendRule.NEVER),
+    "corporation.leave_pending": EventConfig(append=AppendRule.NEVER),
     # Invite-code regeneration: client-only UI signal. The founder's
     # CorporationDetailsDialog listens for it to refresh the displayed
     # code. LLM context is injected separately by

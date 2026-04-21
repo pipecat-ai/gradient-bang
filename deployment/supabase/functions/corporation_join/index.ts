@@ -21,7 +21,9 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
-import { loadCharacter } from "../_shared/status.ts";
+import { loadCharacter, loadShip } from "../_shared/status.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { pgBuildStatusPayload, pgBuildLocalMapRegion } from "../_shared/pg_queries.ts";
 import {
   disbandCorporation,
   emitCorporationEvent,
@@ -182,11 +184,11 @@ async function handleJoin(params: {
     const oldMembers = await fetchCorporationMembers(supabase, oldCorp.corp_id);
     const isLastMember =
       oldMembers.length === 1 && oldMembers[0].character_id === characterId;
+    const isOldCorpFounder = oldCorp.founder_id === characterId;
+    const willDisband = isLastMember || isOldCorpFounder;
 
-    if (isLastMember) {
-      // Refuse upfront if the old corp still owns ships — user must sell
-      // them via sell_ship before switching. No pending event; we want a
-      // clear error the LLM can relay, not a modal.
+    // Block if disbanding would lose ships.
+    if (willDisband) {
       const oldShips = await fetchCorporationShipSummaries(
         supabase,
         oldCorp.corp_id,
@@ -207,54 +209,112 @@ async function handleJoin(params: {
           },
         );
       }
+    }
 
-      if (!confirm) {
-        // Two-step confirm: emit a character-scoped pending event so ONLY
-        // the joiner's client opens the "this will disband your corp"
-        // modal. No state changes.
-        const source = buildEventSource("corporation_join", requestId);
+    if (!confirm) {
+      // Two-step confirm: emit a character-scoped pending event so ONLY
+      // the joiner's client opens the leave confirmation modal. No state
+      // changes. Uses corporation.leave_pending (unified with explicit
+      // leave flow) with joining context so the dialog and confirm
+      // handler know to complete the join after leaving.
+      const source = buildEventSource("corporation_join", requestId);
+      await emitCharacterEvent({
+        supabase,
+        characterId,
+        eventType: "corporation.leave_pending",
+        payload: {
+          source,
+          corp_id: oldCorp.corp_id,
+          corp_name: oldCorp.name,
+          is_founder: isOldCorpFounder,
+          will_disband: willDisband,
+          member_count: oldMembers.length,
+          joining_corp_id: corpId,
+          joining_corp_name: corporation.name,
+          joining_invite_code: inviteCode ?? "",
+          timestamp: new Date().toISOString(),
+        },
+        requestId,
+        taskId,
+      });
+      return {
+        success: true,
+        pending: true,
+        will_disband: willDisband,
+        is_founder: isOldCorpFounder,
+        member_count: oldMembers.length,
+        corp_id: corpId,
+        corp_name: corporation.name,
+        old_corp_id: oldCorp.corp_id,
+        old_corp_name: oldCorp.name,
+      };
+    }
+
+    // Confirmed — execute the leave from old corp.
+    const leaveTimestamp = new Date().toISOString();
+    const leaveSource = buildEventSource("corporation_join", requestId);
+
+    // If founder with other members, evict everyone before disbanding.
+    if (isOldCorpFounder && !isLastMember) {
+      const otherMembers = oldMembers.filter(
+        (m) => m.character_id !== characterId,
+      );
+      const otherMemberIds = otherMembers.map((m) => m.character_id);
+
+      for (const memberId of otherMemberIds) {
+        await markCorporationMembershipLeft(
+          supabase, oldCorp.corp_id, memberId, leaveTimestamp,
+        );
+      }
+      const { error: batchUpdateError } = await supabase
+        .from("characters")
+        .update({
+          corporation_id: null,
+          corporation_joined_at: null,
+          last_active: leaveTimestamp,
+        })
+        .in("character_id", otherMemberIds);
+      if (batchUpdateError) {
+        console.error("corporation_join.batch_evict", batchUpdateError);
+        throw new CorporationJoinError(
+          "Failed to remove old corporation members", 500,
+        );
+      }
+
+      // Notify each evicted member.
+      for (const memberId of otherMemberIds) {
         await emitCharacterEvent({
           supabase,
-          characterId,
-          eventType: "corporation.join_pending",
-          payload: {
-            source,
-            corp_id: corpId,
-            corp_name: corporation.name,
-            invite_code: inviteCode ?? "",
-            old_corp_id: oldCorp.corp_id,
-            old_corp_name: oldCorp.name,
-            will_disband: true,
-            timestamp: new Date().toISOString(),
-          },
+          characterId: memberId,
+          eventType: "corporation.data",
+          payload: { source: leaveSource, corporation: null },
           requestId,
           taskId,
         });
-        return {
-          success: true,
-          pending: true,
-          will_disband: true,
-          corp_id: corpId,
-          corp_name: corporation.name,
-          old_corp_id: oldCorp.corp_id,
-          old_corp_name: oldCorp.name,
-        };
+        await emitCharacterLeaveEvents(supabase, {
+          characterId: memberId,
+          source: leaveSource,
+          requestId,
+          taskId,
+        });
       }
+    }
 
-      // Confirmed: disband the old corp (shared helper performs the full
-      // cascade: release any residual ships, emit disbanded, soft-delete).
-      await markCorporationMembershipLeft(
-        supabase,
-        oldCorp.corp_id,
-        characterId,
-        new Date().toISOString(),
-      );
+    // Mark own membership left.
+    await markCorporationMembershipLeft(
+      supabase, oldCorp.corp_id, characterId, leaveTimestamp,
+    );
+
+    if (willDisband) {
+      const reason = isOldCorpFounder && !isLastMember
+        ? "founder_disbanded" as const
+        : "last_member_joined_other" as const;
       try {
         await disbandCorporation(supabase, {
           corpId: oldCorp.corp_id,
           corporationName: oldCorp.name,
           characterId,
-          reason: "last_member_joined_other",
+          reason,
           requestId,
           taskId,
           method: "corporation_join",
@@ -267,15 +327,7 @@ async function handleJoin(params: {
         );
       }
     } else {
-      // Not last member — silent auto-leave, no confirmation needed. The
-      // old corp continues with the remaining members.
-      const leaveTimestamp = new Date().toISOString();
-      await markCorporationMembershipLeft(
-        supabase,
-        oldCorp.corp_id,
-        characterId,
-        leaveTimestamp,
-      );
+      // Non-founder, not last member — notify remaining members.
       const remainingOld = await fetchCorporationMembers(
         supabase,
         oldCorp.corp_id,
@@ -284,11 +336,10 @@ async function handleJoin(params: {
         typeof character.name === "string" && character.name.trim().length > 0
           ? character.name.trim()
           : characterId;
-      const source = buildEventSource("corporation_join", requestId);
       await emitCorporationEvent(supabase, oldCorp.corp_id, {
         eventType: "corporation.member_left",
         payload: {
-          source,
+          source: leaveSource,
           corp_id: oldCorp.corp_id,
           corp_name: oldCorp.name,
           departed_member_id: departedName,
@@ -345,6 +396,62 @@ async function handleJoin(params: {
     requestId,
     actorCharacterId: characterId,
     taskId,
+  });
+
+  // Also emit corporation.member_joined directly to the joining player
+  // (character-scoped, no corpId routing) so it reliably reaches them
+  // even before the bot's polling scope updates to the new corp_id.
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "corporation.member_joined",
+    payload: eventPayload,
+    requestId,
+    taskId,
+  });
+
+  // Emit status.update first (sets corp on client, triggers map invalidation),
+  // then map.region (consumed by setRegionalMapData which replaces stale data).
+  const ship = await loadShip(supabase, character.current_ship_id);
+  const sectorId = ship.current_sector ?? null;
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  let mapResult: Awaited<ReturnType<typeof pgBuildLocalMapRegion>>;
+  try {
+    [statusPayload, mapResult] = await Promise.all([
+      pgBuildStatusPayload(pgClient, characterId),
+      pgBuildLocalMapRegion(pgClient, {
+        characterId,
+        centerSector: ship.current_sector ?? 0,
+        maxHops: 4,
+        maxSectors: 28,
+      }),
+    ]);
+  } finally {
+    pgClient.release();
+  }
+  const mapPayload = { ...mapResult, source };
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "status.update",
+    payload: statusPayload,
+    sectorId,
+    requestId,
+    corpId,
+    taskId,
+    shipId: ship.ship_id,
+  });
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "map.local",
+    payload: mapPayload,
+    sectorId,
+    requestId,
+    corpId,
+    taskId,
+    shipId: ship.ship_id,
   });
 
   return {
@@ -436,6 +543,61 @@ async function validateJoin(params: {
   }
 
   return { character, corporation, oldCorp };
+}
+
+/**
+ * Emit status.update + map.local for a character who just lost corp
+ * membership, so their client rebuilds with personal-only data.
+ */
+async function emitCharacterLeaveEvents(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  params: {
+    characterId: string;
+    source: ReturnType<typeof buildEventSource>;
+    requestId: string;
+    taskId: string | null;
+  },
+): Promise<void> {
+  const { characterId, source, requestId, taskId } = params;
+  const char = await loadCharacter(supabase, characterId);
+  const ship = await loadShip(supabase, char.current_ship_id);
+  const sectorId = ship.current_sector ?? null;
+  const pgClient = await acquirePgClient();
+  let statusPayload: Record<string, unknown>;
+  let mapResult: Awaited<ReturnType<typeof pgBuildLocalMapRegion>>;
+  try {
+    [statusPayload, mapResult] = await Promise.all([
+      pgBuildStatusPayload(pgClient, characterId),
+      pgBuildLocalMapRegion(pgClient, {
+        characterId,
+        centerSector: ship.current_sector ?? 0,
+        maxHops: 4,
+        maxSectors: 28,
+      }),
+    ]);
+  } finally {
+    pgClient.release();
+  }
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "status.update",
+    payload: statusPayload,
+    sectorId,
+    requestId,
+    taskId,
+    shipId: ship.ship_id,
+  });
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: "map.local",
+    payload: { ...mapResult, source },
+    sectorId,
+    requestId,
+    taskId,
+    shipId: ship.ship_id,
+  });
 }
 
 function ensureActorMatches(actorId: string | null, characterId: string): void {

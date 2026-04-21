@@ -54,6 +54,8 @@ export const KickConfirmDialog = () => {
       title="Remove member"
       size="lg"
       dismissOnClickOutside={false}
+      showCloseButton={false}
+      showOverlay={false}
       onClose={onCancel}
     >
       <Card

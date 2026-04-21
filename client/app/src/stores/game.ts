@@ -436,12 +436,67 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
       })
     ),
 
-  setCorporation: (corporation: Corporation | undefined) =>
+  setCorporation: (corporation: Corporation | undefined) => {
+    const hadCorp = !!get().corporation
+    // Detect corp transition and invalidate map coverage so the next
+    // map.local/map.region replaces stale data instead of merging.
+    if (!hadCorp && corporation) {
+      // Joining a corp — map needs corp-merged sectors, reset center
+      // to current sector so BigMapPanel doesn't re-fetch around a
+      // stale viewport center that may produce errors
+      get().invalidateMapCoverage(get().sector?.id)
+    }
+    if (hadCorp && !corporation) {
+      // Leaving a corp — map needs personal-only sectors, reset center
+      get().invalidateMapCoverage(get().sector?.id)
+    }
     set(
       produce((state) => {
         state.corporation = corporation
+
+        // When joining/updating a corp with ships, upsert them into the
+        // fleet so PlayerShipsPanel sees them immediately.
+        if (corporation?.ships) {
+          const existingShips = state.ships.data ?? []
+          const existingById = new Map(
+            existingShips.map((s: ShipSelf) => [s.ship_id, s] as [string, ShipSelf])
+          )
+          for (const ship of corporation.ships) {
+            existingById.set(ship.ship_id, {
+              ...existingById.get(ship.ship_id),
+              ship_id: ship.ship_id,
+              ship_name: ship.name,
+              ship_type: ship.ship_type,
+              sector: ship.sector ?? undefined,
+              owner_type: "corporation",
+              credits: ship.credits,
+              cargo: ship.cargo,
+              cargo_capacity: ship.cargo_capacity,
+              warp_power: ship.warp_power,
+              warp_power_capacity: ship.warp_power_capacity,
+              shields: ship.shields,
+              max_shields: ship.max_shields,
+              fighters: ship.fighters,
+              max_fighters: ship.max_fighters,
+              current_task_id: ship.current_task_id,
+            } as ShipSelf)
+          }
+          state.ships = {
+            data: Array.from(existingById.values()),
+            last_updated: new Date().toISOString(),
+          }
+        }
+
+        // When leaving/kicked from a corp, strip corp ships from the fleet
+        if (hadCorp && !corporation && state.ships.data) {
+          state.ships = {
+            data: state.ships.data.filter((s: ShipSelf) => s.owner_type !== "corporation"),
+            last_updated: new Date().toISOString(),
+          }
+        }
       })
-    ),
+    )
+  },
 
   setStarfieldReady: (starfieldReady: boolean) => set({ starfieldReady }),
 
