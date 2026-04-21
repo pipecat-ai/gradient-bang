@@ -624,15 +624,11 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
             state.mapCenterSector = center
             state.mapCenterWorld = undefined
             state.mapFitBoundsWorld = undefined
+            // Bump mapFitEpoch so SectorMap detects a reframe and calls
+            // onMapFetch with the correct viewport-aware bounds.
+            state.mapFitEpoch = (state.mapFitEpoch ?? 0) + 1
           })
         )
-        // Trigger a full map re-fetch so setRegionalMapData consumes
-        // the replace flag with fresh data at the current zoom level.
-        const bounds = get().mapZoomLevel ?? DEFAULT_MAX_BOUNDS
-        get().dispatchAction({
-          type: "get-my-map",
-          payload: { center_sector: center, bounds },
-        })
       }
     },
 

@@ -119,8 +119,8 @@ export const LeaveConfirmDialog = () => {
   }
 
   const onCancel = () => {
-    client?.sendClientMessage("cancel-leave", {})
     setActiveModal(undefined)
+    client?.sendClientMessage("cancel-leave", {})
   }
 
   return (

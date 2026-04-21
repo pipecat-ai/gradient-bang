@@ -42,10 +42,10 @@ export const KickConfirmDialog = () => {
   }
 
   const onCancel = () => {
+    setActiveModal(undefined)
     client?.sendClientMessage("cancel-kick", {
       target_name: data?.target_name,
     })
-    setActiveModal(undefined)
   }
 
   return (

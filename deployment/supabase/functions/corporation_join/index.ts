@@ -398,20 +398,8 @@ async function handleJoin(params: {
     taskId,
   });
 
-  // Also emit corporation.member_joined directly to the joining player
-  // (character-scoped, no corpId routing) so it reliably reaches them
-  // even before the bot's polling scope updates to the new corp_id.
-  await emitCharacterEvent({
-    supabase,
-    characterId,
-    eventType: "corporation.member_joined",
-    payload: eventPayload,
-    requestId,
-    taskId,
-  });
-
-  // Emit status.update first (sets corp on client, triggers map invalidation),
-  // then map.region (consumed by setRegionalMapData which replaces stale data).
+  // Emit status.update (sets corp on client, triggers map invalidation)
+  // and map.local (corp-merged sectors for the local/big map).
   const ship = await loadShip(supabase, character.current_ship_id);
   const sectorId = ship.current_sector ?? null;
   const pgClient = await acquirePgClient();
