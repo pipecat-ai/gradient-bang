@@ -3,6 +3,7 @@
 -- Usage: psql $LOCAL_API_POSTGRES_URL -f seed_eval_characters.sql
 -- To reset a single character group: psql $LOCAL_API_POSTGRES_URL -f seeds/<name>.sql
 
+\i seeds/_shared_players.sql
 \i seeds/alpha_sparrow.sql
 \i seeds/beta_kestrel.sql
 \i seeds/gamma_explorer.sql

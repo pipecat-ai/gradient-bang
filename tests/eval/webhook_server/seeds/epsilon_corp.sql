@@ -1,16 +1,30 @@
 -- Epsilon Corp Eval — character with a corporation-owned ship (founder of own corp)
--- Seeds 5 variations (Eval0..Eval4), each with its own corp and own corp ship
+-- Seeds 8 variations (Eval0..Eval6, Eval8), each with its own corp and own corp ship.
+-- Slots 0..4 linked to the Epsilon base eval user. Slots 5..6 and slot 8 each get their own
+-- auth user (stays under 5-character-per-user trigger).
 -- Usage: psql $LOCAL_API_POSTGRES_URL -f seeds/epsilon_corp.sql
 
 BEGIN;
 
--- Teardown all 5 variations + their corps
 DELETE FROM events WHERE character_id IN (
   'e0000000-0000-4000-8000-000000000005',
   'e0000000-1000-4000-8000-000000000005',
   'e0000000-2000-4000-8000-000000000005',
   'e0000000-3000-4000-8000-000000000005',
-  'e0000000-4000-4000-8000-000000000005'
+  'e0000000-4000-4000-8000-000000000005',
+  'e0000000-5000-4000-8000-000000000005',
+  'e0000000-6000-4000-8000-000000000005',
+  'e0000000-8000-4000-8000-000000000005'
+);
+DELETE FROM events WHERE sender_id IN (
+  'e0000000-0000-4000-8000-000000000005',
+  'e0000000-1000-4000-8000-000000000005',
+  'e0000000-2000-4000-8000-000000000005',
+  'e0000000-3000-4000-8000-000000000005',
+  'e0000000-4000-4000-8000-000000000005',
+  'e0000000-5000-4000-8000-000000000005',
+  'e0000000-6000-4000-8000-000000000005',
+  'e0000000-8000-4000-8000-000000000005'
 );
 DELETE FROM events WHERE ship_id IN (
   SELECT ship_id FROM ship_instances WHERE owner_character_id IN (
@@ -18,7 +32,10 @@ DELETE FROM events WHERE ship_id IN (
     'e0000000-1000-4000-8000-000000000005',
     'e0000000-2000-4000-8000-000000000005',
     'e0000000-3000-4000-8000-000000000005',
-    'e0000000-4000-4000-8000-000000000005'
+    'e0000000-4000-4000-8000-000000000005',
+    'e0000000-5000-4000-8000-000000000005',
+    'e0000000-6000-4000-8000-000000000005',
+    'e0000000-8000-4000-8000-000000000005'
   )
 );
 DELETE FROM events WHERE ship_id IN (
@@ -27,7 +44,10 @@ DELETE FROM events WHERE ship_id IN (
     'e0000000-1000-4000-8000-c00b00000001',
     'e0000000-2000-4000-8000-c00b00000001',
     'e0000000-3000-4000-8000-c00b00000001',
-    'e0000000-4000-4000-8000-c00b00000001'
+    'e0000000-4000-4000-8000-c00b00000001',
+    'e0000000-5000-4000-8000-c00b00000001',
+    'e0000000-6000-4000-8000-c00b00000001',
+    'e0000000-8000-4000-8000-c00b00000001'
   )
 );
 DELETE FROM corporation_ships WHERE corp_id IN (
@@ -35,66 +55,99 @@ DELETE FROM corporation_ships WHERE corp_id IN (
   'e0000000-1000-4000-8000-c00b00000001',
   'e0000000-2000-4000-8000-c00b00000001',
   'e0000000-3000-4000-8000-c00b00000001',
-  'e0000000-4000-4000-8000-c00b00000001'
+  'e0000000-4000-4000-8000-c00b00000001',
+  'e0000000-5000-4000-8000-c00b00000001',
+  'e0000000-6000-4000-8000-c00b00000001',
+  'e0000000-8000-4000-8000-c00b00000001'
 );
 DELETE FROM corporation_members WHERE corp_id IN (
   'e0000000-0000-4000-8000-c00b00000001',
   'e0000000-1000-4000-8000-c00b00000001',
   'e0000000-2000-4000-8000-c00b00000001',
   'e0000000-3000-4000-8000-c00b00000001',
-  'e0000000-4000-4000-8000-c00b00000001'
+  'e0000000-4000-4000-8000-c00b00000001',
+  'e0000000-5000-4000-8000-c00b00000001',
+  'e0000000-6000-4000-8000-c00b00000001',
+  'e0000000-8000-4000-8000-c00b00000001'
 );
-DELETE FROM user_characters
-WHERE user_id = '352373e1-aa29-49c7-b929-2cba86ca4a3c'
-  AND character_id IN (
-    'e0000000-0000-4000-8000-000000000005',
-    'e0000000-1000-4000-8000-000000000005',
-    'e0000000-2000-4000-8000-000000000005',
-    'e0000000-3000-4000-8000-000000000005',
-    'e0000000-4000-4000-8000-000000000005'
-  );
+DELETE FROM user_characters WHERE character_id IN (
+  'e0000000-0000-4000-8000-000000000005',
+  'e0000000-1000-4000-8000-000000000005',
+  'e0000000-2000-4000-8000-000000000005',
+  'e0000000-3000-4000-8000-000000000005',
+  'e0000000-4000-4000-8000-000000000005',
+  'e0000000-5000-4000-8000-000000000005',
+  'e0000000-6000-4000-8000-000000000005',
+  'e0000000-8000-4000-8000-000000000005'
+);
 UPDATE characters SET current_ship_id = NULL WHERE character_id IN (
   'e0000000-0000-4000-8000-000000000005',
   'e0000000-1000-4000-8000-000000000005',
   'e0000000-2000-4000-8000-000000000005',
   'e0000000-3000-4000-8000-000000000005',
-  'e0000000-4000-4000-8000-000000000005'
+  'e0000000-4000-4000-8000-000000000005',
+  'e0000000-5000-4000-8000-000000000005',
+  'e0000000-6000-4000-8000-000000000005',
+  'e0000000-8000-4000-8000-000000000005'
 );
 DELETE FROM ship_instances WHERE owner_character_id IN (
   'e0000000-0000-4000-8000-000000000005',
   'e0000000-1000-4000-8000-000000000005',
   'e0000000-2000-4000-8000-000000000005',
   'e0000000-3000-4000-8000-000000000005',
-  'e0000000-4000-4000-8000-000000000005'
+  'e0000000-4000-4000-8000-000000000005',
+  'e0000000-5000-4000-8000-000000000005',
+  'e0000000-6000-4000-8000-000000000005',
+  'e0000000-8000-4000-8000-000000000005'
 );
 DELETE FROM ship_instances WHERE owner_corporation_id IN (
   'e0000000-0000-4000-8000-c00b00000001',
   'e0000000-1000-4000-8000-c00b00000001',
   'e0000000-2000-4000-8000-c00b00000001',
   'e0000000-3000-4000-8000-c00b00000001',
-  'e0000000-4000-4000-8000-c00b00000001'
+  'e0000000-4000-4000-8000-c00b00000001',
+  'e0000000-5000-4000-8000-c00b00000001',
+  'e0000000-6000-4000-8000-c00b00000001',
+  'e0000000-8000-4000-8000-c00b00000001'
 );
 UPDATE characters SET corporation_id = NULL WHERE character_id IN (
   'e0000000-0000-4000-8000-000000000005',
   'e0000000-1000-4000-8000-000000000005',
   'e0000000-2000-4000-8000-000000000005',
   'e0000000-3000-4000-8000-000000000005',
-  'e0000000-4000-4000-8000-000000000005'
+  'e0000000-4000-4000-8000-000000000005',
+  'e0000000-5000-4000-8000-000000000005',
+  'e0000000-6000-4000-8000-000000000005',
+  'e0000000-8000-4000-8000-000000000005'
+);
+-- Corporations must be deleted BEFORE the characters they reference as founder.
+DELETE FROM corporations WHERE corp_id IN (
+  'e0000000-0000-4000-8000-c00b00000001',
+  'e0000000-1000-4000-8000-c00b00000001',
+  'e0000000-2000-4000-8000-c00b00000001',
+  'e0000000-3000-4000-8000-c00b00000001',
+  'e0000000-4000-4000-8000-c00b00000001',
+  'e0000000-5000-4000-8000-c00b00000001',
+  'e0000000-6000-4000-8000-c00b00000001',
+  'e0000000-8000-4000-8000-c00b00000001'
 );
 DELETE FROM characters WHERE character_id IN (
   'e0000000-0000-4000-8000-000000000005',
   'e0000000-1000-4000-8000-000000000005',
   'e0000000-2000-4000-8000-000000000005',
   'e0000000-3000-4000-8000-000000000005',
-  'e0000000-4000-4000-8000-000000000005'
+  'e0000000-4000-4000-8000-000000000005',
+  'e0000000-5000-4000-8000-000000000005',
+  'e0000000-6000-4000-8000-000000000005',
+  'e0000000-8000-4000-8000-000000000005'
 );
-DELETE FROM corporations WHERE corp_id IN (
-  'e0000000-0000-4000-8000-c00b00000001',
-  'e0000000-1000-4000-8000-c00b00000001',
-  'e0000000-2000-4000-8000-c00b00000001',
-  'e0000000-3000-4000-8000-c00b00000001',
-  'e0000000-4000-4000-8000-c00b00000001'
-);
+
+-- Overflow auth users for slots 5..6 and slot 8
+INSERT INTO auth.users (id, email, aud, role, is_sso_user, is_anonymous) VALUES
+  ('e0000000-5000-4aaa-8000-000000000005', 'epsilon-eval-5@gradientbang.com', 'authenticated', 'authenticated', false, false),
+  ('e0000000-6000-4aaa-8000-000000000005', 'epsilon-eval-6@gradientbang.com', 'authenticated', 'authenticated', false, false),
+  ('e0000000-8000-4aaa-8000-000000000005', 'epsilon-eval-8@gradientbang.com', 'authenticated', 'authenticated', false, false)
+ON CONFLICT (id) DO NOTHING;
 
 -- Characters first (founders must exist before corporations)
 INSERT INTO characters (character_id, name, credits_in_megabank, map_knowledge) VALUES
@@ -102,7 +155,10 @@ INSERT INTO characters (character_id, name, credits_in_megabank, map_knowledge) 
   ('e0000000-1000-4000-8000-000000000005', 'Epsilon Corp Eval1', 8000, '{"total_sectors_visited": 1, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}}}'),
   ('e0000000-2000-4000-8000-000000000005', 'Epsilon Corp Eval2', 8000, '{"total_sectors_visited": 1, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}}}'),
   ('e0000000-3000-4000-8000-000000000005', 'Epsilon Corp Eval3', 8000, '{"total_sectors_visited": 1, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}}}'),
-  ('e0000000-4000-4000-8000-000000000005', 'Epsilon Corp Eval4', 8000, '{"total_sectors_visited": 1, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}}}');
+  ('e0000000-4000-4000-8000-000000000005', 'Epsilon Corp Eval4', 8000, '{"total_sectors_visited": 1, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}}}'),
+  ('e0000000-5000-4000-8000-000000000005', 'Epsilon Corp Eval5', 8000, '{"total_sectors_visited": 1, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}}}'),
+  ('e0000000-6000-4000-8000-000000000005', 'Epsilon Corp Eval6', 8000, '{"total_sectors_visited": 1, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}}}'),
+  ('e0000000-8000-4000-8000-000000000005', 'Epsilon Corp Eval8', 8000, '{"total_sectors_visited": 1, "sectors_visited": {"0": {"adjacent_sectors": [15], "last_visited": "2026-04-10T00:00:00Z", "position": [15, 31]}}}');
 
 -- Each Epsilon founds its own Eval Corp
 INSERT INTO corporations (corp_id, name, founder_id, invite_code) VALUES
@@ -110,22 +166,29 @@ INSERT INTO corporations (corp_id, name, founder_id, invite_code) VALUES
   ('e0000000-1000-4000-8000-c00b00000001', 'Eval Corp 1', 'e0000000-1000-4000-8000-000000000005', 'EVALCORP1'),
   ('e0000000-2000-4000-8000-c00b00000001', 'Eval Corp 2', 'e0000000-2000-4000-8000-000000000005', 'EVALCORP2'),
   ('e0000000-3000-4000-8000-c00b00000001', 'Eval Corp 3', 'e0000000-3000-4000-8000-000000000005', 'EVALCORP3'),
-  ('e0000000-4000-4000-8000-c00b00000001', 'Eval Corp 4', 'e0000000-4000-4000-8000-000000000005', 'EVALCORP4');
+  ('e0000000-4000-4000-8000-c00b00000001', 'Eval Corp 4', 'e0000000-4000-4000-8000-000000000005', 'EVALCORP4'),
+  ('e0000000-5000-4000-8000-c00b00000001', 'Eval Corp 5', 'e0000000-5000-4000-8000-000000000005', 'EVALCORP5'),
+  ('e0000000-6000-4000-8000-c00b00000001', 'Eval Corp 6', 'e0000000-6000-4000-8000-000000000005', 'EVALCORP6'),
+  ('e0000000-8000-4000-8000-c00b00000001', 'Eval Corp 8', 'e0000000-8000-4000-8000-000000000005', 'EVALCORP8');
 
--- Set corporation_id on each Epsilon
 UPDATE characters SET corporation_id = 'e0000000-0000-4000-8000-c00b00000001' WHERE character_id = 'e0000000-0000-4000-8000-000000000005';
 UPDATE characters SET corporation_id = 'e0000000-1000-4000-8000-c00b00000001' WHERE character_id = 'e0000000-1000-4000-8000-000000000005';
 UPDATE characters SET corporation_id = 'e0000000-2000-4000-8000-c00b00000001' WHERE character_id = 'e0000000-2000-4000-8000-000000000005';
 UPDATE characters SET corporation_id = 'e0000000-3000-4000-8000-c00b00000001' WHERE character_id = 'e0000000-3000-4000-8000-000000000005';
 UPDATE characters SET corporation_id = 'e0000000-4000-4000-8000-c00b00000001' WHERE character_id = 'e0000000-4000-4000-8000-000000000005';
+UPDATE characters SET corporation_id = 'e0000000-5000-4000-8000-c00b00000001' WHERE character_id = 'e0000000-5000-4000-8000-000000000005';
+UPDATE characters SET corporation_id = 'e0000000-6000-4000-8000-c00b00000001' WHERE character_id = 'e0000000-6000-4000-8000-000000000005';
+UPDATE characters SET corporation_id = 'e0000000-8000-4000-8000-c00b00000001' WHERE character_id = 'e0000000-8000-4000-8000-000000000005';
 
--- Corporation memberships (founder is a member)
 INSERT INTO corporation_members (corp_id, character_id) VALUES
   ('e0000000-0000-4000-8000-c00b00000001', 'e0000000-0000-4000-8000-000000000005'),
   ('e0000000-1000-4000-8000-c00b00000001', 'e0000000-1000-4000-8000-000000000005'),
   ('e0000000-2000-4000-8000-c00b00000001', 'e0000000-2000-4000-8000-000000000005'),
   ('e0000000-3000-4000-8000-c00b00000001', 'e0000000-3000-4000-8000-000000000005'),
-  ('e0000000-4000-4000-8000-c00b00000001', 'e0000000-4000-4000-8000-000000000005');
+  ('e0000000-4000-4000-8000-c00b00000001', 'e0000000-4000-4000-8000-000000000005'),
+  ('e0000000-5000-4000-8000-c00b00000001', 'e0000000-5000-4000-8000-000000000005'),
+  ('e0000000-6000-4000-8000-c00b00000001', 'e0000000-6000-4000-8000-000000000005'),
+  ('e0000000-8000-4000-8000-c00b00000001', 'e0000000-8000-4000-8000-000000000005');
 
 -- Personal ships (sparrow_scout)
 INSERT INTO ship_instances (
@@ -137,7 +200,10 @@ INSERT INTO ship_instances (
   ('e0000000-1000-4000-8000-e00000000001', 'e0000000-1000-4000-8000-000000000005', 'character', 'e0000000-1000-4000-8000-000000000005', 'sparrow_scout', 0, 3000, 450, 120, 200),
   ('e0000000-2000-4000-8000-e00000000001', 'e0000000-2000-4000-8000-000000000005', 'character', 'e0000000-2000-4000-8000-000000000005', 'sparrow_scout', 0, 3000, 450, 120, 200),
   ('e0000000-3000-4000-8000-e00000000001', 'e0000000-3000-4000-8000-000000000005', 'character', 'e0000000-3000-4000-8000-000000000005', 'sparrow_scout', 0, 3000, 450, 120, 200),
-  ('e0000000-4000-4000-8000-e00000000001', 'e0000000-4000-4000-8000-000000000005', 'character', 'e0000000-4000-4000-8000-000000000005', 'sparrow_scout', 0, 3000, 450, 120, 200);
+  ('e0000000-4000-4000-8000-e00000000001', 'e0000000-4000-4000-8000-000000000005', 'character', 'e0000000-4000-4000-8000-000000000005', 'sparrow_scout', 0, 3000, 450, 120, 200),
+  ('e0000000-5000-4000-8000-e00000000001', 'e0000000-5000-4000-8000-000000000005', 'character', 'e0000000-5000-4000-8000-000000000005', 'sparrow_scout', 0, 3000, 450, 120, 200),
+  ('e0000000-6000-4000-8000-e00000000001', 'e0000000-6000-4000-8000-000000000005', 'character', 'e0000000-6000-4000-8000-000000000005', 'sparrow_scout', 0, 3000, 450, 120, 200),
+  ('e0000000-8000-4000-8000-e00000000001', 'e0000000-8000-4000-8000-000000000005', 'character', 'e0000000-8000-4000-8000-000000000005', 'sparrow_scout', 0, 3000, 450, 120, 200);
 
 -- Corporation-owned ships (pike_frigate)
 INSERT INTO ship_instances (
@@ -149,7 +215,10 @@ INSERT INTO ship_instances (
   ('e0000000-1000-4000-8000-e00000000002', 'e0000000-1000-4000-8000-c00b00000001', 'corporation', 'e0000000-1000-4000-8000-c00b00000001', 'pike_frigate', 0, 20000, 900, 600, 2000),
   ('e0000000-2000-4000-8000-e00000000002', 'e0000000-2000-4000-8000-c00b00000001', 'corporation', 'e0000000-2000-4000-8000-c00b00000001', 'pike_frigate', 0, 20000, 900, 600, 2000),
   ('e0000000-3000-4000-8000-e00000000002', 'e0000000-3000-4000-8000-c00b00000001', 'corporation', 'e0000000-3000-4000-8000-c00b00000001', 'pike_frigate', 0, 20000, 900, 600, 2000),
-  ('e0000000-4000-4000-8000-e00000000002', 'e0000000-4000-4000-8000-c00b00000001', 'corporation', 'e0000000-4000-4000-8000-c00b00000001', 'pike_frigate', 0, 20000, 900, 600, 2000);
+  ('e0000000-4000-4000-8000-e00000000002', 'e0000000-4000-4000-8000-c00b00000001', 'corporation', 'e0000000-4000-4000-8000-c00b00000001', 'pike_frigate', 0, 20000, 900, 600, 2000),
+  ('e0000000-5000-4000-8000-e00000000002', 'e0000000-5000-4000-8000-c00b00000001', 'corporation', 'e0000000-5000-4000-8000-c00b00000001', 'pike_frigate', 0, 20000, 900, 600, 2000),
+  ('e0000000-6000-4000-8000-e00000000002', 'e0000000-6000-4000-8000-c00b00000001', 'corporation', 'e0000000-6000-4000-8000-c00b00000001', 'pike_frigate', 0, 20000, 900, 600, 2000),
+  ('e0000000-8000-4000-8000-e00000000002', 'e0000000-8000-4000-8000-c00b00000001', 'corporation', 'e0000000-8000-4000-8000-c00b00000001', 'pike_frigate', 0, 20000, 900, 600, 2000);
 
 -- Register corp ships
 INSERT INTO corporation_ships (corp_id, ship_id, added_by) VALUES
@@ -157,7 +226,10 @@ INSERT INTO corporation_ships (corp_id, ship_id, added_by) VALUES
   ('e0000000-1000-4000-8000-c00b00000001', 'e0000000-1000-4000-8000-e00000000002', 'e0000000-1000-4000-8000-000000000005'),
   ('e0000000-2000-4000-8000-c00b00000001', 'e0000000-2000-4000-8000-e00000000002', 'e0000000-2000-4000-8000-000000000005'),
   ('e0000000-3000-4000-8000-c00b00000001', 'e0000000-3000-4000-8000-e00000000002', 'e0000000-3000-4000-8000-000000000005'),
-  ('e0000000-4000-4000-8000-c00b00000001', 'e0000000-4000-4000-8000-e00000000002', 'e0000000-4000-4000-8000-000000000005');
+  ('e0000000-4000-4000-8000-c00b00000001', 'e0000000-4000-4000-8000-e00000000002', 'e0000000-4000-4000-8000-000000000005'),
+  ('e0000000-5000-4000-8000-c00b00000001', 'e0000000-5000-4000-8000-e00000000002', 'e0000000-5000-4000-8000-000000000005'),
+  ('e0000000-6000-4000-8000-c00b00000001', 'e0000000-6000-4000-8000-e00000000002', 'e0000000-6000-4000-8000-000000000005'),
+  ('e0000000-8000-4000-8000-c00b00000001', 'e0000000-8000-4000-8000-e00000000002', 'e0000000-8000-4000-8000-000000000005');
 
 -- Set active personal ship
 UPDATE characters SET current_ship_id = 'e0000000-0000-4000-8000-e00000000001' WHERE character_id = 'e0000000-0000-4000-8000-000000000005';
@@ -165,12 +237,107 @@ UPDATE characters SET current_ship_id = 'e0000000-1000-4000-8000-e00000000001' W
 UPDATE characters SET current_ship_id = 'e0000000-2000-4000-8000-e00000000001' WHERE character_id = 'e0000000-2000-4000-8000-000000000005';
 UPDATE characters SET current_ship_id = 'e0000000-3000-4000-8000-e00000000001' WHERE character_id = 'e0000000-3000-4000-8000-000000000005';
 UPDATE characters SET current_ship_id = 'e0000000-4000-4000-8000-e00000000001' WHERE character_id = 'e0000000-4000-4000-8000-000000000005';
+UPDATE characters SET current_ship_id = 'e0000000-5000-4000-8000-e00000000001' WHERE character_id = 'e0000000-5000-4000-8000-000000000005';
+UPDATE characters SET current_ship_id = 'e0000000-6000-4000-8000-e00000000001' WHERE character_id = 'e0000000-6000-4000-8000-000000000005';
+UPDATE characters SET current_ship_id = 'e0000000-8000-4000-8000-e00000000001' WHERE character_id = 'e0000000-8000-4000-8000-000000000005';
 
 INSERT INTO user_characters (user_id, character_id) VALUES
-  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'e0000000-0000-4000-8000-000000000005'),
-  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'e0000000-1000-4000-8000-000000000005'),
-  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'e0000000-2000-4000-8000-000000000005'),
-  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'e0000000-3000-4000-8000-000000000005'),
-  ('352373e1-aa29-49c7-b929-2cba86ca4a3c', 'e0000000-4000-4000-8000-000000000005');
+  ('e0000000-0000-4aaa-8000-000000000005', 'e0000000-0000-4000-8000-000000000005'),
+  ('e0000000-0000-4aaa-8000-000000000005', 'e0000000-1000-4000-8000-000000000005'),
+  ('e0000000-0000-4aaa-8000-000000000005', 'e0000000-2000-4000-8000-000000000005'),
+  ('e0000000-0000-4aaa-8000-000000000005', 'e0000000-3000-4000-8000-000000000005'),
+  ('e0000000-0000-4aaa-8000-000000000005', 'e0000000-4000-4000-8000-000000000005'),
+  ('e0000000-5000-4aaa-8000-000000000005', 'e0000000-5000-4000-8000-000000000005'),
+  ('e0000000-6000-4aaa-8000-000000000005', 'e0000000-6000-4000-8000-000000000005'),
+  ('e0000000-8000-4aaa-8000-000000000005', 'e0000000-8000-4000-8000-000000000005');
+
+-- Seed a prior-session history for event-log queries ("what did I do last session?").
+INSERT INTO events (timestamp, direction, event_type, character_id, sender_id, sector_id, ship_id, payload, meta)
+SELECT
+  NOW() - INTERVAL '2 days' + e.offset_interval,
+  'event_out',
+  e.event_type,
+  v.character_id,
+  v.character_id,
+  v.sector_id,
+  v.ship_id,
+  e.payload::jsonb,
+  '{"source": "epsilon-corp-eval-seed"}'::jsonb
+FROM (VALUES
+  ('e0000000-0000-4000-8000-000000000005'::uuid, 0, 'e0000000-0000-4000-8000-e00000000001'::uuid),
+  ('e0000000-1000-4000-8000-000000000005'::uuid, 0, 'e0000000-1000-4000-8000-e00000000001'::uuid),
+  ('e0000000-2000-4000-8000-000000000005'::uuid, 0, 'e0000000-2000-4000-8000-e00000000001'::uuid),
+  ('e0000000-3000-4000-8000-000000000005'::uuid, 0, 'e0000000-3000-4000-8000-e00000000001'::uuid),
+  ('e0000000-4000-4000-8000-000000000005'::uuid, 0, 'e0000000-4000-4000-8000-e00000000001'::uuid),
+  ('e0000000-5000-4000-8000-000000000005'::uuid, 0, 'e0000000-5000-4000-8000-e00000000001'::uuid),
+  ('e0000000-6000-4000-8000-000000000005'::uuid, 0, 'e0000000-6000-4000-8000-e00000000001'::uuid),
+  ('e0000000-8000-4000-8000-000000000005'::uuid, 0, 'e0000000-8000-4000-8000-e00000000001'::uuid)
+) AS v(character_id, sector_id, ship_id)
+CROSS JOIN (VALUES
+  ('session.started', INTERVAL '0 minutes', '{"source": "seed", "sector": 0, "ship_name": "Sparrow Scout", "ship_type": "sparrow_scout"}'),
+  ('task.finish',     INTERVAL '10 minutes', '{"task_summary": "Reviewed corporation roster and resupplied the Pike Frigate with fighters.", "task_status": "completed"}')
+) AS e(event_type, offset_interval, payload);
+
+-- Give every character knowledge of one mega-port so list_known_ports(mega=true) resolves.
+DO $epsilon_mega_port$
+DECLARE
+  v_mega_port INT;
+  v_adj JSONB;
+  v_pos JSONB;
+  v_sector_entry JSONB;
+  v_char_ids UUID[] := ARRAY[
+    'e0000000-0000-4000-8000-000000000005'::uuid,
+    'e0000000-1000-4000-8000-000000000005'::uuid,
+    'e0000000-2000-4000-8000-000000000005'::uuid,
+    'e0000000-3000-4000-8000-000000000005'::uuid,
+    'e0000000-4000-4000-8000-000000000005'::uuid,
+    'e0000000-5000-4000-8000-000000000005'::uuid,
+    'e0000000-6000-4000-8000-000000000005'::uuid,
+    'e0000000-8000-4000-8000-000000000005'::uuid
+  ];
+BEGIN
+  SELECT (meta->'mega_port_sectors'->>0)::int INTO v_mega_port
+    FROM universe_config WHERE id = 1;
+  IF v_mega_port IS NULL THEN
+    RAISE NOTICE 'No mega-port configured in universe_config; skipping mega-port knowledge seed.';
+    RETURN;
+  END IF;
+  SELECT
+    COALESCE((SELECT jsonb_agg((w->>'to')::int) FROM jsonb_array_elements(warps) w), '[]'::jsonb),
+    jsonb_build_array(position_x, position_y)
+  INTO v_adj, v_pos
+  FROM universe_structure WHERE sector_id = v_mega_port;
+  v_sector_entry := jsonb_build_object(
+    'adjacent_sectors', v_adj,
+    'last_visited', (NOW() - INTERVAL '2 days')::text,
+    'position', v_pos
+  );
+  UPDATE characters
+  SET map_knowledge = jsonb_set(
+    COALESCE(map_knowledge, '{"sectors_visited": {}, "total_sectors_visited": 0}'::jsonb),
+    ARRAY['sectors_visited', v_mega_port::text],
+    v_sector_entry
+  )
+  WHERE character_id = ANY(v_char_ids);
+  UPDATE characters
+  SET map_knowledge = jsonb_set(
+    map_knowledge,
+    '{total_sectors_visited}',
+    to_jsonb((SELECT count(*) FROM jsonb_object_keys(map_knowledge->'sectors_visited')))
+  )
+  WHERE character_id = ANY(v_char_ids);
+END $epsilon_mega_port$;
+
+-- Backdate first_visit and created_at so the join is_first_visit heuristic returns false.
+UPDATE characters SET first_visit = NOW() - INTERVAL '1 day', created_at = NOW() - INTERVAL '1 day' WHERE character_id IN (
+  'e0000000-0000-4000-8000-000000000005',
+  'e0000000-1000-4000-8000-000000000005',
+  'e0000000-2000-4000-8000-000000000005',
+  'e0000000-3000-4000-8000-000000000005',
+  'e0000000-4000-4000-8000-000000000005',
+  'e0000000-5000-4000-8000-000000000005',
+  'e0000000-6000-4000-8000-000000000005',
+  'e0000000-8000-4000-8000-000000000005'
+);
 
 COMMIT;
