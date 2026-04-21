@@ -38,7 +38,7 @@ export const TextInputControl = ({
   const isBusy = isDispatching || isDisabled
 
   return (
-    <div className={cn("relative flex-1 flex flex-row items-center min-w-2/3", className)}>
+    <div className={cn("relative flex-1 flex flex-row items-center min-w-2/3 w-full", className)}>
       <Input
         ref={inputRef}
         variant="default"
