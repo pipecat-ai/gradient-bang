@@ -199,6 +199,12 @@ class VoiceAgent(LLMAgent):
     def _begin_assistant_response_cycle(self) -> None:
         self._cancel_speech_start_grace_task()
         self._mark_assistant_cycle_active()
+        # If a confirmation is armed and the user has spoken again, dismiss
+        # the modal immediately rather than waiting for the response to finish.
+        # The voice agent still holds _pending_confirmation so confirm_action
+        # can proceed if the LLM calls it; idle expiry cleans up otherwise.
+        if self._pending_confirmation and self._pending_confirmation.get("armed"):
+            asyncio.ensure_future(self._push_confirmation_resolved(confirmed=False))
 
     def _handle_llm_response_started(self) -> None:
         self._llm_response_inflight = True
@@ -470,6 +476,18 @@ class VoiceAgent(LLMAgent):
         req_id = result.get("request_id") if isinstance(result, dict) else None
         if req_id:
             self.track_request_id(req_id)
+
+    async def _push_confirmation_resolved(self, confirmed: bool) -> None:
+        """Push an RTVI event to dismiss the client's confirmation modal."""
+        await self._rtvi.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": "confirmation.resolved",
+                    "payload": {"confirmed": confirmed},
+                }
+            )
+        )
 
     async def _queue_task_completion_event(self, event_xml: str) -> None:
         await super().queue_frame(
@@ -953,11 +971,13 @@ class VoiceAgent(LLMAgent):
 
             self._track_request_id_from_result(result)
             self._begin_assistant_response_cycle()
+            await self._push_confirmation_resolved(confirmed=True)
             await params.result_callback(
                 {"success": True, "action": action},
                 properties=FunctionCallResultProperties(run_llm=True),
             )
         except Exception as exc:
+            await self._push_confirmation_resolved(confirmed=True)
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
     # ── Fire-and-forget tools ──────────────────────────────────────────

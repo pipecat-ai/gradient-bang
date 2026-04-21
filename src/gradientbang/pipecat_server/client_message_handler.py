@@ -716,9 +716,22 @@ class ClientMessageHandler:
             )
         )
 
+    async def _push_confirmation_resolved(self, confirmed: bool) -> None:
+        """Push an RTVI event to dismiss the client's confirmation modal."""
+        await self._rtvi.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": "confirmation.resolved",
+                    "payload": {"confirmed": confirmed},
+                }
+            )
+        )
+
     async def _handle_confirm_leave(self, msg_type, msg_data):
         if self._voice_agent is not None:
             self._voice_agent._pending_confirmation = None
+        await self._push_confirmation_resolved(confirmed=True)
         data = msg_data if isinstance(msg_data, dict) else {}
         joining_corp_id = str(data.get("joining_corp_id") or "").strip()
         joining_invite_code = str(data.get("joining_invite_code") or "").strip()
@@ -772,6 +785,7 @@ class ClientMessageHandler:
     async def _handle_cancel_leave(self, msg_type, msg_data):
         if self._voice_agent is not None:
             self._voice_agent._pending_confirmation = None
+        await self._push_confirmation_resolved(confirmed=False)
         await self._inject_llm_event(
             "<event>The player cancelled leaving their corporation. No "
             "action was taken. Acknowledge briefly.</event>"
@@ -780,6 +794,7 @@ class ClientMessageHandler:
     async def _handle_confirm_kick(self, msg_type, msg_data):
         if self._voice_agent is not None:
             self._voice_agent._pending_confirmation = None
+        await self._push_confirmation_resolved(confirmed=True)
         data = msg_data if isinstance(msg_data, dict) else {}
         target_id = str(data.get("target_id") or "").strip()
         target_name = str(data.get("target_name") or "").strip() or target_id
@@ -811,6 +826,7 @@ class ClientMessageHandler:
     async def _handle_cancel_kick(self, msg_type, msg_data):
         if self._voice_agent is not None:
             self._voice_agent._pending_confirmation = None
+        await self._push_confirmation_resolved(confirmed=False)
         data = msg_data if isinstance(msg_data, dict) else {}
         target_name = str(data.get("target_name") or "").strip() or "that member"
         await self._inject_llm_event(

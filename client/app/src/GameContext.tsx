@@ -692,6 +692,19 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "confirmation.resolved": {
+              console.debug("[GAME EVENT] Confirmation resolved", e.payload)
+              // Dismiss any open confirmation modal. Sent by the bot after
+              // processing confirm-leave / cancel-leave / confirm-kick /
+              // cancel-kick client messages.
+              const modal = useGameStore.getState().activeModal?.modal
+              console.debug("[GAME EVENT] Active modal at resolution:", modal)
+              if (modal === "confirm_leave" || modal === "confirm_kick") {
+                useGameStore.getState().setActiveModal(undefined)
+              }
+              break
+            }
+
             case "corporation.invite_code_regenerated": {
               // Corp-scoped event. Optimistically patch the invite code in
               // the local store so the open CorporationDetailsDialog updates
