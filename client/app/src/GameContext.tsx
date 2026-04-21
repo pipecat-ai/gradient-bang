@@ -328,15 +328,16 @@ export function GameProvider({ children }: GameProviderProps) {
                 if (!useGameStore.getState().character_id && status.player.id) {
                   useGameStore.getState().setCharacterId(status.player.id)
                 }
-
-                useGameStore.getState().addActivityLogEntry({
-                  type: "join",
-                  message: "Joined the game",
-                })
               }
 
               // Handle status update accordingly
               if (isPlayerSessionPayload(e.event, status)) {
+                if (status.source?.method === "join") {
+                  useGameStore.getState().addActivityLogEntry({
+                    type: "join",
+                    message: "Joined the game",
+                  })
+                }
                 // Update store — corporation goes through setCorporation
                 // so ship upsert/strip logic runs (same as corporation.data).
                 useGameStore.getState().setState({
@@ -346,6 +347,14 @@ export function GameProvider({ children }: GameProviderProps) {
                 })
                 useGameStore.getState().setCorporation(status.corporation ?? undefined)
               } else {
+                // Corp member connected — show their name in the activity log
+                if (status.source?.method === "join" && status.player?.name) {
+                  useGameStore.getState().addActivityLogEntry({
+                    type: "join",
+                    message: `[${status.player.name}] joined the game`,
+                  })
+                }
+
                 // Check if this is a fleet/corp ship status update
                 const shipId = status.ship?.ship_id ?? getPayloadShipId(status)
                 const isCorpShip =

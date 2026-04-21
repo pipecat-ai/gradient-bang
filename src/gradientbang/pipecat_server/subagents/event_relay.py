@@ -401,8 +401,8 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "map.local": EventConfig(task_scoped_allowlisted=True),
     # Corp events (allow corp scope when voice agent)
     "corporation.created": EventConfig(corp_scope_if_own_action=True),
-    "corporation.ship_purchased": EventConfig(corp_scope_if_own_action=True),
-    "corporation.ship_sold": EventConfig(corp_scope_if_own_action=True),
+    "corporation.ship_purchased": EventConfig(corp_scope_always_append=True),
+    "corporation.ship_sold": EventConfig(corp_scope_always_append=True),
     # Always append to every corp member's LLM context so corpmates learn
     # about new members without a forced refresh. InferenceRule.NEVER (default)
     # means context updates but no spontaneous narration is triggered.
