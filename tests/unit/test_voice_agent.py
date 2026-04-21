@@ -1603,7 +1603,7 @@ class TestCorpShipRouting:
             agent._children.append(task_agent)
 
         agent.add_agent = AsyncMock(side_effect=add_agent)
-        agent._is_corp_ship_id = AsyncMock(return_value=True)
+        agent._is_corp_ship_id = AsyncMock(return_value=(True, "Test Ship"))
 
         # Start corp task
         params = MagicMock()

@@ -1301,8 +1301,13 @@ class VoiceAgent(LLMAgent):
             )
         return None
 
-    async def _is_corp_ship_id(self, ship_id: str) -> bool:
-        """Check if a ship_id belongs to a corporation ship (not the player's personal ship)."""
+    async def _is_corp_ship_id(self, ship_id: str) -> tuple[bool, Optional[str]]:
+        """Check if a ship_id belongs to a corporation ship.
+
+        Returns:
+            Tuple of (is_corp_ship, ship_name). ship_name is None when
+            the ship is not found or the lookup fails.
+        """
         try:
             corp_result = await self._game_client._request(
                 "my_corporation",
@@ -1310,15 +1315,18 @@ class VoiceAgent(LLMAgent):
             )
         except Exception as exc:
             logger.error(f"Failed to check corp ship: {exc}")
-            # Default to treating as corp ship if we can't verify
-            return True
+            return True, None
         corp = corp_result.get("corporation")
         if not isinstance(corp, dict):
-            return False
+            return False, None
         ships = corp.get("ships")
         if not isinstance(ships, list):
-            return False
-        return any(isinstance(s, dict) and s.get("ship_id") == ship_id for s in ships)
+            return False, None
+        for ship in ships:
+            if isinstance(ship, dict) and ship.get("ship_id") == ship_id:
+                name = ship.get("name")
+                return True, (name if isinstance(name, str) and name.strip() else None)
+        return False, None
 
     # ── Agent lifecycle ────────────────────────────────────────────────
 
@@ -1393,9 +1401,11 @@ class VoiceAgent(LLMAgent):
 
         # Notify the LLM so it can inform the user (use response.message for detail)
         llm_msg = (message.response or {}).get("message", f"Task {status_label}")
+        ship_name = child._task_metadata.get("ship_name") if child else None
+        ship_attr = f' ship_name="{ship_name}"' if ship_name else ""
         event_xml = (
             f'<event name="task.{status_label}" task_id="{message.task_id[:8]}" '
-            f'task_type="{task_type}">\n{llm_msg}\n</event>'
+            f'task_type="{task_type}"{ship_attr}>\n{llm_msg}\n</event>'
         )
 
         # Wait for the full response cycle (tool call → LLM response → bot speech)
@@ -1504,14 +1514,17 @@ class VoiceAgent(LLMAgent):
 
                 # If ship_id is the player's character_id, or resolves to their
                 # personal ship rather than a corp ship, treat as a player task.
+                corp_ship_name: Optional[str] = None
                 if ship_id:
                     if ship_id == self._character_id:
                         ship_id = None
-                    elif not await self._is_corp_ship_id(ship_id):
-                        logger.info(
-                            f"ship_id {ship_id[:8]} is not a corp ship, treating as player task"
-                        )
-                        ship_id = None
+                    else:
+                        is_corp, corp_ship_name = await self._is_corp_ship_id(ship_id)
+                        if not is_corp:
+                            logger.info(
+                                f"ship_id {ship_id[:8]} is not a corp ship, treating as player task"
+                            )
+                            ship_id = None
 
                 target_character_id = ship_id if ship_id else self._character_id
 
@@ -1572,6 +1585,7 @@ class VoiceAgent(LLMAgent):
                     "actor_character_name": self._display_name,
                     "task_scope": task_type,
                     "ship_id": ship_id if ship_id else None,
+                    "ship_name": corp_ship_name,
                     "actor_ship_id": (
                         self._event_relay.actor_ship_id if self._event_relay else None
                     ),
