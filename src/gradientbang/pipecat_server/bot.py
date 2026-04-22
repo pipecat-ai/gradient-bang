@@ -7,6 +7,7 @@ from loguru import logger
 
 BOT_INSTANCE_ID: str | None = None
 DEFAULT_VOICE_ID = "ec1e269e-9ca0-402f-8a18-58e0e022355a"
+from gradientbang.pipecat_server.voices import DEFAULT_VOICE, VOICES
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     InterruptionFrame,
@@ -27,7 +28,8 @@ from pipecat.processors.frameworks.rtvi import (
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
+from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
@@ -176,18 +178,25 @@ async def _startup_resolve_character(
 
 
 @traced
-async def _startup_init_stt():
+async def _startup_init_stt(language: Language = Language.EN):
     """Initialize STT service (traced span)."""
-    return DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+    return DeepgramSTTService(
+        api_key=os.getenv("DEEPGRAM_API_KEY"),
+        live_options=LiveOptions(language=language),
+    )
 
 
 @traced
-async def _startup_init_tts(voice_id: str = DEFAULT_VOICE_ID):
+async def _startup_init_tts(voice_id: str = DEFAULT_VOICE_ID, language: Language = Language.EN):
     """Initialize TTS service (traced span)."""
     cartesia_key = os.getenv("CARTESIA_API_KEY", "")
     if not cartesia_key:
         logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
-    return CartesiaTTSService(api_key=cartesia_key, voice_id=voice_id)
+    return CartesiaTTSService(
+        api_key=cartesia_key,
+        voice_id=voice_id,
+        params=CartesiaTTSService.InputParams(language=language),
+    )
 
 
 @traced
@@ -196,6 +205,7 @@ async def bot_startup(
     character_name_hint: str | None,
     server_url: str,
     voice_id: str = DEFAULT_VOICE_ID,
+    language: Language = Language.EN,
 ):
     """Traced startup wrapper — initializes all services for the bot pipeline."""
 
@@ -225,8 +235,8 @@ async def bot_startup(
 
     (local_api_server, character_id, character_display_name), stt, tts = await asyncio.gather(
         _chain_a(),
-        _startup_init_stt(),
-        _startup_init_tts(voice_id),
+        _startup_init_stt(language),
+        _startup_init_tts(voice_id, language),
     )
 
     # Create game client directly
@@ -250,7 +260,15 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     body = getattr(runner_args, "body", None) or {}
     character_id_hint = body.get("character_id") or os.getenv("BOT_TEST_CHARACTER_ID")
     character_name_hint = body.get("character_name")
-    voice_id = body.get("voice_id") or DEFAULT_VOICE_ID
+    # Resolve voice: prefer short name lookup, fall back to raw voice_id
+    voice_name = body.get("voice")
+    if voice_name and voice_name in VOICES:
+        voice_config = VOICES[voice_name]
+        voice_id = voice_config["voice_id"]
+        voice_language = Language(voice_config["language"])
+    else:
+        voice_id = body.get("voice_id") or DEFAULT_VOICE_ID
+        voice_language = Language.EN
     personality_tone = body.get("personality_tone", "").strip()
     bypass_tutorial = bool(body.get("bypass_tutorial", False))
 
@@ -262,15 +280,30 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         game_client,
         stt,
         tts,
-    ) = await bot_startup(character_id_hint, character_name_hint, server_url, voice_id)
+    ) = await bot_startup(
+        character_id_hint, character_name_hint, server_url, voice_id, voice_language
+    )
 
     token_usage_metrics = TokenUsageMetricsProcessor(source="bot")
+
+    # Active voice state — shared with ClientMessageHandler for runtime changes
+    active_voice_state: dict = {
+        "name": voice_name or DEFAULT_VOICE,
+        "language": voice_language,
+    }
 
     # System prompt. Personality/tone is injected via ${personality_tone}
     # substitution in voice_agent.md; universe_size and fedspace_sector_count
     # are injected later from the first status.snapshot (see handler below).
+    # language_instruction is empty for English, otherwise tells LLM to respond
+    # in the target language.
     set_prompt_substitutions(
         personality_tone=personality_tone or DEFAULT_PERSONALITY_TONE,
+        language_instruction=(
+            ""
+            if voice_language == Language.EN
+            else f"IMPORTANT: Always respond in {voice_language.name.title()}. All your spoken output must be in {voice_language.name.title()}."
+        ),
     )
     messages = [
         {
@@ -700,12 +733,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         transport=transport,
         main_agent=main_agent,
         tts=tts,
+        stt=stt,
         say_text_restore_voice=say_text_restore_voice,
         user_mute_state=user_mute_state,
         user_unmuted_event=user_unmuted_event,
         llm_context=context,
         voice_agent=voice_agent,
         on_skip_tutorial=_on_tutorial_complete,
+        active_voice_state=active_voice_state,
     )
 
     @rtvi.event_handler("on_client_message")

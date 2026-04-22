@@ -61,16 +61,15 @@ function SelectTrigger({
       asChild={asChild}
       {...props}
     >
-      {asChild ? (
+      {asChild ?
         children
-      ) : (
-        <>
+      : <>
           {children}
           <SelectPrimitive.Icon asChild>
             <CaretUpDownIcon weight="bold" className="size-4 opacity-50" />
           </SelectPrimitive.Icon>
         </>
-      )}
+      }
     </SelectPrimitive.Trigger>
   )
 }
@@ -116,7 +115,10 @@ function SelectLabel({ className, ...props }: React.ComponentProps<typeof Select
   return (
     <SelectPrimitive.Label
       data-slot="select-label"
-      className={cn("text-muted-foreground px-2 py-1.5 text-xs", className)}
+      className={cn(
+        "bg-subtle-background text-muted-foreground uppercase px-2 py-1.5 text-xs",
+        className
+      )}
       {...props}
     />
   )

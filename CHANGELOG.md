@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Multilingual voice support: select a voice/language in settings and the entire pipeline adapts — STT recognition, TTS synthesis, and LLM responses switch to the chosen language
+- Supported languages: English, Spanish, French, Hindi, Portuguese, Turkish
+- Runtime language switching: change language mid-session without reconnecting
+- Quest voice changer gracefully skips voice swap for non-English languages, keeping the active voice
+
 ## [0.1.4] - 2026-04-21
 
 ### Fixed

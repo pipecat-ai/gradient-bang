@@ -19,7 +19,9 @@ import { ScrollArea } from "@/components/primitives/ScrollArea"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/primitives/Select"
@@ -132,14 +134,21 @@ const SettingSwitch = ({
   )
 }
 
-const VOICE_OPTIONS = [
-  { value: "ec1e269e-9ca0-402f-8a18-58e0e022355a", label: "Navigator Ariel (Female)" },
-  { value: "79a125e8-cd45-4c13-8a67-188112f4dd22", label: "Commander Sterling (Female)" },
-  { value: "11af83e2-23eb-452f-956e-7fee218ccb5c", label: "Relay Operator Dani (Female)" },
-  { value: "c45bc5ec-dc68-4feb-8829-6e6b2748095d", label: "Admiral Caine (Male)" },
-  { value: "db69127a-dbaf-4fa9-b425-2fe67680c348", label: "Dockhand Voss (Male)" },
-  { value: "36b42fcb-60c5-4bec-b077-cb1a00a92ec6", label: "Helmsman Gordon (Male)" },
-]
+const VOICE_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  English: [
+    { value: "ariel", label: "Navigator Ariel" },
+    { value: "sterling", label: "Commander Sterling" },
+    { value: "dani", label: "Relay Operator Dani" },
+    { value: "caine", label: "Admiral Caine" },
+    { value: "voss", label: "Dockhand Voss" },
+    { value: "gordon", label: "Helmsman Gordon" },
+  ],
+  Español: [{ value: "lucia", label: "Navegante Lucia" }],
+  Français: [{ value: "celeste", label: "Navigatrice Celeste" }],
+  Hindi: [{ value: "priya", label: "Navik Priya" }],
+  Português: [{ value: "estrela", label: "Navegadora Estrela" }],
+  Türkçe: [{ value: "taylan", label: "Seyirci Taylan" }],
+}
 
 interface SettingsPanelProps {
   onSave?: () => void
@@ -184,7 +193,7 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
     }
 
     if (connected && formSettings.voice !== prevSettings.voice) {
-      client.sendClientMessage("set-voice", { voice_id: formSettings.voice })
+      client.sendClientMessage("set-voice", { voice: formSettings.voice })
     }
 
     onSave?.()
@@ -211,18 +220,34 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                     }))
                   }
                 />
-                <SettingSelect
-                  label="Voice"
-                  id="voice"
-                  options={VOICE_OPTIONS}
-                  value={formSettings.voice}
-                  onChange={(value) =>
-                    setFormSettings((prev) => ({
-                      ...prev,
-                      voice: value,
-                    }))
-                  }
-                />
+                <Field orientation="vertical">
+                  <FieldLabel htmlFor="voice">Voice / Language</FieldLabel>
+                  <Select
+                    value={formSettings.voice}
+                    onValueChange={(value) =>
+                      setFormSettings((prev) => ({
+                        ...prev,
+                        voice: value,
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full" size="sm">
+                      <SelectValue placeholder="Select voice" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(VOICE_OPTIONS).map(([language, voices]) => (
+                        <SelectGroup key={language}>
+                          <SelectLabel>{language}</SelectLabel>
+                          {voices.map((v) => (
+                            <SelectItem key={v.value} value={v.value}>
+                              {v.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
               </FieldGroup>
             </FieldSet>
 

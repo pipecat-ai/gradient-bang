@@ -50,7 +50,7 @@ export const MAX_FETCH_BOUNDS = 100
 export const FETCH_BOUNDS_MULTIPLIER = 2
 
 // Voice & personality
-export const DEFAULT_VOICE_ID = "ec1e269e-9ca0-402f-8a18-58e0e022355a"
+export const DEFAULT_VOICE = "ariel"
 
 export const PERSONALITY_OPTIONS: { value: string; label: string; tone: string }[] = [
   {
