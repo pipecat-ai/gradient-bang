@@ -146,6 +146,7 @@ const VOICE_OPTIONS: Record<string, { value: string; label: string }[]> = {
   Español: [{ value: "lucia", label: "Navegante Lucia" }],
   Français: [{ value: "celeste", label: "Navigatrice Celeste" }],
   Hindi: [{ value: "priya", label: "Navik Priya" }],
+  Italiano: [{ value: "marco", label: "Navigatore Marco" }],
   Português: [{ value: "estrela", label: "Navegadora Estrela" }],
   Türkçe: [{ value: "taylan", label: "Seyirci Taylan" }],
 }

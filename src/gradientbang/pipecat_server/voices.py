@@ -12,6 +12,7 @@ VOICES: dict[str, dict] = {
     "lucia": {"voice_id": "9d8c6b2e-0a23-4a15-ae1b-121d5b5af417", "language": "es"},
     "celeste": {"voice_id": "7c58f4a4-a72c-42fa-a503-41b9408820f3", "language": "fr"},
     "estrela": {"voice_id": "8d826d43-20ad-4c56-8d37-1048eccca1bf", "language": "pt"},
+    "marco": {"voice_id": "ee16f140-f6dc-490e-a1ed-c1d537ea0086", "language": "it"},
 }
 
 DEFAULT_VOICE = "ariel"
