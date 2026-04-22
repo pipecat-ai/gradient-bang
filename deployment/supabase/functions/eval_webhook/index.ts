@@ -23,10 +23,16 @@ const EDGE_API_TOKEN = Deno.env.get("EDGE_API_TOKEN") ?? "";
 //   2. console.error (stderr via console)
 //   3. raw Deno.stderr.writeSync (bypasses any console hook / buffering)
 const _stderrEncoder = new TextEncoder();
-function _emit(line: string): void {
+function _emitLog(line: string): void {
   try {
     console.log(line);
   } catch (_) { /* ignore */ }
+  try {
+    Deno.stderr.writeSync(_stderrEncoder.encode(line + "\n"));
+  } catch (_) { /* ignore */ }
+}
+
+function _emitError(line: string): void {
   try {
     console.error(line);
   } catch (_) { /* ignore */ }
@@ -39,12 +45,12 @@ function log(msg: string, extra?: Record<string, unknown>): void {
   const line = extra
     ? `[eval_webhook] ${msg} ${JSON.stringify(extra)}`
     : `[eval_webhook] ${msg}`;
-  _emit(line);
+  _emitLog(line);
 }
 
 function logError(msg: string, err?: unknown): void {
   const detail = err instanceof Error ? err.stack ?? err.message : String(err ?? "");
-  _emit(`[eval_webhook] ERROR ${msg}${detail ? ` -- ${detail}` : ""}`);
+  _emitError(`[eval_webhook] ERROR ${msg}${detail ? ` -- ${detail}` : ""}`);
 }
 
 // Startup trace — runs once when the isolate boots. Confirms deployment.
@@ -62,7 +68,6 @@ function validateCekuraSecret(req: Request): boolean {
 }
 
 function getCharacterSlug(name: string): string {
-  log("2* getCharacterSlug", getCharacterSlug)
   return name.split(/\s+/).slice(0, 2).join("_").toLowerCase();
 }
 
@@ -85,7 +90,7 @@ Deno.serve(
 
     // Fail-closed: disabled unless explicitly opted in
     if (!EVAL_ENABLED) {
-      log("reject disabled");
+      logError("reject because this function is disabled;");
       return errorResponse(
         "eval_webhook is disabled in this environment",
         403,
@@ -94,7 +99,7 @@ Deno.serve(
 
     // All requests require X-CEKURA-SECRET
     if (!validateCekuraSecret(req)) {
-      log("reject auth");
+      logError("reject auth");
       return errorResponse("invalid or missing X-CEKURA-SECRET", 401);
     }
 
@@ -158,7 +163,7 @@ Deno.serve(
     const eventType = payload.event_type;
     if (eventType !== undefined) {
       if (eventType !== "result.completed") {
-        log("unknown event_type", { event_type: String(eventType) });
+        logError("unknown event_type", { event_type: String(eventType) });
         return errorResponse(`unknown event_type: ${eventType}`, 400);
       }
 
@@ -171,25 +176,23 @@ Deno.serve(
       const firstRun = runEntries[0] ?? {};
       const testProfileName = String(firstRun.test_profile_name ?? "");
       if (!testProfileName) {
-        log("missing test_profile_name", { run_count: runEntries.length });
+        logError("missing test_profile_name", { run_count: runEntries.length });
         return errorResponse(
           "missing data.runs[*].test_profile_name",
           400,
         );
       }
       if (runEntries.length > 1) {
-        log("multiple runs, using first", {
+        log("multiple runs, using first run for test_profile_name", {
           run_count: runEntries.length,
           using: testProfileName,
         });
       }
 
       const slug = getCharacterSlug(testProfileName);
-      log("3* slug", slug)
       const seedSql = SEED_BY_SLUG[slug];
-      log("4* seedSql", seedSql)
       if (!seedSql) {
-        log("no seed for character", { slug, test_profile_name: testProfileName });
+        logError("no seed for character", { slug, test_profile_name: testProfileName });
         return errorResponse(`no seed for character: ${slug}`, 400);
       }
 
@@ -211,7 +214,7 @@ Deno.serve(
       }
     }
 
-    log("unrecognized request");
+    logError("unrecognized request");
     return errorResponse(
       "unrecognized request — expected healthcheck, action, or event_type",
       400,

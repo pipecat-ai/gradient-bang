@@ -1,5 +1,3 @@
-// Generated from tests/eval/webhook_server/seeds/delta_fleet.sql
-// Do not edit directly — run: bash scripts/sync-eval-seeds.sh
 export const sql = `
 -- Delta Fleet Eval — multiple ships, active in a wayfarer_freighter at sector 42
 -- so combat scenarios (246193/247893/247894) can initiate (sector 0 may be
@@ -339,6 +337,61 @@ UPDATE characters SET first_visit = NOW() - INTERVAL '1 day', created_at = NOW()
   'd0000000-5000-4000-8000-000000000004',
   'd0000000-6000-4000-8000-000000000004'
 );
+
+-- Eval5: relocate active ship + corsair + hostile NPC to a NON-fedspace sector
+-- so combat can initiate (sector 42 may be inside Federation Space on some
+-- universe configs, which blocks combat_* edge functions).
+DO $delta_eval5_nonfed$
+DECLARE
+  v_fed JSONB;
+  v_sector INT;
+  v_adj JSONB;
+  v_pos JSONB;
+  v_sector_entry JSONB;
+  v_char_id  UUID := 'd0000000-5000-4000-8000-000000000004';
+  v_npc_id   UUID := 'dd000000-5000-4000-8000-000000000004';
+  v_ship_id  UUID := 'd0000000-5000-4000-8000-d00000000001';
+  v_cors_id  UUID := 'd0000000-5000-4000-8000-d00000000002';
+  v_npc_ship UUID := 'dd000000-5000-4000-8000-dd00000000ff';
+BEGIN
+  SELECT COALESCE(meta->'fedspace_sectors', '[]'::jsonb) INTO v_fed
+    FROM universe_config WHERE id = 1;
+
+  -- Pick any sector that (a) isn't fedspace and (b) has at least one warp.
+  SELECT us.sector_id,
+         COALESCE((SELECT jsonb_agg((w->>'to')::int) FROM jsonb_array_elements(us.warps) w), '[]'::jsonb),
+         jsonb_build_array(us.position_x, us.position_y)
+    INTO v_sector, v_adj, v_pos
+    FROM universe_structure us
+    WHERE jsonb_array_length(us.warps) > 0
+      AND NOT (v_fed @> to_jsonb(us.sector_id))
+    ORDER BY us.sector_id
+    LIMIT 1;
+
+  IF v_sector IS NULL THEN RETURN; END IF;
+
+  UPDATE ship_instances SET current_sector = v_sector
+    WHERE ship_id IN (v_ship_id, v_cors_id, v_npc_ship);
+
+  v_sector_entry := jsonb_build_object(
+    'adjacent_sectors', v_adj,
+    'last_visited', (NOW() - INTERVAL '1 hour')::text,
+    'position', v_pos
+  );
+  UPDATE characters
+    SET map_knowledge = jsonb_set(
+      COALESCE(map_knowledge, '{"sectors_visited": {}, "total_sectors_visited": 0}'::jsonb),
+      ARRAY['sectors_visited', v_sector::text],
+      v_sector_entry
+    )
+    WHERE character_id IN (v_char_id, v_npc_id);
+  UPDATE characters
+    SET map_knowledge = jsonb_set(
+      map_knowledge, '{total_sectors_visited}',
+      to_jsonb((SELECT count(*) FROM jsonb_object_keys(map_knowledge->'sectors_visited')))
+    )
+    WHERE character_id IN (v_char_id, v_npc_id);
+END $delta_eval5_nonfed$;
 
 COMMIT;
 `;
