@@ -27,6 +27,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy LICENSE (required by pyproject.toml)
 COPY LICENSE ./
 
+# Bundle pyproject.toml so __version__ can read it at runtime
+COPY pyproject.toml ./
+
 # Copy the application code
 RUN mkdir -p gradientbang
 COPY src/gradientbang/__init__.py gradientbang/__init__.py

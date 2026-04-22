@@ -54,18 +54,22 @@ cd client && pnpm run bump:<major|minor|patch>
 
 This bumps `client/app/package.json` and `client/starfield/package.json`, then rebuilds.
 
-### 6. Commit and tag
+### 6. Commit, tag, and push
 
 ```bash
 git add pyproject.toml deployment/supabase/functions/_shared/version.ts CHANGELOG.md client/
 git commit -m "release: vA.B.C"
 git tag vA.B.C
+git push origin HEAD
+git push origin vA.B.C
 ```
+
+Pushing the tag triggers `.github/workflows/release.yml`, which extracts the new `## [A.B.C]` section from `CHANGELOG.md` and creates the GitHub release.
 
 ### 7. Report
 
 Print the new version and remind the user:
-- `git push && git push --tags` to push the release
+- GitHub release will be created automatically by the release workflow
 - `/deploy` to deploy
 
 ## Does NOT
