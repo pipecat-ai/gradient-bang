@@ -314,6 +314,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
           className="text-white hover:opacity-80 transition-opacity flex flex-row items-center gap-1"
           target="_blank"
           rel="noopener noreferrer"
+          aria-label="View Gradient Bang source code on GitHub"
         >
           <GithubLogoIcon size={15} weight="bold" />
           Github Repo
@@ -324,6 +325,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
           className="text-white hover:opacity-80 transition-opacity flex flex-row items-center gap-1"
           target="_blank"
           rel="noopener noreferrer"
+          aria-label="Join the Gradient Bang Discord community"
         >
           <DiscordLogoIcon size={15} weight="bold" />
           Discord
