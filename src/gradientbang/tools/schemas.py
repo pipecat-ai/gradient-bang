@@ -968,7 +968,7 @@ SEND_MESSAGE = FunctionSchema(
     properties={
         "content": {
             "type": "string",
-            "description": "Message text (max 512 chars)",
+            "description": "Message text (max 512 chars). Always write message content in English regardless of the conversation language.",
         },
         "msg_type": {
             "type": "string",

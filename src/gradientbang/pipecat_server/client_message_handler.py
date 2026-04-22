@@ -8,6 +8,7 @@ from pipecat.frames.frames import (
     InterruptionFrame,
     LLMMessagesAppendFrame,
     LLMRunFrame,
+    STTUpdateSettingsFrame,
     TranscriptionFrame,
     TTSSpeakFrame,
     TTSUpdateSettingsFrame,
@@ -15,9 +16,19 @@ from pipecat.frames.frames import (
     UserStoppedSpeakingFrame,
 )
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
+from pipecat.services.settings import STTSettings, TTSSettings
+from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
+from gradientbang.pipecat_server.voices import VOICES
 from gradientbang.pipecat_server.frames import UserTextInputFrame
+
+
+def _language_instruction(language: Language) -> str:
+    """Return the language instruction string for a given language."""
+    if language == Language.EN:
+        return ""
+    return f"IMPORTANT: Always respond in {language.name.title()}. All your spoken output must be in {language.name.title()}."
 
 
 class ClientMessageHandler:
@@ -32,12 +43,14 @@ class ClientMessageHandler:
         transport,
         main_agent,
         tts,
+        stt=None,
         say_text_restore_voice: dict,
         user_mute_state: dict,
         user_unmuted_event: asyncio.Event,
         llm_context=None,
         voice_agent=None,
         on_skip_tutorial=None,
+        active_voice_state: dict | None = None,
     ):
         self._game_client = game_client
         self._character_id = character_id
@@ -45,12 +58,14 @@ class ClientMessageHandler:
         self._transport = transport
         self._main_agent = main_agent
         self._tts = tts
+        self._stt = stt
         self._say_text_restore_voice = say_text_restore_voice
         self._user_mute_state = user_mute_state
         self._user_unmuted_event = user_unmuted_event
         self._llm_context = llm_context
         self._voice_agent = voice_agent
         self._on_skip_tutorial = on_skip_tutorial
+        self._active_voice_state = active_voice_state or {}
 
     @property
     def _pipeline_task(self):
@@ -382,6 +397,9 @@ class ClientMessageHandler:
             return
         text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
         voice_id = msg_data.get("voice_id") if isinstance(msg_data, dict) else None
+        # Non-English: skip quest giver voice swap, keep the active voice
+        if voice_id and self._active_voice_state.get("language", Language.EN) != Language.EN:
+            voice_id = None
         if text:
             await pipeline_task.queue_frame(InterruptionFrame())
             frames = []
@@ -482,24 +500,52 @@ class ClientMessageHandler:
             logger.error(f"claim-step-reward failed: {e}")
 
     async def _handle_set_voice(self, msg_type, msg_data):
-        """Change the default TTS voice, respecting in-flight dialogs."""
-        voice_id = msg_data.get("voice_id", "").strip() if isinstance(msg_data, dict) else ""
-        if not voice_id:
+        """Change voice and language by short name, respecting in-flight dialogs."""
+        voice_name = msg_data.get("voice", "").strip() if isinstance(msg_data, dict) else ""
+        if not voice_name or voice_name not in VOICES:
             return
         pipeline_task = self._pipeline_task
         if not pipeline_task:
             return
 
+        voice_config = VOICES[voice_name]
+        new_voice_id = voice_config["voice_id"]
+        new_language = Language(voice_config["language"])
+
+        # Update active voice state
+        self._active_voice_state["name"] = voice_name
+        self._active_voice_state["language"] = new_language
+
         if self._say_text_restore_voice.get("voice_id"):
             # Dialog in flight — update restore target so it switches after dismiss
-            self._say_text_restore_voice["voice_id"] = voice_id
-            logger.info(f"Voice restore target updated to {voice_id} (dialog in flight)")
+            self._say_text_restore_voice["voice_id"] = new_voice_id
+            logger.info(f"Voice restore target updated to {voice_name} (dialog in flight)")
         else:
-            # No dialog — switch immediately
+            # No dialog — switch TTS voice + language immediately
             await pipeline_task.queue_frame(
-                TTSUpdateSettingsFrame(settings={"voice_id": voice_id})
+                TTSUpdateSettingsFrame(delta=TTSSettings(voice=new_voice_id, language=new_language))
             )
-            logger.info(f"Voice switched to {voice_id}")
+            logger.info(f"TTS switched to {voice_name} ({new_language})")
+
+        # Update STT language
+        await pipeline_task.queue_frame(
+            STTUpdateSettingsFrame(delta=STTSettings(language=new_language))
+        )
+
+        # Update the language instruction in the system prompt
+        if self._llm_context:
+            instruction = _language_instruction(new_language)
+            from gradientbang.utils.prompt_loader import set_prompt_substitutions
+            set_prompt_substitutions(language_instruction=instruction)
+            for msg in self._llm_context.get_messages():
+                if msg.get("role") == "system":
+                    from gradientbang.utils.prompt_loader import (
+                        apply_prompt_substitutions,
+                        build_voice_agent_prompt,
+                    )
+                    msg["content"] = apply_prompt_substitutions(build_voice_agent_prompt())
+                    break
+        logger.info(f"Voice switched to {voice_name} (language={new_language})")
 
     async def _handle_set_personality(self, msg_type, msg_data):
         """Append a system message overriding the voice agent's personality."""

@@ -7,7 +7,7 @@ import { getLocalSettings, setLocalSettings } from "@/utils/settings"
 
 import type { GameStoreState } from "./game"
 
-import { DEFAULT_VOICE_ID, getPersonalityTone } from "@/types/constants"
+import { DEFAULT_VOICE, getPersonalityTone } from "@/types/constants"
 
 export interface SettingsSlice {
   settings: {
@@ -58,7 +58,7 @@ const defaultSettings = {
   saveSettings: true,
   defaultUIMode: "tasks",
   personality: "old_federation",
-  voice: "ec1e269e-9ca0-402f-8a18-58e0e022355a",
+  voice: "ariel",
 }
 
 export const createSettingsSlice: StateCreator<GameStoreState, [], [], SettingsSlice> = (
@@ -112,7 +112,7 @@ export const createSettingsSlice: StateCreator<GameStoreState, [], [], SettingsS
         }),
       body: {
         ...(characterId && { character_id: characterId }),
-        ...(get().settings.voice !== DEFAULT_VOICE_ID && { voice_id: get().settings.voice }),
+        ...(get().settings.voice !== DEFAULT_VOICE && { voice: get().settings.voice }),
         ...(getPersonalityTone(get().settings.personality) && {
           personality_tone: getPersonalityTone(get().settings.personality),
         }),
