@@ -21,6 +21,10 @@ import {
   requireString,
   respondWithError,
 } from "../_shared/request.ts";
+import {
+  getMaintenanceMessage,
+  isMaintenanceMode,
+} from "../_shared/server_status.ts";
 import { traced } from "../_shared/weave.ts";
 
 // CORS headers for public access from web clients
@@ -42,11 +46,6 @@ function corsResponse(body: unknown, status = 200): Response {
   });
 }
 
-function isMaintenanceMode(): boolean {
-  const raw = (Deno.env.get("MAINTENANCE_MODE") ?? "").trim().toLowerCase();
-  return raw !== "" && raw !== "0" && raw !== "false";
-}
-
 Deno.serve(traced("login", async (req, trace) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -54,9 +53,7 @@ Deno.serve(traced("login", async (req, trace) => {
   }
 
   if (isMaintenanceMode()) {
-    const message =
-      Deno.env.get("MAINTENANCE_MESSAGE")?.trim() ||
-      "Gradient Bang is down for maintenance. Please try again shortly.";
+    const message = getMaintenanceMessage();
     return corsResponse(
       { success: false, error: message, code: "maintenance_mode" },
       503,
