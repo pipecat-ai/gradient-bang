@@ -19,12 +19,9 @@ The flow:
 tests/eval/
 ├── README.md
 └── webhook_server/
-    ├── Dockerfile
-    ├── main.py                    # FastAPI webhook server
-    ├── .env                       # Environment variables
-    ├── pyproject.toml
-    ├── seed_eval_characters.sql   # Main seed (all characters)
-    └── seeds/                     # Per-character seed scripts
+    ├── seed_eval_characters.sql       # Master seed (psql, includes all below)
+    └── seeds/                         # Per-character SQL seed scripts (source of truth)
+        ├── _shared_players.sql
         ├── alpha_sparrow.sql
         ├── beta_kestrel.sql
         ├── gamma_explorer.sql
@@ -32,114 +29,87 @@ tests/eval/
         ├── epsilon_corp.sql
         ├── phi_trader.sql
         └── orion_vale.sql
+
+deployment/supabase/functions/
+└── eval_webhook/
+    ├── index.ts                       # Edge function (Cekura webhook + seed-all)
+    └── seeds/                         # Generated .ts files (from SQL sources above)
+        ├── registry.ts
+        ├── _shared_players.ts
+        ├── ...
+        └── orion_vale.ts
+
+scripts/
+└── sync-eval-seeds.sh                 # Regenerates .ts seeds from .sql sources
 ```
 
-## Webhook server
+## Edge function (`eval_webhook`)
 
-Simple FastAPI server that receives Cekura webhook events.
+Supabase edge function that handles Cekura webhook events and eval database seeding. Replaces the previous Python/FastAPI webhook server.
+
+### Production safety
+
+The function is **disabled by default**. It requires `EVAL_WEBHOOK_ENABLED=true` to respond to any request. If the env var is missing or set to anything else, all requests return 403. This means the function is inert on production even if accidentally deployed.
 
 ### Routes
 
-| Method | Path              | Description                              |
-|--------|-------------------|------------------------------------------|
-| GET    | `/`               | Health check                             |
-| POST   | `/handle_webhook` | Webhook handler (routes by `event_type`) |
+All requests are `POST` to the `eval_webhook` function endpoint.
+
+| Payload | Auth | Description |
+|---------|------|-------------|
+| `{ "healthcheck": true }` | `X-API-Token` header | Health check |
+| `{ "action": "seed_all" }` | `X-API-Token` header | Seed all eval characters |
+| `{ "event_type": "result.completed", ... }` | `X-CEKURA-SECRET` header | Cekura webhook — resets one character family |
 
 ### Environment variables
 
-```bash
-cp env.example .env
-```
+Set in `.env.supabase` (local dev) or as Supabase secrets (deployed):
 
-Set env var values:
+- `EVAL_WEBHOOK_ENABLED` — must be `"true"` for the function to respond (fail-closed guard)
+- `CEKURA_WEBHOOK_SECRET` — shared secret for authenticating Cekura webhook requests
 
-- `X_CEKURA_SECRET` — shared secret for authenticating webhook requests
-- `NGROK_DOMAIN` — ngrok subdomain for tunneling
-- `SUPABASE_URL` — Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` — service role key for database access
-- `LOCAL_API_POSTGRES_URL` — PostgreSQL connection string for running seed scripts
+These are already configured for all edge functions and do not need to be set separately:
 
-### Prerequisites
+- `POSTGRES_POOLER_URL` — Postgres connection (used to execute seed SQL)
+- `EDGE_API_TOKEN` — API token for `healthcheck` and `seed_all` auth
 
-The webhook server shells out to `psql` to run seed scripts. Install it locally:
+### Deploy
+
+Deployed alongside all other edge functions:
 
 ```bash
-brew install libpq
-echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
+npx supabase functions deploy --workdir deployment/ --no-verify-jwt
 ```
 
-(The Dockerfile installs `postgresql-client` automatically for deployed environments.)
+Set the Cekura webhook URL to:
 
-### Run
+```
+https://<project-ref>.supabase.co/functions/v1/eval_webhook
+```
+
+### Syncing SQL seeds
+
+The `.sql` files in `tests/eval/webhook_server/seeds/` are the source of truth. The edge function uses generated `.ts` copies (since edge functions have no filesystem). After editing any SQL seed, regenerate the TypeScript files:
 
 ```bash
-cd tests/eval/webhook_server
-uv run uvicorn main:app --reload --port 8883
+bash scripts/sync-eval-seeds.sh
 ```
 
-### Tunnel with ngrok
+### Local dev
+
+Seed all eval characters via the edge function:
 
 ```bash
-ngrok http --subdomain="${NGROK_DOMAIN}" 8883
+curl -X POST http://127.0.0.1:54321/functions/v1/eval_webhook \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: $EDGE_API_TOKEN" \
+  -d '{"action": "seed_all"}'
 ```
 
-Use the ngrok forwarding URL as the webhook base URL in Cekura.
-
-### Deploy to AWS (App Runner + ECR)
-
-Requires the [AWS CLI](https://aws.amazon.com/cli/) with credentials configured.
-
-**1. Create an ECR repository (one-time):**
+Or seed directly via psql (no edge function needed):
 
 ```bash
-aws ecr create-repository --repository-name gb-eval-webhook --region us-west-2
-```
-
-**2. Build and push the image:**
-
-```bash
-cd tests/eval/webhook_server
-
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-REGION=us-west-2
-ECR_URI=$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/gb-eval-webhook
-
-aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ECR_URI
-
-docker build --platform linux/amd64 -t gb-eval-webhook .
-docker tag gb-eval-webhook:latest $ECR_URI:latest
-docker push $ECR_URI:latest
-```
-
-**3. Create the App Runner service (one-time):**
-
-- Go to [AWS App Runner console](https://console.aws.amazon.com/apprunner)
-- Source: **Container registry** → **Amazon ECR** → select `gb-eval-webhook:latest`
-- Port: **8883**
-- Environment variables: set `X_CEKURA_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `LOCAL_API_POSTGRES_URL`
-- Create & deploy
-
-**4. Get the webhook URL:**
-
-App Runner assigns a URL like:
-
-```
-https://<service-id>.<region>.awsapprunner.com
-```
-
-Find it in the App Runner console under your service's **Default domain**. Set the Cekura webhook URL to:
-
-```
-https://<service-id>.<region>.awsapprunner.com/handle_webhook
-```
-
-**5. Subsequent deploys:**
-
-After pushing a new image to ECR, trigger a deploy from the App Runner console or via CLI:
-
-```bash
-aws apprunner start-deployment --service-arn <your-service-arn> --region us-west-2
+psql $LOCAL_API_POSTGRES_URL -f tests/eval/webhook_server/seed_eval_characters.sql
 ```
 
 ## SQL seed scripts
@@ -210,13 +180,22 @@ Cekura agent slug: `gb-bot-eval-orion-vale` (webhook routing relies on this exac
 
 ### Usage
 
-Seed **all** eval characters at once (full teardown + re-insert):
+Seed **all** eval characters via the edge function:
+
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/eval_webhook \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: $EDGE_API_TOKEN" \
+  -d '{"action": "seed_all"}'
+```
+
+Or directly via psql:
 
 ```bash
 psql $LOCAL_API_POSTGRES_URL -f tests/eval/webhook_server/seed_eval_characters.sql
 ```
 
-Reset a **single** character back to its starting state:
+Reset a **single** character back to its starting state (via psql):
 
 ```bash
 psql $LOCAL_API_POSTGRES_URL -f tests/eval/webhook_server/seeds/alpha_sparrow.sql
