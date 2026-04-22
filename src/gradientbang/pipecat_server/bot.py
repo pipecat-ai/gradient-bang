@@ -27,7 +27,8 @@ from pipecat.processors.frameworks.rtvi import (
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
+from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
@@ -178,7 +179,16 @@ async def _startup_resolve_character(
 @traced
 async def _startup_init_stt():
     """Initialize STT service (traced span)."""
-    return DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+    return DeepgramSTTService(
+        api_key=os.getenv("DEEPGRAM_API_KEY"),
+        live_options=LiveOptions(
+            model="nova-3",
+            language=Language.TR,
+            interim_results=True,
+            punctuate=True,
+            smart_format=True,
+        ),
+    )
 
 
 @traced
@@ -187,7 +197,12 @@ async def _startup_init_tts(voice_id: str = DEFAULT_VOICE_ID):
     cartesia_key = os.getenv("CARTESIA_API_KEY", "")
     if not cartesia_key:
         logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
-    return CartesiaTTSService(api_key=cartesia_key, voice_id=voice_id)
+    return CartesiaTTSService(
+        api_key=cartesia_key,
+        model="sonic-3",
+        voice_id="fa7bfcdc-603c-4bf1-a600-a371400d2f8c",  # Taylan (Turkish)
+        params=CartesiaTTSService.InputParams(language=Language.TR),
+    )
 
 
 @traced
@@ -275,7 +290,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     messages = [
         {
             "role": "system",
-            "content": build_voice_agent_prompt(),
+            "content": "IMPORTANT: Always respond in Turkish. All your spoken output must be in Turkish.\n\n"
+            + build_voice_agent_prompt(),
         },
         {
             "role": "user",
