@@ -75,5 +75,4 @@ Print the new version and remind the user:
 ## Does NOT
 
 - Run `uv lock` or regenerate `uv.lock` — a version-only bump does not change dependencies
-- Push to remote (user decides when)
 - Deploy anything (use `/deploy` for that)
