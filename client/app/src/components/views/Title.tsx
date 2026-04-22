@@ -1,7 +1,12 @@
 import { useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
-import { SpeakerHighIcon, SpeakerSlashIcon } from "@phosphor-icons/react"
+import {
+  DiscordLogoIcon,
+  GithubLogoIcon,
+  SpeakerHighIcon,
+  SpeakerSlashIcon,
+} from "@phosphor-icons/react"
 
 import TitleVideo from "@/assets/videos/title.mp4"
 import { CharacterSelectDialog } from "@/components/dialogs/CharacterSelect"
@@ -105,12 +110,12 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
           className="w-full h-full object-cover pointer-events-none z-1"
         />
       </div>
-      <div className="relative z-2 flex flex-col items-center justify-center h-full w-full">
+      <div className="relative z-2 flex flex-col items-center justify-center h-full px-ui-sm">
         <Card
           elbow={true}
           variant="secondary"
           size="xl"
-          className="min-w-lg border border-border pb-5 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-1000 shadow-long"
+          className="w-full md:max-w-lg border border-border pb-5 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-1000 shadow-long"
         >
           <CardHeader className="block">
             <h1 className="text-white text-3xl font-bold uppercase text-center">
@@ -118,7 +123,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
             </h1>
           </CardHeader>
           <Separator />
-          <CardContent className="flex flex-col items-center justify-center gap-5">
+          <CardContent className="flex flex-col items-center justify-center">
             <AnimatePresence mode="wait">
               {state === "idle" && (
                 <motion.div
@@ -156,12 +161,12 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                       Need an account? Sign up here!
                     </p>
                   </a>
-                  <Separator />
+                  <Separator className="hidden md:block" />
                   <Button
                     onClick={() => setActiveModal("leaderboard")}
                     variant="secondary"
                     size="xl"
-                    className="w-full"
+                    className="w-full hidden md:flex"
                   >
                     Leaderboard
                   </Button>
@@ -169,7 +174,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                     onClick={() => setActiveModal("settings")}
                     variant="secondary"
                     size="xl"
-                    className="w-full"
+                    className="w-full hidden md:flex"
                   >
                     Settings
                   </Button>
@@ -293,9 +298,36 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
       <Settings />
       <Leaderboard />
       <CharacterSelectDialog onCharacterSelect={handleCharacterSelect} />
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 p-4 z-99 flex flex-row items-center gap-2 bg-background select-none">
-        <span className="text-xs text-muted-foreground uppercase tracking-wider">Built by</span>
-        <PipecatSVG className="h-[16px] text-white" />
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 p-4 z-10 flex flex-col md:flex-row items-center gap-4 md:gap-2 bg-background select-none text-xs uppercase tracking-wider font-bold">
+        <a
+          href="https://github.com/pipecat-ai"
+          className="order-last md:order-0 flex flex-row items-center gap-2 text-white"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span className="text-muted-foreground">Built with</span>
+          <PipecatSVG className="h-[15px] w-auto text-white" />
+        </a>
+        <span className="hidden md:inline mx-1 text-lg leading-none opacity-40">·</span>
+        <a
+          href="https://github.com/pipecat-ai/gradient-bang"
+          className="text-white hover:opacity-80 transition-opacity flex flex-row items-center gap-1"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <GithubLogoIcon size={15} weight="bold" />
+          Github Repo
+        </a>
+        <span className="hidden md:inline mx-1 text-lg leading-none opacity-40">·</span>
+        <a
+          href="https://discord.gg/QwDQ8kkNJ"
+          className="text-white hover:opacity-80 transition-opacity flex flex-row items-center gap-1"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <DiscordLogoIcon size={15} weight="bold" />
+          Discord
+        </a>
       </div>
 
       {/** Intro Tutorial Video Modal */}

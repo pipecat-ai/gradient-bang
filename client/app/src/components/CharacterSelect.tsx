@@ -42,7 +42,7 @@ const CharacterCard = ({
 
   return (
     <motion.div
-      className="h-full cursor-pointer"
+      className="h-full cursor-pointer shrink-0 snap-start"
       initial={{ width: 0 }}
       animate={{ width: 192 }}
       exit={{ width: 0 }}
@@ -109,7 +109,10 @@ export const CharacterSelect = ({
   }
 
   return (
-    <div className="flex flex-row gap-3 h-64" onMouseMove={handleMouseMove}>
+    <div
+      className="flex flex-row gap-3 h-64 px-ui-md md:px-0 snap-x snap-mandatory md:snap-none"
+      onMouseMove={handleMouseMove}
+    >
       <div className={`contents ${!hoverEnabled ? "*:pointer-events-none" : ""}`}>
         {characters?.length > 0 && (
           <div className="flex flex-row gap-3 h-full focus-disables-hover">
@@ -128,8 +131,10 @@ export const CharacterSelect = ({
           </div>
         )}
 
-        {characters?.length > 0 && <div className="w-3 dashed-bg-vertical dashed-bg-muted" />}
-        <div className="group bg-card focus-outline focus-hover relative py-0 border w-48 elbow select-none elbow-offset-1 elbow-subtle-foreground hover:elbow-foreground hover:-elbow-offset-3 focus-visible:-elbow-offset-3 hover:scale-105 focus-visible:scale-105 transition-transform duration-300 ease-in-out cursor-pointer">
+        {characters?.length > 0 && (
+          <div className="w-3 shrink-0 dashed-bg-vertical dashed-bg-muted" />
+        )}
+        <div className="group bg-card focus-outline focus-hover relative py-0 border w-48 shrink-0 snap-start elbow select-none elbow-offset-1 elbow-subtle-foreground hover:elbow-foreground hover:-elbow-offset-3 focus-visible:-elbow-offset-3 hover:scale-105 focus-visible:scale-105 transition-transform duration-300 ease-in-out cursor-pointer">
           <Card className="w-full h-full border-0" onClick={onIsCreating}>
             <CardContent className="flex flex-col items-center justify-center w-full h-full gap-4">
               <PlusIcon

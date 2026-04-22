@@ -36,7 +36,7 @@ export const CharacterSelectDialog = ({
       <div
         ref={contentRef}
         tabIndex={-1}
-        className="relative py-ui-md w-full overflow-hidden flex items-center justify-center bg-background/80 border-y shadow-long outline-none"
+        className="relative py-ui-md w-full overflow-y-hidden overflow-x-auto md:overflow-x-hidden flex items-center justify-start md:justify-center bg-background/80 border-y shadow-long outline-none"
       >
         {isCreatingNewCharacter ?
           <CreateCharacter

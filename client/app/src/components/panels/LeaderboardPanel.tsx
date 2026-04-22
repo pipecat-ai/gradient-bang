@@ -7,7 +7,7 @@ type LeaderboardRow = { player_name: string }
 
 import { DataTableScrollArea } from "@/components/DataTable"
 import useGameStore from "@/stores/game"
-import { formatCurrency } from "@/utils/formatting"
+import { formatCurrency, formatNumber } from "@/utils/formatting"
 import { cn } from "@/utils/tailwind"
 
 import { FullScreenLoader } from "../FullScreenLoader"
@@ -64,9 +64,24 @@ const tradingColumns: ColumnDef<LeaderboardTrading>[] = [
     header: "Player",
     meta: { width: "20%", cellClassName: "text-foreground" },
   },
-  { accessorKey: "total_trades", header: "Total Trades", meta: { align: "center" } },
-  { accessorKey: "total_trade_volume", header: "Total Trade Volume", meta: { align: "center" } },
-  { accessorKey: "ports_visited", header: "Ports Visited", meta: { align: "center" } },
+  {
+    accessorKey: "total_trades",
+    header: "Total Trades",
+    meta: { align: "center" },
+    cell: ({ getValue }) => formatNumber(getValue() as number),
+  },
+  {
+    accessorKey: "total_trade_volume",
+    header: "Total Trade Volume",
+    meta: { align: "center" },
+    cell: ({ getValue }) => formatCurrency(getValue() as number),
+  },
+  {
+    accessorKey: "ports_visited",
+    header: "Ports Visited",
+    meta: { align: "center" },
+    cell: ({ getValue }) => formatNumber(getValue() as number),
+  },
 ]
 
 const explorationColumns: ColumnDef<LeaderboardExploration>[] = [
@@ -75,7 +90,12 @@ const explorationColumns: ColumnDef<LeaderboardExploration>[] = [
     header: "Player",
     meta: { width: "20%", cellClassName: "text-foreground" },
   },
-  { accessorKey: "sectors_visited", header: "Sectors Visited", meta: { align: "center" } },
+  {
+    accessorKey: "sectors_visited",
+    header: "Sectors Visited",
+    meta: { align: "center" },
+    cell: ({ getValue }) => formatNumber(getValue() as number),
+  },
   {
     accessorKey: "first_visit",
     header: "Account Age",

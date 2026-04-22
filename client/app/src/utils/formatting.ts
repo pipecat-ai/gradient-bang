@@ -1,3 +1,7 @@
+export const formatNumber = (value: number) => {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value)
+}
+
 export const formatCurrency = (value: number, notation: "compact" | "standard" = "compact") => {
   if (notation === "compact" && Math.abs(value) < 100_000) {
     return new Intl.NumberFormat("en-US", {
