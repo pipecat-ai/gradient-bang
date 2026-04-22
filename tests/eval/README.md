@@ -4,23 +4,25 @@ Voice agent evaluation using [Cekura](https://cekura.com).
 
 ## Overview
 
-Cekura runs automated voice calls against the bot, simulating player interactions (e.g. navigating, trading, combat). After each call, Cekura sends a webhook event to our server so we can react to results — reset game state, log outcomes, etc.
+Cekura runs automated voice calls against the bot, simulating player interactions (e.g. navigating, trading, combat). Each evaluator runs as a specific eval character with a deterministic starting state, so results are repeatable.
 
 The flow:
 
 1. **Seed** the database with eval-specific characters (known starting states)
 2. **Run evals** on Cekura — each eval calls the bot as a specific character
-3. **Webhook fires** — Cekura POSTs `result.completed` to our webhook server
-4. **Re-seed** the character to reset game state for the next run
+3. **Re-seed** the affected character(s) between runs to reset game state
 
 ## Directory structure
 
 ```
 tests/eval/
 ├── README.md
+├── EVALUATORS.md                    # Auto-generated evaluator catalog
+├── generate_evaluators_md.py        # Regenerates EVALUATORS.md from Cekura
 └── webhook_server/
-    ├── seed_eval_characters.sql       # Master seed (psql, includes all below)
-    └── seeds/                         # Per-character SQL seed scripts (source of truth)
+    ├── seed_add_eval_users.sql      # Auth users (run first, idempotent)
+    ├── seed_eval_characters.sql     # Master seed (includes all below)
+    └── seeds/                       # Per-character SQL seed scripts
         ├── _shared_players.sql
         ├── alpha_sparrow.sql
         ├── beta_kestrel.sql
@@ -29,87 +31,6 @@ tests/eval/
         ├── epsilon_corp.sql
         ├── phi_trader.sql
         └── orion_vale.sql
-
-deployment/supabase/functions/
-└── eval_webhook/
-    ├── index.ts                       # Edge function (Cekura webhook + seed-all)
-    └── seeds/                         # Generated .ts files (from SQL sources above)
-        ├── registry.ts
-        ├── _shared_players.ts
-        ├── ...
-        └── orion_vale.ts
-
-scripts/
-└── sync-eval-seeds.sh                 # Regenerates .ts seeds from .sql sources
-```
-
-## Edge function (`eval_webhook`)
-
-Supabase edge function that handles Cekura webhook events and eval database seeding. Replaces the previous Python/FastAPI webhook server.
-
-### Production safety
-
-The function is **disabled by default**. It requires `EVAL_WEBHOOK_ENABLED=true` to respond to any request. If the env var is missing or set to anything else, all requests return 403. This means the function is inert on production even if accidentally deployed.
-
-### Routes
-
-All requests are `POST` to the `eval_webhook` function endpoint.
-
-| Payload | Auth | Description |
-|---------|------|-------------|
-| `{ "healthcheck": true }` | `X-API-Token` header | Health check |
-| `{ "action": "seed_all" }` | `X-API-Token` header | Seed all eval characters |
-| `{ "event_type": "result.completed", ... }` | `X-CEKURA-SECRET` header | Cekura webhook — resets one character family |
-
-### Environment variables
-
-Set in `.env.supabase` (local dev) or as Supabase secrets (deployed):
-
-- `EVAL_WEBHOOK_ENABLED` — must be `"true"` for the function to respond (fail-closed guard)
-- `CEKURA_WEBHOOK_SECRET` — shared secret for authenticating Cekura webhook requests
-
-These are already configured for all edge functions and do not need to be set separately:
-
-- `POSTGRES_POOLER_URL` — Postgres connection (used to execute seed SQL)
-- `EDGE_API_TOKEN` — API token for `healthcheck` and `seed_all` auth
-
-### Deploy
-
-Deployed alongside all other edge functions:
-
-```bash
-npx supabase functions deploy --workdir deployment/ --no-verify-jwt
-```
-
-Set the Cekura webhook URL to:
-
-```
-https://<project-ref>.supabase.co/functions/v1/eval_webhook
-```
-
-### Syncing SQL seeds
-
-The `.sql` files in `tests/eval/webhook_server/seeds/` are the source of truth. The edge function uses generated `.ts` copies (since edge functions have no filesystem). After editing any SQL seed, regenerate the TypeScript files:
-
-```bash
-bash scripts/sync-eval-seeds.sh
-```
-
-### Local dev
-
-Seed all eval characters via the edge function:
-
-```bash
-curl -X POST http://127.0.0.1:54321/functions/v1/eval_webhook \
-  -H "Content-Type: application/json" \
-  -H "X-API-Token: $EDGE_API_TOKEN" \
-  -d '{"action": "seed_all"}'
-```
-
-Or seed directly via psql (no edge function needed):
-
-```bash
-psql $LOCAL_API_POSTGRES_URL -f tests/eval/webhook_server/seed_eval_characters.sql
 ```
 
 ## SQL seed scripts
@@ -134,17 +55,17 @@ NPC characters (e.g. Drifter in the Orion Vale world) are not linked to any eval
 
 The `enforce_user_character_limit` trigger caps each user at 5 characters, so
 eval characters are spread across multiple auth users. Base users (holding
-slots 0..4) are provisioned via migration
-[`20260420000000_add_eval_users.sql`](../../deployment/supabase/migrations/20260420000000_add_eval_users.sql);
-slot-5+ overflow users are created inline by the per-character seed scripts.
+slots 0..4) are provisioned via
+[`seed_add_eval_users.sql`](webhook_server/seed_add_eval_users.sql); slot-5+
+overflow users are created inline by the per-character seed scripts.
 
 | User                                 | Email                                | Characters                                                   | Created by                                                                                          |
 |--------------------------------------|--------------------------------------|--------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
-| a0000000-0000-4aaa-8000-000000000001 | alpha-eval-base@gradientbang.com     | Alpha Sparrow Eval0..4                                       | migration 20260420000000                                                                            |
-| b0000000-0000-4aaa-8000-000000000002 | beta-eval-base@gradientbang.com      | Beta Kestrel Eval0..4                                        | migration 20260420000000                                                                            |
-| c0000000-0000-4aaa-8000-000000000003 | gamma-eval-base@gradientbang.com     | Gamma Explorer Eval0..4                                      | migration 20260420000000                                                                            |
-| d0000000-0000-4aaa-8000-000000000004 | delta-eval-base@gradientbang.com     | Delta Fleet Eval0..4                                         | migration 20260420000000                                                                            |
-| e0000000-0000-4aaa-8000-000000000005 | epsilon-eval-base@gradientbang.com   | Epsilon Corp Eval0..4                                        | migration 20260420000000                                                                            |
+| a0000000-0000-4aaa-8000-000000000001 | alpha-eval-base@gradientbang.com     | Alpha Sparrow Eval0..4                                       | [seed_add_eval_users.sql](webhook_server/seed_add_eval_users.sql)                                   |
+| b0000000-0000-4aaa-8000-000000000002 | beta-eval-base@gradientbang.com      | Beta Kestrel Eval0..4                                        | [seed_add_eval_users.sql](webhook_server/seed_add_eval_users.sql)                                   |
+| c0000000-0000-4aaa-8000-000000000003 | gamma-eval-base@gradientbang.com     | Gamma Explorer Eval0..4                                      | [seed_add_eval_users.sql](webhook_server/seed_add_eval_users.sql)                                   |
+| d0000000-0000-4aaa-8000-000000000004 | delta-eval-base@gradientbang.com     | Delta Fleet Eval0..4                                         | [seed_add_eval_users.sql](webhook_server/seed_add_eval_users.sql)                                   |
+| e0000000-0000-4aaa-8000-000000000005 | epsilon-eval-base@gradientbang.com   | Epsilon Corp Eval0..4                                        | [seed_add_eval_users.sql](webhook_server/seed_add_eval_users.sql)                                   |
 | cf73d883-41fd-4fc5-ba5d-b82241d26ca7 | eval2@gradientbang.com               | Phi Trader Eval0..4                                          | pre-existing                                                                                        |
 | a0000000-5000-4aaa-8000-000000000001 | alpha-eval-5@gradientbang.com        | Alpha Sparrow Eval5                                          | [seeds/alpha_sparrow.sql](webhook_server/seeds/alpha_sparrow.sql)                                   |
 | a0000000-6000-4aaa-8000-000000000001 | alpha-eval-6@gradientbang.com        | Alpha Sparrow Eval6                                          | [seeds/alpha_sparrow.sql](webhook_server/seeds/alpha_sparrow.sql)                                   |
@@ -176,29 +97,36 @@ slot-5+ overflow users are created inline by the per-character seed scripts.
 
 [seeds/orion_vale.sql](webhook_server/seeds/orion_vale.sql) seeds a richer ecosystem than the other per-character scripts because its 21 Cekura scenarios exercise rules that require props: a hostile NPC in the commander's sector, a second corporation with its own founder, an extra corp member to kick, and a peer player to reference. Everything is owned by the `1a*` UUID namespace (Orion Vale's own hex-valid namespace, reserved entirely for this seed). Future multi-character eval worlds should claim `1b*`, `1c*`, etc.
 
-Cekura agent slug: `gb-bot-eval-orion-vale` (webhook routing relies on this exact prefix).
+Cekura agent slug: `gb-bot-eval-orion-vale`.
 
 ### Usage
 
-Seed **all** eval characters via the edge function:
+Seed the base auth users (first-time setup, idempotent):
 
 ```bash
-curl -X POST http://127.0.0.1:54321/functions/v1/eval_webhook \
-  -H "Content-Type: application/json" \
-  -H "X-API-Token: $EDGE_API_TOKEN" \
-  -d '{"action": "seed_all"}'
+psql $LOCAL_API_POSTGRES_URL -f tests/eval/webhook_server/seed_add_eval_users.sql
 ```
 
-Or directly via psql:
+Seed **all** eval characters:
 
 ```bash
 psql $LOCAL_API_POSTGRES_URL -f tests/eval/webhook_server/seed_eval_characters.sql
 ```
 
-Reset a **single** character back to its starting state (via psql):
+Reset a **single** character back to its starting state:
 
 ```bash
 psql $LOCAL_API_POSTGRES_URL -f tests/eval/webhook_server/seeds/alpha_sparrow.sql
 ```
 
 The per-character scripts are useful after an eval run mutates game state — re-run the relevant seed to reset that character without touching the others.
+
+## Evaluator catalog
+
+[`EVALUATORS.md`](EVALUATORS.md) is an auto-generated catalog of every Cekura evaluator across the eval folders. Regenerate with:
+
+```bash
+python3 tests/eval/generate_evaluators_md.py
+```
+
+Requires `CEKURA_API_KEY` in the environment.
