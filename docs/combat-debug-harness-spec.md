@@ -356,6 +356,15 @@ Bugs surfaced while building the harness that are unrelated to the engine swap b
 
 - **`trade` is missing the "cannot act while in combat" guard.** Every other state-mutating edge function (`move`, `dump_cargo`, `ship_sell`, `ship_purchase`, `bank_transfer`, `transfer_credits`) loads `sector_contents.combat`, checks `characterId in combat.participants`, and returns 409 with a "cannot {verb} while in combat" message before mutating state. `trade` has no equivalent check, so a character can complete a trade mid-combat. The fix is a ~5-line copy of the [move/index.ts:306-324](deployment/supabase/functions/move/index.ts:306) pattern. Not a migration blocker, but should be closed out in the same sprint so the harness's combat assumptions match the real server surface.
 
+### New event types introduced by the harness
+
+The engine port also adds event types that don't exist in production today. These are deliberate design additions that should land together with the engine swap — they have payload/routing contracts defined here and locked in by harness tests, so the production add is a near-copy.
+
+- **`garrison.destroyed`** — production today deletes the garrison row silently in [combat_finalization.ts:248-279](deployment/supabase/functions/_shared/combat_finalization.ts:248) (`updateGarrisonState` with `remainingFighters <= 0` → `.delete()` + no emit). Downstream consumers must infer destruction from `fighters_remaining[garrison_id] = 0` inside `combat.round_resolved`. That's fragile: the voice agent has no clean moment to say "commander, the garrison fell", and the client UI has to diff two payloads to notice.
+  - **Harness behaviour:** the engine emits `garrison.destroyed` with `garrison_id` / `owner_character_id` / `owner_corp_id` / `owner_name` / `sector` / `mode` / `combat_id` before the row is deleted. Recipients = owner + owner-corp members + sector observers.
+  - **Migration work:** add `"garrison.destroyed"` to [event_identity.ts](deployment/supabase/functions/_shared/event_identity.ts)'s type set, emit in `updateGarrisonState` (or `finalizeCombat`) with the same payload shape, and add an `EventConfig` in [event_relay.py](src/gradientbang/pipecat_server/subagents/event_relay.py) with `AppendRule.PARTICIPANT` + `InferenceRule.ON_PARTICIPANT` so the voice agent speaks when a player's own garrison dies.
+  - **Test parity:** `agent.test.ts > remote garrison event flow` covers the four routing cases; re-run those scenarios against the ported engine to confirm identical event sequence.
+
 ### Controllers migration (Phase 6, separate lift)
 
 After the engine lands and bakes in production, promote `LLMController` from the harness into a real orchestration service. This is out of scope for the engine migration itself — it's a follow-up phase with its own spec.
