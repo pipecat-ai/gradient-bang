@@ -9,13 +9,38 @@ import taskAgent from "./prompts/task_agent.md?raw"
 // part of the production prompt pipeline. Not enforced by the engine; purely
 // prompt-level guidance. Pick via ControllerConfig.strategy from the UI.
 
+// ---- Shared clauses ----
+// Three behavioural holes surfaced in live play, patched into every strategy:
+//   1. Agents spend multiple rounds picking off a 1-fighter target one at a
+//      time ("Attacking Ren's last fighter…" x6). Always one-shot weak targets.
+//   2. Doomed agents brace forever instead of dying trying — wastes rounds,
+//      produces artificial deadlocks. Force a desperation call at ≤5 fighters.
+//   3. A passive defensive garrison + an unwilling-to-attack player lock the
+//      round in a mutual-brace stalemate that never resolves. Force a
+//      decision — attack, pay, or flee — when the fight has stalled.
+
+const FINISHING_BLOW_RULE = `- **Finishing blow rule.** When targeting a ship or garrison with fighters ≤ 5, commit exactly (their fighters + 2) — one-shot them. Do NOT spend multiple rounds picking off a 1-fighter target one fighter at a time; that's pure inefficiency and leaves you exposed to counterattack rounds longer than needed.`
+
+const DOOMED_DESPERATION_RULE = `- **Doomed-but-still-acting rule.** If your fighters drop to ≤ 5 and you're still outmatched, bracing is not survival — it's delayed death. Take ONE desperation action instead:
+  - **Attack all-in** — commit every remaining fighter against the weakest hostile (maybe you scratch them before dying).
+  - **Flee** at whatever low odds you have.
+  - **Pay** the toll if one is available and affordable.
+  Do NOT brace round after round at ≤ 5 fighters.`
+
+const ANTI_STALEMATE_RULE = `- **Anti-stalemate rule.** If two or more consecutive rounds have been mutual-brace with no fighter or shield changes AND the opposing side (including any passive garrison) isn't threatening to break that pattern, force resolution:
+  - If a toll garrison is present → **PAY** it (if affordable) to end the fight.
+  - Otherwise → **ATTACK** the strongest hostile with a moderate commit, OR **FLEE**. Don't brace a fourth time.`
+
 const OFFENSIVE_STRATEGY = `## Combat style: OFFENSIVE
 
 You play aggressively. Default to ATTACK whenever you have a valid hostile target.
 - Commit a substantial share of your fleet when attacking — at least half your current fighters.
 - Only BRACE if your shields drop below 40%.
 - Only FLEE if destruction is otherwise certain (fighters below 20% with no shields).
-- PAY tolls only when fighting would clearly destroy you outright; otherwise refuse and attack.`
+- PAY tolls only when fighting would clearly destroy you outright; otherwise refuse and attack.
+${FINISHING_BLOW_RULE}
+${DOOMED_DESPERATION_RULE}
+${ANTI_STALEMATE_RULE}`
 
 const DEFENSIVE_STRATEGY = `## Combat style: DEFENSIVE
 
@@ -23,7 +48,10 @@ You play cautiously. Default to BRACE unless you have a clear advantage.
 - Open combat with BRACE to rebuild shields and gauge opponent commitment.
 - When attacking, probe with small commits (10–20% of your current fighters).
 - FLEE eagerly whenever your fighters drop below 50% or shields below 30%.
-- PAY tolls rather than fight whenever offered; only refuse if you genuinely cannot afford the toll.`
+- PAY tolls rather than fight whenever offered; only refuse if you genuinely cannot afford the toll.
+${FINISHING_BLOW_RULE}
+${DOOMED_DESPERATION_RULE}
+${ANTI_STALEMATE_RULE}`
 
 const BALANCED_STRATEGY = `## Combat style: BALANCED
 
@@ -39,7 +67,10 @@ Play pragmatically. Match force to the threat and cut losses early.
   - **PAY** if there's an unpaid toll garrison in the encounter and you can afford the toll. Paying ends combat that round (as long as other combatants brace), usually cheaper than more fighter losses. This is the FIRST-CHOICE exit when a toll garrison is present.
   - **FLEE** if there's no toll garrison to pay, the toll is unaffordable, or paying won't end combat (other hostile characters still attacking).
 - PAY proactively (not just in emergency) when the toll is small relative to the fighter losses you'd take fighting through the garrison.
-- Getting out alive with a weakened ship is a WIN.`
+- Getting out alive with a weakened ship is a WIN.
+${FINISHING_BLOW_RULE}
+${DOOMED_DESPERATION_RULE}
+${ANTI_STALEMATE_RULE}`
 
 const STRATEGY_FRAGMENTS = {
   offensive: OFFENSIVE_STRATEGY,
