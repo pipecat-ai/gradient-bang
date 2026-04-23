@@ -1,5 +1,6 @@
 import { useState } from "react"
 
+import type { ControllerConfig } from "../controllers/types"
 import { useAppStore } from "../store/appStore"
 import type { CombatEngine } from "../engine/engine"
 import {
@@ -9,10 +10,12 @@ import {
   type EntityId,
   type World,
 } from "../engine/types"
+import { ControllerPicker } from "./ControllerPicker"
 
 interface Props {
   engine: CombatEngine
   world: World
+  onSetController: (id: string, config: ControllerConfig | null) => void
 }
 
 function characterInActiveCombat(world: World, charId: string): boolean {
@@ -23,7 +26,15 @@ function characterInActiveCombat(world: World, charId: string): boolean {
   return false
 }
 
-export function EntityRoster({ engine, world }: Props) {
+function entityInActiveCombat(world: World, id: string): boolean {
+  for (const encounter of world.activeCombats.values()) {
+    if (encounter.ended) continue
+    if (id in encounter.participants) return true
+  }
+  return false
+}
+
+export function EntityRoster({ engine, world, onSetController }: Props) {
   const selectedId = useAppStore((s) => s.selectedEntityId)
   const toggle = useAppStore((s) => s.toggleEntity)
 
@@ -70,6 +81,7 @@ export function EntityRoster({ engine, world }: Props) {
               selectedId={selectedId}
               hasSelection={hasSelection}
               toggle={toggle}
+              onSetController={onSetController}
             />
           ))}
         </Section>
@@ -80,35 +92,46 @@ export function EntityRoster({ engine, world }: Props) {
             const combatantId = s.id as unknown as EntityId
             const selected = selectedId === combatantId
             const corp = s.ownerCorpId ? world.corporations.get(s.ownerCorpId) : undefined
+            const locked = entityInActiveCombat(world, s.id)
             return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => toggle(combatantId)}
-                className={tileClass({
-                  selected,
-                  hasSelection,
-                  base: "border-purple-900/60 bg-purple-950/30 hover:border-purple-700",
-                  active:
-                    "border-purple-300 bg-purple-900/40 ring-2 ring-purple-400 shadow-lg shadow-purple-900/30",
-                })}
-              >
-                <div className="flex items-baseline gap-1.5">
-                  {selected && <PovDot tone="purple" />}
-                  <span className="text-[13px] font-semibold text-neutral-100">
-                    {s.name ?? s.id}
-                  </span>
-                  <span className="text-[10px] text-purple-400">{corp?.name ?? s.ownerCorpId}</span>
+              <div key={s.id} className="flex flex-col gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggle(combatantId)}
+                  className={tileClass({
+                    selected,
+                    hasSelection,
+                    base: "border-purple-900/60 bg-purple-950/30 hover:border-purple-700",
+                    active:
+                      "border-purple-300 bg-purple-900/40 ring-2 ring-purple-400 shadow-lg shadow-purple-900/30",
+                  })}
+                >
+                  <div className="flex items-baseline gap-1.5">
+                    {selected && <PovDot tone="purple" />}
+                    <span className="text-[13px] font-semibold text-neutral-100">
+                      {s.name ?? s.id}
+                    </span>
+                    <span className="text-[10px] text-purple-400">
+                      {corp?.name ?? s.ownerCorpId}
+                    </span>
+                  </div>
+                  <StatLine
+                    sector={s.sector}
+                    fighters={s.fighters}
+                    maxFighters={s.fighters}
+                    shields={s.shields}
+                    maxShields={s.maxShields}
+                    id={s.id}
+                  />
+                </button>
+                <div className="px-1">
+                  <ControllerPicker
+                    entityId={combatantId}
+                    onSetController={onSetController}
+                    disabled={locked}
+                  />
                 </div>
-                <StatLine
-                  sector={s.sector}
-                  fighters={s.fighters}
-                  maxFighters={s.fighters}
-                  shields={s.shields}
-                  maxShields={s.maxShields}
-                  id={s.id}
-                />
-              </button>
+              </div>
             )
           })}
         </Section>
@@ -226,6 +249,7 @@ function CharacterTile({
   selectedId,
   hasSelection,
   toggle,
+  onSetController,
 }: {
   character: Character
   world: World
@@ -233,6 +257,7 @@ function CharacterTile({
   selectedId: EntityId | null
   hasSelection: boolean
   toggle: (id: EntityId) => void
+  onSetController: (id: string, config: ControllerConfig | null) => void
 }) {
   const selected = selectedId === character.id
   const ship = world.ships.get(character.currentShipId)
@@ -293,6 +318,13 @@ function CharacterTile({
           id={character.id}
         />
       </button>
+      <div className="px-1">
+        <ControllerPicker
+          entityId={character.id}
+          onSetController={onSetController}
+          disabled={inCombat}
+        />
+      </div>
       <div className="flex flex-wrap items-center gap-1 px-1 text-[10px] text-neutral-500">
         {!inCombat ? (
           <>

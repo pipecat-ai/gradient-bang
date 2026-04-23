@@ -1,25 +1,67 @@
 import { useMemo, useState } from "react"
 
 import type { CombatEngine } from "../engine/engine"
+import { SHIP_DEFINITIONS } from "../engine/ship_definitions"
 import { useAppStore } from "../store/appStore"
 import {
   characterId as characterIdBrand,
   type Character,
   type Garrison,
   type GarrisonMode,
+  type ShipType,
   type World,
 } from "../engine/types"
 
 interface Props {
   engine: CombatEngine
   world: World
+  onSetController: (id: string, config: import("../controllers/types").ControllerConfig | null) => void
 }
 
 const SAMPLE_NAMES = ["Alice", "Bob", "Probe", "Jonboy", "Milo", "Nyx", "Ren", "Zed"]
 const CORP_NAMES = ["Alpha", "Beta", "Gamma", "Delta"]
 
-export function ScenarioBuilder({ engine, world }: Props) {
+// escape_pod is a post-combat conversion target, not a startable ship.
+const SELECTABLE_SHIP_TYPES = (
+  Object.keys(SHIP_DEFINITIONS) as ShipType[]
+).filter((t) => t !== "escape_pod")
+
+function ShipTypeSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ShipType
+  onChange: (v: ShipType) => void
+  disabled?: boolean
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as ShipType)}
+      disabled={disabled}
+      className="rounded bg-neutral-800 px-1 py-0.5 text-[11px] text-neutral-200 disabled:opacity-50"
+    >
+      {SELECTABLE_SHIP_TYPES.map((t) => {
+        const def = SHIP_DEFINITIONS[t]
+        return (
+          <option key={t} value={t}>
+            {def.display_name} · F{def.fighters} · S{def.shields}
+          </option>
+        )
+      })}
+    </select>
+  )
+}
+
+export function ScenarioBuilder({ engine, world, onSetController }: Props) {
   const clearSelection = useAppStore((s) => s.selectEntity)
+  const [charShipType, setCharShipType] = useState<ShipType>("sparrow_scout")
+  const [corpShipType, setCorpShipType] = useState<ShipType>("sparrow_scout")
+  const defaultLLMConfig = {
+    kind: "llm" as const,
+    model: "gpt-5-mini",
+  }
   const charsInSector42 = Array.from(world.characters.values()).filter(
     (c) => c.currentSector === 42,
   )
@@ -50,6 +92,7 @@ export function ScenarioBuilder({ engine, world }: Props) {
           Reset world
         </ActionButton>
         <Divider />
+        <ShipTypeSelect value={charShipType} onChange={setCharShipType} />
         <ActionButton
           tone="neutral"
           onClick={() => {
@@ -57,12 +100,15 @@ export function ScenarioBuilder({ engine, world }: Props) {
               Math.random() * 100,
             )}`
             const sector = combatActiveInSector42 ? 1 : 42
-            engine.createCharacter({ name, sector })
+            const charId = engine.createCharacter({ name, sector, shipType: charShipType })
+            // Default every new character to an LLM controller — the harness
+            // is primarily for exercising LLM-driven combat flows.
+            onSetController(charId, { ...defaultLLMConfig })
           }}
           title={
             combatActiveInSector42
-              ? "Combat active in sector 42 — new char spawns in sector 1"
-              : ""
+              ? "Combat active in sector 42 — new char spawns in sector 1 (LLM controller set by default)"
+              : `Create a ${SHIP_DEFINITIONS[charShipType].display_name} (LLM controller set by default)`
           }
         >
           + Character
@@ -85,18 +131,33 @@ export function ScenarioBuilder({ engine, world }: Props) {
         >
           + Corp
         </ActionButton>
+        <ShipTypeSelect
+          value={corpShipType}
+          onChange={setCorpShipType}
+          disabled={corps.length === 0}
+        />
         <ActionButton
           tone="corp"
           disabled={corps.length === 0}
           onClick={() => {
             const corp = corps[0]
             try {
-              engine.createCorpShip({ ownerCorpId: corp.id, sector: 42 })
+              const shipId = engine.createCorpShip({
+                ownerCorpId: corp.id,
+                sector: 42,
+                shipType: corpShipType,
+              })
+              // Corp ships have no human pilot — default them to LLM too.
+              onSetController(shipId, { ...defaultLLMConfig })
             } catch (err) {
               alert((err as Error).message)
             }
           }}
-          title={corps.length === 0 ? "Create a corporation first" : `Adds to ${corps[0]?.name}`}
+          title={
+            corps.length === 0
+              ? "Create a corporation first"
+              : `Adds a ${SHIP_DEFINITIONS[corpShipType].display_name} to ${corps[0]?.name}`
+          }
         >
           + Corp ship
         </ActionButton>

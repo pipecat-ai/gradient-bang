@@ -16,7 +16,24 @@ export type EntityId = CharacterId | ShipId | GarrisonId | CorpId
 
 // ---- Harness world types (camelCase; mirror SELECT-like snapshots) ----
 
-export type ShipType = "scout" | "fighter" | "cruiser" | "battleship" | "escape_pod"
+// Canonical ship_types from production migrations
+// (20251109 initial + 20260326 parhelion + balance tweaks).
+// Stats live in ship_definitions.ts.
+export type ShipType =
+  | "kestrel_courier"
+  | "sparrow_scout"
+  | "parhelion_seeker"
+  | "wayfarer_freighter"
+  | "pioneer_lifter"
+  | "atlas_hauler"
+  | "corsair_raider"
+  | "pike_frigate"
+  | "bulwark_destroyer"
+  | "aegis_cruiser"
+  | "sovereign_starcruiser"
+  | "escape_pod"
+  | "autonomous_probe"
+  | "autonomous_light_hauler"
 
 export interface Ship {
   id: ShipId

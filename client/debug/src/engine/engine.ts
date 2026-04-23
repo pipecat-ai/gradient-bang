@@ -5,6 +5,7 @@ import {
   collectParticipantIds,
 } from "./events"
 import { InMemoryEmitter, type Emitter } from "./emitter"
+import { DEFAULT_SHIP_TYPE, SHIP_DEFINITIONS } from "./ship_definitions"
 import {
   buildGarrisonActions,
   ensureTollRegistry,
@@ -45,6 +46,12 @@ export interface CombatEngineOpts {
   emitter?: Emitter
   now?: () => number
   rng?: () => number
+  /**
+   * When false, new rounds are created with `deadline: null` so rounds only
+   * resolve via all-submitted, never via tick. Useful for debugging without
+   * time pressure. Default: true.
+   */
+  timerEnabled?: boolean
 }
 
 export interface CreateCharacterOpts {
@@ -95,12 +102,43 @@ export class CombatEngine {
   private snapshot: World = makeEmptyWorld()
   private idSeq = 0
   private eventSeq = 0
+  private timerEnabled: boolean
 
   constructor(opts: CombatEngineOpts = {}) {
     this.emitter = opts.emitter ?? new InMemoryEmitter()
     this.now = opts.now ?? (() => Date.now())
     this.rng = opts.rng ?? Math.random
+    this.timerEnabled = opts.timerEnabled ?? true
     this.refreshSnapshot()
+  }
+
+  /** Read current timer state (whether rounds get a real deadline). */
+  isTimerEnabled(): boolean {
+    return this.timerEnabled
+  }
+
+  /**
+   * Toggle the round timer. When turning off, clears deadlines on any active
+   * combats so the current round no longer has a ticking countdown. When
+   * turning back on, resets active-combat deadlines to now + 30s. Emits a
+   * synthetic `harness.timer_toggled` event so UI + subscribers re-render.
+   */
+  setTimerEnabled(enabled: boolean): void {
+    this.timerEnabled = enabled
+    for (const encounter of this.world.activeCombats.values()) {
+      if (!encounter.ended) {
+        encounter.deadline = this.computeDeadline()
+      }
+    }
+    this.emit({
+      type: "harness.timer_toggled",
+      payload: { enabled },
+      recipients: [],
+    })
+  }
+
+  private computeDeadline(): number | null {
+    return this.timerEnabled ? this.now() + ROUND_TIMEOUT_SECONDS * 1000 : null
   }
 
   // ---- World setup ----
@@ -115,14 +153,19 @@ export class CombatEngine {
 
   createCharacter(opts: CreateCharacterOpts): CharacterId {
     const charId = characterId(this.nextId("char"))
+    // Ship stats default from the production ship_definitions table so combat
+    // scales match real matchups; callers may still override any field.
+    const type = opts.shipType ?? DEFAULT_SHIP_TYPE
+    const def = SHIP_DEFINITIONS[type]
+    const shipMaxShields = def.shields
     const ship: Ship = {
       id: shipId(this.nextId("ship")),
-      type: opts.shipType ?? "scout",
+      type,
       ownerCharacterId: charId,
-      fighters: opts.fighters ?? 50,
-      shields: opts.shields ?? 100,
-      maxShields: opts.shields ?? 100,
-      turnsPerWarp: opts.turnsPerWarp ?? 5,
+      fighters: opts.fighters ?? def.fighters,
+      shields: opts.shields ?? shipMaxShields,
+      maxShields: shipMaxShields,
+      turnsPerWarp: opts.turnsPerWarp ?? def.turns_per_warp,
       cargo: opts.cargo ?? 0,
       credits: opts.credits ?? 1000,
       sector: opts.sector ?? 1,
@@ -208,16 +251,18 @@ export class CombatEngine {
     if (!corp) throw new Error(`No such corporation: ${opts.ownerCorpId}`)
 
     const sid = shipId(this.nextId("ship"))
-    const shieldsMax = opts.shields ?? 80
+    const type = opts.shipType ?? DEFAULT_SHIP_TYPE
+    const def = SHIP_DEFINITIONS[type]
+    const shieldsMax = opts.shields ?? def.shields
     const ship: Ship = {
       id: sid,
-      type: opts.shipType ?? "fighter",
+      type,
       name: opts.name ?? `${corp.name} Probe ${this.world.ships.size + 1}`,
       ownerCorpId: opts.ownerCorpId,
-      fighters: opts.fighters ?? 40,
+      fighters: opts.fighters ?? def.fighters,
       shields: shieldsMax,
       maxShields: shieldsMax,
-      turnsPerWarp: 5,
+      turnsPerWarp: def.turns_per_warp,
       cargo: opts.cargo ?? 0,
       credits: opts.credits ?? 0,
       sector: opts.sector,
@@ -471,7 +516,7 @@ export class CombatEngine {
       combat_id: cid,
       sector_id: sector,
       round: 1,
-      deadline: this.now() + ROUND_TIMEOUT_SECONDS * 1000,
+      deadline: this.computeDeadline(),
       participants,
       pending_actions: {},
       logs: [],
@@ -927,7 +972,7 @@ export class CombatEngine {
       }
     } else {
       encounter.round = outcome.round_number + 1
-      encounter.deadline = this.now() + ROUND_TIMEOUT_SECONDS * 1000
+      encounter.deadline = this.computeDeadline()
 
       for (const participant of Object.values(encounter.participants)) {
         if (participant.fighters > 0 && !participant.is_escape_pod) {
