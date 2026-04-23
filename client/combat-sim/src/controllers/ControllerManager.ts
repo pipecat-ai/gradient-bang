@@ -72,6 +72,16 @@ export class ControllerManager {
   }
 
   private handleEvent(event: CombatEvent): void {
+    // World reset nukes the engine's id counters (idSeq back to 0), so
+    // agent contexts attached to the old char/combat ids are now stale and
+    // their replays would be poisoned by `world.reset` + fresh events
+    // sharing the same ids. Drop all agents so the next combat round
+    // lazily recreates clean ones.
+    if (event.type === "world.reset") {
+      for (const agent of this.agents.values()) agent.stop()
+      this.agents.clear()
+      return
+    }
     if (event.type !== "combat.round_waiting") return
     const payload = event.payload as Record<string, unknown> | undefined
     const participants = Array.isArray(payload?.participants)

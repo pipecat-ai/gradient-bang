@@ -652,6 +652,80 @@ describe("DebugAgent — autonomous per-round decision loop", () => {
     expect(aliceAction?.commit).toBe(10)
   })
 
+  it("pay against a non-toll-mode garrison is rejected with a clear reason (not silently redirected)", () => {
+    const { engine } = makeHarness()
+    const alice = engine.createCharacter({
+      name: "Alice",
+      sector: 42,
+      fighters: 50,
+    })
+    const bob = engine.createCharacter({ name: "Bob", sector: 42, fighters: 50 })
+    // Defensive (NOT toll) garrison in the sector.
+    engine.deployGarrison({
+      ownerCharacterId: bob,
+      sector: 42,
+      fighters: 40,
+      mode: "defensive",
+    })
+    const cid = engine.initiateCombat(alice, 42) as CombatId
+    const result = engine.submitAction(alice, cid, {
+      action: "pay",
+      target_id: `garrison:42:${bob}`,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.reason).toMatch(/not in toll mode/i)
+    // Previously this silently fell back to `garrisonIds[0]` (the first toll
+    // garrison in the registry, or nothing if registry was empty). Now the
+    // caller gets an explicit signal so the LLM can retry with a different
+    // action.
+  })
+
+  it("decideAndCommit retries up to 3 times when the engine rejects the action", async () => {
+    // Scenario: LLM first tries to pay a non-toll garrison (rejected);
+    // agent's tool-result context now contains the rejection; second
+    // decide() picks brace and succeeds.
+    const { engine, emitter } = makeHarness()
+    const alice = engine.createCharacter({ name: "Alice", sector: 42, fighters: 50 })
+    const bob = engine.createCharacter({ name: "Bob", sector: 42, fighters: 50 })
+    engine.deployGarrison({
+      ownerCharacterId: bob,
+      sector: 42,
+      fighters: 40,
+      mode: "defensive",
+    })
+    const cid = engine.initiateCombat(alice, 42) as CombatId
+
+    const mock = new MockLLMClient([
+      {
+        name: "combat_action",
+        arguments: {
+          combat_id: cid,
+          action: "pay",
+          target_id: `garrison:42:${bob}`,
+        },
+      },
+      {
+        name: "combat_action",
+        arguments: { combat_id: cid, action: "brace" },
+      },
+    ])
+    const agent = new DebugAgent({
+      engine,
+      emitter,
+      characterId: alice,
+      llm: mock,
+      includeCombatStrategyFragment: true,
+    })
+    agent.start("Defend.")
+
+    const outcome = await agent.decideAndCommit()
+    // The FINAL call should be the successful brace (not the rejected pay).
+    expect(outcome.call?.arguments.action).toBe("brace")
+    expect(outcome.result?.ok).toBe(true)
+    // Both attempts went through the mock (one rejected, one accepted).
+    expect(mock.callHistory).toHaveLength(2)
+  })
+
   it("commitAction rejects an unknown tool name but still appends a tool-result message", async () => {
     const { engine, emitter } = makeHarness()
     const alice = engine.createCharacter({ name: "Alice", sector: 42 })

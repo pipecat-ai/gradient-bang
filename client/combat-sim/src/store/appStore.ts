@@ -25,6 +25,8 @@ interface AppState {
   // running, making the badge flicker unreliably.
   inFlight: Record<string, number>
   bumpInFlight: (entityId: string, delta: 1 | -1) => void
+  /** Drop every in-flight counter — called on world reset. */
+  clearInFlight: () => void
 
   // Round timer toggle — when off, new rounds get deadline=null so only
   // all-submitted auto-resolves (no time pressure while debugging).
@@ -57,6 +59,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       const next = Math.max(0, (s.inFlight[entityId] ?? 0) + delta)
       return { inFlight: { ...s.inFlight, [entityId]: next } }
     }),
+  clearInFlight: () => set({ inFlight: {} }),
 
   timerEnabled: true,
   setTimerEnabled: (v) => set({ timerEnabled: v }),

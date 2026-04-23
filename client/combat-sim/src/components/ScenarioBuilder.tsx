@@ -94,6 +94,17 @@ export function ScenarioBuilder({ engine, world, onSetController }: Props) {
         >
           Reset world
         </ActionButton>
+        <ActionButton
+          tone="combat"
+          onClick={() => {
+            engine.resetWorld()
+            clearSelection(null)
+            generateRandomScenario(engine, onSetController, defaultLLMConfig)
+          }}
+          title="Reset + generate a random scenario (characters, corps, corp ships, maybe a garrison)"
+        >
+          🎲 Random
+        </ActionButton>
         <Divider />
         <ShipTypeSelect value={charShipType} onChange={setCharShipType} />
         <ActionButton
@@ -394,4 +405,119 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </label>
   )
+}
+
+// ---- Random scenario generator ---------------------------------------------
+// Bounds chosen so a single click produces something interesting-ish without
+// overwhelming the UI. 2–4 characters, 0–2 corps, 0–3 corp ships, 0–1 garrison.
+//
+// All LLM-backed by default (uses the same `defaultLLMConfig` as the + Character
+// button) so kicking off combat right after clicking Random is one click away.
+
+const RANDOM_CHAR_SHIPS: ShipType[] = [
+  "sparrow_scout",
+  "kestrel_courier",
+  "corsair_raider",
+  "pike_frigate",
+]
+const RANDOM_CORP_SHIPS: ShipType[] = [
+  "autonomous_probe",
+  "autonomous_light_hauler",
+  "sparrow_scout",
+]
+const RANDOM_GARRISON_MODES: GarrisonMode[] = [
+  "defensive",
+  "offensive",
+  "toll",
+]
+
+function pick<T>(arr: readonly T[], rng: () => number): T {
+  return arr[Math.floor(rng() * arr.length)]
+}
+
+function randInt(min: number, max: number, rng: () => number): number {
+  return Math.floor(rng() * (max - min + 1)) + min
+}
+
+function generateRandomScenario(
+  engine: CombatEngine,
+  onSetController: (
+    id: string,
+    config: import("../controllers/types").ControllerConfig | null,
+  ) => void,
+  defaultLLMConfig: import("../controllers/types").ControllerConfig,
+): void {
+  const rng = Math.random
+
+  // 2–4 player characters, all in sector 42 so they start entangled.
+  const charCount = randInt(2, 4, rng)
+  const chars: string[] = []
+  for (let i = 0; i < charCount; i++) {
+    const name = `${pick(SAMPLE_NAMES, rng)}-${randInt(10, 99, rng)}`
+    const shipType = pick(RANDOM_CHAR_SHIPS, rng)
+    const id = engine.createCharacter({ name, sector: 42, shipType })
+    chars.push(id)
+    onSetController(id, { ...defaultLLMConfig })
+  }
+
+  // 0–2 corps. Each gets 0–2 random characters as members.
+  const corpCount = randInt(0, 2, rng)
+  const corpIds: string[] = []
+  for (let i = 0; i < corpCount; i++) {
+    const name = CORP_NAMES[i % CORP_NAMES.length]
+    // Split available chars across corps so we don't double-assign.
+    const takeCount = randInt(0, Math.min(2, chars.length), rng)
+    const members = chars
+      .slice()
+      .sort(() => rng() - 0.5)
+      .slice(0, takeCount)
+      .map((id) => characterIdBrand(id))
+    try {
+      const cid = engine.createCorporation({
+        name,
+        memberCharacterIds: members,
+      })
+      corpIds.push(cid)
+    } catch {
+      // Duplicate name etc. — ignore; one fewer corp is fine.
+    }
+  }
+
+  // 0–3 corp ships, spread across the corps we just made. If no corps
+  // exist, skip corp ships (they require an owner).
+  if (corpIds.length > 0) {
+    const shipCount = randInt(0, 3, rng)
+    for (let i = 0; i < shipCount; i++) {
+      const ownerCorpId = pick(corpIds, rng)
+      const shipType = pick(RANDOM_CORP_SHIPS, rng)
+      try {
+        const sid = engine.createCorpShip({
+          ownerCorpId: ownerCorpId as import("../engine/types").CorpId,
+          sector: 42,
+          shipType,
+        })
+        onSetController(sid, { ...defaultLLMConfig })
+      } catch {
+        // e.g. dead corp; skip.
+      }
+    }
+  }
+
+  // 0–1 garrison. Any random char owns it, any random mode. Toll mode
+  // gets a sensible toll amount.
+  if (chars.length > 0 && rng() < 0.6) {
+    const ownerId = pick(chars, rng)
+    const mode = pick(RANDOM_GARRISON_MODES, rng)
+    try {
+      engine.deployGarrison({
+        ownerCharacterId: characterIdBrand(ownerId),
+        sector: 42,
+        fighters: randInt(20, 80, rng),
+        mode,
+        tollAmount: mode === "toll" ? randInt(20, 100, rng) : 0,
+      })
+    } catch {
+      // Sector might already have a garrison; skip.
+    }
+  }
 }

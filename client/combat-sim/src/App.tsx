@@ -64,6 +64,22 @@ export function App() {
     return () => manager.stop()
   }, [manager])
 
+  // Flush store-side state tied to the old world whenever `world.reset`
+  // fires. Without this, old decision traces pile up under char-1 / combat-1
+  // ids that the engine's reset-and-restart hands out again — the Summarize
+  // digest then merges pre- and post-reset decisions under the same key and
+  // produces the "three Round 1 decisions for Ren-49" confusion.
+  useEffect(() => {
+    const unsub = emitter.subscribe((event) => {
+      if (event.type !== "world.reset") return
+      const s = useAppStore.getState()
+      s.clearTraces()
+      s.clearInFlight()
+      s.selectEntity(null)
+    })
+    return unsub
+  }, [emitter])
+
   // When a controller flips from LLM → non-LLM, tear the agent down. When
   // flipped TO LLM (or changed while LLM), rebuild the agent so its
   // subscription is live BEFORE the next combat event fires — lazy creation

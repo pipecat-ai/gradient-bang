@@ -1175,6 +1175,26 @@ export class CombatEngine {
     targetId: string | null,
   ): ActionResult {
     const registry = ensureTollRegistry(encounter)
+
+    // If the caller named a target that exists in the combat but ISN'T a
+    // toll-mode garrison, reject explicitly — don't silently redirect the
+    // payment to whatever toll garrison happens to be first in the registry.
+    // The old fallback (`garrisonIds[0]`) meant paying "target=Alice" would
+    // silently pay the unrelated toll garrison next door, which is a
+    // double-confusing failure for an LLM to reason about. Clean rejection
+    // here lets the agent re-decide toward `brace` / `attack` / `flee`.
+    // Run this check BEFORE the empty-registry guard so the "this target
+    // is not in toll mode" message wins when both would apply.
+    if (targetId && targetId in encounter.participants && !(targetId in registry)) {
+      const target = encounter.participants[targetId]
+      const mode =
+        (target.metadata as Record<string, unknown> | undefined)?.mode ?? "?"
+      return {
+        ok: false,
+        reason: `target ${targetId} is not in toll mode (mode=${mode}); pay only works against toll garrisons`,
+      }
+    }
+
     const garrisonIds = Object.keys(registry)
     if (garrisonIds.length === 0) {
       return { ok: false, reason: "no toll garrison in this combat" }

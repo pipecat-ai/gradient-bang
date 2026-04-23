@@ -329,18 +329,44 @@ export class DebugAgent {
     return result
   }
 
-  /** Combined convenience: decide then commit if a combat_action was returned. */
+  /**
+   * Combined convenience: decide then commit if a combat_action was returned.
+   *
+   * Retries up to `MAX_ATTEMPTS - 1` additional times when the engine
+   * REJECTS the action (e.g. paying against a non-toll garrison, attacking
+   * a destroyed target). The rejection lands in the agent's context as a
+   * tool-result message; the next decide() call sees the error and can
+   * pick a different action. Without the retry the round stalls — the
+   * ControllerManager only re-invokes agents on `combat.round_waiting`,
+   * which doesn't fire until all active participants submit successfully.
+   */
   async decideAndCommit(): Promise<{
     call: AgentToolCall | null
     text: string | null
     result: ActionResult | null
   }> {
-    const response = await this.decide()
-    if (!response.toolCall || response.toolCall.name !== "combat_action") {
-      return { call: response.toolCall, text: response.text, result: null }
+    const MAX_ATTEMPTS = 3
+    let last: {
+      call: AgentToolCall | null
+      text: string | null
+      result: ActionResult | null
+    } = { call: null, text: null, result: null }
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const response = await this.decide()
+      if (!response.toolCall || response.toolCall.name !== "combat_action") {
+        return {
+          call: response.toolCall,
+          text: response.text,
+          result: null,
+        }
+      }
+      const result = this.commitAction(response.toolCall)
+      last = { call: response.toolCall, text: response.text, result }
+      if (result.ok) return last
+      // Rejected. The tool-result message is already in context; loop and
+      // let the model try again.
     }
-    const result = this.commitAction(response.toolCall)
-    return { call: response.toolCall, text: response.text, result }
+    return last
   }
 
   /**
