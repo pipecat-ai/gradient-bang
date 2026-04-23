@@ -5,6 +5,34 @@ import uuid
 from dotenv import load_dotenv
 from loguru import logger
 
+# Clamp aiortc's SCTP DATA-chunk payload size so the on-wire UDP packet fits
+# inside the smallest-MTU path we're likely to see in the wild (IPv6 minimum
+# 1280; Tailscale overlays default to 1280; some consumer VPNs are lower).
+#
+# Why this is needed: aiortc/rtcsctptransport.py hardcodes USERDATA_MAX_LENGTH
+# to 1200, which after SCTP (28) + DTLS (~25 with GCM auth tag) + UDP (8) +
+# IPv6 (40) headers produces a ~1301-byte UDP datagram — over the 1280 MTU.
+# The kernel rejects it with EMSGSIZE, SCTP retransmits at the same size, and
+# the data channel silently stalls (see logs/bot.log.diag* for the bufferedAmount
+# climb pattern). aiortc has no PMTU discovery (RFC 8831 §6 mandates it), so
+# there is no auto-recovery. Chrome's usrsctp-based stack does PMTUD correctly,
+# which is why browser↔browser WebRTC works over the same paths.
+#
+# 1100 leaves ~140 bytes of header slack — fits IPv4/IPv6 over DTLS/UDP on
+# any path ≥ ~1240 MTU. Throughput cost is negligible: RTVI control frames
+# fragment across one extra chunk at most, and audio uses RTP (separate path).
+#
+# Remove once aiortc ships DPLPMTUD (RFC 8899) or once we wrap this in a
+# proper Pipecat-level transport option.
+import aiortc.rtcsctptransport as _sctp_transport
+
+_SCTP_USERDATA_CLAMP = 1100
+_sctp_transport.USERDATA_MAX_LENGTH = _SCTP_USERDATA_CLAMP
+logger.warning(
+    f"[SCTP-MTU] clamped aiortc USERDATA_MAX_LENGTH to {_SCTP_USERDATA_CLAMP} "
+    "(default 1200 overshoots 1280-MTU paths like Tailscale)"
+)
+
 BOT_INSTANCE_ID: str | None = None
 DEFAULT_VOICE_ID = "ec1e269e-9ca0-402f-8a18-58e0e022355a"
 from gradientbang.pipecat_server.voices import DEFAULT_VOICE, VOICES

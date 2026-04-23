@@ -10,12 +10,13 @@ import { version } from "./package.json"
 
 // https://vite.dev/config/
 export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, process.cwd(), "VITE_")
+
   // Warn loudly if VITE_BOT_URL leaks into a production build. The client only
   // honors this env var in dev mode (see main.tsx); leaving it set during a
   // `vite build` is almost always a mistake that would otherwise silently do
   // nothing and confuse whoever is debugging the resulting bundle.
   if (command === "build" && mode === "production") {
-    const env = loadEnv(mode, process.cwd(), "VITE_")
     if (env.VITE_BOT_URL) {
       const banner = "⚠️  WARNING: VITE_BOT_URL is set during a production build"
       const detail =
@@ -27,6 +28,14 @@ export default defineConfig(({ command, mode }) => {
       process.stderr.write(`\n${banner}\n${detail}\n\n`)
     }
   }
+
+  // Dev-only: allow additional hosts for the Vite dev server (e.g. ngrok
+  // tunnels when testing from a remote machine). Comma-separated; a leading
+  // dot matches any subdomain of that suffix. Default covers ngrok domains.
+  const allowedHosts = (env.VITE_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean)
 
   return {
     define: {
@@ -157,6 +166,7 @@ export default defineConfig(({ command, mode }) => {
         // Watch the starfield dist for changes
         ignored: ["!**/node_modules/@gradient-bang/**"],
       },
+      ...(allowedHosts.length > 0 && { allowedHosts }),
     },
   }
 })
