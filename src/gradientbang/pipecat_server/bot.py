@@ -53,7 +53,7 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
-from pipecat.runner.types import RunnerArguments
+from pipecat.runner.types import RunnerArguments, DailyRunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
@@ -775,6 +775,23 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     async def on_client_message(rtvi, message):
         await client_message_handler.handle(message)
 
+    @transport.event_handler("on_joined")
+    async def on_joined(transport, data):
+        if not hasattr(transport, "start_recording"):
+            return
+        if not os.getenv("DAILY_RECORDING_BUCKET_NAME"):
+            return
+        logger.info("Starting raw-tracks recording")
+        try:
+            settings = {"layout": {"preset": "audio-only"}}
+            stream_id, error = await transport.start_recording(settings, None, False)
+            if error:
+                logger.error(f"Failed to start recording: {error}")
+            else:
+                logger.info(f"Recording started (stream_id={stream_id})")
+        except Exception as exc:
+            logger.error(f"Failed to start recording: {exc}")
+
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
@@ -830,6 +847,53 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 logger.error(f"Local API server stop failed: {exc}")
 
 
+async def _configure_recording_bucket(room_url: str):
+    bucket = os.getenv("DAILY_RECORDING_BUCKET_NAME")
+    region = os.getenv("DAILY_RECORDING_BUCKET_REGION")
+    role_arn = os.getenv("DAILY_RECORDING_ASSUME_ROLE_ARN")
+    api_key = os.getenv("DAILY_API_KEY")
+
+    if not all([bucket, region, role_arn]):
+        logger.debug("Recording bucket env vars not set, skipping room config")
+        return
+
+    if not api_key:
+        logger.warning("DAILY_API_KEY not set, cannot configure recording bucket")
+        return
+
+    from urllib.parse import urlparse
+
+    import aiohttp
+
+    room_name = urlparse(room_url).path.lstrip("/")
+    url = f"https://api.daily.co/v1/rooms/{room_name}"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    body = {
+        "properties": {
+            "enable_recording": "raw-tracks",
+            "recordings_bucket": {
+                "bucket_name": bucket,
+                "bucket_region": region,
+                "assume_role_arn": role_arn,
+                "allow_api_access": False,
+            },
+        }
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=body) as resp:
+                if resp.status == 200:
+                    logger.info(f"Configured recording bucket on room {room_name}")
+                else:
+                    text = await resp.text()
+                    logger.error(
+                        f"Failed to configure recording bucket (status {resp.status}): {text}"
+                    )
+    except Exception as exc:
+        logger.error(f"Failed to configure recording bucket: {exc}")
+
+
 async def bot(runner_args: RunnerArguments):
     """Main bot entry point"""
     global BOT_INSTANCE_ID
@@ -856,6 +920,9 @@ async def bot(runner_args: RunnerArguments):
             audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
         ),
     }
+
+    if isinstance(runner_args, DailyRunnerArguments):
+        await _configure_recording_bucket(runner_args.room_url)
 
     transport = await create_transport(runner_args, transport_params)
     await run_bot(transport, runner_args)
