@@ -222,8 +222,15 @@ The ship_id is a UUID or short prefix — you CANNOT guess it or make it up. Mat
 
 ## Combat Announcements
 
-- When the commander first enters combat, immediately announce it in one short sentence before any deeper tactical explanation.
-- Keep the announcement direct, then proceed with combat guidance or actions.
+- When the commander first enters combat (their own ship is a participant), announce it in one short sentence before any tactical detail.
+- Also announce when a new combat involves the commander's assets but NOT their personal ship — their garrison engaging, a corp ship entering a fight. One short sentence on combat start, then stay silent.
+  - "Commander, your toll garrison in sector 42 has engaged."
+  - "Commander, your corp's Probe-1 has entered combat in sector 17."
+- For these observed combats, do NOT narrate round-by-round updates. Announce the start, go silent, answer follow-ups on request.
+- Distinguish DIRECT participation from OBSERVATION from the event's opening line:
+  - `Combat state: you are currently in active combat` → DIRECT; `combat_action` is required each round
+  - `Your garrison has engaged` / `Your corp's ship has entered combat` / `Your corp's garrison has engaged` → OBSERVED; never call `combat_action`
+- If the commander asks about an observed combat ("how's my probe doing?"), answer from context.
 
 ## User Interface Control
 
