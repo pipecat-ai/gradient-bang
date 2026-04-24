@@ -357,6 +357,7 @@ class VoiceAgent(LLMAgent):
             "send_message": self._handle_send_message,
             "combat_initiate": self._handle_combat_initiate,
             "combat_action": self._handle_combat_action,
+            "ship_strategy": self._handle_ship_strategy,
             "corporation_info": self._handle_corporation_info,
             "leaderboard_resources": self._handle_leaderboard_resources,
             "ship_definitions": self._handle_ship_definitions,
@@ -1027,6 +1028,122 @@ class VoiceAgent(LLMAgent):
                 target_id=args.get("target_id"),
                 to_sector=args.get("to_sector"),
                 round_number=args.get("round_number"),
+                character_id=self._character_id,
+            )
+            self._track_request_id_from_result(result)
+            await params.result_callback(
+                {"status": "Executed."},
+                properties=FunctionCallResultProperties(run_llm=False),
+            )
+        except Exception as exc:
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
+
+    async def _handle_ship_strategy(self, params: FunctionCallParams):
+        """Get or set a ship's combat strategy.
+
+        GET mode (no template arg): returns the strategy inline so the voice
+        agent can answer follow-up questions from it directly.
+
+        SET mode (template arg present): acks with ``run_llm=False``. The
+        server emits a ``ships.strategy_set`` event that the relay delivers
+        with InferenceRule.ALWAYS — that event is what wakes the agent to
+        confirm the change verbally.
+        """
+        args = params.arguments
+        ship_id = args.get("ship_id")
+        if not isinstance(ship_id, str) or not ship_id.strip():
+            await self._finish_event_tool_with_error(
+                params, ValueError("ship_id is required"), run_llm=True
+            )
+            return
+        ship_id = ship_id.strip()
+        template = args.get("template")
+        custom_prompt = args.get("custom_prompt")
+
+        # Any write field present → SET (with merge for unspecified fields).
+        # Only ship_id present → GET. Partial SETs (e.g. only custom_prompt)
+        # merge with the ship's current strategy so the commander can "add a
+        # custom prompt" without having to restate the template.
+        is_set = template is not None or custom_prompt is not None
+
+        try:
+            if not is_set:
+                # GET — edge function returns:
+                #   {strategy: {template, custom_prompt, doctrine, ...} | null,
+                #    default_template, default_doctrine}
+                result = await self._game_client.combat_get_strategy(
+                    ship_id=ship_id,
+                    character_id=self._character_id,
+                )
+                strategy = result.get("strategy") if isinstance(result, dict) else None
+                default_template = (
+                    result.get("default_template") if isinstance(result, dict) else None
+                ) or "balanced"
+                default_doctrine = (
+                    result.get("default_doctrine") if isinstance(result, dict) else None
+                )
+                if strategy is None:
+                    await params.result_callback(
+                        {
+                            "ship_id": ship_id,
+                            "strategy": None,
+                            "default_template": default_template,
+                            "default_doctrine": default_doctrine,
+                            "note": (
+                                f"No explicit strategy set; the ship uses the "
+                                f"default '{default_template}' combat doctrine. "
+                                "Describe it to the commander from the "
+                                "default_doctrine text."
+                            ),
+                        }
+                    )
+                else:
+                    await params.result_callback(
+                        {
+                            "ship_id": ship_id,
+                            "strategy": strategy,
+                            "note": (
+                                "Strategy = base doctrine (template) + optional "
+                                "custom_prompt. Describe BOTH when asked, "
+                                "since custom_prompt is additive guidance "
+                                "layered on top of the doctrine."
+                            ),
+                        }
+                    )
+                return
+
+            # SET — merge missing fields from the current row so a call like
+            # `ship_strategy(ship_id, custom_prompt="…")` doesn't reset the
+            # template and `ship_strategy(ship_id, template="…")` doesn't
+            # blow away existing custom guidance.
+            if template is None or custom_prompt is None:
+                current = await self._game_client.combat_get_strategy(
+                    ship_id=ship_id,
+                    character_id=self._character_id,
+                )
+                current_strategy = (
+                    current.get("strategy") if isinstance(current, dict) else None
+                ) or {}
+                current_default = (
+                    current.get("default_template") if isinstance(current, dict) else None
+                ) or "balanced"
+                if template is None:
+                    template = (
+                        current_strategy.get("template")
+                        if isinstance(current_strategy, dict)
+                        else None
+                    ) or current_default
+                if custom_prompt is None:
+                    custom_prompt = (
+                        current_strategy.get("custom_prompt")
+                        if isinstance(current_strategy, dict)
+                        else None
+                    )
+
+            result = await self._game_client.combat_set_strategy(
+                ship_id=ship_id,
+                template=str(template).lower(),
+                custom_prompt=custom_prompt,
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)

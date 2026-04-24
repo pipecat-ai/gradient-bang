@@ -1,5 +1,3 @@
-import { useState } from "react"
-
 import { AnimatePresence, motion } from "motion/react"
 import { ArrowUpIcon, CircleNotchIcon, ShieldIcon, UserIcon } from "@phosphor-icons/react"
 
@@ -17,7 +15,7 @@ import { Button } from "../primitives/Button"
 import { DotDivider } from "../primitives/DotDivider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../primitives/Tabs"
 import { ShipEquipmentPanel } from "./ShipEquipmentPanel"
-import { ShipRenamePanel } from "./ShipRenamePanel"
+import { ShipStrategiesPanel } from "./ShipStrategiesPanel"
 
 const ShipBlankSlate = ({
   fetching,
@@ -269,27 +267,45 @@ const PlayerShip = () => {
 }
 
 export const PlayerShipTabControls = () => {
-  const [activeTab, setActiveTab] = useState<string>("ships")
+  const activeTab = useGameStore.use.playerShipTab()
+  const setPlayerShipTab = useGameStore.use.setPlayerShipTab()
 
-  const handleTabClick = (value: string) => {
-    setActiveTab((prev) => (prev === value ? "" : value))
+  const handleTabClick = (value: PlayerShipTab) => {
+    setPlayerShipTab(activeTab === value ? null : value)
   }
 
   return (
     <>
-      <Tabs value={activeTab} activationMode="manual">
+      <Tabs value={activeTab ?? ""} activationMode="manual">
         <TabsList className="border-l select-none">
-          <TabsTrigger value="ships" onClick={() => handleTabClick("ships")}>
+          <TabsTrigger
+            id="player-ship-tab-ships"
+            value="ships"
+            onClick={() => handleTabClick("ships")}
+          >
             Ships
           </TabsTrigger>
-          <TabsTrigger value="cargo" onClick={() => handleTabClick("cargo")}>
+          <TabsTrigger
+            id="player-ship-tab-cargo"
+            value="cargo"
+            onClick={() => handleTabClick("cargo")}
+          >
             Cargo
           </TabsTrigger>
-          <TabsTrigger value="modules" onClick={() => handleTabClick("modules")}>
+          <TabsTrigger
+            id="player-ship-tab-modules"
+            value="modules"
+            onClick={() => handleTabClick("modules")}
+          >
             Equipment
           </TabsTrigger>
-          <TabsTrigger value="config" className="border-0" onClick={() => handleTabClick("config")}>
-            Config
+          <TabsTrigger
+            id="player-ship-tab-strategy"
+            value="strategy"
+            className="border-0"
+            onClick={() => handleTabClick("strategy")}
+          >
+            Strategy
           </TabsTrigger>
         </TabsList>
         <TabsContent value="ships">
@@ -301,8 +317,8 @@ export const PlayerShipTabControls = () => {
         <TabsContent value="modules">
           <ShipEquipmentPanel />
         </TabsContent>
-        <TabsContent value="config">
-          <ShipRenamePanel />
+        <TabsContent value="strategy">
+          <ShipStrategiesPanel />
         </TabsContent>
       </Tabs>
       {activeTab && (
@@ -310,8 +326,8 @@ export const PlayerShipTabControls = () => {
           <Button
             variant="ghost"
             size="ui"
-            className="text-xs grow shrink-0 border-t-0 justify-between w-full hover:outline-0 focus-visible:outline-0 hover:bg-muted bg-subtle-background"
-            onClick={() => setActiveTab("")}
+            className="text-xs grow shrink-0 border-t-0 justify-between w-full outline-0 hover:outline-0 focus-visible:outline-0 hover:bg-muted bg-subtle-background"
+            onClick={() => setPlayerShipTab(null)}
           >
             <ArrowUpIcon size={12} className="shrink-0 my-auto text-subtle" />
             Hide

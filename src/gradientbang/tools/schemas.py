@@ -415,6 +415,77 @@ COLLECT_FIGHTERS = FunctionSchema(
     required=["sector", "quantity"],
 )
 
+SHIP_STRATEGY = FunctionSchema(
+    name="ship_strategy",
+    description=(
+        "Get or set a ship's combat strategy. A strategy is a BASE DOCTRINE "
+        "(`balanced | offensive | defensive`) plus an OPTIONAL custom_prompt "
+        "appended as additive guidance — not a replacement. Both are active "
+        "together during combat.\n\n"
+        "CRITICAL — ship_id rules:\n"
+        "- MUST be a real UUID or 6-8 hex prefix from a ship object's "
+        "`ship_id` field (e.g. 'ea0f34a0-7c9d-4b2e-9f1a-bc8e4d7a1230' or "
+        "'ea0f34a0').\n"
+        "- NEVER pass the commander's character_id / player.id. A "
+        "character_id is a UUID but refers to a PERSON, not a ship. "
+        "character_id ≠ ship_id.\n"
+        "- NEVER pass a ship name ('Sparrow Scout'), type ('sparrow_scout'), "
+        "or placeholder ('self', 'mine').\n"
+        "- If you don't have the UUID in context, call `my_status` first and "
+        "read `ship.ship_id` (NOT `player.id`). For corp ships, read from "
+        "`ships.list[].ship_id` or `corporation_info()`.\n\n"
+        "GET mode: pass only `ship_id`. Returns "
+        "`{strategy: {template, custom_prompt, doctrine, ...} | null, "
+        "default_template, default_doctrine}`. When strategy is null, the "
+        "ship uses the default doctrine. Never say 'no strategy' — the ship "
+        "always has at least the default. Describe the doctrine text when "
+        "asked.\n"
+        "SET mode: pass `ship_id` plus any combination of `template` and/or "
+        "`custom_prompt`. Partial writes merge with the current strategy: "
+        "passing only `custom_prompt` keeps the existing template; passing "
+        "only `template` keeps the existing custom_prompt. To fully replace "
+        "a strategy, pass both. Confirmation arrives via a ships.strategy_set "
+        "event.\n\n"
+        "Examples (UUIDs abbreviated):\n"
+        "- GET for the commander's ship (call `my_status` first if needed): "
+        "`ship_strategy(ship_id='ea0f34a0-…')`.\n"
+        "- SET a corp ship to offensive: "
+        "`ship_strategy(ship_id='3b7a1c9e-…', template='offensive')`.\n"
+        "- SET defensive with extra guidance: "
+        "`ship_strategy(ship_id='ea0f34a0-…', template='defensive', "
+        "custom_prompt='Never flee below 30% fighters; dig in instead.')`. "
+        "The doctrine AND the custom guidance both apply together."
+    ),
+    properties={
+        "ship_id": {
+            "type": "string",
+            "description": (
+                "Target ship UUID (or 6-8 hex prefix). Must be from a "
+                "`ship.ship_id` field — never a character_id, ship name, or "
+                "placeholder. Call `my_status` or `corporation_info()` to "
+                "obtain one if not in context."
+            ),
+        },
+        "template": {
+            "type": "string",
+            "enum": ["balanced", "offensive", "defensive"],
+            "description": (
+                "Base doctrine. Omit to GET the current strategy. Pass one "
+                "of the enum values to SET. `custom_prompt` layers on top "
+                "of this, regardless of which template you pick."
+            ),
+        },
+        "custom_prompt": {
+            "type": "string",
+            "description": (
+                "Optional additional commander guidance, appended to the "
+                "base doctrine. Works with ANY template. Max 1000 characters."
+            ),
+        },
+    },
+    required=["ship_id"],
+)
+
 SET_GARRISON_MODE = FunctionSchema(
     name="set_garrison_mode",
     description="Change the operating mode of a garrison in a sector. Only works on your own garrison or a corp mate's garrison.",

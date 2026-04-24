@@ -53,6 +53,7 @@ from gradientbang.tools.schemas import (
     # Combat
     COMBAT_INITIATE,
     COMBAT_ACTION,
+    SHIP_STRATEGY,
     # Messaging
     SEND_MESSAGE,
     RENAME_CORPORATION,
@@ -91,6 +92,7 @@ VOICE_TOOLS = ToolsSchema(
         # Combat
         COMBAT_INITIATE,
         COMBAT_ACTION,
+        SHIP_STRATEGY,
         # Task management
         START_TASK,
         STOP_TASK,

@@ -109,6 +109,88 @@ class ClientMessageHandler:
     async def _handle_get_my_status(self, msg_type, msg_data):
         await self._game_client.my_status(self._character_id)
 
+    async def _handle_get_ship_strategy(self, msg_type, msg_data):
+        """Fetch a ship's combat strategy and push it to the client via RTVI.
+
+        A ship ALWAYS has an active strategy — either the stored row or the
+        server-default ('balanced'). This handler always emits
+        `ships.strategy_set` with the effective strategy so the panel has
+        doctrine text to display. When no row exists we synthesize a
+        default-marker payload (``is_default: true``) from the edge
+        function's ``default_template`` / ``default_doctrine`` fields.
+        """
+        try:
+            ship_id = msg_data.get("ship_id") if isinstance(msg_data, dict) else None
+            if not isinstance(ship_id, str) or not ship_id.strip():
+                raise ValueError("get-ship-strategy requires ship_id in message data")
+            ship_id = ship_id.strip()
+
+            result = await self._game_client.combat_get_strategy(
+                ship_id=ship_id,
+                character_id=self._character_id,
+            )
+            if not isinstance(result, dict):
+                result = {}
+            strategy = result.get("strategy")
+            if isinstance(strategy, dict):
+                payload_strategy = strategy
+            else:
+                default_template = result.get("default_template") or "balanced"
+                default_doctrine = result.get("default_doctrine")
+                payload_strategy = {
+                    "template": default_template,
+                    "custom_prompt": None,
+                    "doctrine": default_doctrine,
+                    "is_default": True,
+                }
+            await self._rtvi.push_frame(
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": "ships.strategy_set",
+                        "payload": {
+                            "ship_id": ship_id,
+                            "strategy": payload_strategy,
+                        },
+                    }
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to fetch ship strategy")
+            await self._rtvi.push_frame(
+                RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+            )
+
+    async def _handle_set_ship_strategy(self, msg_type, msg_data):
+        """Upsert a ship's combat strategy. The edge function emits a
+        ``ships.strategy_set`` event on success, which flows through the
+        normal relay path to RTVI + the LLM context — no direct push
+        needed here.
+        """
+        try:
+            if not isinstance(msg_data, dict):
+                raise ValueError("set-ship-strategy requires message data")
+            ship_id = msg_data.get("ship_id")
+            template = msg_data.get("template")
+            custom_prompt = msg_data.get("custom_prompt")
+            if not isinstance(ship_id, str) or not ship_id.strip():
+                raise ValueError("set-ship-strategy requires ship_id")
+            if not isinstance(template, str) or not template.strip():
+                raise ValueError("set-ship-strategy requires template")
+            await self._game_client.combat_set_strategy(
+                ship_id=ship_id.strip(),
+                template=template.strip().lower(),
+                custom_prompt=custom_prompt
+                if isinstance(custom_prompt, str) and custom_prompt.strip()
+                else None,
+                character_id=self._character_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to set ship strategy")
+            await self._rtvi.push_frame(
+                RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+            )
+
     async def _handle_get_known_ports(self, msg_type, msg_data):
         await self._game_client.list_known_ports(self._character_id)
 
@@ -926,6 +1008,8 @@ class ClientMessageHandler:
         "start": _handle_start,
         "mute-unmute": _handle_mute_unmute,
         "get-my-status": _handle_get_my_status,
+        "get-ship-strategy": _handle_get_ship_strategy,
+        "set-ship-strategy": _handle_set_ship_strategy,
         "get-known-ports": _handle_get_known_ports,
         "get-task-history": _handle_get_task_history,
         "get-task-events": _handle_get_task_events,

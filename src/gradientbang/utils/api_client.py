@@ -2165,6 +2165,69 @@ class AsyncGameClient:
         }
         return await self._request("combat.collect_fighters", payload)
 
+    async def combat_set_strategy(
+        self,
+        *,
+        ship_id: str,
+        template: str,
+        custom_prompt: Optional[str] = None,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Set or replace a ship's combat strategy.
+
+        Args:
+            ship_id: Target ship
+            template: 'balanced', 'offensive', 'defensive', or 'custom'
+            custom_prompt: Required when template='custom', else must be None/omitted
+            character_id: Caller (must match bound ID)
+        """
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "ship_id": ship_id,
+            "template": template,
+        }
+        if custom_prompt is not None:
+            payload["custom_prompt"] = custom_prompt
+        return await self._request("combat.set_strategy", payload)
+
+    async def combat_clear_strategy(
+        self,
+        *,
+        ship_id: str,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Clear a ship's combat strategy."""
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload = {"character_id": character_id, "ship_id": ship_id}
+        return await self._request("combat.clear_strategy", payload)
+
+    async def combat_get_strategy(
+        self,
+        *,
+        ship_id: str,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Fetch a ship's combat strategy. Returns {strategy: null} when unset."""
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload = {"character_id": character_id, "ship_id": ship_id}
+        return await self._request("combat.get_strategy", payload)
+
     async def combat_set_garrison_mode(
         self,
         *,

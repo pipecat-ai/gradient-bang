@@ -49,6 +49,10 @@ export interface UISlice {
   setActivePanel: (panel?: UIPanel, data?: unknown) => void
   setActiveSubPanel: (subPanel?: string) => void
 
+  playerShipTab: PlayerShipTab | null
+  setPlayerShipTab: (tab: PlayerShipTab | null) => void
+  setPlayerShipTabFromAgent: (tab: PlayerShipTab) => void
+
   lastPanelInteractionAt: number
   markPanelInteraction: () => void
   focusTaskStreamPanel: (taskId: string) => void
@@ -107,6 +111,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   lookAtTarget: undefined,
   playerTargetId: undefined,
   llmIsWorking: false,
+  playerShipTab: "ships",
 
   lastPanelInteractionAt: 0,
   markPanelInteraction: () =>
@@ -383,5 +388,16 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
         state.playerTargetId = targetId
       })
     )
+  },
+  setPlayerShipTab: (tab: PlayerShipTab | null) => {
+    set(
+      produce((state) => {
+        state.playerShipTab = tab
+      })
+    )
+  },
+  setPlayerShipTabFromAgent: (tab: PlayerShipTab) => {
+    get().setPlayerShipTab(tab)
+    get().setHighlightElement(`player-ship-tab-${tab}`)
   },
 })
