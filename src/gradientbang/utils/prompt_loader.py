@@ -106,6 +106,61 @@ def load_fragment(topic: str) -> str:
     return load_prompt(f"fragments/{topic}.md")
 
 
+# Premade combat-strategy templates map to files in fragments/strategies/.
+# A ship's strategy always has a base doctrine (one of these) plus an
+# optional free-form ``custom_prompt`` appended as additional commander
+# guidance — custom is never a template value on its own.
+COMBAT_STRATEGY_TEMPLATES = {"balanced", "offensive", "defensive"}
+DEFAULT_STRATEGY_TEMPLATE = "balanced"
+
+
+def load_combat_strategy_doctrine(template: str) -> str:
+    """Load a premade combat-strategy doctrine fragment by template name.
+
+    Args:
+        template: One of 'balanced', 'offensive', 'defensive'
+
+    Returns:
+        Contents of fragments/strategies/<template>.md
+    """
+    if template not in COMBAT_STRATEGY_TEMPLATES:
+        raise ValueError(
+            f"Unknown strategy template: {template}. "
+            f"Expected one of: {', '.join(sorted(COMBAT_STRATEGY_TEMPLATES))}"
+        )
+    return load_prompt(f"fragments/strategies/{template}.md")
+
+
+def render_combat_strategy_preamble(
+    template: str,
+    custom_prompt: Optional[str] = None,
+) -> str:
+    """Build the LLM-context preamble for a ship's combat strategy.
+
+    The base doctrine comes from the template file on disk. When the
+    commander has attached a ``custom_prompt``, it is appended as
+    additional guidance — layered on top of, not in place of, the base
+    doctrine. Passing ``template='custom'`` is rejected; the
+    database-level constraint enforces the same rule.
+    """
+    if template == "custom":
+        raise ValueError(
+            "'custom' is no longer a valid standalone template; pass a real "
+            "template (balanced / offensive / defensive) plus an optional "
+            "custom_prompt appended as additive guidance."
+        )
+    doctrine = load_combat_strategy_doctrine(template)
+    trimmed_custom = (custom_prompt or "").strip()
+    if not trimmed_custom:
+        return doctrine
+    return (
+        f"{doctrine}\n"
+        "## Additional commander guidance\n\n"
+        "Layer the following on top of the doctrine above:\n\n"
+        f"{trimmed_custom}"
+    )
+
+
 def build_voice_agent_prompt() -> str:
     """Build the complete system prompt for the voice agent.
 

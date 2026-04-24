@@ -178,6 +178,26 @@ Fires when a garrison's fighters reach 0. Terminal for that garrison — any lat
 - Check the result in the event payload
 - Continue with the task if applicable
 
+## Ship Strategy Tool
+
+`ship_strategy` gets or sets a ship's combat strategy. A strategy is a **base doctrine** (`balanced | offensive | defensive`) PLUS an optional **additive custom_prompt** — both active together during combat.
+
+- `ship_id` MUST be a real UUID (or 6-8 hex prefix) from a SHIP object's `ship_id` field. **Never pass the commander's `character_id` / `player.id`** — that's a person, not a ship. character_id ≠ ship_id.
+- Never pass a ship name ("Sparrow Scout"), ship type, or placeholder ("self", "mine") either.
+- Resolve the right UUID first:
+  - Personal ship → `my_status` → `ship.ship_id` (NOT `player.id`)
+  - Corp ship → `ships.list[].ship_id` or `corporation_info()`
+- GET: `ship_strategy(ship_id="<UUID>")` returns `{strategy: {template, custom_prompt, doctrine, …} | null, default_template, default_doctrine}`. If strategy is null, the ship uses `default_template` (balanced). Never tell the user "no strategy"; describe the active doctrine.
+- SET: `ship_strategy(ship_id="<UUID>", template="balanced")` — or `offensive` / `defensive`. Optionally add `custom_prompt="…"` (≤ 1000 chars) with ANY template to layer additional commander guidance on top of the base doctrine.
+
+## Strategy Templates (base doctrines)
+
+- **balanced** (default when none set) — read the situation each round and adapt. No fixed bias toward attack or brace.
+- **offensive** — commit fighters aggressively; default to ATTACK. Only flee when near-dead.
+- **defensive** — BRACE by default; attack only with clear advantage; retreat early.
+
+`custom_prompt` is free-form text the commander can layer on top of any of the above (e.g. "Never flee below 30% fighters; dig in instead."). Both the base doctrine AND the custom guidance are active together during combat — describe both when asked.
+
 ## Combat Action Tool
 
 ```

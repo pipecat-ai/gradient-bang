@@ -416,7 +416,14 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     ship_name = _shorten_embedded_ids(ship_name)
     ship_type_raw = ship.get("ship_type") or ship.get("ship_type_name")
     ship_type = _friendly_ship_type(ship_type_raw)
-    lines.append(f"Ship: {ship_name} ({ship_type})")
+    raw_ship_id = ship.get("ship_id")
+    ship_id_suffix = ""
+    if isinstance(raw_ship_id, str) and raw_ship_id.strip():
+        # Short 6-char prefix for consistency with ships.list and corp-ship
+        # lines elsewhere in the summary. Edge-function tools accept the
+        # prefix and resolve it against the caller's fleet.
+        ship_id_suffix = f" [{raw_ship_id.strip()[:6]}]"
+    lines.append(f"Ship: {ship_name}{ship_id_suffix} ({ship_type})")
 
     # Credits and cargo
     ship_credits = ship.get("credits")

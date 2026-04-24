@@ -36,6 +36,10 @@ from gradientbang.utils.formatting import (
     short_id,
     shorten_embedded_ids,
 )
+from gradientbang.utils.prompt_loader import (
+    load_fragment,
+    render_combat_strategy_preamble,
+)
 from gradientbang.utils.summary_formatters import event_query_summary
 
 if TYPE_CHECKING:
@@ -187,7 +191,7 @@ def _summarize_ships_list(relay: EventRelay, event: dict) -> Optional[str]:
     if personal:
         lines.append("Your ship:")
         for ship in personal:
-            lines.append(format_ship_summary_line(ship, include_id=False))
+            lines.append(format_ship_summary_line(ship, include_id=True))
     if corp:
         lines.append(f"Corporation ships ({len(corp)}):")
         for ship in corp:
@@ -300,6 +304,46 @@ def _summarize_combat_round(relay: EventRelay, event: dict) -> Optional[str]:
     return f"{ctx}\nRound resolved: {result_display}; {', '.join(parts)}."
 
 
+def _summarize_ships_strategy_set(_relay: EventRelay, event: dict) -> Optional[str]:
+    payload = event.get("payload", {})
+    if not isinstance(payload, Mapping):
+        return None
+    ship_id = payload.get("ship_id")
+    ship_name = payload.get("ship_name") or payload.get("ship_type") or "ship"
+    ship_ref = f'"{ship_name}"' if isinstance(ship_name, str) else "ship"
+    if isinstance(ship_id, str) and ship_id.strip():
+        ship_ref = f"{ship_ref} (ship_id={ship_id.strip()[:6]})"
+    strategy = payload.get("strategy")
+    if not isinstance(strategy, Mapping):
+        return f"Combat strategy updated for {ship_ref}."
+    template = strategy.get("template") or "balanced"
+    custom = strategy.get("custom_prompt")
+    is_default = strategy.get("is_default") is True
+    header = (
+        f"Combat strategy for {ship_ref} is now the default '{template}' doctrine"
+        if is_default
+        else f"Combat strategy for {ship_ref} set to {template}"
+    )
+    if isinstance(custom, str) and custom.strip():
+        return f"{header}. Additional commander guidance: {custom.strip()}"
+    return f"{header}."
+
+
+def _summarize_ships_strategy_cleared(_relay: EventRelay, event: dict) -> Optional[str]:
+    payload = event.get("payload", {})
+    if not isinstance(payload, Mapping):
+        return None
+    ship_id = payload.get("ship_id")
+    ship_name = payload.get("ship_name") or payload.get("ship_type") or "ship"
+    ship_ref = f'"{ship_name}"' if isinstance(ship_name, str) else "ship"
+    if isinstance(ship_id, str) and ship_id.strip():
+        ship_ref = f"{ship_ref} (ship_id={ship_id.strip()[:6]})"
+    return (
+        f"Combat strategy cleared for {ship_ref}. "
+        "Ship falls back to the default 'balanced' doctrine."
+    )
+
+
 def _summarize_combat_ended(relay: EventRelay, event: dict) -> Optional[str]:
     payload = event.get("payload", {})
     is_player = _is_player_participant(relay, payload)
@@ -345,6 +389,21 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         inference=InferenceRule.NEVER,
         xml_context_key="combat_id",
         voice_summary=_summarize_combat_action,
+    ),
+    # Strategy lifecycle — direct to the setting character; inference fires so
+    # voice acknowledges ("Strategy set to offensive.") and the tool's Executed
+    # ack doesn't have to carry data itself.
+    "ships.strategy_set": EventConfig(
+        append=AppendRule.DIRECT,
+        inference=InferenceRule.ALWAYS,
+        xml_context_key="ship_id",
+        voice_summary=_summarize_ships_strategy_set,
+    ),
+    "ships.strategy_cleared": EventConfig(
+        append=AppendRule.DIRECT,
+        inference=InferenceRule.ALWAYS,
+        xml_context_key="ship_id",
+        voice_summary=_summarize_ships_strategy_cleared,
     ),
     # Task lifecycle
     # VoiceAgent injects a synthetic task.started event after successful
@@ -526,6 +585,10 @@ class EventRelay:
         self._session_started_at: Optional[str] = None
         self._debounce_tasks: dict[str, asyncio.Task] = {}
         self._debounce_held_messages: dict[str, list[dict]] = {}
+        # Combat preamble tracking: combat.md is loaded at most once per
+        # session; strategy is re-fetched on every DIRECT round-1 entry (may
+        # have changed between combats).
+        self._combat_md_loaded = False
 
         # Subscribe to game events from config registry
         for event_name in EVENT_CONFIGS:
@@ -867,6 +930,126 @@ class EventRelay:
         )
         logger.info("LLM deliver complete")
 
+    async def _inject_combat_preamble(self, payload: Mapping[str, Any]) -> None:
+        """Inject combat.md + the ship's strategy into LLM context ahead of a
+        DIRECT round-1 combat event.
+
+        combat.md is loaded once per session; strategy is re-fetched every
+        combat (may change between combats). Both frames are queued with
+        ``run_llm=False`` so they land in context without triggering
+        inference — the subsequent XML event frame (with the normal
+        InferenceRule) is what wakes the LLM.
+        """
+        # ── combat.md (once per session) ──
+        if not self._combat_md_loaded:
+            try:
+                combat_md = load_fragment("combat")
+                await self._task_state.queue_frame(
+                    LLMMessagesAppendFrame(
+                        messages=[{
+                            "role": "user",
+                            "content": (
+                                "# Combat reference\n\n"
+                                "Combat has begun. Full mechanics reference "
+                                "(load once, remembered for the session):\n\n"
+                                f"{combat_md}"
+                            ),
+                        }],
+                        run_llm=False,
+                    )
+                )
+                self._combat_md_loaded = True
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "relay.combat_preamble.combat_md_failed", exc_info=True
+                )
+
+        # ── ship strategy (every combat) ──
+        ship_id = self._extract_own_ship_id_from_participants(payload)
+        if not ship_id:
+            ship_id = self.actor_ship_id
+        if not ship_id:
+            return
+        try:
+            result = await self._game_client.combat_get_strategy(
+                ship_id=ship_id,
+                character_id=self._character_id,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "relay.combat_preamble.strategy_fetch_failed",
+                exc_info=True,
+            )
+            return
+        strategy = result.get("strategy") if isinstance(result, Mapping) else None
+        # Unset strategy → fall back to the 'balanced' doctrine. Every ship
+        # always has *some* combat doctrine in context at round 1, so the
+        # agent never has to reason about "no strategy at all".
+        if isinstance(strategy, Mapping):
+            template = strategy.get("template") or "balanced"
+            custom_prompt = strategy.get("custom_prompt")
+            is_default = False
+        else:
+            template = "balanced"
+            custom_prompt = None
+            is_default = True
+        if not isinstance(template, str):
+            template = "balanced"
+            is_default = True
+        try:
+            doctrine = render_combat_strategy_preamble(
+                template,
+                custom_prompt if isinstance(custom_prompt, str) else None,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "relay.combat_preamble.render_failed", exc_info=True
+            )
+            return
+        header_line = (
+            "Your ship has no authored doctrine, so it is running the "
+            "default 'balanced' combat strategy."
+            if is_default
+            else "Your ship has an authored combat doctrine."
+        )
+        content = (
+            "# Your ship's combat strategy\n\n"
+            f"{header_line} Use it to bias combat recommendations and actions "
+            "you take.\n\n"
+            f"{doctrine}"
+        )
+        await self._task_state.queue_frame(
+            LLMMessagesAppendFrame(
+                messages=[{"role": "user", "content": content}],
+                run_llm=False,
+            )
+        )
+
+    def _extract_own_ship_id_from_participants(
+        self,
+        payload: Mapping[str, Any],
+    ) -> Optional[str]:
+        """Pull the bound character's ship_id out of a combat event's
+        ``participants[]``. More reliable than ``self.actor_ship_id`` for
+        combat entry — a status.snapshot may not have fired yet."""
+        participants = payload.get("participants")
+        if not isinstance(participants, list):
+            return None
+        for p in participants:
+            if not isinstance(p, Mapping):
+                continue
+            if p.get("id") != self._character_id:
+                continue
+            # Ship id may live on the participant directly or nested on a
+            # `ship` sub-object; accept either.
+            for source in (p, p.get("ship")):
+                if not isinstance(source, Mapping):
+                    continue
+                ship_id = source.get("ship_id")
+                if isinstance(ship_id, str) and ship_id.strip():
+                    return ship_id.strip()
+        return None
+
     def _resolve_task_summary(
         self,
         cfg: EventConfig,
@@ -1207,5 +1390,17 @@ class EventRelay:
                 )
             )
             return
+
+        # DIRECT round-1 combat entry: prepend combat.md (once per session)
+        # and this ship's strategy so the LLM has both in context before it
+        # has to decide an action. Silent appends — the XML frame below is
+        # what wakes inference.
+        if (
+            event_name == "combat.round_waiting"
+            and isinstance(clean_payload, Mapping)
+            and clean_payload.get("round") == 1
+            and _is_player_participant(self, clean_payload)
+        ):
+            await self._inject_combat_preamble(clean_payload)
 
         await self._deliver_llm_event(event_xml, should_run_llm)

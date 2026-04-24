@@ -98,6 +98,20 @@ export interface CombatActionAction {
   }
 }
 
+export interface GetShipStrategyAction {
+  type: "get-ship-strategy"
+  payload: { ship_id: string }
+}
+
+export interface SetShipStrategyAction {
+  type: "set-ship-strategy"
+  payload: {
+    ship_id: string
+    template: "balanced" | "offensive" | "defensive"
+    custom_prompt?: string | null
+  }
+}
+
 type ActionMeta = { async?: boolean }
 
 export interface RegenerateInviteCodeAction {
@@ -130,6 +144,8 @@ export type GameAction = (
   | AssignQuestAction
   | ClaimStepRewardAction
   | CombatActionAction
+  | GetShipStrategyAction
+  | SetShipStrategyAction
   | RegenerateInviteCodeAction
   | DumpLLMContextAction
   | DumpTaskContextAction

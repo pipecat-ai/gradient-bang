@@ -1551,6 +1551,47 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "ships.strategy_set": {
+              console.debug("[GAME EVENT] Ship strategy set", e.payload)
+              const data = e.payload as {
+                ship_id?: string
+                ship_name?: string
+                strategy?: {
+                  strategy_id?: string
+                  template?: "balanced" | "offensive" | "defensive"
+                  custom_prompt?: string | null
+                  doctrine?: string
+                  updated_at?: string
+                  is_default?: boolean
+                }
+              }
+              if (!data.ship_id || !data.strategy || !data.strategy.template) {
+                logIgnored("ships.strategy_set", "missing required fields", data)
+                break
+              }
+              useGameStore.getState().setShipStrategy(data.ship_id, {
+                strategy_id: data.strategy.strategy_id,
+                ship_id: data.ship_id,
+                template: data.strategy.template,
+                custom_prompt: data.strategy.custom_prompt ?? null,
+                doctrine: data.strategy.doctrine,
+                updated_at: data.strategy.updated_at,
+                is_default: data.strategy.is_default,
+              })
+              break
+            }
+
+            case "ships.strategy_cleared": {
+              console.debug("[GAME EVENT] Ship strategy cleared", e.payload)
+              const data = e.payload as { ship_id?: string }
+              if (!data.ship_id) {
+                logIgnored("ships.strategy_cleared", "missing ship_id", data)
+                break
+              }
+              useGameStore.getState().clearShipStrategy(data.ship_id)
+              break
+            }
+
             case "garrison.character_moved": {
               console.debug("[GAME EVENT] Garrison character moved", e.payload)
               const data = e.payload as Msg.GarrisonCharacterMovedMessage
@@ -1714,6 +1755,13 @@ export function GameProvider({ children }: GameProviderProps) {
                 // Modal opening from the UI agent (e.g. corporation_details)
                 if (typeof uiPayload.show_modal === "string") {
                   useGameStore.getState().setActiveModal(uiPayload.show_modal as UIModal)
+                }
+
+                // Switch the player ship panel tab (e.g. ship strategies)
+                if (typeof uiPayload.show_player_ship_tab === "string") {
+                  useGameStore
+                    .getState()
+                    .setPlayerShipTabFromAgent(uiPayload.show_player_ship_tab as PlayerShipTab)
                 }
 
                 // Everything else is map-domain
