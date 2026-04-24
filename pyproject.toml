@@ -43,6 +43,8 @@ npc-run = "gradientbang.npc.run_npc:main"
 # Useful scripts
 universe-bang = "gradientbang.scripts.universe_bang:main"
 character-lookup = "gradientbang.scripts.character_lookup:main"
+news-digest = "gradientbang.scripts.news_digest:main"
+news-front-page-image = "gradientbang.scripts.news_front_page_image:main"
 
 
 [tool.setuptools]
