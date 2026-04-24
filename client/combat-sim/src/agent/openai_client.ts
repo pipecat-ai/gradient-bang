@@ -47,6 +47,7 @@ export class OpenAILLMClient implements LLMClient {
   constructor(opts: OpenAIClientOpts = {}) {
     const apiKey =
       opts.apiKey ??
+      getStoredApiKey() ??
       (typeof process !== "undefined" ? process.env.OPENAI_API_KEY : undefined) ??
       (typeof import.meta !== "undefined"
         ? ((import.meta as unknown as { env?: Record<string, string> }).env
@@ -54,7 +55,7 @@ export class OpenAILLMClient implements LLMClient {
         : undefined)
     if (!apiKey) {
       throw new Error(
-        "OpenAILLMClient: missing API key. Set OPENAI_API_KEY or VITE_OPENAI_API_KEY, or pass opts.apiKey.",
+        "OpenAILLMClient: missing API key. Enter one via the in-app gate, set OPENAI_API_KEY/VITE_OPENAI_API_KEY, or pass opts.apiKey.",
       )
     }
     this.client = new OpenAI({
@@ -218,8 +219,35 @@ function toOpenAITool(t: ToolSchema): ChatCompletionTool {
   }
 }
 
-/** Env-based helper: true if an OpenAI key is accessible via process or Vite env. */
+/**
+ * Where the in-app gate stashes the user-entered OpenAI key. Local-only: the
+ * harness never leaves this machine, so a plain localStorage entry is fine.
+ */
+const STORED_API_KEY = "combat_sim_openai_api_key"
+
+/** Read the user-entered key from localStorage. Returns null in non-browser contexts. */
+export function getStoredApiKey(): string | null {
+  if (typeof localStorage === "undefined") return null
+  const v = localStorage.getItem(STORED_API_KEY)
+  return v && v.length > 0 ? v : null
+}
+
+/** Persist a user-entered key. Empty string clears it. */
+export function setStoredApiKey(key: string): void {
+  if (typeof localStorage === "undefined") return
+  const trimmed = key.trim()
+  if (trimmed.length === 0) localStorage.removeItem(STORED_API_KEY)
+  else localStorage.setItem(STORED_API_KEY, trimmed)
+}
+
+export function clearStoredApiKey(): void {
+  if (typeof localStorage === "undefined") return
+  localStorage.removeItem(STORED_API_KEY)
+}
+
+/** True if a key is accessible — stored value wins, env vars are fallback. */
 export function hasOpenAIKey(): boolean {
+  if (getStoredApiKey()) return true
   const fromProcess =
     typeof process !== "undefined" && !!process.env.OPENAI_API_KEY
   const fromVite =

@@ -80,7 +80,7 @@ export function SummarizeModal({ events, world, open, onClose }: Props) {
     async (messages: AgentMessage[]): Promise<string | null> => {
       if (!hasOpenAIKey()) {
         setError(
-          "No OpenAI API key available. Set VITE_OPENAI_API_KEY in .env to use this feature.",
+          "No OpenAI API key available. Reload the app to enter one via the gate, or set VITE_OPENAI_API_KEY in .env.",
         )
         return null
       }
