@@ -722,6 +722,180 @@ describe("move into toll sector", () => {
   })
 })
 
+// Per-payer toll semantics: paying is a peace contract between the payer and
+// the garrison only. One payer cannot release other non-payers from their
+// toll obligation; paid payers cannot attack the garrison; garrison
+// re-targets unpaid hostiles after a payer settles.
+describe("toll garrison with multiple players (per-payer semantics)", () => {
+  it("P1 pays, P2 braces → combat CONTINUES (no free ride for P2)", () => {
+    const { engine, emitter, combatIdIn, activeCombatIn } = makeHarness()
+    const owner = engine.createCharacter({ name: "Owner", sector: 1 })
+    const p1 = engine.createCharacter({ name: "P1", sector: 42, credits: 500 })
+    const p2 = engine.createCharacter({ name: "P2", sector: 42, credits: 500 })
+    engine.deployGarrison({
+      ownerCharacterId: owner,
+      sector: 42,
+      fighters: 100,
+      mode: "toll",
+      tollAmount: 50,
+    })
+
+    const cid = engine.initiateCombat(p1, 42)
+
+    // Round 1: P1 pays, P2 braces. Under old semantics this would end combat
+    // with toll_satisfied (bug — P2 escapes without paying). Under per-payer
+    // semantics, combat must continue.
+    expect(engine.submitAction(p1, cid, { action: "pay" })).toEqual({ ok: true })
+    expect(engine.submitAction(p2, cid, { action: "brace" })).toEqual({ ok: true })
+
+    const resolved = eventsOfType(emitter, "combat.round_resolved")
+    expect(resolved).toHaveLength(1)
+    expect(payloadOf(resolved[0]).end).toBeNull()
+    expect(activeCombatIn(42)?.ended).toBe(false)
+    expect(activeCombatIn(42)?.round).toBe(2)
+  })
+
+  it("P1 pays, P2 pays → combat ends with toll_satisfied", () => {
+    const { engine, emitter, combatIdIn } = makeHarness()
+    const owner = engine.createCharacter({ name: "Owner", sector: 1 })
+    const p1 = engine.createCharacter({ name: "P1", sector: 42, credits: 500 })
+    const p2 = engine.createCharacter({ name: "P2", sector: 42, credits: 500 })
+    engine.deployGarrison({
+      ownerCharacterId: owner,
+      sector: 42,
+      fighters: 100,
+      mode: "toll",
+      tollAmount: 50,
+    })
+
+    const cid = engine.initiateCombat(p1, 42)
+
+    expect(engine.submitAction(p1, cid, { action: "pay" })).toEqual({ ok: true })
+    expect(engine.submitAction(p2, cid, { action: "pay" })).toEqual({ ok: true })
+
+    const resolved = lastOfType(emitter, "combat.round_resolved")
+    expect(payloadOf(resolved).end).toBe("toll_satisfied")
+  })
+
+  it("paid payer cannot attack the garrison they paid", () => {
+    const { engine, combatIdIn, activeCombatIn } = makeHarness()
+    const owner = engine.createCharacter({ name: "Owner", sector: 1 })
+    const p1 = engine.createCharacter({
+      name: "P1",
+      sector: 42,
+      credits: 500,
+      fighters: 100,
+    })
+    const p2 = engine.createCharacter({ name: "P2", sector: 42, credits: 500 })
+    engine.deployGarrison({
+      ownerCharacterId: owner,
+      sector: 42,
+      fighters: 100,
+      mode: "toll",
+      tollAmount: 50,
+    })
+
+    const cid = engine.initiateCombat(p1, 42)
+
+    // Round 1: P1 pays. P2 braces so the round resolves.
+    expect(engine.submitAction(p1, cid, { action: "pay" })).toEqual({ ok: true })
+    expect(engine.submitAction(p2, cid, { action: "brace" })).toEqual({ ok: true })
+    expect(activeCombatIn(42)?.round).toBe(2)
+
+    // Round 2: P1 now tries to attack the garrison. Must be rejected.
+    const enc = activeCombatIn(42)!
+    const garrisonKey = Object.keys(enc.participants).find((k) =>
+      k.startsWith("garrison:"),
+    )!
+    const result = engine.submitAction(p1, cid, {
+      action: "attack",
+      target_id: garrisonKey,
+      commit: 50,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.reason).toMatch(/already paid toll/i)
+  })
+
+  it("paid payer cannot pay again (no double-charge)", () => {
+    const { engine, combatIdIn, activeCombatIn, world } = makeHarness()
+    const owner = engine.createCharacter({ name: "Owner", sector: 1 })
+    const p1 = engine.createCharacter({ name: "P1", sector: 42, credits: 500 })
+    const p2 = engine.createCharacter({ name: "P2", sector: 42, credits: 500 })
+    engine.deployGarrison({
+      ownerCharacterId: owner,
+      sector: 42,
+      fighters: 100,
+      mode: "toll",
+      tollAmount: 50,
+    })
+
+    const cid = engine.initiateCombat(p1, 42)
+
+    expect(engine.submitAction(p1, cid, { action: "pay" })).toEqual({ ok: true })
+    expect(engine.submitAction(p2, cid, { action: "brace" })).toEqual({ ok: true })
+    expect(activeCombatIn(42)?.round).toBe(2)
+
+    const p1Char = world().characters.get(p1 as never)!
+    const creditsAfterFirstPay = world().ships.get(p1Char.currentShipId)?.credits
+    expect(creditsAfterFirstPay).toBe(450)
+
+    // Round 2: P1 tries to pay again — rejected, no additional credits deducted.
+    const result = engine.submitAction(p1, cid, { action: "pay" })
+    expect(result.ok).toBe(false)
+    expect(result.reason).toMatch(/already paid toll/i)
+    expect(world().ships.get(p1Char.currentShipId)?.credits).toBe(450)
+  })
+
+  it("garrison re-targets to unpaid hostile in escalation round (paid payer excluded)", () => {
+    const { engine, emitter, combatIdIn } = makeHarness()
+    const owner = engine.createCharacter({ name: "Owner", sector: 1 })
+    const p1 = engine.createCharacter({
+      name: "P1",
+      sector: 42,
+      credits: 500,
+      fighters: 50,
+    })
+    const p2 = engine.createCharacter({
+      name: "P2",
+      sector: 42,
+      credits: 500,
+      fighters: 50,
+    })
+    engine.deployGarrison({
+      ownerCharacterId: owner,
+      sector: 42,
+      fighters: 30,
+      mode: "toll",
+      tollAmount: 50,
+    })
+
+    const cid = engine.initiateCombat(p1, 42)
+
+    // Round 1 (demand round): P1 pays, P2 braces. Garrison holds fire.
+    engine.submitAction(p1, cid, { action: "pay" })
+    engine.submitAction(p2, cid, { action: "brace" })
+
+    // Round 2 (escalation): P1 braces, P2 braces. Garrison should now
+    // attack P2 (the unpaid hostile) — never P1.
+    engine.submitAction(p1, cid, { action: "brace" })
+    engine.submitAction(p2, cid, { action: "brace" })
+
+    const resolvedAll = eventsOfType(emitter, "combat.round_resolved")
+    expect(resolvedAll).toHaveLength(2)
+    const round2Actions = (payloadOf(resolvedAll[1]).actions ?? {}) as Record<
+      string,
+      Record<string, unknown>
+    >
+    const garrisonEntry = Object.entries(round2Actions).find(([name]) =>
+      name.includes("Garrison"),
+    )
+    expect(garrisonEntry).toBeDefined()
+    expect(garrisonEntry![1].action).toBe("attack")
+    // Target must be P2, never P1 (who is at peace with the garrison).
+    expect(garrisonEntry![1].target).not.toBe(p1)
+  })
+})
+
 describe("observer joins existing combat", () => {
   it("observer arrives mid-combat, then joins via initiateCombat (join-or-create join path)", () => {
     const { engine, emitter, world } = makeHarness()

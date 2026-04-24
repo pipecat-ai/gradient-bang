@@ -1,8 +1,18 @@
+import {
+  CastleTurret,
+  Crosshair,
+  MapPin,
+  Rocket,
+  Shield,
+  UserCircle,
+  XCircle,
+} from "@phosphor-icons/react"
 import { useState } from "react"
 
 import type { ControllerConfig } from "../controllers/types"
 import { useAppStore } from "../store/appStore"
 import type { CombatEngine } from "../engine/engine"
+import { SHIP_DEFINITIONS } from "../engine/ship_definitions"
 import {
   corpId as corpIdBrand,
   type Character,
@@ -60,21 +70,25 @@ export function EntityRoster({ engine, world, onSetController }: Props) {
   const hasSelection = selectedId != null
 
   return (
-    <div className="border-b border-neutral-800 bg-neutral-950/60 px-4 py-2">
+    <div className="bg-neutral-950/60 px-3 py-2">
       <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500">
         <span>Entities · {totalEntities}</span>
         {selectedId ? (
           <>
             <span className="text-neutral-600">·</span>
-            <span className="rounded border border-emerald-300 bg-emerald-950 px-1 text-[9px] font-bold uppercase tracking-wider text-emerald-200">
+            <span className="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-950 px-1 text-[9px] font-bold uppercase tracking-wider text-emerald-200">
+              <Crosshair weight="bold" className="h-2.5 w-2.5" />
               POV
             </span>
-            <span className="normal-case tracking-normal text-emerald-300">{selectedId}</span>
+            <span className="truncate normal-case tracking-normal text-emerald-300">
+              {selectedId}
+            </span>
             <button
               type="button"
               onClick={() => toggle(selectedId)}
-              className="ml-auto rounded bg-neutral-800 px-2 py-0.5 text-[10px] normal-case tracking-normal text-neutral-300 hover:bg-neutral-700"
+              className="ml-auto inline-flex items-center gap-1 rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-neutral-300 hover:bg-neutral-700"
             >
+              <XCircle weight="fill" className="h-3 w-3" />
               Clear
             </button>
           </>
@@ -84,7 +98,11 @@ export function EntityRoster({ engine, world, onSetController }: Props) {
       </div>
 
       {characters.length > 0 && (
-        <Section label="Characters" count={characters.length}>
+        <Section
+          icon={<UserCircle weight="duotone" className="h-3.5 w-3.5 text-emerald-400" />}
+          label="Characters"
+          count={characters.length}
+        >
           {characters.map((c) => (
             <CharacterTile
               key={c.id}
@@ -100,7 +118,11 @@ export function EntityRoster({ engine, world, onSetController }: Props) {
         </Section>
       )}
       {corpShips.length > 0 && (
-        <Section label="Corp ships" count={corpShips.length}>
+        <Section
+          icon={<Rocket weight="duotone" className="h-3.5 w-3.5 text-purple-400" />}
+          label="Corp ships"
+          count={corpShips.length}
+        >
           {corpShips.map((s) => {
             const combatantId = s.id as unknown as EntityId
             const selected = selectedId === combatantId
@@ -128,6 +150,9 @@ export function EntityRoster({ engine, world, onSetController }: Props) {
                       {corp?.name ?? s.ownerCorpId}
                     </span>
                   </div>
+                  <div className="mt-0.5 text-[10px] text-purple-300/80">
+                    {SHIP_DEFINITIONS[s.type]?.display_name ?? s.type}
+                  </div>
                   <StatLine
                     sector={s.sector}
                     fighters={s.fighters}
@@ -151,7 +176,11 @@ export function EntityRoster({ engine, world, onSetController }: Props) {
         </Section>
       )}
       {garrisons.length > 0 && (
-        <Section label="Garrisons" count={garrisons.length}>
+        <Section
+          icon={<CastleTurret weight="duotone" className="h-3.5 w-3.5 text-sky-400" />}
+          label="Garrisons"
+          count={garrisons.length}
+        >
           {garrisons.map((g) => {
             const combatantId = `garrison:${g.sector}:${g.ownerCharacterId}` as EntityId
             const selected = selectedId === combatantId
@@ -207,20 +236,25 @@ export function EntityRoster({ engine, world, onSetController }: Props) {
 }
 
 function Section({
+  icon,
   label,
   count,
   children,
 }: {
+  icon?: React.ReactNode
   label: string
   count: number
   children: React.ReactNode
 }) {
   return (
-    <div className="mb-2 last:mb-0">
-      <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-600">
-        {label} · {count}
+    <div className="mb-3 last:mb-0">
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-500">
+        {icon}
+        <span>{label}</span>
+        <span className="text-neutral-700">·</span>
+        <span>{count}</span>
       </div>
-      <div className="flex flex-wrap gap-2">{children}</div>
+      <div className="flex flex-col gap-2">{children}</div>
     </div>
   )
 }
@@ -231,38 +265,69 @@ function StatLine({
   maxFighters,
   shields,
   maxShields,
-  id,
 }: {
   sector: number
   fighters: number
   maxFighters?: number
   shields?: number
   maxShields?: number
+  /** Internal id; kept for callers but hidden from the rendered tile — the
+   *  card header already carries the human-readable name. */
   id: string
 }) {
   return (
-    <>
-      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-neutral-400">
-        <span>
-          sec <span className="text-neutral-200">{sector}</span>
+    <div className="mt-1.5 space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="inline-flex items-center gap-0.5 rounded bg-neutral-800/80 px-1.5 py-0.5 text-[10px] text-neutral-400">
+          <MapPin weight="fill" className="h-2.5 w-2.5 text-neutral-500" />
+          <span className="tabular-nums text-neutral-200">{sector}</span>
         </span>
-        <span className="text-neutral-700">·</span>
-        <span>
-          F <span className="text-neutral-200">{fighters}</span>
-          {maxFighters != null ? <span className="text-neutral-600">/{maxFighters}</span> : null}
-        </span>
-        {shields != null && (
-          <>
-            <span className="text-neutral-700">·</span>
-            <span>
-              S <span className="text-neutral-200">{shields}</span>
-              {maxShields != null ? <span className="text-neutral-600">/{maxShields}</span> : null}
-            </span>
-          </>
-        )}
       </div>
-      <div className="mt-0.5 font-mono text-[10px] text-neutral-600">{id}</div>
-    </>
+      <MiniBar
+        icon={<Crosshair weight="bold" className="h-2.5 w-2.5 text-amber-400" />}
+        value={fighters}
+        max={maxFighters ?? fighters}
+        tone="amber"
+      />
+      {shields != null && (
+        <MiniBar
+          icon={<Shield weight="fill" className="h-2.5 w-2.5 text-sky-400" />}
+          value={shields}
+          max={maxShields ?? shields}
+          tone="sky"
+        />
+      )}
+    </div>
+  )
+}
+
+function MiniBar({
+  icon,
+  value,
+  max,
+  tone,
+}: {
+  icon: React.ReactNode
+  value: number
+  max: number
+  tone: "amber" | "sky"
+}) {
+  const pct = max > 0 ? Math.max(0, Math.min(1, value / max)) * 100 : 0
+  const fill = tone === "amber" ? "bg-amber-400" : "bg-sky-400"
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="w-3">{icon}</span>
+      <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-neutral-800">
+        <div
+          className={`h-full rounded-full transition-[width] duration-500 ease-out ${fill}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="tabular-nums text-[10px] text-neutral-400">
+        {value}
+        <span className="text-neutral-600">/{max}</span>
+      </span>
+    </div>
   )
 }
 
@@ -333,6 +398,11 @@ function CharacterTile({
             </span>
           )}
         </div>
+        {ship && (
+          <div className="mt-0.5 text-[10px] text-emerald-400/80">
+            {SHIP_DEFINITIONS[ship.type]?.display_name ?? ship.type}
+          </div>
+        )}
         <StatLine
           sector={character.currentSector}
           fighters={ship?.fighters ?? 0}
@@ -405,9 +475,10 @@ function tileClass({
   base: string
   active: string
 }): string {
-  const root = "min-w-[180px] rounded border px-2 py-1 text-left text-xs transition"
-  if (selected) return `${root} ${active}`
-  const dim = hasSelection ? "opacity-60 hover:opacity-100" : ""
+  const root =
+    "group relative w-full rounded-md border px-2.5 py-2 text-left text-xs transition-all duration-200"
+  if (selected) return `${root} ${active} translate-x-[1px]`
+  const dim = hasSelection ? "opacity-55 hover:opacity-100 hover:-translate-y-px" : "hover:-translate-y-px hover:shadow-md hover:shadow-black/40"
   return `${root} ${base} text-neutral-300 ${dim}`
 }
 

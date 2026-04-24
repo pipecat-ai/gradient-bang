@@ -6,7 +6,10 @@ import {
 } from "./events"
 import { InMemoryEmitter, type Emitter } from "./emitter"
 import { DEFAULT_SHIP_TYPE, SHIP_DEFINITIONS } from "./ship_definitions"
+import { buildCorporationMap } from "./friendly"
 import {
+  allHostilesPaid,
+  anyOutstandingToll,
   buildGarrisonActions,
   ensureTollRegistry,
   type TollRegistryEntry,
@@ -52,6 +55,12 @@ export interface CombatEngineOpts {
    * time pressure. Default: true.
    */
   timerEnabled?: boolean
+  /**
+   * When true, auto-engage on arrival and garrison deploy-time auto-initiate
+   * are suppressed until `runScenario()` is called. Lets the user compose
+   * the arena without combat firing mid-setup. Default: false.
+   */
+  stagingMode?: boolean
 }
 
 export interface CreateCharacterOpts {
@@ -103,13 +112,56 @@ export class CombatEngine {
   private idSeq = 0
   private eventSeq = 0
   private timerEnabled: boolean
+  // Harness-only "composition" flag. When true, `moveCharacter` does NOT
+  // auto-engage hostile garrisons on arrival. Lets the user assemble the
+  // arena (randomize, drop ships into garrison sectors, etc) without combat
+  // kicking off mid-setup. Flip to false via `runScenario()` to release.
+  private stagingMode = false
 
   constructor(opts: CombatEngineOpts = {}) {
     this.emitter = opts.emitter ?? new InMemoryEmitter()
     this.now = opts.now ?? (() => Date.now())
     this.rng = opts.rng ?? Math.random
     this.timerEnabled = opts.timerEnabled ?? true
+    this.stagingMode = opts.stagingMode ?? false
     this.refreshSnapshot()
+  }
+
+  /** True while the scenario is still being composed — auto-engage is gated. */
+  isStagingMode(): boolean {
+    return this.stagingMode
+  }
+
+  /** Enter composition mode: no auto-engage on arrival until `runScenario()`. */
+  setStagingMode(enabled: boolean): void {
+    this.stagingMode = enabled
+  }
+
+  /**
+   * Release composition mode and fire auto-engage checks that were suppressed
+   * during staging:
+   *   1. Every offensive/toll garrison gets a deploy-time auto-initiate pass,
+   *      same as if it had just been deployed outside staging.
+   *   2. Every character triggers the arrival auto-engage path so characters
+   *      sitting in garrison sectors get pulled into combat.
+   */
+  runScenario(): void {
+    if (!this.stagingMode) return
+    this.stagingMode = false
+    // Snapshot before iteration — both paths mutate activeCombats.
+    const garrisons = Array.from(this.world.garrisons.values())
+    for (const g of garrisons) {
+      if (g.mode === "offensive" || g.mode === "toll") {
+        this.maybeAutoInitiateFromGarrison(g)
+      }
+    }
+    const chars = Array.from(this.world.characters.values()).map((c) => ({
+      id: c.id,
+      sector: c.currentSector,
+    }))
+    for (const { id, sector } of chars) {
+      this.maybeAutoEngageOnArrival(id, sector)
+    }
   }
 
   /** Read current timer state (whether rounds get a real deadline). */
@@ -403,6 +455,10 @@ export class CombatEngine {
   }
 
   private maybeAutoEngageOnArrival(charId: CharacterId, sector: SectorId): void {
+    // Staging mode suppresses auto-engage so the user can compose scenarios
+    // (drop a character into a garrison sector, randomize layouts) without
+    // combat firing mid-setup. `runScenario()` releases and retriggers.
+    if (this.stagingMode) return
     const active = Array.from(this.world.activeCombats.values()).some(
       (c) => !c.ended && c.sector_id === sector,
     )
@@ -518,6 +574,8 @@ export class CombatEngine {
   }
 
   private maybeAutoInitiateFromGarrison(garrison: Garrison): void {
+    // Staging mode suppresses deploy-time combat kickoff — see `runScenario()`.
+    if (this.stagingMode) return
     // Don't stomp an active combat.
     const active = Array.from(this.world.activeCombats.values()).some(
       (c) => !c.ended && c.sector_id === garrison.sector,
@@ -831,6 +889,19 @@ export class CombatEngine {
       if ((target?.fighters ?? 0) <= 0)
         return { ok: false, reason: "target has been destroyed — pick another" }
       if (commit <= 0) return { ok: false, reason: "attack commit must be > 0" }
+      // Per-payer toll semantics: paying a toll is a peace contract with
+      // that garrison. Attacking afterwards is incoherent — the payer
+      // already bought passage. Reject so the LLM picks brace/flee/attack
+      // of a non-paid hostile instead.
+      const registry = (encounter.context as Record<string, unknown> | undefined)
+        ?.toll_registry as Record<string, TollRegistryEntry> | undefined
+      const tollEntry = registry?.[target_id]
+      if (tollEntry?.payments?.some((p) => p.payer === actorId)) {
+        return {
+          ok: false,
+          reason: `already paid toll to ${target_id}; cannot attack a garrison you are at peace with`,
+        }
+      }
     }
 
     if (input.action === "pay") {
@@ -1019,13 +1090,18 @@ export class CombatEngine {
     const outcome = resolveRound(encounter, combinedActions)
 
     // Port of combat_resolution.ts stalemate/toll unstuck: if the engine returns
-    // "stalemate" but an unpaid toll is outstanding, the garrison will escalate
-    // next round — don't end combat on a toll-demand brace/brace round.
+    // "stalemate" but any toll garrison still has an unpaid hostile, the
+    // garrison will escalate next round — don't end combat on a toll-demand
+    // brace/brace round. Per-payer semantics: "unpaid" means at least one
+    // non-friendly hostile lacks a payment record on this garrison's entry.
     if (outcome.end_state === "stalemate") {
       const registry = (encounter.context as Record<string, unknown> | undefined)
         ?.toll_registry as Record<string, TollRegistryEntry> | undefined
-      if (registry && Object.values(registry).some((e) => !e.paid)) {
-        outcome.end_state = null
+      if (registry) {
+        const corps = buildCorporationMap(encounter)
+        if (anyOutstandingToll(encounter, registry, corps)) {
+          outcome.end_state = null
+        }
       }
     }
 
@@ -1204,6 +1280,17 @@ export class CombatEngine {
       targetId && targetId in registry ? targetId : garrisonIds[0]
     const entry: TollRegistryEntry | undefined = registry[garrisonKey]
     if (!entry) return { ok: false, reason: "toll entry missing" }
+
+    // Per-payer semantics: a payer who has already paid this garrison is
+    // at peace with it. Re-paying is incoherent and would charge credits
+    // for a contract already in force. Reject so the LLM picks a real
+    // action (brace / flee / attack a non-paid hostile).
+    if (entry.payments?.some((p) => p.payer === payerId)) {
+      return {
+        ok: false,
+        reason: `already paid toll to ${garrisonKey}; you are at peace with this garrison — choose brace, flee, or attack a non-paid hostile instead`,
+      }
+    }
 
     const amount = typeof entry.toll_amount === "number" ? entry.toll_amount : 0
 
@@ -1430,6 +1517,11 @@ export class CombatEngine {
         const ship = this.world.ships.get(char.currentShipId)
         if (ship) ship.sector = destination
       }
+      // Mark the combatant as fled so the UI can distinguish fled vs
+      // still-active vs destroyed. Participant record stays in place for
+      // event replay; only the visual + action-lock state changes.
+      participant.has_fled = true
+      participant.fled_to_sector = destination
     }
   }
 
@@ -1469,10 +1561,17 @@ export class CombatEngine {
   }
 
   /**
-   * Ported from combat_resolution.ts `checkTollStanddown`. True when the toll
-   * was paid this round AND the toll-mode garrison braced AND every other
-   * submitter braced or paid — i.e. payment was accepted and no one kept
-   * shooting. Combat ends with `toll_satisfied` in that case.
+   * Per-payer toll standdown: combat ends with `toll_satisfied` only when
+   *   - a payment was recorded THIS round (the trigger — don't gratuitously
+   *     end peaceful rounds before any toll activity);
+   *   - no participant is attacking this round (an active PvP attack keeps
+   *     combat alive even if the garrison is placated);
+   *   - every toll garrison has a payment on record from EVERY non-friendly,
+   *     non-destroyed character combatant. One player's payment does NOT
+   *     absolve other players of their toll obligation.
+   *
+   * Diverges from the old per-garrison-flag behavior where one payer plus
+   * everyone-else-bracing ended combat — a silent free-ride for non-payers.
    */
   private checkTollStanddown(
     encounter: CombatEncounterState,
@@ -1483,30 +1582,42 @@ export class CombatEngine {
       ?.toll_registry as Record<string, TollRegistryEntry> | undefined
     if (!registry) return false
 
-    for (const [garrisonKey, entry] of Object.entries(registry)) {
-      if (!entry.paid) continue
-      if (entry.paid_round !== roundNumber) continue
+    // Trigger: at least one garrison received a payment this round.
+    let paidThisRound = false
+    for (const entry of Object.values(registry)) {
+      if (entry.paid_round === roundNumber) {
+        paidThisRound = true
+        break
+      }
+    }
+    if (!paidThisRound) return false
 
+    // Any active attack keeps combat alive.
+    for (const a of Object.values(actions)) {
+      if (a.action === "attack") return false
+    }
+
+    // Every toll garrison must have all its hostiles paid. If even one
+    // garrison has an unpaid non-friendly hostile, combat continues so
+    // that garrison can escalate next round.
+    const corps = buildCorporationMap(encounter)
+    for (const [garrisonKey, entry] of Object.entries(registry)) {
+      const garrison = encounter.participants[garrisonKey]
+      if (!garrison) continue
+
+      // Garrison must not be attacking this round.
       const garrisonAction = actions[garrisonKey]
       if (
         garrisonAction &&
         garrisonAction.action !== "brace" &&
         garrisonAction.action !== "pay"
       ) {
-        continue
+        return false
       }
 
-      let othersBraced = true
-      for (const [pid, a] of Object.entries(actions)) {
-        if (pid === garrisonKey) continue
-        if (a.action !== "brace" && a.action !== "pay") {
-          othersBraced = false
-          break
-        }
-      }
-      if (othersBraced) return true
+      if (!allHostilesPaid(encounter, garrison, entry, corps)) return false
     }
-    return false
+    return true
   }
 
   // Harness recipient scope for combat events, mirroring production's

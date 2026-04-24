@@ -48,7 +48,7 @@ export function EventLog({ events }: Props) {
   const tree = useMemo(() => groupEvents(filteredEvents), [filteredEvents])
 
   return (
-    <div className="h-full overflow-auto px-4 py-2">
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-2">
       <div className="mb-2 text-[11px] uppercase tracking-wider text-neutral-500">
         Event log ({filteredEvents.length}
         {selectedId ? (

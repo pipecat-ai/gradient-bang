@@ -30,6 +30,7 @@ function selectStrongestTarget(
   encounter: CombatEncounterState,
   garrison: CombatantState,
   corps: CorporationMap,
+  paidPayers: ReadonlySet<string> = new Set(),
 ): CombatantState | null {
   const candidates = Object.values(encounter.participants).filter((p) => {
     if (p.combatant_type !== "character") return false
@@ -37,6 +38,7 @@ function selectStrongestTarget(
     if (p.fighters <= 0) return false
     if (combatantsAreFriendly(corps, p, garrison)) return false
     if (p.is_escape_pod) return false
+    if (paidPayers.has(p.combatant_id)) return false
     return true
   })
   if (!candidates.length) return null
@@ -46,6 +48,50 @@ function selectStrongestTarget(
     return a.combatant_id.localeCompare(b.combatant_id)
   })
   return candidates[0]
+}
+
+/**
+ * Per-payer toll semantics: a toll garrison is at peace with the encounter
+ * only when every non-friendly, non-destroyed character combatant has a
+ * payment record on this garrison's entry. One player paying does NOT
+ * absolve the others of their toll obligation.
+ */
+export function allHostilesPaid(
+  encounter: CombatEncounterState,
+  garrison: CombatantState,
+  entry: TollRegistryEntry,
+  corps: CorporationMap,
+): boolean {
+  const paidPayers = new Set<string>(
+    (entry.payments ?? []).map((p) => p.payer),
+  )
+  for (const p of Object.values(encounter.participants)) {
+    if (p.combatant_id === garrison.combatant_id) continue
+    if (p.combatant_type !== "character") continue
+    if (p.fighters <= 0) continue
+    if (p.is_escape_pod) continue
+    if (combatantsAreFriendly(corps, p, garrison)) continue
+    if (!paidPayers.has(p.combatant_id)) return false
+  }
+  return true
+}
+
+/**
+ * True if any toll garrison in the registry still has an unpaid hostile —
+ * i.e. the encounter is not yet settled on tolls. Used by the stalemate
+ * unstuck path to keep combat open when tolls are outstanding.
+ */
+export function anyOutstandingToll(
+  encounter: CombatEncounterState,
+  registry: Record<string, TollRegistryEntry>,
+  corps: CorporationMap,
+): boolean {
+  for (const [garrisonKey, entry] of Object.entries(registry)) {
+    const garrison = encounter.participants[garrisonKey]
+    if (!garrison) continue
+    if (!allHostilesPaid(encounter, garrison, entry, corps)) return true
+  }
+  return false
 }
 
 export interface TollRegistryEntry {
@@ -93,7 +139,20 @@ function buildTollAction(
   }
   registry[participant.combatant_id] = entry
 
-  // Pick target: prefer the initiator if hostile, else strongest hostile.
+  // Per-payer toll state: a combatant at peace with this garrison is one
+  // with a payment on record. Paid payers are excluded from targeting; the
+  // garrison stays hostile to everyone else.
+  const paidPayers = new Set<string>(
+    (entry.payments ?? []).map((p) => p.payer),
+  )
+
+  // Sticky target_id: invalidate if the previous target has since paid.
+  if (entry.target_id && paidPayers.has(entry.target_id)) {
+    entry.target_id = null
+  }
+
+  // Pick target: prefer the initiator if hostile AND unpaid, else strongest
+  // unpaid hostile.
   if (!entry.target_id) {
     const initiatorId =
       typeof encounter.context?.initiator === "string"
@@ -106,11 +165,12 @@ function buildTollAction(
       initiator.fighters > 0 &&
       (initiator.owner_character_id ?? initiator.combatant_id) !== participant.owner_character_id &&
       !combatantsAreFriendly(corps, initiator, participant) &&
-      !initiator.is_escape_pod
+      !initiator.is_escape_pod &&
+      !paidPayers.has(initiator.combatant_id)
     ) {
       entry.target_id = initiator.combatant_id
     } else {
-      const fallback = selectStrongestTarget(encounter, participant, corps)
+      const fallback = selectStrongestTarget(encounter, participant, corps, paidPayers)
       entry.target_id = fallback ? fallback.combatant_id : null
     }
   }
@@ -118,20 +178,23 @@ function buildTollAction(
   const targetState = entry.target_id ? encounter.participants[entry.target_id] : null
   const targetAvailable = Boolean(targetState && targetState.fighters > 0)
   const demandRound = entry.demand_round ?? encounter.round
-  const alreadyPaid = Boolean(entry.paid)
+  const allPaid = allHostilesPaid(encounter, participant, entry, corps)
 
   let action: CombatantAction = "brace"
   let commit = 0
   let targetId: string | null = null
 
-  if (alreadyPaid && (!entry.paid_round || entry.paid_round <= encounter.round)) {
+  if (allPaid) {
+    // Every hostile has paid — garrison holds fire. checkTollStanddown
+    // will end the encounter this round given no active cross-attacks.
     action = "brace"
-  } else if (!alreadyPaid && targetAvailable) {
+  } else if (targetAvailable) {
     if (encounter.round === demandRound) {
-      // Round 1 in toll mode: stand off; payment window.
+      // Demand round: stand off and give unpaid combatants time to decide.
       action = "brace"
     } else {
-      // Round 2+ without payment: escalate to full-strength attack.
+      // Escalate against the unpaid target only. Paid payers are not in
+      // the candidate pool (filtered above).
       action = "attack"
       commit = participant.fighters
       targetId = targetState?.combatant_id ?? null

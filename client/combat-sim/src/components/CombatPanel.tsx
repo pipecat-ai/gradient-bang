@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react"
+import { CastleTurret, Coin, Crosshair, Robot, Shield, ShieldWarning } from "@phosphor-icons/react"
+import { useEffect, useRef, useState } from "react"
 
 import type { CombatEngine } from "../engine/engine"
 import {
@@ -16,16 +17,27 @@ interface Props {
 }
 
 export function CombatPanel({ engine, world }: Props) {
-  const active = Array.from(world.activeCombats.values()).filter((c) => !c.ended)
-  if (active.length === 0) return null
+  // Show every combat (including ended ones) so the final state remains
+  // visible after a round ends — useful during presentations and post-mortem.
+  // Order: active first (by sector), then ended (most-recent update first).
+  const encounters = Array.from(world.activeCombats.values())
+  if (encounters.length === 0) return null
+  const active = encounters.filter((c) => !c.ended)
+  const ended = encounters
+    .filter((c) => c.ended)
+    .sort((a, b) => b.last_updated - a.last_updated)
+  const ordered = [...active, ...ended]
 
   return (
     <div className="border-b border-neutral-800 bg-neutral-950/60 px-4 py-3">
-      <div className="mb-2 text-[11px] uppercase tracking-wider text-neutral-500">
-        Active combat ({active.length})
+      <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500">
+        <span>
+          Combat · {active.length} active
+          {ended.length > 0 ? ` · ${ended.length} ended` : ""}
+        </span>
       </div>
       <div className="space-y-3">
-        {active.map((encounter) => (
+        {ordered.map((encounter) => (
           <EncounterCard key={encounter.combat_id} engine={engine} encounter={encounter} />
         ))}
       </div>
@@ -49,50 +61,71 @@ function EncounterCard({
 
   const remainingMs = encounter.deadline != null ? encounter.deadline - now : null
   const expired = remainingMs != null && remainingMs <= 0
+  const isEnded = encounter.ended
 
   return (
-    <div className="rounded border border-neutral-800 bg-neutral-900/50 p-2">
-      <div className="mb-2 flex items-center gap-3 text-[11px] text-neutral-500">
+    <div
+      className={`rounded border p-2 ${
+        isEnded
+          ? "border-neutral-800 bg-neutral-950/60 opacity-90"
+          : "border-neutral-800 bg-neutral-900/50"
+      }`}
+    >
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
         <span>
           <span className="text-neutral-400">{encounter.combat_id}</span> · sector{" "}
           {encounter.sector_id} · round {encounter.round}
         </span>
-        <span className="ml-auto">
-          deadline:{" "}
-          {remainingMs == null ? (
-            "—"
-          ) : expired ? (
-            <span className="text-amber-400">expired (tick to resolve)</span>
-          ) : (
-            <span className="text-neutral-300">{(remainingMs / 1000).toFixed(1)}s</span>
-          )}
-        </span>
-        <button
-          type="button"
-          onClick={() => engine.tick(Date.now())}
-          className="rounded bg-neutral-800 px-2 py-0.5 text-[11px] text-neutral-300 hover:bg-neutral-700"
-        >
-          Tick now
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (
-              !window.confirm(
-                "Force-end this combat? No more damage will be applied; the engine emits a final combat.ended so you can summarize. Harness-only — not in production.",
-              )
-            )
-              return
-            const result = engine.forceEndCombat(
-              combatIdBrand(encounter.combat_id),
-            )
-            if (!result.ok) alert(result.reason)
-          }}
-          className="rounded bg-rose-900/40 px-2 py-0.5 text-[11px] text-rose-200 hover:bg-rose-900/60"
-          title="Hard-terminate this combat (debug only)"
-        >
-          Force end
-        </button>
+        {isEnded && (
+          <span
+            className="inline-flex items-center gap-1 rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-neutral-300"
+            title={`Combat ended${encounter.end_state ? ` — ${encounter.end_state}` : ""}`}
+          >
+            ended{encounter.end_state ? ` · ${encounter.end_state}` : ""}
+          </span>
+        )}
+        {!isEnded && (
+          <span className="ml-auto">
+            deadline:{" "}
+            {remainingMs == null ? (
+              "—"
+            ) : expired ? (
+              <span className="text-amber-400">expired (tick to resolve)</span>
+            ) : (
+              <span className="text-neutral-300">{(remainingMs / 1000).toFixed(1)}s</span>
+            )}
+          </span>
+        )}
+        {!isEnded && (
+          <>
+            <button
+              type="button"
+              onClick={() => engine.tick(Date.now())}
+              className="rounded bg-neutral-800 px-2 py-0.5 text-[11px] text-neutral-300 hover:bg-neutral-700"
+            >
+              Tick now
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    "Force-end this combat? No more damage will be applied; the engine emits a final combat.ended so you can summarize. Harness-only — not in production.",
+                  )
+                )
+                  return
+                const result = engine.forceEndCombat(
+                  combatIdBrand(encounter.combat_id),
+                )
+                if (!result.ok) alert(result.reason)
+              }}
+              className="rounded bg-rose-900/40 px-2 py-0.5 text-[11px] text-rose-200 hover:bg-rose-900/60"
+              title="Hard-terminate this combat (debug only)"
+            >
+              Force end
+            </button>
+          </>
+        )}
       </div>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         {participants.map((p) =>
@@ -147,26 +180,54 @@ function GarrisonCard({
   // "auto-controlled" and you have to dig into the event log to reconstruct.
   const lastAction = encounter.ui_last_actions[participant.combatant_id]
 
+  const fighterDelta = useRoundDelta(participant.fighters, encounter.round)
+  const destroyedShake = useTransitionAnim(dead, 650)
+  // Toll paid THIS round triggers a one-shot flash so the transition is
+  // perceptually distinct from a long-ago payment.
+  const tollFlash = useTransitionAnim(tollPaidThisRound, 1400)
+
   return (
     <div
-      className={`rounded border p-2 text-xs ${
+      className={`rounded border p-2 text-xs transition ${
         dead
-          ? "border-neutral-900 bg-neutral-950/60 opacity-60"
+          ? "border-rose-900/60 bg-neutral-950/60 opacity-70"
           : "border-sky-900/60 bg-sky-950/30"
-      }`}
+      } ${destroyedShake ? "anim-destroyed" : ""}`}
     >
-      <div className="flex flex-wrap items-baseline gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <CastleTurret
+          weight="fill"
+          className={`h-3.5 w-3.5 ${dead ? "text-rose-400" : "text-sky-300"}`}
+        />
         <span className="font-semibold text-neutral-100">{participant.name}</span>
-        <span className="text-[11px] uppercase tracking-wider text-sky-400">{mode}</span>
+        <span
+          className={`inline-flex items-center gap-0.5 rounded px-1 text-[9px] uppercase tracking-wider ${
+            mode === "toll"
+              ? "bg-amber-950/60 text-amber-300"
+              : mode === "offensive"
+                ? "bg-rose-950/60 text-rose-300"
+                : "bg-sky-950/60 text-sky-300"
+          }`}
+        >
+          {mode === "toll" ? (
+            <Coin weight="fill" className="h-2.5 w-2.5" />
+          ) : mode === "offensive" ? (
+            <Crosshair weight="bold" className="h-2.5 w-2.5" />
+          ) : (
+            <Shield weight="fill" className="h-2.5 w-2.5" />
+          )}
+          {mode}
+          {mode === "toll" ? ` · ${tollAmount}c` : ""}
+        </span>
         {mode === "toll" && (
           <span
-            className={`rounded border px-1 text-[9px] uppercase tracking-wider ${
+            className={`inline-flex items-center gap-0.5 rounded border px-1 text-[9px] uppercase tracking-wider transition ${
               tollPaidThisRound
-                ? "border-emerald-700 bg-emerald-950/50 text-emerald-300"
+                ? "border-emerald-500 bg-emerald-900/60 text-emerald-100"
                 : tollEntry?.paid
                   ? "border-amber-700 bg-amber-950/50 text-amber-300"
                   : "border-neutral-700 bg-neutral-900 text-neutral-400"
-            }`}
+            } ${tollFlash ? "anim-toll-flash" : ""}`}
             title={
               tollPaidThisRound
                 ? "Toll paid this round — standdown eligible if everyone else braces."
@@ -175,42 +236,44 @@ function GarrisonCard({
                   : "Toll not yet paid."
             }
           >
+            <Coin weight="fill" className="h-2.5 w-2.5" />
             {tollPaidThisRound
               ? "paid · current"
               : tollEntry?.paid
                 ? `paid · r${tollEntry.paid_round}`
-                : `${tollAmount}c unpaid`}
-          </span>
-        )}
-        {dead && (
-          <span className="rounded border border-rose-800 bg-rose-900/40 px-1 text-[9px] uppercase tracking-wider text-rose-200">
-            destroyed
+                : "unpaid"}
           </span>
         )}
       </div>
-      <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-neutral-400">
-        <div>
-          fighters{" "}
-          <span className="text-neutral-200">
-            {participant.fighters}/{participant.max_fighters}
-          </span>
-        </div>
-        <div>
+      <div className="mt-1.5 flex items-center gap-3">
+        <StatBar
+          icon={<Crosshair weight="bold" className="h-2.5 w-2.5 text-amber-400" />}
+          label="F"
+          value={participant.fighters}
+          max={participant.max_fighters}
+          delta={fighterDelta}
+          tone="amber"
+        />
+        <div className="flex min-w-0 flex-col items-end gap-0.5 text-[10px] text-neutral-500">
           {ownerName && (
-            <>
+            <span className="truncate">
               owner <span className="text-neutral-300">{ownerName}</span>
-            </>
+            </span>
           )}
-        </div>
-        <div>
           {dead ? (
             <span className="text-rose-400">destroyed</span>
           ) : lastAction ? (
-            <span className="text-neutral-400">
-              last: {formatGarrisonAction(lastAction)}
+            <span className="truncate">
+              last:{" "}
+              <span className="text-neutral-300">
+                {formatGarrisonAction(lastAction)}
+              </span>
             </span>
           ) : (
-            <span className="text-sky-300">auto-controlled</span>
+            <span className="inline-flex items-center gap-0.5 text-sky-300">
+              <Robot weight="fill" className="h-2.5 w-2.5" />
+              auto-controlled
+            </span>
           )}
         </div>
       </div>
@@ -267,6 +330,13 @@ function ParticipantDock({
   // paints, and the badge appears "stuck on awaiting".
   const lastAction = encounter.ui_last_actions[participantId]
   const dead = participant.fighters <= 0
+  const fled = Boolean(participant.has_fled)
+  const fledTo = participant.fled_to_sector ?? null
+  const inactive = dead || fled
+
+  const fighterDelta = useRoundDelta(participant.fighters, encounter.round)
+  const shieldDelta = useRoundDelta(participant.shields, encounter.round)
+  const destroyedShake = useTransitionAnim(dead, 650)
 
   const submit = (action: CombatantAction) => {
     const actor = characterId(participantId)
@@ -289,49 +359,68 @@ function ParticipantDock({
 
   return (
     <div
-      className={`rounded border p-2 text-xs ${
+      className={`rounded border p-2 text-xs transition ${
         dead
-          ? "border-neutral-900 bg-neutral-950/60 opacity-60"
-          : "border-neutral-800 bg-neutral-900"
-      }`}
+          ? "border-rose-900/60 bg-neutral-950/60 opacity-70"
+          : fled
+            ? "border-amber-900/60 bg-amber-950/30 opacity-70"
+            : "border-neutral-800 bg-neutral-900"
+      } ${destroyedShake ? "anim-destroyed" : ""}`}
     >
-      <div className="flex items-baseline gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold text-neutral-100">{participant.name}</span>
-        <span className="text-[11px] text-neutral-500">
+        <span className="truncate text-[10px] text-neutral-500">
           {participant.combatant_id} · {participant.ship_type}
         </span>
-      </div>
-      <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-neutral-400">
-        <div>
-          fighters{" "}
-          <span className="text-neutral-200">
-            {participant.fighters}/{participant.max_fighters}
+        {fled && !dead && (
+          <span className="inline-flex items-center gap-0.5 rounded border border-amber-700 bg-amber-900/40 px-1 text-[9px] uppercase tracking-wider text-amber-200">
+            <ShieldWarning weight="fill" className="h-2.5 w-2.5" />
+            fled{fledTo != null ? ` → ${fledTo}` : ""}
           </span>
-        </div>
-        <div>
-          shields{" "}
-          <span className="text-neutral-200">
-            {participant.shields}/{participant.max_shields}
-          </span>
-        </div>
-        <div>
-          {dead ? (
-            <span className="text-rose-400">destroyed</span>
-          ) : submitted ? (
-            <span className="text-emerald-300">
-              submitted: {formatAction(submitted, encounter)}
-            </span>
-          ) : lastAction ? (
-            <span className="text-neutral-400">
-              resolved: {formatAction(lastAction, encounter)}
-              {lastAction.timed_out ? " (timeout)" : ""}
-            </span>
-          ) : (
-            <span className="text-amber-400">awaiting</span>
-          )}
-        </div>
+        )}
       </div>
-      {!dead && !submitted && (
+      <div className="mt-1.5 flex items-center gap-3">
+        <StatBar
+          icon={<Crosshair weight="bold" className="h-2.5 w-2.5 text-amber-400" />}
+          label="F"
+          value={participant.fighters}
+          max={participant.max_fighters}
+          delta={fighterDelta}
+          tone="amber"
+        />
+        <StatBar
+          icon={<Shield weight="fill" className="h-2.5 w-2.5 text-sky-400" />}
+          label="S"
+          value={participant.shields}
+          max={participant.max_shields}
+          delta={shieldDelta}
+          tone="sky"
+        />
+      </div>
+      <div className="mt-1 text-[10px] text-neutral-500">
+        {dead ? (
+          <span className="text-rose-400">destroyed</span>
+        ) : fled ? (
+          <span className="text-amber-300">
+            fled{fledTo != null ? ` → sector ${fledTo}` : ""}
+          </span>
+        ) : submitted ? (
+          <span className="text-emerald-300">
+            submitted: {formatAction(submitted, encounter)}
+          </span>
+        ) : lastAction ? (
+          <span>
+            resolved:{" "}
+            <span className="text-neutral-300">
+              {formatAction(lastAction, encounter)}
+            </span>
+            {lastAction.timed_out ? " (timeout)" : ""}
+          </span>
+        ) : (
+          <span className="anim-blink text-amber-400">awaiting</span>
+        )}
+      </div>
+      {!inactive && !submitted && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <select
             value={target}
@@ -427,3 +516,144 @@ function formatAction(
   }
   return base
 }
+
+// ---- Visual helpers ---------------------------------------------------------
+
+const BAR_TONE: Record<string, { fill: string; dim: string }> = {
+  amber: { fill: "bg-amber-400", dim: "bg-amber-400/40" },
+  sky: { fill: "bg-sky-400", dim: "bg-sky-400/40" },
+  rose: { fill: "bg-rose-400", dim: "bg-rose-400/40" },
+}
+
+/**
+ * Thin progress bar + numeric value, optionally rendering a per-round delta
+ * that floats up (increase) or down (decrease) and fades out. The delta is
+ * captured on encounter.round change and auto-clears after the animation.
+ */
+function StatBar({
+  icon,
+  label,
+  value,
+  max,
+  delta,
+  tone,
+}: {
+  icon?: React.ReactNode
+  label: string
+  value: number
+  max: number
+  delta: number | null
+  tone: "amber" | "sky" | "rose"
+}) {
+  const pct = max > 0 ? Math.max(0, Math.min(1, value / max)) * 100 : 0
+  const barColor = BAR_TONE[tone].fill
+  return (
+    <div className="relative flex-1 min-w-0">
+      <div className="flex items-baseline justify-between gap-1.5">
+        <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-neutral-500">
+          {icon}
+          {label}
+        </span>
+        <span className="tabular-nums text-[11px] text-neutral-200">
+          {value}
+          <span className="text-neutral-600">/{max}</span>
+        </span>
+      </div>
+      <div className="mt-0.5 h-[3px] w-full overflow-hidden rounded-full bg-neutral-800">
+        <div
+          className={`h-full rounded-full transition-[width] duration-700 ease-out ${barColor}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {delta != null && delta !== 0 && <FlyAway delta={delta} tone={tone} />}
+    </div>
+  )
+}
+
+function FlyAway({
+  delta,
+  tone,
+}: {
+  delta: number
+  tone: "amber" | "sky" | "rose"
+}) {
+  const negative = delta < 0
+  const colorClass = negative
+    ? "text-rose-300"
+    : tone === "sky"
+      ? "text-sky-100"
+      : "text-emerald-100"
+  // Inline text-shadow gives a glow halo that reads against any tile tint.
+  // drop-shadow alone wasn't strong enough on the lighter sky/emerald backgrounds.
+  const glow = negative
+    ? "0 0 10px rgba(244,63,94,0.85), 0 1px 2px rgba(0,0,0,0.8)"
+    : tone === "sky"
+      ? "0 0 10px rgba(56,189,248,0.8), 0 1px 2px rgba(0,0,0,0.8)"
+      : "0 0 10px rgba(52,211,153,0.8), 0 1px 2px rgba(0,0,0,0.8)"
+  return (
+    <span
+      className={`pointer-events-none absolute right-1 top-0 z-10 select-none text-[14px] font-extrabold tabular-nums tracking-tight ${colorClass} ${
+        negative ? "anim-fly-down" : "anim-fly-up"
+      }`}
+      aria-hidden="true"
+      style={{ transform: "translate(-50%, 0)", textShadow: glow }}
+    >
+      {negative ? "" : "+"}
+      {delta}
+    </span>
+  )
+}
+
+/**
+ * Returns the delta between the current value and the value seen on the
+ * previous round. Fires once per round-change, auto-clears after the
+ * fly-away animation finishes so repeated renders don't keep refiring.
+ */
+function useRoundDelta(value: number, round: number): number | null {
+  const lastRound = useRef(round)
+  const lastValue = useRef(value)
+  const [delta, setDelta] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (round === lastRound.current) return
+    const d = value - lastValue.current
+    lastRound.current = round
+    lastValue.current = value
+    if (d !== 0) {
+      setDelta(d)
+      const t = window.setTimeout(() => setDelta(null), 2000)
+      return () => window.clearTimeout(t)
+    }
+    setDelta(null)
+    return undefined
+  }, [round, value])
+
+  return delta
+}
+
+/**
+ * True for a brief window immediately after the predicate transitions from
+ * false → true. Used to trigger one-shot animations (destroyed shake, toll
+ * paid flash) without re-firing on every render.
+ */
+function useTransitionAnim(active: boolean, ms: number): boolean {
+  const wasActive = useRef(active)
+  const [flashing, setFlashing] = useState(false)
+
+  useEffect(() => {
+    if (active && !wasActive.current) {
+      setFlashing(true)
+      const t = window.setTimeout(() => setFlashing(false), ms)
+      wasActive.current = true
+      return () => window.clearTimeout(t)
+    }
+    if (!active) {
+      wasActive.current = false
+      setFlashing(false)
+    }
+    return undefined
+  }, [active, ms])
+
+  return flashing
+}
+

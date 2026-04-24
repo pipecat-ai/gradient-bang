@@ -216,6 +216,12 @@ importers:
 
   combat-sim:
     dependencies:
+      '@faker-js/faker':
+        specifier: ^10.4.0
+        version: 10.4.0
+      '@phosphor-icons/react':
+        specifier: ^2.1.10
+        version: 2.1.10(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       openai:
         specifier: ^4.77.0
         version: 4.104.0(zod@4.3.6)

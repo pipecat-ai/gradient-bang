@@ -1,3 +1,4 @@
+import { Play, ArrowCounterClockwise, ListMagnifyingGlass, Timer } from "@phosphor-icons/react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { CombatPanel } from "./components/CombatPanel"
@@ -17,14 +18,19 @@ import { useAppStore } from "./store/appStore"
 export function App() {
   const { engine, emitter } = useMemo(() => {
     const emitter = new InMemoryEmitter()
+    const initialState = useAppStore.getState()
     const engine = new CombatEngine({
       emitter,
-      timerEnabled: useAppStore.getState().timerEnabled,
+      timerEnabled: initialState.timerEnabled,
+      stagingMode: initialState.stagingMode,
     })
     return { engine, emitter }
   }, [])
   const timerEnabled = useAppStore((s) => s.timerEnabled)
   const setTimerEnabledInStore = useAppStore((s) => s.setTimerEnabled)
+  const stagingMode = useAppStore((s) => s.stagingMode)
+  const setStagingModeInStore = useAppStore((s) => s.setStagingMode)
+
   const handleToggleTimer = useCallback(
     (v: boolean) => {
       setTimerEnabledInStore(v)
@@ -32,6 +38,16 @@ export function App() {
     },
     [engine, setTimerEnabledInStore],
   )
+
+  const handleRunScenario = useCallback(() => {
+    engine.runScenario()
+    setStagingModeInStore(false)
+  }, [engine, setStagingModeInStore])
+
+  const handleReStage = useCallback(() => {
+    engine.setStagingMode(true)
+    setStagingModeInStore(true)
+  }, [engine, setStagingModeInStore])
 
   // MockEventRelay subscribes FIRST so every downstream subscriber
   // (DebugAgent, ControllerManager, React event-log hook) sees the
@@ -64,11 +80,9 @@ export function App() {
     return () => manager.stop()
   }, [manager])
 
-  // Flush store-side state tied to the old world whenever `world.reset`
-  // fires. Without this, old decision traces pile up under char-1 / combat-1
-  // ids that the engine's reset-and-restart hands out again — the Summarize
-  // digest then merges pre- and post-reset decisions under the same key and
-  // produces the "three Round 1 decisions for Ren-49" confusion.
+  // On world.reset: drop stale per-entity UI state. Also flip the engine
+  // back into staging mode so the user can compose the next scenario
+  // without auto-engage firing mid-setup.
   useEffect(() => {
     const unsub = emitter.subscribe((event) => {
       if (event.type !== "world.reset") return
@@ -76,9 +90,11 @@ export function App() {
       s.clearTraces()
       s.clearInFlight()
       s.selectEntity(null)
+      engine.setStagingMode(true)
+      s.setStagingMode(true)
     })
     return unsub
-  }, [emitter])
+  }, [emitter, engine])
 
   // When a controller flips from LLM → non-LLM, tear the agent down. When
   // flipped TO LLM (or changed while LLM), rebuild the agent so its
@@ -104,46 +120,107 @@ export function App() {
   const events = useEngineEvents(emitter)
   const world = useWorld(engine, emitter)
 
+  // True when `runScenario()` would actually kick off combat — i.e. at least
+  // one character is sitting in a sector with a hostile (non-corp-friendly)
+  // offensive/toll garrison. Without this guard the Run button blinks even
+  // when the arena is empty or all-peaceful, which is misleading.
+  const canRunCombat = useMemo(() => {
+    for (const g of world.garrisons.values()) {
+      if (g.mode !== "offensive" && g.mode !== "toll") continue
+      if (g.fighters <= 0) continue
+      const ownerCorp = world.characters.get(g.ownerCharacterId)?.corpId ?? null
+      for (const c of world.characters.values()) {
+        if (c.currentSector !== g.sector) continue
+        if (c.id === g.ownerCharacterId) continue
+        if (ownerCorp && c.corpId === ownerCorp) continue
+        return true
+      }
+    }
+    return false
+  }, [world])
+
   const [summaryOpen, setSummaryOpen] = useState(false)
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-4 border-b border-neutral-800 bg-neutral-950 px-4 py-2">
-        <h1 className="text-sm font-semibold tracking-wide text-neutral-200">
-          Combat Sim
-        </h1>
-        <label className="flex items-center gap-1.5 text-[11px] text-neutral-400">
-          <input
-            type="checkbox"
-            checked={timerEnabled}
-            onChange={(e) => handleToggleTimer(e.target.checked)}
-            className="accent-emerald-500"
-          />
-          <span>Round timer</span>
+      <header className="flex items-center gap-3 border-b border-neutral-800 bg-gradient-to-r from-neutral-950 via-neutral-950 to-neutral-900 px-4 py-2 shadow-sm shadow-black/30">
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-emerald-400 shadow shadow-emerald-400/50" />
+          <h1 className="text-sm font-semibold tracking-wider text-neutral-100">
+            Combat Sim
+          </h1>
+        </div>
+        <div className="mx-1 h-4 w-px bg-neutral-800" />
+        {stagingMode ? (
+          <button
+            type="button"
+            onClick={handleRunScenario}
+            className={`group inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-wider transition ${
+              canRunCombat
+                ? "border-emerald-400/80 bg-emerald-900/60 text-emerald-50 shadow-md shadow-emerald-900/50 hover:border-emerald-300 hover:bg-emerald-800/70 anim-blink"
+                : "border-emerald-800/60 bg-emerald-950/40 text-emerald-300 hover:border-emerald-600 hover:bg-emerald-900/40"
+            }`}
+            title={
+              canRunCombat
+                ? "Ready — auto-engage will fire against the hostile garrison(s) in play."
+                : "Release staging mode. No combat will auto-start yet; future moves will engage hostile garrisons normally."
+            }
+          >
+            <Play weight="fill" className="h-3 w-3" />
+            Run scenario
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleReStage}
+            className="inline-flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-neutral-400 transition hover:border-neutral-500 hover:text-neutral-200"
+            title="Re-enter staging mode: future moves / deploys won't auto-engage until 'Run scenario' is clicked again."
+          >
+            <ArrowCounterClockwise weight="bold" className="h-3 w-3" />
+            Re-stage
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => handleToggleTimer(!timerEnabled)}
+          title={timerEnabled ? "Round timer is ON — disable to pause deadlines" : "Round timer is PAUSED — enable for real-time rounds"}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition ${
+            timerEnabled
+              ? "border-emerald-800/60 bg-emerald-950/40 text-emerald-200 hover:bg-emerald-900/40"
+              : "border-neutral-700 bg-neutral-900 text-neutral-400 hover:text-neutral-200"
+          }`}
+        >
+          <Timer weight={timerEnabled ? "fill" : "duotone"} className="h-3.5 w-3.5" />
+          <span>Timer</span>
           <span
-            className={`rounded border px-1 text-[9px] uppercase tracking-wider ${
+            className={`rounded px-1 text-[9px] font-bold uppercase tracking-wider ${
               timerEnabled
-                ? "border-emerald-700 bg-emerald-950/50 text-emerald-300"
-                : "border-neutral-700 bg-neutral-900 text-neutral-400"
+                ? "bg-emerald-600/30 text-emerald-100"
+                : "bg-neutral-800 text-neutral-500"
             }`}
           >
-            {timerEnabled ? "on" : "paused"}
+            {timerEnabled ? "on" : "off"}
           </span>
-        </label>
+        </button>
         <button
           type="button"
           onClick={() => setSummaryOpen(true)}
-          className="ml-auto rounded bg-neutral-800 px-2 py-1 text-[11px] text-neutral-200 hover:bg-neutral-700"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-[11px] text-neutral-200 transition hover:border-neutral-500 hover:bg-neutral-800"
         >
+          <ListMagnifyingGlass weight="duotone" className="h-3.5 w-3.5" />
           Summarize…
         </button>
       </header>
       <ScenarioBuilder engine={engine} world={world} onSetController={handleSetController} />
-      <EntityRoster engine={engine} world={world} onSetController={handleSetController} />
       <CombatPanel engine={engine} world={world} />
-      <main className="flex-1 overflow-hidden">
-        <EventLog events={events} />
-      </main>
+      <div className="flex min-h-0 flex-1">
+        <aside className="w-[420px] shrink-0 overflow-auto border-r border-neutral-800">
+          <EntityRoster engine={engine} world={world} onSetController={handleSetController} />
+        </aside>
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <EventLog events={events} />
+        </main>
+      </div>
       <SummarizeModal
         events={events}
         world={world}

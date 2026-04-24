@@ -1,3 +1,4 @@
+import { Brain, PencilSimple, Robot, Sparkle, User } from "@phosphor-icons/react"
 import { useState } from "react"
 
 import type { ControllerConfig } from "../controllers/types"
@@ -22,12 +23,6 @@ const OPENAI_MODELS = [
   "gpt-4.1",
   "gpt-4o-mini",
   "gpt-4o",
-] as const
-
-const STRATEGIES = [
-  { value: "balanced", label: "balanced" },
-  { value: "offensive", label: "offensive" },
-  { value: "defensive", label: "defensive" },
 ] as const
 
 export function ControllerPicker({
@@ -65,36 +60,61 @@ export function ControllerPicker({
     })
   }
 
-  const setStrategy = (v: string) => {
-    const strat = v as "offensive" | "defensive" | "balanced"
-    onSetController(entityId, {
-      kind: "llm",
-      model,
-      strategy: strat,
-      customStrategy: controller?.customStrategy,
-    })
-  }
+  // Visual: when a custom override is set, show a distinct fuchsia pill;
+  // otherwise show the canonical strategy name. In-flight LLM calls pulse
+  // the pill amber so the user can see which ship is "thinking" this round.
+  const pillLabel = inFlight
+    ? "thinking"
+    : hasCustomStrategy
+      ? `custom`
+      : strategy
+  const pillClasses = inFlight
+    ? "animate-pulse border-amber-400 bg-amber-900/60 text-amber-100"
+    : hasCustomStrategy
+      ? "border-fuchsia-500 bg-fuchsia-900/50 text-fuchsia-100 hover:border-fuchsia-300 hover:bg-fuchsia-900/70"
+      : strategy === "offensive"
+        ? "border-rose-700 bg-rose-950/50 text-rose-200 hover:border-rose-400 hover:bg-rose-900/40"
+        : strategy === "defensive"
+          ? "border-sky-700 bg-sky-950/50 text-sky-200 hover:border-sky-400 hover:bg-sky-900/40"
+          : "border-amber-700 bg-amber-950/50 text-amber-200 hover:border-amber-400 hover:bg-amber-900/40"
 
   return (
-    <div className="flex flex-wrap items-center gap-1 text-[10px] text-neutral-500">
-      <span>controller</span>
-      <select
-        value={kind}
-        onChange={(e) => setKind(e.target.value as "manual" | "llm")}
+    <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-neutral-500">
+      {/* Kind toggle: Manual ↔ LLM */}
+      <button
+        type="button"
+        onClick={() => setKind(kind === "manual" ? "llm" : "manual")}
         disabled={disabled}
-        className="rounded bg-neutral-800 px-1 py-0.5 text-[11px] text-neutral-200 disabled:opacity-50"
+        title={
+          disabled
+            ? "Controller locked — entity is in active combat"
+            : kind === "llm"
+              ? "Switch to manual control (clears LLM config)"
+              : "Promote to LLM-driven control"
+        }
+        className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider transition disabled:cursor-not-allowed disabled:opacity-50 ${
+          kind === "llm"
+            ? "border-emerald-600 bg-emerald-950/50 text-emerald-200 hover:border-emerald-400"
+            : "border-neutral-700 bg-neutral-900 text-neutral-400 hover:border-neutral-500 hover:text-neutral-200"
+        }`}
       >
-        <option value="manual">manual</option>
-        <option value="llm">LLM</option>
-      </select>
+        {kind === "llm" ? (
+          <Robot weight="fill" className="h-3 w-3" />
+        ) : (
+          <User weight="fill" className="h-3 w-3" />
+        )}
+        {kind === "llm" ? "LLM" : "Manual"}
+      </button>
+
       {kind === "llm" && (
         <>
+          {/* Model: inline dropdown, unobtrusive */}
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
             disabled={disabled}
             title="OpenAI model"
-            className="rounded bg-neutral-800 px-1 py-0.5 text-[11px] text-neutral-200 disabled:opacity-50"
+            className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-200 disabled:opacity-50"
           >
             {OPENAI_MODELS.map((m) => (
               <option key={m} value={m}>
@@ -102,44 +122,42 @@ export function ControllerPicker({
               </option>
             ))}
           </select>
-          <select
-            value={strategy}
-            onChange={(e) => setStrategy(e.target.value)}
-            disabled={disabled}
-            title={
-              disabled
-                ? "Strategy is locked during active combat"
-                : "Decision-style override (prompt-level only)"
-            }
-            className="rounded bg-neutral-800 px-1 py-0.5 text-[11px] text-neutral-200 disabled:opacity-50"
-          >
-            {STRATEGIES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
+
+          {/* Merged strategy + AI pill. One clickable control, visually
+              obvious it's editable (border highlights on hover + pencil
+              icon on the right), opens the strategy editor modal. */}
           <button
             type="button"
             onClick={() => setEditorOpen(true)}
             disabled={disabled}
             title={
               disabled
-                ? "Custom strategy is locked during active combat"
+                ? "Strategy locked — entity is in active combat"
                 : hasCustomStrategy
                   ? "Click to edit the custom strategy override"
-                  : "Click to write a custom strategy for this ship"
+                  : "Click to pick a strategy or write a custom override"
             }
-            className={`rounded border px-1 text-[9px] uppercase tracking-wider transition disabled:cursor-not-allowed disabled:opacity-60 ${
-              inFlight
-                ? "animate-pulse border-amber-400 bg-amber-900/50 text-amber-100"
-                : hasCustomStrategy
-                  ? "border-fuchsia-500 bg-fuchsia-900/60 text-fuchsia-100 hover:bg-fuchsia-900/80"
-                  : "border-amber-700 bg-amber-950/50 text-amber-300 hover:bg-amber-900/40"
-            }`}
+            className={`group inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider transition disabled:cursor-not-allowed disabled:opacity-60 ${pillClasses}`}
           >
-            {inFlight ? "thinking" : hasCustomStrategy ? "AI · custom" : "AI"}
+            {inFlight ? (
+              <Sparkle
+                weight="fill"
+                className="h-3 w-3 animate-[spin_1.6s_linear_infinite]"
+              />
+            ) : hasCustomStrategy ? (
+              <Sparkle weight="fill" className="h-3 w-3" />
+            ) : (
+              <Brain weight="fill" className="h-3 w-3" />
+            )}
+            <span>{pillLabel}</span>
+            {!disabled && !inFlight && (
+              <PencilSimple
+                weight="bold"
+                className="h-2.5 w-2.5 opacity-60 transition group-hover:opacity-100"
+              />
+            )}
           </button>
+
           {disabled && (
             <span
               title="Controller config locked while this entity is in active combat"
@@ -150,6 +168,7 @@ export function ControllerPicker({
           )}
         </>
       )}
+
       {controller?.kind === "llm" && (
         <StrategyEditorModal
           open={editorOpen}

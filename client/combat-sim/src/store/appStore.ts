@@ -32,6 +32,11 @@ interface AppState {
   // all-submitted auto-resolves (no time pressure while debugging).
   timerEnabled: boolean
   setTimerEnabled: (v: boolean) => void
+
+  // Staging mode: compose the arena without auto-engaging. User flips to
+  // false via a "Run scenario" button once setup is complete.
+  stagingMode: boolean
+  setStagingMode: (v: boolean) => void
 }
 
 export const useAppStore = create<AppState>()((set, get) => ({
@@ -63,4 +68,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   timerEnabled: true,
   setTimerEnabled: (v) => set({ timerEnabled: v }),
+
+  stagingMode: true,
+  setStagingMode: (v) => set({ stagingMode: v }),
 }))

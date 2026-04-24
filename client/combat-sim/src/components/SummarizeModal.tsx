@@ -42,13 +42,39 @@ export function SummarizeModal({ events, world, open, onClose }: Props) {
   const [loading, setLoading] = useState(false)
   const [elapsed, setElapsed] = useState<number | null>(null)
   const [model, setModel] = useState<string>(DEFAULT_SUMMARY_MODEL)
+  const [pov, setPov] = useState<string | null>(null)
   const [draft, setDraft] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const digest = useMemo(
-    () => (open ? buildDigest(events, world, traces) : null),
-    [open, events, world, traces],
+    () => (open ? buildDigest(events, world, traces, pov) : null),
+    [open, events, world, traces, pov],
   )
+
+  // Dropdown options: every distinct recipient across the event log, labelled
+  // via world. Recipients-only (not world iteration) ensures the list is
+  // scoped to entities that actually have something to show.
+  const povOptions = useMemo(() => {
+    if (!open) return []
+    const ids = new Set<string>()
+    for (const ev of events) for (const r of ev.recipients) ids.add(r)
+    const opts: Array<{ id: string; label: string }> = []
+    for (const id of ids) {
+      const char = world.characters.get(id as never)
+      if (char) {
+        opts.push({ id, label: char.name })
+        continue
+      }
+      const ship = world.ships.get(id as never)
+      if (ship) {
+        opts.push({ id, label: `${ship.name ?? ship.type} (corp ship)` })
+        continue
+      }
+      opts.push({ id, label: id.length > 24 ? `${id.slice(0, 24)}…` : id })
+    }
+    opts.sort((a, b) => a.label.localeCompare(b.label))
+    return opts
+  }, [open, events, world])
 
   const runCompletion = useCallback(
     async (messages: AgentMessage[]): Promise<string | null> => {
@@ -126,20 +152,26 @@ export function SummarizeModal({ events, world, open, onClose }: Props) {
     }
   }, [draft, digest, loading, runCompletion, turns])
 
-  // Auto-run on first open; reset when closed.
+  // Reset local state when the modal closes. Do NOT auto-run the summary —
+  // the user clicks Summarize explicitly so they can pick a POV first.
   useEffect(() => {
     if (!open) {
       setTurns([])
       setError(null)
       setElapsed(null)
       setDraft("")
-      return
+      setPov(null)
     }
-    if (turns.length === 0 && !loading && !error) {
-      runSummary()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // Changing POV invalidates any existing summary — clear turns so the
+  // button flips back to "Summarize" and the user regenerates against the
+  // new context.
+  useEffect(() => {
+    setTurns([])
+    setError(null)
+    setElapsed(null)
+  }, [pov])
 
   // Auto-scroll the conversation to the bottom on new turns.
   useEffect(() => {
@@ -203,6 +235,22 @@ export function SummarizeModal({ events, world, open, onClose }: Props) {
               className="rounded bg-neutral-800 px-2 py-0.5 font-mono text-[11px] text-neutral-200 disabled:opacity-50"
             />
           </label>
+          <label className="flex items-center gap-1.5">
+            <span>POV</span>
+            <select
+              value={pov ?? ""}
+              onChange={(e) => setPov(e.target.value === "" ? null : e.target.value)}
+              disabled={loading}
+              className="rounded bg-neutral-800 px-2 py-0.5 font-mono text-[11px] text-neutral-200 disabled:opacity-50"
+            >
+              <option value="">entire event log</option>
+              {povOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <span>{traces.length} decisions</span>
           <span>{events.length} events</span>
           <span>
@@ -263,10 +311,18 @@ export function SummarizeModal({ events, world, open, onClose }: Props) {
               <div ref={bottomRef} />
             </div>
           )}
-          {!loading && turns.length === 0 && !error && traces.length === 0 && (
+          {!loading && turns.length === 0 && !error && (
             <div className="text-xs text-neutral-500">
-              No LLM decisions recorded yet. Set a character's controller to
-              LLM and play a round first.
+              {events.length === 0 && traces.length === 0
+                ? "No events or LLM decisions recorded yet. Play a round first."
+                : `Ready. Click "Summarize" to generate a narrative${
+                    pov
+                      ? ` from ${
+                          povOptions.find((o) => o.id === pov)?.label ??
+                          "the selected entity"
+                        }'s POV`
+                      : " of the entire event log"
+                  }.`}
             </div>
           )}
         </div>
@@ -357,6 +413,7 @@ function buildDigest(
   events: readonly CombatEvent[],
   world: World,
   traces: DecisionTrace[],
+  pov: string | null,
 ): string {
   // Map entity ids → display name. Characters live in world.characters;
   // corp-ship pseudo-characters live in world.ships (id === ship.id).
@@ -369,6 +426,16 @@ function buildDigest(
     return id.slice(0, 8)
   }
 
+  // When POV is set, narrow the digest to what that entity actually saw and
+  // did: events where it was a recipient, decisions where it was the actor.
+  // Participants of combats the POV wasn't involved in drop out entirely.
+  const filteredEvents = pov
+    ? events.filter((ev) => ev.recipients.includes(pov as never))
+    : events
+  const filteredTraces = pov
+    ? traces.filter((t) => t.characterId === pov)
+    : traces
+
   // Group events by combat_id. Preserve chronological order.
   type CombatGroup = {
     combat_id: string
@@ -379,7 +446,7 @@ function buildDigest(
     destroyed: CombatEvent[]
   }
   const groups = new Map<string, CombatGroup>()
-  for (const ev of events) {
+  for (const ev of filteredEvents) {
     const cid = (ev.combat_id as string | undefined) ?? null
     if (!cid) continue
     if (!groups.has(cid)) {
@@ -414,7 +481,7 @@ function buildDigest(
 
   // Group traces by combat_id + round.
   const tracesByCombatRound = new Map<string, DecisionTrace[]>()
-  for (const t of traces) {
+  for (const t of filteredTraces) {
     if (!t.combat_id || t.round == null) continue
     const key = `${t.combat_id}:${t.round}`
     if (!tracesByCombatRound.has(key)) tracesByCombatRound.set(key, [])
@@ -424,14 +491,20 @@ function buildDigest(
   const out: string[] = []
   out.push(`# Combat digest`)
   out.push("")
+  if (pov) {
+    out.push(
+      `**POV filter:** ${nameFor(pov)} [${pov}] — only events this entity received and decisions it made are included. Actions or observations by other agents are NOT in this digest.`,
+    )
+    out.push("")
+  }
   out.push(
-    `Sessions: ${groups.size} encounter(s), ${traces.length} LLM decision(s).`,
+    `Sessions: ${groups.size} encounter(s), ${filteredTraces.length} LLM decision(s).`,
   )
   out.push("")
 
   const orderedGroups = Array.from(groups.values()).sort((a, b) => {
-    const aFirst = firstEventTimestamp(a, events) ?? 0
-    const bFirst = firstEventTimestamp(b, events) ?? 0
+    const aFirst = firstEventTimestamp(a, filteredEvents) ?? 0
+    const bFirst = firstEventTimestamp(b, filteredEvents) ?? 0
     return aFirst - bFirst
   })
 

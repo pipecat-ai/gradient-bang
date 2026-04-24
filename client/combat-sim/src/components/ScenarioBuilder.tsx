@@ -1,3 +1,4 @@
+import { faker } from "@faker-js/faker"
 import { useMemo, useState } from "react"
 
 import type { CombatEngine } from "../engine/engine"
@@ -19,8 +20,26 @@ interface Props {
   onSetController: (id: string, config: import("../controllers/types").ControllerConfig | null) => void
 }
 
-const SAMPLE_NAMES = ["Alice", "Bob", "Probe", "Jonboy", "Milo", "Nyx", "Ren", "Zed"]
-const CORP_NAMES = ["Alpha", "Beta", "Gamma", "Delta"]
+// Pilot callsigns: "Valkyrie Ortiz", "Nomad Chen", etc. Pairs a sci-fi
+// callsign with a surname for variety + flavour without getting too cute.
+// Legacy SAMPLE_NAMES/CORP_NAMES arrays were replaced with Faker-generated
+// names to give randomized scenarios more presentation-ready flavour.
+function randomCharacterName(): string {
+  const callsigns = [
+    "Valkyrie", "Nomad", "Rogue", "Raven", "Phantom", "Viper", "Echo",
+    "Cypher", "Apex", "Nyx", "Specter", "Havoc", "Saber", "Orbit",
+    "Quasar", "Titan", "Vesper", "Halo", "Onyx", "Draco",
+  ]
+  const callsign = faker.helpers.arrayElement(callsigns)
+  const surname = faker.person.lastName()
+  return `${callsign} ${surname}`
+}
+
+function randomCorporationName(): string {
+  return `${faker.company.name().split(/[,\s]+/)[0]} ${
+    faker.helpers.arrayElement(["Syndicate", "Industries", "Consortium", "Mining", "Haulage", "Dynamics"])
+  }`
+}
 
 // escape_pod is a post-combat conversion target, not a startable ship.
 const SELECTABLE_SHIP_TYPES = (
@@ -110,9 +129,7 @@ export function ScenarioBuilder({ engine, world, onSetController }: Props) {
         <ActionButton
           tone="neutral"
           onClick={() => {
-            const name = `${SAMPLE_NAMES[Math.floor(Math.random() * SAMPLE_NAMES.length)]}-${Math.floor(
-              Math.random() * 100,
-            )}`
+            const name = randomCharacterName()
             const sector = combatActiveInSector42 ? 1 : 42
             const charId = engine.createCharacter({ name, sector, shipType: charShipType })
             // Default every new character to an LLM controller — the harness
@@ -131,7 +148,7 @@ export function ScenarioBuilder({ engine, world, onSetController }: Props) {
           tone="corp"
           disabled={allChars.length === 0}
           onClick={() => {
-            const name = CORP_NAMES[corps.length % CORP_NAMES.length]
+            const name = randomCorporationName()
             const members = allChars.length > 0 ? [allChars[0].id] : []
             try {
               engine.createCorporation({ name, memberCharacterIds: members })
@@ -461,7 +478,7 @@ function generateRandomScenario(
   const charCount = randInt(2, 4, rng)
   const chars: string[] = []
   for (let i = 0; i < charCount; i++) {
-    const name = `${pick(SAMPLE_NAMES, rng)}-${randInt(10, 99, rng)}`
+    const name = randomCharacterName()
     const shipType = pick(RANDOM_CHAR_SHIPS, rng)
     const id = engine.createCharacter({ name, sector: 42, shipType })
     chars.push(id)
@@ -475,7 +492,7 @@ function generateRandomScenario(
   const corpCount = randInt(0, 2, rng)
   const corpIds: string[] = []
   for (let i = 0; i < corpCount; i++) {
-    const name = CORP_NAMES[i % CORP_NAMES.length]
+    const name = randomCorporationName()
     // Split available chars across corps so we don't double-assign.
     const takeCount = randInt(0, Math.min(2, chars.length), rng)
     const members = chars

@@ -105,6 +105,14 @@ export interface CombatantState {
   owner_character_id?: string | null
   ship_type?: string | null
   metadata?: Record<string, unknown>
+  /** Set when a `flee` succeeded for this combatant this encounter. The
+   * combatant remains in `encounter.participants` for event-replay purposes
+   * but has physically left the sector. Harness-only — production infers
+   * this from `flee_results` on the round event log. */
+  has_fled?: boolean
+  /** Destination sector the fleer relocated to. Populated alongside
+   * `has_fled`. */
+  fled_to_sector?: number | null
 }
 
 export interface RoundActionState {
