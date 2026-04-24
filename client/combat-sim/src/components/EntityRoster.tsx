@@ -72,28 +72,36 @@ export function EntityRoster({ engine, world, onSetController }: Props) {
   return (
     <div className="bg-neutral-950/60 px-3 py-2">
       <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500">
-        <span>Entities · {totalEntities}</span>
+        <span className="whitespace-nowrap">Entities · {totalEntities}</span>
         {selectedId ? (
-          <>
-            <span className="text-neutral-600">·</span>
-            <span className="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-950 px-1 text-[9px] font-bold uppercase tracking-wider text-emerald-200">
+          <div className="ml-auto flex min-w-0 items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded border border-emerald-400/80 bg-emerald-950 px-1 text-[9px] font-bold uppercase tracking-wider text-emerald-200">
               <Crosshair weight="bold" className="h-2.5 w-2.5" />
               POV
             </span>
-            <span className="truncate normal-case tracking-normal text-emerald-300">
+            <span
+              className="max-w-[140px] truncate normal-case tracking-normal text-emerald-300"
+              title={selectedId}
+            >
               {selectedId}
             </span>
             <button
               type="button"
               onClick={() => toggle(selectedId)}
-              className="ml-auto inline-flex items-center gap-1 rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-neutral-300 hover:bg-neutral-700"
+              className="inline-flex items-center rounded bg-neutral-800 p-0.5 text-neutral-300 hover:bg-neutral-700"
+              aria-label="Clear POV"
+              title="Clear POV"
             >
               <XCircle weight="fill" className="h-3 w-3" />
-              Clear
             </button>
-          </>
+          </div>
         ) : (
-          <span className="text-neutral-600">· click a tile to view from its perspective</span>
+          <span
+            className="ml-auto whitespace-nowrap normal-case tracking-normal text-neutral-600"
+            title="Click any tile to view the event log from its perspective"
+          >
+            tap a tile for POV
+          </span>
         )}
       </div>
 

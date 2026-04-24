@@ -138,17 +138,21 @@ export class CombatEngine {
   }
 
   /**
-   * Release composition mode and fire auto-engage checks that were suppressed
-   * during staging:
+   * Release composition mode and kick off combat anywhere it's viable:
    *   1. Every offensive/toll garrison gets a deploy-time auto-initiate pass,
    *      same as if it had just been deployed outside staging.
    *   2. Every character triggers the arrival auto-engage path so characters
    *      sitting in garrison sectors get pulled into combat.
+   *   3. Any sector with 2+ combatants (and no active combat) gets an
+   *      explicit `initiateCombat` call. Production combat only auto-starts
+   *      via garrison aggression — this extra pass is harness-only so
+   *      "Run scenario" reliably produces a fight from a composed arena
+   *      even when no aggressive garrison is present.
    */
   runScenario(): void {
     if (!this.stagingMode) return
     this.stagingMode = false
-    // Snapshot before iteration — both paths mutate activeCombats.
+    // Snapshot before iteration — all paths mutate activeCombats.
     const garrisons = Array.from(this.world.garrisons.values())
     for (const g of garrisons) {
       if (g.mode === "offensive" || g.mode === "toll") {
@@ -161,6 +165,24 @@ export class CombatEngine {
     }))
     for (const { id, sector } of chars) {
       this.maybeAutoEngageOnArrival(id, sector)
+    }
+    // Sectors with 2+ combatants and no active combat → explicit initiate.
+    const sectorsTried = new Set<SectorId>()
+    for (const c of this.world.characters.values()) {
+      if (sectorsTried.has(c.currentSector)) continue
+      sectorsTried.add(c.currentSector)
+      const existing = Array.from(this.world.activeCombats.values()).some(
+        (enc) => !enc.ended && enc.sector_id === c.currentSector,
+      )
+      if (existing) continue
+      const combatants = this.buildSectorCombatants(c.currentSector)
+      if (combatants.length < 2) continue
+      try {
+        this.initiateCombat(c.id, c.currentSector)
+      } catch {
+        // Sector had combatants but none were targetable (e.g. all corp-mates
+        // + a friendly garrison). Harmless — skip.
+      }
     }
   }
 

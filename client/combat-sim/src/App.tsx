@@ -120,11 +120,14 @@ export function App() {
   const events = useEngineEvents(emitter)
   const world = useWorld(engine, emitter)
 
-  // True when `runScenario()` would actually kick off combat — i.e. at least
-  // one character is sitting in a sector with a hostile (non-corp-friendly)
-  // offensive/toll garrison. Without this guard the Run button blinks even
-  // when the arena is empty or all-peaceful, which is misleading.
+  // True when `runScenario()` would actually kick off combat — mirrors the
+  // three engine paths: hostile-garrison auto-engage, or any sector with 2+
+  // combatants (characters + corp ships + garrisons) that the harness will
+  // initiate a fight in. Without this guard the Run button blinks even when
+  // the arena has nothing to fight about.
   const canRunCombat = useMemo(() => {
+    // Path 1: at least one sector has an offensive/toll garrison with a
+    // hostile character present.
     for (const g of world.garrisons.values()) {
       if (g.mode !== "offensive" && g.mode !== "toll") continue
       if (g.fighters <= 0) continue
@@ -136,6 +139,19 @@ export function App() {
         return true
       }
     }
+    // Path 2: any sector has 2+ combatants (chars + corp ships + garrisons).
+    // Mirrors the explicit-initiate pass in engine.runScenario().
+    const sectorCount = new Map<number, number>()
+    const bump = (sector: number) =>
+      sectorCount.set(sector, (sectorCount.get(sector) ?? 0) + 1)
+    for (const c of world.characters.values()) bump(c.currentSector)
+    for (const s of world.ships.values())
+      if (s.ownerCorpId && s.fighters > 0) bump(s.sector)
+    for (const g of world.garrisons.values())
+      if (g.fighters > 0) bump(g.sector)
+    for (const count of sectorCount.values()) {
+      if (count >= 2) return true
+    }
     return false
   }, [world])
 
@@ -144,26 +160,24 @@ export function App() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-neutral-800 bg-gradient-to-r from-neutral-950 via-neutral-950 to-neutral-900 px-4 py-2 shadow-sm shadow-black/30">
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-emerald-400 shadow shadow-emerald-400/50" />
-          <h1 className="text-sm font-semibold tracking-wider text-neutral-100">
-            Combat Sim
-          </h1>
-        </div>
+        <h1 className="text-sm font-semibold tracking-wider text-neutral-100">
+          Gradient Bang Combat Sim
+        </h1>
         <div className="mx-1 h-4 w-px bg-neutral-800" />
         {stagingMode ? (
           <button
             type="button"
             onClick={handleRunScenario}
-            className={`group inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-wider transition ${
+            disabled={!canRunCombat}
+            className={`group inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-wider transition disabled:cursor-not-allowed ${
               canRunCombat
                 ? "border-emerald-400/80 bg-emerald-900/60 text-emerald-50 shadow-md shadow-emerald-900/50 hover:border-emerald-300 hover:bg-emerald-800/70 anim-blink"
-                : "border-emerald-800/60 bg-emerald-950/40 text-emerald-300 hover:border-emerald-600 hover:bg-emerald-900/40"
+                : "border-neutral-800 bg-neutral-900/60 text-neutral-500"
             }`}
             title={
               canRunCombat
-                ? "Ready — auto-engage will fire against the hostile garrison(s) in play."
-                : "Release staging mode. No combat will auto-start yet; future moves will engage hostile garrisons normally."
+                ? "Start the scenario: auto-engage hostile garrisons and initiate combat in any sector with 2+ combatants."
+                : "Need at least 2 combatants in a sector (characters, corp ships, or a garrison) before the scenario can run."
             }
           >
             <Play weight="fill" className="h-3 w-3" />

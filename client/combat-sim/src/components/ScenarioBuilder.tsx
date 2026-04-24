@@ -122,7 +122,7 @@ export function ScenarioBuilder({ engine, world, onSetController }: Props) {
           }}
           title="Reset + generate a random scenario (characters, corps, corp ships, maybe a garrison)"
         >
-          🎲 Random
+          🎲 Random scenario
         </ActionButton>
         <Divider />
         <ShipTypeSelect value={charShipType} onChange={setCharShipType} />
@@ -198,38 +198,6 @@ export function ScenarioBuilder({ engine, world, onSetController }: Props) {
           }
         >
           + Corp ship
-        </ActionButton>
-        <Divider />
-        <ActionButton
-          tone="combat"
-          disabled={
-            charsInSector42.length === 0 || (!combatActiveInSector42 && totalInSector42 < 2)
-          }
-          onClick={() => {
-            const activeCombat = Array.from(world.activeCombats.values()).find(
-              (c) => !c.ended && c.sector_id === 42,
-            )
-            const initiator = activeCombat
-              ? charsInSector42.find((c) => !(c.id in activeCombat.participants)) ??
-                charsInSector42[0]
-              : charsInSector42[0]
-            try {
-              engine.initiateCombat(initiator.id, 42)
-            } catch (err) {
-              alert((err as Error).message)
-            }
-          }}
-          title={
-            charsInSector42.length === 0
-              ? "Need at least one character in sector 42 to initiate"
-              : combatActiveInSector42
-                ? "Joins the existing combat (adds initiator as participant)"
-                : totalInSector42 < 2
-                  ? "Need 2+ participants in sector 42"
-                  : ""
-          }
-        >
-          {combatActiveInSector42 ? "Join combat" : "Initiate combat"}
         </ActionButton>
         <span className="ml-auto text-[11px] text-neutral-500">
           <span className="text-neutral-400">sector 42</span>
