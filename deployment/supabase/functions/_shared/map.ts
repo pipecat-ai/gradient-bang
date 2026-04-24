@@ -39,6 +39,7 @@ export interface AdjacentSectorInfo {
 
 export interface SectorSnapshot {
   id: number;
+  name?: string | null;
   region?: string | null;
   adjacent_sectors: Record<string, AdjacentSectorInfo>;
   position: [number, number];
@@ -52,6 +53,7 @@ export interface SectorSnapshot {
 
 export interface LocalMapSector {
   id: number;
+  name?: string | null;
   visited: boolean;
   hops_from_center: number;
   position: [number, number];
@@ -400,10 +402,11 @@ export async function fetchSectorRow(
   position_y: number;
   region?: string | null;
   warps: unknown;
+  name?: string | null;
 } | null> {
   const { data, error } = await supabase
     .from("universe_structure")
-    .select("sector_id, position_x, position_y, region, warps")
+    .select("sector_id, position_x, position_y, region, warps, name")
     .eq("sector_id", sectorId)
     .maybeSingle();
 
@@ -771,6 +774,7 @@ export async function buildSectorSnapshot(
 
   return {
     id: sectorId,
+    name: structureRow.name ?? null,
     region: structureRow.region ?? null,
     adjacent_sectors: adjacentSectors,
     position: [structureRow.position_x ?? 0, structureRow.position_y ?? 0],
@@ -792,7 +796,7 @@ async function fetchUniverseRows(
 ): Promise<
   Map<
     number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[]; name: string | null }
   >
 > {
   if (sectorIds.length === 0) {
@@ -801,20 +805,21 @@ async function fetchUniverseRows(
   const uniqueIds = Array.from(new Set(sectorIds));
   const { data, error } = await supabase
     .from("universe_structure")
-    .select("sector_id, position_x, position_y, region, warps")
+    .select("sector_id, position_x, position_y, region, warps, name")
     .in("sector_id", uniqueIds);
   if (error) {
     throw new Error(`failed to load universe rows: ${error.message}`);
   }
   const map = new Map<
     number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[]; name: string | null }
   >();
   for (const row of data ?? []) {
     map.set(row.sector_id, {
       position: [row.position_x ?? 0, row.position_y ?? 0],
       region: row.region ?? null,
       warps: parseWarpEdges(row.warps),
+      name: (row as { name?: string | null }).name ?? null,
     });
   }
   return map;
@@ -827,7 +832,7 @@ async function fetchUniverseRowsByBounds(
 ): Promise<
   Map<
     number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[]; name: string | null }
   >
 > {
   const padding = Math.ceil(bounds) + 2;
@@ -845,6 +850,7 @@ async function fetchUniverseRowsByBounds(
     position_y: number | null;
     region: string | null;
     warps: unknown;
+    name: string | null;
   }> = [];
   const PAGE_SIZE = 1000;
   let offset = 0;
@@ -852,7 +858,7 @@ async function fetchUniverseRowsByBounds(
   while (true) {
     const { data, error } = await supabase
       .from("universe_structure")
-      .select("sector_id, position_x, position_y, region, warps")
+      .select("sector_id, position_x, position_y, region, warps, name")
       .gte("position_x", minX)
       .lte("position_x", maxX)
       .gte("position_y", minY)
@@ -865,7 +871,7 @@ async function fetchUniverseRowsByBounds(
     if (!data || data.length === 0) {
       break;
     }
-    allRows.push(...data);
+    allRows.push(...(data as typeof allRows));
     if (data.length < PAGE_SIZE) {
       break;
     }
@@ -878,7 +884,7 @@ async function fetchUniverseRowsByBounds(
 
   const map = new Map<
     number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[]; name: string | null }
   >();
   for (const row of allRows) {
     const position: [number, number] = [
@@ -895,6 +901,7 @@ async function fetchUniverseRowsByBounds(
       position,
       region: row.region ?? null,
       warps: parseWarpEdges(row.warps),
+      name: row.name ?? null,
     });
   }
   return map;
@@ -1271,7 +1278,7 @@ export async function buildLocalMapRegion(
   const adjacencyCache = new Map<number, number[]>();
   const universeRowCache = new Map<
     number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[]; name: string | null }
   >();
 
   // Load all universe adjacencies upfront for pure in-memory BFS
@@ -1523,6 +1530,7 @@ export async function buildLocalMapRegion(
       );
       resultSectors.push({
         id: sectorId,
+        name: universeRow?.name ?? null,
         visited: true,
         hops_from_center: hops,
         position,
@@ -1555,6 +1563,7 @@ export async function buildLocalMapRegion(
       }
       resultSectors.push({
         id: sectorId,
+        name: universeRow?.name ?? null,
         visited: false,
         hops_from_center: hops,
         position,
@@ -1629,6 +1638,7 @@ export async function buildLocalMapRegionByBounds(
       position: centerPosition,
       region: null,
       warps: [],
+      name: null,
     });
   }
 
@@ -1663,7 +1673,7 @@ export async function buildLocalMapRegionByBounds(
   if (missingNeighbors.length > 0) {
     const { data: missingRows, error: missingErr } = await supabase
       .from("universe_structure")
-      .select("sector_id, position_x, position_y, region, warps")
+      .select("sector_id, position_x, position_y, region, warps, name")
       .in("sector_id", missingNeighbors);
     if (!missingErr && missingRows) {
       for (const row of missingRows) {
@@ -1671,6 +1681,7 @@ export async function buildLocalMapRegionByBounds(
           position: [row.position_x ?? 0, row.position_y ?? 0],
           region: row.region ?? null,
           warps: parseWarpEdges(row.warps),
+          name: (row as { name?: string | null }).name ?? null,
         });
       }
     }
@@ -1699,7 +1710,7 @@ export async function buildLocalMapRegionByBounds(
   if (adjacentToHydrate.length > 0) {
     const { data: adjRows, error: adjErr } = await supabase
       .from("universe_structure")
-      .select("sector_id, position_x, position_y, region, warps")
+      .select("sector_id, position_x, position_y, region, warps, name")
       .in("sector_id", adjacentToHydrate);
     if (!adjErr && adjRows) {
       for (const row of adjRows) {
@@ -1707,6 +1718,7 @@ export async function buildLocalMapRegionByBounds(
           position: [row.position_x ?? 0, row.position_y ?? 0],
           region: row.region ?? null,
           warps: parseWarpEdges(row.warps),
+          name: (row as { name?: string | null }).name ?? null,
         });
       }
     }
@@ -1768,6 +1780,7 @@ export async function buildLocalMapRegionByBounds(
       );
       resultSectors.push({
         id: sectorId,
+        name: universeRow?.name ?? null,
         visited: true,
         hops_from_center: hops,
         position,
@@ -1797,6 +1810,7 @@ export async function buildLocalMapRegionByBounds(
       }
       resultSectors.push({
         id: sectorId,
+        name: universeRow?.name ?? null,
         visited: false,
         hops_from_center: hops,
         position,

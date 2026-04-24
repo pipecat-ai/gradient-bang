@@ -19,6 +19,7 @@ import {
   mergeMapKnowledge,
 } from "./map.ts";
 import { resolvePlayerType } from "./status.ts";
+import { optionalSectorParam, type JsonRecord } from "./request.ts";
 import { ActorAuthorizationError } from "./actors.ts";
 import { getPortPrices, getPortStock, type PortData } from "./trading.ts";
 import { injectCharacterEventIdentity } from "./event_identity.ts";
@@ -884,6 +885,7 @@ export async function pgBuildSectorSnapshot(
     position_x: number;
     position_y: number;
     region: string | null;
+    name: string | null;
     salvage: unknown[] | null;
     port_json: string | null;
     ships_json: string | null;
@@ -895,7 +897,7 @@ export async function pgBuildSectorSnapshot(
   }>(
     `WITH
     sector_base AS (
-      SELECT sector_id, warps, position_x, position_y, region
+      SELECT sector_id, warps, position_x, position_y, region, name
       FROM universe_structure
       WHERE sector_id = $1
     ),
@@ -981,6 +983,7 @@ export async function pgBuildSectorSnapshot(
       sb.position_x::int,
       sb.position_y::int,
       sb.region,
+      sb.name,
       sc.salvage,
       (SELECT row_to_json(p) FROM port_data p) as port_json,
       (SELECT COALESCE(json_agg(s), '[]'::json) FROM ships_data s) as ships_json,
@@ -1355,6 +1358,7 @@ export async function pgBuildSectorSnapshot(
 
   return convertBigInts({
     id: sectorId,
+    name: row.name ?? null,
     region: row.region ?? null,
     adjacent_sectors: adjacentSectors,
     position: [row.position_x ?? 0, row.position_y ?? 0],
@@ -1731,6 +1735,7 @@ interface UniverseRow {
   position_y: number;
   region: string | null;
   warps: unknown;
+  name: string | null;
 }
 
 async function pgFetchUniverseRows(
@@ -1739,7 +1744,7 @@ async function pgFetchUniverseRows(
 ): Promise<
   Map<
     number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[]; name: string | null }
   >
 > {
   if (sectorIds.length === 0) {
@@ -1747,7 +1752,7 @@ async function pgFetchUniverseRows(
   }
   const uniqueIds = Array.from(new Set(sectorIds));
   const result = await pg.queryObject<UniverseRow>(
-    `SELECT sector_id::int, position_x::int, position_y::int, region, warps
+    `SELECT sector_id::int, position_x::int, position_y::int, region, warps, name
     FROM universe_structure
     WHERE sector_id = ANY($1::int[])`,
     [uniqueIds],
@@ -1755,16 +1760,40 @@ async function pgFetchUniverseRows(
 
   const map = new Map<
     number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[]; name: string | null }
   >();
   for (const row of result.rows) {
     map.set(row.sector_id, {
       position: [row.position_x ?? 0, row.position_y ?? 0],
       region: row.region ?? null,
       warps: parseWarpEdges(row.warps),
+      name: row.name ?? null,
     });
   }
   return map;
+}
+
+export async function pgResolveSectorId(
+  pg: QueryClient,
+  name: string,
+): Promise<number | null> {
+  const result = await pg.queryObject<{ sector_id: number }>(
+    `SELECT sector_id::int FROM universe_structure WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+    [name],
+  );
+  return result.rows[0]?.sector_id ?? null;
+}
+
+/** Read a sector payload param that may be a number or a name, resolving names to IDs. */
+export async function resolveSectorParam(
+  pg: QueryClient,
+  payload: JsonRecord,
+  key: string,
+): Promise<number | null> {
+  const raw = optionalSectorParam(payload, key);
+  if (raw === null) return null;
+  if (typeof raw === "number") return raw;
+  return await pgResolveSectorId(pg, raw);
 }
 
 async function pgFetchAllAdjacencies(
@@ -1866,6 +1895,7 @@ interface AdjacentSectorInfo {
 
 interface LocalMapSector {
   id: number;
+  name?: string | null;
   visited: boolean;
   hops_from_center: number;
   position: [number, number];
@@ -1983,7 +2013,7 @@ export async function pgBuildLocalMapRegion(
   const adjacencyCache = new Map<number, number[]>();
   const universeRowCache = new Map<
     number,
-    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[]; name: string | null }
   >();
 
   // Load all universe adjacencies upfront for pure in-memory BFS
@@ -2250,6 +2280,7 @@ export async function pgBuildLocalMapRegion(
       );
       resultSectors.push({
         id: sectorId,
+        name: universeRow?.name ?? null,
         visited: true,
         hops_from_center: hops,
         position,
@@ -2282,6 +2313,7 @@ export async function pgBuildLocalMapRegion(
       }
       resultSectors.push({
         id: sectorId,
+        name: universeRow?.name ?? null,
         visited: false,
         hops_from_center: hops,
         position,

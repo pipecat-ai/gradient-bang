@@ -13,8 +13,8 @@ MOVE = FunctionSchema(
     description="Move your ship to an adjacent sector. You can only move one sector at a time.",
     properties={
         "to_sector": {
-            "type": "integer",
-            "description": "Adjacent sector ID to move to",
+            "type": ["integer", "string"],
+            "description": "Adjacent sector to move to — sector number (e.g. 849) or name (e.g. 'Iron Gate')",
         }
     },
     required=["to_sector"],
@@ -25,17 +25,15 @@ PLOT_COURSE = FunctionSchema(
     description="Calculate shortest path from your current sector (or an optional from_sector) to the destination",
     properties={
         "to_sector": {
-            "type": "integer",
-            "description": "Destination sector ID",
-            "minimum": 0,
+            "type": ["integer", "string"],
+            "description": "Destination — sector number (e.g. 849) or name (e.g. 'Grand Nexus Station')",
         },
         "from_sector": {
-            "type": "integer",
+            "type": ["integer", "string"],
             "description": (
-                "Starting sector ID (defaults to your current sector). "
+                "Starting sector — number or name (defaults to your current sector). "
                 "Must be a sector you or your corporation have discovered."
             ),
-            "minimum": 0,
         },
     },
     required=["to_sector"],
@@ -53,9 +51,8 @@ LOCAL_MAP_REGION = FunctionSchema(
     description="Get all known sectors around current location for local navigation and awareness. Shows visited sectors with full details (ports, adjacents, position) and nearby unvisited sectors seen in adjacency lists.",
     properties={
         "center_sector": {
-            "type": "integer",
-            "description": "Optional center sector; defaults to current sector",
-            "minimum": 0,
+            "type": ["integer", "string"],
+            "description": "Optional center sector — number or name; defaults to current sector",
         },
         "max_hops": {
             "type": "integer",
@@ -79,9 +76,8 @@ PATH_WITH_REGION = FunctionSchema(
     description="Get path to destination plus local context around each path node for route visualization. Shows path, nearby known sectors, and identifies potential hazards or alternatives along the route.",
     properties={
         "to_sector": {
-            "type": "integer",
-            "description": "Destination sector ID",
-            "minimum": 0,
+            "type": ["integer", "string"],
+            "description": "Destination — sector number or name (e.g. 'Cerulean Outpost')",
         },
         "region_hops": {
             "type": "integer",
@@ -942,8 +938,8 @@ COMBAT_ACTION = FunctionSchema(
             ),
         },
         "to_sector": {
-            "type": "integer",
-            "description": "Destination sector when fleeing.",
+            "type": ["integer", "string"],
+            "description": "Destination sector when fleeing — number or name.",
         },
         "round_number": {
             "type": "integer",

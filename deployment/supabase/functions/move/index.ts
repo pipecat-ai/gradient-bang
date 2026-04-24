@@ -53,6 +53,7 @@ import {
   pgEmitMovementObservers,
   pgCheckGarrisonAutoEngage,
   pgLoadCorpName,
+  resolveSectorParam,
   RateLimitError,
   MoveError,
   type ObserverMetadata,
@@ -111,9 +112,9 @@ Deno.serve(traced("move", async (req, wt) => {
     const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
     const taskId = optionalString(payload, "task_id");
 
-    let toSector = optionalNumber(payload, "to_sector");
+    let toSector = await resolveSectorParam(pgClient, payload, "to_sector");
     if (toSector === null && "to" in payload) {
-      toSector = optionalNumber(payload, "to");
+      toSector = await resolveSectorParam(pgClient, payload, "to");
     }
     if (toSector === null || Number.isNaN(toSector)) {
       return errorResponse("to_sector is required", 400);

@@ -18,3 +18,10 @@ export const formatCurrency = (value: number, notation: "compact" | "standard" =
 export const validateName = (name: string) => {
   return /^[a-zA-Z0-9_ ]{3,20}$/.test(name)
 }
+
+export const formatSectorLabel = (
+  sector: { id?: number | null; name?: string | null } | null | undefined
+): string => {
+  if (sector?.id == null) return "Sector unknown"
+  return sector.name ? `${sector.id} - ${sector.name}` : `Sector ${sector.id}`
+}

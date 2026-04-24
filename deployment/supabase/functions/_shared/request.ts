@@ -68,6 +68,20 @@ export function optionalNumber(payload: JsonRecord, key: string): number | null 
   throw new RequestValidationError(`${key} must be a number`, 400);
 }
 
+/** Parse a sector parameter that may be a numeric ID or a sector name string. */
+export function optionalSectorParam(payload: JsonRecord, key: string): number | string | null {
+  const value = payload[key];
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const trimmed = value.trim();
+    const parsed = Number(trimmed);
+    if (!Number.isNaN(parsed) && Number.isFinite(parsed)) return parsed;
+    return trimmed;
+  }
+  throw new RequestValidationError(`${key} must be a sector number or name`, 400);
+}
+
 export function optionalBoolean(payload: JsonRecord, key: string): boolean | null {
   const value = payload[key];
   if (typeof value === 'boolean') {

@@ -14,6 +14,7 @@ import SectorMap, { type MapConfig } from "@/components/SectorMap"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
+import { formatSectorLabel } from "@/utils/formatting"
 import { getFetchBounds } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
@@ -86,7 +87,7 @@ const MapNodeDetails = ({ node }: { node?: MapSectorNode | null }) => {
         className="h-auto w-3 self-stretch text-accent"
       />
       <div className="flex flex-col gap-2 flex-1">
-        <DottedTitle title={`Sector ${node.id.toString()}`} textColor="text-foreground" />
+        <DottedTitle title={formatSectorLabel(node)} textColor="text-foreground" />
         <dl className="flex flex-col gap-2 uppercase text-xxs text-foreground">
           <div className="flex flex-row justify-between gap-2">
             <dt className="font-bold">Region</dt>

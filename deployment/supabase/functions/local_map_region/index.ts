@@ -33,6 +33,8 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { resolveSectorParam } from "../_shared/pg_queries.ts";
 import { traced } from "../_shared/weave.ts";
 
 const DEFAULT_MAX_HOPS = 3;
@@ -218,8 +220,15 @@ async function handleLocalMapRegion(
     }
   }
 
-  let centerSector = fitResult?.center_sector ??
-    optionalNumber(payload, "center_sector");
+  const pgClient = await acquirePgClient();
+  let centerSector: number | null;
+  try {
+    centerSector =
+      fitResult?.center_sector ??
+      (await resolveSectorParam(pgClient, payload, "center_sector"));
+  } finally {
+    pgClient.release();
+  }
   if (centerSector === null) {
     centerSector = ship.current_sector ?? knowledge.current_sector ?? 0;
   }

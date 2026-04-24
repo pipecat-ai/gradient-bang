@@ -33,6 +33,17 @@ from supabase import create_client, Client
 BATCH_SIZE = 500  # Rows per batch insert
 PAGE_SIZE = 1000  # Rows per page when fetching (PostgREST max_rows default is 1000)
 
+# Grand names applied to megaport sectors at load time. Cycled if the universe
+# has more megaports than entries in the list.
+MEGAPORT_GRAND_NAMES = [
+    "Grand Nexus Station",
+    "Federation Prime Hub",
+    "Galactic Gateway",
+    "Sovereign Command",
+    "Imperium Bastion",
+    "Core Meridian",
+]
+
 
 class UniverseLoader:
     """Loads universe data from JSON files into Supabase."""
@@ -266,6 +277,27 @@ class UniverseLoader:
         self.supabase.table("universe_config").insert(config).execute()
         print(f"✅ Loaded universe_config (seed={meta.get('seed')})")
 
+    def _resolve_megaport_names(self, meta: Dict) -> dict[int, str]:
+        """Pick megaport sector IDs from meta and assign grand names (cycled)."""
+        raw = meta.get("mega_port_sectors")
+        if raw is None:
+            raw = meta.get("mega_port_sector")
+        if raw is None:
+            return {}
+        ids: list[int] = []
+        values = raw if isinstance(raw, list) else [raw]
+        for v in values:
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, (int, float)) and v >= 0:
+                ids.append(int(v))
+            elif isinstance(v, str) and v.strip().isdigit():
+                ids.append(int(v.strip()))
+        return {
+            sid: MEGAPORT_GRAND_NAMES[i % len(MEGAPORT_GRAND_NAMES)]
+            for i, sid in enumerate(ids)
+        }
+
     def load_universe_structure(self, universe: Dict) -> None:
         """Load universe structure (sectors and warps)."""
         print("\n🌌 Loading universe_structure...")
@@ -279,6 +311,10 @@ class UniverseLoader:
             print(f"   Region mapping: {region_map}")
         else:
             print("   ⚠️  No region definitions in meta, using fallback names")
+
+        megaport_names = self._resolve_megaport_names(universe["meta"])
+        if megaport_names:
+            print(f"   Megaport grand names: {megaport_names}")
 
         sectors = universe["sectors"]
         batch = []
@@ -294,12 +330,17 @@ class UniverseLoader:
                 region_name = f"Region {region_id}"
                 fallback_regions_used.add(region_id)
 
+            sector_id = sector["id"]
+            sector_name = megaport_names.get(sector_id)
+            if sector_name is None and sector_id < len(self.sector_names):
+                sector_name = self.sector_names[sector_id]
             row = {
-                "sector_id": sector["id"],
+                "sector_id": sector_id,
                 "position_x": sector["position"]["x"],  # DOUBLE PRECISION
                 "position_y": sector["position"]["y"],  # DOUBLE PRECISION
                 "region": region_name,  # TEXT (converted from integer)
                 "warps": sector.get("warps", []),  # Supabase client handles JSONB serialization
+                "name": sector_name,
             }
             batch.append(row)
 
@@ -473,13 +514,21 @@ class UniverseLoader:
         """Main load process."""
         if data_path.is_dir():
             universe_path = data_path / "universe.json"
+            names_path = data_path / "sector_names.json"
         else:
             universe_path = data_path
+            names_path = data_path.parent / "sector_names.json"
 
         if not universe_path.exists():
             raise FileNotFoundError(f"Missing file: {universe_path}")
 
         universe = self.load_json(universe_path)
+        self.sector_names: list[str] = []
+        if names_path.exists():
+            print(f"📂 Loading {names_path}...")
+            with open(names_path) as f:
+                self.sector_names = json.load(f)
+            print(f"✅ Loaded {len(self.sector_names)} sector names")
 
         # Validate
         self.validate_files(universe)

@@ -33,6 +33,8 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
+import { resolveSectorParam } from "../_shared/pg_queries.ts";
 import { traced } from "../_shared/weave.ts";
 
 class PathWithRegionError extends Error {
@@ -55,6 +57,7 @@ Deno.serve(traced("path_with_region", async (req, trace) => {
   }
 
   const supabase = createServiceRoleClient();
+  const pgClient = await acquirePgClient();
   let payload: Record<string, unknown>;
   try {
     payload = await parseJsonRequest(req);
@@ -115,6 +118,7 @@ Deno.serve(traced("path_with_region", async (req, trace) => {
     const sHandlePath = trace.span("handle_path_with_region");
     const result = await handlePathWithRegion(
       supabase,
+      pgClient,
       payload,
       characterId,
       requestId,
@@ -161,11 +165,14 @@ Deno.serve(traced("path_with_region", async (req, trace) => {
       status: 500,
     });
     return errorResponse("internal server error", 500);
+  } finally {
+    pgClient.release();
   }
 }));
 
 async function handlePathWithRegion(
   supabase: ReturnType<typeof createServiceRoleClient>,
+  pgClient: Awaited<ReturnType<typeof acquirePgClient>>,
   payload: Record<string, unknown>,
   characterId: string,
   requestId: string,
@@ -189,7 +196,7 @@ async function handlePathWithRegion(
     throw new PathWithRegionError("Ship sector is unavailable", 500);
   }
 
-  let toSector = optionalNumber(payload, "to_sector");
+  let toSector = await resolveSectorParam(pgClient, payload, "to_sector");
   if (toSector === null || !Number.isInteger(toSector) || toSector < 0) {
     throw new PathWithRegionError("Missing or invalid to_sector", 400);
   }

@@ -16,6 +16,7 @@ import { GarrisonPanel } from "@/components/panels/GarrisonPanel"
 import { ShipCatalogue } from "@/components/panels/ShipCatalogue"
 import { SalvageIcon } from "@/icons"
 import useGameStore from "@/stores/game"
+import { formatSectorLabel } from "@/utils/formatting"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -96,7 +97,7 @@ export const SectorPanel = () => {
           )}
         >
           <CardHeader className="gap-0">
-            <CardTitle>Sector {sector?.id}</CardTitle>
+            <CardTitle>{formatSectorLabel(sector)}</CardTitle>
           </CardHeader>
 
           <CardContent className="flex flex-row gap-ui-sm pr-0">
