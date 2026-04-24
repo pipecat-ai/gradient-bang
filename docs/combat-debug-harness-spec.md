@@ -285,6 +285,8 @@ All new, all under `client/combat-sim/`:
 
 ## Migrating back to production
 
+> **Superseded.** The swap approach described below has been replaced by an in-place surgical sync — see [combat-migration-phase-plan.md](combat-migration-phase-plan.md). Legacy `_shared/combat_*.ts` files stay in place; we edit them to functionally match the harness. The rest of this section is kept as historical context for the swap idea, not as an active plan.
+
 Once the engine is stable, we swap it into the real edge functions as one atomic PR. The `events` table schema and the edge-function HTTP contract do **not** change — the bot, GameContext, clients, and RTVI consumers see zero behavioural difference. Safety comes from golden tests plus a fixture-diff pass, not runtime feature flags (flagging Deno edge functions is painful and we'd rather not).
 
 ### Readiness checklist

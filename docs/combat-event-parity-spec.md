@@ -1,5 +1,7 @@
 # Production Combat Event Parity Migration — Implementation Spec
 
+> **Phase context.** This spec owns **Phase 1** of the combat migration (event-layer parity). **Phase 2** (engine logic sync: per-payer toll + flee-state surfacing) is detailed in [combat-migration-phase-plan.md](combat-migration-phase-plan.md), which also captures the harness-only features explicitly excluded from the migration.
+
 ## Context
 
 The combat-sim harness (`client/combat-sim/`) has evolved a set of event-shape and routing improvements that materially improve combat agent behavior and player observability — cleaner garrison lifecycle signals, richer participant metadata, absent-owner visibility, and framework additions like `InferenceRule.OWNED`. The production combat flow — emission (Supabase edge functions), routing (Python `EventRelay`), and consumption (game client + RTVI) — lags behind.
@@ -15,7 +17,7 @@ This spec enumerates the **event-layer** discrepancies and plans surgical, addit
 
 ### Out of scope
 - UI / client rendering work (tracked separately)
-- Strategies spec ([combat-strategies-spec.md](combat-strategies-spec.md))
+- Strategies spec ([combat-strategies-spec.md](combat-strategies-spec.md)) — including the `surrender` action, corp-ship surrender cascade, and remote surrender. **Explicitly deferred as a future feature**: no phase of this migration depends on it, and the strategies spec stays intact for when we pick it back up.
 - Engine swap itself (harness engine → `_shared/combat/*`)
 - `world.reset`, `harness.timer_toggled`, `forceEndCombat` — harness-only debug primitives
 
@@ -44,6 +46,8 @@ Each row is an independent, surgical change. "Surface" maps to the detailed sect
 | 9 | Garrison `owner_corp_id` in payload | missing | included | **payload** | med (privacy) | F |
 | 10 | `ship.destroyed` `owner_character_id` | missing | included | **payload** | med (privacy) | G |
 | 11 | `ship.destroyed` `corp_id` | missing | included | **payload** | med (privacy) | G |
+| 12 | `ship.destroyed` voice narration | silent (`InferenceRule.NEVER`) | voice fires for the owner via `InferenceRule.OWNED` | **routing** | low | H |
+| 13 | Prompt guidance for new combat fields | `combat.md` doesn't reference them | teaches the agent to read `fighters`, `destroyed`, `corp_id`, garrison envelope attrs, and `owner_character_id`-based framing | **prompt** | low | I |
 
 **Privacy note (rows 7–11):** Exposing character IDs and corp IDs in broadcast event payloads means any recipient of a combat event can see who owns what. This is acceptable because combat event recipients are already scoped by `visibility.ts` to people who have a legitimate stake (participant, sector observer, corp member, garrison owner). None of these are random third parties. But we should scrub before deploy and confirm no recipient class gets a combatant's owner ID they shouldn't. Worst case: opt into per-recipient redaction for some fields (e.g. mask `corp_id` when recipient is a sector-only observer not in that corp). MVP: add without redaction, revisit if it leaks.
 
@@ -78,8 +82,10 @@ Companion view to the discrepancy table — shows *who* starts receiving what af
 | 9 | Garrison `owner_corp_id` | round events | P + S + CP | (no recipient change) | no change |
 | 10 | `ship.destroyed` `owner_character_id` | `ship.destroyed` | S + corp-of-destroyed-ship | (no recipient change) | no change (NEVER inference) |
 | 11 | `ship.destroyed` `corp_id` | `ship.destroyed` | S + corp-of-destroyed-ship | (no recipient change) | no change (NEVER inference) |
+| 12 | `ship.destroyed` OWNED narration | `ship.destroyed` | S + corp-of-destroyed-ship | (no recipient change) | +**ship owner** (personal ships only; corp-ship owner is a pseudo-character — see Surface H) |
+| 13 | Prompt updates | — | — | — | (no delivery change) — sharpens reasoning on existing narration paths |
 
-**Scope takeaway.** Only **two rows change who gets events**: #1 (new event, all five classes receive it) and #2 (widens combat-round-event recipients to include GO + CGO). Rows 3–11 either enrich payloads that already reach the same people, or add framework scaffolding. The migration expands information for garrison owners and their corps; it does not widen visibility for any other class.
+**Scope takeaway.** Only **two rows change who gets events**: #1 (new event, all five classes receive it) and #2 (widens combat-round-event recipients to include GO + CGO). Rows 3–11 enrich payloads that already reach the same people or add framework scaffolding. Row 12 adds a voice-narration moment for an existing event without changing delivery. Row 13 is prompt-only. The migration expands information for garrison owners and their corps, adds one owner-scoped voice beat on ship destruction, and sharpens the agent's reading of combat events.
 
 ---
 
@@ -273,6 +279,70 @@ Pulled from the garrison record (`garrisons` table has both).
 
 ---
 
+### Surface H — `ship.destroyed` → `InferenceRule.OWNED` (fixes #12)
+
+**What.** Today `ship.destroyed` uses `InferenceRule.NEVER` — the voice agent silently appends it to context but never speaks. A player can lose their ship and only hear about it via the next `combat.round_resolved` narration (or not at all if the round was already resolving). Promote it to `InferenceRule.OWNED` so the voice agent speaks for the *owner* of the destroyed ship and nobody else.
+
+**Routing.** Recipient set unchanged (S + corp-of-destroyed-ship, still scoped by `visibility.ts`). Only the LLM-invocation rule changes: `_should_run_llm()` now fires when `payload.owner_character_id == player.id`.
+
+**Personal ships vs corp ships.** `InferenceRule.OWNED` fires for a human character. For personal ships, `owner_character_id` is the human's character id → voice fires for them. ✓
+For corp ships, `owner_character_id` is the pseudo-character id (not a human) → OWNED doesn't fire for any human. Corp-ship destruction stays silent at the voice layer; context append still lands for corp members so they can ask "did we lose anything?" and get an answer. Voice narration of corp-ship destruction is a future extension (candidate for a combined `OWNED_OR_CORP` rule if we want it; out of scope here).
+
+**Bot-side.** Single `EventConfig` change in [event_relay.py](../src/gradientbang/pipecat_server/subagents/event_relay.py):
+```python
+"ship.destroyed": EventConfig(
+  append_rule=AppendRule.PARTICIPANT,   # unchanged
+  inference_rule=InferenceRule.OWNED,   # was NEVER
+  priority=EventPriority.HIGH,
+  xml_context_key="combat_id",
+  voice_summary=_summarize_ship_destroyed,   # extend if not already present
+),
+```
+
+Plus a `_summarize_ship_destroyed()` voice line — for the owner, something like "Commander, the <ship_name> has been destroyed."
+
+**Dependencies.** Surface C (provides `InferenceRule.OWNED`) and Surface G (provides `owner_character_id` on the payload for the rule to match against). Ship after both land.
+
+**Tests.** Port / extend:
+- Owner receives `ship.destroyed` and voice agent fires → inference runs exactly once
+- Corp member (non-owner) in sector receives `ship.destroyed` → silent append, no inference
+- Uninvolved third party: not in recipient set (already true today)
+
+**Risk.** Low. One EventConfig flip, one summary function. Only observable consequence is a voice line when your ship falls — which is strictly better UX.
+
+---
+
+### Surface I — Combat prompt updates (fixes #13)
+
+**What.** Update [`src/gradientbang/prompts/fragments/combat.md`](../src/gradientbang/prompts/fragments/combat.md) (and wherever else combat guidance lives — `voice_agent.md` or `task_agent.md` as applicable) so the agent explicitly reads the new payload fields and envelope attrs this migration introduces.
+
+**What to teach:**
+- **Participant fields (Surface E):**
+  - `fighters` — current fighter count per combatant. Use when sizing attacks.
+  - `destroyed: true` — target is a corpse. **Do not attack.** The round will reject or waste the commit.
+  - `corp_id` — corp affiliation. Combine with caller's `corp_id` for corpmate checks: "same corp_id → don't attack (corp cohesion rule)."
+- **Garrison ownership (Surface F):**
+  - `owner_character_id` on the garrison sub-object. Frame as "your garrison" when it matches the caller's character_id; "their garrison" otherwise.
+  - `owner_corp_id` — for corp-wide framing ("the <corp> garrison in sector X").
+- **Envelope attrs (Surface D):**
+  - On any combat event, `combat_id` is the stable key. When garrison-involved, `garrison_id` and `garrison_owner` ride the envelope alongside — the agent can cross-reference these without re-parsing the payload body.
+- **`garrison.destroyed` (Surface A):**
+  - Treat as a terminal signal for that garrison: its fighters are gone, the row is deleted server-side, downstream `garrison.pay` or `garrison.attack` against that id will fail.
+- **`ship.destroyed` voice moment (Surface H):**
+  - When the agent receives `ship.destroyed` with `owner_character_id == self`, speak a short loss beat ("Commander, the <ship_name> is gone."). Don't repeat the `combat.round_resolved` narration — this is the *one* line for that loss.
+
+**Implementation.** Mostly terse prose edits in the prompt file. Include one example block per field cluster so the model sees the field in context. Keep core prompts (voice_agent.md, game_overview.md) clean — the detail lives in the combat fragment.
+
+**Affected files:**
+- `src/gradientbang/prompts/fragments/combat.md` — primary edit
+- Any test harness that snapshots prompt text (update snapshots)
+
+**Dependencies.** Surfaces D, E, F, G, H — the fields and rules need to exist before the prompt can reference them without lying to the model. Ship I last, once the payload / routing changes are in production.
+
+**Risk.** Low. Prompt-only change; no events, no schemas, no behavior. Observable impact is agent quality — watch an eval pass (if we have one) or run a handful of live combats to confirm no regression in tool-call selection.
+
+---
+
 ## Adjacent engine fixes
 
 Engine-behavior fixes surfaced while building and using the harness. Not event-shape changes, but they affect the state that *gets carried* in event payloads (toll_registry is persisted via `sector_contents.combat.context`) so it's natural to land them in the same migration window. Each is independently shippable.
@@ -339,9 +409,15 @@ Independent. Ship whenever.
 **PR 7 — Per-payer toll semantics** (Adjacent engine fix 1)
 Independent — touches engine logic in `_shared/combat_garrison.ts`, `combat_resolution.ts`, and `combat_action/index.ts`. No schema change. Ship whenever; optionally bundle with the event PRs if the release note can cover both.
 
-**Bundling option.** PRs 2+3+4+5+6 are all event-payload or XML-builder changes. PR 7 is a behavior change. If risk appetite is higher, fold 2-6 into one PR; keep PR 7 separate so the behavior change can be called out cleanly in release notes.
+**PR 8 — `ship.destroyed` → `InferenceRule.OWNED`** (Surface H)
+Depends on C + G. Pure `event_relay.py` change: flip the EventConfig's `inference_rule` and add a short voice-summary function. Low risk, user-visible (extra voice line on your own ship loss).
 
-**Ordering constraint.** C before A. F before D. That's it. Everything else is independent.
+**PR 9 — Combat prompt updates** (Surface I)
+Depends on D + E + F + G + H — fields and rules must all exist in production before the prompt references them. Prompt-only; ship last so the model isn't told about fields it won't see. Include a snapshot-test bump if one exists.
+
+**Bundling option.** PRs 2+3+4+5+6 are all event-payload or XML-builder changes. PR 7 is a behavior change. PR 8 is a voice-narration change. PR 9 is prompt-only. If risk appetite is higher, fold 2–6 into one PR; keep 7, 8, 9 separate so each behavior/UX change can be called out cleanly in release notes.
+
+**Ordering constraint.** C before A. F before D. C + G before H. All of D/E/F/G/H before I. Everything else is independent.
 
 ---
 
@@ -420,8 +496,9 @@ Local bot + local Supabase + production client:
   - Register `EventConfig` for `garrison.destroyed` (Surface A)
   - Add `_summarize_garrison_destroyed()` voice-summary function (Surface A)
   - Extend XML builder to support multi-attribute envelopes + add per-event attr lists (Surface D)
-- `src/gradientbang/utils/summary_formatters.py` — potential home for the new summary function if convention is to live there
-- `src/gradientbang/prompts/fragments/combat.md` — reference new participant fields (`fighters`, `destroyed`, `corp_id`) in prompt guidance (follow-up, not blocking)
+  - Flip `ship.destroyed` EventConfig `inference_rule` from `NEVER` → `OWNED` + add `_summarize_ship_destroyed()` (Surface H)
+- `src/gradientbang/utils/summary_formatters.py` — potential home for the new summary functions if convention is to live there
+- `src/gradientbang/prompts/fragments/combat.md` — reference new participant fields (`fighters`, `destroyed`, `corp_id`), garrison ownership (`owner_character_id`, `owner_corp_id`), envelope attrs, `garrison.destroyed` as a terminal signal, and the `ship.destroyed` self-loss voice beat (Surface I)
 
 ### Client-side (web)
 
@@ -464,7 +541,7 @@ Local bot + local Supabase + production client:
 
 Tracked so they're not lost:
 
-- Prompt updates in `combat.md` to reference new fields (`fighters`, `destroyed`, `corp_id`) in agent guidance
-- Consider `InferenceRule.OWNED` for other events (e.g. `ship.destroyed` of your own ship — arguably deserves voice narration beyond what `round_resolved` already says)
+- `OWNED_OR_CORP` inference rule — fires voice for the owner OR any corp member. Would give corp ships voice-announced destruction (Surface H covers only personal ships). Small framework add; no payload change.
 - Multi-garrison encounter support — prod currently only includes the primary garrison in combat payloads; harness may support multi-garrison. Flag for strategies-era combat where multiple garrisons in a sector becomes plausible.
 - Consider harness-only debug events (`world.reset`, `harness.timer_toggled`, `forceEndCombat`) as candidates for *production* admin tooling — but that's an admin-surface question, not combat-event parity.
+- `surrender` action + corp-ship cascade + remote surrender (strategies spec) — deferred as a future feature (see Out of scope at the top).
