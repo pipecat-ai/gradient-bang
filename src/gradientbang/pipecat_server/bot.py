@@ -871,6 +871,8 @@ async def _configure_recording_bucket(room_url: str):
     body = {
         "properties": {
             "enable_recording": "raw-tracks",
+            "enable_raw_tracks_event_json": True,
+            "enable_raw_tracks_transcoded_audio": "aac",
             "recordings_bucket": {
                 "bucket_name": bucket,
                 "bucket_region": region,
