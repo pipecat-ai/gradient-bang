@@ -60,6 +60,7 @@ interface MapProps {
   showLegend?: boolean
   coursePlot?: CoursePlot | null
   ships?: Array<{ sector: number; ship_name: string; ship_type: string }>
+  corp_member_ships?: Array<{ sector: number; character_name: string; ship_name: string }>
   onNodeClick?: (node: MapSectorNode | null) => void
   onNodeEnter?: (node: MapSectorNode) => void
   onNodeExit?: (node: MapSectorNode) => void
@@ -129,6 +130,7 @@ const MapComponent = ({
   maxDistance = 2,
   coursePlot,
   ships,
+  corp_member_ships,
   onNodeClick,
   onNodeEnter,
   onNodeExit,
@@ -155,6 +157,19 @@ const MapComponent = ({
     return map
   }, [ships])
 
+  const corpMemberShipsKey =
+    corp_member_ships?.map((s) => `${s.sector}:${s.character_name}`).join(",") ?? ""
+  const corpMemberShipsMap = useMemo(() => {
+    if (!corp_member_ships || corp_member_ships.length === 0) return undefined
+    const map = new Map<number, Array<{ character_name: string; ship_name: string }>>()
+    for (const entry of corp_member_ships) {
+      const existing = map.get(entry.sector) ?? []
+      existing.push({ character_name: entry.character_name, ship_name: entry.ship_name })
+      map.set(entry.sector, existing)
+    }
+    return map
+  }, [corp_member_ships])
+
   // Default center_sector_id to current_sector_id if not provided
   const center_sector_id = center_sector_id_prop ?? current_sector_id ?? 0
 
@@ -180,6 +195,7 @@ const MapComponent = ({
   const lastConfigRef = useRef<Omit<SectorMapConfigBase, "center_sector_id"> | null>(null)
   const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot)
   const lastShipsKeyRef = useRef<string>(shipsKey)
+  const lastCorpMemberShipsKeyRef = useRef<string>(corpMemberShipsKey)
   const lastCenterWorldRef = useRef<[number, number] | undefined>(center_world)
   const lastFitBoundsWorldRef = useRef<[number, number, number, number] | undefined>(
     fit_bounds_world
@@ -374,6 +390,7 @@ const MapComponent = ({
         maxDistance,
         coursePlot,
         ships: shipsMap,
+        corp_member_ships: corpMemberShipsMap,
       })
       controllerRef.current = controller
       prevCenterSectorIdRef.current = center_sector_id
@@ -383,6 +400,7 @@ const MapComponent = ({
       lastConfigRef.current = baseConfig
       lastCoursePlotRef.current = coursePlot
       lastShipsKeyRef.current = shipsKey
+      lastCorpMemberShipsKeyRef.current = corpMemberShipsKey
       lastCenterWorldRef.current = center_world
       lastFitBoundsWorldRef.current = fit_bounds_world
       lastMapFitEpochRef.current = mapFitEpoch
@@ -402,6 +420,7 @@ const MapComponent = ({
     const configChanged = lastConfigRef.current !== baseConfig
     const coursePlotChanged = !courseplotsEqual(lastCoursePlotRef.current, coursePlot)
     const shipsChanged = lastShipsKeyRef.current !== shipsKey
+    const corpMemberShipsChanged = lastCorpMemberShipsKeyRef.current !== corpMemberShipsKey
     const centerWorldChanged = !tuplesEqual(lastCenterWorldRef.current, center_world)
     const fitBoundsWorldChanged = !tuplesEqual(lastFitBoundsWorldRef.current, fit_bounds_world)
     const mapFitEpochChanged = lastMapFitEpochRef.current !== mapFitEpoch
@@ -416,6 +435,7 @@ const MapComponent = ({
       !configChanged &&
       !coursePlotChanged &&
       !shipsChanged &&
+      !corpMemberShipsChanged &&
       !centerWorldChanged &&
       !fitBoundsWorldChanged &&
       !mapFitEpochChanged &&
@@ -447,6 +467,7 @@ const MapComponent = ({
       data: normalizedMapData,
       coursePlot,
       ships: shipsMap,
+      corp_member_ships: corpMemberShipsMap,
     })
 
     // Determine if a camera reframe is needed
@@ -481,6 +502,7 @@ const MapComponent = ({
       maxDistanceOnly ||
       needsConfigUpdate ||
       shipsChanged ||
+      corpMemberShipsChanged ||
       coursePlotChanged ||
       topologyChanged
     ) {
@@ -499,6 +521,7 @@ const MapComponent = ({
     lastConfigRef.current = baseConfig
     lastCoursePlotRef.current = coursePlot
     lastShipsKeyRef.current = shipsKey
+    lastCorpMemberShipsKeyRef.current = corpMemberShipsKey
     lastCenterWorldRef.current = center_world
     lastFitBoundsWorldRef.current = fit_bounds_world
     lastMapFitEpochRef.current = mapFitEpoch
@@ -511,6 +534,8 @@ const MapComponent = ({
     coursePlot,
     shipsKey,
     shipsMap,
+    corpMemberShipsKey,
+    corpMemberShipsMap,
     onMapFetch,
     effectiveWidth,
     effectiveHeight,
@@ -638,6 +663,16 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
   if (prevProps.ships !== nextProps.ships) {
     const prevKey = prevProps.ships?.map((s) => `${s.sector}:${s.ship_name}`).join(",") ?? ""
     const nextKey = nextProps.ships?.map((s) => `${s.sector}:${s.ship_name}`).join(",") ?? ""
+    if (prevKey !== nextKey) {
+      return false
+    }
+  }
+
+  if (prevProps.corp_member_ships !== nextProps.corp_member_ships) {
+    const prevKey =
+      prevProps.corp_member_ships?.map((s) => `${s.sector}:${s.character_name}`).join(",") ?? ""
+    const nextKey =
+      nextProps.corp_member_ships?.map((s) => `${s.sector}:${s.character_name}`).join(",") ?? ""
     if (prevKey !== nextKey) {
       return false
     }

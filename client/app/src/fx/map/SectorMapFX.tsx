@@ -112,6 +112,7 @@ export type RegionLaneStyleOverrides = Record<string, RegionLaneStyle>
 
 export interface NodeStyles {
   current: NodeStyle
+  corpMember: NodeStyle
   visited: NodeStyle
   visited_corp: NodeStyle
   unvisited: NodeStyle
@@ -145,6 +146,18 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     glowRadius: 90,
     glowColor: "rgba(116,212,255,0.2)",
     glowFalloff: 0.6,
+  },
+  corpMember: {
+    fill: "rgba(0,0,0,0)",
+    border: "rgba(0,0,0,0)",
+    borderWidth: 0,
+    borderStyle: "solid",
+    outline: "none",
+    outlineWidth: 0,
+    glow: true,
+    glowRadius: 90,
+    glowColor: "rgba(168,85,247,0.35)",
+    glowFalloff: 0.5,
   },
   visited: {
     fill: "rgba(0,255,0,0.25)",
@@ -528,6 +541,7 @@ export interface SectorMapProps {
   maxDistance?: number
   coursePlot?: CoursePlot | null
   ships?: Map<number, Array<{ ship_name: string; ship_type: string }>>
+  corp_member_ships?: Map<number, Array<{ character_name: string; ship_name: string }>>
 }
 
 export interface CameraState {
@@ -2139,7 +2153,116 @@ function truncateText(ctx: CanvasRenderingContext2D, text: string, maxWidth: num
 
 type ShipInfo = { ship_name: string; ship_type: string }
 
+type CorpMemberShipInfo = { character_name: string; ship_name: string }
+
 type ShipLabelHitBox = { sectorId: number; x: number; y: number; w: number; h: number }
+
+/** Render purple glow rings under sectors where other corporation members are located. */
+function renderCorpMemberGlows(
+  ctx: CanvasRenderingContext2D,
+  data: MapData,
+  scale: number,
+  config: SectorMapConfigBase,
+  corpMemberShips: Map<number, CorpMemberShipInfo[]> | undefined
+) {
+  if (!corpMemberShips || corpMemberShips.size === 0) return
+  const style = config.nodeStyles.corpMember
+  if (!style.glow || !style.glowRadius || !style.glowColor) return
+  const currentSectorId = config.current_sector_id
+  const falloff = style.glowFalloff ?? 0.3
+
+  data.forEach((node) => {
+    if (!corpMemberShips.has(node.id)) return
+    if (currentSectorId !== undefined && node.id === currentSectorId) return
+    const world = hexToWorld(node.position[0], node.position[1], scale)
+    const gradient = ctx.createRadialGradient(
+      world.x,
+      world.y,
+      0,
+      world.x,
+      world.y,
+      style.glowRadius!
+    )
+    gradient.addColorStop(0, style.glowColor!)
+    gradient.addColorStop(falloff, style.glowColor!)
+    gradient.addColorStop(1, applyAlpha(style.glowColor!, 0))
+    ctx.save()
+    ctx.fillStyle = gradient
+    ctx.beginPath()
+    ctx.arc(world.x, world.y, style.glowRadius!, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  })
+}
+
+/** Render pilot-name labels below sectors that hold corporation-member ships. */
+function renderCorpMemberLabels(
+  ctx: CanvasRenderingContext2D,
+  data: MapData,
+  scale: number,
+  hexSize: number,
+  width: number,
+  height: number,
+  cameraState: CameraState,
+  config: SectorMapConfigBase,
+  corpMemberShips: Map<number, CorpMemberShipInfo[]> | undefined
+) {
+  if (!corpMemberShips || corpMemberShips.size === 0) return
+
+  const currentSectorId = config.current_sector_id
+  const fontSize = 10
+  const padding = 3
+  const rowGap = 2
+  const labelOffset = config.sector_label_offset ?? 2
+  const bgColor = "rgba(88,28,135,0.92)"
+  const borderColor = "rgba(216,180,254,1)"
+  const textColor = "#f5f3ff"
+
+  ctx.save()
+  ctx.font = `800 ${fontSize}px ${getCanvasFontFamily(ctx)}`
+  ctx.textAlign = "center"
+  ctx.textBaseline = "alphabetic"
+
+  data.forEach((node) => {
+    const members = corpMemberShips.get(node.id)
+    if (!members || members.length === 0) return
+    if (currentSectorId !== undefined && node.id === currentSectorId) return
+
+    // Anchor at bottom of hex (angle = PI/2 points down in screen space after worldToScreen)
+    const worldPos = hexToWorld(node.position[0], node.position[1], scale)
+    const edgeWorldX = worldPos.x
+    const edgeWorldY = worldPos.y + hexSize
+    const screenPos = worldToScreen(edgeWorldX, edgeWorldY, width, height, cameraState)
+
+    const ascent = fontSize * 0.8
+    const descent = fontSize * 0.2
+    const rowHeight = ascent + descent + padding * 2
+
+    let cursorY = screenPos.y + labelOffset + ascent + padding
+
+    for (const member of members) {
+      const label = member.character_name.toUpperCase()
+      const textWidth = ctx.measureText(label).width
+      const boxX = screenPos.x - textWidth / 2 - padding
+      const boxY = cursorY - ascent - padding
+      const boxW = textWidth + padding * 2
+      const boxH = ascent + descent + padding * 2
+
+      ctx.fillStyle = bgColor
+      ctx.fillRect(boxX, boxY, boxW, boxH)
+      ctx.strokeStyle = borderColor
+      ctx.lineWidth = 1
+      ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1)
+
+      ctx.fillStyle = textColor
+      ctx.fillText(label, screenPos.x, cursorY)
+
+      cursorY += rowHeight + rowGap
+    }
+  })
+
+  ctx.restore()
+}
 
 /** Render ship count labels at top-left of hexes (compact badges only, skips hovered) */
 function renderShipLabels(
@@ -2499,7 +2622,7 @@ function renderWithCameraStateAndInteraction(
   courseAnimationOffset = 0,
   shipLabelHitBoxesOut?: ShipLabelHitBox[]
 ) {
-  const { width, height, config, coursePlot, ships } = props
+  const { width, height, config, coursePlot, ships, corp_member_ships } = props
   const ctx = setupCanvas(canvas, props, width, height)
   if (!ctx) return
 
@@ -2549,6 +2672,8 @@ function renderWithCameraStateAndInteraction(
     coursePlotSectors,
     hoveredSectorId
   )
+
+  renderCorpMemberGlows(ctx, cameraState.filteredData, scale, config, corp_member_ships)
 
   ctx.restore()
 
@@ -2650,6 +2775,17 @@ function renderWithCameraStateAndInteraction(
     ships,
     hoveredSectorId,
     shipLabelHitBoxesOut
+  )
+  renderCorpMemberLabels(
+    ctx,
+    cameraState.filteredData,
+    scale,
+    hexSize,
+    width,
+    height,
+    cameraState,
+    config,
+    corp_member_ships
   )
   renderPortLabels(
     ctx,
