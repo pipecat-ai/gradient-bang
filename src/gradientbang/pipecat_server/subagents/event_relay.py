@@ -352,6 +352,34 @@ def _summarize_combat_ended(relay: EventRelay, event: dict) -> Optional[str]:
     return "Combat state: observed combat ended."
 
 
+def _summarize_garrison_destroyed(relay: EventRelay, event: dict) -> Optional[str]:
+    payload = event.get("payload", {})
+    if not isinstance(payload, Mapping):
+        return event.get("summary")
+    sector = payload.get("sector")
+    sector_id = sector.get("id") if isinstance(sector, Mapping) else None
+    mode = payload.get("mode") if isinstance(payload.get("mode"), str) else "unknown"
+    garrison_id = payload.get("garrison_id") or payload.get("combatant_id") or ""
+    owner_character_id = payload.get("owner_character_id")
+    is_owner = (
+        isinstance(owner_character_id, str) and owner_character_id == relay._character_id
+    )
+    sector_text = f"sector {sector_id}" if isinstance(sector_id, int) else "the sector"
+    if is_owner:
+        return (
+            f"Your garrison was destroyed in {sector_text} "
+            f"garrison_id={garrison_id}, mode={mode}."
+        )
+    owner_name = payload.get("owner_name")
+    owner_suffix = (
+        f" (owner: {owner_name})" if isinstance(owner_name, str) and owner_name else ""
+    )
+    return (
+        f"Garrison destroyed in {sector_text} "
+        f"garrison_id={garrison_id}, mode={mode}{owner_suffix}."
+    )
+
+
 # ── Event config registry ─────────────────────────────────────────────────
 
 EVENT_CONFIGS: dict[str, EventConfig] = {
@@ -389,6 +417,14 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         inference=InferenceRule.NEVER,
         xml_context_key="combat_id",
         voice_summary=_summarize_combat_action,
+    ),
+    "garrison.destroyed": EventConfig(
+        append=AppendRule.PARTICIPANT,
+        # Voice fires for the owner only; non-owners get silent context append.
+        inference=InferenceRule.OWNED,
+        priority=Priority.HIGH,
+        xml_context_key="combat_id",
+        voice_summary=_summarize_garrison_destroyed,
     ),
     # Strategy lifecycle — direct to the setting character; inference fires so
     # voice acknowledges ("Strategy set to offensive.") and the tool's Executed
@@ -510,7 +546,10 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "garrison.combat_alert": EventConfig(),
     "salvage.collected": EventConfig(),
     "salvage.created": EventConfig(),
-    "ship.destroyed": EventConfig(append=AppendRule.LOCAL),
+    "ship.destroyed": EventConfig(
+        append=AppendRule.LOCAL,
+        inference=InferenceRule.OWNED,
+    ),
     "ship.definitions": EventConfig(),
     "quest.status": EventConfig(),
     "quest.progress": EventConfig(),
@@ -1199,6 +1238,7 @@ class EventRelay:
         is_our_task: bool,
         request_id: Optional[str],
         combat_for_player: bool,
+        clean_payload: Any,
     ) -> bool:
         rule = cfg.inference
         is_voice = self._task_state.is_recent_request_id(request_id) if request_id else False
@@ -1210,7 +1250,17 @@ class EventRelay:
         elif rule == InferenceRule.ON_PARTICIPANT:
             result = combat_for_player
         elif rule == InferenceRule.OWNED:
-            result = is_our_task
+            # Viewer owns the event subject (e.g. their garrison was destroyed).
+            owner_id = (
+                clean_payload.get("owner_character_id")
+                if isinstance(clean_payload, Mapping)
+                else None
+            )
+            result = (
+                isinstance(owner_id, str)
+                and self._character_id is not None
+                and owner_id == self._character_id
+            )
         else:
             result = False
 
@@ -1367,7 +1417,7 @@ class EventRelay:
         event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
 
         should_run_llm = self._should_run_llm(
-            cfg, event_name, is_our_task, request_id, combat_for_player
+            cfg, event_name, is_our_task, request_id, combat_for_player, clean_payload
         )
 
         # Debounce rapid-fire inference triggers.

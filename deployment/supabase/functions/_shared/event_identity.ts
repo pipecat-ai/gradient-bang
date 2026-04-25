@@ -13,6 +13,7 @@ const SHIP_SPECIFIC_EVENT_TYPES = new Set([
   "garrison.deployed",
   "garrison.collected",
   "garrison.mode_changed",
+  "garrison.destroyed",
   "ship.renamed",
   "ship.destroyed",
 ]);
