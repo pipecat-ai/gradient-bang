@@ -202,8 +202,19 @@ async function handleUnownedShipCollect(params: {
 
   const sectorId = ship.current_sector;
 
-  // Load target ship and validate it is collectable
-  const targetShip = await loadShip(supabase, targetShipId);
+  let targetShip;
+  try {
+    targetShip = await loadShip(supabase, targetShipId);
+  } catch (loadErr) {
+    if (loadErr instanceof Error && loadErr.message.includes("not found")) {
+      const err = new Error("Unowned ship not found") as Error & {
+        status?: number;
+      };
+      err.status = 404;
+      throw err;
+    }
+    throw loadErr;
+  }
 
   if (targetShip.current_sector !== sectorId) {
     const err = new Error("Unowned ship not in this sector") as Error & {
@@ -221,9 +232,8 @@ async function handleUnownedShipCollect(params: {
     throw err;
   }
 
-  // Verify the ship has no current occupant. The unowned-ships list in
-  // buildSectorSnapshot is computed by checking that no character has
-  // current_ship_id == ship_id. Mirror that check here.
+  // Mirror buildSectorSnapshot's occupancy rule: a ship is "unowned" iff
+  // no character has current_ship_id == ship_id.
   const { data: occupant, error: occupantError } = await supabase
     .from("characters")
     .select("character_id")
@@ -247,7 +257,6 @@ async function handleUnownedShipCollect(params: {
     throw err;
   }
 
-  // Load player's ship capacity
   const shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
   const currentCargo = {
     qf: ship.cargo_qf ?? 0,
@@ -257,7 +266,6 @@ async function handleUnownedShipCollect(params: {
   const cargoUsed = currentCargo.qf + currentCargo.ro + currentCargo.ns;
   let availableSpace = shipDefinition.cargo_holds - cargoUsed;
 
-  // Snapshot target ship resources at the time of collection
   const targetCargo = {
     qf: targetShip.cargo_qf ?? 0,
     ro: targetShip.cargo_ro ?? 0,
@@ -267,28 +275,11 @@ async function handleUnownedShipCollect(params: {
 
   const collectedCargo: Record<string, number> = {};
   const remainingCargo: Record<string, number> = {};
+  const collectedCredits = targetCredits > 0 ? targetCredits : 0;
 
-  // Always collect credits (no cargo space needed)
-  let collectedCredits = 0;
-  if (targetCredits > 0) {
-    collectedCredits = targetCredits;
-    const newCredits = (ship.credits ?? 0) + targetCredits;
-    const { error: creditsError } = await supabase
-      .from("ship_instances")
-      .update({ credits: newCredits, updated_at: new Date().toISOString() })
-      .eq("ship_id", ship.ship_id);
-    if (creditsError) {
-      console.error("unowned_ship_collect.credits_update", creditsError);
-      const err = new Error("Failed to update credits") as Error & {
-        status?: number;
-      };
-      err.status = 500;
-      throw err;
-    }
-  }
-
-  // Collect cargo in alphabetical commodity order (deterministic).
-  // Map full commodity names to ship_instances column suffixes.
+  // Iterate alphabetically (ns→qf→ro by storage suffix happens to match
+  // alphabetical commodity-name order) so collection is deterministic
+  // when partial.
   const COMMODITIES: Array<{
     name: "neuro_symbolics" | "quantum_foam" | "retro_organics";
     key: "ns" | "qf" | "ro";
@@ -301,28 +292,12 @@ async function handleUnownedShipCollect(params: {
   for (const { name, key } of COMMODITIES) {
     const amount = targetCargo[key];
     if (amount <= 0) continue;
-
     if (availableSpace <= 0) {
       remainingCargo[name] = amount;
       continue;
     }
-
     const collectible = Math.min(amount, availableSpace);
-    const newAmount = currentCargo[key] + collectible;
-    const column = `cargo_${key}`;
-    const { error: cargoError } = await supabase
-      .from("ship_instances")
-      .update({ [column]: newAmount, updated_at: new Date().toISOString() })
-      .eq("ship_id", ship.ship_id);
-    if (cargoError) {
-      console.error("unowned_ship_collect.cargo_update", cargoError, name);
-      const err = new Error(`Failed to update cargo: ${name}`) as Error & {
-        status?: number;
-      };
-      err.status = 500;
-      throw err;
-    }
-    currentCargo[key] = newAmount;
+    currentCargo[key] += collectible;
     collectedCargo[name] = collectible;
     availableSpace -= collectible;
     if (amount > collectible) {
@@ -330,7 +305,34 @@ async function handleUnownedShipCollect(params: {
     }
   }
 
-  // Update target ship: zero out collected resources, leave any leftovers in place.
+  const timestamp = new Date().toISOString();
+
+  // Coalesce all player-ship mutations into a single UPDATE.
+  const playerUpdate: Record<string, unknown> = {
+    updated_at: timestamp,
+  };
+  if (collectedCredits > 0) {
+    playerUpdate.credits = (ship.credits ?? 0) + collectedCredits;
+  }
+  if (collectedCargo.quantum_foam) playerUpdate.cargo_qf = currentCargo.qf;
+  if (collectedCargo.retro_organics) playerUpdate.cargo_ro = currentCargo.ro;
+  if (collectedCargo.neuro_symbolics) playerUpdate.cargo_ns = currentCargo.ns;
+
+  if (Object.keys(playerUpdate).length > 1) {
+    const { error: playerError } = await supabase
+      .from("ship_instances")
+      .update(playerUpdate)
+      .eq("ship_id", ship.ship_id);
+    if (playerError) {
+      console.error("unowned_ship_collect.player_update", playerError);
+      const err = new Error("Failed to update collector ship") as Error & {
+        status?: number;
+      };
+      err.status = 500;
+      throw err;
+    }
+  }
+
   const remainingTargetCargo = {
     qf: remainingCargo.quantum_foam ?? 0,
     ro: remainingCargo.retro_organics ?? 0,
@@ -346,13 +348,11 @@ async function handleUnownedShipCollect(params: {
     cargo_ro: remainingTargetCargo.ro,
     cargo_ns: remainingTargetCargo.ns,
     credits: 0,
-    updated_at: new Date().toISOString(),
+    updated_at: timestamp,
   };
-
-  // When the target ship is fully drained, mark it destroyed so it
-  // disappears from sector listings. Cargo/credits already 0 above.
+  // Soft-delete the ship once fully drained so it leaves sector listings.
   if (fullyCollected) {
-    targetUpdate.destroyed_at = new Date().toISOString();
+    targetUpdate.destroyed_at = timestamp;
   }
 
   const { error: targetError } = await supabase
@@ -368,8 +368,6 @@ async function handleUnownedShipCollect(params: {
     err.status = 500;
     throw err;
   }
-
-  const timestamp = new Date().toISOString();
 
   await emitCharacterEvent({
     supabase,
@@ -403,43 +401,47 @@ async function handleUnownedShipCollect(params: {
     corpId: character.corporation_id,
   });
 
-  // Status update with fresh ship snapshot
+  // Status snapshot and sector snapshot are independent reads; build in parallel.
   const pgClient = await acquirePgClient();
   let statusPayload: Record<string, unknown>;
+  let sectorSnapshot: Awaited<ReturnType<typeof buildSectorSnapshot>>;
   try {
-    statusPayload = await pgBuildStatusPayload(pgClient, characterId, {
-      character,
-      shipDefinition,
-      actorCharacterId,
-    });
+    [statusPayload, sectorSnapshot] = await Promise.all([
+      pgBuildStatusPayload(pgClient, characterId, {
+        character,
+        shipDefinition,
+        actorCharacterId,
+      }),
+      buildSectorSnapshot(supabase, sectorId),
+    ]);
   } finally {
     pgClient.release();
   }
   statusPayload.source = buildEventSource("unowned_ship.collect", requestId);
-  await emitCharacterEvent({
-    supabase,
-    characterId,
-    eventType: "status.update",
-    payload: statusPayload,
-    sectorId,
-    requestId,
-    taskId,
-    shipId: ship.ship_id,
-    actorCharacterId: characterId,
-    corpId: character.corporation_id,
-  });
-
-  // Sector update so other occupants see the unowned-ships list change
-  const sectorSnapshot = await buildSectorSnapshot(supabase, sectorId);
   sectorSnapshot.source = buildEventSource("unowned_ship.collect", requestId);
-  await emitSectorEnvelope({
-    supabase,
-    sectorId,
-    eventType: "sector.update",
-    payload: sectorSnapshot,
-    requestId,
-    actorCharacterId: characterId,
-  });
+
+  await Promise.all([
+    emitCharacterEvent({
+      supabase,
+      characterId,
+      eventType: "status.update",
+      payload: statusPayload,
+      sectorId,
+      requestId,
+      taskId,
+      shipId: ship.ship_id,
+      actorCharacterId: characterId,
+      corpId: character.corporation_id,
+    }),
+    emitSectorEnvelope({
+      supabase,
+      sectorId,
+      eventType: "sector.update",
+      payload: sectorSnapshot,
+      requestId,
+      actorCharacterId: characterId,
+    }),
+  ]);
 
   return successResponse({
     success: true,

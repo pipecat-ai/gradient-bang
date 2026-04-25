@@ -337,8 +337,11 @@ Deno.test({
         character_id: p1Id,
         ship_id: crypto.randomUUID(),
       });
-      // loadShip throws "ship <id> not found" → 500 from generic handler
-      assert(result.status >= 400, `Expected error, got ${result.status}`);
+      assertEquals(result.status, 404);
+      assert(
+        (result.body.error ?? "").toLowerCase().includes("not found"),
+        `Unexpected error: ${result.body.error}`,
+      );
     });
   },
 });
