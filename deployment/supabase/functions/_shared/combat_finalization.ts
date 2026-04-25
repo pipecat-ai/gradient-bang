@@ -250,8 +250,10 @@ async function handleDefeatedCharacter(
 
 async function updateGarrisonState(
   supabase: SupabaseClient,
+  encounter: CombatEncounterState,
   participant: CombatantState,
   remainingFighters: number,
+  requestId: string,
 ): Promise<void> {
   const ownerId = participant.owner_character_id;
   if (!ownerId) {
@@ -271,6 +273,8 @@ async function updateGarrisonState(
     }
     return;
   }
+  // Emit garrison.destroyed BEFORE deleting the row so the metadata is captured.
+  await emitGarrisonDestroyedEvent(supabase, encounter, participant, requestId);
   const { error } = await supabase
     .from("garrisons")
     .delete()
@@ -278,6 +282,57 @@ async function updateGarrisonState(
     .eq("owner_id", ownerId);
   if (error) {
     console.error("combat_finalization.remove_garrison", error);
+  }
+}
+
+async function emitGarrisonDestroyedEvent(
+  supabase: SupabaseClient,
+  encounter: CombatEncounterState,
+  participant: CombatantState,
+  requestId: string,
+): Promise<void> {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  const ownerCharacterId =
+    participant.owner_character_id ?? participant.combatant_id;
+  const ownerCorpId =
+    typeof metadata.owner_corporation_id === "string"
+      ? metadata.owner_corporation_id
+      : null;
+  const ownerName =
+    typeof metadata.owner_name === "string" ? metadata.owner_name : ownerCharacterId;
+  const mode = typeof metadata.mode === "string" ? metadata.mode : "offensive";
+  const timestamp = new Date().toISOString();
+  const payload = {
+    source: buildEventSource("garrison.destroyed", requestId),
+    timestamp,
+    combat_id: encounter.combat_id,
+    combatant_id: participant.combatant_id,
+    garrison_id: participant.combatant_id,
+    owner_character_id: ownerCharacterId,
+    owner_corp_id: ownerCorpId,
+    owner_name: ownerName,
+    sector: { id: encounter.sector_id },
+    mode,
+  };
+
+  const recipients = await computeEventRecipients({
+    supabase,
+    sectorId: encounter.sector_id,
+    corpIds: ownerCorpId ? [ownerCorpId] : [],
+    directRecipients: [ownerCharacterId],
+  });
+
+  if (recipients.length > 0) {
+    await recordEventWithRecipients({
+      supabase,
+      eventType: "garrison.destroyed",
+      scope: "sector",
+      payload,
+      requestId,
+      sectorId: encounter.sector_id,
+      actorCharacterId: null,
+      recipients,
+    });
   }
 }
 
@@ -311,8 +366,10 @@ export async function finalizeCombat(
       if (participant?.combatant_type === "garrison") {
         await updateGarrisonState(
           supabase,
+          encounter,
           participant,
           outcome.fighters_remaining?.[pid] ?? 0,
+          requestId ?? `combat:${encounter.combat_id}`,
         );
       }
       continue;
@@ -379,7 +436,13 @@ export async function finalizeCombat(
   for (const [pid, participant] of Object.entries(encounter.participants)) {
     if (participant.combatant_type === "garrison") {
       const remaining = outcome.fighters_remaining?.[pid] ?? participant.fighters;
-      await updateGarrisonState(supabase, participant, remaining);
+      await updateGarrisonState(
+        supabase,
+        encounter,
+        participant,
+        remaining,
+        requestId ?? `combat:${encounter.combat_id}`,
+      );
       continue;
     }
 
