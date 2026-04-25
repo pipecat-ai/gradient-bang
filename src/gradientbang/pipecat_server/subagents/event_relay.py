@@ -80,6 +80,7 @@ class Priority(Enum):
 # ── Event config ──────────────────────────────────────────────────────────
 
 EventSummaryFn = Callable[["EventRelay", dict], Optional[str]]
+EventXmlAttrsFn = Callable[["EventRelay", Mapping[str, Any]], list[tuple[str, str]]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,10 +105,12 @@ class EventConfig:
     suppress_deferred_inference: bool = False  # Suppress run_llm when deferred during tool calls
     debounce_seconds: Optional[float] = None  # Debounce rapid-fire inference triggers
 
-    # XML
-    xml_context_key: Optional[str] = (
-        None  # Payload key to extract as an XML attribute (e.g. "combat_id")
-    )
+    # XML envelope attrs. Use xml_attrs_fn when attrs depend on viewer POV
+    # (e.g. combat encounters render different ship_id/garrison_id per viewer)
+    # or when the event needs multiple subject-scoped attrs. Falls back to
+    # xml_context_key for the simple single-attr case.
+    xml_context_key: Optional[str] = None
+    xml_attrs_fn: Optional[EventXmlAttrsFn] = field(default=None, repr=False)
 
 
 _DEFAULT_CONFIG = EventConfig()
@@ -223,33 +226,261 @@ def _is_player_participant(relay: EventRelay, payload: Any) -> bool:
     return False
 
 
-def _combat_context(payload: Mapping[str, Any], is_player: bool) -> str:
-    """Build a combat context prefix line from payload data."""
-    combat_id = payload.get("combat_id")
+# ── Combat POV resolver ───────────────────────────────────────────────────
+#
+# Per-viewer "stake" classification for combat encounter events.
+# Resolution order: DIRECT > OBSERVED via corp ship > OBSERVED via garrison
+# > OBSERVED sector only. Drives both POV-line summaries and XML envelope
+# attrs (see catalog appendix A).
+
+
+class CombatPOV(Enum):
+    DIRECT = "direct"
+    OBSERVED_VIA_CORP_SHIP = "observed_via_corp_ship"
+    OBSERVED_VIA_GARRISON = "observed_via_garrison"
+    OBSERVED_SECTOR_ONLY = "observed_sector_only"
+
+
+@dataclass(frozen=True, slots=True)
+class CombatPOVInfo:
+    pov: CombatPOV
+    sector_id: Optional[int] = None
+    # Subject the viewer is observing through (when not DIRECT).
+    ship_id: Optional[str] = None
+    ship_name: Optional[str] = None
+    garrison_id: Optional[str] = None
+    garrison_owner: Optional[str] = None  # owner_character_id
+    garrison_owner_name: Optional[str] = None
+    garrison_owned_by_self: bool = False  # vs corp-mate's garrison
+    garrison_mode: Optional[str] = None
+
+
+def _viewer_corp_id(relay: EventRelay) -> Optional[str]:
+    corp_id = getattr(relay._game_client, "corporation_id", None)
+    return corp_id if isinstance(corp_id, str) and corp_id else None
+
+
+def _compute_combat_pov(relay: EventRelay, payload: Mapping[str, Any]) -> CombatPOVInfo:
+    viewer_id = relay._character_id
+    viewer_corp = _viewer_corp_id(relay)
+    sector = payload.get("sector")
+    sector_id = sector.get("id") if isinstance(sector, Mapping) else None
+    sector_id = sector_id if isinstance(sector_id, int) else None
+
+    participants = payload.get("participants")
+    participants_list: list[Mapping[str, Any]] = (
+        [p for p in participants if isinstance(p, Mapping)]
+        if isinstance(participants, list)
+        else []
+    )
+
+    # 1. DIRECT — viewer is a participant
+    for p in participants_list:
+        if p.get("id") == viewer_id:
+            return CombatPOVInfo(pov=CombatPOV.DIRECT, sector_id=sector_id)
+
+    # 2. OBSERVED via corp ship — corp-mate corp-ship is a participant
+    if viewer_corp:
+        for p in participants_list:
+            if p.get("player_type") != "corporation_ship":
+                continue
+            if p.get("corp_id") != viewer_corp:
+                continue
+            ship = p.get("ship") if isinstance(p.get("ship"), Mapping) else None
+            ship_name = (
+                ship.get("ship_name")
+                if isinstance(ship, Mapping) and isinstance(ship.get("ship_name"), str)
+                else None
+            )
+            ship_id = p.get("ship_id") if isinstance(p.get("ship_id"), str) else None
+            return CombatPOVInfo(
+                pov=CombatPOV.OBSERVED_VIA_CORP_SHIP,
+                sector_id=sector_id,
+                ship_id=ship_id,
+                ship_name=ship_name,
+            )
+
+    # 3. OBSERVED via garrison — viewer owns or is corp-mate of owner
+    garrison = payload.get("garrison")
+    if isinstance(garrison, Mapping):
+        owner_id = garrison.get("owner_character_id")
+        owner_corp = garrison.get("owner_corp_id")
+        owner_name = garrison.get("owner_name")
+        garrison_id = garrison.get("id")
+        mode = garrison.get("mode")
+        owned_by_self = isinstance(owner_id, str) and owner_id == viewer_id
+        owned_by_corp = (
+            not owned_by_self
+            and isinstance(owner_corp, str)
+            and viewer_corp is not None
+            and owner_corp == viewer_corp
+        )
+        if owned_by_self or owned_by_corp:
+            return CombatPOVInfo(
+                pov=CombatPOV.OBSERVED_VIA_GARRISON,
+                sector_id=sector_id,
+                garrison_id=garrison_id if isinstance(garrison_id, str) else None,
+                garrison_owner=owner_id if isinstance(owner_id, str) else None,
+                garrison_owner_name=owner_name if isinstance(owner_name, str) else None,
+                garrison_owned_by_self=owned_by_self,
+                garrison_mode=mode if isinstance(mode, str) else None,
+            )
+
+    return CombatPOVInfo(pov=CombatPOV.OBSERVED_SECTOR_ONLY, sector_id=sector_id)
+
+
+def _sector_text(pov_info: CombatPOVInfo) -> str:
+    return (
+        f"sector {pov_info.sector_id}"
+        if isinstance(pov_info.sector_id, int)
+        else "the sector"
+    )
+
+
+def _combat_suffix(payload: Mapping[str, Any]) -> str:
+    """Trailing parenthetical: (round N, combat_id ID)."""
+    parts: list[str] = []
     round_num = payload.get("round")
-    details: list[str] = []
     if isinstance(round_num, int):
-        details.append(f"round {round_num}")
+        parts.append(f"round {round_num}")
+    combat_id = payload.get("combat_id")
     if isinstance(combat_id, str) and combat_id.strip():
-        details.append(f"combat_id {combat_id}")
-    suffix = f" ({', '.join(details)})" if details else ""
-    if is_player:
-        return f"Combat state: you are currently in active combat.{suffix}"
-    return f"Combat state: this combat event is not your fight.{suffix}"
+        parts.append(f"combat_id {combat_id.strip()}")
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def _ship_ref(pov_info: CombatPOVInfo) -> str:
+    """Render '"<name>" (ship_id=<short>)' from POV info; falls back gracefully."""
+    name_part = f'"{pov_info.ship_name}"' if pov_info.ship_name else "ship"
+    if pov_info.ship_id:
+        return f"{name_part} (ship_id={pov_info.ship_id[:6]})"
+    return name_part
+
+
+def _round_waiting_pov_line(pov_info: CombatPOVInfo, payload: Mapping[str, Any]) -> str:
+    round_num = payload.get("round")
+    is_round_one = round_num == 1
+    if not is_round_one:
+        # Rounds 2+: only DIRECT reaches summary (observers dropped at append).
+        return "Combat state: you are currently in active combat."
+    sector_text = _sector_text(pov_info)
+    if pov_info.pov == CombatPOV.DIRECT:
+        return "A new combat has begun. You are a participant."
+    if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP:
+        return (
+            f"A new combat has begun. Your corp's {_ship_ref(pov_info)} "
+            f"has entered combat in {sector_text}."
+        )
+    if pov_info.pov == CombatPOV.OBSERVED_VIA_GARRISON:
+        owner_word = "Your" if pov_info.garrison_owned_by_self else "Your corp's"
+        mode_text = (
+            f" It is currently in {pov_info.garrison_mode} mode."
+            if pov_info.garrison_mode
+            else ""
+        )
+        return f"A new combat has begun. {owner_word} garrison in {sector_text} has engaged.{mode_text}"
+    return f"A new combat has begun in {sector_text}."
+
+
+def _round_resolved_pov_line(pov_info: CombatPOVInfo) -> str:
+    if pov_info.pov == CombatPOV.DIRECT:
+        return "Combat state: you are currently in active combat."
+    if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP:
+        return f"Combat state: your corp's {_ship_ref(pov_info)} is engaged in combat."
+    if pov_info.pov == CombatPOV.OBSERVED_VIA_GARRISON:
+        owner_word = "your" if pov_info.garrison_owned_by_self else "your corp's"
+        return f"Combat state: {owner_word} garrison in {_sector_text(pov_info)} is engaged in combat."
+    return "Combat state: this combat event is not your fight."
+
+
+def _combat_ended_pov_line(pov_info: CombatPOVInfo) -> str:
+    if pov_info.pov == CombatPOV.DIRECT:
+        return "Your combat has ended."
+    if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP:
+        return (
+            f"Your corp's {_ship_ref(pov_info)} combat in {_sector_text(pov_info)} "
+            f"has ended."
+        )
+    if pov_info.pov == CombatPOV.OBSERVED_VIA_GARRISON:
+        owner_word = "Your" if pov_info.garrison_owned_by_self else "Your corp's"
+        garrison_attr = (
+            f" (garrison_id={pov_info.garrison_id})" if pov_info.garrison_id else ""
+        )
+        return (
+            f"{owner_word} garrison in {_sector_text(pov_info)}{garrison_attr} "
+            f"combat has ended."
+        )
+    return f"Observed combat in {_sector_text(pov_info)} has ended."
+
+
+def _xml_attrs_combat_encounter(
+    relay: EventRelay, payload: Mapping[str, Any]
+) -> list[tuple[str, str]]:
+    """Per-viewer envelope attrs for combat.round_waiting / _resolved / ended.
+    DIRECT and sector-only viewers see only combat_id; corp-ship observers
+    add ship_id (+ ship_name); garrison observers add garrison_id +
+    garrison_owner. See catalog appendix A."""
+    attrs: list[tuple[str, str]] = []
+    combat_id = payload.get("combat_id")
+    if isinstance(combat_id, str) and combat_id.strip():
+        attrs.append(("combat_id", combat_id.strip()))
+    pov_info = _compute_combat_pov(relay, payload)
+    if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP:
+        if pov_info.ship_id:
+            attrs.append(("ship_id", pov_info.ship_id))
+        if pov_info.ship_name:
+            attrs.append(("ship_name", pov_info.ship_name))
+    elif pov_info.pov == CombatPOV.OBSERVED_VIA_GARRISON:
+        if pov_info.garrison_id:
+            attrs.append(("garrison_id", pov_info.garrison_id))
+        if pov_info.garrison_owner:
+            attrs.append(("garrison_owner", pov_info.garrison_owner))
+    return attrs
+
+
+def _xml_attrs_ship_destroyed(
+    _relay: EventRelay, payload: Mapping[str, Any]
+) -> list[tuple[str, str]]:
+    """Subject-scoped: combat_id + ship_id always; ship_name when present."""
+    attrs: list[tuple[str, str]] = []
+    for key in ("combat_id", "ship_id", "ship_name"):
+        val = payload.get(key)
+        if isinstance(val, str) and val.strip():
+            attrs.append((key, val.strip()))
+    return attrs
+
+
+def _xml_attrs_garrison_destroyed(
+    _relay: EventRelay, payload: Mapping[str, Any]
+) -> list[tuple[str, str]]:
+    """Subject-scoped: combat_id + garrison_id + garrison_owner always."""
+    attrs: list[tuple[str, str]] = []
+    combat_id = payload.get("combat_id")
+    if isinstance(combat_id, str) and combat_id.strip():
+        attrs.append(("combat_id", combat_id.strip()))
+    garrison_id = payload.get("garrison_id") or payload.get("combatant_id")
+    if isinstance(garrison_id, str) and garrison_id.strip():
+        attrs.append(("garrison_id", garrison_id.strip()))
+    owner = payload.get("owner_character_id")
+    if isinstance(owner, str) and owner.strip():
+        attrs.append(("garrison_owner", owner.strip()))
+    return attrs
 
 
 def _summarize_combat_waiting(relay: EventRelay, event: dict) -> Optional[str]:
     payload = event.get("payload", {})
     if not isinstance(payload, Mapping):
         return event.get("summary")
-    is_player = _is_player_participant(relay, payload)
-    ctx = _combat_context(payload, is_player)
+    pov_info = _compute_combat_pov(relay, payload)
+    pov_line = _round_waiting_pov_line(pov_info, payload)
+    suffix = _combat_suffix(payload)
+    body = f"{pov_line}{suffix}"
     deadline = payload.get("deadline")
     if isinstance(deadline, str) and deadline.strip():
-        ctx += f" deadline {deadline.strip()}"
-    if is_player:
-        ctx += " Submit a combat action now."
-    return ctx
+        body += f" deadline {deadline.strip()}"
+    if pov_info.pov == CombatPOV.DIRECT:
+        body += "\nSubmit a combat action now."
+    return body
 
 
 def _summarize_combat_action(_relay: EventRelay, event: dict) -> Optional[str]:
@@ -276,32 +507,73 @@ def _summarize_combat_round(relay: EventRelay, event: dict) -> Optional[str]:
     payload = event.get("payload", {})
     if not isinstance(payload, Mapping):
         return event.get("summary")
-    is_player = _is_player_participant(relay, payload)
-    ctx = _combat_context(payload, is_player)
+    pov_info = _compute_combat_pov(relay, payload)
+    pov_line = _round_resolved_pov_line(pov_info)
+    suffix = _combat_suffix(payload)
     result_display = str(payload.get("result") or payload.get("end") or "in_progress")
-    own_fighter_loss = 0
-    own_shield_damage: float = 0.0
-    if is_player:
-        participants = payload.get("participants", [])
-        for p in participants:
-            if isinstance(p, Mapping) and p.get("id") == relay._character_id:
+
+    loss_fragment = _round_loss_fragment(relay, pov_info, payload)
+    return f"{pov_line}{suffix}\nRound resolved: {result_display}; {loss_fragment}."
+
+
+def _round_loss_fragment(
+    relay: EventRelay, pov_info: CombatPOVInfo, payload: Mapping[str, Any]
+) -> str:
+    """One fragment per stake the viewer has — DIRECT shows own losses;
+    OBSERVED via corp ship shows the corp ship's losses. OBSERVED via
+    garrison falls back to a generic phrase since the garrison loss line
+    would be the substantive update there."""
+    if pov_info.pov == CombatPOV.DIRECT:
+        return _format_actor_losses(relay._character_id, payload, "your")
+    if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP and pov_info.ship_id:
+        actor_id = _participant_id_for_ship(payload, pov_info.ship_id)
+        if actor_id:
+            ship_label = _ship_ref(pov_info)
+            return _format_actor_losses(actor_id, payload, f"corp ship {ship_label}")
+    return "no fighter losses, no shield damage"
+
+
+def _participant_id_for_ship(
+    payload: Mapping[str, Any], ship_id: str
+) -> Optional[str]:
+    participants = payload.get("participants")
+    if not isinstance(participants, list):
+        return None
+    for p in participants:
+        if not isinstance(p, Mapping):
+            continue
+        if p.get("ship_id") == ship_id and isinstance(p.get("id"), str):
+            return p["id"]
+    return None
+
+
+def _format_actor_losses(
+    actor_id: Optional[str], payload: Mapping[str, Any], label: str
+) -> str:
+    fighter_loss = 0
+    shield_damage: float = 0.0
+    if actor_id:
+        participants = payload.get("participants")
+        if isinstance(participants, list):
+            for p in participants:
+                if not isinstance(p, Mapping) or p.get("id") != actor_id:
+                    continue
                 ship = p.get("ship")
                 if isinstance(ship, Mapping):
                     fl = ship.get("fighter_loss")
                     sd = ship.get("shield_damage")
                     if isinstance(fl, (int, float)):
-                        own_fighter_loss = max(0, int(fl))
+                        fighter_loss = max(0, int(fl))
                     if isinstance(sd, (int, float)):
-                        own_shield_damage = max(0.0, float(sd))
+                        shield_damage = max(0.0, float(sd))
                 break
-    parts = []
-    parts.append(
-        f"fighters lost {own_fighter_loss}" if own_fighter_loss > 0 else "no fighter losses"
+    fighter_part = (
+        f"fighters lost {fighter_loss}" if fighter_loss > 0 else "no fighter losses"
     )
-    parts.append(
-        f"shield damage {own_shield_damage:.1f}%" if own_shield_damage > 0 else "no shield damage"
+    shield_part = (
+        f"shield damage {shield_damage:.1f}%" if shield_damage > 0 else "no shield damage"
     )
-    return f"{ctx}\nRound resolved: {result_display}; {', '.join(parts)}."
+    return f"{label}: {fighter_part}, {shield_part}"
 
 
 def _summarize_ships_strategy_set(_relay: EventRelay, event: dict) -> Optional[str]:
@@ -346,10 +618,14 @@ def _summarize_ships_strategy_cleared(_relay: EventRelay, event: dict) -> Option
 
 def _summarize_combat_ended(relay: EventRelay, event: dict) -> Optional[str]:
     payload = event.get("payload", {})
-    is_player = _is_player_participant(relay, payload)
-    if is_player:
-        return "Combat state: your combat has ended."
-    return "Combat state: observed combat ended."
+    if not isinstance(payload, Mapping):
+        return event.get("summary")
+    pov_info = _compute_combat_pov(relay, payload)
+    pov_line = _combat_ended_pov_line(pov_info)
+    result = payload.get("result") or payload.get("end")
+    if isinstance(result, str) and result.strip():
+        return f"{pov_line} Result: {result.strip()}."
+    return pov_line
 
 
 def _summarize_garrison_destroyed(relay: EventRelay, event: dict) -> Optional[str]:
@@ -390,14 +666,14 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         append=AppendRule.PARTICIPANT,
         inference=InferenceRule.ON_PARTICIPANT,
         priority=Priority.HIGH,
-        xml_context_key="combat_id",
+        xml_attrs_fn=_xml_attrs_combat_encounter,
         voice_summary=_summarize_combat_waiting,
     ),
     "combat.round_resolved": EventConfig(
         append=AppendRule.PARTICIPANT,
         inference=InferenceRule.ALWAYS,
         priority=Priority.HIGH,
-        xml_context_key="combat_id",
+        xml_attrs_fn=_xml_attrs_combat_encounter,
         voice_summary=_summarize_combat_round,
     ),
     "combat.ended": EventConfig(
@@ -407,7 +683,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         # toll/combat resolution.
         inference=InferenceRule.NEVER,
         priority=Priority.LOW,
-        xml_context_key="combat_id",
+        xml_attrs_fn=_xml_attrs_combat_encounter,
         voice_summary=_summarize_combat_ended,
     ),
     "combat.action_accepted": EventConfig(
@@ -423,7 +699,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         # Voice fires for the owner only; non-owners get silent context append.
         inference=InferenceRule.OWNED,
         priority=Priority.HIGH,
-        xml_context_key="combat_id",
+        xml_attrs_fn=_xml_attrs_garrison_destroyed,
         voice_summary=_summarize_garrison_destroyed,
     ),
     # Strategy lifecycle — direct to the setting character; inference fires so
@@ -549,6 +825,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "ship.destroyed": EventConfig(
         append=AppendRule.LOCAL,
         inference=InferenceRule.OWNED,
+        xml_attrs_fn=_xml_attrs_ship_destroyed,
     ),
     "ship.definitions": EventConfig(),
     "quest.status": EventConfig(),
@@ -1419,7 +1696,10 @@ class EventRelay:
         attrs = [f'name="{event_name}"']
         if payload_task_id:
             attrs.append(f'task_id="{payload_task_id}"')
-        if cfg.xml_context_key and isinstance(clean_payload, Mapping):
+        if cfg.xml_attrs_fn is not None and isinstance(clean_payload, Mapping):
+            for key, val in cfg.xml_attrs_fn(self, clean_payload) or []:
+                attrs.append(f'{key}="{val}"')
+        elif cfg.xml_context_key and isinstance(clean_payload, Mapping):
             ctx_val = clean_payload.get(cfg.xml_context_key)
             if isinstance(ctx_val, str) and ctx_val.strip():
                 attrs.append(f'{cfg.xml_context_key}="{ctx_val.strip()}"')
