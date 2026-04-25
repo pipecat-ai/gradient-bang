@@ -372,6 +372,12 @@ class ClientMessageHandler:
             salvage_id=msg_data.get("salvage_id"),
         )
 
+    async def _handle_unowned_ship_collect(self, msg_type, msg_data):
+        await self._game_client.unowned_ship_collect(
+            character_id=self._character_id,
+            ship_id=msg_data.get("ship_id"),
+        )
+
     async def _handle_combat_action(self, msg_type, msg_data):
         try:
             await self._game_client.combat_action(
@@ -936,6 +942,7 @@ class ClientMessageHandler:
         "get-my-corporation": _handle_get_my_corporation,
         "get-my-map": _handle_get_my_map,
         "salvage_collect": _handle_salvage_collect,
+        "unowned_ship_collect": _handle_unowned_ship_collect,
         "combat-action": _handle_combat_action,
         "say-text": _handle_say_text,
         "say-text-dismiss": _handle_say_text_dismiss,

@@ -184,6 +184,24 @@ SALVAGE_COLLECT = FunctionSchema(
     required=["salvage_id"],
 )
 
+UNOWNED_SHIP_COLLECT = FunctionSchema(
+    name="unowned_ship_collect",
+    description=(
+        "Collect cargo and credits from an unowned (abandoned/derelict) ship "
+        "in the current sector by ship_id. Transfers as much cargo as fits in "
+        "your hold; credits are always collected. The ship is removed from "
+        "the sector once fully drained. Use the ship_id reported in the "
+        "sector's unowned_ships list."
+    ),
+    properties={
+        "ship_id": {
+            "type": "string",
+            "description": "Identifier of the unowned ship to collect from",
+        }
+    },
+    required=["ship_id"],
+)
+
 DUMP_CARGO = FunctionSchema(
     name="dump_cargo",
     description=(

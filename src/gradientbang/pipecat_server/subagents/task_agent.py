@@ -101,6 +101,7 @@ ASYNC_TOOL_COMPLETIONS = {
     "recharge_warp_power": "warp.purchase",
     "transfer_warp_power": "warp.transfer",
     "salvage_collect": "salvage.collected",
+    "unowned_ship_collect": "unowned_ship.collected",
     "place_fighters": "garrison.deployed",
     "collect_fighters": "garrison.collected",
     "set_garrison_mode": "garrison.mode_changed",

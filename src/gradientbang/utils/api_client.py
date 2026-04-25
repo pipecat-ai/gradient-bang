@@ -2264,6 +2264,37 @@ class AsyncGameClient:
         }
         return await self._request("salvage.collect", payload)
 
+    async def unowned_ship_collect(
+        self,
+        *,
+        ship_id: str,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Collect cargo and credits from an unowned ship in the current sector.
+
+        Args:
+            ship_id: Identifier of the unowned ship to collect from
+            character_id: Character collecting (must match bound ID)
+
+        Returns:
+            Collected items, remaining cargo, and whether the ship was fully drained
+
+        Raises:
+            RPCError: If the request fails
+            ValueError: If character_id doesn't match bound ID
+        """
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload = {
+            "character_id": character_id,
+            "ship_id": ship_id,
+        }
+        return await self._request("unowned_ship_collect", payload)
+
     async def dump_cargo(
         self,
         *,

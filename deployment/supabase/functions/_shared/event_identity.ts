@@ -10,6 +10,7 @@ const SHIP_SPECIFIC_EVENT_TYPES = new Set([
   "fighter.purchase",
   "salvage.created",
   "salvage.collected",
+  "unowned_ship.collected",
   "garrison.deployed",
   "garrison.collected",
   "garrison.mode_changed",

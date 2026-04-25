@@ -451,6 +451,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "garrison.combat_alert": EventConfig(),
     "salvage.collected": EventConfig(),
     "salvage.created": EventConfig(),
+    "unowned_ship.collected": EventConfig(),
     "ship.destroyed": EventConfig(append=AppendRule.LOCAL),
     "ship.definitions": EventConfig(),
     "quest.status": EventConfig(),

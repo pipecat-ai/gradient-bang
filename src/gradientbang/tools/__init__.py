@@ -20,6 +20,7 @@ from gradientbang.tools.schemas import (
     TRADE,
     LIST_KNOWN_PORTS,
     SALVAGE_COLLECT,
+    UNOWNED_SHIP_COLLECT,
     DUMP_CARGO,
     # Resources
     RECHARGE_WARP_POWER,
@@ -112,6 +113,7 @@ TASK_TOOLS = ToolsSchema(
         TRADE,
         LIST_KNOWN_PORTS,
         SALVAGE_COLLECT,
+        UNOWNED_SHIP_COLLECT,
         DUMP_CARGO,
         # Resources
         RECHARGE_WARP_POWER,
