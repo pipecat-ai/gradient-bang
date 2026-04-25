@@ -61,6 +61,7 @@ interface ShipDestroyedEventData {
   shipName: string | null;
   playerType: "human" | "corporation_ship";
   playerName: string;
+  ownerCharacterId: string;
   corpId: string | null;
   salvageCreated: boolean;
 }
@@ -207,6 +208,8 @@ async function handleDefeatedCharacter(
     shipName: ship.ship_name,
     playerType: isCorpShip ? "corporation_ship" : "human",
     playerName: participant.name,
+    ownerCharacterId:
+      participant.owner_character_id ?? participant.combatant_id,
     corpId,
     salvageCreated: salvage !== null,
   };
@@ -427,6 +430,8 @@ async function emitShipDestroyedEvent(
     sector: { id: encounter.sector_id },
     combat_id: encounter.combat_id,
     salvage_created: data.salvageCreated,
+    owner_character_id: data.ownerCharacterId,
+    corp_id: data.corpId,
   };
 
   // Compute recipients: sector observers + corp members (if any)
