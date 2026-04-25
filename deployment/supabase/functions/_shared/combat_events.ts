@@ -8,6 +8,8 @@ interface ParticipantEventContext {
   shieldIntegrity: number;
   shieldDamage?: number;
   fighterLoss?: number;
+  fighters: number;
+  corpId: string | null;
 }
 
 function buildParticipantPayload(
@@ -37,7 +39,22 @@ function buildParticipantPayload(
     player_type: (metadata.player_type as string) ?? 'human',
     ship_id: typeof metadata.ship_id === 'string' ? metadata.ship_id : null,
     ship: shipPayload,
+    fighters: ctx.fighters,
+    destroyed: ctx.fighters <= 0,
+    corp_id: ctx.corpId,
   };
+}
+
+function readCorpId(participant: CombatantState): string | null {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  return typeof metadata.corporation_id === 'string' ? metadata.corporation_id : null;
+}
+
+function readOwnerCorpId(participant: CombatantState): string | null {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  return typeof metadata.owner_corporation_id === 'string'
+    ? metadata.owner_corporation_id
+    : null;
 }
 
 function buildGarrisonPayload(
@@ -53,6 +70,8 @@ function buildGarrisonPayload(
     id: participant.combatant_id,
     name: participant.name,
     owner_name: ownerName,  // Human-readable name, not UUID
+    owner_character_id: participant.owner_character_id ?? null,
+    owner_corp_id: readOwnerCorpId(participant),
     fighters: participant.fighters,
     fighter_loss: fighterLoss > 0 ? fighterLoss : null,
     mode: metadata.mode ?? 'offensive',
@@ -125,7 +144,13 @@ export function buildRoundWaitingPayload(encounter: CombatEncounterState): Recor
   for (const participant of Object.values(encounter.participants)) {
     const shieldIntegrity = computeShieldIntegrity(participant);
     if (participant.combatant_type === 'character') {
-      participants.push(buildParticipantPayload(participant, { shieldIntegrity }));
+      participants.push(
+        buildParticipantPayload(participant, {
+          shieldIntegrity,
+          fighters: participant.fighters ?? 0,
+          corpId: readCorpId(participant),
+        }),
+      );
     } else {
       garrisonParticipants.push(participant);
     }
@@ -198,6 +223,8 @@ export function buildRoundResolvedPayload(
           shieldIntegrity,
           shieldDamage: shieldDamagePercent,
           fighterLoss,
+          fighters: fightersRemaining,
+          corpId: readCorpId(participant),
         }),
       );
     } else {
