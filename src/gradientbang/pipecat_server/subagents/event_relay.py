@@ -1171,6 +1171,15 @@ class EventRelay:
                     request_id,
                 )
                 return True
+            # Round-1 combat-start broadcast: append for every recipient (participants
+            # and observers). Rounds 2+ stay participant-only — observers already got
+            # the prior round_resolved snapshot and don't need a near-identical update.
+            if (
+                event_name == "combat.round_waiting"
+                and isinstance(clean_payload, Mapping)
+                and clean_payload.get("round") == 1
+            ):
+                return True
             return combat_for_player
 
         if rule == AppendRule.OWNED_TASK:
