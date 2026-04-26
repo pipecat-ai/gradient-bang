@@ -23,7 +23,7 @@ All under `artifacts/`. Use the digest's `end` timestamp formatted as `YYYYMMDD-
 
 - Digest JSON: `artifacts/news-digest-<stem>-past-<duration>.json`
 - Front-page Markdown: `artifacts/gradient-news-observer-front-page-<stem>-past-<duration>.md`
-- Image PNG: `artifacts/gradient-news-observer-images/front-page-single-prompt-<md-stem-suffix>.png` (the image script computes this from the markdown filename)
+- Image PNG: the image script computes the path from the Markdown filename. The default renderer writes a regional composite under `artifacts/gradient-news-observer-regions/`.
 
 ## Steps
 
@@ -64,18 +64,18 @@ Write to `artifacts/gradient-news-observer-front-page-<stem>-past-<duration>.md`
 
 #### Structure (10 sections, in order)
 
-| # | Type | Length |
-|---|---|---|
-| 1 | Straight News (lead) | Two paragraphs |
-| 2 | Straight News | Two paragraphs |
-| 3 | Straight News | One short paragraph |
-| 4 | Straight News | One short paragraph |
-| 5 | Straight News | One short paragraph |
-| 6 | Straight News | One short paragraph |
-| 7 | Straight News | One short paragraph |
-| 8 | Gossip Column | 2–3 punchy sentences |
-| 9 | Gossip Column | 2–3 punchy sentences |
-| 10 | Market Update Box | Two markdown tables + footnote |
+| # | Type | Length | Section tag |
+|---|---|---|---|
+| 1 | Straight news (lead) | Two paragraphs | Story-specific newspaper section — see tagging guide below |
+| 2 | Straight news | Two paragraphs | Story-specific newspaper section |
+| 3 | Straight news | One short paragraph | Story-specific newspaper section |
+| 4 | Straight news | One short paragraph | Story-specific newspaper section |
+| 5 | Straight news | One short paragraph | Story-specific newspaper section |
+| 6 | Straight news | One short paragraph | Story-specific newspaper section |
+| 7 | Straight news | One short paragraph | Story-specific newspaper section |
+| 8 | Gossip | 2–3 punchy sentences | Oblique, catty, insider-y tag |
+| 9 | Gossip | 2–3 punchy sentences | Oblique, catty, insider-y tag |
+| 10 | Market Update | Two markdown tables + footnote | Literally `*Market Update*` |
 
 #### File template
 
@@ -90,7 +90,7 @@ Write to `artifacts/gradient-news-observer-front-page-<stem>-past-<duration>.md`
 
 ## 1. <Headline>
 
-*Straight News*
+*<Story-specific section tag — e.g. Combat Wire, Trade & Lanes, Open Channel>*
 
 <Lede paragraph — the strongest single fact or scene.>
 
@@ -100,7 +100,7 @@ Write to `artifacts/gradient-news-observer-front-page-<stem>-past-<duration>.md`
 
 ## 2. <Headline>
 
-*Straight News*
+*<Story-specific section tag>*
 
 <Two paragraphs, same shape as story 1.>
 
@@ -108,7 +108,7 @@ Write to `artifacts/gradient-news-observer-front-page-<stem>-past-<duration>.md`
 
 ## 3–7. <Headlines>
 
-*Straight News*
+*<Story-specific section tag — different per story>*
 
 <One short paragraph each — three to five sentences.>
 
@@ -116,7 +116,7 @@ Write to `artifacts/gradient-news-observer-front-page-<stem>-past-<duration>.md`
 
 ## 8. <Headline>
 
-*Gossip Column*
+*<Oblique, catty, insider-y tag — e.g. Salvage Talk>*
 
 <Two or three short, punchy sentences. Vary the opening — see persona guide.>
 
@@ -124,7 +124,7 @@ Write to `artifacts/gradient-news-observer-front-page-<stem>-past-<duration>.md`
 
 ## 9. <Headline>
 
-*Gossip Column*
+*<Different oblique, catty, insider-y tag — e.g. The Mega-Port Set>*
 
 <Two or three short, punchy sentences. Different opening from story 8.>
 
@@ -132,7 +132,7 @@ Write to `artifacts/gradient-news-observer-front-page-<stem>-past-<duration>.md`
 
 ## 10. Market Update — <Window> Galactic Index
 
-*Market Update Box*
+*Market Update*
 
 | Measure | Value |
 | --- | ---: |
@@ -160,8 +160,10 @@ uv run news-front-page-image \
   --front-page-md artifacts/gradient-news-observer-front-page-<stem>-past-<duration>.md
 ```
 
-- The script writes the PNG, the prompt text, and a metadata JSON next to the default output path.
-- Image generation takes 30–90 seconds. Stream stdout — it prints the output path on success.
+- Defaults to the `composited-regions` renderer, which generates each story region separately and composites them — better text fidelity than the older `one-shot` renderer.
+- For comparison or quick iteration, append `--renderer one-shot` to render the whole page in a single image-edit call.
+- The script writes the final PNG, per-region prompt text, region PNGs, and metadata JSON. Composited-regions output lives under `artifacts/gradient-news-observer-regions/<stem>/`; one-shot output lives under `artifacts/gradient-news-observer-images/`.
+- Composited-regions takes several minutes (one image-edit call per region, run in sequence). One-shot finishes in 30–90 seconds. Stream stdout — both print final paths on success.
 - If `OPENAI_API_KEY` isn't in the environment, the script reads it from `.env`.
 
 ### 5. Report
@@ -170,7 +172,7 @@ Print the three artifact paths (digest JSON, front-page Markdown, image PNG) and
 
 ## Personas — write in these voices
 
-### Straight News — *New York Times* house style
+### Straight news — *New York Times* house style
 
 - Lede paragraph carries the strongest factual beat. Date, place, actor, action.
 - Past tense. Third person. Active voice.
@@ -179,7 +181,7 @@ Print the three artifact paths (digest JSON, front-page Markdown, image PNG) and
 - No hype, no exclamation points, no scare quotes. The tone is measured even when the facts are dramatic.
 - One non-headline-grabbing fact per story is welcome — context that situates the day.
 
-### Gossip Column — dishy, varied openings
+### Gossip — dishy, varied openings
 
 - 2–3 short, punchy sentences. No paragraphs.
 - **Vary the opening every time.** "A little kestrel told this columnist…" is one option. Others:
@@ -191,6 +193,40 @@ Print the three artifact paths (digest JSON, front-page Markdown, image PNG) and
   - "The rumor on the long-range channels…"
 - First-person columnist voice ("your columnist," "this column") is fine and characterful.
 - Wry, observational, never mean. Tease, don't accuse.
+
+## Section tags
+
+Each story carries a single italic line directly under its headline that names the newspaper section it belongs to. These tags are part of the look — they make the page feel like an actual newspaper instead of a numbered list of stories. Write a fresh tag for every story; never re-use one.
+
+### Tags for straight news (stories 1–7)
+
+Pick a section name that fits the story. Real-newspaper analogues are great when they're the obvious fit (Markets, Corporate Affairs, Cartography). Lean into the retro-space-game theme when there's room to be a little playful (Combat Wire, Trade & Lanes, Open Channel, Shipyard). Keep them short — two or three words, title-cased, no punctuation. A few worked examples for reference:
+
+- A combat-heavy day with named pilots → **Combat Wire** (or **Hostilities**, **Casualty Desk**)
+- A toll lane / mega-port / trade-route story → **Trade & Lanes** (or **Public Affairs** if it leans policy)
+- An exchange of public broadcasts → **Open Channel** (or **Frontier Justice** if it's spicy)
+- A new corporation, recruiting drive, member moves → **Corporate Affairs**
+- An exploration / survey / probe record → **Cartography** (or **The Survey Desk**)
+- Ship purchases, sales, trade-ins → **Shipyard** (or **Off the Lot**)
+- Trade volume, port flow, leaderboard movement → **Markets** (or **The Ledger**)
+- Chat broadcasts that read more like commentary than news → **Frontier Justice** (reserve **Open Channel** for the strongest broadcast-driven beat on the page)
+
+If two stories would land on the same tag — adjacent or not — change one. Each tag must be unique on the page; visual rhythm and section variety depend on it. If a straight-news story and a gossip beat both spring from open-channel chatter, give the gossip the **Open-Channel Confidential** variant and keep the news as **Open Channel**.
+
+### Tags for gossip (stories 8–9)
+
+Oblique. Catty. Insider-y. The reader should feel they've stumbled into the back room of a yacht club. Two or three words, title-cased; "The X Set" / "On the X Beat" / "X Talk" patterns work. Worked examples:
+
+- Wreckage / destroyed ships / escape pods → **Salvage Talk**, **From the Insurance Wing**, **Recovery Notes**
+- Mega-port socialites, traders, anyone seen at the dock → **The Mega-Port Set**, **Concourse Whispers**, **Heard on the Promenade**
+- Corp politics, recruitment, defections → **The Member Lounge**, **From the Boardroom Door**
+- A pilot's unguarded chatter on the open channel → **Open-Channel Confidential**
+
+The tag should hint at the gist of the gossip without naming it outright. If your tag basically restates the headline, it's too literal — make it more sideways.
+
+### Tag for the market box (story 10)
+
+Always literally `*Market Update*`. No variants. The image template expects this string.
 
 ## Privacy and content rules — non-negotiable
 
