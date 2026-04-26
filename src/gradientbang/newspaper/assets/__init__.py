@@ -1,0 +1,1 @@
+"""Packaged newspaper renderer assets."""

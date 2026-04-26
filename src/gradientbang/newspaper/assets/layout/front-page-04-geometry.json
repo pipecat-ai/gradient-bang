@@ -1,0 +1,130 @@
+{
+  "schema": "gradient-news-observer.layout.v1",
+  "source_image": "artifacts/gradient-news-observer-images/front-page-04.png",
+  "source_size": {
+    "width": 1024,
+    "height": 1536
+  },
+  "recommended_composite_size": {
+    "width": 2336,
+    "height": 3504,
+    "notes": "Largest exact 2:3 canvas that stays within gpt-image-2 size constraints: max edge <= 3840, multiples of 16, <= 8,294,400 pixels."
+  },
+  "coordinate_system": {
+    "bbox": "x0,y0,x1,y1 in source image pixels; x1/y1 are exclusive",
+    "normalized_bbox": "x0,y0,x1,y1 divided by source width/height"
+  },
+  "regions": [
+    {
+      "id": "masthead",
+      "role": "masthead",
+      "bbox": [12, 11, 1013, 155],
+      "normalized_bbox": [0.011719, 0.007161, 0.989258, 0.100911],
+      "description": "Top nameplate, motto, ornamental HUD frame."
+    },
+    {
+      "id": "edition_strip",
+      "role": "header_metadata",
+      "bbox": [12, 166, 1012, 199],
+      "normalized_bbox": [0.011719, 0.108073, 0.988281, 0.129557],
+      "description": "Issue/date strip below masthead."
+    },
+    {
+      "id": "story_01",
+      "role": "lead_story",
+      "story_number": 1,
+      "bbox": [12, 209, 567, 714],
+      "normalized_bbox": [0.011719, 0.136068, 0.553711, 0.464844],
+      "description": "Large lead story panel with main ship/toll-lane artwork."
+    },
+    {
+      "id": "story_02",
+      "role": "secondary_story",
+      "story_number": 2,
+      "bbox": [578, 209, 1013, 714],
+      "normalized_bbox": [0.564453, 0.136068, 0.989258, 0.464844],
+      "description": "Upper-right combat/garrison story panel."
+    },
+    {
+      "id": "story_03",
+      "role": "small_story",
+      "story_number": 3,
+      "bbox": [12, 727, 213, 1149],
+      "normalized_bbox": [0.011719, 0.473307, 0.208008, 0.748047],
+      "description": "Gradient Fang recruitment panel."
+    },
+    {
+      "id": "story_04",
+      "role": "small_story",
+      "story_number": 4,
+      "bbox": [222, 727, 409, 1149],
+      "normalized_bbox": [0.216797, 0.473307, 0.399414, 0.748047],
+      "description": "Combat losses panel."
+    },
+    {
+      "id": "story_05",
+      "role": "small_story",
+      "story_number": 5,
+      "bbox": [418, 727, 603, 1149],
+      "normalized_bbox": [0.408203, 0.473307, 0.588867, 0.748047],
+      "description": "Survey/probe panel."
+    },
+    {
+      "id": "story_06",
+      "role": "small_story",
+      "story_number": 6,
+      "bbox": [613, 727, 799, 1149],
+      "normalized_bbox": [0.598633, 0.473307, 0.780273, 0.748047],
+      "description": "Oracle trading board panel."
+    },
+    {
+      "id": "story_07",
+      "role": "small_story",
+      "story_number": 7,
+      "bbox": [808, 727, 1012, 1149],
+      "normalized_bbox": [0.789063, 0.473307, 0.988281, 0.748047],
+      "description": "Ship purchases panel."
+    },
+    {
+      "id": "story_10",
+      "role": "market_box",
+      "story_number": 10,
+      "bbox": [12, 1161, 508, 1477],
+      "normalized_bbox": [0.011719, 0.755859, 0.496094, 0.961589],
+      "description": "Market update table and chart panel."
+    },
+    {
+      "id": "gossip_panel",
+      "role": "combined_gossip_panel",
+      "bbox": [518, 1161, 1012, 1477],
+      "normalized_bbox": [0.505859, 0.755859, 0.988281, 0.961589],
+      "contains": ["story_08", "story_09"],
+      "description": "Combined lower-right gossip panel with kestrel emblem and two short gossip items."
+    },
+    {
+      "id": "story_08",
+      "role": "gossip_item",
+      "story_number": 8,
+      "bbox": [721, 1207, 987, 1322],
+      "normalized_bbox": [0.704102, 0.785807, 0.963867, 0.860677],
+      "parent": "gossip_panel",
+      "description": "Upper gossip text area inside combined gossip panel."
+    },
+    {
+      "id": "story_09",
+      "role": "gossip_item",
+      "story_number": 9,
+      "bbox": [721, 1348, 987, 1459],
+      "normalized_bbox": [0.704102, 0.877604, 0.963867, 0.94987],
+      "parent": "gossip_panel",
+      "description": "Lower gossip text area inside combined gossip panel."
+    },
+    {
+      "id": "footer",
+      "role": "bottom_ornament",
+      "bbox": [316, 1485, 710, 1516],
+      "normalized_bbox": [0.308594, 0.966797, 0.693359, 0.986979],
+      "description": "Small centered bottom ornament; the reference does not use a full-width footer panel."
+    }
+  ]
+}

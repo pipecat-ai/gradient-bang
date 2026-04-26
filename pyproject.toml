@@ -10,6 +10,8 @@ dependencies = [
     "google-genai>=0.7.0",
     "rich>=13.0.0",
     "loguru>=0.7.0",
+    "openai==1.99.5",
+    "pillow>=11.3.0",
     "psycopg[binary]>=3.2.1",
     "supabase>=2.24.0",
 ]
@@ -43,6 +45,10 @@ npc-run = "gradientbang.npc.run_npc:main"
 # Useful scripts
 universe-bang = "gradientbang.scripts.universe_bang:main"
 character-lookup = "gradientbang.scripts.character_lookup:main"
+news-digest = "gradientbang.newspaper.scripts.digest:main"
+news-front-page-image = "gradientbang.newspaper.scripts.front_page_image:main"
+news-front-page-regions = "gradientbang.newspaper.scripts.front_page_regions:main"
+news-front-page-prompt-experiment = "gradientbang.newspaper.scripts.prompt_experiment:main"
 
 
 [tool.setuptools]
@@ -50,6 +56,15 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+
+[tool.setuptools.package-data]
+"gradientbang.newspaper.assets" = [
+    "README.md",
+    "layout/*.json",
+    "references/*.png",
+]
+"gradientbang.newspaper.scripts" = ["image_gen_LICENSE.txt"]
 
 
 [tool.uv]
