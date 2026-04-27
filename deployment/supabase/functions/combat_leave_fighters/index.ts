@@ -58,7 +58,10 @@ import {
 import { computeNextCombatDeadline } from "../_shared/combat_resolution.ts";
 import { computeEventRecipients } from "../_shared/visibility.ts";
 import { loadUniverseMeta, isFedspaceSector, isAdjacentToFedspace } from "../_shared/fedspace.ts";
-import { runLeaveFightersTransaction } from "../_shared/garrison_transactions.ts";
+import {
+  MAX_GARRISON_FIGHTERS,
+  runLeaveFightersTransaction,
+} from "../_shared/garrison_transactions.ts";
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("combat_leave_fighters", async (req, trace) => {
@@ -210,6 +213,17 @@ async function handleCombatLeaveFighters(params: {
     const err = new Error("Quantity must be positive") as Error & {
       status?: number;
     };
+    err.status = 400;
+    throw err;
+  }
+
+  // Cheap upper-bound pre-check. The transaction layer also enforces the cap
+  // against existing garrison fighters (authoritative), but rejecting clearly
+  // unsatisfiable requests here avoids unnecessary lock contention.
+  if (quantity > MAX_GARRISON_FIGHTERS) {
+    const err = new Error(
+      `Garrison would exceed maximum of ${MAX_GARRISON_FIGHTERS} fighters; max additional = ${MAX_GARRISON_FIGHTERS}`,
+    ) as Error & { status?: number };
     err.status = 400;
     throw err;
   }
