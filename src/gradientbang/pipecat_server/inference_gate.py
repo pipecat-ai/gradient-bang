@@ -207,6 +207,7 @@ class PreLLMInferenceGate(FrameProcessor):
         self._state.attach_emitter(_emit_run, self.create_task)
 
     _EVENT_NAME_PATTERN = re.compile(r'<event\s+name="([^"]+)"')
+    _COMBAT_POV_PATTERN = re.compile(r'\bcombat_pov="([^"]+)"')
 
     async def process_frame(self, frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -230,7 +231,7 @@ class PreLLMInferenceGate(FrameProcessor):
         if isinstance(frame, LLMMessagesAppendFrame) and direction == FrameDirection.DOWNSTREAM:
             if frame.run_llm and self._is_event_message(frame):
                 event_name = self._extract_event_name(frame)
-                reason = "combat_event" if event_name and event_name.startswith("combat.") else "event"
+                reason = self._inference_reason_for_event(frame, event_name)
                 if not await self._state.can_run_now():
                     frame.run_llm = False
                     await self._state.request_inference(reason)
@@ -272,6 +273,33 @@ class PreLLMInferenceGate(FrameProcessor):
             return None
         event_name = match.group(1).strip()
         return event_name or None
+
+    @classmethod
+    def _inference_reason_for_event(
+        cls, frame: LLMMessagesAppendFrame, event_name: Optional[str]
+    ) -> str:
+        """Pick the gate priority for an event-driven LLM run.
+
+        combat.* events bypass the bot-speaking cooldown (combat_event
+        priority) only when the viewer is a direct participant. Observed
+        combat (corp ship / garrison / sector-only) gets normal event
+        priority so it speaks when appropriate but does not interrupt.
+        Missing combat_pov is treated as direct for backwards compat —
+        any event that pre-dates the attr is assumed to be a stake-holder
+        update."""
+        if not event_name or not event_name.startswith("combat."):
+            return "event"
+        if not frame.messages:
+            return "combat_event"
+        last = frame.messages[-1]
+        content = last.get("content") if isinstance(last, dict) else None
+        if not isinstance(content, str):
+            return "combat_event"
+        match = cls._COMBAT_POV_PATTERN.search(content)
+        if not match:
+            return "combat_event"
+        pov = match.group(1).strip()
+        return "combat_event" if pov == "direct" else "event"
 
 
 class PostLLMInferenceGate(FrameProcessor):
