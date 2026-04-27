@@ -37,8 +37,8 @@ from gradientbang.utils.formatting import (
     shorten_embedded_ids,
 )
 from gradientbang.utils.prompt_loader import (
-    load_fragment,
-    render_combat_strategy_preamble,
+    render_combat_md_preamble_message,
+    render_ship_doctrine_preamble_message,
 )
 from gradientbang.utils.summary_formatters import event_query_summary
 
@@ -1271,22 +1271,18 @@ class EventRelay:
         ``run_llm=False`` so they land in context without triggering
         inference — the subsequent XML event frame (with the normal
         InferenceRule) is what wakes the LLM.
+
+        Order is fixed: combat.md → doctrine → event XML. The corp-ship
+        TaskAgent path mirrors this same order in
+        ``TaskAgent._maybe_inject_combat_preamble``.
         """
         # ── combat.md (once per session) ──
         if not self._combat_md_loaded:
             try:
-                combat_md = load_fragment("combat")
+                content = render_combat_md_preamble_message()
                 await self._task_state.queue_frame(
                     LLMMessagesAppendFrame(
-                        messages=[{
-                            "role": "user",
-                            "content": (
-                                "# Combat reference\n\n"
-                                "Combat has begun. Full mechanics reference "
-                                "(load once, remembered for the session):\n\n"
-                                f"{combat_md}"
-                            ),
-                        }],
+                        messages=[{"role": "user", "content": content}],
                         run_llm=False,
                     )
                 )
@@ -1314,42 +1310,13 @@ class EventRelay:
             )
             return
         strategy = result.get("strategy") if isinstance(result, Mapping) else None
-        # Unset strategy → fall back to the 'balanced' doctrine. Every ship
-        # always has *some* combat doctrine in context at round 1, so the
-        # agent never has to reason about "no strategy at all".
-        if isinstance(strategy, Mapping):
-            template = strategy.get("template") or "balanced"
-            custom_prompt = strategy.get("custom_prompt")
-            is_default = False
-        else:
-            template = "balanced"
-            custom_prompt = None
-            is_default = True
-        if not isinstance(template, str):
-            template = "balanced"
-            is_default = True
         try:
-            doctrine = render_combat_strategy_preamble(
-                template,
-                custom_prompt if isinstance(custom_prompt, str) else None,
-            )
+            content = render_ship_doctrine_preamble_message(strategy)
         except Exception:  # noqa: BLE001
             logger.warning(
                 "relay.combat_preamble.render_failed", exc_info=True
             )
             return
-        header_line = (
-            "Your ship has no authored doctrine, so it is running the "
-            "default 'balanced' combat strategy."
-            if is_default
-            else "Your ship has an authored combat doctrine."
-        )
-        content = (
-            "# Your ship's combat strategy\n\n"
-            f"{header_line} Use it to bias combat recommendations and actions "
-            "you take.\n\n"
-            f"{doctrine}"
-        )
         await self._task_state.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[{"role": "user", "content": content}],

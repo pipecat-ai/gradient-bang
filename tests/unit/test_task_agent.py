@@ -779,3 +779,149 @@ class TestPipelineErrorFailureHandling:
 
         agent.send_task_response.assert_awaited_once()
         agent._game_client.task_lifecycle.assert_awaited_once()
+
+
+@pytest.mark.unit
+class TestCombatPreamble:
+    """Round-1 combat.round_waiting prepends combat.md + ship doctrine to
+    the TaskAgent's LLM context — same fixed order the player voice agent
+    uses in EventRelay (combat.md → doctrine → event XML). Applies to both
+    corp ships and player ship task agents."""
+
+    @staticmethod
+    def _round_waiting(round_num: int = 1) -> dict:
+        return {
+            "event_name": "combat.round_waiting",
+            "payload": {
+                "combat_id": "cbt-1",
+                "round": round_num,
+                "sector": {"id": 42},
+                "participants": [
+                    {
+                        "id": "ship-pseudo-char",
+                        "ship_id": "ship-probe",
+                        "ship": {"ship_name": "Probe-1"},
+                        "player_type": "corporation_ship",
+                    },
+                    {"id": "char-foe", "player_type": "human"},
+                ],
+            },
+        }
+
+    @staticmethod
+    def _agent_with_context(*, character_id: str = "ship-pseudo-char"):
+        agent = _make_task_agent(character_id=character_id, is_corp_ship=True)
+        agent._active_task_id = "task-uuid-1"
+        agent._llm_context = MagicMock()
+        # Default: an authored 'offensive' doctrine. Individual tests
+        # override to exercise the unset → default-balanced fallback.
+        agent._game_client.combat_get_strategy = AsyncMock(
+            return_value={
+                "strategy": {
+                    "template": "offensive",
+                    "custom_prompt": "Prefer alpha strikes.",
+                }
+            }
+        )
+        return agent
+
+    async def test_round1_injects_combat_md_then_doctrine_then_event(self):
+        agent = self._agent_with_context()
+        await agent._handle_event(self._round_waiting(round_num=1))
+
+        contents = [
+            call.args[0]["content"]
+            for call in agent._llm_context.add_message.call_args_list
+        ]
+        # Three messages, in fixed order.
+        assert len(contents) == 3
+        assert contents[0].startswith("# Combat reference")
+        assert contents[1].startswith("# Your ship's combat strategy")
+        assert "<event name=combat.round_waiting>" in contents[2]
+        # Strategy fetched for the agent's own ship_id.
+        agent._game_client.combat_get_strategy.assert_awaited_once_with(
+            ship_id="ship-probe", character_id="ship-pseudo-char"
+        )
+        # Custom prompt rendered into the doctrine block.
+        assert "Prefer alpha strikes." in contents[1]
+
+    async def test_combat_md_loaded_only_once_per_agent(self):
+        agent = self._agent_with_context()
+        await agent._handle_event(self._round_waiting(round_num=1))
+        # Wipe the call log to make the second-combat assertion clean.
+        agent._llm_context.add_message.reset_mock()
+
+        # Second combat in the same agent lifetime — combat.md is silent
+        # but doctrine still re-fetches (strategy may have been edited).
+        await agent._handle_event(self._round_waiting(round_num=1))
+        contents = [
+            call.args[0]["content"]
+            for call in agent._llm_context.add_message.call_args_list
+        ]
+        assert len(contents) == 2
+        assert contents[0].startswith("# Your ship's combat strategy")
+        assert "<event name=combat.round_waiting>" in contents[1]
+        assert agent._game_client.combat_get_strategy.await_count == 2
+
+    async def test_round2_does_not_inject_preamble(self):
+        agent = self._agent_with_context()
+        await agent._handle_event(self._round_waiting(round_num=2))
+
+        contents = [
+            call.args[0]["content"]
+            for call in agent._llm_context.add_message.call_args_list
+        ]
+        # Only the event XML — no preamble pieces.
+        assert len(contents) == 1
+        assert "<event name=combat.round_waiting>" in contents[0]
+        agent._game_client.combat_get_strategy.assert_not_awaited()
+
+    async def test_observer_does_not_inject_preamble(self):
+        # This agent's character is NOT a participant — the corp ship in
+        # the fight belongs to a different agent. Preamble is per-ship,
+        # so this agent stays silent.
+        agent = self._agent_with_context(character_id="other-ship-pseudo")
+        await agent._handle_event(self._round_waiting(round_num=1))
+
+        contents = [
+            call.args[0]["content"]
+            for call in agent._llm_context.add_message.call_args_list
+        ]
+        assert len(contents) == 1
+        assert "<event name=combat.round_waiting>" in contents[0]
+        agent._game_client.combat_get_strategy.assert_not_awaited()
+
+    async def test_unset_strategy_falls_back_to_balanced_default(self):
+        agent = self._agent_with_context()
+        agent._game_client.combat_get_strategy = AsyncMock(
+            return_value={"strategy": None}
+        )
+        await agent._handle_event(self._round_waiting(round_num=1))
+
+        contents = [
+            call.args[0]["content"]
+            for call in agent._llm_context.add_message.call_args_list
+        ]
+        assert len(contents) == 3
+        doctrine_msg = contents[1]
+        assert doctrine_msg.startswith("# Your ship's combat strategy")
+        assert "default 'balanced' combat strategy" in doctrine_msg
+
+    async def test_strategy_fetch_failure_skips_doctrine_but_keeps_combat_md(self):
+        agent = self._agent_with_context()
+        agent._game_client.combat_get_strategy = AsyncMock(
+            side_effect=RuntimeError("network down")
+        )
+        await agent._handle_event(self._round_waiting(round_num=1))
+
+        contents = [
+            call.args[0]["content"]
+            for call in agent._llm_context.add_message.call_args_list
+        ]
+        # combat.md still landed; doctrine got skipped; event still appended.
+        # combat.md is now considered loaded — failed strategy fetch should
+        # not force re-loading the mechanics reference next combat.
+        assert len(contents) == 2
+        assert contents[0].startswith("# Combat reference")
+        assert "<event name=combat.round_waiting>" in contents[1]
+        assert agent._combat_md_loaded is True

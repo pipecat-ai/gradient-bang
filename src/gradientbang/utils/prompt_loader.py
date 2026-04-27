@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 
 class TaskOutputType(Enum):
@@ -129,6 +129,63 @@ def load_combat_strategy_doctrine(template: str) -> str:
             f"Expected one of: {', '.join(sorted(COMBAT_STRATEGY_TEMPLATES))}"
         )
     return load_prompt(f"fragments/strategies/{template}.md")
+
+
+def render_combat_md_preamble_message() -> str:
+    """First combat-preamble message — full mechanics reference.
+
+    Loaded once per agent lifetime; the wording matches both the player
+    voice agent (in ``EventRelay``) and corp-ship task agents so an LLM
+    that has been demoted/re-spun into a different role still sees an
+    identical reference text.
+    """
+    combat_md = load_fragment("combat")
+    return (
+        "# Combat reference\n\n"
+        "Combat has begun. Full mechanics reference "
+        "(load once, remembered for the session):\n\n"
+        f"{combat_md}"
+    )
+
+
+def render_ship_doctrine_preamble_message(
+    strategy: Optional[Mapping[str, Any]],
+) -> str:
+    """Second combat-preamble message — ship's doctrine + custom additions.
+
+    ``strategy`` is the ``strategy`` field of a ``combat.get_strategy``
+    response (or ``None`` when the ship has none authored). An unset or
+    malformed strategy falls back to the default 'balanced' doctrine so
+    every ship in combat has *some* doctrine in context — the agent never
+    has to reason about "no strategy at all".
+    """
+    if isinstance(strategy, Mapping):
+        template = strategy.get("template") or "balanced"
+        custom_prompt = strategy.get("custom_prompt")
+        is_default = False
+    else:
+        template = "balanced"
+        custom_prompt = None
+        is_default = True
+    if not isinstance(template, str):
+        template = "balanced"
+        is_default = True
+    doctrine = render_combat_strategy_preamble(
+        template,
+        custom_prompt if isinstance(custom_prompt, str) else None,
+    )
+    header_line = (
+        "Your ship has no authored doctrine, so it is running the "
+        "default 'balanced' combat strategy."
+        if is_default
+        else "Your ship has an authored combat doctrine."
+    )
+    return (
+        "# Your ship's combat strategy\n\n"
+        f"{header_line} Use it to bias combat recommendations and actions "
+        "you take.\n\n"
+        f"{doctrine}"
+    )
 
 
 def render_combat_strategy_preamble(

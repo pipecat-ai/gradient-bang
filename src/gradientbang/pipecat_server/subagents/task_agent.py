@@ -25,7 +25,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from loguru import logger
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
@@ -71,6 +71,8 @@ from gradientbang.utils.prompt_loader import (
     build_task_progress_prompt,
     create_task_instruction_user_message,
     load_fragment,
+    render_combat_md_preamble_message,
+    render_ship_doctrine_preamble_message,
 )
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.weave_tracing import traced
@@ -289,6 +291,14 @@ class TaskAgent(LLMAgent):
 
         # ── Pipeline refs (set in build_pipeline) ──
         self._llm_context: Optional[LLMContext] = None
+
+        # ── Combat preamble tracking ──
+        # Mirrors EventRelay: combat.md is loaded at most once per agent
+        # lifetime; doctrine is re-fetched every combat. Both land in
+        # context ahead of the round-1 combat.round_waiting event so the
+        # agent always reasons about the fight with mechanics + doctrine
+        # already in view.
+        self._combat_md_loaded = False
 
     # ── LLM setup ─────────────────────────────────────────────────────
 
@@ -627,6 +637,101 @@ class TaskAgent(LLMAgent):
             event
         )
 
+    # ── Combat preamble ───────────────────────────────────────────────
+
+    def _own_ship_id_in_combat(self, payload: Mapping[str, Any]) -> Optional[str]:
+        """Pull this agent's ship_id out of a combat event's ``participants[]``.
+
+        For corp-ship task agents, ``self._character_id`` is the corp-ship
+        pseudo-character; matching it against participant ids gives a
+        more reliable ship_id than the latest status snapshot, which may
+        not have fired before combat entry.
+        """
+        participants = payload.get("participants")
+        if not isinstance(participants, list):
+            return None
+        for p in participants:
+            if not isinstance(p, Mapping):
+                continue
+            if p.get("id") != self._character_id:
+                continue
+            for source in (p, p.get("ship")):
+                if not isinstance(source, Mapping):
+                    continue
+                ship_id = source.get("ship_id")
+                if isinstance(ship_id, str) and ship_id.strip():
+                    return ship_id.strip()
+        return None
+
+    async def _maybe_inject_combat_preamble(
+        self, event_name: Optional[str], payload: Any
+    ) -> None:
+        """Prepend combat.md + doctrine ahead of round-1 combat entry.
+
+        Mirrors ``EventRelay._inject_combat_preamble`` for the player
+        voice agent: every ship — corp ship or player ship — enters
+        combat with full mechanics + its authored doctrine in context,
+        in the fixed order ``combat.md → doctrine → event``. Strategy
+        is re-fetched every combat (may have changed); combat.md is
+        loaded at most once per agent lifetime.
+        """
+        if event_name != "combat.round_waiting":
+            return
+        if not isinstance(payload, Mapping):
+            return
+        if payload.get("round") != 1:
+            return
+        # Only fire when *this* agent's ship is in the fight. A corp-ship
+        # task agent shouldn't load combat.md just because some other
+        # corp ship in the sector is fighting.
+        participants = payload.get("participants")
+        if not isinstance(participants, list) or not any(
+            isinstance(p, Mapping) and p.get("id") == self._character_id
+            for p in participants
+        ):
+            return
+        if self._llm_context is None:
+            return
+
+        # ── combat.md (once per agent lifetime) ──
+        if not self._combat_md_loaded:
+            try:
+                content = render_combat_md_preamble_message()
+                self._llm_context.add_message(
+                    {"role": "user", "content": content}
+                )
+                self._combat_md_loaded = True
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "task_agent.combat_preamble.combat_md_failed",
+                    exc_info=True,
+                )
+
+        # ── ship doctrine + custom additions (every combat) ──
+        ship_id = self._own_ship_id_in_combat(payload)
+        if not ship_id:
+            return
+        try:
+            result = await self._game_client.combat_get_strategy(
+                ship_id=ship_id,
+                character_id=self._character_id,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "task_agent.combat_preamble.strategy_fetch_failed",
+                exc_info=True,
+            )
+            return
+        strategy = result.get("strategy") if isinstance(result, Mapping) else None
+        try:
+            content = render_ship_doctrine_preamble_message(strategy)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "task_agent.combat_preamble.render_failed", exc_info=True
+            )
+            return
+        self._llm_context.add_message({"role": "user", "content": content})
+
     # ── Event handling ────────────────────────────────────────────────
 
     @traced
@@ -696,6 +801,12 @@ class TaskAgent(LLMAgent):
                 if self._skip_context_events[event_name] == 0:
                     del self._skip_context_events[event_name]
                 return
+
+        # Combat preamble: round-1 combat.round_waiting where this agent's
+        # ship is a participant gets combat.md (once per agent) + doctrine
+        # injected ahead of the event XML — same fixed order as the player
+        # voice agent in EventRelay._inject_combat_preamble.
+        await self._maybe_inject_combat_preamble(event_name, event.get("payload"))
 
         # Add event to LLM context
         event_message = {
