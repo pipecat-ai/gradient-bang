@@ -4,6 +4,7 @@ import {
 } from "https://deno.land/std@0.197.0/testing/asserts.ts";
 
 import {
+  MAX_GARRISON_FIGHTERS,
   runCollectFightersTransaction,
   runLeaveFightersTransaction,
   type PgQueryClient,
@@ -485,6 +486,76 @@ Deno.test("leave rolls back ship fighter deduction when garrison write fails", a
 
   assertEquals(world.ships.get("ship-a")?.current_fighters, 80);
   assertEquals(world.garrisons.get(3), undefined);
+});
+
+Deno.test("leave rejects deploy that would push garrison over fighter cap", async () => {
+  const world = new FakeWorld();
+  world.ships.set("ship-a", {
+    ship_id: "ship-a",
+    current_sector: 11,
+    current_fighters: 1000,
+    credits: 0,
+    owner_corporation_id: null,
+  });
+  world.garrisons.set(11, {
+    sector_id: 11,
+    owner_id: "owner-a",
+    fighters: MAX_GARRISON_FIGHTERS - 100,
+    mode: "defensive",
+    toll_amount: 0,
+    toll_balance: 0,
+    deployed_at: "2026-02-18T00:00:00.000Z",
+  });
+
+  const pg = new FakePgClient(world);
+  await expectStatus(
+    runLeaveFightersTransaction(pg, {
+      sectorId: 11,
+      characterId: "owner-a",
+      shipId: "ship-a",
+      quantity: 200,
+      mode: "defensive",
+      tollAmount: 0,
+    }),
+    400,
+  );
+
+  // Ship and garrison untouched on rejection.
+  assertEquals(world.ships.get("ship-a")?.current_fighters, 1000);
+  assertEquals(world.garrisons.get(11)?.fighters, MAX_GARRISON_FIGHTERS - 100);
+});
+
+Deno.test("leave allows deploy that lands exactly at the fighter cap", async () => {
+  const world = new FakeWorld();
+  world.ships.set("ship-a", {
+    ship_id: "ship-a",
+    current_sector: 12,
+    current_fighters: 500,
+    credits: 0,
+    owner_corporation_id: null,
+  });
+  world.garrisons.set(12, {
+    sector_id: 12,
+    owner_id: "owner-a",
+    fighters: MAX_GARRISON_FIGHTERS - 100,
+    mode: "defensive",
+    toll_amount: 0,
+    toll_balance: 0,
+    deployed_at: "2026-02-18T00:00:00.000Z",
+  });
+
+  const pg = new FakePgClient(world);
+  const result = await runLeaveFightersTransaction(pg, {
+    sectorId: 12,
+    characterId: "owner-a",
+    shipId: "ship-a",
+    quantity: 100,
+    mode: "defensive",
+    tollAmount: 0,
+  });
+
+  assertEquals(result.garrison.fighters, MAX_GARRISON_FIGHTERS);
+  assertEquals(world.ships.get("ship-a")?.current_fighters, 400);
 });
 
 Deno.test("collect rolls back ship credit/fighter updates when garrison write fails", async () => {

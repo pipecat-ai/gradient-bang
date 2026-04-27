@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `has_fled` / `fled_to_sector` fields on participants in combat round payloads — distinguishes fled combatants from destroyed ones
 - Standalone combat sim client for offline strategy experimentation
 - Map marker for a destroyed garrison is cleared and logged to the activity feed
+- Per-garrison fighter cap of 32,000 (Trade Wars precedent); deploys that would exceed are rejected with a clear `max additional = N` error
 
 ### Changed
 
