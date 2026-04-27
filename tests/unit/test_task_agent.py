@@ -92,19 +92,26 @@ class TestTaskAgentTools:
             handler = agent._get_tool_handler(schema.name)
             assert handler is not None, f"No handler for {schema.name}"
 
-    def test_excludes_combat_tools(self):
+    def test_includes_combat_tools(self):
+        # Combat tools are deliberately part of the TaskAgent toolset so an
+        # autonomous task can engage / submit actions during combat. Inference
+        # is deferred via ASYNC_TOOL_COMPLETIONS until the matching event
+        # arrives (see test_combat_in_async_completions).
         tool_names = {t.name for t in TASK_TOOLS.standard_tools}
-        assert "combat_initiate" not in tool_names
-        assert "combat_action" not in tool_names
+        assert "combat_initiate" in tool_names
+        assert "combat_action" in tool_names
 
     def test_excludes_meta_task_tools(self):
         tool_names = {t.name for t in TASK_TOOLS.standard_tools}
         for name in ("start_task", "stop_task", "steer_task", "query_task_progress"):
             assert name not in tool_names
 
-    def test_no_combat_in_async_completions(self):
-        assert "combat_initiate" not in ASYNC_TOOL_COMPLETIONS
-        assert "combat_action" not in ASYNC_TOOL_COMPLETIONS
+    def test_combat_in_async_completions(self):
+        # Combat tool calls return immediately at the API layer but the
+        # player-facing outcome arrives asynchronously via combat events.
+        # Map them so inference is deferred until the right event lands.
+        assert ASYNC_TOOL_COMPLETIONS["combat_initiate"] == "combat.round_waiting"
+        assert ASYNC_TOOL_COMPLETIONS["combat_action"] == "combat.action_accepted"
 
     @patch("gradientbang.pipecat_server.subagents.task_agent.create_llm_service")
     @patch("gradientbang.pipecat_server.subagents.task_agent.get_task_agent_llm_config")
