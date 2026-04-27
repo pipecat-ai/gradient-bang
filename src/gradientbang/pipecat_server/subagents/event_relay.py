@@ -430,14 +430,17 @@ def _xml_attrs_combat_encounter(
     relay: EventRelay, payload: Mapping[str, Any]
 ) -> list[tuple[str, str]]:
     """Per-viewer envelope attrs for combat.round_waiting / _resolved / ended.
-    DIRECT and sector-only viewers see only combat_id; corp-ship observers
-    add ship_id (+ ship_name); garrison observers add garrison_id +
-    garrison_owner. See catalog appendix A."""
+    Always emits combat_pov so downstream gating (InferenceGate) can tell
+    direct combat from observed combat without inferring from event name.
+    DIRECT and sector-only viewers see only combat_id + combat_pov;
+    corp-ship observers add ship_id (+ ship_name); garrison observers
+    add garrison_id + garrison_owner. See catalog appendix A."""
     attrs: list[tuple[str, str]] = []
     combat_id = payload.get("combat_id")
     if isinstance(combat_id, str) and combat_id.strip():
         attrs.append(("combat_id", combat_id.strip()))
     pov_info = _compute_combat_pov(relay, payload)
+    attrs.append(("combat_pov", pov_info.pov.value))
     if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP:
         if pov_info.ship_id:
             attrs.append(("ship_id", pov_info.ship_id))
@@ -1548,6 +1551,24 @@ class EventRelay:
             result = is_voice
         elif rule == InferenceRule.ON_PARTICIPANT:
             result = combat_for_player
+            # Round-1 combat broadcast also notifies viewers with an owned
+            # or corp stake — corp-ship participant or owned/corp garrison
+            # in the engagement. Sector-only observers stay silent (no
+            # personal stake → no spoken interruption). The relay still
+            # appends the round-1 frame as silent context for those
+            # observers; only `run_llm` differs here.
+            if (
+                not result
+                and event_name == "combat.round_waiting"
+                and isinstance(clean_payload, Mapping)
+                and clean_payload.get("round") == 1
+            ):
+                pov_info = _compute_combat_pov(self, clean_payload)
+                if pov_info.pov in (
+                    CombatPOV.OBSERVED_VIA_CORP_SHIP,
+                    CombatPOV.OBSERVED_VIA_GARRISON,
+                ):
+                    result = True
         elif rule == InferenceRule.OWNED:
             # Viewer owns the event subject (e.g. their garrison was destroyed).
             owner_id = (

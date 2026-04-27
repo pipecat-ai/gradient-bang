@@ -18,6 +18,10 @@ from gradientbang.pipecat_server.subagents.event_relay import (
     _summarize_combat_waiting,
     _summarize_event_query,
     _summarize_ships_list,
+    _xml_attrs_combat_encounter,
+    _xml_attrs_garrison_destroyed,
+    _xml_attrs_ship_destroyed,
+    _xml_escape_attr,
 )
 
 
@@ -706,6 +710,152 @@ class TestCombatPOVSummaries:
 
 
 @pytest.mark.unit
+class TestCombatXmlEnvelope:
+    """XML envelope attr selection per POV (catalog Appendix A) and the
+    user-content escape applied to attr values."""
+
+    @staticmethod
+    def _attrs(pairs: list[tuple[str, str]]) -> dict[str, str]:
+        return dict(pairs)
+
+    # ── _xml_attrs_combat_encounter ─────────────────────────────────
+
+    def test_encounter_envelope_direct_only_combat_id(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": 1,
+            "participants": [
+                {"id": "char-123", "name": "You", "player_type": "human", "corp_id": "corp-1"},
+                {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"},
+            ],
+        }
+        attrs = self._attrs(_xml_attrs_combat_encounter(relay, payload))
+        # DIRECT viewer (in participants): combat_id + combat_pov="direct".
+        assert attrs == {"combat_id": "cbt-1", "combat_pov": "direct"}
+
+    def test_encounter_envelope_corp_ship_observer_adds_ship_attrs(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": 1,
+            "participants": [
+                {
+                    "id": "corp-ship-pseudo",
+                    "name": "Probe-1",
+                    "player_type": "corporation_ship",
+                    "ship_id": "ship-probe",
+                    "ship": {"ship_name": "Probe-1"},
+                    "corp_id": "corp-1",
+                },
+                {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"},
+            ],
+        }
+        attrs = self._attrs(_xml_attrs_combat_encounter(relay, payload))
+        assert attrs == {
+            "combat_id": "cbt-1",
+            "combat_pov": "observed_via_corp_ship",
+            "ship_id": "ship-probe",
+            "ship_name": "Probe-1",
+        }
+
+    def test_encounter_envelope_garrison_observer_adds_garrison_attrs(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": 1,
+            "participants": [
+                {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"},
+            ],
+            "garrison": {
+                "id": "garrison:42:char-123",
+                "owner_character_id": "char-123",
+                "owner_corp_id": None,
+                "owner_name": "You",
+                "mode": "offensive",
+                "fighters": 30,
+            },
+        }
+        attrs = self._attrs(_xml_attrs_combat_encounter(relay, payload))
+        assert attrs == {
+            "combat_id": "cbt-1",
+            "combat_pov": "observed_via_garrison",
+            "garrison_id": "garrison:42:char-123",
+            "garrison_owner": "char-123",
+        }
+
+    def test_encounter_envelope_sector_only_observer(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": 1,
+            # Viewer not a participant; no garrison stake.
+            "participants": [
+                {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"},
+            ],
+        }
+        attrs = self._attrs(_xml_attrs_combat_encounter(relay, payload))
+        assert attrs == {"combat_id": "cbt-1", "combat_pov": "observed_sector_only"}
+
+    # ── _xml_attrs_ship_destroyed (subject-scoped, always same shape) ──
+
+    def test_ship_destroyed_envelope_full_attrs(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "ship_id": "ship-probe",
+            "ship_name": "Probe-1",
+            "owner_character_id": "char-other",
+            "corp_id": "corp-1",
+        }
+        attrs = self._attrs(_xml_attrs_ship_destroyed(relay, payload))
+        assert attrs == {
+            "combat_id": "cbt-1",
+            "ship_id": "ship-probe",
+            "ship_name": "Probe-1",
+        }
+
+    def test_ship_destroyed_envelope_skips_missing_ship_name(self):
+        relay, _, _, _ = _make_relay()
+        payload = {"combat_id": "cbt-1", "ship_id": "ship-x"}
+        attrs = self._attrs(_xml_attrs_ship_destroyed(relay, payload))
+        assert attrs == {"combat_id": "cbt-1", "ship_id": "ship-x"}
+
+    # ── _xml_attrs_garrison_destroyed ───────────────────────────────
+
+    def test_garrison_destroyed_envelope_full_attrs(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "garrison_id": "garrison:42:char-123",
+            "owner_character_id": "char-123",
+        }
+        attrs = self._attrs(_xml_attrs_garrison_destroyed(relay, payload))
+        assert attrs == {
+            "combat_id": "cbt-1",
+            "garrison_id": "garrison:42:char-123",
+            "garrison_owner": "char-123",
+        }
+
+    # ── _xml_escape_attr ────────────────────────────────────────────
+
+    def test_xml_escape_handles_quotes_brackets_amp(self):
+        # The literal ship_name a player could set; without escaping, the
+        # double-quote would close the attribute and corrupt the envelope.
+        raw = 'Probe & Co "<flagship>"'
+        escaped = _xml_escape_attr(raw)
+        assert escaped == "Probe &amp; Co &quot;&lt;flagship&gt;&quot;"
+        # Round-trip-safe: re-applying produces the same string (idempotent
+        # only at the final escaped form, but no double-encoding hazards
+        # at this stage).
+        assert "&" in escaped and '"' not in escaped
+
+
+@pytest.mark.unit
 class TestRelayEventRouting:
     """Core _relay_event routing decisions."""
 
@@ -808,6 +958,156 @@ class TestRelayEventRouting:
         # RTVI push + LLM delivery via task_state
         assert mock_rtvi.push_frame.call_count == 1
         assert len(task_state.deferred_events) >= 1
+
+
+@pytest.mark.unit
+class TestCombatPOVRouting:
+    """Round-1 combat.round_waiting append + run_llm decisions per POV.
+
+    Direct: appended, run_llm=True, combat_pov="direct" — InferenceGate
+        upgrades to combat_event priority.
+    Observed corp-ship / garrison: appended, run_llm=True, normal event
+        priority — speaks when allowed but does not interrupt.
+    Sector-only: appended (silent context), run_llm=False — never wakes
+        the bot for a fight the viewer has no stake in.
+    Rounds 2+ for observers: dropped entirely (the round-1 frame already
+        gave them awareness; resolved updates are participant-only).
+    """
+
+    @staticmethod
+    def _payload(
+        *,
+        round_num: int = 1,
+        viewer_is_participant: bool = False,
+        corp_ship_participant: bool = False,
+        garrison: Optional[dict] = None,
+    ) -> dict:
+        participants: list[dict] = []
+        if viewer_is_participant:
+            participants.append(
+                {"id": "char-123", "name": "You", "player_type": "human", "corp_id": "corp-1"}
+            )
+        if corp_ship_participant:
+            participants.append(
+                {
+                    "id": "corp-ship-pseudo",
+                    "name": "Probe-1",
+                    "player_type": "corporation_ship",
+                    "ship_id": "ship-probe",
+                    "ship": {"ship_name": "Probe-1"},
+                    "corp_id": "corp-1",
+                }
+            )
+        participants.append(
+            {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"}
+        )
+        # Direct viewers get reason="direct"; observers come in under the
+        # broader sector/corp/garrison reasons. The relay's PARTICIPANT
+        # append rule treats event_context=None as "deliver everywhere"
+        # for safety, so always supply a context to exercise the real
+        # observer codepath.
+        if viewer_is_participant:
+            event_context: dict = {"scope": "direct", "reason": "direct"}
+        else:
+            event_context = {"scope": "sector", "reason": "sector_snapshot"}
+        payload: dict = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": round_num,
+            "participants": participants,
+            "__event_context": event_context,
+        }
+        if garrison is not None:
+            payload["garrison"] = garrison
+        return payload
+
+    @staticmethod
+    def _find_event_frame(task_state) -> tuple[str, bool]:
+        """Locate the <event …> frame among deferred frames.
+
+        Direct round-1 combat also queues combat.md preamble + strategy
+        frames ahead of the event itself; tests want the event frame
+        regardless of how many preamble frames preceded it."""
+        for content, run_llm in task_state.deferred_events:
+            if content.lstrip().startswith("<event"):
+                return content, run_llm
+        raise AssertionError(
+            f"No <event> frame in deferred_events: {task_state.deferred_events}"
+        )
+
+    async def test_direct_round1_runs_llm_with_direct_pov(self):
+        relay, task_state, _, _ = _make_relay()
+        # Skip the combat.md preamble fetch (its strategy call hits the
+        # mock client and isn't what this test is exercising).
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting",
+                self._payload(round_num=1, viewer_is_participant=True),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is True
+        assert 'combat_pov="direct"' in content
+
+    async def test_observed_corp_ship_round1_runs_llm_with_normal_priority_pov(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting",
+                self._payload(round_num=1, corp_ship_participant=True),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        # Observed corp ship: bot should speak the notification...
+        assert run_llm is True
+        # ...but the POV attr keeps InferenceGate on the normal `event` lane
+        # so it cannot bypass cooldown / interrupt the bot mid-speech.
+        assert 'combat_pov="observed_via_corp_ship"' in content
+
+    async def test_observed_garrison_round1_runs_llm_with_normal_priority_pov(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        garrison = {
+            "id": "garrison:42:char-123",
+            "owner_character_id": "char-123",
+            "owner_corp_id": None,
+            "owner_name": "You",
+            "mode": "offensive",
+            "fighters": 30,
+        }
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting", self._payload(round_num=1, garrison=garrison)
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is True
+        assert 'combat_pov="observed_via_garrison"' in content
+
+    async def test_observed_sector_only_round1_appends_silently(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event("combat.round_waiting", self._payload(round_num=1))
+        )
+        # Sector-only viewer: appended for awareness but no inference.
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is False
+        assert 'combat_pov="observed_sector_only"' in content
+
+    async def test_observed_corp_ship_round2_dropped(self):
+        """Rounds 2+ are participant-only; observers already saw round 1."""
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting",
+                self._payload(round_num=2, corp_ship_participant=True),
+            )
+        )
+        assert task_state.deferred_events == []
 
     async def test_other_player_departure_from_other_sector_rtvi_only(self):
         """Other-player departures from different sectors get RTVI push but no LLM append."""
