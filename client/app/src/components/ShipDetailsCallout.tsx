@@ -27,12 +27,11 @@ const ShipDetailsItem = ({
 )
 
 export const ShipDetailsCallout = ({ ship_type }: { ship_type: string }) => {
-  const shipDefinition = SHIP_DEFINITIONS.find(
-    (s) => s.ship_type === ship_type
-  ) as unknown as ShipDefinition
+  const shipDefinition = SHIP_DEFINITIONS.find((s) => s.ship_type === ship_type)
+  if (!shipDefinition) return null
   return (
     <div className="uppercase">
-      <PopoverTitle className="mb-ui-sm">{shipDefinition?.display_name}</PopoverTitle>
+      <PopoverTitle className="mb-ui-sm">{shipDefinition.display_name}</PopoverTitle>
       <ul className="flex flex-col gap-1 list-none">
         <ShipDetailsItem
           label="Shields"

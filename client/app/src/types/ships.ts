@@ -1,4 +1,4 @@
-export const SHIP_DEFINITIONS = [
+export const SHIP_DEFINITIONS: ShipDefinition[] = [
   {
     idx: 0,
     ship_type: "aegis_cruiser",
