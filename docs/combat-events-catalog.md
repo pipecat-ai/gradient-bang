@@ -23,6 +23,28 @@ Used as the shared baseline for the combat-parity rework: each event is tagged w
 - **Payload** — top-level keys only. Sub-objects noted as `garrison?: { ... }` without recursing.
 - **Example** — realistic trimmed payload.
 
+## ID convention in examples
+
+All ID values in this doc — character_id, ship_id, corp_id, combat_id, salvage_id, garrison `internal_garrison_id` — are 6-char hex placeholders matching the `_short_id` truncation used in `status.snapshot` / `ships.list` (see [`summary_formatters.py`](../src/gradientbang/utils/summary_formatters.py)). Real IDs are full UUIDs at the wire layer; the relay shortens them when rendering to LLM context, and JSON payloads here use the same short form for readability.
+
+The recurring placeholders below are used consistently across every example:
+
+| Placeholder | Stands for |
+|---|---|
+| `a1ce0d` | Alice's character_id |
+| `b0b101` | Bob's character_id |
+| `ca21a3` | Carla's character_id |
+| `5a1ce0` | Alice's personal ship_id |
+| `5b0b10` | Bob's personal ship_id |
+| `709b01` | The corp ship "Probe-1" — its ship_id |
+| `c1709b` | The corp ship's pseudo-character_id (its combatant id) |
+| `c0afed` | A corp_id (the "red" corp) |
+| `3f2a01` | A combat_id |
+| `9a7b00` | A garrison's internal DB row UUID (`internal_garrison_id`) |
+| `5a1ba9` | A salvage_id |
+
+Garrison combatant ids keep their structured form `garrison:<sector>:<owner_short_id>` (e.g. `garrison:42:b0b101`) — the sector and owner stay legible, so we don't truncate further.
+
 ---
 
 # Combat events
@@ -73,34 +95,34 @@ Voice narration behaviour is unchanged: `ON_PARTICIPANT` still fires inference o
 **Example:**
 ```json
 {
-  "combat_id": "3f2a-…",
+  "combat_id": "3f2a01",
   "sector": { "id": 42 },
   "round": 1,
   "current_time": "2026-04-24T12:00:00Z",
   "deadline": "2026-04-24T12:00:30Z",
   "participants": [
     {
-      "id": "char-alice",
+      "id": "a1ce0d",
       "name": "Alice",
       "ship": { "ship_type": "aegis_cruiser", "shield_integrity": 100 },
-      "fighters": 50, "destroyed": false, "corp_id": "corp-red"
+      "fighters": 50, "destroyed": false, "corp_id": "c0afed"
     },
     {
-      "id": "garrison:42:char-bob",
+      "id": "garrison:42:b0b101",
       "name": "Bob's garrison",
       "ship": { "ship_type": "garrison" },
       "fighters": 30, "destroyed": false, "corp_id": null
     }
   ],
   "garrison": {
-    "id": "garrison:42:char-bob",
+    "id": "garrison:42:b0b101",
     "fighters": 30,
     "mode": "offensive",
     "owner_name": "Bob",
-    "owner_character_id": "char-bob",
+    "owner_character_id": "b0b101",
     "owner_corp_id": null
   },
-  "initiator": { "id": "char-alice", "name": "Alice" }
+  "initiator": { "id": "a1ce0d", "name": "Alice" }
 }
 ```
 
@@ -145,45 +167,45 @@ See Appendix B for the side-marker cheat sheet (shared across round_waiting / ro
 
 **DIRECT (viewer = Alice, participant):**
 ```xml
-<event name="combat.round_waiting" combat_id="3f2a-…">
-A new combat has begun. You are a participant. (round 1, combat_id 3f2a-…) deadline 2026-04-24T12:00:30Z
+<event name="combat.round_waiting" combat_id="3f2a01">
+A new combat has begun. You are a participant. (round 1, combat_id 3f2a01) deadline 2026-04-24T12:00:30Z
 Participants:
-  - Alice (you): combatant_id=char-alice, aegis_cruiser "Valkyrie-7" [ship_id=ship-alice], fighters 50, shields 100%
-  - Bob's garrison [opponent]: combatant_id=garrison:42:char-bob, garrison, fighters 30
-Garrison: Bob [opponent] id=garrison:42:char-bob, 30 fighters, mode=offensive, owner=Bob
+  - Alice (you): combatant_id=a1ce0d, aegis_cruiser "Valkyrie-7" [ship_id=5a1ce0], fighters 50, shields 100%
+  - Bob's garrison [opponent]: combatant_id=garrison:42:b0b101, garrison, fighters 30
+Garrison: Bob [opponent] id=garrison:42:b0b101, 30 fighters, mode=offensive, owner=Bob
 Submit a combat action now.
 </event>
 ```
 
 **OBSERVED via corp ship (viewer = Jonboy, remote; his corp's Probe-1 just entered combat):**
 ```xml
-<event name="combat.round_waiting" combat_id="3f2a-…" ship_id="ship-probe-1" ship_name="Probe-1">
-Your corp's "Probe-1" (ship_id=ship-probe-1) has entered combat in sector 42. (round 1, combat_id 3f2a-…)
+<event name="combat.round_waiting" combat_id="3f2a01" ship_id="709b01" ship_name="Probe-1">
+Your corp's "Probe-1" (ship_id=709b01) has entered combat in sector 42. (round 1, combat_id 3f2a01)
 Participants:
-  - Probe-1 [ally — your corp]: combatant_id=corp-ship-probe-1, sparrow_scout "Probe-1" [ship_id=ship-probe-1] (corp ship), fighters 20, shields 100%
-  - Alice [opponent]: combatant_id=char-alice, aegis_cruiser [ship_id=ship-alice] [corp=corp-red…], fighters 50, shields 100%
+  - Probe-1 [ally — your corp]: combatant_id=c1709b, sparrow_scout "Probe-1" [ship_id=709b01] (corp ship), fighters 20, shields 100%
+  - Alice [opponent]: combatant_id=a1ce0d, aegis_cruiser [ship_id=5a1ce0] [corp=c0afed], fighters 50, shields 100%
 </event>
 ```
 
 **OBSERVED via garrison — own (viewer = Bob, remote; his garrison):**
 ```xml
-<event name="combat.round_waiting" combat_id="3f2a-…" garrison_id="garrison:42:char-bob" garrison_owner="char-bob">
-Your garrison in sector 42 has engaged. It is currently in offensive mode. (round 1, combat_id 3f2a-…)
+<event name="combat.round_waiting" combat_id="3f2a01" garrison_id="garrison:42:b0b101" garrison_owner="b0b101">
+Your garrison in sector 42 has engaged. It is currently in offensive mode. (round 1, combat_id 3f2a01)
 Participants:
-  - Alice [opponent]: combatant_id=char-alice, aegis_cruiser [ship_id=ship-alice] [corp=corp-red…], fighters 50, shields 100%
-  - Bob's garrison (yours): combatant_id=garrison:42:char-bob, garrison, fighters 30
-Garrison: Bob (yours) id=garrison:42:char-bob, 30 fighters, mode=offensive, owner=Bob
+  - Alice [opponent]: combatant_id=a1ce0d, aegis_cruiser [ship_id=5a1ce0] [corp=c0afed], fighters 50, shields 100%
+  - Bob's garrison (yours): combatant_id=garrison:42:b0b101, garrison, fighters 30
+Garrison: Bob (yours) id=garrison:42:b0b101, 30 fighters, mode=offensive, owner=Bob
 </event>
 ```
 
 **OBSERVED via garrison — corp-mate's (viewer = Bob, remote; garrison owned by his corp-mate Carla):**
 ```xml
-<event name="combat.round_waiting" combat_id="3f2a-…" garrison_id="garrison:42:char-carla" garrison_owner="char-carla">
-Your corp's garrison in sector 42 has engaged. It is currently in toll mode. (round 1, combat_id 3f2a-…)
+<event name="combat.round_waiting" combat_id="3f2a01" garrison_id="garrison:42:ca21a3" garrison_owner="ca21a3">
+Your corp's garrison in sector 42 has engaged. It is currently in toll mode. (round 1, combat_id 3f2a01)
 Participants:
-  - Alice [opponent]: combatant_id=char-alice, aegis_cruiser [ship_id=ship-alice] [corp=corp-red…], fighters 50, shields 100%
-  - Carla's garrison [ally — your corp]: combatant_id=garrison:42:char-carla, garrison, fighters 30
-Garrison: Carla [ally — your corp] id=garrison:42:char-carla, 30 fighters, mode=toll, toll 500c, owner=Carla
+  - Alice [opponent]: combatant_id=a1ce0d, aegis_cruiser [ship_id=5a1ce0] [corp=c0afed], fighters 50, shields 100%
+  - Carla's garrison [ally — your corp]: combatant_id=garrison:42:ca21a3, garrison, fighters 30
+Garrison: Carla [ally — your corp] id=garrison:42:ca21a3, 30 fighters, mode=toll, toll 500c, owner=Carla
 </event>
 ```
 
@@ -191,13 +213,13 @@ POV line swaps `your garrison` → `your corp's garrison`; garrison side marker 
 
 **DIRECT + present owner (viewer = Bob, in sector 42 alongside his own garrison when Alice arrives):**
 ```xml
-<event name="combat.round_waiting" combat_id="3f2a-…">
-Combat state: you are currently in active combat. (round 1, combat_id 3f2a-…) deadline 2026-04-24T12:00:30Z
+<event name="combat.round_waiting" combat_id="3f2a01">
+Combat state: you are currently in active combat. (round 1, combat_id 3f2a01) deadline 2026-04-24T12:00:30Z
 Participants:
-  - Bob (you): combatant_id=char-bob, freighter "Hauler-2" [ship_id=ship-bob], fighters 10, shields 100%
-  - Alice [opponent]: combatant_id=char-alice, aegis_cruiser [ship_id=ship-alice] [corp=corp-red…], fighters 50, shields 100%
-  - Bob's garrison [ally — your corp]: combatant_id=garrison:42:char-bob, garrison, fighters 30
-Garrison: Bob (yours) id=garrison:42:char-bob, 30 fighters, mode=offensive, owner=Bob
+  - Bob (you): combatant_id=b0b101, freighter "Hauler-2" [ship_id=5b0b10], fighters 10, shields 100%
+  - Alice [opponent]: combatant_id=a1ce0d, aegis_cruiser [ship_id=5a1ce0] [corp=c0afed], fighters 50, shields 100%
+  - Bob's garrison [ally — your corp]: combatant_id=garrison:42:b0b101, garrison, fighters 30
+Garrison: Bob (yours) id=garrison:42:b0b101, 30 fighters, mode=offensive, owner=Bob
 Submit a combat action now.
 </event>
 ```
@@ -222,12 +244,12 @@ Relay drops this for non-participants. Only DIRECT recipients reach the XML step
 
 **DIRECT (viewer = Alice, participant, round 2):**
 ```xml
-<event name="combat.round_waiting" combat_id="3f2a-…">
-Combat state: you are currently in active combat. (round 2, combat_id 3f2a-…) deadline 2026-04-24T12:01:00Z
+<event name="combat.round_waiting" combat_id="3f2a01">
+Combat state: you are currently in active combat. (round 2, combat_id 3f2a01) deadline 2026-04-24T12:01:00Z
 Participants:
-  - Alice (you): combatant_id=char-alice, aegis_cruiser "Valkyrie-7" [ship_id=ship-alice], fighters 48, shields 85%
-  - Bob's garrison [opponent]: combatant_id=garrison:42:char-bob, garrison, fighters 27
-Garrison: Bob [opponent] id=garrison:42:char-bob, 27 fighters, mode=offensive, owner=Bob
+  - Alice (you): combatant_id=a1ce0d, aegis_cruiser "Valkyrie-7" [ship_id=5a1ce0], fighters 48, shields 85%
+  - Bob's garrison [opponent]: combatant_id=garrison:42:b0b101, garrison, fighters 27
+Garrison: Bob [opponent] id=garrison:42:b0b101, 27 fighters, mode=offensive, owner=Bob
 Submit a combat action now.
 </event>
 ```
@@ -264,17 +286,17 @@ Submit a combat action now.
 **Example:**
 ```json
 {
-  "combat_id": "3f2a-…",
+  "combat_id": "3f2a01",
   "sector": { "id": 42 },
   "round": 1,
-  "hits": { "char-alice": 3, "garrison:42:char-bob": 2 },
-  "offensive_losses": { "char-alice": 2 },
-  "shield_loss": { "char-alice": 14.5 },
-  "fighters_remaining": { "char-alice": 48, "garrison:42:char-bob": 27 },
-  "shields_remaining": { "char-alice": 85.5 },
+  "hits": { "a1ce0d": 3, "garrison:42:b0b101": 2 },
+  "offensive_losses": { "a1ce0d": 2 },
+  "shield_loss": { "a1ce0d": 14.5 },
+  "fighters_remaining": { "a1ce0d": 48, "garrison:42:b0b101": 27 },
+  "shields_remaining": { "a1ce0d": 85.5 },
   "actions": {
-    "char-alice": { "action": "attack", "target_id": "garrison:42:char-bob", "commit": 25 },
-    "garrison:42:char-bob": { "action": "attack", "target_id": "char-alice" }
+    "a1ce0d": { "action": "attack", "target_id": "garrison:42:b0b101", "commit": 25 },
+    "garrison:42:b0b101": { "action": "attack", "target_id": "a1ce0d" }
   },
   "result": null,
   "deadline": "2026-04-24T12:01:00Z"
@@ -290,43 +312,43 @@ Round resolved: <result>; <loss line>; [garrison loss line].
 Garrison: <name> <side-marker> id=<garrison_id>, <N> fighters, mode=<mode>[, owner=<name>]     ← if garrison involved
 ```
 
-- **Loss line** — one fragment per stake the viewer has. DIRECT: `your: fighters lost 2, shield damage 14.5%`. OBSERVED via corp ship: `corp ship "Probe-1" (ship_id=ship-probe-1): no fighter losses, shield damage 8.2%`. OBSERVED via garrison: skip — the garrison loss line covers it.
+- **Loss line** — one fragment per stake the viewer has. DIRECT: `your: fighters lost 2, shield damage 14.5%`. OBSERVED via corp ship: `corp ship "Probe-1" (ship_id=709b01): no fighter losses, shield damage 8.2%`. OBSERVED via garrison: skip — the garrison loss line covers it.
 - **Garrison loss line** (when garrison involved): `your garrison: fighters lost 3` / `corp garrison: no fighter losses` / `enemy garrison: fighters lost 5`.
 - **Trailing garrison line** — full garrison snapshot, included for state visibility.
 
 **Example — DIRECT (viewer = Alice, participant):**
 ```xml
-<event name="combat.round_resolved" combat_id="3f2a-…">
-Combat state: you are currently in active combat. (round 1, combat_id 3f2a-…)
+<event name="combat.round_resolved" combat_id="3f2a01">
+Combat state: you are currently in active combat. (round 1, combat_id 3f2a01)
 Round resolved: in_progress; your: fighters lost 2, shield damage 14.5%; enemy garrison: fighters lost 3.
-Garrison: Bob [opponent] id=garrison:42:char-bob, 27 fighters, mode=offensive, owner=Bob
+Garrison: Bob [opponent] id=garrison:42:b0b101, 27 fighters, mode=offensive, owner=Bob
 </event>
 ```
 
 **Example — OBSERVED via corp ship (viewer = Jonboy, his corp's Probe-1 is in the fight):**
 ```xml
-<event name="combat.round_resolved" combat_id="3f2a-…" ship_id="ship-probe-1" ship_name="Probe-1">
-Combat state: your corp's "Probe-1" is engaged in combat. (round 1, combat_id 3f2a-…)
-Round resolved: in_progress; corp ship "Probe-1" (ship_id=ship-probe-1): fighters lost 1, no shield damage.
+<event name="combat.round_resolved" combat_id="3f2a01" ship_id="709b01" ship_name="Probe-1">
+Combat state: your corp's "Probe-1" is engaged in combat. (round 1, combat_id 3f2a01)
+Round resolved: in_progress; corp ship "Probe-1" (ship_id=709b01): fighters lost 1, no shield damage.
 </event>
 ```
 
 **Example — OBSERVED via garrison (viewer = Bob, absent garrison owner):**
 ```xml
-<event name="combat.round_resolved" combat_id="3f2a-…" garrison_id="garrison:42:char-bob" garrison_owner="char-bob">
-Combat state: your garrison in sector 42 is engaged in combat. (round 1, combat_id 3f2a-…)
+<event name="combat.round_resolved" combat_id="3f2a01" garrison_id="garrison:42:b0b101" garrison_owner="b0b101">
+Combat state: your garrison in sector 42 is engaged in combat. (round 1, combat_id 3f2a01)
 Round resolved: in_progress; your garrison: fighters lost 3.
-Garrison: Bob (yours) id=garrison:42:char-bob, 27 fighters, mode=offensive, owner=Bob
+Garrison: Bob (yours) id=garrison:42:b0b101, 27 fighters, mode=offensive, owner=Bob
 </event>
 ```
 
 **Example — terminal round, `toll_satisfied` (viewer = Alice, DIRECT; she paid):**
 ```xml
-<event name="combat.round_resolved" combat_id="3f2a-…">
-Combat state: you are currently in active combat. (round 1, combat_id 3f2a-…)
+<event name="combat.round_resolved" combat_id="3f2a01">
+Combat state: you are currently in active combat. (round 1, combat_id 3f2a01)
 Round resolved: toll_satisfied; your: no fighter losses, no shield damage; enemy garrison: no fighter losses.
 Actions: you paid 500c toll.
-Garrison: Bob [opponent] id=garrison:42:char-bob, 30 fighters, mode=toll, toll 500c, owner=Bob
+Garrison: Bob [opponent] id=garrison:42:b0b101, 30 fighters, mode=toll, toll 500c, owner=Bob
 </event>
 ```
 
@@ -334,10 +356,10 @@ The `result` field on the payload is the key differentiator — `toll_satisfied`
 
 **Example — terminal round with destruction (viewer = Alice, DIRECT; she attacked and won):**
 ```xml
-<event name="combat.round_resolved" combat_id="3f2a-…">
-Combat state: you are currently in active combat. (round 3, combat_id 3f2a-…)
+<event name="combat.round_resolved" combat_id="3f2a01">
+Combat state: you are currently in active combat. (round 3, combat_id 3f2a01)
 Round resolved: one_side_destroyed; your: fighters lost 12, shield damage 45%; enemy garrison: fighters lost 30 (destroyed).
-Garrison: Bob [opponent] id=garrison:42:char-bob, 0 fighters [DESTROYED], mode=offensive, owner=Bob
+Garrison: Bob [opponent] id=garrison:42:b0b101, 0 fighters [DESTROYED], mode=offensive, owner=Bob
 </event>
 ```
 
@@ -366,17 +388,17 @@ The `[DESTROYED]` marker on the garrison line tells the LLM the garrison is gone
 **Example (as seen by Alice):**
 ```json
 {
-  "combat_id": "3f2a-…",
+  "combat_id": "3f2a01",
   "sector": { "id": 42 },
   "round": 2,
   "result": "mutual_destruction",
   "participants": [ /* final state */ ],
   "salvage": [
-    { "salvage_id": "sv-1", "cargo": { "quantum_foam": 10 }, "credits": 500 }
+    { "salvage_id": "5a1ba9", "cargo": { "quantum_foam": 10 }, "credits": 500 }
   ],
   "logs": [ /* per-round digests */ ],
   "ship": {
-    "ship_id": "ship-alice",
+    "ship_id": "5a1ce0",
     "ship_type": "escape_pod",
     "fighters": 0,
     "sector": 42,
@@ -402,35 +424,35 @@ Deliberately short — `round_resolved` already carried the round-by-round detai
 
 **Example — DIRECT (viewer = Alice, participant):**
 ```xml
-<event name="combat.ended" combat_id="3f2a-…">
+<event name="combat.ended" combat_id="3f2a01">
 Your combat has ended. Result: mutual_destruction.
 </event>
 ```
 
 **Example — OBSERVED via corp ship (viewer = Jonboy, his corp's Probe-1 was in the fight):**
 ```xml
-<event name="combat.ended" combat_id="3f2a-…" ship_id="ship-probe-1" ship_name="Probe-1">
-Your corp's "Probe-1" (ship_id=ship-probe-1) combat in sector 42 has ended. Result: mutual_destruction.
+<event name="combat.ended" combat_id="3f2a01" ship_id="709b01" ship_name="Probe-1">
+Your corp's "Probe-1" (ship_id=709b01) combat in sector 42 has ended. Result: mutual_destruction.
 </event>
 ```
 
 **Example — OBSERVED via garrison (viewer = Bob, absent garrison owner):**
 ```xml
-<event name="combat.ended" combat_id="3f2a-…" garrison_id="garrison:42:char-bob" garrison_owner="char-bob">
-Your garrison in sector 42 (garrison_id=garrison:42:char-bob) combat has ended. Result: mutual_destruction.
+<event name="combat.ended" combat_id="3f2a01" garrison_id="garrison:42:b0b101" garrison_owner="b0b101">
+Your garrison in sector 42 (garrison_id=garrison:42:b0b101) combat has ended. Result: mutual_destruction.
 </event>
 ```
 
 **Example — `toll_satisfied` outcome (viewer = Alice, DIRECT; she paid):**
 ```xml
-<event name="combat.ended" combat_id="3f2a-…">
+<event name="combat.ended" combat_id="3f2a01">
 Your combat has ended. Result: toll_satisfied.
 </event>
 ```
 
 **Example — DIRECT + present owner (viewer = Bob, present in sector 42 with his own garrison; both survived):**
 ```xml
-<event name="combat.ended" combat_id="3f2a-…">
+<event name="combat.ended" combat_id="3f2a01">
 Your combat has ended. Result: toll_satisfied.
 </event>
 ```
@@ -439,7 +461,7 @@ Note: envelope is `combat_id` only (DIRECT POV — no garrison attr). Body is id
 
 **Example — `stalemate` (viewer = Alice, DIRECT; combat ran to round limit with no decisive outcome):**
 ```xml
-<event name="combat.ended" combat_id="3f2a-…">
+<event name="combat.ended" combat_id="3f2a01">
 Your combat has ended. Result: stalemate.
 </event>
 ```
@@ -467,10 +489,10 @@ Terminal-state variants all produce the same POV-line shape; only the `Result:` 
 **Example:**
 ```json
 {
-  "combat_id": "3f2a-…",
+  "combat_id": "3f2a01",
   "sector": { "id": 42 },
   "round": 1,
-  "action": { "action": "attack", "commit": 25, "target_id": "garrison:42:char-bob" }
+  "action": { "action": "attack", "commit": 25, "target_id": "garrison:42:b0b101" }
 }
 ```
 
@@ -478,40 +500,40 @@ Terminal-state variants all produce the same POV-line shape; only the `Result:` 
 
 **XML envelope:**
 ```
-<event name="combat.action_accepted" combat_id="3f2a-…">
+<event name="combat.action_accepted" combat_id="3f2a01">
 Action accepted for round <N>: <action>[ commit <X>][, target <short_id>].
 </event>
 ```
 
 **Example — attack:**
 ```xml
-<event name="combat.action_accepted" combat_id="3f2a-…">
-Action accepted for round 1: attack commit 25, target garrison.
+<event name="combat.action_accepted" combat_id="3f2a01">
+Action accepted for round 1: attack commit 25, target garrison:42:b0b101.
 </event>
 ```
 
 **Example — brace:**
 ```xml
-<event name="combat.action_accepted" combat_id="3f2a-…">
+<event name="combat.action_accepted" combat_id="3f2a01">
 Action accepted for round 1: brace.
 </event>
 ```
 
 **Example — flee:**
 ```xml
-<event name="combat.action_accepted" combat_id="3f2a-…">
+<event name="combat.action_accepted" combat_id="3f2a01">
 Action accepted for round 1: flee.
 </event>
 ```
 
 **Example — pay (toll):**
 ```xml
-<event name="combat.action_accepted" combat_id="3f2a-…">
-Action accepted for round 1: pay, target garrison.
+<event name="combat.action_accepted" combat_id="3f2a01">
+Action accepted for round 1: pay, target garrison:42:b0b101.
 </event>
 ```
 
-Short IDs are truncated to 8 chars to keep the line compact. `commit` and `target` are only surfaced when present — `brace` has neither; `flee` has neither (destination is computed server-side); `attack` and `pay` have a target, `attack` also has a commit.
+Short IDs use the 6-char-prefix convention from `_short_id` in [`summary_formatters.py`](../src/gradientbang/utils/summary_formatters.py) — same form the LLM sees in `status.snapshot` and `ships.list`. Garrison combatant ids retain their structured `garrison:<sector>:<owner_short_id>` shape so the sector/owner remain legible. `commit` and `target` are only surfaced when present — `brace` has neither; `flee` has neither (destination is computed server-side); `attack` and `pay` have a target, `attack` also has a commit.
 
 ---
 
@@ -541,16 +563,16 @@ Short IDs are truncated to 8 chars to keep the line compact. `commit` and `targe
 **Example:**
 ```json
 {
-  "ship_id": "ship-alice",
+  "ship_id": "5a1ce0",
   "ship_type": "aegis_cruiser",
   "ship_name": "The Enforcer",
   "player_type": "human",
   "player_name": "Alice",
   "sector": { "id": 42 },
-  "combat_id": "3f2a-…",
+  "combat_id": "3f2a01",
   "salvage_created": true,
-  "owner_character_id": "char-alice",
-  "corp_id": "corp-red"
+  "owner_character_id": "a1ce0d",
+  "corp_id": "c0afed"
 }
 ```
 
@@ -574,22 +596,22 @@ Short IDs are truncated to 8 chars to keep the line compact. `commit` and `targe
 
 **Example — DIRECT (viewer = Alice, owner; voice narrates after rework):**
 ```xml
-<event name="ship.destroyed" combat_id="3f2a-…" ship_id="ship-alice" ship_name="The Enforcer">
-Your ship "The Enforcer" (aegis_cruiser) ship_id=ship-alice was destroyed in sector 42.
+<event name="ship.destroyed" combat_id="3f2a01" ship_id="5a1ce0" ship_name="The Enforcer">
+Your ship "The Enforcer" (aegis_cruiser) ship_id=5a1ce0 was destroyed in sector 42.
 </event>
 ```
 
 **Example — OBSERVED via corp (viewer = Jonboy, corp-mate of the pilot):**
 ```xml
-<event name="ship.destroyed" combat_id="3f2a-…" ship_id="ship-probe-1" ship_name="Probe-1">
-Your corp's ship "Probe-1" (sparrow_scout) ship_id=ship-probe-1 in sector 42 was destroyed (pilot: Probe-1, corporation_ship).
+<event name="ship.destroyed" combat_id="3f2a01" ship_id="709b01" ship_name="Probe-1">
+Your corp's ship "Probe-1" (sparrow_scout) ship_id=709b01 in sector 42 was destroyed (pilot: Probe-1, corporation_ship).
 </event>
 ```
 
 **Example — OBSERVED sector only (viewer = random observer in sector 42):**
 ```xml
-<event name="ship.destroyed" combat_id="3f2a-…" ship_id="ship-alice" ship_name="The Enforcer">
-Ship destroyed: "The Enforcer" (aegis_cruiser) ship_id=ship-alice in sector 42 (pilot: Alice, human).
+<event name="ship.destroyed" combat_id="3f2a01" ship_id="5a1ce0" ship_name="The Enforcer">
+Ship destroyed: "The Enforcer" (aegis_cruiser) ship_id=5a1ce0 in sector 42 (pilot: Alice, human).
 </event>
 ```
 
@@ -597,15 +619,15 @@ Ship destroyed: "The Enforcer" (aegis_cruiser) ship_id=ship-alice in sector 42 (
 
 **Example — OBSERVED via corp, *corp ship* destroyed (viewer = Jonboy, in corp-blue; his corp's autonomous Probe-1 fell):**
 ```xml
-<event name="ship.destroyed" combat_id="3f2a-…" ship_id="ship-probe-1" ship_name="Probe-1">
-Your corp's ship "Probe-1" (sparrow_scout) ship_id=ship-probe-1 in sector 42 was destroyed (pilot: Probe-1, corporation_ship).
+<event name="ship.destroyed" combat_id="3f2a01" ship_id="709b01" ship_name="Probe-1">
+Your corp's ship "Probe-1" (sparrow_scout) ship_id=709b01 in sector 42 was destroyed (pilot: Probe-1, corporation_ship).
 </event>
 ```
 
 **Example — OBSERVED via corp, *personal ship* of corp-mate destroyed (viewer = Jonboy, in corp-red; his corp-mate Alice's personal ship fell):**
 ```xml
-<event name="ship.destroyed" combat_id="3f2a-…" ship_id="ship-alice" ship_name="The Enforcer">
-Your corp's ship "The Enforcer" (aegis_cruiser) ship_id=ship-alice in sector 42 was destroyed (pilot: Alice, human).
+<event name="ship.destroyed" combat_id="3f2a01" ship_id="5a1ce0" ship_name="The Enforcer">
+Your corp's ship "The Enforcer" (aegis_cruiser) ship_id=5a1ce0 in sector 42 was destroyed (pilot: Alice, human).
 </event>
 ```
 
@@ -613,8 +635,8 @@ Body difference from the corp-ship case: `pilot: Alice, human` vs `pilot: Probe-
 
 **Example — OBSERVED sector only, *corp ship* destroyed (viewer = Dan, in sector 42 but not in Probe-1's corp):**
 ```xml
-<event name="ship.destroyed" combat_id="3f2a-…" ship_id="ship-probe-1" ship_name="Probe-1">
-Ship destroyed: "Probe-1" (sparrow_scout) ship_id=ship-probe-1 in sector 42 (pilot: Probe-1, corporation_ship).
+<event name="ship.destroyed" combat_id="3f2a01" ship_id="709b01" ship_name="Probe-1">
+Ship destroyed: "Probe-1" (sparrow_scout) ship_id=709b01 in sector 42 (pilot: Probe-1, corporation_ship).
 </event>
 ```
 
@@ -648,7 +670,7 @@ Dan sees the corp-ship fall as a generic observer — the `Your corp's ship` fra
 **Example:**
 ```json
 {
-  "salvage_id": "sv-1",
+  "salvage_id": "5a1ba9",
   "sector": { "id": 42 },
   "cargo": { "quantum_foam": 50 },
   "scrap": {},
@@ -656,7 +678,7 @@ Dan sees the corp-ship fall as a generic observer — the `Your corp's ship` fra
   "from_ship_type": "wayfarer_freighter",
   "from_ship_name": "Hauler One",
   "timestamp": "2026-04-24T12:00:45Z",
-  "combat_id": "3f2a-…"
+  "combat_id": "3f2a01"
 }
 ```
 
@@ -690,11 +712,11 @@ If we decide to surface it to the LLM later (e.g. so the agent can comment on wr
 **Example:**
 ```json
 {
-  "combat_id": "3f2a-…",
-  "combatant_id": "garrison:42:char-bob",
-  "garrison_id": "garrison:42:char-bob",
-  "internal_garrison_id": "g-7a9…",
-  "owner_character_id": "char-bob",
+  "combat_id": "3f2a01",
+  "combatant_id": "garrison:42:b0b101",
+  "garrison_id": "garrison:42:b0b101",
+  "internal_garrison_id": "9a7b00",
+  "owner_character_id": "b0b101",
   "owner_corp_id": null,
   "owner_name": "Bob",
   "sector": { "id": 42 },
@@ -722,22 +744,22 @@ If we decide to surface it to the LLM later (e.g. so the agent can comment on wr
 
 **Example — DIRECT (viewer = Bob, owner; voice narrates):**
 ```xml
-<event name="garrison.destroyed" combat_id="3f2a-…" garrison_id="garrison:42:char-bob" garrison_owner="char-bob">
-Your garrison was destroyed in sector 42 garrison_id=garrison:42:char-bob, mode=offensive.
+<event name="garrison.destroyed" combat_id="3f2a01" garrison_id="garrison:42:b0b101" garrison_owner="b0b101">
+Your garrison was destroyed in sector 42 garrison_id=garrison:42:b0b101, mode=offensive.
 </event>
 ```
 
 **Example — OBSERVED via corp (viewer = Carla, Bob's corp-mate):**
 ```xml
-<event name="garrison.destroyed" combat_id="3f2a-…" garrison_id="garrison:42:char-bob" garrison_owner="char-bob">
-Your corp's garrison (owner Bob) was destroyed in sector 42 garrison_id=garrison:42:char-bob, mode=offensive.
+<event name="garrison.destroyed" combat_id="3f2a01" garrison_id="garrison:42:b0b101" garrison_owner="b0b101">
+Your corp's garrison (owner Bob) was destroyed in sector 42 garrison_id=garrison:42:b0b101, mode=offensive.
 </event>
 ```
 
 **Example — OBSERVED sector only (viewer = random observer in sector 42):**
 ```xml
-<event name="garrison.destroyed" combat_id="3f2a-…" garrison_id="garrison:42:char-bob" garrison_owner="char-bob">
-Garrison destroyed in sector 42 garrison_id=garrison:42:char-bob, mode=offensive (owner: Bob).
+<event name="garrison.destroyed" combat_id="3f2a01" garrison_id="garrison:42:b0b101" garrison_owner="b0b101">
+Garrison destroyed in sector 42 garrison_id=garrison:42:b0b101, mode=offensive (owner: Bob).
 </event>
 ```
 
@@ -745,22 +767,22 @@ Garrison destroyed in sector 42 garrison_id=garrison:42:char-bob, mode=offensive
 
 **Example — DIRECT, toll garrison destroyed (viewer = Bob; his toll-collecting garrison was overwhelmed):**
 ```xml
-<event name="garrison.destroyed" combat_id="3f2a-…" garrison_id="garrison:42:char-bob" garrison_owner="char-bob">
-Your garrison was destroyed in sector 42 garrison_id=garrison:42:char-bob, mode=toll.
+<event name="garrison.destroyed" combat_id="3f2a01" garrison_id="garrison:42:b0b101" garrison_owner="b0b101">
+Your garrison was destroyed in sector 42 garrison_id=garrison:42:b0b101, mode=toll.
 </event>
 ```
 
 **Example — DIRECT, defensive garrison destroyed (viewer = Bob; his defensive garrison fell holding the sector):**
 ```xml
-<event name="garrison.destroyed" combat_id="3f2a-…" garrison_id="garrison:42:char-bob" garrison_owner="char-bob">
-Your garrison was destroyed in sector 42 garrison_id=garrison:42:char-bob, mode=defensive.
+<event name="garrison.destroyed" combat_id="3f2a01" garrison_id="garrison:42:b0b101" garrison_owner="b0b101">
+Your garrison was destroyed in sector 42 garrison_id=garrison:42:b0b101, mode=defensive.
 </event>
 ```
 
 **Example — OBSERVED via corp, toll garrison destroyed (viewer = Carla; her corp-mate Bob lost a toll garrison):**
 ```xml
-<event name="garrison.destroyed" combat_id="3f2a-…" garrison_id="garrison:42:char-bob" garrison_owner="char-bob">
-Your corp's garrison (owner Bob) was destroyed in sector 42 garrison_id=garrison:42:char-bob, mode=toll.
+<event name="garrison.destroyed" combat_id="3f2a01" garrison_id="garrison:42:b0b101" garrison_owner="b0b101">
+Your corp's garrison (owner Bob) was destroyed in sector 42 garrison_id=garrison:42:b0b101, mode=toll.
 </event>
 ```
 
@@ -795,8 +817,8 @@ Your corp's garrison (owner Bob) was destroyed in sector 42 garrison_id=garrison
 **Example:**
 ```json
 {
-  "garrison_id": "garrison:42:char-bob",
-  "owner_character_id": "char-bob",
+  "garrison_id": "garrison:42:b0b101",
+  "owner_character_id": "b0b101",
   "owner_name": "Bob",
   "sector": 42,
   "fighters": 30,
@@ -818,8 +840,8 @@ Your corp's garrison (owner Bob) was destroyed in sector 42 garrison_id=garrison
 **Proposed payload (if wired):**
 ```json
 {
-  "garrison_id": "garrison:42:char-bob",
-  "owner_character_id": "char-bob",
+  "garrison_id": "garrison:42:b0b101",
+  "owner_character_id": "b0b101",
   "sector": { "id": 42 },
   "previous_mode": "defensive",
   "new_mode": "toll",
