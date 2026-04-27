@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Ship combat strategies: each ship has a base doctrine (`balanced`, `offensive`, or `defensive`) plus an optional free-form custom prompt the commander can layer on top. Voice and UI tools to set/get/clear per ship; the active doctrine is auto-injected into LLM context at the start of every round-1 combat
+- Combat strategies UI panel (replaces the per-ship rename panel) for selecting doctrine and editing the custom prompt
+- `garrison.destroyed` event: fires when a garrison's fighters reach 0 in combat. Voice narrates the loss for the owner; the owner's corp and sector observers receive silent context
+- Per-viewer combat POV: encounter events (`combat.round_waiting`, `combat.round_resolved`, `combat.ended`) are now framed per recipient — DIRECT participant, observed via corp ship, observed via garrison, or sector-only observer. Summary opening lines and XML envelope attrs (ship_id/ship_name, garrison_id/garrison_owner) are shaped per POV so the LLM always knows which subject the event is about
+- Round-1 broadcast: the first round of any combat appends silent context for every recipient (corp members of corp-ship participants, absent garrison owners and their corp, sector observers) so they can answer follow-ups; subsequent rounds remain participant-only
+- Standalone combat sim client for offline strategy experimentation
+- Web client now removes a destroyed garrison's marker from the map in real time and logs the event to the activity feed
+
+### Changed
+
+- Combat event payloads: `participants[]` entries now include `fighters`, `destroyed`, and `corp_id`; the `garrison` sub-object adds `owner_character_id` and `owner_corp_id`. Affects `combat.round_waiting`, `combat.round_resolved`, and `combat.ended`
+- `ship.destroyed` payload adds `owner_character_id` and `corp_id`; inference rule flipped from `NEVER` to `OWNED` so the voice agent narrates the loss for the ship's owner
+- Combat reference prompt rewritten around the four POVs, per-player toll semantics, the new participant/garrison fields, envelope-attr conventions, and the salvage/defeat lifecycle
+- Voice agent combat announcements widened to cover observed combats (corp ship engaging, your garrison engaging) in addition to direct participation
+
+### Fixed
+
+- `combat.round_resolved` payloads correctly report post-round fighter counts and the `destroyed` flag (the participant snapshot was being read before the engine applied losses)
+
 ## [0.1.5] - 2026-04-22
 
 ### Added
