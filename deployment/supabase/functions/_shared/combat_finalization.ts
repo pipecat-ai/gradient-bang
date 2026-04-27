@@ -436,6 +436,10 @@ export async function finalizeCombat(
   for (const [pid, participant] of Object.entries(encounter.participants)) {
     if (participant.combatant_type === "garrison") {
       const remaining = outcome.fighters_remaining?.[pid] ?? participant.fighters;
+      // Defeated garrisons (remaining <= 0) are handled in the defeated
+      // loop above — running updateGarrisonState a second time would
+      // emit garrison.destroyed twice. Only update survivors here.
+      if (remaining <= 0) continue;
       await updateGarrisonState(
         supabase,
         encounter,

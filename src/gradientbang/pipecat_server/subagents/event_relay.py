@@ -83,6 +83,19 @@ EventSummaryFn = Callable[["EventRelay", dict], Optional[str]]
 EventXmlAttrsFn = Callable[["EventRelay", Mapping[str, Any]], list[tuple[str, str]]]
 
 
+def _xml_escape_attr(value: Any) -> str:
+    """Escape an XML attribute value. Attr values may contain user-controlled
+    text (ship names, character names, etc.); a stray `"`, `<`, `>`, or `&`
+    would corrupt the envelope the LLM parses, so escape the standard set."""
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class EventConfig:
     """Declarative routing rules for a single event type."""
@@ -1692,17 +1705,21 @@ class EventRelay:
         if event_name == "status.snapshot" and not is_other_player and isinstance(summary, str):
             summary = f"{summary}\n{self._task_state.active_tasks_summary()}"
 
-        # Build XML
-        attrs = [f'name="{event_name}"']
+        # Build XML. Attr values may contain user-controlled strings (e.g.
+        # ship_name) — escape quotes and angle brackets so they can't
+        # corrupt the envelope the LLM consumes.
+        attrs = [f'name="{_xml_escape_attr(event_name)}"']
         if payload_task_id:
-            attrs.append(f'task_id="{payload_task_id}"')
+            attrs.append(f'task_id="{_xml_escape_attr(payload_task_id)}"')
         if cfg.xml_attrs_fn is not None and isinstance(clean_payload, Mapping):
             for key, val in cfg.xml_attrs_fn(self, clean_payload) or []:
-                attrs.append(f'{key}="{val}"')
+                attrs.append(f'{key}="{_xml_escape_attr(val)}"')
         elif cfg.xml_context_key and isinstance(clean_payload, Mapping):
             ctx_val = clean_payload.get(cfg.xml_context_key)
             if isinstance(ctx_val, str) and ctx_val.strip():
-                attrs.append(f'{cfg.xml_context_key}="{ctx_val.strip()}"')
+                attrs.append(
+                    f'{cfg.xml_context_key}="{_xml_escape_attr(ctx_val.strip())}"'
+                )
         event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
 
         should_run_llm = self._should_run_llm(

@@ -8,7 +8,13 @@ import {
   type CorporationMap,
 } from './friendly.ts';
 
-interface TollRegistryEntry {
+export interface TollPayment {
+  payer: string;
+  amount: number;
+  round: number;
+}
+
+export interface TollRegistryEntry {
   owner_id?: string | null;
   toll_amount?: number;
   toll_balance?: number;
@@ -16,6 +22,52 @@ interface TollRegistryEntry {
   paid?: boolean;
   paid_round?: number | null;
   demand_round?: number;
+  payments?: TollPayment[];
+}
+
+/**
+ * Per-payer toll semantics: a toll garrison is at peace with the encounter
+ * only when every non-friendly, non-destroyed character combatant has a
+ * payment record on this garrison's entry. One player paying does NOT
+ * absolve the others of their toll obligation.
+ */
+export function allHostilesPaid(
+  encounter: CombatEncounterState,
+  garrison: CombatantState,
+  entry: TollRegistryEntry,
+  corps: CorporationMap,
+): boolean {
+  const paidPayers = new Set<string>(
+    (entry.payments ?? []).map((p) => p.payer),
+  );
+  for (const p of Object.values(encounter.participants)) {
+    if (p.combatant_id === garrison.combatant_id) continue;
+    if (p.combatant_type !== 'character') continue;
+    if (p.fighters <= 0) continue;
+    if (p.is_escape_pod) continue;
+    if (p.owner_character_id === garrison.owner_character_id) continue;
+    if (areFriendlyFromMeta(corps, p, garrison)) continue;
+    if (!paidPayers.has(p.combatant_id)) return false;
+  }
+  return true;
+}
+
+/**
+ * True if any toll garrison in the registry still has an unpaid hostile.
+ * Used by the stalemate-unstuck path to keep combat open when tolls remain
+ * outstanding.
+ */
+export function anyOutstandingToll(
+  encounter: CombatEncounterState,
+  registry: Record<string, TollRegistryEntry>,
+  corps: CorporationMap,
+): boolean {
+  for (const [garrisonKey, entry] of Object.entries(registry)) {
+    const garrison = encounter.participants[garrisonKey];
+    if (!garrison) continue;
+    if (!allHostilesPaid(encounter, garrison, entry, corps)) return true;
+  }
+  return false;
 }
 
 function calculateCommit(mode: string, fighters: number): number {
@@ -40,6 +92,7 @@ function selectStrongestTarget(
   encounter: CombatEncounterState,
   garrison: CombatantState,
   corps: CorporationMap,
+  paidPayers: ReadonlySet<string> = new Set(),
 ): CombatantState | null {
   const candidates = Object.values(encounter.participants).filter((participant) => {
     if (participant.combatant_type !== 'character') {
@@ -58,6 +111,9 @@ function selectStrongestTarget(
       return false;
     }
     if (participant.is_escape_pod) {
+      return false;
+    }
+    if (paidPayers.has(participant.combatant_id)) {
       return false;
     }
     return true;
@@ -90,12 +146,124 @@ function ensureTollRegistry(encounter: CombatEncounterState): Record<string, Tol
   return created;
 }
 
+function buildTollAction(
+  encounter: CombatEncounterState,
+  participant: CombatantState,
+  corps: CorporationMap,
+): RoundActionState {
+  const registry = ensureTollRegistry(encounter);
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  const garrisonId = buildGarrisonId(participant);
+  const entry =
+    registry[garrisonId] ??
+    {
+      owner_id: participant.owner_character_id,
+      toll_amount: typeof metadata.toll_amount === 'number' ? metadata.toll_amount : 0,
+      toll_balance: typeof metadata.toll_balance === 'number' ? metadata.toll_balance : 0,
+      demand_round: encounter.round,
+    };
+  registry[garrisonId] = entry;
+
+  // Per-payer toll: a combatant is at peace with this garrison only if a
+  // payment from them is on record. Paid payers are excluded from targeting;
+  // the garrison stays hostile to the rest until they pay too.
+  const paidPayers = new Set<string>(
+    (entry.payments ?? []).map((p) => p.payer),
+  );
+
+  // Sticky target invalidation: drop the previous target if it's no longer
+  // a valid hostile — paid, fled, destroyed, friendly, escape pod, or simply
+  // not in the encounter anymore. Otherwise the garrison would brace forever
+  // chasing a target that has left while other unpaid hostiles remain.
+  if (entry.target_id) {
+    const prev = encounter.participants[entry.target_id];
+    const stillValid =
+      prev !== undefined &&
+      prev.combatant_type === 'character' &&
+      prev.fighters > 0 &&
+      !prev.is_escape_pod &&
+      !prev.has_fled &&
+      prev.owner_character_id !== participant.owner_character_id &&
+      !areFriendlyFromMeta(corps, prev, participant) &&
+      !paidPayers.has(prev.combatant_id);
+    if (!stillValid) {
+      entry.target_id = null;
+    }
+  }
+
+  // Pick a target: prefer the initiator if hostile + unpaid, else strongest unpaid hostile.
+  if (!entry.target_id) {
+    const initiatorId =
+      typeof encounter.context?.initiator === 'string'
+        ? encounter.context.initiator
+        : null;
+    const initiatorParticipant = initiatorId
+      ? encounter.participants[initiatorId]
+      : undefined;
+    if (
+      initiatorId &&
+      initiatorParticipant &&
+      initiatorParticipant.combatant_type === 'character' &&
+      initiatorParticipant.fighters > 0 &&
+      (initiatorParticipant.owner_character_id ?? initiatorId) !==
+        participant.owner_character_id &&
+      !areFriendlyFromMeta(corps, initiatorParticipant, participant) &&
+      !initiatorParticipant.is_escape_pod &&
+      !paidPayers.has(initiatorParticipant.combatant_id)
+    ) {
+      entry.target_id = initiatorId;
+    } else {
+      const fallback = selectStrongestTarget(
+        encounter,
+        participant,
+        corps,
+        paidPayers,
+      );
+      entry.target_id = fallback ? fallback.combatant_id : null;
+    }
+  }
+
+  const targetState = entry.target_id
+    ? encounter.participants[entry.target_id]
+    : null;
+  const targetAvailable = Boolean(targetState && targetState.fighters > 0);
+  const demandRound = entry.demand_round ?? encounter.round;
+  const allPaid = allHostilesPaid(encounter, participant, entry, corps);
+
+  let action: RoundActionState['action'] = 'brace';
+  let commit = 0;
+  let targetId: string | null = null;
+
+  if (allPaid) {
+    // Every hostile has paid — garrison holds fire. checkTollStanddown will
+    // end the encounter this round given no active cross-attacks.
+    action = 'brace';
+  } else if (targetAvailable) {
+    if (encounter.round === demandRound) {
+      // Demand round: stand off, give unpaid combatants time to decide.
+      action = 'brace';
+    } else {
+      action = 'attack';
+      commit = participant.fighters;
+      targetId = targetState?.combatant_id ?? null;
+    }
+  }
+
+  return {
+    action,
+    commit,
+    timed_out: false,
+    target_id: targetId,
+    destination_sector: null,
+    submitted_at: new Date().toISOString(),
+  };
+}
+
 export function buildGarrisonActions(
   encounter: CombatEncounterState,
   corps: CorporationMap,
 ): Record<string, RoundActionState> {
   const actions: Record<string, RoundActionState> = {};
-  const registry = ensureTollRegistry(encounter);
 
   for (const participant of Object.values(encounter.participants)) {
     if (participant.combatant_type !== 'garrison') {
@@ -107,63 +275,11 @@ export function buildGarrisonActions(
     const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
     const mode = String(metadata.mode ?? 'offensive').toLowerCase();
     if (mode === 'toll') {
-      const entry = registry[buildGarrisonId(participant)] ?? {
-        owner_id: participant.owner_character_id,
-        toll_amount: metadata.toll_amount ?? 0,
-        toll_balance: metadata.toll_balance ?? 0,
-        demand_round: encounter.round,
-      };
-      registry[buildGarrisonId(participant)] = entry;
-      if (!entry.target_id) {
-        const initiatorId = typeof encounter.context?.initiator === 'string'
-          ? encounter.context.initiator
-          : null;
-        const initiatorParticipant =
-          initiatorId ? encounter.participants[initiatorId] : undefined;
-        if (
-          initiatorId &&
-          initiatorParticipant &&
-          initiatorParticipant.combatant_type === 'character' &&
-          initiatorParticipant.fighters > 0 &&
-          (initiatorParticipant.owner_character_id ?? initiatorId) !== participant.owner_character_id &&
-          !areFriendlyFromMeta(corps, initiatorParticipant, participant) &&
-          !initiatorParticipant.is_escape_pod
-        ) {
-          entry.target_id = initiatorId;
-        } else {
-          const fallback = selectStrongestTarget(encounter, participant, corps);
-          entry.target_id = fallback ? fallback.combatant_id : null;
-        }
-      }
-
-      const targetState = entry.target_id ? encounter.participants[entry.target_id] : null;
-      const targetAvailable = Boolean(targetState && targetState.fighters > 0);
-      const demandRound = entry.demand_round ?? encounter.round;
-      const alreadyPaid = Boolean(entry.paid);
-      let action: RoundActionState['action'] = 'brace';
-      let commit = 0;
-      let targetId: string | null = null;
-
-      if (alreadyPaid && (!entry.paid_round || entry.paid_round <= encounter.round)) {
-        action = 'brace';
-      } else if (!alreadyPaid && targetAvailable) {
-        if (encounter.round === demandRound) {
-          action = 'brace';
-        } else {
-          action = 'attack';
-          commit = participant.fighters;
-          targetId = targetState?.combatant_id ?? null;
-        }
-      }
-
-      actions[participant.combatant_id] = {
-        action,
-        commit,
-        timed_out: false,
-        target_id: targetId,
-        destination_sector: null,
-        submitted_at: new Date().toISOString(),
-      };
+      actions[participant.combatant_id] = buildTollAction(
+        encounter,
+        participant,
+        corps,
+      );
       continue;
     }
 

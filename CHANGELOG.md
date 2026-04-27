@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `garrison.destroyed` event with voice narration for the owner; silent context for corp and sector observers
 - Per-viewer combat POV (DIRECT / corp-ship observer / garrison observer / sector-only) shapes both summary lines and XML envelope attrs on every encounter event
 - Round-1 fan-out: combat-start broadcasts to all stakeholders (corp members, absent garrison owners, sector observers); rounds 2+ stay participant-only
+- Successful flee now emits the full movement cascade to the fleer (`movement.start`, `character.moved` depart, `movement.complete`, `map.local`, `character.moved` arrive) plus a personalized `combat.ended` so the client unsticks from combat state immediately, even when the fight continues for the others
+- `has_fled` / `fled_to_sector` fields on participants in combat round payloads — distinguishes fled combatants from destroyed ones
 - Standalone combat sim client for offline strategy experimentation
 - Map marker for a destroyed garrison is cleared and logged to the activity feed
 
@@ -21,12 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Combat event payloads: participants gain `fighters` / `destroyed` / `corp_id`; garrison gains `owner_character_id` / `owner_corp_id`
 - `ship.destroyed`: adds `owner_character_id` / `corp_id`; inference flips `NEVER → OWNED` so voice narrates the loss for the owner
+- Toll garrisons are now per-payer: paying a toll is a peace contract scoped to that payer ↔ that garrison. Other hostiles must still pay (no free rides), paid payers cannot attack the garrison or re-pay it, and the garrison re-targets to unpaid hostiles on escalation rounds. Combat ends `toll_satisfied` only when every hostile has paid and nobody is attacking
 - Combat reference prompt rewritten around the four POVs and the new payload fields
 - Voice combat announcements widened to cover observed combats, not just direct participation
 
 ### Fixed
 
 - `combat.round_resolved` reports post-round fighter counts correctly (was reading the participant snapshot before losses applied)
+- A successful fleer is now moved out of the encounter every round, not only when combat happens to end the same round — previously a fleer who left mid-fight had their ship row stay in the combat sector until the rest of combat resolved
+- Combat XML envelope attrs are escaped before being sent to the LLM — a ship name with quotes or angle brackets can no longer corrupt the event frame
 
 ## [0.1.5] - 2026-04-22
 
