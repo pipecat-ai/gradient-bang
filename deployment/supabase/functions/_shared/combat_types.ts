@@ -18,6 +18,8 @@ export interface CombatantState {
   is_escape_pod: boolean;
   owner_character_id?: string | null;
   ship_type?: string | null;
+  has_fled?: boolean;
+  fled_to_sector?: number | null;
   metadata?: Record<string, unknown>;
 }
 

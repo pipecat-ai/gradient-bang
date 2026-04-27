@@ -477,6 +477,26 @@ async function buildActionState(params: {
         err.status = 400;
         throw err;
       }
+      // Per-payer toll: once a payer has paid this garrison, the peace
+      // contract rules out further attacks against it from the same payer.
+      if (targetParticipant.combatant_type === "garrison") {
+        const tollRegistry = (
+          encounter.context as Record<string, unknown> | undefined
+        )?.toll_registry as
+          | Record<string, { payments?: Array<{ payer: string }> }>
+          | undefined;
+        const entry = tollRegistry?.[targetParticipant.combatant_id];
+        const alreadyPaid = (entry?.payments ?? []).some(
+          (p) => p.payer === participant.combatant_id,
+        );
+        if (alreadyPaid) {
+          const err = new Error(
+            "Cannot attack a garrison you have already paid the toll to",
+          ) as Error & { status?: number };
+          err.status = 400;
+          throw err;
+        }
+      }
     }
     commit = Math.max(
       1,
@@ -590,6 +610,19 @@ async function processTollPayment(
 
     const entry = tollRegistry[garrisonId] as Record<string, unknown>;
     if (!entry) {
+      return false;
+    }
+
+    // Per-payer toll: reject re-pay if this payer is already on the entry's
+    // payments list. The peace contract is in force; paying again would
+    // double-charge them.
+    const existingPayments = entry.payments as
+      | Array<{ payer?: string }>
+      | undefined;
+    if (
+      Array.isArray(existingPayments) &&
+      existingPayments.some((p) => p?.payer === payerId)
+    ) {
       return false;
     }
 

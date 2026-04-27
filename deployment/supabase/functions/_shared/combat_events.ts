@@ -42,6 +42,9 @@ function buildParticipantPayload(
     fighters: ctx.fighters,
     destroyed: ctx.fighters <= 0,
     corp_id: ctx.corpId,
+    has_fled: participant.has_fled === true,
+    fled_to_sector:
+      typeof participant.fled_to_sector === 'number' ? participant.fled_to_sector : null,
   };
 }
 
