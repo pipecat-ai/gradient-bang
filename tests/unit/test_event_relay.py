@@ -424,37 +424,6 @@ class TestVoiceSummary:
 
 
 @pytest.mark.unit
-class TestCombatVoiceSummaries:
-    """Combat voice_summary callbacks produce correct context."""
-
-    def test_combat_ended_for_player(self):
-        relay, _, _, _ = _make_relay()
-        event = {"payload": {"combat_id": "cbt-1", "participants": [{"id": "char-123"}]}}
-        result = _summarize_combat_ended(relay, event)
-        assert "Your combat has ended" in result
-
-    def test_combat_ended_not_for_player(self):
-        relay, _, _, _ = _make_relay()
-        event = {"payload": {"combat_id": "cbt-1", "participants": [{"id": "other"}]}}
-        result = _summarize_combat_ended(relay, event)
-        assert "Observed combat" in result and "has ended" in result
-
-    def test_combat_waiting_for_player(self):
-        relay, _, _, _ = _make_relay()
-        event = {
-            "payload": {
-                "combat_id": "cbt-1",
-                "round": 1,
-                "deadline": "2024-01-01T00:00:00Z",
-                "participants": [{"id": "char-123"}],
-            }
-        }
-        result = _summarize_combat_waiting(relay, event)
-        assert "Submit a combat action now" in result
-        assert "round 1" in result
-
-
-@pytest.mark.unit
 class TestCombatPOVSummaries:
     """Snapshot tests for the per-POV combat summary lines.
 
@@ -1093,17 +1062,25 @@ class TestCombatEventRouting:
             "combat.round_waiting",
             {
                 "combat_id": "cbt-1",
-                "round": 1,
+                "round": 2,  # Round 2+ skips the round-1 combat.md preamble injection
                 "participants": [{"id": "char-123"}],
             },
         )
         await relay._relay_event(event)
         assert len(task_state.deferred_events) >= 1
-        _, run_llm = task_state.deferred_events[0]
+        # Filter to the actual combat.round_waiting XML frame (preamble injection
+        # may queue earlier frames at round 1; we use round 2 to avoid it).
+        combat_frames = [
+            (c, r) for c, r in task_state.deferred_events
+            if 'name="combat.round_waiting"' in c
+        ]
+        assert len(combat_frames) == 1
+        _, run_llm = combat_frames[0]
         assert run_llm is True
 
     async def test_combat_round_waiting_no_inference_for_observer(self):
-        """ON_PARTICIPANT rule: no inference when player is not a participant."""
+        """Round-1 fan-out appends for observers (silent context), but
+        ON_PARTICIPANT inference still doesn't fire for non-participants."""
         relay, task_state, _, mock_rtvi = _make_relay()
         event = _make_event(
             "combat.round_waiting",
@@ -1115,7 +1092,25 @@ class TestCombatEventRouting:
             },
         )
         await relay._relay_event(event)
-        # Not appended (PARTICIPANT rule, not a participant)
+        # Round-1 broadcast: silent append for every recipient.
+        assert len(task_state.deferred_events) >= 1
+        _, run_llm = task_state.deferred_events[0]
+        assert run_llm is False  # ON_PARTICIPANT — observer gets no inference
+
+    async def test_combat_round_waiting_observer_no_append_after_round_1(self):
+        """Round 2+ drops non-participants entirely (the round-1 fan-out is
+        a one-shot broadcast; subsequent rounds stay participant-only)."""
+        relay, task_state, _, mock_rtvi = _make_relay()
+        event = _make_event(
+            "combat.round_waiting",
+            {
+                "combat_id": "cbt-1",
+                "round": 2,
+                "participants": [{"id": "other-player"}],
+                "__event_context": {"scope": "local", "reason": "observer"},
+            },
+        )
+        await relay._relay_event(event)
         assert len(task_state.deferred_events) == 0
 
 
