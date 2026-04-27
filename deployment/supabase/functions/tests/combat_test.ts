@@ -3588,3 +3588,228 @@ Deno.test({
     });
   },
 });
+
+// ============================================================================
+// Group 26: Combat events catalog payload-shape coverage
+// Asserts the new fields landed in Phase 1 are surfaced on every combat
+// encounter event (combat.round_waiting / _resolved / ended) AND that
+// ship.destroyed carries owner_character_id + corp_id.
+// ============================================================================
+
+Deno.test({
+  name: "combat events: catalog fields land on round_waiting / resolved / ended / ship.destroyed",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let combatId: string;
+
+    await t.step("setup: P1 vs P2 combat in sector with a defensive garrison", async () => {
+      await resetDatabase([P1, P2, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 3);
+      await setShipSector(p3ShipId, 4);
+      await setShipFighters(p1ShipId, 200);
+      await setShipFighters(p2ShipId, 50);
+      // Plant P3's defensive garrison directly so combat.round_waiting carries
+      // a populated `garrison` sub-object (the new owner_* fields live there).
+      // Direct insert dodges the same-sector deploy requirement.
+      await insertGarrisonDirect(3, p3Id, 50, "defensive");
+      await apiOk("combat_initiate", { character_id: p1Id });
+      const events = await eventsOfType(p1Id, "combat.round_waiting");
+      assert(events.length >= 1);
+      combatId = events[events.length - 1].payload.combat_id as string;
+    });
+
+    await t.step("combat.round_waiting payload exposes new participant + garrison fields", async () => {
+      const events = await eventsOfType(p1Id, "combat.round_waiting");
+      const payload = events[events.length - 1].payload;
+      const participants = payload.participants as Array<Record<string, unknown>>;
+      assert(participants.length >= 2, "two character participants expected");
+      for (const p of participants) {
+        assert("fighters" in p, "participant missing `fighters`");
+        assert("destroyed" in p, "participant missing `destroyed`");
+        assert("corp_id" in p, "participant missing `corp_id`");
+        assert("has_fled" in p, "participant missing `has_fled`");
+        assert("fled_to_sector" in p, "participant missing `fled_to_sector`");
+        assertEquals(p.has_fled, false, "no one has fled at round 1");
+      }
+      const garrison = payload.garrison as Record<string, unknown> | null;
+      assertExists(garrison, "garrison sub-object on round_waiting");
+      assert("owner_character_id" in garrison, "garrison missing `owner_character_id`");
+      assert("owner_corp_id" in garrison, "garrison missing `owner_corp_id`");
+      assertEquals(garrison.owner_character_id, p3Id);
+    });
+
+    let resolvedCursor: number;
+    await t.step("capture cursor + resolve a round so we have round_resolved", async () => {
+      resolvedCursor = await getEventCursor(p1Id);
+      await apiOk("combat_action", {
+        character_id: p1Id,
+        combat_id: combatId,
+        action: "attack",
+        target_id: p2Id,
+        commit: 50,
+      });
+      await apiOk("combat_action", {
+        character_id: p2Id,
+        combat_id: combatId,
+        action: "brace",
+      });
+    });
+
+    await t.step("combat.round_resolved payload carries the new fields", async () => {
+      const events = await eventsOfType(p1Id, "combat.round_resolved", resolvedCursor);
+      assert(events.length >= 1, "expected combat.round_resolved");
+      const payload = events[0].payload;
+      const participants = payload.participants as Array<Record<string, unknown>>;
+      for (const p of participants) {
+        assert("fighters" in p, "resolved.participant missing `fighters`");
+        assert("destroyed" in p, "resolved.participant missing `destroyed`");
+        assert("corp_id" in p, "resolved.participant missing `corp_id`");
+      }
+      const garrison = payload.garrison as Record<string, unknown> | null;
+      assertExists(garrison, "garrison on round_resolved");
+      assert("owner_character_id" in garrison, "resolved.garrison missing owner_character_id");
+      assert("owner_corp_id" in garrison, "resolved.garrison missing owner_corp_id");
+    });
+
+    await t.step("force combat to end and assert combat.ended payload + ship.destroyed", async () => {
+      // Crush P2 so they die: max P1 fighters, P2 already at 50.
+      const endCursor = await getEventCursor(p1Id);
+      // Loop submitting actions until combat_action returns 404 (combat
+      // ended) or we hit a safety limit.
+      for (let round = 0; round < 8; round++) {
+        const result = await api("combat_action", {
+          character_id: p1Id,
+          combat_id: combatId,
+          action: "attack",
+          target_id: p2Id,
+          commit: 200,
+        });
+        if (result.status === 404) break;
+        await api("combat_action", {
+          character_id: p2Id,
+          combat_id: combatId,
+          action: "brace",
+        });
+        // Brief settle so round-resolution events land before the next loop.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      const ended = await eventsOfType(p1Id, "combat.ended", endCursor);
+      assert(ended.length >= 1, "combat.ended should fire for P1");
+      const endedPayload = ended[ended.length - 1].payload;
+      const endedParticipants = endedPayload.participants as Array<
+        Record<string, unknown>
+      >;
+      for (const p of endedParticipants) {
+        assert("fighters" in p, "ended.participant missing `fighters`");
+        assert("destroyed" in p, "ended.participant missing `destroyed`");
+        assert("corp_id" in p, "ended.participant missing `corp_id`");
+      }
+
+      // ship.destroyed for P2 — owner_character_id + corp_id must be present.
+      const destroyed = await eventsOfType(p1Id, "ship.destroyed", endCursor);
+      assert(destroyed.length >= 1, "ship.destroyed should fire for P2's ship");
+      const destroyedPayload = destroyed[destroyed.length - 1].payload;
+      assert("owner_character_id" in destroyedPayload, "ship.destroyed missing owner_character_id");
+      assert("corp_id" in destroyedPayload, "ship.destroyed missing corp_id");
+    });
+  },
+});
+
+// ============================================================================
+// Group 27: garrison.destroyed event emission
+// Drop a garrison's fighters to 0 in combat; assert the event fires with the
+// full payload BEFORE the garrison row is deleted, and that recipients
+// include the absent garrison owner.
+// ============================================================================
+
+Deno.test({
+  name: "combat events: garrison.destroyed fires with full payload + reaches absent owner",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let combatId: string;
+
+    await t.step("setup: P1 deploys defensive garrison and moves away; P2 attacks it", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 3);
+      await setShipFighters(p1ShipId, 200);
+      await setShipFighters(p2ShipId, 500);
+
+      await apiOk("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 5, // tiny — easy to one-shot
+        mode: "defensive",
+      });
+      await setShipSector(p1ShipId, 4); // owner leaves the sector
+
+      await apiOk("combat_initiate", { character_id: p2Id });
+      const events = await eventsOfType(p2Id, "combat.round_waiting");
+      assert(events.length >= 1);
+      combatId = events[events.length - 1].payload.combat_id as string;
+    });
+
+    let cursorP1: number;
+    await t.step("capture P1 cursor and attack the garrison", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+      // Pick the garrison combatant id from the round_waiting payload.
+      const events = await eventsOfType(p2Id, "combat.round_waiting");
+      const garrisonObj = events[events.length - 1].payload.garrison as
+        | { id?: string }
+        | null;
+      assertExists(garrisonObj, "garrison sub-object");
+      assertExists(garrisonObj.id, "garrison.id");
+
+      // Sustained attack until the 5-fighter garrison falls (typically 1 round).
+      for (let round = 0; round < 5; round++) {
+        const dest = await eventsOfType(p1Id, "garrison.destroyed", cursorP1);
+        if (dest.length) break;
+        const wait = await eventsOfType(p2Id, "combat.round_waiting");
+        if (!wait.length) break;
+        await apiOk("combat_action", {
+          character_id: p2Id,
+          combat_id: combatId,
+          action: "attack",
+          target_id: garrisonObj.id,
+          commit: 100,
+        });
+      }
+    });
+
+    await t.step("absent owner P1 receives garrison.destroyed with full payload", async () => {
+      const events = await eventsOfType(p1Id, "garrison.destroyed", cursorP1);
+      assert(events.length >= 1, "P1 should receive garrison.destroyed");
+      const payload = events[0].payload;
+      assertEquals(payload.owner_character_id, p1Id);
+      assert(typeof payload.combat_id === "string", "combat_id");
+      assert(typeof payload.garrison_id === "string", "garrison_id");
+      assert("owner_corp_id" in payload, "owner_corp_id");
+      // owner_name is a non-empty string — the exact value depends on the
+      // character's display-name in the fixture (defaults to UUID for
+      // resetDatabase-created chars), so we just assert presence.
+      assert(
+        typeof payload.owner_name === "string" && payload.owner_name.length > 0,
+        "owner_name should be a non-empty string",
+      );
+      const sector = payload.sector as { id?: number } | undefined;
+      assertEquals(sector?.id, 3);
+      assertEquals(payload.mode, "defensive");
+    });
+
+    await t.step("garrison row was deleted (event captured the metadata before delete)", async () => {
+      const garrison = await queryGarrison(3);
+      // After destruction, no row should remain.
+      // Either null or a row with fighters > 0 (different garrison) — but
+      // since we only deployed P1's, null is expected.
+      assertEquals(garrison, null, "garrison row should be deleted");
+    });
+  },
+});
