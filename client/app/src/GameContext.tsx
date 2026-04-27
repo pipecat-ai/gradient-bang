@@ -1551,6 +1551,19 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "garrison.destroyed": {
+              console.debug("[GAME EVENT] Garrison destroyed", e.payload)
+              const data = e.payload as Msg.GarrisonDestroyedMessage
+
+              useGameStore.getState().updateMapSectors([{ id: data.sector.id, garrison: null }])
+
+              useGameStore.getState().addActivityLogEntry({
+                type: "garrison.destroyed",
+                message: `Garrison destroyed in [sector ${data.sector.id}] (mode=${data.mode}, owner=${data.owner_name})`,
+              })
+              break
+            }
+
             case "ships.strategy_set": {
               console.debug("[GAME EVENT] Ship strategy set", e.payload)
               const data = e.payload as {
