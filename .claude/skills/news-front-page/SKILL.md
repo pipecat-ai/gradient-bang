@@ -161,6 +161,7 @@ uv run news-front-page-image \
 ```
 
 - Defaults to the `composited-regions` renderer, which generates each story region separately and composites them — better text fidelity than the older `one-shot` renderer.
+- Defaults to linotype light mode (black ink on white paper, character/ship names bolded). To render the original dark mode (cyan and chartreuse on dark paper, names highlighted in cyan), append `--dark-mode`. Dark mode writes its output dir and composite filename with a `-dark` suffix to keep light and dark renders side by side.
 - For comparison or quick iteration, append `--renderer one-shot` to render the whole page in a single image-edit call.
 - The script writes the final PNG, per-region prompt text, region PNGs, and metadata JSON. Composited-regions output lives under `artifacts/gradient-news-observer-regions/<stem>/`; one-shot output lives under `artifacts/gradient-news-observer-images/`.
 - Composited-regions takes several minutes (one image-edit call per region, run in sequence). One-shot finishes in 30–90 seconds. Stream stdout — both print final paths on success.
