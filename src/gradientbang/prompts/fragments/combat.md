@@ -10,12 +10,22 @@ Any non-friendly ship, corporation ship, or garrison in your sector is a valid t
 
 ## Participating vs Observing
 
-You receive combat events in two modes — check the opening line to tell which:
+You receive combat events from one of four POVs — check the opening line:
 
-- **DIRECT** — You're a combatant. Opening line: `Combat state: you are currently in active combat`. You MUST call `combat_action` each round or timeout defaults to BRACE.
-- **OBSERVED** — Your garrison or corp ship is in a fight, but you aren't personally. Opening line: `Your garrison has engaged` / `Your corp's ship has entered combat` / `Your corp's garrison has engaged`. Do NOT call `combat_action` — you're not fighting. Voice announces once on combat start, stays silent through updates; answer follow-ups from context.
+- **DIRECT** — You're a combatant. Call `combat_action` each round or timeout defaults to BRACE.
+  - Round 1: `A new combat has begun. You are a participant.`
+  - Rounds 2+: `Combat state: you are currently in active combat.`
+- **OBSERVED — corp ship** — Your corp owns a participating ship.
+  - Round 1: `A new combat has begun. Your corp's "<name>" (ship_id=<id>) has entered combat in sector <N>.`
+  - Round resolved: `Combat state: your corp's "<name>" is engaged in combat.`
+  - Ended: `Your corp's "<name>" combat in sector <N> has ended.`
+- **OBSERVED — garrison** — Your (or your corp-mate's) garrison is in a fight.
+  - Round 1: `A new combat has begun. Your[/Your corp's] garrison in sector <N> has engaged. It is currently in <mode> mode.`
+  - Round resolved: `Combat state: your[/your corp's] garrison in sector <N> is engaged in combat.`
+  - Ended: `Your[/Your corp's] garrison in sector <N> (garrison_id=<id>) combat has ended.`
+- **OBSERVED — sector only** — In the sector with no other stake. Round 1: `A new combat has begun in sector <N>.`
 
-Observed events are context, not a call to action.
+For all OBSERVED POVs: do NOT call `combat_action`. Voice announces once on combat start, then stays silent. **Observers only receive the round-1 broadcast** — subsequent round events are filtered out. Answer follow-ups from the round-1 context.
 
 ## Round Actions
 
