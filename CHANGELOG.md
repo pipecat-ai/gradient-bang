@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-28
+
 ### Added
 
 - Ship combat strategies: per-ship doctrine (`balanced` / `offensive` / `defensive`) plus optional custom prompt; voice + UI tools to set/get/clear; auto-injected at round-1 combat
