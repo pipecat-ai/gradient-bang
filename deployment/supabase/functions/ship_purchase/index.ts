@@ -2,24 +2,24 @@ import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
   errorResponse,
   successResponse,
+  unauthorizedResponse,
+  validateApiToken,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
+  buildEventSource,
   emitCharacterEvent,
   emitErrorEvent,
-  buildEventSource,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
   loadCharacter,
   loadShip,
   loadShipDefinition,
-  type ShipRow,
   type ShipDefinitionRow,
+  type ShipRow,
 } from "../_shared/status.ts";
 import { acquirePgClient } from "../_shared/pg.ts";
 import {
@@ -46,11 +46,12 @@ import {
   respondWithError,
 } from "../_shared/request.ts";
 import {
-  loadUniverseMeta,
   isMegaPortSector,
+  loadUniverseMeta,
   type UniverseMeta,
 } from "../_shared/fedspace.ts";
 import { traced } from "../_shared/weave.ts";
+import type { QueryClient } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 class ShipPurchaseError extends Error {
   status: number;
@@ -98,8 +99,7 @@ Deno.serve(traced("ship_purchase", async (req, trace) => {
     "purchase_type",
   )?.toLowerCase();
   const forCorporation = optionalBoolean(payload, "for_corporation") ?? false;
-  const purchaseType =
-    purchaseTypeInput ??
+  const purchaseType = purchaseTypeInput ??
     (forCorporation ? CORPORATION_PURCHASE : PERSONAL_PURCHASE);
   const expectedPrice = optionalNumber(payload, "expected_price");
   const actorCharacterId = optionalString(payload, "actor_character_id");
@@ -164,7 +164,11 @@ Deno.serve(traced("ship_purchase", async (req, trace) => {
         expectedPrice,
       );
       sCorpPurchase.end();
-      trace.setOutput({ request_id: requestId, purchaseType: "corporation", shipType: shipTypeRaw });
+      trace.setOutput({
+        request_id: requestId,
+        purchaseType: "corporation",
+        shipType: shipTypeRaw,
+      });
       return result;
     }
     const sPersonalPurchase = trace.span("handle_personal_purchase");
@@ -178,7 +182,11 @@ Deno.serve(traced("ship_purchase", async (req, trace) => {
       expectedPrice,
     );
     sPersonalPurchase.end();
-    trace.setOutput({ request_id: requestId, purchaseType: "personal", shipType: shipTypeRaw });
+    trace.setOutput({
+      request_id: requestId,
+      purchaseType: "personal",
+      shipType: shipTypeRaw,
+    });
     return result;
   } catch (err) {
     if (err instanceof ShipPurchaseError) {
@@ -260,6 +268,18 @@ async function handlePersonalPurchase(
   }
 
   const remainingCredits = shipCredits - netCost;
+  const transferredCargo = {
+    qf: currentShip.cargo_qf ?? 0,
+    ro: currentShip.cargo_ro ?? 0,
+    ns: currentShip.cargo_ns ?? 0,
+  };
+  const cargoUnits = transferredCargo.qf + transferredCargo.ro +
+    transferredCargo.ns;
+  if (cargoUnits > targetDefinition.cargo_holds) {
+    throw new ShipPurchaseError(
+      `Cannot transfer ${cargoUnits} cargo units into ${targetDefinition.display_name} (${targetDefinition.cargo_holds} holds). Dump or sell cargo first.`,
+    );
+  }
   const shipNameOverride = optionalString(payload, "ship_name");
   let shipName = shipNameOverride ?? targetDefinition.display_name;
   if (shipNameOverride) {
@@ -267,56 +287,43 @@ async function handlePersonalPurchase(
   } else {
     shipName = await generateUniqueShipName(supabase, shipName);
   }
-  const insertedShip = await insertShip({
-    supabase,
-    ownerType: "character",
-    ownerId: characterId,
-    shipType,
-    shipName,
-    sectorId: currentShip.current_sector ?? 0,
-    definition: targetDefinition,
-    credits: remainingCredits,
-  });
-  const newShipId = insertedShip.ship_id;
 
   const timestamp = new Date().toISOString();
-  const { error: characterUpdateError } = await supabase
-    .from("characters")
-    .update({ current_ship_id: newShipId, last_active: timestamp })
-    .eq("character_id", characterId);
-  if (characterUpdateError) {
-    console.error("ship_purchase.character_update", characterUpdateError);
-    throw new ShipPurchaseError("Failed to update character state", 500);
-  }
-
-  // Mark old ship as unowned (trade-in) instead of deleting
-  const { error: unownedError } = await supabase
-    .from("ship_instances")
-    .update({
-      owner_type: "unowned",
-      owner_id: null,
-      owner_character_id: null,
-      owner_corporation_id: null,
-      became_unowned: timestamp,
-      former_owner_name: character.name,
-    })
-    .eq("ship_id", currentShip.ship_id);
-  if (unownedError) {
-    console.error("ship_purchase.old_ship_unowned", unownedError);
-    throw new ShipPurchaseError("Failed to mark old ship as unowned", 500);
-  }
-
   const pgClient = await acquirePgClient();
-  let statusPayload: Record<string, unknown>;
+  let insertedShip: {
+    ship_id: string;
+    current_sector: number | null;
+    ship_type: string;
+  };
   try {
-    // ship_purchase validates actor === characterId at the top, so the
-    // target is always a human player; the actor merge would be a no-op.
-    statusPayload = await pgBuildStatusPayload(pgClient, characterId);
+    insertedShip = await executePersonalShipPurchaseTransaction(pgClient, {
+      characterId,
+      currentShip,
+      characterName: character.name,
+      shipType,
+      shipName,
+      sectorId: currentShip.current_sector ?? 0,
+      definition: targetDefinition,
+      credits: remainingCredits,
+      cargo: transferredCargo,
+      timestamp,
+    });
   } finally {
     pgClient.release();
   }
-  const sectorId =
-    insertedShip.current_sector ?? currentShip.current_sector ?? 0;
+  const newShipId = insertedShip.ship_id;
+
+  let statusPayload: Record<string, unknown>;
+  const statusPgClient = await acquirePgClient();
+  try {
+    // ship_purchase validates actor === characterId at the top, so the
+    // target is always a human player; the actor merge would be a no-op.
+    statusPayload = await pgBuildStatusPayload(statusPgClient, characterId);
+  } finally {
+    statusPgClient.release();
+  }
+  const sectorId = insertedShip.current_sector ?? currentShip.current_sector ??
+    0;
   const source = buildEventSource("ship_purchase", requestId);
 
   await emitCharacterEvent({
@@ -400,8 +407,9 @@ async function handleCorporationPurchase(
   expectedPrice: number | null,
 ): Promise<Response> {
   const initialCreditsRaw = optionalNumber(payload, "initial_ship_credits");
-  const initialShipCredits =
-    initialCreditsRaw === null ? 0 : Math.floor(initialCreditsRaw);
+  const initialShipCredits = initialCreditsRaw === null
+    ? 0
+    : Math.floor(initialCreditsRaw);
   if (!Number.isInteger(initialShipCredits) || initialShipCredits < 0) {
     throw new ShipPurchaseError(
       "initial_ship_credits must be a non-negative integer",
@@ -616,7 +624,9 @@ function ensureShipAtMegaPort(meta: UniverseMeta, ship: ShipRow): void {
     !isMegaPortSector(meta, ship.current_sector)
   ) {
     throw new ShipPurchaseError(
-      `Ship purchases require docking at a mega-port. You are in sector ${ship.current_sector ?? "unknown"}`,
+      `Ship purchases require docking at a mega-port. You are in sector ${
+        ship.current_sector ?? "unknown"
+      }`,
       400,
     );
   }
@@ -705,7 +715,10 @@ async function ensureShipNameAvailable(
 ): Promise<void> {
   const available = await isShipNameAvailable(supabase, shipName);
   if (!available) {
-    throw new ShipPurchaseError("A ship already exists in the universe with that name. Each ship must have a unique name.", 409);
+    throw new ShipPurchaseError(
+      "A ship already exists in the universe with that name. Each ship must have a unique name.",
+      409,
+    );
   }
 }
 
@@ -780,16 +793,20 @@ type InsertShipParams = {
   sectorId: number;
   definition: ShipDefinitionRow;
   credits: number;
+  cargo?: { qf: number; ro: number; ns: number };
   metadata?: Record<string, unknown>;
 };
 
 async function insertShip(params: InsertShipParams) {
-  const ownerCharacterId =
-    params.ownerType === "character" ? params.ownerId : null;
-  const ownerCorporationId =
-    params.ownerType === "corporation" ? params.ownerId : null;
-  const resolvedOwnerId =
-    params.ownerType === "unowned" ? null : params.ownerId;
+  const ownerCharacterId = params.ownerType === "character"
+    ? params.ownerId
+    : null;
+  const ownerCorporationId = params.ownerType === "corporation"
+    ? params.ownerId
+    : null;
+  const resolvedOwnerId = params.ownerType === "unowned"
+    ? null
+    : params.ownerId;
   const { data, error } = await params.supabase
     .from("ship_instances")
     .insert({
@@ -804,9 +821,9 @@ async function insertShip(params: InsertShipParams) {
       hyperspace_destination: null,
       hyperspace_eta: null,
       credits: params.credits,
-      cargo_qf: 0,
-      cargo_ro: 0,
-      cargo_ns: 0,
+      cargo_qf: params.cargo?.qf ?? 0,
+      cargo_ro: params.cargo?.ro ?? 0,
+      cargo_ns: params.cargo?.ns ?? 0,
       current_warp_power: params.definition.warp_power_capacity,
       current_shields: params.definition.shields,
       current_fighters: params.definition.fighters,
@@ -821,4 +838,128 @@ async function insertShip(params: InsertShipParams) {
     throw new ShipPurchaseError("Failed to create new ship", 500);
   }
   return data;
+}
+
+async function executePersonalShipPurchaseTransaction(
+  pg: QueryClient,
+  params: {
+    characterId: string;
+    currentShip: ShipRow;
+    characterName: string;
+    shipType: string;
+    shipName: string;
+    sectorId: number;
+    definition: ShipDefinitionRow;
+    credits: number;
+    cargo: { qf: number; ro: number; ns: number };
+    timestamp: string;
+  },
+): Promise<
+  { ship_id: string; current_sector: number | null; ship_type: string }
+> {
+  await pg.queryObject("BEGIN");
+  try {
+    const inserted = await pg.queryObject<{
+      ship_id: string;
+      current_sector: number | null;
+      ship_type: string;
+    }>(
+      `INSERT INTO ship_instances (
+        owner_id,
+        owner_type,
+        owner_character_id,
+        owner_corporation_id,
+        ship_type,
+        ship_name,
+        current_sector,
+        in_hyperspace,
+        hyperspace_destination,
+        hyperspace_eta,
+        credits,
+        cargo_qf,
+        cargo_ro,
+        cargo_ns,
+        current_warp_power,
+        current_shields,
+        current_fighters,
+        became_unowned,
+        former_owner_name,
+        metadata
+      )
+      VALUES (
+        $1, 'character', $1, NULL, $2, $3, $4, FALSE, NULL, NULL,
+        $5, $6, $7, $8, $9, $10, $11, NULL, NULL, '{}'::jsonb
+      )
+      RETURNING ship_id::text, current_sector::int, ship_type`,
+      [
+        params.characterId,
+        params.shipType,
+        params.shipName,
+        params.sectorId,
+        params.credits,
+        params.cargo.qf,
+        params.cargo.ro,
+        params.cargo.ns,
+        params.definition.warp_power_capacity,
+        params.definition.shields,
+        params.definition.fighters,
+      ],
+    );
+    const insertedShip = inserted.rows[0];
+    if (!insertedShip) {
+      throw new ShipPurchaseError("Failed to create new ship", 500);
+    }
+
+    const characterUpdate = await pg.queryObject(
+      `UPDATE characters
+       SET current_ship_id = $1,
+           last_active = $2
+       WHERE character_id = $3
+       RETURNING character_id`,
+      [insertedShip.ship_id, params.timestamp, params.characterId],
+    );
+    if (characterUpdate.rows.length !== 1) {
+      throw new ShipPurchaseError("Failed to update character state", 500);
+    }
+
+    const oldShipUpdate = await pg.queryObject(
+      `UPDATE ship_instances
+       SET owner_type = 'unowned',
+           owner_id = NULL,
+           owner_character_id = NULL,
+           owner_corporation_id = NULL,
+           credits = 0,
+           cargo_qf = 0,
+           cargo_ro = 0,
+           cargo_ns = 0,
+           became_unowned = $1,
+           former_owner_name = $2
+       WHERE ship_id = $3
+         AND owner_character_id = $4
+       RETURNING ship_id`,
+      [
+        params.timestamp,
+        params.characterName,
+        params.currentShip.ship_id,
+        params.characterId,
+      ],
+    );
+    if (oldShipUpdate.rows.length !== 1) {
+      throw new ShipPurchaseError("Failed to mark old ship as unowned", 500);
+    }
+
+    await pg.queryObject("COMMIT");
+    return insertedShip;
+  } catch (err) {
+    try {
+      await pg.queryObject("ROLLBACK");
+    } catch (rollbackErr) {
+      console.error("ship_purchase.rollback_failed", rollbackErr);
+    }
+    if (err instanceof ShipPurchaseError) {
+      throw err;
+    }
+    console.error("ship_purchase.personal_transaction", err);
+    throw new ShipPurchaseError("Failed to complete ship purchase", 500);
+  }
 }
