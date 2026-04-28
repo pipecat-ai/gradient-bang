@@ -684,91 +684,9 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 10: Offensive garrison auto-engages
-// ============================================================================
-
-Deno.test({
-  name: "combat — offensive garrison auto-engages opponents",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and deploy offensive garrison", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      // P1 in sector 3, deploy offensive garrison
-      await setShipSector(p1ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-      // P2 starts in a different sector
-      await setShipSector(p2ShipId, 4);
-      await setShipFighters(p2ShipId, 200);
-      // Deploy offensive garrison while P2 is NOT in sector
-      await apiOk("combat_leave_fighters", {
-        character_id: p1Id,
-        sector: 3,
-        quantity: 80,
-        mode: "offensive",
-      });
-    });
-
-    // Now move P2 into sector 3 where offensive garrison is
-    let cursorP2: number;
-
-    await t.step("capture P2 cursor and move to sector 3", async () => {
-      cursorP2 = await getEventCursor(p2Id);
-      await setShipSector(p2ShipId, 3);
-    });
-
-    // The offensive garrison should auto-engage when we trigger
-    // combat_leave_fighters with P2 present. Let's test by deploying
-    // with P2 in the sector directly.
-    await t.step("reset for auto-engage scenario", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipSector(p2ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-      await setShipFighters(p2ShipId, 200);
-    });
-
-    let cursorP1: number;
-
-    await t.step("capture cursors", async () => {
-      cursorP1 = await getEventCursor(p1Id);
-      cursorP2 = await getEventCursor(p2Id);
-    });
-
-    await t.step("P1 deploys offensive garrison with P2 in sector", async () => {
-      const result = await apiOk("combat_leave_fighters", {
-        character_id: p1Id,
-        sector: 3,
-        quantity: 80,
-        mode: "offensive",
-      });
-      assert(result.success);
-    });
-
-    await t.step("P2 receives combat.round_waiting (auto-engaged)", async () => {
-      const events = await eventsOfType(p2Id, "combat.round_waiting", cursorP2);
-      assert(
-        events.length >= 1,
-        `Expected >= 1 combat.round_waiting for P2 (auto-engage), got ${events.length}`,
-      );
-    });
-
-    await t.step("P1 receives combat.round_waiting", async () => {
-      const events = await eventsOfType(p1Id, "combat.round_waiting", cursorP1);
-      assert(
-        events.length >= 1,
-        `Expected >= 1 combat.round_waiting for P1, got ${events.length}`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 11: Garrison deploy fails with zero quantity
+// Group 10: Garrison deploy fails with zero quantity
+// (Offensive garrison auto-engage is covered in Group 25 below — see
+// "combat — offensive garrison auto-engages on deploy".)
 // ============================================================================
 
 Deno.test({
@@ -3515,6 +3433,7 @@ Deno.test({
       await setShipSector(p3ShipId, 3);
       await setShipFighters(p1ShipId, 500);
       await setShipFighters(p3ShipId, 50);
+      await setShipCredits(p1ShipId, 50_000);
 
       const createResult = await apiOk("corporation_create", {
         character_id: p1Id,

@@ -1,12 +1,14 @@
 /**
  * Map knowledge coverage tests.
  *
- * Complements the focused corp_ship_map_knowledge_test.ts (which isolates
- * Options A and B against list_known_ports) with broader integration
- * coverage across every endpoint that reads map knowledge and the edge
- * cases around corp-ship purchase seeding.
+ * Covers Options A and B (corp-ship map knowledge fix) across every endpoint
+ * that reads map knowledge plus the edge cases around corp-ship purchase
+ * seeding.
  *
  * Covered here:
+ *   - Option A and B isolated against list_known_ports (Groups L1/L2 below):
+ *     a 2-player corp where P2 is in a sector P1 doesn't know, used to
+ *     surface each option independently against list_known_ports.
  *   - Option A: fresh corp ship purchase seeds the spawn sector into
  *     corporation_map_knowledge with adjacent_sectors populated.
  *   - Option A: second corp ship purchase does NOT clobber prior corp
@@ -50,9 +52,12 @@ import {
 } from "./helpers.ts";
 
 const P1 = "test_mknow_p1"; // pinned to sector 0 (mega-port)
+const P2 = "test_mknow_p2"; // pinned to sector 2 (used by list_known_ports groups)
 
 let p1Id: string;
 let p1ShipId: string;
+let p2Id: string;
+let p2ShipId: string;
 
 interface LocalMapSector {
   id: number;
@@ -112,6 +117,42 @@ async function purchaseCorpShip(): Promise<string> {
   return (result as Record<string, unknown>).ship_id as string;
 }
 
+/**
+ * 2-player setup used by the list_known_ports groups: P1 in sector 0 creates
+ * the corp and buys the corp ship; P2 (pinned to sector 2) joins as a corp
+ * member. P2 has never been to sector 0, so the corp ship's spawn sector
+ * is unreachable through P2's personal knowledge alone.
+ */
+async function setupCorpWithShipTwoPlayer(): Promise<{
+  corpId: string;
+  corpShipId: string;
+}> {
+  await resetDatabase([P1, P2]);
+  await apiOk("join", { character_id: p1Id });
+  await apiOk("join", { character_id: p2Id });
+  await setShipCredits(p1ShipId, 50000);
+
+  const createResult = await apiOk("corporation_create", {
+    character_id: p1Id,
+    name: "Map Knowledge Corp",
+  });
+  const corpId = (createResult as Record<string, unknown>).corp_id as string;
+  const inviteCode = (createResult as Record<string, unknown>)
+    .invite_code as string;
+
+  // corporation_create costs 10000 credits; top up again before the buy.
+  await setShipCredits(p1ShipId, 50000);
+
+  await apiOk("corporation_join", {
+    character_id: p2Id,
+    corp_id: corpId,
+    invite_code: inviteCode,
+  });
+
+  const corpShipId = await purchaseCorpShip();
+  return { corpId, corpShipId };
+}
+
 // ============================================================================
 // Group 0: Start server
 // ============================================================================
@@ -123,6 +164,8 @@ Deno.test({
   async fn() {
     p1Id = await characterIdFor(P1);
     p1ShipId = await shipIdFor(P1);
+    p2Id = await characterIdFor(P2);
+    p2ShipId = await shipIdFor(P2);
     await startServerInProcess();
   },
 });
@@ -701,6 +744,112 @@ Deno.test({
           2,
           "Union of P1's {0,1} and corp's {0} is 2 sectors. Currently 1.",
         );
+      },
+    );
+  },
+});
+
+// ============================================================================
+// Group L1: Option A isolated against list_known_ports.
+// A P2-driven corp ship queries from sector 0 (its spawn sector). Only Option
+// A can put sector 0 into corp knowledge; Option B cannot help because P2
+// also lacks it.
+// ============================================================================
+
+Deno.test({
+  name: "map_knowledge — list_known_ports from spawn sector visible to other corp member (Option A)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let corpShipId: string;
+
+    await t.step("setup: 2-player corp with freshly purchased corp ship", async () => {
+      const result = await setupCorpWithShipTwoPlayer();
+      corpId = result.corpId;
+      corpShipId = result.corpShipId;
+    });
+
+    await t.step("sanity: P2 does not know sector 0", async () => {
+      const p2Visited = await getPersonalVisitedSectors(p2Id);
+      assertEquals(
+        p2Visited.includes(0),
+        false,
+        `P2 should not know sector 0, got: ${JSON.stringify(p2Visited)}`,
+      );
+    });
+
+    await t.step(
+      "corp map knowledge includes the spawn sector after purchase",
+      async () => {
+        const corpVisited = await getCorpVisitedSectors(corpId);
+        assert(
+          corpVisited.includes(0),
+          `Expected corp map knowledge to include spawn sector 0, got: ` +
+            JSON.stringify(corpVisited),
+        );
+      },
+    );
+
+    await t.step(
+      "list_known_ports from sector 0 succeeds for P2-driven corp ship",
+      async () => {
+        const result = await apiOk("list_known_ports", {
+          character_id: corpShipId,
+          actor_character_id: p2Id,
+          from_sector: 0,
+          max_hops: 5,
+        });
+        assert(result.success);
+      },
+    );
+  },
+});
+
+// ============================================================================
+// Group L2: Option B isolated against list_known_ports.
+// A P2-driven corp ship queries from sector 2 (which P2 knows but corp does
+// not, and which is not the spawn sector). Only Option B can surface it.
+// ============================================================================
+
+Deno.test({
+  name: "map_knowledge — list_known_ports inherits actor personal knowledge (Option B)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpId: string;
+    let corpShipId: string;
+
+    await t.step("setup: 2-player corp with freshly purchased corp ship", async () => {
+      const result = await setupCorpWithShipTwoPlayer();
+      corpId = result.corpId;
+      corpShipId = result.corpShipId;
+    });
+
+    await t.step("sanity: P2 knows sector 2, corp does not", async () => {
+      const p2Visited = await getPersonalVisitedSectors(p2Id);
+      assert(
+        p2Visited.includes(2),
+        `P2 should know sector 2, got: ${JSON.stringify(p2Visited)}`,
+      );
+      const corpVisited = await getCorpVisitedSectors(corpId);
+      assertEquals(
+        corpVisited.includes(2),
+        false,
+        `Corp should not know sector 2, got: ${JSON.stringify(corpVisited)}`,
+      );
+    });
+
+    await t.step(
+      "list_known_ports from sector 2 succeeds for P2-driven corp ship",
+      async () => {
+        const result = await apiOk("list_known_ports", {
+          character_id: corpShipId,
+          actor_character_id: p2Id,
+          from_sector: 2,
+          max_hops: 5,
+        });
+        assert(result.success);
       },
     );
   },
