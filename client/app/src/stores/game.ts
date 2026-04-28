@@ -4,6 +4,7 @@ import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
 import usePipecatClientStore from "@/stores/client"
+import { useConversationStore } from "@/stores/conversation"
 import { normalizePort, normalizeSector } from "@/utils/map"
 
 import { type CombatSlice, createCombatSlice } from "./combatSlice"
@@ -43,6 +44,14 @@ type FetchPromiseEntry = {
   promise: Promise<void>
   resolve: () => void
   reject: (error?: unknown) => void
+}
+
+const clearDestroyedShipTracking = (
+  state: { destroyedShips: ShipSelf[]; destroyingShipIds: string[] },
+  shipId: string
+) => {
+  state.destroyedShips = state.destroyedShips.filter((ship: ShipSelf) => ship.ship_id !== shipId)
+  state.destroyingShipIds = state.destroyingShipIds.filter((id: string) => id !== shipId)
 }
 
 interface ActiveProperty<T> {
@@ -196,6 +205,10 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
     }
     const payload = "payload" in action ? action.payload : {}
 
+    if (action.type !== "say-text-dismiss") {
+      useConversationStore.getState().setSuppressAssistantBotOutput(false)
+    }
+
     let pendingPromise: Promise<void> | undefined
     if (action.async) {
       pendingPromise = get().createFetchPromise(action.type)
@@ -287,11 +300,17 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
         }
 
         // Split: active ships go to ships.data, destroyed go to destroyedShips
+        const destroyedShipIds = new Set(
+          ships.filter((s: ShipSelf) => !!s.destroyed_at).map((s: ShipSelf) => s.ship_id)
+        )
         state.ships = {
           data: ships.filter((s: ShipSelf) => !s.destroyed_at),
           last_updated: now,
         }
         state.destroyedShips = ships.filter((s: ShipSelf) => !!s.destroyed_at)
+        state.destroyingShipIds = state.destroyingShipIds.filter((id: string) =>
+          destroyedShipIds.has(id)
+        )
       })
     ),
 
@@ -299,13 +318,11 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
     set(
       produce((state) => {
         const existingShips = state.ships.data ?? []
-        if (ship.ship_id && existingShips.some((s: ShipSelf) => s.ship_id === ship.ship_id)) {
-          return
-        }
         state.ships = {
           data: [...existingShips, ship as ShipSelf],
           last_updated: new Date().toISOString(),
         }
+        clearDestroyedShipTracking(state, ship.ship_id)
       })
     ),
 
@@ -326,6 +343,7 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
               }
             } else {
               Object.assign(existing, ship)
+              clearDestroyedShipTracking(state, ship.ship_id)
             }
             state.ships.last_updated = new Date().toISOString()
           }
@@ -439,67 +457,12 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
       })
     ),
 
-  setCorporation: (corporation: Corporation | undefined) => {
-    const hadCorp = !!get().corporation
-    // Detect corp transition and invalidate map coverage so the next
-    // map.local/map.region replaces stale data instead of merging.
-    if (!hadCorp && corporation) {
-      // Joining a corp — map needs corp-merged sectors, reset center
-      // to current sector so BigMapPanel doesn't re-fetch around a
-      // stale viewport center that may produce errors
-      get().invalidateMapCoverage(get().sector?.id)
-    }
-    if (hadCorp && !corporation) {
-      // Leaving a corp — map needs personal-only sectors, reset center
-      get().invalidateMapCoverage(get().sector?.id)
-    }
+  setCorporation: (corporation: Corporation | undefined) =>
     set(
       produce((state) => {
         state.corporation = corporation
-
-        // When joining/updating a corp with ships, upsert them into the
-        // fleet so PlayerShipsPanel sees them immediately.
-        if (corporation?.ships) {
-          const existingShips = state.ships.data ?? []
-          const existingById = new Map(
-            existingShips.map((s: ShipSelf) => [s.ship_id, s] as [string, ShipSelf])
-          )
-          for (const ship of corporation.ships) {
-            existingById.set(ship.ship_id, {
-              ...existingById.get(ship.ship_id),
-              ship_id: ship.ship_id,
-              ship_name: ship.name,
-              ship_type: ship.ship_type,
-              sector: ship.sector ?? undefined,
-              owner_type: "corporation",
-              credits: ship.credits,
-              cargo: ship.cargo,
-              cargo_capacity: ship.cargo_capacity,
-              warp_power: ship.warp_power,
-              warp_power_capacity: ship.warp_power_capacity,
-              shields: ship.shields,
-              max_shields: ship.max_shields,
-              fighters: ship.fighters,
-              max_fighters: ship.max_fighters,
-              current_task_id: ship.current_task_id,
-            } as ShipSelf)
-          }
-          state.ships = {
-            data: Array.from(existingById.values()),
-            last_updated: new Date().toISOString(),
-          }
-        }
-
-        // When leaving/kicked from a corp, strip corp ships from the fleet
-        if (hadCorp && !corporation && state.ships.data) {
-          state.ships = {
-            data: state.ships.data.filter((s: ShipSelf) => s.owner_type !== "corporation"),
-            last_updated: new Date().toISOString(),
-          }
-        }
       })
-    )
-  },
+    ),
 
   setStarfieldReady: (starfieldReady: boolean) => set({ starfieldReady }),
 

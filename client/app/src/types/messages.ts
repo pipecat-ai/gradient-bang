@@ -545,6 +545,17 @@ export interface CorporationShipSoldMessage extends ServerMessagePayload {
   trade_in_value: number
 }
 
+export interface CorporationShipsAbandonedMessage extends ServerMessagePayload {
+  corp_id: string
+  corp_name: string
+  ships: Array<{
+    ship_id: string
+    ship_type: string
+    sector: number | null
+  }>
+  timestamp: string
+}
+
 export interface LLMTaskMessage extends ServerMessagePayload {
   name: string
 }
