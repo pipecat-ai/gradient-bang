@@ -1,7 +1,16 @@
-name: Deploy Edge Functions (Dev)
+name: Deploy Edge Functions
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - eval
   push:
     branches: [dev]
     paths:
@@ -9,7 +18,7 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to Supabase (Dev)
+    name: Deploy to Supabase (${{ inputs.environment || 'dev' }})
     runs-on: ubuntu-latest
 
     steps:
@@ -25,4 +34,4 @@ jobs:
         run: supabase functions deploy --project-ref $SUPABASE_PROJECT_REF --workdir deployment --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_PROJECT_REF: ${{ (inputs.environment == 'eval') && secrets.SUPABASE_PROJECT_REF_EVAL || secrets.SUPABASE_PROJECT_REF }}
