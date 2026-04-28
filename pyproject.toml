@@ -49,6 +49,7 @@ news-digest = "gradientbang.newspaper.scripts.digest:main"
 news-front-page-image = "gradientbang.newspaper.scripts.front_page_image:main"
 news-front-page-regions = "gradientbang.newspaper.scripts.front_page_regions:main"
 news-front-page-prompt-experiment = "gradientbang.newspaper.scripts.prompt_experiment:main"
+news-banner = "gradientbang.newspaper.scripts.banner_image:main"
 
 
 [tool.setuptools]

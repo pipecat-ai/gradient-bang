@@ -68,9 +68,14 @@ docker exec -e PGPASSWORD=postgres supabase_db_gb-world-server \
   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();"
 ```
 
-For **dev** or **prod**, run:
+For **dev**, run:
 ```bash
-scripts/setup-production-combat-tick.sh
+scripts/setup-production-combat-tick.sh --env .env.cloud.dev
+```
+
+For **prod** (manual only — never invoke through this skill):
+```bash
+scripts/setup-production-combat-tick.sh --env .env.cloud --allow-production
 ```
 
 ### 5. Verify

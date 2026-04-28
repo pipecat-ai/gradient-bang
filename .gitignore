@@ -58,6 +58,7 @@ deployment/pcc-deploy*.toml
 # Local runtime artifacts / large scratch trees
 bot.log.example
 tmp.bot.log
+artifacts/
 
 # Claude Code runtime state
 .claude/scheduled_tasks.lock

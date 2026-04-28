@@ -281,4 +281,4 @@ echo ""
 printf '\033[31m[reset-world] Runtime combat cron config was not modified.\033[0m\n'
 printf '\033[31m[reset-world] If combat rounds stop auto-resolving, run:\033[0m\n'
 printf '\033[31m  - local: scripts/supabase-reset-with-cron.sh\033[0m\n'
-printf '\033[31m  - cloud: scripts/setup-production-combat-tick.sh\033[0m\n'
+printf '\033[31m  - cloud: scripts/setup-production-combat-tick.sh --env <env-file>\033[0m\n'
