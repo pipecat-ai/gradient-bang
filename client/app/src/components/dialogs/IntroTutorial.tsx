@@ -12,8 +12,9 @@ import useGameStore from "@/stores/game"
 
 import { BaseDialog } from "./BaseDialog"
 
-const TUTORIAL_VIDEO_URL =
-  "https://api.gradient-bang.com/storage/v1/object/public/GB%20Public/tutorial.mp4"
+const SERVER_BASE_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1"
+const PUBLIC_STORAGE_BASE_URL = SERVER_BASE_URL.replace(/\/functions\/v1$/, "")
+const TUTORIAL_VIDEO_URL = `${PUBLIC_STORAGE_BASE_URL}/storage/v1/object/public/Gradient Bang%20Public/tutorial.mp4`
 
 export const IntroTutorial = ({ onContinue }: { onContinue: () => void }) => {
   const activeModal = useGameStore.use.activeModal?.()
@@ -32,10 +33,10 @@ export const IntroTutorial = ({ onContinue }: { onContinue: () => void }) => {
     setShowConfirmTutorial(true)
   }
 
-  const handleContinue = (_bypassTutorial: boolean = false) => {
+  const handleContinue = () => {
     // Note: we do not hide the modal here to prevent FOUS
 
-    // Tutorial is not ready yet — always bypass regardless of user choice
+    // Tutorial is not ready yet, so present one honest continue path.
     useGameStore.getState().setBypassTutorial(true)
 
     // Continue to connect
@@ -82,21 +83,16 @@ export const IntroTutorial = ({ onContinue }: { onContinue: () => void }) => {
 
                 <Card className="bg-background/50 elbow z-20">
                   <CardContent className="flex flex-col gap-ui-md relative pt-10">
-                    <h2 className="text-white text-base uppercase font-bold">
-                      Start new player tutorial?
-                    </h2>
+                    <h2 className="text-white text-base uppercase font-bold">Ready to launch?</h2>
                     <p className="text-white text-sm text-pretty mb-ui-sm leading-relaxed">
-                      This tutorial will guide you through the basics of the gameplay, UI and voice
-                      agent commands. Recommended for first time players.
+                      The in-game tutorial is not available in this build. Continue directly to the
+                      command deck and use the assistant for guidance.
                     </p>
                     <Divider variant="dashed" className="h-4 text-accent" />
                   </CardContent>
                   <CardFooter className="flex flex-row gap-ui-sm justify-end">
-                    <Button variant="ghost" size="lg" onClick={() => handleContinue(true)}>
-                      No, skip tutorial
-                    </Button>
-                    <Button size="lg" onClick={() => handleContinue()}>
-                      Yes (recommended)
+                    <Button size="lg" onClick={handleContinue}>
+                      Continue
                     </Button>
                   </CardFooter>
                 </Card>
