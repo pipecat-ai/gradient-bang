@@ -584,6 +584,8 @@ pnpm run dev
 | `SHIELD_REGEN_PER_ROUND`      | No       | `10`                                     | Shields regenerated per combat round                                                                                     |
 | `SALVAGE_TTL_SECONDS`         | No       | `900`                                    | TTL for salvage debris (seconds)                                                                                         |
 | `CHARACTER_SPAWN_MP_DISTANCE` | No       | `8`                                      | Graph distance (hops) from nearest mega port for new character spawns (min `2`)                                          |
+| `CHARACTER_STARTING_CREDITS`  | No       | `12000`                                  | Credits granted to a new character's starting ship                                                                       |
+| `CHARACTER_SKIP_AUTO_QUESTS`  | No       | `false`                                  | Set to `true` to skip auto-assigned quests (e.g. tutorial) on new character creation                                     |
 | `EDGE_ADMIN_PASSWORD`         | No       | —                                        | Admin password for admin-only endpoints                                                                                  |
 | `EDGE_ADMIN_PASSWORD_HASH`    | No       | —                                        | SHA-256 hash of admin password (alternative to plaintext)                                                                |
 

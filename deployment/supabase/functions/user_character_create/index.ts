@@ -36,7 +36,11 @@ import {
 import { traced } from "../_shared/weave.ts";
 
 const DEFAULT_SHIP_TYPE = "sparrow_scout";
-const DEFAULT_CREDITS = 12000;
+const DEFAULT_CREDITS =
+  Number(Deno.env.get("CHARACTER_STARTING_CREDITS") ?? "12000") || 12000;
+const SKIP_AUTO_QUESTS = ["true", "1"].includes(
+  (Deno.env.get("CHARACTER_SKIP_AUTO_QUESTS") ?? "").trim().toLowerCase(),
+);
 const MAX_CHARACTERS_PER_USER = 5;
 
 // CORS headers for public access from web clients
@@ -333,21 +337,25 @@ Deno.serve(traced("user_character_create", async (req, trace) => {
 
     // Assign quests marked as assign_on_creation (e.g. tutorial)
     const sQuests = trace.span("assign_quests");
-    const { data: autoQuests } = await supabase
-      .from("quest_definitions")
-      .select("code")
-      .eq("assign_on_creation", true)
-      .eq("enabled", true);
+    let autoQuestCount = 0;
+    if (!SKIP_AUTO_QUESTS) {
+      const { data: autoQuests } = await supabase
+        .from("quest_definitions")
+        .select("code")
+        .eq("assign_on_creation", true)
+        .eq("enabled", true);
 
-    if (autoQuests) {
-      for (const quest of autoQuests) {
-        await supabase.rpc("assign_quest", {
-          p_player_id: characterId,
-          p_quest_code: quest.code,
-        });
+      if (autoQuests) {
+        for (const quest of autoQuests) {
+          await supabase.rpc("assign_quest", {
+            p_player_id: characterId,
+            p_quest_code: quest.code,
+          });
+        }
+        autoQuestCount = autoQuests.length;
       }
     }
-    sQuests.end({ count: autoQuests?.length ?? 0 });
+    sQuests.end({ count: autoQuestCount, skipped: SKIP_AUTO_QUESTS });
 
     // Return success response
     trace.setOutput({ character_id: characterId, ship_id: ship.ship_id, name });
