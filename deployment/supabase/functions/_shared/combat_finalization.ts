@@ -13,9 +13,11 @@ import {
 import {
   emitSectorEnvelope,
   buildEventSource,
-  recordEventWithRecipients,
+  recordBroadcastByCorp,
 } from "./events.ts";
 import { computeEventRecipients } from "./visibility.ts";
+import { buildSectorGarrisonMapUpdate } from "./map.ts";
+import { getCorpIdsFromParticipants } from "./combat_events.ts";
 
 interface ShipRow {
   ship_id: string;
@@ -283,6 +285,73 @@ async function updateGarrisonState(
   if (error) {
     console.error("combat_finalization.remove_garrison", error);
   }
+  // After the row is gone, emit a map.update so the garrison disappears
+  // from the owner's (and corp-mates') map view. Mirrors the pattern used
+  // by combat_disband_garrison / combat_collect_fighters when a garrison
+  // is removed. Done post-delete so buildSectorGarrisonMapUpdate captures
+  // the absence (garrison: null). Wrapped to ensure a map.update failure
+  // can never abort combat resolution — the rest of the cascade
+  // (round_resolved / combat.ended / ship.destroyed) must still fire.
+  try {
+    await emitGarrisonRemovedMapUpdate(
+      supabase,
+      encounter,
+      participant,
+      requestId,
+    );
+  } catch (err) {
+    console.error("combat_finalization.garrison_map_update.failed", err);
+  }
+}
+
+async function emitGarrisonRemovedMapUpdate(
+  supabase: SupabaseClient,
+  encounter: CombatEncounterState,
+  participant: CombatantState,
+  requestId: string,
+): Promise<void> {
+  const ownerCharacterId =
+    typeof participant.owner_character_id === "string"
+      ? participant.owner_character_id
+      : null;
+
+  const mapUpdatePayload = await buildSectorGarrisonMapUpdate(
+    supabase,
+    encounter.sector_id,
+  );
+
+  // Broaden recipients beyond the garrison's own corp: every combat
+  // stakeholder (the attacker who just destroyed it, plus any other
+  // participating ships/garrisons by corp) and any sector observer
+  // needs the map to drop the garrison icon. Without this the
+  // attacker's UI keeps painting a phantom garrison until the next
+  // sector load.
+  const stakeholderCorpIds = getCorpIdsFromParticipants(
+    encounter.participants,
+  );
+  const directRecipients = ownerCharacterId ? [ownerCharacterId] : [];
+  const recipients = await computeEventRecipients({
+    supabase,
+    sectorId: encounter.sector_id,
+    corpIds: stakeholderCorpIds,
+    directRecipients,
+  });
+  if (recipients.length === 0) return;
+
+  await recordBroadcastByCorp({
+    supabase,
+    eventType: "map.update",
+    scope: "sector",
+    payload: {
+      source: buildEventSource("combat.garrison_destroyed", requestId),
+      ...(mapUpdatePayload as Record<string, unknown>),
+    },
+    requestId,
+    sectorId: encounter.sector_id,
+    actorCharacterId: null,
+    recipients,
+    stakeholderCorpIds,
+  });
 }
 
 async function emitGarrisonDestroyedEvent(
@@ -315,15 +384,16 @@ async function emitGarrisonDestroyedEvent(
     mode,
   };
 
+  const stakeholderCorpIds = ownerCorpId ? [ownerCorpId] : [];
   const recipients = await computeEventRecipients({
     supabase,
     sectorId: encounter.sector_id,
-    corpIds: ownerCorpId ? [ownerCorpId] : [],
+    corpIds: stakeholderCorpIds,
     directRecipients: [ownerCharacterId],
   });
 
   if (recipients.length > 0) {
-    await recordEventWithRecipients({
+    await recordBroadcastByCorp({
       supabase,
       eventType: "garrison.destroyed",
       scope: "sector",
@@ -332,6 +402,7 @@ async function emitGarrisonDestroyedEvent(
       sectorId: encounter.sector_id,
       actorCharacterId: null,
       recipients,
+      stakeholderCorpIds,
     });
   }
 }
@@ -501,23 +572,24 @@ async function emitShipDestroyedEvent(
     corp_id: data.corpId,
   };
 
-  // Compute recipients: sector observers + corp members (if any)
+  const stakeholderCorpIds = data.corpId ? [data.corpId] : [];
   const recipients = await computeEventRecipients({
     supabase,
     sectorId: encounter.sector_id,
-    corpIds: data.corpId ? [data.corpId] : [],
+    corpIds: stakeholderCorpIds,
   });
 
   if (recipients.length > 0) {
-    await recordEventWithRecipients({
+    await recordBroadcastByCorp({
       supabase,
       eventType: "ship.destroyed",
       scope: "sector",
       payload,
       requestId,
       sectorId: encounter.sector_id,
-      actorCharacterId: null, // System-originated
+      actorCharacterId: null,
       recipients,
+      stakeholderCorpIds,
     });
   }
 }

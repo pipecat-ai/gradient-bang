@@ -55,6 +55,41 @@ export interface GarrisonCombatantResult {
   source: GarrisonRow;
 }
 
+async function loadCorpNames(
+  supabase: SupabaseClient,
+  corpIds: Iterable<string | null | undefined>,
+): Promise<Map<string, string>> {
+  const unique = Array.from(
+    new Set(
+      Array.from(corpIds).filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      ),
+    ),
+  );
+  if (!unique.length) {
+    return new Map();
+  }
+  const { data, error } = await supabase
+    .from("corporations")
+    .select("corp_id, name")
+    .in("corp_id", unique);
+  if (error) {
+    console.error("combat_participants.load_corp_names", error);
+    return new Map();
+  }
+  const result = new Map<string, string>();
+  for (const row of data ?? []) {
+    if (
+      typeof row?.corp_id === "string" &&
+      typeof row?.name === "string" &&
+      row.name.length > 0
+    ) {
+      result.set(row.corp_id, row.name);
+    }
+  }
+  return result;
+}
+
 export async function loadCharacterNames(
   supabase: SupabaseClient,
   characterIds: string[],
@@ -139,9 +174,12 @@ export async function loadGarrisonCombatants(
     }
   }
 
+  const corpNameMap = await loadCorpNames(supabase, ownerCorpMap.values());
+
   return rows.map((row) => {
     const combatantId = `garrison:${row.sector_id}:${row.owner_id}`;
     const ownerName = ownerNames.get(row.owner_id) ?? row.owner_id;
+    const ownerCorpId = ownerCorpMap.get(row.owner_id) ?? null;
     const state: CombatantState = {
       combatant_id: combatantId,
       combatant_type: "garrison",
@@ -161,7 +199,10 @@ export async function loadGarrisonCombatants(
         deployed_at: row.deployed_at,
         sector_id: row.sector_id,
         owner_name: ownerName, // Store human-readable owner name in metadata
-        owner_corporation_id: ownerCorpMap.get(row.owner_id) ?? null,
+        owner_corporation_id: ownerCorpId,
+        owner_corporation_name: ownerCorpId
+          ? corpNameMap.get(ownerCorpId) ?? null
+          : null,
       },
     };
     return { state, source: row };
@@ -227,6 +268,22 @@ export async function loadCharacterCombatants(
     (definitions ?? []).map((row) => [row.ship_type, row]),
   );
 
+  const combatantCorpIds = new Set<string>();
+  for (const ship of filteredShips) {
+    const characterKey =
+      ship.owner_type === "character" ? ship.owner_character_id : ship.ship_id;
+    if (!characterKey) continue;
+    const character = characterMap.get(characterKey);
+    const cid =
+      ship.owner_type === "corporation"
+        ? ship.owner_corporation_id
+        : character?.corporation_id ?? null;
+    if (typeof cid === "string" && cid.length > 0) {
+      combatantCorpIds.add(cid);
+    }
+  }
+  const corpNameMap = await loadCorpNames(supabase, combatantCorpIds);
+
   const combatants: CharacterCombatant[] = [];
   for (const ship of filteredShips) {
     // Skip escape pods — they should never be combat participants
@@ -280,6 +337,13 @@ export async function loadCharacterCombatants(
           ship.owner_type === "corporation"
             ? ship.owner_corporation_id
             : character.corporation_id,
+        corporation_name: (() => {
+          const cid =
+            ship.owner_type === "corporation"
+              ? ship.owner_corporation_id
+              : character.corporation_id;
+          return typeof cid === "string" ? corpNameMap.get(cid) ?? null : null;
+        })(),
         player_type:
           ship.owner_type === "corporation" ? "corporation_ship" : "human",
         first_visit: character.first_visit,

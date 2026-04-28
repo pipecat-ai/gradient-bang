@@ -1492,13 +1492,13 @@ function renderSectorCombatHighlights(
   if (combatSectors.size === 0) return
   ctx.save()
   ctx.strokeStyle = "#ff3344"
-  ctx.lineWidth = 2
-  ctx.setLineDash([4, 4])
+  ctx.lineWidth = 4
+  ctx.setLineDash([5, 5])
   ctx.lineCap = "round"
   for (const node of data) {
     if (!combatSectors.has(node.id)) continue
     const world = hexToWorld(node.position[0], node.position[1], scale)
-    drawHex(ctx, world.x, world.y, hexSize, false)
+    drawHex(ctx, world.x, world.y, hexSize + 10, false)
   }
   ctx.setLineDash([])
   ctx.restore()
@@ -2177,12 +2177,14 @@ function renderShipLabels(
   config: SectorMapConfigBase,
   ships: Map<number, ShipInfo[]> | undefined,
   hoveredSectorId: number | null = null,
-  hitBoxesOut?: ShipLabelHitBox[]
+  hitBoxesOut?: ShipLabelHitBox[],
+  combatSectors?: Set<number> | null
 ) {
   if (!ships || ships.size === 0) return
 
   const labelStyle = config.labelStyles.shipCount
   const iconSize = 14
+  const combatColor = "#ff3344"
 
   ctx.save()
   ctx.textAlign = "left"
@@ -2242,12 +2244,14 @@ function renderShipLabels(
     if (node.id === hoveredSectorId) return
 
     const labelOpacity = 1
+    const isCombat = combatSectors?.has(node.id) ?? false
+    const bgColor = isCombat ? combatColor : labelStyle.backgroundColor
 
     ctx.save()
     ctx.translate(labelX, labelY)
 
     // Draw background (offset to left from anchor)
-    ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity)
+    ctx.fillStyle = applyAlpha(bgColor, labelOpacity)
     ctx.fillRect(
       -totalWidth - padding,
       -ascent - padding,
@@ -2682,7 +2686,8 @@ function renderWithCameraStateAndInteraction(
     config,
     ships,
     hoveredSectorId,
-    shipLabelHitBoxesOut
+    shipLabelHitBoxesOut,
+    props.combatSectors
   )
   renderPortLabels(
     ctx,

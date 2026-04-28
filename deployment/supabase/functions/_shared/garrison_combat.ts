@@ -27,7 +27,7 @@ import {
   collectParticipantIds,
 } from "./combat_events.ts";
 import { computeNextCombatDeadline } from "./combat_resolution.ts";
-import { buildEventSource, recordEventWithRecipients } from "./events.ts";
+import { buildEventSource, recordBroadcastByCorp } from "./events.ts";
 import { computeEventRecipients } from "./visibility.ts";
 import { loadUniverseMeta, isFedspaceSector } from "./fedspace.ts";
 
@@ -322,15 +322,15 @@ async function emitRoundWaitingEvents(
     return;
   }
 
-  // Single emission to all unique recipients
-  await recordEventWithRecipients({
+  await recordBroadcastByCorp({
     supabase,
     eventType: "combat.round_waiting",
     scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,
-    actorCharacterId: null, // System-originated
+    actorCharacterId: null,
     recipients: allRecipients,
+    stakeholderCorpIds: corpIds,
   });
 }

@@ -4,7 +4,7 @@ import {
   buildEventSource,
   emitCharacterEvent,
   emitSectorEnvelope,
-  recordEventWithRecipients,
+  recordBroadcastByCorp,
 } from "./events.ts";
 import {
   allHostilesPaid,
@@ -415,16 +415,16 @@ async function broadcastCombatEvent(params: {
     return;
   }
 
-  // Single emission to all unique recipients
-  await recordEventWithRecipients({
+  await recordBroadcastByCorp({
     supabase,
     eventType,
     scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,
-    actorCharacterId: null, // System-originated
+    actorCharacterId: null,
     recipients: allRecipients,
+    stakeholderCorpIds: corpIds,
   });
 }
 
@@ -488,7 +488,7 @@ async function broadcastObservedCombatEndedEvent(params: {
   payload.source = buildEventSource("combat.ended", requestId);
   payload.observed = true;
 
-  await recordEventWithRecipients({
+  await recordBroadcastByCorp({
     supabase,
     eventType: "combat.ended",
     scope: "sector",
@@ -497,6 +497,7 @@ async function broadcastObservedCombatEndedEvent(params: {
     sectorId: encounter.sector_id,
     actorCharacterId: null,
     recipients,
+    stakeholderCorpIds: corpIds,
   });
 }
 

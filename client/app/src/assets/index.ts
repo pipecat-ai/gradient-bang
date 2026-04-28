@@ -40,6 +40,7 @@ import chime7Sound from "./sounds/chime-7.wav"
 import chime8Sound from "./sounds/chime-8.wav"
 import chime9Sound from "./sounds/chime-9.wav"
 import chime10Sound from "./sounds/chime-10.wav"
+import chime11Sound from "./sounds/chime-11.wav"
 import codec1Sound from "./sounds/codec-1.wav"
 import codec2Sound from "./sounds/codec-2.wav"
 import currencySound from "./sounds/currency.wav"
@@ -115,6 +116,7 @@ export const sounds = {
   chime8: chime8Sound,
   chime9: chime9Sound,
   chime10: chime10Sound,
+  chime11: chime11Sound,
   impact1: impact1Sound,
   impact2: impact2Sound,
   impact3: impact3Sound,

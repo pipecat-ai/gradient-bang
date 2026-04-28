@@ -275,22 +275,12 @@ async function handleCombatAction(params: {
 
   const resolvedRound = ready || deadlineReached;
 
-  if (resolvedRound) {
-    console.log("combat_action.resolving_round", {
-      combat_id: encounter.combat_id,
-      round: encounter.round,
-    });
-    await resolveEncounterRound({
-      supabase,
-      encounter,
-      requestId,
-      source: "combat.action",
-    });
-  } else {
-    encounter.deadline = encounter.deadline ?? computeNextCombatDeadline();
-    await persistCombatState(supabase, encounter);
-  }
-
+  // Emit combat.action_accepted BEFORE resolving the round. For DIRECT
+  // participants this preserves the natural order in their event stream
+  // (action confirmed → round resolved → combat ended), instead of
+  // surfacing the action confirmation after the round outcome already
+  // landed. resolveEncounterRound emits round_resolved /
+  // ship.destroyed / combat.ended downstream of this point.
   await emitCharacterEvent({
     supabase,
     characterId,
@@ -309,6 +299,22 @@ async function handleCombatAction(params: {
     taskId,
     shipId: ship.ship_id,
   });
+
+  if (resolvedRound) {
+    console.log("combat_action.resolving_round", {
+      combat_id: encounter.combat_id,
+      round: encounter.round,
+    });
+    await resolveEncounterRound({
+      supabase,
+      encounter,
+      requestId,
+      source: "combat.action",
+    });
+  } else {
+    encounter.deadline = encounter.deadline ?? computeNextCombatDeadline();
+    await persistCombatState(supabase, encounter);
+  }
 
   return successResponse({ success: true, combat_id: encounter.combat_id });
 }

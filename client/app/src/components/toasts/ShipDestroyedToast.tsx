@@ -25,7 +25,7 @@ export const ShipDestroyedToast = ({
   const { meta } = toast
 
   useEffect(() => {
-    playSound("chime8")
+    playSound("chime11")
   }, [playSound])
 
   const shipLogo = getShipLogoImage(meta?.ship_type ?? "")
@@ -44,11 +44,7 @@ export const ShipDestroyedToast = ({
         <CardContent className="flex flex-col h-full justify-between items-center">
           <ToastTitle className="text-destructive">Ship Destroyed</ToastTitle>
           {shipLogo && (
-            <img
-              src={shipLogo}
-              alt={meta?.ship_name}
-              className="size-12 opacity-50 grayscale"
-            />
+            <img src={shipLogo} alt={meta?.ship_name} className="size-12 opacity-50 grayscale" />
           )}
           <div className="flex flex-col gap-1 w-full items-center uppercase text-sm">
             <span className="text-destructive font-semibold">{meta?.ship_name}</span>

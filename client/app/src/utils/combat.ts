@@ -104,6 +104,33 @@ const syncShipFromCombatRound = (gameStore: GameStore, combatRound: CombatRound)
   })
 }
 
+export const syncCorpShipsFromCombatRound = (gameStore: GameStore, combatRound: CombatRound) => {
+  const corpShipIds = new Set(
+    (gameStore.ships.data ?? [])
+      .filter((s) => s.owner_type === "corporation" && !s.destroyed_at)
+      .map((s) => s.ship_id)
+  )
+  if (corpShipIds.size === 0) return
+
+  for (const participant of combatRound.participants ?? []) {
+    if (!participant.id || !corpShipIds.has(participant.id)) continue
+    const fighters = readRoundValue(combatRound.fighters_remaining, [
+      participant.id,
+      participant.name,
+    ])
+    const shields = readRoundValue(combatRound.shields_remaining, [
+      participant.id,
+      participant.name,
+    ])
+    if (!Number.isFinite(fighters) && !Number.isFinite(shields)) continue
+    gameStore.updateShip({
+      ship_id: participant.id,
+      ...(Number.isFinite(fighters) ? { fighters: Math.max(0, fighters as number) } : {}),
+      ...(Number.isFinite(shields) ? { shields: Math.max(0, shields as number) } : {}),
+    })
+  }
+}
+
 export const applyCombatRoundWaitingState = (
   gameStore: GameStore,
   combatSession: CombatSession

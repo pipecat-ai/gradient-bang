@@ -13,6 +13,7 @@ import {
   applyCombatRoundResolvedState,
   applyCombatRoundWaitingState,
   applyShipDestroyedState,
+  syncCorpShipsFromCombatRound,
 } from "@/utils/combat"
 import {
   salvageCollectedSummaryString,
@@ -1300,6 +1301,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.round_resolved": {
               console.debug("[GAME EVENT] Combat round resolved", e.payload)
               const data = e.payload as Msg.CombatRoundResolvedMessage
+              syncCorpShipsFromCombatRound(useGameStore.getState(), data as CombatRound)
               const activeCombatId = useGameStore.getState().activeCombatSession?.combat_id
               const hasPersonalAction =
                 !!playerSessionId &&
@@ -1345,6 +1347,8 @@ export function GameProvider({ children }: GameProviderProps) {
               if (typeof data.combat_id === "string") {
                 useGameStore.getState().removeCombatSector(data.combat_id)
               }
+
+              syncCorpShipsFromCombatRound(useGameStore.getState(), data as CombatRound)
 
               const activeCombatId = useGameStore.getState().activeCombatSession?.combat_id
               const hasPersonalAction =

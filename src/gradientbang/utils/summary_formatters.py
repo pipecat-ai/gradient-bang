@@ -822,6 +822,21 @@ def _format_participant_names(event: Dict[str, Any]) -> str:
                 labels.append(f"{display_name} (target_id={participant_id})")
             else:
                 labels.append(display_name)
+    # Garrisons are combat participants too, but the server emits them in a
+    # separate `garrison` sub-object instead of inside `participants[]`. The
+    # TaskAgent needs the garrison's combatant_id as a target_id to attack —
+    # without this branch it would see itself as the only participant and
+    # have no valid target.
+    garrison = event.get("garrison")
+    if isinstance(garrison, dict):
+        gname = garrison.get("name") or garrison.get("owner_name")
+        gid = garrison.get("id")
+        if gname or gid:
+            display = _shorten_embedded_ids(str(gname)) if gname else "garrison"
+            if isinstance(gid, str) and gid.strip():
+                labels.append(f"{display} (target_id={gid})")
+            else:
+                labels.append(display)
     if not labels:
         return "unknown opponents"
     if len(labels) > 4:
@@ -1187,6 +1202,17 @@ def character_moved_summary(
     ship_name = _shorten_embedded_ids(ship_name_raw or "unknown ship")
     movement = event.get("movement")
 
+    # Sector tag — the payload carries the destination sector for arrives and
+    # the source sector for departs; including it lets the LLM tell hops
+    # apart (otherwise an intermediate "arrived" reads identically to the
+    # final destination arrival).
+    sector_value = event.get("sector")
+    sector_part = (
+        f" in sector {sector_value}"
+        if isinstance(sector_value, int)
+        else ""
+    )
+
     # Determine movement verb
     if movement == "arrive":
         verb = "arrived"
@@ -1201,10 +1227,10 @@ def character_moved_summary(
             corp_desc = "your corp"
         else:
             corp_desc = "another corp"
-        return f'Corp ship "{ship_name}" owned by {corp_desc} {verb}.'
+        return f'Corp ship "{ship_name}" owned by {corp_desc} {verb}{sector_part}.'
 
     # Player ship format (no enum string, just display name)
-    return f"{name} in {ship_name} {verb}."
+    return f"{name} in {ship_name} {verb}{sector_part}."
 
 
 def garrison_character_moved_summary(

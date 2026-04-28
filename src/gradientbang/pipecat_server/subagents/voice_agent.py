@@ -1400,14 +1400,21 @@ class VoiceAgent(LLMAgent):
     def _is_valid_uuid(value: str) -> bool:
         return bool(_UUID_PATTERN.match(value))
 
-    async def _resolve_ship_id_prefix(self, prefix: str) -> Optional[str]:
+    async def _resolve_ship_id_prefix(self, prefix: str) -> Optional[dict]:
+        """Resolve a ship_id prefix to the matching corp ship dict.
+
+        Returns the full ship entry from `corp.ships` so callers can read
+        `ship_id`/`name` without a second `my_corporation` RPC. A bare UUID
+        is returned as a stub dict with just `ship_id` set — the caller is
+        responsible for any further lookup on that branch.
+        """
         if not isinstance(prefix, str):
             return None
         cleaned = prefix.strip().strip("[]").lower()
         if not cleaned:
             return None
         if self._is_valid_uuid(cleaned):
-            return cleaned
+            return {"ship_id": cleaned}
         try:
             corp_result = await self._game_client._request(
                 "my_corporation",
@@ -1428,7 +1435,7 @@ class VoiceAgent(LLMAgent):
                 continue
             ship_id = ship.get("ship_id")
             if isinstance(ship_id, str) and ship_id.lower().startswith(cleaned):
-                matches.append(ship_id)
+                matches.append(ship)
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
@@ -1640,14 +1647,15 @@ class VoiceAgent(LLMAgent):
                 if isinstance(ship_id, str):
                     ship_id = ship_id.strip().strip("[]")
 
+                resolved_ship: Optional[dict] = None
                 if ship_id and not self._is_valid_uuid(ship_id):
                     try:
-                        resolved = await self._resolve_ship_id_prefix(ship_id)
+                        resolved_ship = await self._resolve_ship_id_prefix(ship_id)
                     except ValueError as exc:
                         return {"success": False, "error": str(exc)}
-                    if not resolved:
+                    if not resolved_ship:
                         return {"success": False, "error": f"Unknown ship_id '{ship_id}'."}
-                    ship_id = resolved
+                    ship_id = resolved_ship.get("ship_id")
 
                 # If ship_id is the player's character_id, or resolves to their
                 # personal ship rather than a corp ship, treat as a player task.
@@ -1655,6 +1663,12 @@ class VoiceAgent(LLMAgent):
                 if ship_id:
                     if ship_id == self._character_id:
                         ship_id = None
+                    elif resolved_ship is not None:
+                        # Came from corp.ships — known corp ship, name in hand.
+                        # Skips a second `my_corporation` RPC.
+                        name = resolved_ship.get("name")
+                        if isinstance(name, str) and name.strip():
+                            corp_ship_name = name
                     else:
                         is_corp, corp_ship_name = await self._is_corp_ship_id(ship_id)
                         if not is_corp:

@@ -487,6 +487,39 @@ class TaskAgent(LLMAgent):
             if isinstance(player, dict) and player.get("id") == self._character_id:
                 await self._handle_event(event)
                 return
+            # Combat events identify the actor via participants[].id (and
+            # ship.destroyed via top-level ship_id) rather than payload.player,
+            # so the corp-ship TaskAgent must match against those fields too.
+            # Without this, a corp ship in combat sees no round_waiting /
+            # round_resolved / ship.destroyed for itself and gets stuck.
+            event_name = event.get("event_name")
+            if self._character_id and event_name in {
+                "combat.round_waiting",
+                "combat.round_resolved",
+                "combat.ended",
+                "combat.action_accepted",
+                "combat.round_timeout",
+            }:
+                participants = payload.get("participants")
+                if isinstance(participants, list):
+                    for p in participants:
+                        if (
+                            isinstance(p, dict)
+                            and p.get("id") == self._character_id
+                        ):
+                            await self._handle_event(event)
+                            return
+            if self._character_id and event_name in {
+                "ship.destroyed",
+                "garrison.destroyed",
+            }:
+                if payload.get("ship_id") == self._character_id:
+                    await self._handle_event(event)
+                    return
+                owner_id = payload.get("owner_character_id")
+                if isinstance(owner_id, str) and owner_id == self._character_id:
+                    await self._handle_event(event)
+                    return
         # Ambient events we always care about
         event_name = event.get("event_name")
         if event_name in {"error", "chat.message"}:

@@ -406,23 +406,22 @@ def _sector_text(pov_info: CombatPOVInfo) -> str:
 
 
 def _combat_suffix(payload: Mapping[str, Any]) -> str:
-    """Trailing parenthetical: (round N, combat_id ID)."""
-    parts: list[str] = []
+    """Trailing parenthetical: (round N).
+
+    combat_id is on the XML envelope as an attribute, so don't repeat it here.
+    """
     round_num = payload.get("round")
     if isinstance(round_num, int):
-        parts.append(f"round {round_num}")
-    combat_id = payload.get("combat_id")
-    if isinstance(combat_id, str) and combat_id.strip():
-        parts.append(f"combat_id {combat_id.strip()}")
-    return f" ({', '.join(parts)})" if parts else ""
+        return f" (round {round_num})"
+    return ""
 
 
 def _ship_ref(pov_info: CombatPOVInfo) -> str:
-    """Render '"<name>" (ship_id=<short>)' from POV info; falls back gracefully."""
-    name_part = f'"{pov_info.ship_name}"' if pov_info.ship_name else "ship"
-    if pov_info.ship_id:
-        return f"{name_part} (ship_id={pov_info.ship_id[:6]})"
-    return name_part
+    """Render '"<name>"' from POV info; falls back to 'ship'.
+
+    ship_id is on the XML envelope as an attribute, so don't repeat it here.
+    """
+    return f'"{pov_info.ship_name}"' if pov_info.ship_name else "ship"
 
 
 def _round_waiting_pov_line(pov_info: CombatPOVInfo, payload: Mapping[str, Any]) -> str:
@@ -510,7 +509,7 @@ def _xml_attrs_combat_encounter(
     attrs.append(("combat_pov", pov_info.pov.value))
     if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP:
         if pov_info.ship_id:
-            attrs.append(("ship_id", pov_info.ship_id))
+            attrs.append(("ship_id", short_id(pov_info.ship_id) or pov_info.ship_id))
         if pov_info.ship_name:
             attrs.append(("ship_name", pov_info.ship_name))
     elif pov_info.pov == CombatPOV.OBSERVED_VIA_GARRISON:
@@ -561,6 +560,13 @@ def _summarize_combat_waiting(relay: EventRelay, event: dict) -> Optional[str]:
     deadline = payload.get("deadline")
     if isinstance(deadline, str) and deadline.strip():
         body += f" deadline {deadline.strip()}"
+    # Mirror round_resolved: every participant with corp affiliation and
+    # current fighters/shields. round_waiting payloads omit per-round
+    # losses + actions (round hasn't resolved), so the block renders as
+    # name + role + corp + headline status.
+    participant_block = _participant_block(relay, payload)
+    if participant_block:
+        body += f"\n{participant_block}"
     if pov_info.pov == CombatPOV.DIRECT:
         body += "\nSubmit a combat action now."
     return body
@@ -595,25 +601,16 @@ def _summarize_combat_round(relay: EventRelay, event: dict) -> Optional[str]:
     suffix = _combat_suffix(payload)
     result_display = str(payload.get("result") or payload.get("end") or "in_progress")
 
-    loss_fragment = _round_loss_fragment(relay, pov_info, payload)
-    return f"{pov_line}{suffix}\nRound resolved: {result_display}; {loss_fragment}."
+    lines = [f"{pov_line}{suffix}", f"Round resolved: {result_display}."]
 
+    action_line = _viewer_action_line(relay, pov_info, payload)
+    if action_line:
+        lines.append(action_line)
 
-def _round_loss_fragment(
-    relay: EventRelay, pov_info: CombatPOVInfo, payload: Mapping[str, Any]
-) -> str:
-    """One fragment per stake the viewer has — DIRECT shows own losses;
-    OBSERVED via corp ship shows the corp ship's losses. OBSERVED via
-    garrison falls back to a generic phrase since the garrison loss line
-    would be the substantive update there."""
-    if pov_info.pov == CombatPOV.DIRECT:
-        return _format_actor_losses(relay._character_id, payload, "your")
-    if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP and pov_info.ship_id:
-        actor_id = _participant_id_for_ship(payload, pov_info.ship_id)
-        if actor_id:
-            ship_label = _ship_ref(pov_info)
-            return _format_actor_losses(actor_id, payload, f"corp ship {ship_label}")
-    return "no fighter losses, no shield damage"
+    participant_block = _participant_block(relay, payload)
+    if participant_block:
+        lines.append(participant_block)
+    return "\n".join(lines)
 
 
 def _participant_id_for_ship(
@@ -630,33 +627,205 @@ def _participant_id_for_ship(
     return None
 
 
-def _format_actor_losses(
-    actor_id: Optional[str], payload: Mapping[str, Any], label: str
+def _viewer_actor_id(
+    relay: EventRelay, pov_info: CombatPOVInfo, payload: Mapping[str, Any]
+) -> Optional[str]:
+    """Combatant id whose action the viewer should see attributed as 'yours'.
+    DIRECT → viewer's own character; OBSERVED via corp ship → that ship's
+    pseudo-character. Garrison observers don't submit actions."""
+    if pov_info.pov == CombatPOV.DIRECT:
+        return relay._character_id
+    if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP and pov_info.ship_id:
+        return _participant_id_for_ship(payload, pov_info.ship_id)
+    return None
+
+
+def _action_for_participant(
+    payload: Mapping[str, Any], participant_id: str
+) -> Optional[Mapping[str, Any]]:
+    """Look up a participant's action from payload.actions, which is keyed
+    by participant.name (legacy compatibility — see combat_events.ts)."""
+    actions = payload.get("actions")
+    if not isinstance(actions, Mapping):
+        return None
+    participants = payload.get("participants")
+    if not isinstance(participants, list):
+        return None
+    for p in participants:
+        if not isinstance(p, Mapping) or p.get("id") != participant_id:
+            continue
+        name = p.get("name")
+        if isinstance(name, str):
+            entry = actions.get(name)
+            if isinstance(entry, Mapping):
+                return entry
+        return None
+    return None
+
+
+def _format_action_phrase(action: Mapping[str, Any]) -> str:
+    """Render an action as 'attack target X commit 50' or 'brace'."""
+    parts: list[str] = [str(action.get("action") or "brace").lower()]
+    target = action.get("target") or action.get("target_id")
+    if isinstance(target, str) and target.strip():
+        parts.append(f"target {short_id(target) or target}")
+    commit = action.get("commit")
+    if isinstance(commit, (int, float)) and int(commit) > 0:
+        parts.append(f"commit {int(commit)}")
+    dest = action.get("destination_sector")
+    if isinstance(dest, int):
+        parts.append(f"to sector {dest}")
+    if action.get("timed_out") is True:
+        parts.append("(timeout)")
+    return " ".join(parts)
+
+
+def _viewer_action_line(
+    relay: EventRelay, pov_info: CombatPOVInfo, payload: Mapping[str, Any]
+) -> Optional[str]:
+    actor_id = _viewer_actor_id(relay, pov_info, payload)
+    if not actor_id:
+        return None
+    action = _action_for_participant(payload, actor_id)
+    if not action:
+        return None
+    label = "Your action" if pov_info.pov == CombatPOV.DIRECT else "Your ship's action"
+    return f"{label}: {_format_action_phrase(action)}."
+
+
+def _participant_role_tag(
+    relay: EventRelay, participant: Mapping[str, Any]
 ) -> str:
-    fighter_loss = 0
-    shield_damage: float = 0.0
-    if actor_id:
-        participants = payload.get("participants")
-        if isinstance(participants, list):
-            for p in participants:
-                if not isinstance(p, Mapping) or p.get("id") != actor_id:
-                    continue
-                ship = p.get("ship")
-                if isinstance(ship, Mapping):
-                    fl = ship.get("fighter_loss")
-                    sd = ship.get("shield_damage")
-                    if isinstance(fl, (int, float)):
-                        fighter_loss = max(0, int(fl))
-                    if isinstance(sd, (int, float)):
-                        shield_damage = max(0.0, float(sd))
-                break
-    fighter_part = (
-        f"fighters lost {fighter_loss}" if fighter_loss > 0 else "no fighter losses"
+    """Viewer-relative role: 'you' / 'your corp' / 'opponent'."""
+    pid = participant.get("id")
+    if isinstance(pid, str) and pid == relay._character_id:
+        return "you"
+    viewer_corp = _viewer_corp_id(relay)
+    pcorp = participant.get("corp_id")
+    if (
+        viewer_corp
+        and isinstance(pcorp, str)
+        and pcorp == viewer_corp
+    ):
+        return "your corp"
+    return "opponent"
+
+
+def _format_participant_line(
+    relay: EventRelay, participant: Mapping[str, Any]
+) -> Optional[str]:
+    name = participant.get("name")
+    if not isinstance(name, str) or not name:
+        return None
+    role = _participant_role_tag(relay, participant)
+    corp_name = participant.get("corp_name")
+    corp_label = (
+        corp_name if isinstance(corp_name, str) and corp_name else "no corp"
     )
-    shield_part = (
-        f"shield damage {shield_damage:.1f}%" if shield_damage > 0 else "no shield damage"
+
+    fighters = participant.get("fighters")
+    fighters_str = (
+        f"{int(fighters)} fighters"
+        if isinstance(fighters, (int, float))
+        else "fighters unknown"
     )
-    return f"{label}: {fighter_part}, {shield_part}"
+
+    ship = participant.get("ship") if isinstance(participant.get("ship"), Mapping) else {}
+    integrity = ship.get("shield_integrity") if isinstance(ship, Mapping) else None
+    shields_str = (
+        f"shields {float(integrity):.0f}%"
+        if isinstance(integrity, (int, float))
+        else None
+    )
+
+    extras: list[str] = []
+    fighter_loss = ship.get("fighter_loss") if isinstance(ship, Mapping) else None
+    if isinstance(fighter_loss, (int, float)) and int(fighter_loss) > 0:
+        extras.append(f"lost {int(fighter_loss)} this round")
+    shield_damage = ship.get("shield_damage") if isinstance(ship, Mapping) else None
+    if isinstance(shield_damage, (int, float)) and float(shield_damage) > 0:
+        extras.append(f"took {float(shield_damage):.1f}% shield damage")
+    if participant.get("destroyed") is True:
+        extras.append("destroyed")
+    if participant.get("has_fled") is True:
+        fled_to = participant.get("fled_to_sector")
+        extras.append(
+            f"fled to sector {fled_to}"
+            if isinstance(fled_to, int)
+            else "fled"
+        )
+
+    head = f'- {name} [{role}, {corp_label}]'
+    body_parts = [fighters_str]
+    if shields_str:
+        body_parts.append(shields_str)
+    if extras:
+        body_parts.append("; ".join(extras))
+    return f"{head}: {', '.join(body_parts)}"
+
+
+def _format_garrison_line(garrison: Mapping[str, Any]) -> Optional[str]:
+    name = garrison.get("name")
+    if not isinstance(name, str) or not name:
+        return None
+    owner = garrison.get("owner_name")
+    corp_name = garrison.get("owner_corp_name")
+    parts: list[str] = []
+    # Garrison combatant_id is what `combat_action.target_id` takes verbatim.
+    # Unlike ships, the garrison's name doesn't carry an embedded short id,
+    # so surface it explicitly here — the LLM has no other place to learn it.
+    gid = garrison.get("id")
+    if isinstance(gid, str) and gid.strip():
+        parts.append(f"target_id={gid.strip()}")
+    if isinstance(owner, str) and owner:
+        parts.append(f"owner {owner}")
+    if isinstance(corp_name, str) and corp_name:
+        parts.append(f"corp {corp_name}")
+    elif garrison.get("owner_corp_id") is None:
+        parts.append("no corp")
+    mode = garrison.get("mode")
+    if isinstance(mode, str) and mode:
+        parts.append(f"{mode} mode")
+
+    fighters = garrison.get("fighters")
+    fighters_str = (
+        f"{int(fighters)} fighters"
+        if isinstance(fighters, (int, float))
+        else "fighters unknown"
+    )
+    extras: list[str] = []
+    fighter_loss = garrison.get("fighter_loss")
+    if isinstance(fighter_loss, (int, float)) and int(fighter_loss) > 0:
+        extras.append(f"lost {int(fighter_loss)} this round")
+
+    qualifier = f" [{', '.join(parts)}]" if parts else ""
+    body = fighters_str if not extras else f"{fighters_str}, {'; '.join(extras)}"
+    return f"- {name}{qualifier}: {body}"
+
+
+def _participant_block(
+    relay: EventRelay, payload: Mapping[str, Any]
+) -> Optional[str]:
+    """Render a multi-line 'Participants:' section listing every combatant
+    with their corp affiliation and per-round status. Includes the primary
+    garrison if present in the payload."""
+    lines: list[str] = []
+    participants = payload.get("participants")
+    if isinstance(participants, list):
+        for p in participants:
+            if not isinstance(p, Mapping):
+                continue
+            line = _format_participant_line(relay, p)
+            if line:
+                lines.append(line)
+    garrison = payload.get("garrison")
+    if isinstance(garrison, Mapping):
+        line = _format_garrison_line(garrison)
+        if line:
+            lines.append(line)
+    if not lines:
+        return None
+    return "Participants:\n" + "\n".join(lines)
 
 
 def _summarize_ships_strategy_set(_relay: EventRelay, event: dict) -> Optional[str]:
@@ -1537,6 +1706,32 @@ class EventRelay:
                     return combat_for_player or has_observed_combat_stake(
                         self, clean_payload
                     )
+                if event_name == "combat.ended":
+                    # Same observer-aware shape as round_resolved. Pre-fix,
+                    # observers got combat.ended via a per-recipient row that
+                    # set recipient_character_id, which made it look "direct";
+                    # the corp-merge partition routes via corp_id only, so we
+                    # must explicitly admit observed-stake viewers here.
+                    return combat_for_player or has_observed_combat_stake(
+                        self, clean_payload
+                    )
+                if event_name == "combat.action_accepted":
+                    # Action confirmation is only meaningful to the actor.
+                    # The bot polls for corp-ship pseudo-char ids (so the
+                    # TaskAgent can react to its own combat), which means a
+                    # corp ship's reason="direct" action_accepted row also
+                    # arrives in the human viewer's relay. Without this
+                    # gate, the OBSERVED viewer sees the corp ship's
+                    # action confirmation as if it were their own — but
+                    # the round_resolved summary already carries
+                    # "Your ship's action: X" for that purpose.
+                    if event_context is None:
+                        return True
+                    ctx_char = event_context.get("character_id")
+                    return (
+                        isinstance(ctx_char, str)
+                        and ctx_char == self._character_id
+                    )
                 if event_name == "garrison.destroyed":
                     return is_garrison_subject_for_viewer(self, clean_payload)
             return combat_for_player
@@ -1656,6 +1851,17 @@ class EventRelay:
                 result = _is_owned_subject(self, clean_payload)
                 if not result and event_name == "ship.destroyed":
                     result = is_corp_ship_destroyed_for_viewer(self, clean_payload)
+                # ship.destroyed / garrison.destroyed are paired with the
+                # combat.round_resolved (terminal) event for the same combat,
+                # which already announces the destruction in its summary.
+                # Suppress inference here so the LLM doesn't speak twice.
+                if (
+                    result
+                    and event_name in ("ship.destroyed", "garrison.destroyed")
+                ):
+                    cid = clean_payload.get("combat_id")
+                    if isinstance(cid, str) and cid.strip():
+                        result = False
         else:
             result = False
 

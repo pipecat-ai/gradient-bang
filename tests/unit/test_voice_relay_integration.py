@@ -375,9 +375,16 @@ class TestCombatParticipant:
                 "participants": [
                     {
                         "id": "char-test",
+                        "name": "You",
+                        "fighters": 45,
                         "ship": {"fighter_loss": 5, "shield_damage": 12.5},
                     },
-                    {"id": "enemy-1", "ship": {"fighter_loss": 3, "shield_damage": 8.0}},
+                    {
+                        "id": "enemy-1",
+                        "name": "Foe",
+                        "fighters": 47,
+                        "ship": {"fighter_loss": 3, "shield_damage": 8.0},
+                    },
                 ],
             },
         )
@@ -385,8 +392,8 @@ class TestCombatParticipant:
         assert len(h.llm_messages) >= 1
         content, run_llm = h.llm_messages[0]
         assert run_llm is True
-        assert "fighters lost 5" in content
-        assert "shield damage 12.5" in content
+        assert "lost 5 this round" in content
+        assert "12.5% shield damage" in content
 
     async def test_combat_ended_reaches_llm(self):
         """combat.ended lands in LLM context for participants but does NOT
@@ -557,8 +564,18 @@ class TestCombatLifecycle:
                 "cbt-1",
                 2,
                 [
-                    {"id": "char-test", "ship": {"fighter_loss": 3, "shield_damage": 5.0}},
-                    {"id": "enemy-1", "ship": {"fighter_loss": 8, "shield_damage": 0}},
+                    {
+                        "id": "char-test",
+                        "name": "You",
+                        "fighters": 47,
+                        "ship": {"fighter_loss": 3, "shield_damage": 5.0},
+                    },
+                    {
+                        "id": "enemy-1",
+                        "name": "Foe",
+                        "fighters": 42,
+                        "ship": {"fighter_loss": 8, "shield_damage": 0},
+                    },
                 ],
             ),
         )
@@ -592,8 +609,8 @@ class TestCombatLifecycle:
         assert action_run is False
 
         # Resolved: damage summary, runs inference (InferenceRule.ALWAYS).
-        assert "fighters lost 3" in resolved_content
-        assert "shield damage 5.0" in resolved_content
+        assert "lost 3 this round" in resolved_content
+        assert "5.0% shield damage" in resolved_content
         assert resolved_run is True
 
         # Ended: lands in context but does NOT trigger inference
@@ -652,7 +669,8 @@ class TestCombatVoiceSummaries:
 
         content, _ = h.llm_messages[0]
         assert "you are currently in active combat" in content
-        assert "combat_id cbt-1" in content
+        # combat_id is on the XML envelope as an attribute, not duplicated in body.
+        assert 'combat_id="cbt-1"' in content
 
     async def test_participant_round_resolved_includes_round_info(self):
         h = _make_harness()
@@ -661,14 +679,23 @@ class TestCombatVoiceSummaries:
             _combat_resolved(
                 "cbt-2",
                 3,
-                [{"id": "char-test", "ship": {"fighter_loss": 0, "shield_damage": 0}}],
+                [
+                    {
+                        "id": "char-test",
+                        "name": "You",
+                        "fighters": 50,
+                        "ship": {"fighter_loss": 0, "shield_damage": 0},
+                    }
+                ],
             ),
         )
 
         content, _ = h.llm_messages[0]
         assert "round 3" in content
-        assert "no fighter losses" in content
-        assert "no shield damage" in content
+        # No-loss participants have no extras; the lack of a "lost N" / "took N%"
+        # fragment IS the no-fighter-losses / no-shield-damage signal.
+        assert "lost " not in content
+        assert "shield damage" not in content
 
     async def test_combat_ended_participant_message(self):
         h = _make_harness()
@@ -779,12 +806,17 @@ class TestCorpShipCombat:
         # Both events still go to RTVI / bus
         assert h.rtvi_push_count == 2
         assert len(h.bus_events) == 2
-        # round_resolved lands silently; combat.ended remains participant-personalized
+        # round_resolved lands silently (non-terminal observed combat).
+        # combat.ended now ALSO lands silently in observer context — observers
+        # need it for follow-up Q&A, but InferenceRule.NEVER means it never
+        # triggers the LLM directly; round_resolved (terminal) speaks the
+        # outcome.
         resolved_frames = _llm_event_frames(h, "combat.round_resolved")
         ended_frames = _llm_event_frames(h, "combat.ended")
         assert len(resolved_frames) == 1
         assert resolved_frames[0][1] is False
-        assert len(ended_frames) == 0
+        assert len(ended_frames) == 1
+        assert ended_frames[0][1] is False
 
     async def test_corp_combat_terminal_round_resolved_speaks(self):
         h = _make_harness()
@@ -874,10 +906,14 @@ class TestGarrisonObservedCombat:
         assert run_llm is True
 
     async def test_garrison_destroyed_speaks_only_for_owner(self):
+        # Verifies the OWNED-inference semantic: only the owner triggers LLM,
+        # corp members do not. Combat-context garrison.destroyed (the only
+        # production path today) is suppressed when combat_id is present so
+        # combat.round_resolved speaks the destruction without dupes —
+        # covered by test_garrison_destroyed_in_combat_suppresses_dupe.
         owner = _make_harness()
         corp_member = _make_harness()
         payload_owner = {
-            "combat_id": "cbt-garrison",
             "garrison_id": "garrison:42:char-test",
             "owner_character_id": "char-test",
             "owner_corp_id": "corp-1",
@@ -902,6 +938,26 @@ class TestGarrisonObservedCombat:
         assert owner_frames[0][1] is True
         assert len(corp_frames) == 1
         assert corp_frames[0][1] is False
+
+    async def test_garrison_destroyed_in_combat_suppresses_dupe(self):
+        # In the real combat path, garrison.destroyed always carries combat_id
+        # and combat.round_resolved (terminal) already announces the outcome.
+        # Suppress the redundant LLM trigger so observers don't speak twice.
+        owner = _make_harness()
+        payload = {
+            "combat_id": "cbt-garrison",
+            "garrison_id": "garrison:42:char-test",
+            "owner_character_id": "char-test",
+            "owner_corp_id": "corp-1",
+            "owner_name": "Test",
+            "sector": {"id": 42},
+            "mode": "offensive",
+            "__event_context": {"scope": "sector", "reason": "garrison_owner"},
+        }
+        await owner.feed_event("garrison.destroyed", payload)
+        frames = _llm_event_frames(owner, "garrison.destroyed")
+        assert len(frames) == 1
+        assert frames[0][1] is False
 
 
 @pytest.mark.unit

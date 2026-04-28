@@ -10,7 +10,7 @@ import { createServiceRoleClient } from "../_shared/client.ts";
 import {
   emitErrorEvent,
   buildEventSource,
-  recordEventWithRecipients,
+  recordBroadcastByCorp,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
@@ -396,16 +396,16 @@ async function emitRoundWaitingEvents(
     return;
   }
 
-  // Single emission to all unique recipients
-  await recordEventWithRecipients({
+  await recordBroadcastByCorp({
     supabase,
     eventType: "combat.round_waiting",
     scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,
-    actorCharacterId: null, // System-originated
+    actorCharacterId: null,
     recipients: allRecipients,
+    stakeholderCorpIds: corpIds,
     taskId,
   });
 }

@@ -14,7 +14,7 @@ import {
   emitErrorEvent,
   emitSectorEnvelope,
   buildEventSource,
-  recordEventWithRecipients,
+  recordBroadcastByCorp,
 } from "../_shared/events.ts";
 import { buildSectorSnapshot, buildSectorGarrisonMapUpdate } from "../_shared/map.ts";
 import {
@@ -524,15 +524,15 @@ async function emitRoundWaitingEvents(
     return;
   }
 
-  // Single emission to all unique recipients
-  await recordEventWithRecipients({
+  await recordBroadcastByCorp({
     supabase,
     eventType: "combat.round_waiting",
     scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,
-    actorCharacterId: null, // System-originated
+    actorCharacterId: null,
     recipients: allRecipients,
+    stakeholderCorpIds: corpIds,
   });
 }

@@ -3422,6 +3422,7 @@ Deno.test({
   async fn(t) {
     let combatId: string;
     let cursorP2: number;
+    let corpId: string;
 
     await t.step("setup: P1 and P2 are corpmates; P1 fights P3", async () => {
       await resetDatabase([P1, P2, P3]);
@@ -3439,8 +3440,7 @@ Deno.test({
         character_id: p1Id,
         name: "Combat Watch Corp",
       });
-      const corpId = (createResult as Record<string, unknown>)
-        .corp_id as string;
+      corpId = (createResult as Record<string, unknown>).corp_id as string;
       const inviteCode = (createResult as Record<string, unknown>)
         .invite_code as string;
       await apiOk("corporation_join", {
@@ -3454,14 +3454,26 @@ Deno.test({
         character_id: p1Id,
         target_id: p3Id,
       });
-      const events = await eventsOfType(p1Id, "combat.round_waiting");
+      // Corp-scoped events deliver via the corp row; poll with corpId to
+      // mirror the bot's real subscription (character_ids ∪ ship_ids ∪ corp_id).
+      const events = await eventsOfType(
+        p1Id,
+        "combat.round_waiting",
+        0,
+        corpId,
+      );
       assert(events.length >= 1);
       combatId = events[events.length - 1].payload.combat_id as string;
     });
 
     await t.step("resolve combat to terminal state", async () => {
       for (let round = 0; round < 5; round++) {
-        const ended = await eventsOfType(p2Id, "combat.ended", cursorP2);
+        const ended = await eventsOfType(
+          p2Id,
+          "combat.ended",
+          cursorP2,
+          corpId,
+        );
         if (ended.some((event) => event.payload.combat_id === combatId)) break;
         const result = await api("combat_action", {
           character_id: p1Id,
@@ -3483,7 +3495,12 @@ Deno.test({
     await t.step(
       "remote corp member P2 receives observer-safe combat.ended",
       async () => {
-        const events = await eventsOfType(p2Id, "combat.ended", cursorP2);
+        const events = await eventsOfType(
+          p2Id,
+          "combat.ended",
+          cursorP2,
+          corpId,
+        );
         const ended = events.find((event) =>
           event.payload.combat_id === combatId
         );

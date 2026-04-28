@@ -11,6 +11,7 @@ interface ParticipantEventContext {
   fighterLoss?: number;
   fighters: number;
   corpId: string | null;
+  corpName: string | null;
 }
 
 function buildParticipantPayload(
@@ -43,6 +44,7 @@ function buildParticipantPayload(
     fighters: ctx.fighters,
     destroyed: ctx.fighters <= 0,
     corp_id: ctx.corpId,
+    corp_name: ctx.corpName,
     has_fled: participant.has_fled === true,
     fled_to_sector:
       typeof participant.fled_to_sector === 'number' ? participant.fled_to_sector : null,
@@ -54,10 +56,22 @@ function readCorpId(participant: CombatantState): string | null {
   return typeof metadata.corporation_id === 'string' ? metadata.corporation_id : null;
 }
 
+function readCorpName(participant: CombatantState): string | null {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  return typeof metadata.corporation_name === 'string' ? metadata.corporation_name : null;
+}
+
 function readOwnerCorpId(participant: CombatantState): string | null {
   const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
   return typeof metadata.owner_corporation_id === 'string'
     ? metadata.owner_corporation_id
+    : null;
+}
+
+function readOwnerCorpName(participant: CombatantState): string | null {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  return typeof metadata.owner_corporation_name === 'string'
+    ? metadata.owner_corporation_name
     : null;
 }
 
@@ -76,6 +90,7 @@ function buildGarrisonPayload(
     owner_name: ownerName,  // Human-readable name, not UUID
     owner_character_id: participant.owner_character_id ?? null,
     owner_corp_id: readOwnerCorpId(participant),
+    owner_corp_name: readOwnerCorpName(participant),
     fighters: participant.fighters,
     fighter_loss: fighterLoss > 0 ? fighterLoss : null,
     mode: metadata.mode ?? 'offensive',
@@ -153,6 +168,7 @@ export function buildRoundWaitingPayload(encounter: CombatEncounterState): Recor
           shieldIntegrity,
           fighters: participant.fighters ?? 0,
           corpId: readCorpId(participant),
+          corpName: readCorpName(participant),
         }),
       );
     } else {
@@ -229,6 +245,7 @@ export function buildRoundResolvedPayload(
           fighterLoss,
           fighters: fightersRemaining,
           corpId: readCorpId(participant),
+          corpName: readCorpName(participant),
         }),
       );
     } else {
