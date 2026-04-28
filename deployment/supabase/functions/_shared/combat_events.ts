@@ -1,6 +1,7 @@
 import {
   CombatEncounterState,
   CombatRoundOutcome,
+  CombatRoundLog,
   CombatantState,
 } from './combat_types.ts';
 
@@ -279,7 +280,7 @@ export function buildCombatEndedPayload(
   encounter: CombatEncounterState,
   outcome: CombatRoundOutcome,
   salvage: Array<Record<string, unknown>>,
-  logs: Array<Record<string, unknown>>,
+  logs: CombatRoundLog[] | Array<Record<string, unknown>>,
 ): Record<string, unknown> {
   const payload = buildRoundResolvedPayload(encounter, outcome);
   payload['salvage'] = salvage;
@@ -296,7 +297,7 @@ export async function buildCombatEndedPayloadForViewer(
   encounter: CombatEncounterState,
   outcome: CombatRoundOutcome,
   salvage: Array<Record<string, unknown>>,
-  logs: Array<Record<string, unknown>>,
+  logs: CombatRoundLog[] | Array<Record<string, unknown>>,
   viewerId: string,
 ): Promise<Record<string, unknown>> {
   const payload = buildCombatEndedPayload(encounter, outcome, salvage, logs);

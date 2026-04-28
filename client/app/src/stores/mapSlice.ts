@@ -63,6 +63,10 @@ export interface MapSlice {
   pendingMapFitMissingCount?: number
   coursePlotZoomEnabled: boolean
   mapLegendVisible: boolean
+  // Sectors with active combat the viewer can see, keyed by combat_id.
+  // Drives a dotted overlay on the big map; toggled by GameContext on
+  // combat.round_waiting (any flavor) and combat.ended (any flavor).
+  combat_sectors: Record<string, number>
   // --- Map data methods ---
   setPendingMapCenterRequest: (centerNode: MapCenterNode) => void
   handleMapCenterFallback: () => void
@@ -83,6 +87,9 @@ export interface MapSlice {
   requestMapAutoRecenter: (reason: string) => void
   setCoursePlotZoomEnabled: (enabled: boolean) => void
   setMapLegendVisible: (visible: boolean) => void
+  addCombatSector: (combatId: string, sectorId: number) => void
+  removeCombatSector: (combatId: string) => void
+  clearCombatSectors: () => void
   resetMapView: () => void
   invalidateMapCoverage: (resetCenterSector?: number) => void
 
@@ -303,6 +310,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     pendingMapFitMissingCount: undefined,
     coursePlotZoomEnabled: true,
     mapLegendVisible: false,
+    combat_sectors: {},
     mapResetEpoch: 0,
     // =================================================================
     // Map data methods
@@ -603,12 +611,36 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         })
       ),
 
+    addCombatSector: (combatId: string, sectorId: number) =>
+      set(
+        produce((state) => {
+          if (state.combat_sectors[combatId] === sectorId) return
+          state.combat_sectors[combatId] = sectorId
+        })
+      ),
+
+    removeCombatSector: (combatId: string) =>
+      set(
+        produce((state) => {
+          if (!(combatId in state.combat_sectors)) return
+          delete state.combat_sectors[combatId]
+        })
+      ),
+
+    clearCombatSectors: () =>
+      set(
+        produce((state) => {
+          state.combat_sectors = {}
+        })
+      ),
+
     resetMapView: () =>
       set(
         produce((state) => {
           state.mapCenterSector = undefined
           state.mapCenterWorld = undefined
           state.mapFitBoundsWorld = undefined
+          state.combat_sectors = {}
           state.mapResetEpoch = (state.mapResetEpoch ?? 0) + 1
         })
       ),

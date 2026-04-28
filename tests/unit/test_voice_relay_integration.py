@@ -68,7 +68,6 @@ class RelayVoiceHarness:
 
         # Capture bus broadcasts
         self.bus_events: list[dict] = []
-        original_broadcast = self.voice_agent.broadcast_game_event
 
         async def _capture_broadcast(event, *, voice_agent_originated: bool = False):
             self.bus_events.append(event)
@@ -486,6 +485,44 @@ def _combat_ended(combat_id, participants, result="victory"):
     }
 
 
+def _corp_ship_participant(
+    participant_id="corp-ship-1",
+    *,
+    ship_id="ship-corp-1",
+    name="Corp Scout",
+):
+    return {
+        "id": participant_id,
+        "name": name,
+        "player_type": "corporation_ship",
+        "ship_id": ship_id,
+        "ship": {"ship_name": name},
+        "corp_id": "corp-1",
+    }
+
+
+def _owned_garrison():
+    return {
+        "id": "garrison:42:char-test",
+        "owner_character_id": "char-test",
+        "owner_corp_id": None,
+        "owner_name": "Test",
+        "mode": "offensive",
+        "fighters": 30,
+    }
+
+
+def _corp_garrison():
+    return {
+        "id": "garrison:42:corp-1",
+        "owner_character_id": "corp-mate",
+        "owner_corp_id": "corp-1",
+        "owner_name": "Corp Mate",
+        "mode": "defensive",
+        "fighters": 30,
+    }
+
+
 def _combat_action_accepted(combat_id, round_num, action, commit=0, target_id=None):
     return {
         "combat_id": combat_id,
@@ -663,20 +700,21 @@ class TestCombatVoiceSummaries:
 
 @pytest.mark.unit
 class TestCorpShipCombat:
-    """Corp ship in combat: player gets a round-1 silent context append
-    (catalog OBSERVED-via-corp-ship POV), no voice narration, and no
-    further LLM updates after that initial broadcast."""
+    """Corp ship combat appends the observed-stake stream, speaking only on
+    initiation and terminal resolution."""
 
-    async def test_corp_combat_round_1_silent_append(self):
-        """Round-1 fan-out: corp ship combat appends silently to player LLM
-        context (so the player can answer follow-ups), but no inference."""
+    async def test_corp_combat_round_1_speaks_without_combat_priority(self):
+        """Round-1 fan-out: corp ship combat speaks a notification."""
         h = _make_harness()
-        corp_ship_id = "corp-ship-abc"
 
         await h.feed_event(
             "combat.round_waiting",
             {
-                **_combat_waiting("cbt-corp", 1, [{"id": corp_ship_id}, {"id": "enemy-2"}]),
+                **_combat_waiting(
+                    "cbt-corp",
+                    1,
+                    [_corp_ship_participant("corp-ship-abc"), {"id": "enemy-2"}],
+                ),
                 "__event_context": {"scope": "corp", "reason": "corp_scope"},
             },
         )
@@ -685,22 +723,23 @@ class TestCorpShipCombat:
         assert h.rtvi_push_count >= 1
         # Bus broadcast happened (TaskAgent children notified)
         assert len(h.bus_events) >= 1
-        # Round-1 silent LLM append (one frame, no inference)
+        # Round-1 observed-stake append (one frame, normal inference)
         combat_frames = [(c, r) for c, r in h.llm_messages if "combat" in c.lower()]
         assert len(combat_frames) == 1
-        _, run_llm = combat_frames[0]
-        assert run_llm is False  # ON_PARTICIPANT — voice doesn't fire for observer
+        content, run_llm = combat_frames[0]
+        assert 'combat_pov="observed_via_corp_ship"' in content
+        assert run_llm is True
 
     async def test_corp_combat_does_not_block_subsequent_player_events(self):
         """After corp combat events, player events still flow normally to LLM."""
         h = _make_harness()
         h.relay._onboarding_complete = True
 
-        # Corp ship combat event (round-1 silent append)
+        # Corp ship combat event (round-1 observed-stake notification)
         await h.feed_event(
             "combat.round_waiting",
             {
-                **_combat_waiting("cbt-corp", 1, [{"id": "corp-ship-1"}]),
+                **_combat_waiting("cbt-corp", 1, [_corp_ship_participant()]),
                 "__event_context": {"scope": "corp", "reason": "corp_scope"},
             },
         )
@@ -722,12 +761,10 @@ class TestCorpShipCombat:
         assert len(combat_frames) == 1
         assert len(status_frames) == 1
 
-    async def test_corp_combat_after_round_1_does_not_reach_llm(self):
-        """After the round-1 broadcast, corp combat updates are filtered out.
-        round_resolved + ended for an observer never append (PARTICIPANT
-        rule, not a participant)."""
+    async def test_corp_combat_continuing_round_appends_silently(self):
+        """Continuing corp combat updates stay in context but do not speak."""
         h = _make_harness()
-        corp_participants = [{"id": "corp-ship-1"}, {"id": "enemy-1"}]
+        corp_participants = [_corp_ship_participant(), {"id": "enemy-1"}]
         ec = {"__event_context": {"scope": "corp", "reason": "corp_scope"}}
 
         await h.feed_event(
@@ -742,8 +779,129 @@ class TestCorpShipCombat:
         # Both events still go to RTVI / bus
         assert h.rtvi_push_count == 2
         assert len(h.bus_events) == 2
-        # But neither lands in LLM context for the observer
-        assert len(h.llm_messages) == 0
+        # round_resolved lands silently; combat.ended remains participant-personalized
+        resolved_frames = _llm_event_frames(h, "combat.round_resolved")
+        ended_frames = _llm_event_frames(h, "combat.ended")
+        assert len(resolved_frames) == 1
+        assert resolved_frames[0][1] is False
+        assert len(ended_frames) == 0
+
+    async def test_corp_combat_terminal_round_resolved_speaks(self):
+        h = _make_harness()
+        corp_participants = [_corp_ship_participant(), {"id": "enemy-1"}]
+        ec = {"__event_context": {"scope": "corp", "reason": "corp_scope"}}
+
+        await h.feed_event(
+            "combat.round_resolved",
+            {
+                **_combat_resolved(
+                    "cbt-corp",
+                    4,
+                    corp_participants,
+                    result="no_hostiles",
+                ),
+                **ec,
+            },
+        )
+
+        resolved_frames = _llm_event_frames(h, "combat.round_resolved")
+        assert len(resolved_frames) == 1
+        content, run_llm = resolved_frames[0]
+        assert 'combat_pov="observed_via_corp_ship"' in content
+        assert run_llm is True
+
+
+@pytest.mark.unit
+class TestGarrisonObservedCombat:
+    """Garrison combat follows the observed-stake stream policy."""
+
+    async def test_garrison_round_1_speaks_for_owner(self):
+        h = _make_harness()
+        payload = {
+            **_combat_waiting("cbt-garrison", 1, [{"id": "enemy-1"}]),
+            "garrison": _owned_garrison(),
+            "__event_context": {"scope": "sector", "reason": "garrison_owner"},
+        }
+
+        await h.feed_event("combat.round_waiting", payload)
+
+        frames = _llm_event_frames(h, "combat.round_waiting")
+        assert len(frames) == 1
+        content, run_llm = frames[0]
+        assert 'combat_pov="observed_via_garrison"' in content
+        assert run_llm is True
+
+    async def test_garrison_continuing_round_appends_silently(self):
+        h = _make_harness()
+        payload = {
+            **_combat_resolved(
+                "cbt-garrison",
+                2,
+                [{"id": "enemy-1"}],
+                result="in_progress",
+            ),
+            "garrison": _corp_garrison(),
+            "__event_context": {"scope": "sector", "reason": "garrison_corp_member"},
+        }
+
+        await h.feed_event("combat.round_resolved", payload)
+
+        frames = _llm_event_frames(h, "combat.round_resolved")
+        assert len(frames) == 1
+        content, run_llm = frames[0]
+        assert 'combat_pov="observed_via_garrison"' in content
+        assert run_llm is False
+
+    async def test_garrison_terminal_round_resolved_speaks_for_corp_stake(self):
+        h = _make_harness()
+        payload = {
+            **_combat_resolved(
+                "cbt-garrison",
+                3,
+                [{"id": "enemy-1"}],
+                result="one_side_destroyed",
+            ),
+            "garrison": _corp_garrison(),
+            "__event_context": {"scope": "sector", "reason": "garrison_corp_member"},
+        }
+
+        await h.feed_event("combat.round_resolved", payload)
+
+        frames = _llm_event_frames(h, "combat.round_resolved")
+        assert len(frames) == 1
+        content, run_llm = frames[0]
+        assert 'combat_pov="observed_via_garrison"' in content
+        assert run_llm is True
+
+    async def test_garrison_destroyed_speaks_only_for_owner(self):
+        owner = _make_harness()
+        corp_member = _make_harness()
+        payload_owner = {
+            "combat_id": "cbt-garrison",
+            "garrison_id": "garrison:42:char-test",
+            "owner_character_id": "char-test",
+            "owner_corp_id": "corp-1",
+            "owner_name": "Test",
+            "sector": {"id": 42},
+            "mode": "offensive",
+            "__event_context": {"scope": "sector", "reason": "garrison_owner"},
+        }
+        payload_corp_member = {
+            **payload_owner,
+            "owner_character_id": "corp-mate",
+            "owner_name": "Corp Mate",
+            "__event_context": {"scope": "sector", "reason": "garrison_corp_member"},
+        }
+
+        await owner.feed_event("garrison.destroyed", payload_owner)
+        await corp_member.feed_event("garrison.destroyed", payload_corp_member)
+
+        owner_frames = _llm_event_frames(owner, "garrison.destroyed")
+        corp_frames = _llm_event_frames(corp_member, "garrison.destroyed")
+        assert len(owner_frames) == 1
+        assert owner_frames[0][1] is True
+        assert len(corp_frames) == 1
+        assert corp_frames[0][1] is False
 
 
 @pytest.mark.unit
@@ -751,12 +909,11 @@ class TestMixedCombat:
     """Player in personal combat while corp ships also fight separately."""
 
     async def test_player_combat_reaches_llm_while_corp_combat_does_not(self):
-        # Use round 2 for both: round-1 fan-out would intentionally append
-        # both events; this test is about steady-state separation, where
-        # only the player's personal combat reaches LLM.
+        # Use round 2 for both: player combat speaks; observed corp combat is
+        # retained silently as context.
         h = _make_harness()
         player_participants = [{"id": "char-test"}, {"id": "enemy-1"}]
-        corp_participants = [{"id": "corp-ship-1"}, {"id": "enemy-2"}]
+        corp_participants = [_corp_ship_participant(), {"id": "enemy-2"}]
         ec_corp = {"__event_context": {"scope": "corp", "reason": "corp_scope"}}
 
         # Player combat round
@@ -770,13 +927,16 @@ class TestMixedCombat:
             {**_combat_waiting("cbt-corp", 2, corp_participants), **ec_corp},
         )
 
-        # Only player combat in LLM (round 2+ filters non-participants out)
+        # Both are in context, but only the direct player combat runs inference.
         combat_llm = _llm_event_frames(h, "combat.round_waiting")
-        assert len(combat_llm) == 1
-        content, run_llm = combat_llm[0]
-        assert "cbt-player" in content
-        assert "cbt-corp" not in content
-        assert run_llm is True
+        assert len(combat_llm) == 2
+        frames_by_id = {content: run_llm for content, run_llm in combat_llm}
+        player_runs = [
+            run for content, run in frames_by_id.items() if "cbt-player" in content
+        ]
+        corp_runs = [run for content, run in frames_by_id.items() if "cbt-corp" in content]
+        assert player_runs == [True]
+        assert corp_runs == [False]
 
         # Both pushed to RTVI
         assert h.rtvi_push_count == 2
@@ -787,7 +947,7 @@ class TestMixedCombat:
         """Player's combat ends, corp combat continues — LLM context reflects player state."""
         h = _make_harness()
         player_participants = [{"id": "char-test"}]
-        corp_participants = [{"id": "corp-ship-1"}, {"id": "enemy-2"}]
+        corp_participants = [_corp_ship_participant(), {"id": "enemy-2"}]
         ec_corp = {"__event_context": {"scope": "corp", "reason": "corp_scope"}}
 
         # Player combat ends
@@ -803,9 +963,9 @@ class TestMixedCombat:
         # Player combat ended in LLM
         ended_frames = [c for c, _ in h.llm_messages if "combat has ended" in c.lower()]
         assert len(ended_frames) == 1
-        # Corp combat NOT in LLM
+        # Corp combat remains in LLM context silently.
         corp_frames = [c for c, _ in h.llm_messages if "cbt-corp" in c]
-        assert len(corp_frames) == 0
+        assert len(corp_frames) == 1
 
 
 @pytest.mark.unit
@@ -821,7 +981,7 @@ class TestTaskSpawningDuringCombat:
         await h.feed_event(
             "combat.round_waiting",
             {
-                **_combat_waiting("cbt-corp", 1, [{"id": "corp-ship-1"}]),
+                **_combat_waiting("cbt-corp", 1, [_corp_ship_participant()]),
                 **ec_corp,
             },
         )
@@ -850,7 +1010,7 @@ class TestTaskSpawningDuringCombat:
         )
 
         # Task spawning works
-        with patch.object(h.voice_agent, "add_agent", new_callable=AsyncMock) as mock_add:
+        with patch.object(h.voice_agent, "add_agent", new_callable=AsyncMock):
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "explore sector 5"}
             params.result_callback = AsyncMock()
@@ -1079,7 +1239,7 @@ class TestVoiceLlmRoutingPolicy:
 
         await non_local.feed_event(
             "ship.destroyed",
-            {"sector": {"id": 472}, "ship": {"id": "ship-1"}},
+            {"sector": {"id": 472}, "ship_id": "ship-1"},
         )
 
         assert len(_llm_event_frames(non_local, "ship.destroyed")) == 0
@@ -1089,10 +1249,70 @@ class TestVoiceLlmRoutingPolicy:
 
         await local.feed_event(
             "ship.destroyed",
-            {"sector": {"id": 472}, "ship": {"id": "ship-1"}},
+            {"sector": {"id": 472}, "ship_id": "ship-1"},
         )
 
         assert len(_llm_event_frames(local, "ship.destroyed")) == 1
+
+    async def test_ship_destroyed_speaks_for_owned_ship_even_when_non_local(self):
+        h = _make_harness()
+        h.relay._current_sector_id = 690
+
+        await h.feed_event(
+            "ship.destroyed",
+            {
+                "sector": {"id": 472},
+                "ship_id": "ship-player",
+                "ship_name": "Runner",
+                "owner_character_id": "char-test",
+                "corp_id": None,
+            },
+        )
+
+        frames = _llm_event_frames(h, "ship.destroyed")
+        assert len(frames) == 1
+        assert frames[0][1] is True
+
+    async def test_corp_ship_destroyed_speaks_for_corp_member_even_when_non_local(self):
+        h = _make_harness()
+        h.relay._current_sector_id = 690
+
+        await h.feed_event(
+            "ship.destroyed",
+            {
+                "sector": {"id": 472},
+                "ship_id": "ship-corp",
+                "ship_name": "Corp Scout",
+                "player_type": "corporation_ship",
+                "owner_character_id": "corp-ship-pseudo",
+                "corp_id": "corp-1",
+            },
+        )
+
+        frames = _llm_event_frames(h, "ship.destroyed")
+        assert len(frames) == 1
+        content, run_llm = frames[0]
+        assert "Your corp ship Corp Scout was destroyed" in content
+        assert run_llm is True
+
+    async def test_unrelated_non_local_ship_destroyed_stays_rtvi_only(self):
+        h = _make_harness()
+        h.relay._current_sector_id = 690
+
+        await h.feed_event(
+            "ship.destroyed",
+            {
+                "sector": {"id": 472},
+                "ship_id": "ship-other",
+                "ship_name": "Enemy Scout",
+                "player_type": "human",
+                "owner_character_id": "other-player",
+                "corp_id": "corp-other",
+            },
+        )
+
+        assert h.rtvi_push_count == 1
+        assert len(_llm_event_frames(h, "ship.destroyed")) == 0
 
     async def test_combat_round_resolved_with_non_player_subject_still_appended(self):
         h = _make_harness()
@@ -1252,8 +1472,6 @@ class TestCombatTaskCancellation:
 
     async def test_no_tasks_running_combat_is_safe(self):
         """Combat with no active tasks doesn't error."""
-        from gradientbang.subagents.agents.base_agent import TaskGroup
-
         game_client = MagicMock()
         game_client.corporation_id = "corp-1"
         game_client.on = MagicMock(return_value=lambda fn: fn)

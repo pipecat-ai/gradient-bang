@@ -61,10 +61,10 @@ Garrison combatant ids keep their structured form `garrison:<sector>:<owner_shor
 
 | Round | Relay behaviour |
 |---|---|
-| **Round 1** | Append for **every recipient** (participants + observers). Serves as the "combat has begun" broadcast to everyone with a stake. XML framing says "A new combat has begun…" (see round-1 examples below). |
-| **Rounds 2+** | Append **only for participants**. Drop for non-participants — `round_resolved` already carried their state; another near-identical snapshot is context clutter. XML framing says "You are currently in active combat…" |
+| **Round 1** | Append for **every recipient**. Direct participants and observed corp-ship/garrison stake viewers run inference; sector-only observers append silently. XML framing says "A new combat has begun…" (see round-1 examples below). |
+| **Rounds 2+** | Append for direct participants and observed corp-ship/garrison stake viewers. Direct participants run inference; observed stake viewers append silently. Sector-only observers are filtered. |
 
-Voice narration behaviour is unchanged: `ON_PARTICIPANT` still fires inference only for participants. Round-1 observers get silent context append — exactly what we want.
+Voice narration is POV-aware: observed stake viewers hear initiation and terminal resolution at normal event priority, while continuing updates stay in context without waking the bot.
 
 **Why relay-only?** The event type, payload, and server emission stay identical every round. Only the bot-side append decision changes based on `payload.round`. This avoids a second event type, avoids a second emission path, and keeps the round-awareness in the place that already does per-viewer logic.
 
@@ -371,7 +371,7 @@ The `[DESTROYED]` marker on the garrison line tells the LLM the garrison is gone
 
 **Fires when:** Combat terminates — one side destroyed, all flee successfully, toll satisfied, stalemate, or forced abort.
 
-**Recipients:** Same as round events. Each character participant receives a personalized payload (their own `ship` block).
+**Recipients:** Character participants receive personalized direct events (their own `ship` block). Corp members of participant corps and garrison stake observers (`corp_member`, `garrison_owner`, `garrison_corp_member`) receive a separate observer-safe sector event with `observed=true` and no personalized `ship` block so clients can clear observed-combat indicators without mutating personal combat state. This includes ordinary player ships in a corporation, not only autonomous corp ships.
 
 **AppendRule:** `PARTICIPANT` · **InferenceRule:** `NEVER` *(silent append — `round_resolved` that delivered the terminal state already fired inference)*
 
@@ -381,7 +381,8 @@ The `[DESTROYED]` marker on the garrison line tells the LLM the garrison is gone
 |---|---|---|
 | `salvage[]` | array | Every salvage entry created this combat |
 | `logs[]` | array | Round-by-round compressed history (for replay / UI) |
-| `ship` | object | **Personalized** — the receiving character's own ship state at end (fighters, shields, sector, credits). Different per recipient. |
+| `ship` | object | **Personalized participant events only** — the receiving character's own ship state at end (fighters, shields, sector, credits). Different per participant recipient. Omitted from observer-safe events. |
+| `observed` | boolean | Present as `true` on observer-safe stake-observer events. |
 
 **Payload additions (CHANGED):** same participant + garrison owner field additions as `round_waiting`.
 
@@ -576,7 +577,7 @@ Short IDs use the 6-char-prefix convention from `_short_id` in [`summary_formatt
 }
 ```
 
-**Voice beat after rework:** Owner hears "Commander, the Enforcer has been destroyed." Non-owners get silent context append only.
+**Voice beat after rework:** Owner hears "Commander, the Enforcer has been destroyed." Matching corp members also hear when a corp ship is destroyed. Unrelated non-local recipients get RTVI only.
 
 **XML envelope (target) — subject-scoped.** The event's subject is always one specific ship, so `ship_id` + `ship_name?` ride the envelope regardless of viewer POV. Only the summary body framing changes per viewer.
 
@@ -724,7 +725,7 @@ If we decide to surface it to the LLM later (e.g. so the agent can comment on wr
 }
 ```
 
-**Voice beat:** Owner hears "Commander, your garrison in sector 42 has fallen." Non-owners (corp members, sector observers) get silent context append.
+**Voice beat:** Owner hears "Commander, your garrison in sector 42 has fallen." Corp members may get silent context; sector-only observers get RTVI only.
 
 **XML envelope (target) — subject-scoped.** Like `ship.destroyed`, the subject is always one specific garrison; `garrison_id` + `garrison_owner` ride the envelope regardless of viewer POV.
 
@@ -891,7 +892,7 @@ Your corp's garrison (owner Bob) was destroyed in sector 42 garrison_id=garrison
 |---|---|---|---|---|
 | `combat.round_waiting` | CHANGED | PARTICIPANT | ON_PARTICIPANT | participant `fighters`/`destroyed`/`corp_id`; garrison `owner_character_id`/`owner_corp_id`; **relay-driven round-1 fan-out** (round 1 appends for all recipients with "combat has begun" framing; rounds 2+ drop for non-participants) |
 | `combat.round_resolved` | CHANGED | PARTICIPANT | ALWAYS | (same payload additions as above); widened recipients to include absent garrison owners + their corp |
-| `combat.ended` | CHANGED | PARTICIPANT | NEVER | (same payload additions); widened recipients |
+| `combat.ended` | CHANGED | PARTICIPANT | NEVER | participant-personalized direct event plus observer-safe stake-observer event (`observed=true`, no `ship`) |
 | `combat.action_accepted` | SAME | PARTICIPANT | NEVER | — |
 | `ship.destroyed` | CHANGED | LOCAL | NEVER → **OWNED** | `owner_character_id`, `corp_id` |
 | `salvage.created` | SAME | LOCAL | NEVER | — |

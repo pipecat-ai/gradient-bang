@@ -60,6 +60,12 @@ interface MapProps {
   showLegend?: boolean
   coursePlot?: CoursePlot | null
   ships?: Array<{ sector: number; ship_name: string; ship_type: string }>
+  /**
+   * Sectors with active combat, drawn as an additive dotted overlay. Toggling
+   * this set never alters topology or camera state — it triggers a cheap
+   * controller.render() only.
+   */
+  combatSectors?: Set<number> | null
   onNodeClick?: (node: MapSectorNode | null) => void
   onNodeEnter?: (node: MapSectorNode) => void
   onNodeExit?: (node: MapSectorNode) => void
@@ -129,6 +135,7 @@ const MapComponent = ({
   maxDistance = 2,
   coursePlot,
   ships,
+  combatSectors,
   onNodeClick,
   onNodeEnter,
   onNodeExit,
@@ -155,6 +162,16 @@ const MapComponent = ({
     return map
   }, [ships])
 
+  // Sorted serialized key — same pattern as shipsKey. Lets the comparator
+  // and the change-detection block diff combat sectors without holding a
+  // reference to the Set itself.
+  const combatSectorsKey =
+    combatSectors && combatSectors.size > 0 ?
+      Array.from(combatSectors)
+        .sort((a, b) => a - b)
+        .join(",")
+    : ""
+
   // Default center_sector_id to current_sector_id if not provided
   const center_sector_id = center_sector_id_prop ?? current_sector_id ?? 0
 
@@ -180,6 +197,7 @@ const MapComponent = ({
   const lastConfigRef = useRef<Omit<SectorMapConfigBase, "center_sector_id"> | null>(null)
   const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot)
   const lastShipsKeyRef = useRef<string>(shipsKey)
+  const lastCombatSectorsKeyRef = useRef<string>(combatSectorsKey)
   const lastCenterWorldRef = useRef<[number, number] | undefined>(center_world)
   const lastFitBoundsWorldRef = useRef<[number, number, number, number] | undefined>(
     fit_bounds_world
@@ -374,6 +392,7 @@ const MapComponent = ({
         maxDistance,
         coursePlot,
         ships: shipsMap,
+        combatSectors,
       })
       controllerRef.current = controller
       prevCenterSectorIdRef.current = center_sector_id
@@ -383,6 +402,7 @@ const MapComponent = ({
       lastConfigRef.current = baseConfig
       lastCoursePlotRef.current = coursePlot
       lastShipsKeyRef.current = shipsKey
+      lastCombatSectorsKeyRef.current = combatSectorsKey
       lastCenterWorldRef.current = center_world
       lastFitBoundsWorldRef.current = fit_bounds_world
       lastMapFitEpochRef.current = mapFitEpoch
@@ -402,6 +422,7 @@ const MapComponent = ({
     const configChanged = lastConfigRef.current !== baseConfig
     const coursePlotChanged = !courseplotsEqual(lastCoursePlotRef.current, coursePlot)
     const shipsChanged = lastShipsKeyRef.current !== shipsKey
+    const combatSectorsChanged = lastCombatSectorsKeyRef.current !== combatSectorsKey
     const centerWorldChanged = !tuplesEqual(lastCenterWorldRef.current, center_world)
     const fitBoundsWorldChanged = !tuplesEqual(lastFitBoundsWorldRef.current, fit_bounds_world)
     const mapFitEpochChanged = lastMapFitEpochRef.current !== mapFitEpoch
@@ -416,6 +437,7 @@ const MapComponent = ({
       !configChanged &&
       !coursePlotChanged &&
       !shipsChanged &&
+      !combatSectorsChanged &&
       !centerWorldChanged &&
       !fitBoundsWorldChanged &&
       !mapFitEpochChanged &&
@@ -447,6 +469,7 @@ const MapComponent = ({
       data: normalizedMapData,
       coursePlot,
       ships: shipsMap,
+      combatSectors,
     })
 
     // Determine if a camera reframe is needed
@@ -482,12 +505,14 @@ const MapComponent = ({
       needsConfigUpdate ||
       shipsChanged ||
       coursePlotChanged ||
+      combatSectorsChanged ||
       topologyChanged
     ) {
       console.debug("%c[SectorMap] Re-render", "color: red; font-weight: bold", {
         configChanged,
         shipsChanged,
         coursePlotChanged,
+        combatSectorsChanged,
         topologyChanged,
       })
       controller.render()
@@ -499,6 +524,7 @@ const MapComponent = ({
     lastConfigRef.current = baseConfig
     lastCoursePlotRef.current = coursePlot
     lastShipsKeyRef.current = shipsKey
+    lastCombatSectorsKeyRef.current = combatSectorsKey
     lastCenterWorldRef.current = center_world
     lastFitBoundsWorldRef.current = fit_bounds_world
     lastMapFitEpochRef.current = mapFitEpoch
@@ -511,6 +537,8 @@ const MapComponent = ({
     coursePlot,
     shipsKey,
     shipsMap,
+    combatSectorsKey,
+    combatSectors,
     onMapFetch,
     effectiveWidth,
     effectiveHeight,
@@ -638,6 +666,25 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
   if (prevProps.ships !== nextProps.ships) {
     const prevKey = prevProps.ships?.map((s) => `${s.sector}:${s.ship_name}`).join(",") ?? ""
     const nextKey = nextProps.ships?.map((s) => `${s.sector}:${s.ship_name}`).join(",") ?? ""
+    if (prevKey !== nextKey) {
+      return false
+    }
+  }
+
+  // Combat sectors - sorted serialized key (same pattern as ships)
+  if (prevProps.combatSectors !== nextProps.combatSectors) {
+    const prevKey =
+      prevProps.combatSectors && prevProps.combatSectors.size > 0 ?
+        Array.from(prevProps.combatSectors)
+          .sort((a, b) => a - b)
+          .join(",")
+      : ""
+    const nextKey =
+      nextProps.combatSectors && nextProps.combatSectors.size > 0 ?
+        Array.from(nextProps.combatSectors)
+          .sort((a, b) => a - b)
+          .join(",")
+      : ""
     if (prevKey !== nextKey) {
       return false
     }

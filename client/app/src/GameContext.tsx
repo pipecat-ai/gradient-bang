@@ -1272,6 +1272,15 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.round_waiting": {
               console.debug("[GAME EVENT] Combat round waiting", e.payload)
               const data = e.payload as Msg.CombatRoundWaitingMessage
+
+              // Mark sector as in-combat for the map overlay regardless of
+              // whether we are a participant — observed-combat flavors land
+              // here too and should still highlight the sector.
+              const overlaySectorId = getPayloadSectorId(data)
+              if (typeof data.combat_id === "string" && typeof overlaySectorId === "number") {
+                useGameStore.getState().addCombatSector(data.combat_id, overlaySectorId)
+              }
+
               if (!playerSessionId) {
                 logIgnored("combat.round_waiting", "personalPlayerId not set", data)
                 break
@@ -1330,6 +1339,13 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.ended": {
               console.debug("[GAME EVENT] Combat ended", e.payload)
               const data = e.payload as Msg.CombatEndedMessage
+
+              // Always clear the map overlay entry — fires for participant
+              // and observer (observed: true) flavors alike.
+              if (typeof data.combat_id === "string") {
+                useGameStore.getState().removeCombatSector(data.combat_id)
+              }
+
               const activeCombatId = useGameStore.getState().activeCombatSession?.combat_id
               const hasPersonalAction =
                 !!playerSessionId &&
@@ -1870,7 +1886,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "llm.context_summarized": {
               const data = e.payload as Msg.ContextSummarizedMessage
               useConversationStore.getState().injectMessage({
-                role: "system",
+                role: "ui",
                 parts: [
                   {
                     text: `Context summarized: ${data.original_message_count} → ${data.new_message_count} messages (${data.summarized_message_count} compressed, ${data.preserved_message_count} preserved)`,

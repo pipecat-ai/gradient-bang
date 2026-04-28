@@ -36,7 +36,7 @@ Each row is an independent, surgical change. "Surface" maps to the detailed sect
 | # | Discrepancy | Current prod | Target (harness parity) | Type | Risk | Surface |
 |---|---|---|---|---|---|---|
 | 1 | `garrison.destroyed` event | not emitted (silent `.delete()` in `updateGarrisonState`) | emitted before row delete with full garrison metadata | **new event** | low | A |
-| 2 | Absent garrison owner receives combat events | no (only participants + sector + corp) | yes — silent append on round events, voice-announce on `garrison.destroyed` | **routing** | med | B |
+| 2 | Absent garrison owner receives combat events | no (only participants + sector + corp) | yes — initiation and terminal resolution speak; continuing rounds append silently; `garrison.destroyed` speaks for owner | **routing** | med | B |
 | 3 | `InferenceRule.OWNED` category | absent from `event_relay.py` | added; fires LLM only for owning character | **framework** | low | C |
 | 4 | Garrison envelope XML attrs | `combat_id` only | + `garrison_id="<combatant_id>"`, `garrison_owner="<character_id>"` on every garrison-involved combat event | **envelope** | low | D |
 | 5 | Participant `fighters` field | missing | included — current fighter count per combatant | **payload** | low | E |
@@ -46,7 +46,7 @@ Each row is an independent, surgical change. "Surface" maps to the detailed sect
 | 9 | Garrison `owner_corp_id` in payload | missing | included | **payload** | med (privacy) | F |
 | 10 | `ship.destroyed` `owner_character_id` | missing | included | **payload** | med (privacy) | G |
 | 11 | `ship.destroyed` `corp_id` | missing | included | **payload** | med (privacy) | G |
-| 12 | `ship.destroyed` voice narration | silent (`InferenceRule.NEVER`) | voice fires for the owner via `InferenceRule.OWNED` | **routing** | low | H |
+| 12 | `ship.destroyed` voice narration | silent (`InferenceRule.NEVER`) | voice fires for the owning player and matching corp-ship losses | **routing** | low | H |
 | 13 | Prompt guidance for new combat fields | `combat.md` doesn't reference them | teaches the agent to read `fighters`, `destroyed`, `corp_id`, garrison envelope attrs, and `owner_character_id`-based framing | **prompt** | low | I |
 
 **Privacy note (rows 7–11):** Exposing character IDs and corp IDs in broadcast event payloads means any recipient of a combat event can see who owns what. This is acceptable because combat event recipients are already scoped by `visibility.ts` to people who have a legitimate stake (participant, sector observer, corp member, garrison owner). None of these are random third parties. But we should scrub before deploy and confirm no recipient class gets a combatant's owner ID they shouldn't. Worst case: opt into per-recipient redaction for some fields (e.g. mask `corp_id` when recipient is a sector-only observer not in that corp). MVP: add without redaction, revisit if it leaks.
@@ -72,17 +72,17 @@ Companion view to the discrepancy table — shows *who* starts receiving what af
 | # | Discrepancy | Carried by | Today's recipients | +New after migration | Voice narration fires for |
 |---|---|---|---|---|---|
 | 1 | `garrison.destroyed` (new event) | itself | **nobody** (event doesn't exist) | P + S + CP + **GO** + **CGO** | **GO only** (via `InferenceRule.OWNED`) |
-| 2 | Absent-owner routing | `round_waiting` / `round_resolved` / `ended` | P + S + CP | + **GO** + **CGO** (silent append) | no change — `ON_PARTICIPANT` already filters non-participants |
-| 3 | `InferenceRule.OWNED` (framework) | — | — | — | enables per-owner firing (used by #1; candidate for `ship.destroyed` later) |
+| 2 | Absent-owner routing | `round_waiting` / `round_resolved` / `ended` | P + S + CP | + **GO** + **CGO** | initiation and terminal `round_resolved` for GO/CGO; continuing updates silent |
+| 3 | `InferenceRule.OWNED` (framework) | — | — | — | enables per-owner firing (used by #1 and #12) |
 | 4 | Garrison envelope XML attrs | round events + `garrison.destroyed` | same as events | (no recipient change) | no change |
 | 5 | Participant `fighters` | round events | P + S + CP | (no recipient change) | no change |
 | 6 | Participant `destroyed` flag | round events | P + S + CP | (no recipient change) | no change |
 | 7 | Participant `corp_id` | round events | P + S + CP | (no recipient change) | no change |
 | 8 | Garrison `owner_character_id` | round events | P + S + CP | (no recipient change) | no change |
 | 9 | Garrison `owner_corp_id` | round events | P + S + CP | (no recipient change) | no change |
-| 10 | `ship.destroyed` `owner_character_id` | `ship.destroyed` | S + corp-of-destroyed-ship | (no recipient change) | no change (NEVER inference) |
-| 11 | `ship.destroyed` `corp_id` | `ship.destroyed` | S + corp-of-destroyed-ship | (no recipient change) | no change (NEVER inference) |
-| 12 | `ship.destroyed` OWNED narration | `ship.destroyed` | S + corp-of-destroyed-ship | (no recipient change) | +**ship owner** (personal ships only; corp-ship owner is a pseudo-character — see Surface H) |
+| 10 | `ship.destroyed` `owner_character_id` | `ship.destroyed` | S + corp-of-destroyed-ship | (no recipient change) | enables personal ship owner narration |
+| 11 | `ship.destroyed` `corp_id` | `ship.destroyed` | S + corp-of-destroyed-ship | (no recipient change) | enables matching corp-ship narration |
+| 12 | `ship.destroyed` OWNED narration | `ship.destroyed` | S + corp-of-destroyed-ship | (no recipient change) | +**ship owner** and +**matching corp members for corp ships** |
 | 13 | Prompt updates | — | — | — | (no delivery change) — sharpens reasoning on existing narration paths |
 
 **Scope takeaway.** Only **two rows change who gets events**: #1 (new event, all five classes receive it) and #2 (widens combat-round-event recipients to include GO + CGO). Rows 3–11 enrich payloads that already reach the same people or add framework scaffolding. Row 12 adds a voice-narration moment for an existing event without changing delivery. Row 13 is prompt-only. The migration expands information for garrison owners and their corps, adds one owner-scoped voice beat on ship destruction, and sharpens the agent's reading of combat events.
@@ -119,7 +119,7 @@ Rationale for the three ID fields:
 
 **Emission site.** `combat_finalization.ts` in `updateGarrisonState()` — emit **before** the `.delete()` call. Capture the garrison row's full metadata while it still exists.
 
-**Routing.** `AppendRule.PARTICIPANT` + `InferenceRule.OWNED`. OWNED is a new rule category (see Surface C). The owner's voice agent speaks ("Commander, the garrison in sector 42 has fallen."); sector observers and corp members get silent context append.
+**Routing.** `AppendRule.PARTICIPANT` + `InferenceRule.OWNED`. OWNED is a new rule category (see Surface C). The owner's voice agent speaks ("Commander, the garrison in sector 42 has fallen."); corp members get silent context append; sector-only observers get RTVI only.
 
 **Server-side recipient expansion.** The `garrison.destroyed` event's recipient list at emission time must include: `[owner_character_id, ...owner_corp_member_ids, ...sector_observers]`. Add a helper to `_shared/visibility.ts` (e.g. `garrisonDestroyedRecipients(garrison, sectorOccupants)`) if one doesn't already exist for this shape.
 
@@ -150,9 +150,9 @@ Plus `_summarize_garrison_destroyed()` returning: `"Your garrison in sector {N} 
 
 ### Surface B — Absent garrison owner event routing (fixes #2)
 
-**What.** When a garrison is in combat but its owner is elsewhere, the owner today sees nothing in-game. The harness routes `combat.round_waiting / round_resolved / ended` to the absent owner with silent append (voice agent doesn't speak) so the player's context stays up to date and they can ask "how's my garrison in sector 42?" and get a real answer.
+**What.** When a garrison is in combat but its owner is elsewhere, the owner today sees nothing in-game. The harness routes `combat.round_waiting / round_resolved / ended` to the absent owner so the player's context stays up to date and they can ask "how's my garrison in sector 42?" and get a real answer. Initiation and terminal resolution speak; continuing updates append silently.
 
-**Key insight.** Silencing the voice agent for absent owners is already done for free by the existing `InferenceRule.ON_PARTICIPANT` — absent garrison owners are NOT participants, so ON_PARTICIPANT doesn't fire inference for them. The *only* change needed is expanding the recipient set so they receive the event in the first place.
+**Key insight.** The voice agent needs two observed-stake wakeups, not a participant classification: round-1 `combat.round_waiting` and terminal `combat.round_resolved` run inference at normal priority for garrison owners/corp members, while continuing updates stay silent.
 
 **Emission-layer change.** Modify the recipient computation in [`_shared/visibility.ts`](../deployment/supabase/functions/_shared/visibility.ts) (and whatever helpers `combat_events.ts` / `combat_resolution.ts` use) to include garrison owners + owner-corp members when a garrison is in the encounter. Harness reference: `combatRecipients()` in `client/combat-sim/src/engine/engine.ts`.
 
@@ -164,12 +164,12 @@ participants ∪ sector_observers ∪ participant_corp_members
 
 Deduped. Only garrisons actually in the `encounter.participants` set (not sector drift-bys).
 
-**No EventRelay change needed for silencing.** ON_PARTICIPANT on `round_waiting` already skips LLM inference for non-participants. The absent garrison owner gets silent append — exactly what we want.
+**EventRelay policy.** Observed garrison combat appends all relevant round events. Round 1 and terminal resolution trigger inference; continuing rounds append with `run_llm=false`.
 
-**Coupling to Surface A.** `garrison.destroyed` (Surface A) uses InferenceRule.OWNED, which *does* fire inference for the owner. So the owner gets silent background updates + one voice-announced death moment. That's the designed UX.
+**Coupling to Surface A.** `garrison.destroyed` (Surface A) uses InferenceRule.OWNED, which *does* fire inference for the owner. Corp members may receive it as silent context, but only the owning character gets the destruction voice beat.
 
 **Tests.** The four harness scenarios in `agent.test.ts > remote garrison event flow` cover this:
-1. Remote owner receives round events (silent append)
+1. Remote owner receives round events (initiation/outcome spoken, continuing updates silent)
 2. Corp mate of remote owner receives round events (silent append)
 3. Destruction: owner's voice speaks
 4. Uninvolved third party receives nothing
@@ -281,17 +281,16 @@ Pulled from the garrison record (`garrisons` table has both).
 
 ### Surface H — `ship.destroyed` → `InferenceRule.OWNED` (fixes #12)
 
-**What.** Today `ship.destroyed` uses `InferenceRule.NEVER` — the voice agent silently appends it to context but never speaks. A player can lose their ship and only hear about it via the next `combat.round_resolved` narration (or not at all if the round was already resolving). Promote it to `InferenceRule.OWNED` so the voice agent speaks for the *owner* of the destroyed ship and nobody else.
+**What.** Today `ship.destroyed` uses `InferenceRule.NEVER` — the voice agent silently appends it to context but never speaks. A player can lose their ship and only hear about it via the next `combat.round_resolved` narration (or not at all if the round was already resolving). Promote it so the voice agent speaks for the owning player and for matching corp-ship losses.
 
-**Routing.** Recipient set unchanged (S + corp-of-destroyed-ship, still scoped by `visibility.ts`). Only the LLM-invocation rule changes: `_should_run_llm()` now fires when `payload.owner_character_id == player.id`.
+**Routing.** Recipient set unchanged (S + corp-of-destroyed-ship, still scoped by `visibility.ts`). Only the LLM-invocation rule changes: `_should_run_llm()` now fires when `payload.owner_character_id == player.id`, or when `payload.player_type == "corporation_ship"` and `payload.corp_id` matches the viewer corp.
 
-**Personal ships vs corp ships.** `InferenceRule.OWNED` fires for a human character. For personal ships, `owner_character_id` is the human's character id → voice fires for them. ✓
-For corp ships, `owner_character_id` is the pseudo-character id (not a human) → OWNED doesn't fire for any human. Corp-ship destruction stays silent at the voice layer; context append still lands for corp members so they can ask "did we lose anything?" and get an answer. Voice narration of corp-ship destruction is a future extension (candidate for a combined `OWNED_OR_CORP` rule if we want it; out of scope here).
+**Personal ships vs corp ships.** For personal ships, `owner_character_id` is the human's character id, so voice fires for them. For corp ships, `owner_character_id` is the pseudo-character id, so the relay also checks `corp_id` against the viewer corp and speaks for matching corp members.
 
 **Bot-side.** Single `EventConfig` change in [event_relay.py](../src/gradientbang/pipecat_server/subagents/event_relay.py):
 ```python
 "ship.destroyed": EventConfig(
-  append_rule=AppendRule.PARTICIPANT,   # unchanged
+  append_rule=AppendRule.LOCAL,         # plus owner/corp-ship non-local override
   inference_rule=InferenceRule.OWNED,   # was NEVER
   priority=EventPriority.HIGH,
   xml_context_key="combat_id",
@@ -299,13 +298,14 @@ For corp ships, `owner_character_id` is the pseudo-character id (not a human) �
 ),
 ```
 
-Plus a `_summarize_ship_destroyed()` voice line — for the owner, something like "Commander, the <ship_name> has been destroyed."
+Plus a `_summarize_ship_destroyed()` voice line — for the owner or corp member, something like "Commander, the <ship_name> has been destroyed."
 
 **Dependencies.** Surface C (provides `InferenceRule.OWNED`) and Surface G (provides `owner_character_id` on the payload for the rule to match against). Ship after both land.
 
 **Tests.** Port / extend:
 - Owner receives `ship.destroyed` and voice agent fires → inference runs exactly once
-- Corp member (non-owner) in sector receives `ship.destroyed` → silent append, no inference
+- Corp member receives matching corp-ship `ship.destroyed` and voice agent fires → inference runs exactly once
+- Corp member receives unrelated or personal non-owned `ship.destroyed` → no inference unless local context policy applies
 - Uninvolved third party: not in recipient set (already true today)
 
 **Risk.** Low. One EventConfig flip, one summary function. Only observable consequence is a voice line when your ship falls — which is strictly better UX.
@@ -329,7 +329,7 @@ Plus a `_summarize_ship_destroyed()` voice line — for the owner, something lik
 - **`garrison.destroyed` (Surface A):**
   - Treat as a terminal signal for that garrison: its fighters are gone, the row is deleted server-side, downstream `garrison.pay` or `garrison.attack` against that id will fail.
 - **`ship.destroyed` voice moment (Surface H):**
-  - When the agent receives `ship.destroyed` with `owner_character_id == self`, speak a short loss beat ("Commander, the <ship_name> is gone."). Don't repeat the `combat.round_resolved` narration — this is the *one* line for that loss.
+  - When the agent receives `ship.destroyed` with `owner_character_id == self`, or a matching corp-ship `corp_id`, speak a short loss beat ("Commander, the <ship_name> is gone."). Don't repeat the `combat.round_resolved` narration — this is the *one* line for that loss.
 
 **Implementation.** Mostly terse prose edits in the prompt file. Include one example block per field cluster so the model sees the field in context. Keep core prompts (voice_agent.md, game_overview.md) clean — the detail lives in the combat fragment.
 

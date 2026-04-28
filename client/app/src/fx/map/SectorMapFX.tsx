@@ -528,6 +528,8 @@ export interface SectorMapProps {
   maxDistance?: number
   coursePlot?: CoursePlot | null
   ships?: Map<number, Array<{ ship_name: string; ship_type: string }>>
+  /** Sectors with active combat — drawn as a dotted red border overlay. */
+  combatSectors?: Set<number> | null
 }
 
 export interface CameraState {
@@ -1478,6 +1480,28 @@ function renderSectorOffsetFrames(
     drawHex(ctx, world.x, world.y, effectiveHexSize + nodeStyle.offsetSize, false)
     ctx.restore()
   })
+}
+
+function renderSectorCombatHighlights(
+  ctx: CanvasRenderingContext2D,
+  data: MapSectorNode[],
+  scale: number,
+  hexSize: number,
+  combatSectors: Set<number>
+) {
+  if (combatSectors.size === 0) return
+  ctx.save()
+  ctx.strokeStyle = "#ff3344"
+  ctx.lineWidth = 2
+  ctx.setLineDash([4, 4])
+  ctx.lineCap = "round"
+  for (const node of data) {
+    if (!combatSectors.has(node.id)) continue
+    const world = hexToWorld(node.position[0], node.position[1], scale)
+    drawHex(ctx, world.x, world.y, hexSize, false)
+  }
+  ctx.setLineDash([])
+  ctx.restore()
 }
 
 /** Render hop number badges for course plot sectors (rendered above animation overlay) */
@@ -2611,6 +2635,15 @@ function renderWithCameraStateAndInteraction(
       hoverScale
     )
   })
+
+  // Combat overlay sits on top of base sector fills but under the offset
+  // frames (so the current-sector ring still wins visually) and well below
+  // the label layers — driven entirely by props.combatSectors so the
+  // overlay can toggle on/off via cheap controller.render() with no
+  // topology recompute or camera reframe.
+  if (props.combatSectors && props.combatSectors.size > 0) {
+    renderSectorCombatHighlights(ctx, cameraState.filteredData, scale, hexSize, props.combatSectors)
+  }
 
   // Render offset frames on top of all sectors (e.g. current sector frame)
   renderSectorOffsetFrames(

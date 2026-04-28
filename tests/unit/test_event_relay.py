@@ -962,16 +962,14 @@ class TestRelayEventRouting:
 
 @pytest.mark.unit
 class TestCombatPOVRouting:
-    """Round-1 combat.round_waiting append + run_llm decisions per POV.
+    """Combat append + run_llm decisions per POV.
 
     Direct: appended, run_llm=True, combat_pov="direct" — InferenceGate
         upgrades to combat_event priority.
-    Observed corp-ship / garrison: appended, run_llm=True, normal event
-        priority — speaks when allowed but does not interrupt.
+    Observed corp-ship / garrison: append the full context stream; run_llm
+        only on initiation and terminal resolution.
     Sector-only: appended (silent context), run_llm=False — never wakes
         the bot for a fight the viewer has no stake in.
-    Rounds 2+ for observers: dropped entirely (the round-1 frame already
-        gave them awareness; resolved updates are participant-only).
     """
 
     @staticmethod
@@ -981,6 +979,7 @@ class TestCombatPOVRouting:
         viewer_is_participant: bool = False,
         corp_ship_participant: bool = False,
         garrison: Optional[dict] = None,
+        result: Optional[str] = None,
     ) -> dict:
         participants: list[dict] = []
         if viewer_is_participant:
@@ -1019,6 +1018,8 @@ class TestCombatPOVRouting:
         }
         if garrison is not None:
             payload["garrison"] = garrison
+        if result is not None:
+            payload["result"] = result
         return payload
 
     @staticmethod
@@ -1097,8 +1098,7 @@ class TestCombatPOVRouting:
         assert run_llm is False
         assert 'combat_pov="observed_sector_only"' in content
 
-    async def test_observed_corp_ship_round2_dropped(self):
-        """Rounds 2+ are participant-only; observers already saw round 1."""
+    async def test_observed_corp_ship_round2_appends_silently(self):
         relay, task_state, _, _ = _make_relay()
         relay._combat_md_loaded = True
         await relay._relay_event(
@@ -1107,7 +1107,89 @@ class TestCombatPOVRouting:
                 self._payload(round_num=2, corp_ship_participant=True),
             )
         )
-        assert task_state.deferred_events == []
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is False
+        assert 'combat_pov="observed_via_corp_ship"' in content
+
+    async def test_observed_corp_ship_round_resolved_continuing_appends_silently(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_resolved",
+                self._payload(
+                    round_num=2,
+                    corp_ship_participant=True,
+                    result="in_progress",
+                ),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is False
+        assert 'combat_pov="observed_via_corp_ship"' in content
+
+    async def test_observed_corp_ship_terminal_round_resolved_runs_llm(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_resolved",
+                self._payload(
+                    round_num=3,
+                    corp_ship_participant=True,
+                    result="no_hostiles",
+                ),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is True
+        assert 'combat_pov="observed_via_corp_ship"' in content
+
+    async def test_observed_garrison_round2_appends_silently(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        garrison = {
+            "id": "garrison:42:char-123",
+            "owner_character_id": "char-123",
+            "owner_corp_id": None,
+            "owner_name": "You",
+            "mode": "offensive",
+            "fighters": 30,
+        }
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting",
+                self._payload(round_num=2, garrison=garrison),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is False
+        assert 'combat_pov="observed_via_garrison"' in content
+
+    async def test_observed_garrison_terminal_round_resolved_runs_llm(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        garrison = {
+            "id": "garrison:42:char-123",
+            "owner_character_id": "char-123",
+            "owner_corp_id": None,
+            "owner_name": "You",
+            "mode": "offensive",
+            "fighters": 0,
+        }
+        await relay._relay_event(
+            _make_event(
+                "combat.round_resolved",
+                self._payload(
+                    round_num=2,
+                    garrison=garrison,
+                    result="one_side_destroyed",
+                ),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is True
+        assert 'combat_pov="observed_via_garrison"' in content
 
     async def test_other_player_departure_from_other_sector_rtvi_only(self):
         """Other-player departures from different sectors get RTVI push but no LLM append."""

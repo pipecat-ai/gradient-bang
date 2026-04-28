@@ -434,27 +434,27 @@ Test characters are referred to as P1, P2, P3. Corp ships as CS1, CS2. Garrisons
 
 ### 7.1 Corp owner remote observes corp ship in combat
 
-**Description:** When a corp ship is in combat, the corp owner (out of sector) receives round events via corp fan-out with silent append (no voice narration).
+**Description:** When a corp ship is in combat, the corp owner (out of sector) receives round events via corp fan-out. Initiation and terminal resolution speak; continuing round updates append silently.
 
 **Setup:** P1 owns corp ship CS1. CS1 in sector 50. P1 in sector 1. CS1 engaged by hostile.
 
 **Script:**
-- `[Expected]` `combat.round_waiting` arrives at P1 silently (no voice narration). XML envelope carries `combat_id`, `ship_id`, `ship_name`.
+- `[Expected]` Round-1 `combat.round_waiting` arrives at P1 and voice narrates that CS1 has engaged in combat. XML envelope carries `combat_id`, `combat_pov="observed_via_corp_ship"`, `ship_id`, `ship_name`.
 
-**Expected:** Event in P1's context; voice agent does NOT narrate (POV is OBSERVED via corp ship); summary uses corp-ship framing if surfaced.
+**Expected:** Event in P1's context; voice agent narrates at normal event priority, not the high-priority direct-combat path. Later continuing updates remain silent context until terminal resolution or destruction.
 
 ---
 
 ### 7.2 Corp owner notified when corp ship is destroyed
 
-**Description:** `ship.destroyed` for a corp ship triggers `InferenceRule.OWNED` voice narration only for the owner.
+**Description:** `ship.destroyed` for a corp ship triggers voice narration for matching corp members.
 
 **Setup:** From 7.1; CS1 destroyed.
 
 **Script:**
 - `[Expected]` `ship.destroyed` arrives at P1; voice narrates "we lost CS1 in sector 50."
 
-**Expected:** Voice narration fires for P1 (OWNED); other corp members get silent append; salvage event also arrives.
+**Expected:** Voice narration fires for P1 and matching corp members; unrelated recipients do not get LLM context. Salvage event also arrives.
 
 ---
 
@@ -481,7 +481,7 @@ Test characters are referred to as P1, P2, P3. Corp ships as CS1, CS2. Garrisons
 - CS1's task agent decides to pay (or owner via voice command issues "have CS1 pay the toll" if such a command path exists).
 - `[Expected]` `combat_action` with `action="pay"` from CS1's actor context. `combat.ended` with `toll_satisfied`.
 
-**Expected:** CS1's credits debited by 500; `entry.payments[]` row identifies CS1 as payer; `combat.ended` reaches P1 via corp fan-out; P1's voice narrates corp-ship outcome.
+**Expected:** CS1's credits debited by 500; `entry.payments[]` row identifies CS1 as payer; terminal `combat.round_resolved` narrates the corp-ship outcome for P1, and observer-safe `combat.ended` reaches P1 via corp fan-out so the client can clear the observed combat indicator.
 
 ---
 
@@ -500,16 +500,16 @@ Test characters are referred to as P1, P2, P3. Corp ships as CS1, CS2. Garrisons
 
 ## 8. Garrison owner POV — remote observation
 
-### 8.1 Remote owner gets silent append on round events
+### 8.1 Remote owner gets observed-stake combat updates
 
-**Description:** Garrison under attack — owner is in another sector. Round events arrive silently in their context.
+**Description:** Garrison under attack — owner is in another sector. Initiation and terminal resolution speak; continuing round events arrive silently in context.
 
 **Setup:** P1 owns G1 in sector 42. P1 in sector 1. P2 attacks G1.
 
 **Script:**
-- `[Expected]` `combat.round_waiting` and `combat.round_resolved` arrive at P1 with silent append (ON_PARTICIPANT skips inference for non-participants).
+- `[Expected]` Round-1 `combat.round_waiting` arrives at P1 and voice narrates that the garrison engaged. Continuing `combat.round_resolved` / `combat.round_waiting` updates append silently. Terminal `combat.round_resolved` narrates the outcome.
 
-**Expected:** P1's voice does not narrate during rounds; LLM context includes the events with `garrison_id` + `garrison_owner` attrs; P1 can later ask "how's my garrison?" and answer correctly.
+**Expected:** P1's voice narrates only initiation and outcome; LLM context includes the events with garrison POV attrs; P1 can later ask "how's my garrison?" and answer correctly.
 
 ---
 
@@ -526,16 +526,16 @@ Test characters are referred to as P1, P2, P3. Corp ships as CS1, CS2. Garrisons
 
 ---
 
-### 8.3 Corp-mate of garrison owner — silent append
+### 8.3 Corp-mate of garrison owner — observed-stake append
 
-**Description:** A corp-mate (non-owner) of the garrison owner receives round events but voice stays silent.
+**Description:** A corp-mate (non-owner) of the garrison owner receives the observed-stake stream. Initiation and terminal resolution speak; continuing updates are silent.
 
 **Setup:** P3 is in P1's corp. G1 owned by P1, attacked.
 
 **Script:**
-- `[Expected]` Round events arrive at P3 silently.
+- `[Expected]` Round-1 `combat.round_waiting` narrates that the corp garrison engaged. Continuing round updates append silently. Terminal `combat.round_resolved` narrates the outcome. `garrison.destroyed` itself remains silent for P3.
 
-**Expected:** P3's voice agent does not narrate; events appear in context; querying "what's happening with our corp's garrison" yields a real answer.
+**Expected:** Events appear in context; querying "what's happening with our corp's garrison" yields a real answer. Only the owning character gets the `garrison.destroyed` voice beat.
 
 ---
 

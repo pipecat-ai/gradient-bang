@@ -3496,6 +3496,89 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name:
+    "combat events: corp member receives observer-safe combat.ended for player ship combat",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let combatId: string;
+    let cursorP2: number;
+
+    await t.step("setup: P1 and P2 are corpmates; P1 fights P3", async () => {
+      await resetDatabase([P1, P2, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 4);
+      await setShipSector(p3ShipId, 3);
+      await setShipFighters(p1ShipId, 500);
+      await setShipFighters(p3ShipId, 50);
+
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Combat Watch Corp",
+      });
+      const corpId = (createResult as Record<string, unknown>)
+        .corp_id as string;
+      const inviteCode = (createResult as Record<string, unknown>)
+        .invite_code as string;
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: inviteCode,
+      });
+
+      cursorP2 = await getEventCursor(p2Id);
+      await apiOk("combat_initiate", {
+        character_id: p1Id,
+        target_id: p3Id,
+      });
+      const events = await eventsOfType(p1Id, "combat.round_waiting");
+      assert(events.length >= 1);
+      combatId = events[events.length - 1].payload.combat_id as string;
+    });
+
+    await t.step("resolve combat to terminal state", async () => {
+      for (let round = 0; round < 5; round++) {
+        const ended = await eventsOfType(p2Id, "combat.ended", cursorP2);
+        if (ended.some((event) => event.payload.combat_id === combatId)) break;
+        const result = await api("combat_action", {
+          character_id: p1Id,
+          combat_id: combatId,
+          action: "attack",
+          target_id: p3Id,
+          commit: 200,
+        });
+        if (result.status === 404) break;
+        await api("combat_action", {
+          character_id: p3Id,
+          combat_id: combatId,
+          action: "brace",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    });
+
+    await t.step(
+      "remote corp member P2 receives observer-safe combat.ended",
+      async () => {
+        const events = await eventsOfType(p2Id, "combat.ended", cursorP2);
+        const ended = events.find((event) =>
+          event.payload.combat_id === combatId
+        );
+        assertExists(ended, "P2 should receive observed combat.ended");
+        assertEquals(ended.payload.observed, true);
+        assert(
+          !("ship" in ended.payload),
+          "observed combat.ended should not include personalized ship payload",
+        );
+      },
+    );
+  },
+});
+
 // ============================================================================
 // Group 60: combat_action rejects attacks against corpmate player ships
 // ============================================================================
@@ -3803,6 +3886,22 @@ Deno.test({
       assertEquals(sector?.id, 3);
       assertEquals(payload.mode, "defensive");
     });
+
+    await t.step(
+      "absent owner P1 receives observer-safe combat.ended",
+      async () => {
+        const events = await eventsOfType(p1Id, "combat.ended", cursorP1);
+        const ended = events.find((event) =>
+          event.payload.combat_id === combatId
+        );
+        assertExists(ended, "P1 should receive observed combat.ended");
+        assertEquals(ended.payload.observed, true);
+        assert(
+          !("ship" in ended.payload),
+          "observed combat.ended should not include personalized ship payload",
+        );
+      },
+    );
 
     await t.step("garrison row was deleted (event captured the metadata before delete)", async () => {
       const garrison = await queryGarrison(3);

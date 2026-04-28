@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  buildEventSource,
   emitCharacterEvent,
   emitSectorEnvelope,
-  buildEventSource,
   recordEventWithRecipients,
 } from "./events.ts";
 import {
@@ -14,20 +14,26 @@ import {
 } from "./combat_garrison.ts";
 import { resolveRound } from "./combat_engine.ts";
 import {
-  finalizeCombat,
   executeCorpShipDeletions,
+  finalizeCombat,
 } from "./combat_finalization.ts";
 import { departSuccessfulFleers } from "./combat_flee.ts";
 import {
+  buildCombatEndedPayload,
   buildRoundResolvedPayload,
   buildRoundWaitingPayload,
-  getCorpIdsFromParticipants,
   collectParticipantIds,
+  getCorpIdsFromParticipants,
 } from "./combat_events.ts";
 import { buildSectorSnapshot, getAdjacentSectors } from "./map.ts";
-import { computeEventRecipients } from "./visibility.ts";
+import {
+  computeEventRecipients,
+  dedupeRecipientSnapshots,
+  type EventRecipientSnapshot,
+} from "./visibility.ts";
 import {
   CombatEncounterState,
+  CombatRoundLog,
   CombatRoundOutcome,
   RoundActionState,
 } from "./combat_types.ts";
@@ -238,6 +244,17 @@ export async function resolveEncounterRound(options: {
       });
     }
 
+    await broadcastObservedCombatEndedEvent({
+      supabase,
+      encounter,
+      outcome,
+      salvageEntries,
+      logs: encounter.logs ?? [],
+      participantRecipients: recipients,
+      departedFleers,
+      requestId,
+    });
+
     // Execute deferred corp ship deletions AFTER combat.ended events are emitted
     if (deferredDeletions.length > 0) {
       await executeCorpShipDeletions(supabase, deferredDeletions);
@@ -411,6 +428,78 @@ async function broadcastCombatEvent(params: {
   });
 }
 
+async function broadcastObservedCombatEndedEvent(params: {
+  supabase: SupabaseClient;
+  encounter: CombatEncounterState;
+  outcome: CombatRoundOutcome;
+  salvageEntries: Array<Record<string, unknown>>;
+  logs: CombatRoundLog[];
+  participantRecipients: string[];
+  departedFleers: Set<string>;
+  requestId: string;
+}): Promise<void> {
+  const {
+    supabase,
+    encounter,
+    outcome,
+    salvageEntries,
+    logs,
+    participantRecipients,
+    departedFleers,
+    requestId,
+  } = params;
+
+  const excluded = new Set<string>([
+    ...participantRecipients,
+    ...departedFleers,
+  ]);
+  const corpIds = getCorpIdsFromParticipants(encounter.participants);
+  const corpRecipients = await computeEventRecipients({
+    supabase,
+    corpIds,
+    excludeCharacterIds: [...excluded],
+  });
+  const garrisonOwnerRecipients: EventRecipientSnapshot[] = Object.values(
+    encounter.participants,
+  )
+    .filter((participant) => participant.combatant_type === "garrison")
+    .map((participant) => participant.owner_character_id)
+    .filter((ownerId): ownerId is string =>
+      typeof ownerId === "string" &&
+      ownerId.length > 0 &&
+      !excluded.has(ownerId)
+    )
+    .map((ownerId) => ({ characterId: ownerId, reason: "garrison_owner" }));
+
+  const recipients = dedupeRecipientSnapshots([
+    ...garrisonOwnerRecipients,
+    ...corpRecipients,
+  ]);
+  if (recipients.length === 0) {
+    return;
+  }
+
+  const payload = buildCombatEndedPayload(
+    encounter,
+    outcome,
+    salvageEntries,
+    logs,
+  );
+  payload.source = buildEventSource("combat.ended", requestId);
+  payload.observed = true;
+
+  await recordEventWithRecipients({
+    supabase,
+    eventType: "combat.ended",
+    scope: "sector",
+    payload,
+    requestId,
+    sectorId: encounter.sector_id,
+    actorCharacterId: null,
+    recipients,
+  });
+}
+
 function checkTollStanddown(
   encounter: CombatEncounterState,
   _outcome: { round_number: number; end_state: string | null },
@@ -504,4 +593,3 @@ async function resolveFleeOutcomes(
     participant.fled_to_sector = destination;
   }
 }
-

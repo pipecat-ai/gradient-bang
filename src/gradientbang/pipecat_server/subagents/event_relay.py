@@ -342,6 +342,61 @@ def _compute_combat_pov(relay: EventRelay, payload: Mapping[str, Any]) -> Combat
     return CombatPOVInfo(pov=CombatPOV.OBSERVED_SECTOR_ONLY, sector_id=sector_id)
 
 
+def has_observed_combat_stake(relay: EventRelay, payload: Mapping[str, Any]) -> bool:
+    pov_info = _compute_combat_pov(relay, payload)
+    return pov_info.pov in (
+        CombatPOV.OBSERVED_VIA_CORP_SHIP,
+        CombatPOV.OBSERVED_VIA_GARRISON,
+    )
+
+
+def is_terminal_combat_resolution(payload: Mapping[str, Any]) -> bool:
+    for key in ("result", "end", "round_result"):
+        value = payload.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized and normalized != "in_progress":
+                return True
+            continue
+        return True
+    return False
+
+
+def is_corp_ship_destroyed_for_viewer(relay: EventRelay, payload: Mapping[str, Any]) -> bool:
+    viewer_corp = _viewer_corp_id(relay)
+    if viewer_corp is None:
+        return False
+    player_type = payload.get("player_type")
+    if player_type != "corporation_ship":
+        return False
+    corp_id = payload.get("corp_id")
+    return isinstance(corp_id, str) and corp_id == viewer_corp
+
+
+def is_garrison_subject_for_viewer(relay: EventRelay, payload: Mapping[str, Any]) -> bool:
+    owner_id = payload.get("owner_character_id")
+    if isinstance(owner_id, str) and owner_id == relay._character_id:
+        return True
+    viewer_corp = _viewer_corp_id(relay)
+    owner_corp = payload.get("owner_corp_id")
+    return (
+        isinstance(owner_corp, str)
+        and viewer_corp is not None
+        and owner_corp == viewer_corp
+    )
+
+
+def _is_owned_subject(relay: EventRelay, payload: Mapping[str, Any]) -> bool:
+    owner_id = payload.get("owner_character_id")
+    return (
+        isinstance(owner_id, str)
+        and relay._character_id is not None
+        and owner_id == relay._character_id
+    )
+
+
 def _sector_text(pov_info: CombatPOVInfo) -> str:
     return (
         f"sector {pov_info.sector_id}"
@@ -374,8 +429,20 @@ def _round_waiting_pov_line(pov_info: CombatPOVInfo, payload: Mapping[str, Any])
     round_num = payload.get("round")
     is_round_one = round_num == 1
     if not is_round_one:
-        # Rounds 2+: only DIRECT reaches summary (observers dropped at append).
-        return "Combat state: you are currently in active combat."
+        if pov_info.pov == CombatPOV.DIRECT:
+            return "Combat state: you are currently in active combat."
+        if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP:
+            return (
+                f"Combat update: your corp's {_ship_ref(pov_info)} "
+                f"is still engaged in {_sector_text(pov_info)}."
+            )
+        if pov_info.pov == CombatPOV.OBSERVED_VIA_GARRISON:
+            owner_word = "your" if pov_info.garrison_owned_by_self else "your corp's"
+            return (
+                f"Combat update: {owner_word} garrison in {_sector_text(pov_info)} "
+                "is still engaged."
+            )
+        return f"Combat update in {_sector_text(pov_info)}."
     sector_text = _sector_text(pov_info)
     if pov_info.pov == CombatPOV.DIRECT:
         return "A new combat has begun. You are a participant."
@@ -672,6 +739,33 @@ def _summarize_garrison_destroyed(relay: EventRelay, event: dict) -> Optional[st
     )
 
 
+def _summarize_ship_destroyed(relay: EventRelay, event: dict) -> Optional[str]:
+    payload = event.get("payload", {})
+    if not isinstance(payload, Mapping):
+        return event.get("summary")
+    ship_name = payload.get("ship_name")
+    ship_type = payload.get("ship_type")
+    ship_label = (
+        str(ship_name).strip()
+        if isinstance(ship_name, str) and ship_name.strip()
+        else str(ship_type).strip()
+        if isinstance(ship_type, str) and ship_type.strip()
+        else "ship"
+    )
+    sector = payload.get("sector")
+    sector_id = sector.get("id") if isinstance(sector, Mapping) else None
+    sector_text = f"sector {sector_id}" if isinstance(sector_id, int) else "the sector"
+    combat_id = payload.get("combat_id")
+    suffix = (
+        f" combat_id={combat_id}" if isinstance(combat_id, str) and combat_id.strip() else ""
+    )
+    if _is_owned_subject(relay, payload):
+        return f"Your ship {ship_label} was destroyed in {sector_text}.{suffix}"
+    if is_corp_ship_destroyed_for_viewer(relay, payload):
+        return f"Your corp ship {ship_label} was destroyed in {sector_text}.{suffix}"
+    return f"Ship {ship_label} was destroyed in {sector_text}.{suffix}"
+
+
 # ── Event config registry ─────────────────────────────────────────────────
 
 EVENT_CONFIGS: dict[str, EventConfig] = {
@@ -712,7 +806,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     ),
     "garrison.destroyed": EventConfig(
         append=AppendRule.PARTICIPANT,
-        # Voice fires for the owner only; non-owners get silent context append.
+        # Voice fires for the owner only; corp members get silent context append.
         inference=InferenceRule.OWNED,
         priority=Priority.HIGH,
         xml_attrs_fn=_xml_attrs_garrison_destroyed,
@@ -842,6 +936,7 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         append=AppendRule.LOCAL,
         inference=InferenceRule.OWNED,
         xml_attrs_fn=_xml_attrs_ship_destroyed,
+        voice_summary=_summarize_ship_destroyed,
     ),
     "ship.definitions": EventConfig(),
     "quest.status": EventConfig(),
@@ -1431,21 +1526,31 @@ class EventRelay:
                     request_id,
                 )
                 return True
-            # Round-1 combat-start broadcast: append for every recipient (participants
-            # and observers). Rounds 2+ stay participant-only — observers already got
-            # the prior round_resolved snapshot and don't need a near-identical update.
-            if (
-                event_name == "combat.round_waiting"
-                and isinstance(clean_payload, Mapping)
-                and clean_payload.get("round") == 1
-            ):
-                return True
+            if isinstance(clean_payload, Mapping):
+                if event_name == "combat.round_waiting":
+                    if clean_payload.get("round") == 1:
+                        return True
+                    return combat_for_player or has_observed_combat_stake(
+                        self, clean_payload
+                    )
+                if event_name == "combat.round_resolved":
+                    return combat_for_player or has_observed_combat_stake(
+                        self, clean_payload
+                    )
+                if event_name == "garrison.destroyed":
+                    return is_garrison_subject_for_viewer(self, clean_payload)
             return combat_for_player
 
         if rule == AppendRule.OWNED_TASK:
             return is_our_task
 
         if rule == AppendRule.LOCAL:
+            if isinstance(clean_payload, Mapping) and event_name == "ship.destroyed":
+                owned_or_corp_ship = _is_owned_subject(
+                    self, clean_payload
+                ) or is_corp_ship_destroyed_for_viewer(self, clean_payload)
+                if owned_or_corp_ship:
+                    return True
             if isinstance(clean_payload, Mapping):
                 sector_id = self._extract_sector_id(
                     clean_payload,
@@ -1512,7 +1617,15 @@ class EventRelay:
         rule = cfg.inference
         is_voice = self._task_state.is_recent_request_id(request_id) if request_id else False
 
-        if rule == InferenceRule.ALWAYS:
+        if (
+            event_name == "combat.round_resolved"
+            and isinstance(clean_payload, Mapping)
+            and not combat_for_player
+        ):
+            result = has_observed_combat_stake(
+                self, clean_payload
+            ) and is_terminal_combat_resolution(clean_payload)
+        elif rule == InferenceRule.ALWAYS:
             result = True
         elif rule == InferenceRule.VOICE_AGENT:
             result = is_voice
@@ -1538,16 +1651,11 @@ class EventRelay:
                     result = True
         elif rule == InferenceRule.OWNED:
             # Viewer owns the event subject (e.g. their garrison was destroyed).
-            owner_id = (
-                clean_payload.get("owner_character_id")
-                if isinstance(clean_payload, Mapping)
-                else None
-            )
-            result = (
-                isinstance(owner_id, str)
-                and self._character_id is not None
-                and owner_id == self._character_id
-            )
+            result = False
+            if isinstance(clean_payload, Mapping):
+                result = _is_owned_subject(self, clean_payload)
+                if not result and event_name == "ship.destroyed":
+                    result = is_corp_ship_destroyed_for_viewer(self, clean_payload)
         else:
             result = False
 
