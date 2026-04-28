@@ -20,6 +20,7 @@ set -euo pipefail
 
 ENV_FILE=""
 ALLOW_PRODUCTION=false
+CONFIRM_REF=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,9 +36,17 @@ while [[ $# -gt 0 ]]; do
       ENV_FILE="${1#--env=}"
       shift
       ;;
+    --confirm-ref)
+      CONFIRM_REF="$2"
+      shift 2
+      ;;
+    --confirm-ref=*)
+      CONFIRM_REF="${1#--confirm-ref=}"
+      shift
+      ;;
     *)
       echo "[combat-tick-config] Unknown argument: $1" >&2
-      echo "Usage: scripts/setup-production-combat-tick.sh --env <env-file> [--allow-production]" >&2
+      echo "Usage: scripts/setup-production-combat-tick.sh --env <env-file> [--confirm-ref REF] [--allow-production]" >&2
       exit 1
       ;;
   esac
@@ -129,6 +138,7 @@ echo "============================================================"
 echo ""
 
 if [[ "$IS_PRODUCTION" == true ]]; then
+  # Production NEVER honors --confirm-ref. Always interactive.
   echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   echo "  WARNING: YOU ARE ABOUT TO MODIFY PRODUCTION RUNTIME CONFIG"
   echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -136,6 +146,10 @@ if [[ "$IS_PRODUCTION" == true ]]; then
   echo "  Misconfiguring these values can silently break combat tick"
   echo "  auth in production until manually corrected."
   echo ""
+  if [[ -n "$CONFIRM_REF" ]]; then
+    echo "[combat-tick-config] --confirm-ref is NOT honored for production." >&2
+    echo "[combat-tick-config] Production confirmation must be typed interactively." >&2
+  fi
   read -r -p "[combat-tick-config] Type 'MODIFY PRODUCTION' to confirm: " confirm
   if [[ "$confirm" != "MODIFY PRODUCTION" ]]; then
     echo "[combat-tick-config] Aborted. (expected 'MODIFY PRODUCTION')"
@@ -143,10 +157,20 @@ if [[ "$IS_PRODUCTION" == true ]]; then
   fi
   echo ""
 else
-  read -r -p "[combat-tick-config] Type the project ref to confirm: " confirm
-  if [[ "$confirm" != "$PROJECT_REF" ]]; then
-    echo "[combat-tick-config] Aborted. (expected '$PROJECT_REF', got '$confirm')"
-    exit 0
+  if [[ -n "$CONFIRM_REF" ]]; then
+    if [[ "$CONFIRM_REF" != "$PROJECT_REF" ]]; then
+      echo "[combat-tick-config] --confirm-ref mismatch. Aborting." >&2
+      echo "  expected : $PROJECT_REF" >&2
+      echo "  received : $CONFIRM_REF" >&2
+      exit 1
+    fi
+    echo "[combat-tick-config] --confirm-ref matches project ref ($PROJECT_REF). Proceeding."
+  else
+    read -r -p "[combat-tick-config] Type the project ref to confirm: " confirm
+    if [[ "$confirm" != "$PROJECT_REF" ]]; then
+      echo "[combat-tick-config] Aborted. (expected '$PROJECT_REF', got '$confirm')"
+      exit 0
+    fi
   fi
   echo ""
 fi

@@ -24,6 +24,8 @@ ENV_FILE=".env.supabase"
 SECTOR_COUNT="5000"
 SEED=""
 ALLOW_PRODUCTION=false
+CONFIRM_REF=""
+ASSUME_YES=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +41,18 @@ while [[ $# -gt 0 ]]; do
       ENV_FILE="${1#--env=}"
       shift
       ;;
+    --confirm-ref)
+      CONFIRM_REF="$2"
+      shift 2
+      ;;
+    --confirm-ref=*)
+      CONFIRM_REF="${1#--confirm-ref=}"
+      shift
+      ;;
+    --yes|-y)
+      ASSUME_YES=true
+      shift
+      ;;
     *)
       # First positional arg is sector count, second is seed
       if [[ "$SECTOR_COUNT" == "5000" && "$1" =~ ^[0-9]+$ ]]; then
@@ -47,7 +61,7 @@ while [[ $# -gt 0 ]]; do
         SEED="$1"
       else
         echo "[reset-world] Unknown argument: $1" >&2
-        echo "Usage: scripts/reset-world.sh [--env FILE] [sector_count] [seed]" >&2
+        echo "Usage: scripts/reset-world.sh [--env FILE] [--confirm-ref REF] [--yes] [sector_count] [seed]" >&2
         exit 1
       fi
       shift
@@ -159,6 +173,7 @@ if [[ "$IS_CLOUD" == true ]]; then
   PROJECT_REF=$(echo "${SUPABASE_URL:-}" | sed -n 's|https://\([^.]*\)\.supabase\.co.*|\1|p')
 
   if [[ "$IS_PRODUCTION" == true ]]; then
+    # Production NEVER honors --confirm-ref or --yes. Always interactive.
     echo ""
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     echo "  WARNING: YOU ARE ABOUT TO WIPE PRODUCTION"
@@ -173,6 +188,10 @@ if [[ "$IS_CLOUD" == true ]]; then
     echo "    - All sectors, stations, and universe data"
     echo "    - All combat logs and quest progress"
     echo ""
+    if [[ -n "$CONFIRM_REF" || "$ASSUME_YES" == true ]]; then
+      echo "[reset-world] --confirm-ref / --yes are NOT honored for production." >&2
+      echo "[reset-world] Production confirmation must be typed interactively." >&2
+    fi
     read -r -p "[reset-world] Type 'DESTROY PRODUCTION' to confirm: " confirm
     if [[ "$confirm" != "DESTROY PRODUCTION" ]]; then
       echo "[reset-world] Aborted. (expected 'DESTROY PRODUCTION')"
@@ -185,18 +204,32 @@ if [[ "$IS_CLOUD" == true ]]; then
     echo "    Project ref : ${PROJECT_REF:-<unknown>}"
     echo "    URL         : ${SUPABASE_URL:-<not set>}"
     echo ""
-    read -r -p "[reset-world] Type the project ref to confirm: " confirm
-    if [[ "$confirm" != "$PROJECT_REF" ]]; then
-      echo "[reset-world] Aborted. (expected '$PROJECT_REF', got '$confirm')"
-      exit 0
+    if [[ -n "$CONFIRM_REF" ]]; then
+      if [[ "$CONFIRM_REF" != "$PROJECT_REF" ]]; then
+        echo "[reset-world] --confirm-ref mismatch. Aborting." >&2
+        echo "  expected : $PROJECT_REF" >&2
+        echo "  received : $CONFIRM_REF" >&2
+        exit 1
+      fi
+      echo "[reset-world] --confirm-ref matches project ref ($PROJECT_REF). Proceeding."
+    else
+      read -r -p "[reset-world] Type the project ref to confirm: " confirm
+      if [[ "$confirm" != "$PROJECT_REF" ]]; then
+        echo "[reset-world] Aborted. (expected '$PROJECT_REF', got '$confirm')"
+        exit 0
+      fi
     fi
     echo ""
   fi
 else
-  read -r -p "[reset-world] This will wipe all local game data. Type 'yes' to continue: " confirm
-  if [[ "$confirm" != "yes" ]]; then
-    echo "[reset-world] Aborted."
-    exit 0
+  if [[ "$ASSUME_YES" == true ]]; then
+    echo "[reset-world] --yes provided. Skipping local confirmation."
+  else
+    read -r -p "[reset-world] This will wipe all local game data. Type 'yes' to continue: " confirm
+    if [[ "$confirm" != "yes" ]]; then
+      echo "[reset-world] Aborted."
+      exit 0
+    fi
   fi
   echo ""
 fi
