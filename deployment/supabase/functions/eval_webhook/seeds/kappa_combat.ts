@@ -11,10 +11,11 @@ export const sql = `
 --
 -- P1: sparrow_scout with 100 fighters (matches scenario 1.1 description)
 -- P2: sparrow_scout with 80 fighters — armed, valid combat target
--- Sector: chosen at seed time as the first universe_structure sector that is
--- NOT in fedspace_sectors and has at least one warp. Falls back to sector 0
--- only if the seed cannot find a non-fed sector (combat will fail in fedspace,
--- but the rest of the world is still usable).
+-- Sector: chosen at seed time as the lowest-numbered DEEP-NEUTRAL sector
+-- (not fedspace, not mega-port, not sector 0, not a border sector with a
+-- direct warp to fedspace) that has at least one warp. The seed RAISES
+-- EXCEPTION if no such sector exists — better to fail loudly than to leave
+-- ships in fedspace and have combat silently refuse at runtime.
 --
 -- Usage: psql $LOCAL_API_POSTGRES_URL -f seeds/kappa_combat.sql
 
@@ -204,15 +205,24 @@ INSERT INTO user_characters (user_id, character_id) VALUES
   ('1b100000-1b00-4aaa-8000-000000000001', '1b100000-3000-4000-8000-000000000001'),
   ('1b100000-1b00-4aaa-8000-000000000001', '1b100000-4000-4000-8000-000000000001');
 
--- ── RELOCATE TO NON-FEDSPACE SECTOR ──────────────────────────────────
--- Combat is blocked in Federation Space. Pick the first universe_structure
--- sector that (a) isn't in universe_config.fedspace_sectors and (b) has at
--- least one warp, then move every Kappa ship there and add it to each
--- commander's map_knowledge so the voice agent treats P2 as in-sector.
+-- ── RELOCATE TO DEEP-NEUTRAL SECTOR ──────────────────────────────────
+-- Combat is blocked in Federation Space. Pick a sector that is:
+--   (a) not in universe_config.fedspace_sectors
+--   (b) not in universe_config.mega_port_sectors (mega-ports live in fedspace)
+--   (c) not sector 0 (always fedspace by game convention)
+--   (d) has at least one warp
+--   (e) NOT a border sector — none of its warp targets are in fedspace
+-- The border-sector exclusion is defensive: combat is technically allowed in
+-- Neutral border sectors, but several status-snapshot codepaths label them
+-- visually as "near Federation Space" which has confused the voice agent
+-- in past runs. Picking a deep-neutral sector avoids that whole class of
+-- failure. RAISE EXCEPTION (not NOTICE) on miss so the seed loudly fails
+-- instead of silently leaving ships in fedspace at sector 0.
 
 DO $kappa_nonfed_relocate$
 DECLARE
   v_fed JSONB;
+  v_mega JSONB;
   v_sector INT;
   v_adj JSONB;
   v_pos JSONB;
@@ -244,8 +254,11 @@ DECLARE
     '1b100000-4000-4000-8000-1b1000000001'::uuid
   ];
 BEGIN
-  SELECT COALESCE(meta->'fedspace_sectors', '[]'::jsonb) INTO v_fed
-    FROM universe_config WHERE id = 1;
+  SELECT
+    COALESCE(meta->'fedspace_sectors',  '[]'::jsonb),
+    COALESCE(meta->'mega_port_sectors', '[]'::jsonb)
+  INTO v_fed, v_mega
+  FROM universe_config WHERE id = 1;
 
   SELECT us.sector_id,
          COALESCE((SELECT jsonb_agg((w->>'to')::int) FROM jsonb_array_elements(us.warps) w), '[]'::jsonb),
@@ -253,14 +266,22 @@ BEGIN
     INTO v_sector, v_adj, v_pos
     FROM universe_structure us
     WHERE jsonb_array_length(us.warps) > 0
-      AND NOT (v_fed @> to_jsonb(us.sector_id))
+      AND us.sector_id <> 0
+      AND NOT (v_fed  @> to_jsonb(us.sector_id))
+      AND NOT (v_mega @> to_jsonb(us.sector_id))
+      AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(us.warps) w
+        WHERE v_fed @> to_jsonb((w->>'to')::int)
+      )
     ORDER BY us.sector_id
     LIMIT 1;
 
   IF v_sector IS NULL THEN
-    RAISE NOTICE 'kappa_combat: no non-fedspace sector with warps found; ships left at sector 0 (combat will fail).';
-    RETURN;
+    RAISE EXCEPTION 'kappa_combat: no deep-neutral sector with warps found in universe_structure (fedspace_sectors=%, mega_port_sectors=%). Seed cannot guarantee combat-eligible sector; aborting.',
+      v_fed, v_mega;
   END IF;
+
+  RAISE NOTICE 'kappa_combat: relocating ships to deep-neutral sector %', v_sector;
 
   UPDATE ship_instances SET current_sector = v_sector
     WHERE ship_id = ANY(v_all_ships);
