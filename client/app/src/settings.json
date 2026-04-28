@@ -1,7 +1,3 @@
 {
-    "startMuted": false,
-    "enableMic": true,
-    "disableRemoteAudio": false,
-    "saveSettings": true,
     "useDevTools": false
 }
