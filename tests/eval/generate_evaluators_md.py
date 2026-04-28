@@ -32,6 +32,7 @@ FOLDERS = [
     "Epsilon Corp",
     "Phi Trader",
     "Orion Vale",
+    "Kappa Combat",
 ]
 # LAST_DAYS = int(os.environ.get("EVALUATORS_LAST_DAYS", "14"))  # runs column disabled
 OUT_PATH = Path(__file__).resolve().parent / "EVALUATORS.md"
