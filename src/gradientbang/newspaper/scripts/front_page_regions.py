@@ -38,7 +38,69 @@ DEFAULT_QUALITY = "high"
 DEFAULT_COMPOSITE_SIZE = "2336x3504"
 
 TEMPLATE_VERSION = "gradient-news-regional-prompt-v5-consistent-headline-type"
+DARK_MODE_TEMPLATE_SUFFIX = "-dark"
 GOSSIP_SPLIT_GUTTER = 10
+DARK_COMPOSITE_BACKGROUND = (3, 8, 9)
+LIGHT_COMPOSITE_BACKGROUND = (255, 255, 255)
+
+DARK_VISUAL_STYLE = (
+    "Retro-digital newspaper page inspired by the supplied generated Gradient News references: "
+    "dark paper, cyan and bright luminous chartreuse-green ink, HUD borders, hex-map texture, "
+    "scanlines, engraved-newsprint density, disciplined newspaper typography, and Gradient Bang "
+    "ship art language. Use the full-page reference for color, layout rhythm, page texture, and "
+    "in-context newspaper feel. Use any masthead/header reference only for nameplate craft and "
+    "ornament, not for date, edition, motto, article, or table text. Use the Gradient Bang "
+    "screenshot for UI language. Input images are references only; do not copy their old article "
+    "text."
+)
+
+LIGHT_VISUAL_STYLE = (
+    "Linotype-style retro newspaper page: pure black ink on bright white newsprint paper, with "
+    "a slight off-white paper warmth and faint engraved-newsprint texture. Keep the same retro-"
+    "digital page architecture as the dark-mode Gradient News references (HUD borders, hex-map "
+    "texture, scanlines, Gradient Bang ship art language, multi-column rhythm, ornate masthead, "
+    "market-update box) but render it as if printed with black ink on white paper. The supplied "
+    "reference images are dark-on-dark; in this output, INVERT the palette: pure black ink on "
+    "white paper. Do not use cyan, chartreuse, neon green, luminous, or glowing colors anywhere. "
+    "Headlines, body copy, ship art, HUD borders, hex maps, charts, and ornament are all "
+    "rendered in pure black on white, with greyscale shading where needed. Use the full-page "
+    "reference for layout rhythm, page texture, and in-context newspaper feel only — not for "
+    "color. Use any masthead/header reference for nameplate craft and ornament only. Use the "
+    "Gradient Bang screenshot for UI language only. Input images are references only; do not "
+    "copy their old article text and do not copy their dark palette."
+)
+
+DARK_NAME_STYLE = (
+    "Name-color styling contract:\n"
+    "HEADLINE = bright luminous chartreuse-green ink around #B7F23A, never cyan. This headline "
+    "color rule overrides all name highlighting, even when the headline contains a player, "
+    "pilot, ship, corporation, or entity name.\n"
+    "BODY COPY and TABLE CELLS = bright luminous chartreuse-green newspaper ink around "
+    "#B7F23A, with player names, pilot names, ship names, named autonomous craft, corporation "
+    "names, and named leaderboard entities from the Source copy highlighted in bright cyan ink "
+    "(#62e8f2), while preserving exact spelling and capitalization.\n"
+    "Avoid mustard, amber, olive, brown, gold, dim yellow, or low-contrast yellow-green for "
+    "readable text. Readable ordinary text should look lighter, brighter, and greener than "
+    "aged newspaper ink.\n"
+    "ART/BORDER = cyan or acid-green, but no extra readable text.\n"
+    "Do not add the words player, pilot, ship, cyan, or name to the image unless they already "
+    "appear in Source copy."
+)
+
+LIGHT_NAME_STYLE = (
+    "Linotype name styling contract:\n"
+    "HEADLINE = pure black ink on white paper, bold weight, no color.\n"
+    "BODY COPY and TABLE CELLS = pure black ink on white paper, regular weight. Player names, "
+    "pilot names, ship names, named autonomous craft, corporation names, and named leaderboard "
+    "entities from the Source copy are rendered in BOLD/HEAVY weight within the same pure black "
+    "ink — never in any color — while preserving exact spelling and capitalization. Non-name "
+    "body text uses regular weight.\n"
+    "Do not use cyan, chartreuse, neon green, gold, amber, or any luminous color for any text. "
+    "All readable text is pure black on white.\n"
+    "ART/BORDER = pure black ink and greyscale shading on white paper. No color.\n"
+    "Do not add the words player, pilot, ship, bold, or name to the image unless they already "
+    "appear in Source copy."
+)
 
 GPT_IMAGE_2_MIN_PIXELS = 655_360
 GPT_IMAGE_2_MAX_PIXELS = 8_294_400
@@ -534,6 +596,8 @@ def build_region_prompt(
     target_bbox: tuple[int, int, int, int],
     generation_size: tuple[int, int],
     references: tuple[Path, ...],
+    *,
+    light_mode: bool = False,
 ) -> str:
     target_w = target_bbox[2] - target_bbox[0]
     target_h = target_bbox[3] - target_bbox[1]
@@ -550,6 +614,8 @@ def build_region_prompt(
         if no_text_region
         else source_copy
     )
+    visual_style = LIGHT_VISUAL_STYLE if light_mode else DARK_VISUAL_STYLE
+    name_style = LIGHT_NAME_STYLE if light_mode else DARK_NAME_STYLE
 
     return f"""Use case: infographic-diagram
 Asset type: one independently rendered region for a high-resolution retro-digital newspaper front page
@@ -567,7 +633,7 @@ Region geometry:
 - If this canvas is less wide than the final slot, keep important content in the center so a center-crop remains readable.
 
 Visual style:
-Retro-digital newspaper page inspired by the supplied generated Gradient News references: dark paper, cyan and bright luminous chartreuse-green ink, HUD borders, hex-map texture, scanlines, engraved-newsprint density, disciplined newspaper typography, and Gradient Bang ship art language. Use the full-page reference for color, layout rhythm, page texture, and in-context newspaper feel. Use any masthead/header reference only for nameplate craft and ornament, not for date, edition, motto, article, or table text. Use the Gradient Bang screenshot for UI language. Input images are references only; do not copy their old article text.
+{visual_style}
 
 Headline typography house style:
 - Every story-region headline, including straight-news, gossip, market, and small story boxes, must use the same headline font family.
@@ -590,12 +656,7 @@ Critical text contract:
 9. For the footer region only: render no readable text at all.
 10. Only the header region may render a newspaper masthead, newspaper nameplate, motto banner, edition strip, date banner, volume number, price, or publication identity. Non-header regions must not add any masthead-like text or page-header furniture.
 
-Name-color styling contract:
-HEADLINE = bright luminous chartreuse-green ink around #B7F23A, never cyan. This headline color rule overrides all name highlighting, even when the headline contains a player, pilot, ship, corporation, or entity name.
-BODY COPY and TABLE CELLS = bright luminous chartreuse-green newspaper ink around #B7F23A, with player names, pilot names, ship names, named autonomous craft, corporation names, and named leaderboard entities from the Source copy highlighted in bright cyan ink (#62e8f2), while preserving exact spelling and capitalization.
-Avoid mustard, amber, olive, brown, gold, dim yellow, or low-contrast yellow-green for readable text. Readable ordinary text should look lighter, brighter, and greener than aged newspaper ink.
-ART/BORDER = cyan or acid-green, but no extra readable text.
-Do not add the words player, pilot, ship, cyan, or name to the image unless they already appear in Source copy.
+{name_style}
 
 Source copy to render:
 {source_copy_section}
@@ -632,6 +693,7 @@ def plan_regions(
     selected_regions: set[str] | None,
     force: bool,
     dry_run: bool,
+    light_mode: bool = False,
 ) -> tuple[list[PlannedRegion], dict[str, str]]:
     source_size = (
         int(layout["source_size"]["width"]),
@@ -660,6 +722,7 @@ def plan_regions(
             target_bbox=target_bbox,
             generation_size=generation_size,
             references=references,
+            light_mode=light_mode,
         )
         prompt_path = prompts_dir / f"{unit.id}.txt"
         output_path = regions_dir / f"{unit.id}.png"
@@ -722,9 +785,12 @@ def write_metadata(
     planned: list[PlannedRegion],
     dry_run: bool,
     composite_only: bool,
+    light_mode: bool = False,
 ) -> None:
+    template_version = TEMPLATE_VERSION + ("" if light_mode else DARK_MODE_TEMPLATE_SUFFIX)
     metadata = {
-        "template_version": TEMPLATE_VERSION,
+        "template_version": template_version,
+        "light_mode": light_mode,
         "front_page_md": str(front_page_md),
         "front_page_md_sha256": sha256_file(front_page_md),
         "layout": str(layout_path),
@@ -781,6 +847,7 @@ def composite_regions(
     *,
     composite_path: Path,
     composite_size: tuple[int, int],
+    light_mode: bool = False,
 ) -> None:
     try:
         from PIL import Image
@@ -792,7 +859,8 @@ def composite_regions(
         missing_text = "\n".join(str(path) for path in missing)
         raise SystemExit(f"Cannot composite; missing region images:\n{missing_text}")
 
-    canvas = Image.new("RGB", composite_size, (3, 8, 9))
+    background = LIGHT_COMPOSITE_BACKGROUND if light_mode else DARK_COMPOSITE_BACKGROUND
+    canvas = Image.new("RGB", composite_size, background)
     for item in planned:
         x0, y0, x1, y1 = item.target_bbox
         target_size = (x1 - x0, y1 - y0)
@@ -827,6 +895,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--composite-only", action="store_true", help="Skip image generation and compose existing region PNGs.")
+    parser.add_argument(
+        "--dark-mode",
+        action="store_true",
+        help=(
+            "Render in dark mode: cyan and chartreuse ink on dark paper, with character and ship "
+            "names highlighted in cyan. The default is linotype light mode (black ink on white "
+            "paper, names bolded). When opted into, the default composite filename gains a -dark "
+            "suffix to keep light and dark renders side by side."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -839,11 +917,19 @@ def run(argv: list[str]) -> int:
     if not IMAGE_GEN.exists():
         raise SystemExit(f"Missing image CLI: {IMAGE_GEN}")
 
+    light_mode = not args.dark_mode
     front_page = parse_front_page_markdown(args.front_page_md)
     layout = read_layout(args.layout)
     out_dir = args.out_dir or default_out_dir(args.front_page_md)
+    if not light_mode and args.out_dir is None:
+        out_dir = out_dir.with_name(out_dir.name + "-dark")
     out_dir.mkdir(parents=True, exist_ok=True)
-    composite_path = args.out or (out_dir / "front-page-regional-composite.png")
+    default_composite_name = (
+        "front-page-regional-composite-dark.png"
+        if not light_mode
+        else "front-page-regional-composite.png"
+    )
+    composite_path = args.out or (out_dir / default_composite_name)
     metadata_path = args.metadata_out or (
         out_dir / ("metadata-composite-only.json" if args.composite_only else "metadata.json")
     )
@@ -865,6 +951,7 @@ def run(argv: list[str]) -> int:
         selected_regions=selected_regions,
         force=args.force,
         dry_run=args.dry_run,
+        light_mode=light_mode,
     )
     write_metadata(
         metadata_path=metadata_path,
@@ -880,17 +967,24 @@ def run(argv: list[str]) -> int:
         planned=planned,
         dry_run=args.dry_run,
         composite_only=args.composite_only,
+        light_mode=light_mode,
     )
 
     print("Front page Markdown:", args.front_page_md)
     print("Layout:", args.layout)
     print("Output directory:", out_dir)
     print("Metadata:", metadata_path)
+    print("Mode:", "light" if light_mode else "dark")
     print("Regions:", ", ".join(item.unit.id for item in planned))
 
     generate_regions(planned, composite_only=args.composite_only)
     if not args.dry_run:
-        composite_regions(planned, composite_path=composite_path, composite_size=args.composite_size)
+        composite_regions(
+            planned,
+            composite_path=composite_path,
+            composite_size=args.composite_size,
+            light_mode=light_mode,
+        )
     return 0
 
 

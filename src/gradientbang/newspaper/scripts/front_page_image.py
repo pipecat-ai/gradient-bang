@@ -229,6 +229,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--composite-size", help="Composited-regions final page size, for example 2336x3504.")
     parser.add_argument("--region", action="append", help="Composited-regions: generate only this region id. May be repeated.")
     parser.add_argument("--composite-only", action="store_true", help="Composited-regions: compose existing region PNGs.")
+    parser.add_argument(
+        "--dark-mode",
+        action="store_true",
+        help=(
+            "Composited-regions only: render in dark mode (cyan and chartreuse ink on dark "
+            "paper, names highlighted in cyan). Default is linotype light mode."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -240,6 +248,7 @@ def backend_argv(args: argparse.Namespace) -> list[str]:
             "--composite-size": args.composite_size,
             "--region": args.region,
             "--composite-only": args.composite_only,
+            "--dark-mode": args.dark_mode,
         }
         unsupported = [name for name, value in one_shot_only.items() if value]
         if unsupported:
@@ -289,6 +298,8 @@ def backend_argv(args: argparse.Namespace) -> list[str]:
         regions_argv.append("--dry-run")
     if args.composite_only:
         regions_argv.append("--composite-only")
+    if args.dark_mode:
+        regions_argv.append("--dark-mode")
     return regions_argv
 
 
