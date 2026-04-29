@@ -21,7 +21,6 @@ import {
   isResolvingLockHeld,
   loadCombatForSector,
   persistCombatState,
-  RESOLVING_LOCK_TTL_MS,
 } from "./combat_state.ts";
 import type { WeaveSpan } from "./weave.ts";
 import {
@@ -435,16 +434,23 @@ export async function joinExistingCombat(params: {
   // lock. Bailing immediately would silently drop the joiner — move's
   // auto-engage fallback also no-ops while combat is active, so they
   // end up in the sector but not in the encounter with no later retry
-  // hook. Wait up to RESOLVING_LOCK_TTL_MS (the same TTL after which
-  // isResolvingLockHeld treats the marker as crash residue and returns
-  // false anyway), so any non-stale resolution gets a chance to finish.
-  // Stale markers short-circuit naturally — isResolvingLockHeld goes
-  // false and we proceed to join. We're inside move's async-completion
-  // path (after the HTTP response is returned) so this wait doesn't
-  // affect user-perceived latency.
+  // hook.
+  //
+  // This wait IS inside the move request's HTTP path (completeMovement
+  // is awaited before successResponse), so the budget is capped at
+  // RESOLVING_HTTP_BUDGET_MS to stay well below edge-function and
+  // client timeouts. That covers the realistic resolveEncounterRound
+  // upper bound; truly pathological resolves (>5s) will still cause a
+  // silent miss — the joiner ends up in-sector but not in combat. If
+  // we observe these in logs (`garrison_combat.join.resolving_lock_persisted`)
+  // we should reach for `EdgeRuntime.waitUntil` to detach this wait
+  // from the response path. Stale markers (older than
+  // RESOLVING_LOCK_TTL_MS) short-circuit via isResolvingLockHeld, so
+  // crash residue never burns the budget.
   const RESOLVING_RETRY_DELAY_MS = 200;
+  const RESOLVING_HTTP_BUDGET_MS = 5_000;
   const MAX_RESOLVING_WAITS = Math.ceil(
-    RESOLVING_LOCK_TTL_MS / RESOLVING_RETRY_DELAY_MS,
+    RESOLVING_HTTP_BUDGET_MS / RESOLVING_RETRY_DELAY_MS,
   );
   let resolvingWaits = 0;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
