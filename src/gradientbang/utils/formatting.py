@@ -265,6 +265,8 @@ def summarize_ship_definitions(result: Any) -> str:
         parts = [f"{int(price):,} credits"]
         if isinstance(trade_in, (int, float)):
             parts.append(f"trade-in: {int(trade_in):,}")
+        if stats.get("role") == "autonomous":
+            parts.append("(cannot be purchased as personal ship)")
         lines.append(f"- {name}: {', '.join(parts)}")
     return "Ship definitions (purchase_price / trade-in value):\n" + "\n".join(lines)
 
