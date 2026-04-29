@@ -12,12 +12,14 @@ import {
 } from "./salvage.ts";
 import {
   emitSectorEnvelope,
+  emitCharacterEvent,
   buildEventSource,
   recordBroadcastByCorp,
 } from "./events.ts";
 import { computeEventRecipients } from "./visibility.ts";
 import { buildSectorGarrisonMapUpdate } from "./map.ts";
 import { getCorpIdsFromParticipants } from "./combat_events.ts";
+import { fetchActiveTaskIdsByShip } from "./tasks.ts";
 
 interface ShipRow {
   ship_id: string;
@@ -275,8 +277,10 @@ async function updateGarrisonState(
     }
     return;
   }
-  // Emit garrison.destroyed BEFORE deleting the row so the metadata is captured.
-  await emitGarrisonDestroyedEvent(supabase, encounter, participant, requestId);
+  // garrison.destroyed already fired in emitNewlyDefeatedDestructions when
+  // this garrison's fighters first hit 0 (mid-round). Don't re-announce —
+  // just do the row deletion and the post-delete map.update so the
+  // garrison disappears from observers' map data.
   const { error } = await supabase
     .from("garrisons")
     .delete()
@@ -354,7 +358,7 @@ async function emitGarrisonRemovedMapUpdate(
   });
 }
 
-async function emitGarrisonDestroyedEvent(
+export async function emitGarrisonDestroyedEvent(
   supabase: SupabaseClient,
   encounter: CombatEncounterState,
   participant: CombatantState,
@@ -407,6 +411,162 @@ async function emitGarrisonDestroyedEvent(
   }
 }
 
+/**
+ * Build a ship.destroyed event payload from the in-memory participant state,
+ * for mid-round emission. salvage_created defaults to false because salvage
+ * isn't dropped until terminal cleanup runs in finalizeCombat — a separate
+ * salvage.created event will fire then if applicable.
+ */
+function buildMidCombatShipDestroyedData(
+  participant: CombatantState,
+): ShipDestroyedEventData | null {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  const shipId = typeof metadata.ship_id === "string"
+    ? metadata.ship_id
+    : null;
+  if (!shipId) return null;
+  const playerType: "human" | "corporation_ship" =
+    metadata.player_type === "corporation_ship" ? "corporation_ship" : "human";
+  return {
+    shipId,
+    shipType:
+      participant.ship_type ??
+      (typeof metadata.ship_type === "string" ? metadata.ship_type : "unknown"),
+    shipName:
+      typeof metadata.ship_name === "string" ? metadata.ship_name : null,
+    playerType,
+    playerName: participant.name,
+    ownerCharacterId:
+      participant.owner_character_id ?? participant.combatant_id,
+    corpId:
+      typeof metadata.corporation_id === "string"
+        ? metadata.corporation_id
+        : null,
+    salvageCreated: false,
+  };
+}
+
+/**
+ * Emit ship.destroyed / garrison.destroyed for any participant whose fighters
+ * dropped to 0 this round. Called at the top of every resolveEncounterRound
+ * pass, including the terminal one — so by the time finalizeCombat runs the
+ * cleanup, every defeated participant has already had its destruction
+ * announced. finalizeCombat therefore does NOT re-emit these events; it
+ * only handles the underlying cleanup (escape pod conversion, garrison row
+ * deletion, salvage drop) and the corresponding salvage.created event.
+ */
+export async function emitNewlyDefeatedDestructions(
+  supabase: SupabaseClient,
+  encounter: CombatEncounterState,
+  outcome: CombatRoundOutcome,
+  requestId: string,
+): Promise<void> {
+  const fightersRemaining = outcome.fighters_remaining ?? {};
+  const newlyDefeated: string[] = [];
+  for (const [pid, remaining] of Object.entries(fightersRemaining)) {
+    const remainingNum = Number(remaining);
+    if (!Number.isFinite(remainingNum) || remainingNum > 0) continue;
+    const previousFighters = encounter.participants[pid]?.fighters ?? 0;
+    if (previousFighters <= 0) continue; // already dead before this round
+    newlyDefeated.push(pid);
+  }
+  if (newlyDefeated.length === 0) return;
+
+  // Batch lookup: any active task running on a ship that's about to be
+  // destroyed needs to be cancelled, otherwise the TaskAgent keeps stepping
+  // a non-existent ship. Done before the per-pid loop so a single events
+  // query covers every defeated ship in this round.
+  const newlyDefeatedShipIds: string[] = [];
+  for (const pid of newlyDefeated) {
+    const participant = encounter.participants[pid];
+    if (participant?.combatant_type !== "character") continue;
+    const shipId = (participant.metadata as Record<string, unknown> | undefined)
+      ?.ship_id;
+    if (typeof shipId === "string" && shipId) {
+      newlyDefeatedShipIds.push(shipId);
+    }
+  }
+  let activeTasksByShip: Map<string, string | null> = new Map();
+  if (newlyDefeatedShipIds.length > 0) {
+    try {
+      activeTasksByShip = await fetchActiveTaskIdsByShip(
+        supabase,
+        newlyDefeatedShipIds,
+      );
+    } catch (err) {
+      console.error("combat_finalization.fetch_active_tasks.failed", err);
+    }
+  }
+
+  for (const pid of newlyDefeated) {
+    const participant = encounter.participants[pid];
+    if (!participant) continue;
+    try {
+      if (participant.combatant_type === "garrison") {
+        await emitGarrisonDestroyedEvent(
+          supabase,
+          encounter,
+          participant,
+          requestId,
+        );
+      } else if (participant.combatant_type === "character") {
+        const data = buildMidCombatShipDestroyedData(participant);
+        if (data) {
+          await emitShipDestroyedEvent(supabase, encounter, data, requestId);
+          await cancelTaskOnDestroyedShip(
+            supabase,
+            data,
+            activeTasksByShip.get(data.shipId) ?? null,
+            requestId,
+          );
+        }
+      }
+    } catch (err) {
+      console.error("combat_finalization.mid_round_destruction.failed", {
+        pid,
+        err: String(err),
+      });
+    }
+  }
+}
+
+/**
+ * If the destroyed ship has an active task, emit task.cancel so its
+ * TaskAgent stops stepping. Failures are logged but never thrown — combat
+ * resolution must not abort because a cancel emission failed.
+ */
+async function cancelTaskOnDestroyedShip(
+  supabase: SupabaseClient,
+  data: ShipDestroyedEventData,
+  activeTaskId: string | null,
+  requestId: string,
+): Promise<void> {
+  if (!activeTaskId) return;
+  try {
+    await emitCharacterEvent({
+      supabase,
+      characterId: data.ownerCharacterId,
+      eventType: "task.cancel",
+      payload: {
+        source: buildEventSource("combat.ship_destroyed", requestId),
+        task_id: activeTaskId,
+        cancelled_by: null,
+      },
+      requestId,
+      taskId: activeTaskId,
+      recipientReason: "task_owner",
+      scope: "self",
+      corpId: data.corpId ?? undefined,
+    });
+  } catch (err) {
+    console.error("combat_finalization.task_cancel.failed", {
+      ship_id: data.shipId,
+      task_id: activeTaskId,
+      err: String(err),
+    });
+  }
+}
+
 export async function finalizeCombat(
   supabase: SupabaseClient,
   encounter: CombatEncounterState,
@@ -431,6 +591,11 @@ export async function finalizeCombat(
   }
   const definitionMap = await loadShipDefinitionMap(supabase, shipTypes);
 
+  // Destruction events (ship.destroyed / garrison.destroyed) already fired
+  // mid-round via emitNewlyDefeatedDestructions in resolveEncounterRound,
+  // including for participants that died THIS terminal round. finalizeCombat
+  // therefore handles only the cleanup side — escape pod conversion,
+  // garrison row deletion, salvage drop, and the salvage.created event.
   for (const [pid] of defeated) {
     const participant = encounter.participants[pid];
     if (!participant || participant.combatant_type !== "character") {
@@ -484,15 +649,9 @@ export async function finalizeCombat(
       });
     }
 
-    // Emit ship.destroyed event (always, regardless of salvage)
-    if (result.shipDestroyedEvent) {
-      await emitShipDestroyedEvent(
-        supabase,
-        encounter,
-        result.shipDestroyedEvent,
-        requestId ?? `combat:${encounter.combat_id}`,
-      );
-    }
+    // ship.destroyed already fired in emitNewlyDefeatedDestructions when
+    // this ship's fighters first hit 0 (mid-round). The result struct is
+    // still consumed below for deferredDeletion / escape-pod bookkeeping.
 
     if (result.deferredDeletion) {
       deferredDeletions.push(result.deferredDeletion);

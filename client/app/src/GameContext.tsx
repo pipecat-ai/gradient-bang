@@ -778,13 +778,23 @@ export function GameProvider({ children }: GameProviderProps) {
               // Sync fleet ships from the corporation payload so the
               // PlayerShipsPanel sees them immediately (join) or drops them
               // (leave/kick, handled by setCorporation stripping corp ships).
+              //
+              // `sector` is only written for ships we haven't seen before —
+              // for existing ships, `character.moved` / `movement.complete`
+              // are the live writers, and corp-data snapshots can lag enough
+              // that overwriting the sector would rewind icons that already
+              // moved (e.g. mid-route during a multi-hop task).
               if (data.corporation?.ships) {
+                const existingShipIds = new Set(
+                  (useGameStore.getState().ships.data ?? []).map((s) => s.ship_id)
+                )
                 for (const ship of data.corporation.ships) {
+                  const isNewShip = !existingShipIds.has(ship.ship_id)
                   upsertCorporationShip(ship.ship_id, {
                     ship_id: ship.ship_id,
                     ship_name: ship.name,
                     ship_type: ship.ship_type,
-                    sector: ship.sector ?? undefined,
+                    ...(isNewShip ? { sector: ship.sector ?? undefined } : {}),
                     owner_type: "corporation",
                     credits: ship.credits,
                     cargo: ship.cargo,
@@ -829,13 +839,20 @@ export function GameProvider({ children }: GameProviderProps) {
               // Update corporation data (including destroyed_ships)
               useGameStore.getState().setCorporation(corpData)
 
-              // Update fleet ships
+              // Update fleet ships. See the corporation.data branch above
+              // for the rationale on omitting `sector` for existing ships —
+              // movement events are the live writer, snapshot lag must not
+              // rewind ship positions.
+              const existingShipIds = new Set(
+                (useGameStore.getState().ships.data ?? []).map((s) => s.ship_id)
+              )
               for (const ship of corpData.ships) {
+                const isNewShip = !existingShipIds.has(ship.ship_id)
                 upsertCorporationShip(ship.ship_id, {
                   ship_id: ship.ship_id,
                   ship_name: ship.name,
                   ship_type: ship.ship_type,
-                  sector: ship.sector ?? undefined,
+                  ...(isNewShip ? { sector: ship.sector ?? undefined } : {}),
                   owner_type: "corporation",
                   credits: ship.credits,
                   cargo: ship.cargo,

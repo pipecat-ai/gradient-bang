@@ -14,6 +14,7 @@ import {
 } from "./combat_garrison.ts";
 import { resolveRound } from "./combat_engine.ts";
 import {
+  emitNewlyDefeatedDestructions,
   executeCorpShipDeletions,
   finalizeCombat,
 } from "./combat_finalization.ts";
@@ -131,6 +132,14 @@ export async function resolveEncounterRound(options: {
     combinedActions,
   );
   resolvedPayload.source = buildEventSource("combat.round_resolved", requestId);
+
+  // Announce ship/garrison destructions for participants whose fighters
+  // dropped to 0 THIS round, before we overwrite participant.fighters with
+  // the post-round values. The actual cleanup (escape pod conversion,
+  // garrison row deletion, salvage drops) still runs at terminal in
+  // finalizeCombat — only the events fire here so clients can react in
+  // real time instead of waiting for the entire encounter to end.
+  await emitNewlyDefeatedDestructions(supabase, encounter, outcome, requestId);
 
   for (const [pid, participant] of Object.entries(encounter.participants)) {
     participant.fighters =

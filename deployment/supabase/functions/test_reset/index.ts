@@ -18,6 +18,7 @@ import {
   respondWithError,
 } from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
+import { clearAdjacencyCache } from "../_shared/pg.ts";
 
 const DEFAULT_RESET_RESPONSE = {
   cleared_tables: 0,
@@ -314,6 +315,12 @@ async function resetSupabaseState(params: {
     console.log("test_reset.seeding_universe");
     const sectorsSeeded = await seedUniverse(universeStructure, sectorContents);
     console.log(`test_reset.universe_seeded sectors=${sectorsSeeded}`);
+
+    // The adjacency cache is populated at module-load time (before any
+    // universe data exists) and never invalidated. After truncating +
+    // re-seeding we must drop the in-process cache so the next move call
+    // re-fetches from the freshly-seeded universe_structure rows.
+    clearAdjacencyCache();
 
     // Insert characters and ships
     console.log(

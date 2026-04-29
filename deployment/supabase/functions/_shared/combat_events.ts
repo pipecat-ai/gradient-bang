@@ -93,6 +93,11 @@ function buildGarrisonPayload(
     owner_corp_name: readOwnerCorpName(participant),
     fighters: participant.fighters,
     fighter_loss: fighterLoss > 0 ? fighterLoss : null,
+    // Mirror the ship-side flag so observers can tell a wiped garrison from
+    // a still-active one without scanning fighter counts. Set as soon as
+    // fighters hit zero — even mid-combat — so subsequent round_waiting /
+    // round_resolved payloads carry the destroyed marker.
+    destroyed: (participant.fighters ?? 0) <= 0,
     mode: metadata.mode ?? 'offensive',
     toll_amount: metadata.toll_amount ?? 0,
     deployed_at: metadata.deployed_at ?? null,

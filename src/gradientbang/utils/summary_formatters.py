@@ -806,6 +806,26 @@ def path_region_summary(result: Dict[str, Any]) -> str:
 def _format_participant_names(event: Dict[str, Any]) -> str:
     participants = event.get("participants")
     labels: List[str] = []
+
+    def _is_destroyed(entry: Dict[str, Any]) -> bool:
+        # Server flag is authoritative when present; fall back to a fighter
+        # count check so older payloads still annotate correctly.
+        flag = entry.get("destroyed")
+        if isinstance(flag, bool):
+            return flag
+        fighters = entry.get("fighters")
+        if isinstance(fighters, (int, float)):
+            return fighters <= 0
+        return False
+
+    def _annotate(display: str, target_id: Any, destroyed: bool) -> str:
+        markers = ["destroyed"] if destroyed else []
+        if isinstance(target_id, str) and target_id.strip():
+            markers.append(f"target_id={target_id.strip()}")
+        if not markers:
+            return display
+        return f"{display} ({', '.join(markers)})"
+
     if isinstance(participants, list):
         for entry in participants:
             if not isinstance(entry, dict):
@@ -818,10 +838,9 @@ def _format_participant_names(event: Dict[str, Any]) -> str:
                 continue
 
             display_name = _shorten_embedded_ids(str(name)) if name else "unknown"
-            if isinstance(participant_id, str) and participant_id.strip():
-                labels.append(f"{display_name} (target_id={participant_id})")
-            else:
-                labels.append(display_name)
+            labels.append(
+                _annotate(display_name, participant_id, _is_destroyed(entry))
+            )
     # Garrisons are combat participants too, but the server emits them in a
     # separate `garrison` sub-object instead of inside `participants[]`. The
     # TaskAgent needs the garrison's combatant_id as a target_id to attack —
@@ -833,10 +852,7 @@ def _format_participant_names(event: Dict[str, Any]) -> str:
         gid = garrison.get("id")
         if gname or gid:
             display = _shorten_embedded_ids(str(gname)) if gname else "garrison"
-            if isinstance(gid, str) and gid.strip():
-                labels.append(f"{display} (target_id={gid})")
-            else:
-                labels.append(display)
+            labels.append(_annotate(display, gid, _is_destroyed(garrison)))
     if not labels:
         return "unknown opponents"
     if len(labels) > 4:
