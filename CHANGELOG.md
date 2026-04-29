@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bot audio volume slider now actually controls remote bot audio: a local `PipecatClientAudio` binds the media element's `volume` to the store's `remoteAudioVolume` setting (the default component from `@pipecat-ai/client-react` ignored it)
 - Sector map edge feather is now applied after the zoomed scene render, so it fades the final composed viewport instead of being painted over by ships, course plot, and badges
+- `corporation.data` events no longer leak into the voice agent's LLM context — every internal `my_corporation` RPC (start_task ship resolution, kick member resolution, client refreshes) was dumping the full corp roster, ship list, and destroyed-ship history into voice context. TaskAgents and the web UI still receive the event via the bus broadcast and realtime push; the voice agent gets corp info on demand via the `corporation_info` tool's summary
 
 ## [0.2.0] - 2026-04-28
 

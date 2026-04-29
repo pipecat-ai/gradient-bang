@@ -1196,7 +1196,7 @@ class TestVoiceLlmRoutingPolicy:
         assert len(_llm_event_frames(h, "corporation.data")) == 0
         assert len(h.bus_events) >= 1
 
-    async def test_corporation_data_with_player_subject_appended(self):
+    async def test_corporation_data_never_appended_to_voice_llm(self):
         h = _make_harness()
 
         await h.feed_event(
@@ -1208,7 +1208,8 @@ class TestVoiceLlmRoutingPolicy:
             },
         )
 
-        assert len(_llm_event_frames(h, "corporation.data")) == 1
+        assert len(_llm_event_frames(h, "corporation.data")) == 0
+        assert len(h.bus_events) >= 1
 
     async def test_port_update_for_non_local_sector_not_appended(self):
         h = _make_harness()
