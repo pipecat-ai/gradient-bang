@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Salvage from a ship destroyed mid-combat now drops to the sector only when combat ends — preventing in-fight loots and sector passers-by from collecting wrecks while the battle is still going
 - `combat_action` rejects all actions from destroyed or escape-pod participants (was: only rejected `flee`); attacks on a destroyed target are rejected at submission with a clear error
+- VoiceAgent task.completed narration is now driven by a generic deferred-update queue instead of a per-event blocking gate. Close-together completions batch into one announcement (settle window of 2s, capped at 8s); narrations defer politely around the user's turn (won't front-load ahead of an answer to a question, won't fire while the user is speaking); a same-ship follow-up command silently folds the prior arrival into context with no narration; and once the conversation has moved 5+ turns past, queued events are appended silently. Voice agent prompt also restricts task.completed reports to the ships in the most recent event block — no more volunteering stale status on still-in-flight ships
+- Voice agent task.completed reports no longer include ship status (shields, warp, cargo, ports) — the "unless commander asks" caveat was never used in practice
 
 ### Fixed
 
