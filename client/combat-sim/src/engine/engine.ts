@@ -1482,7 +1482,6 @@ export class CombatEngine {
           player_name: participant.name,
           sector: { id: encounter.sector_id },
           combat_id: encounter.combat_id,
-          salvage_created: true,
           owner_character_id: ownerCharacterId,
           corp_id: ownerCorpId,
         },

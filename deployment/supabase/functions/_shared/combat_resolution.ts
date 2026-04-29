@@ -27,6 +27,7 @@ import {
   buildRoundWaitingPayload,
   collectParticipantIds,
   getCorpIdsFromParticipants,
+  getDestroyedOwnerIds,
 } from "./combat_events.ts";
 import { buildSectorSnapshot, getAdjacentSectors } from "./map.ts";
 import {
@@ -455,12 +456,19 @@ async function broadcastCombatEvent(params: {
   // Extract corp IDs from all participants (including garrisons)
   const corpIds = getCorpIdsFromParticipants(encounter.participants);
 
+  // Exclude destroyed (already-ejected) participants. Their escape pods are
+  // still in the sector and would otherwise be re-added by the sector
+  // visibility query — they already received their personalized combat.ended
+  // and shouldn't keep getting subsequent round events.
+  const destroyedOwnerIds = getDestroyedOwnerIds(encounter);
+
   // Compute ALL recipients: participants + sector observers + corp members (deduped)
   const allRecipients = await computeEventRecipients({
     supabase,
     sectorId: encounter.sector_id,
     corpIds,
     directRecipients: recipients,
+    excludeCharacterIds: destroyedOwnerIds,
   });
 
   if (allRecipients.length === 0) {
@@ -540,6 +548,12 @@ async function broadcastObservedCombatEndedEvent(params: {
   payload.source = buildEventSource("combat.ended", requestId);
   payload.observed = true;
 
+  // No stakeholderCorpIds for the observer-safe event: the recipient list is
+  // already filtered to non-participants (and non-fleers). Partitioning by
+  // stakeholder corp would tag rows with corp_id = a participant's corp, and
+  // the participant's corp poll would then surface the observer-tagged event
+  // alongside their own personalized combat.ended — confusing the client
+  // that's already exited combat.
   await recordBroadcastByCorp({
     supabase,
     eventType: "combat.ended",
@@ -549,7 +563,7 @@ async function broadcastObservedCombatEndedEvent(params: {
     sectorId: encounter.sector_id,
     actorCharacterId: null,
     recipients,
-    stakeholderCorpIds: corpIds,
+    stakeholderCorpIds: [],
   });
 }
 

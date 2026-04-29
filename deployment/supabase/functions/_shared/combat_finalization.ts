@@ -21,6 +21,7 @@ import { computeEventRecipients } from "./visibility.ts";
 import { buildSectorGarrisonMapUpdate } from "./map.ts";
 import { getCorpIdsFromParticipants } from "./combat_events.ts";
 import { fetchActiveTaskIdsByShip } from "./tasks.ts";
+import { persistCombatState } from "./combat_state.ts";
 
 interface ShipRow {
   ship_id: string;
@@ -68,7 +69,6 @@ interface ShipDestroyedEventData {
   playerName: string;
   ownerCharacterId: string;
   corpId: string | null;
-  salvageCreated: boolean;
 }
 
 /**
@@ -154,6 +154,14 @@ export async function ejectDestroyedFromCombat(params: {
 
       // 1. Capture salvage onto the encounter blob (NOT dropped yet).
       await captureSalvageForDefeatedShip(supabase, encounter, participant, def);
+
+      // Persist the combat blob now so the captured salvage entry is durable
+      // before the destructive cargo-zeroing write below. Without this, a
+      // crash between escape-pod conversion and the final persistCombatState
+      // at the end of resolveEncounterRound would lose the salvage forever:
+      // the next round's eject would re-run, find the cargo already zeroed,
+      // and capture nothing.
+      await persistCombatState(supabase, encounter);
 
       // 2. Apply destruction to canonical tables. For player ships this is
       // the escape-pod conversion. For corp ships this is a noop here (the
@@ -531,9 +539,6 @@ async function handleDefeatedCharacter(
     );
   }
 
-  // Build ship.destroyed event data. salvage_created stays false here:
-  // mid-round emissions of ship.destroyed already use false (salvage hasn't
-  // dropped to the sector yet), and finalize doesn't re-emit ship.destroyed.
   const shipDestroyedEvent: ShipDestroyedEventData = {
     shipId,
     shipType: ship.ship_type,
@@ -543,7 +548,6 @@ async function handleDefeatedCharacter(
     ownerCharacterId:
       participant.owner_character_id ?? participant.combatant_id,
     corpId,
-    salvageCreated: false,
   };
 
   // Apply destruction to canonical tables (idempotent for both branches).
@@ -878,9 +882,9 @@ export async function emitGarrisonDestroyedEvent(
 
 /**
  * Build a ship.destroyed event payload from the in-memory participant state,
- * for mid-round emission. salvage_created defaults to false because salvage
- * isn't dropped until terminal cleanup runs in finalizeCombat — a separate
- * salvage.created event will fire then if applicable.
+ * for mid-round emission. Salvage is dropped only when combat ends, via a
+ * separate salvage.created event — clients track salvage existence through
+ * that event, not a field on ship.destroyed.
  */
 function buildMidCombatShipDestroyedData(
   participant: CombatantState,
@@ -907,7 +911,6 @@ function buildMidCombatShipDestroyedData(
       typeof metadata.corporation_id === "string"
         ? metadata.corporation_id
         : null,
-    salvageCreated: false,
   };
 }
 
@@ -1007,6 +1010,12 @@ async function cancelTaskOnDestroyedShip(
   requestId: string,
 ): Promise<void> {
   if (!activeTaskId) return;
+  // Tasks are actor-private for human-owned ships — emitting with corpId
+  // would tag the row corp-visible and surface task.cancel to corpmates.
+  // Corp ships are inherently corp-visible, so keep the corpId in that case
+  // so the corp poll picks it up.
+  const corpScopedCorpId =
+    data.playerType === "corporation_ship" ? data.corpId ?? undefined : undefined;
   try {
     await emitCharacterEvent({
       supabase,
@@ -1021,7 +1030,7 @@ async function cancelTaskOnDestroyedShip(
       taskId: activeTaskId,
       recipientReason: "task_owner",
       scope: "self",
-      corpId: data.corpId ?? undefined,
+      corpId: corpScopedCorpId,
     });
   } catch (err) {
     console.error("combat_finalization.task_cancel.failed", {
@@ -1153,7 +1162,6 @@ async function emitShipDestroyedEvent(
     player_name: data.playerName,
     sector: { id: encounter.sector_id },
     combat_id: encounter.combat_id,
-    salvage_created: data.salvageCreated,
     owner_character_id: data.ownerCharacterId,
     corp_id: data.corpId,
   };

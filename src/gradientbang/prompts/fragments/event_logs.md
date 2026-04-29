@@ -231,7 +231,7 @@ event_query(
     max_rows=1
 )
 ```
-The payload contains `combat_id`, `sector`, `player_name`, `ship_type`, `owner_character_id`, `corp_id`, and `salvage_created`. Match `owner_character_id` against the caller's id to disambiguate "my ship" from someone else's.
+The payload contains `combat_id`, `sector`, `player_name`, `ship_type`, `owner_character_id`, and `corp_id`. Match `owner_character_id` against the caller's id to disambiguate "my ship" from someone else's.
 
 Step 2 — Get combat details using the `combat_id` from step 1:
 ```
@@ -286,7 +286,7 @@ All filter parameters use the `filter_` prefix:
 | session.started | session boundary marker (sector, ship_name, ship_type) |
 | ship.purchased | personal ship purchase (ship_type, ship_name, purchase_price, net_cost, old_ship_type) |
 | ship.traded_in | personal ship trade-in detail (old_ship_type, new_ship_type, price, trade_in_value) |
-| ship.destroyed | ship destroyed in combat (ship_name, ship_type, player_name, owner_character_id, corp_id, combat_id, sector, salvage_created) |
+| ship.destroyed | ship destroyed in combat (ship_name, ship_type, player_name, owner_character_id, corp_id, combat_id, sector) |
 | garrison.destroyed | garrison destroyed in combat (garrison_id, owner_character_id, owner_corp_id, owner_name, mode, sector, combat_id) |
 | corporation.ship_purchased | corp ship purchase (ship_type, ship_name, purchase_price, buyer_name) |
 

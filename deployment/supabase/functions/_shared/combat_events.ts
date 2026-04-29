@@ -78,12 +78,19 @@ function readOwnerCorpName(participant: CombatantState): string | null {
 function buildGarrisonPayload(
   participant: CombatantState,
   fighterLoss = 0,
+  fightersOverride?: number,
 ): Record<string, unknown> {
   const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
   // Use owner_name from metadata (human-readable), fallback to owner_character_id
   const ownerName = typeof metadata.owner_name === 'string'
     ? metadata.owner_name
     : (participant.owner_character_id ?? participant.combatant_id);
+  // round_resolved is built from the pre-update participant snapshot, so
+  // participant.fighters can still hold the previous round's value when a
+  // garrison dies that round. Callers in that path pass fightersOverride
+  // (computed from outcome.fighters_remaining) so both `fighters` and the
+  // derived `destroyed` flag reflect post-round state.
+  const fighters = fightersOverride ?? participant.fighters ?? 0;
   return {
     id: participant.combatant_id,
     name: participant.name,
@@ -91,13 +98,13 @@ function buildGarrisonPayload(
     owner_character_id: participant.owner_character_id ?? null,
     owner_corp_id: readOwnerCorpId(participant),
     owner_corp_name: readOwnerCorpName(participant),
-    fighters: participant.fighters,
+    fighters,
     fighter_loss: fighterLoss > 0 ? fighterLoss : null,
     // Mirror the ship-side flag so observers can tell a wiped garrison from
     // a still-active one without scanning fighter counts. Set as soon as
     // fighters hit zero — even mid-combat — so subsequent round_waiting /
     // round_resolved payloads carry the destroyed marker.
-    destroyed: (participant.fighters ?? 0) <= 0,
+    destroyed: fighters <= 0,
     mode: metadata.mode ?? 'offensive',
     toll_amount: metadata.toll_amount ?? 0,
     deployed_at: metadata.deployed_at ?? null,
@@ -268,8 +275,13 @@ export function buildRoundResolvedPayload(
       (entry) => entry.participant.combatant_id === primaryGarrison.combatant_id,
     )?.fighterLoss ?? 0)
     : 0;
+  const primaryRemaining = primaryGarrison
+    ? (outcome.fighters_remaining?.[primaryGarrison.combatant_id]
+      ?? primaryGarrison.fighters
+      ?? 0)
+    : 0;
   const garrisonPayload = primaryGarrison
-    ? buildGarrisonPayload(primaryGarrison, primaryLoss)
+    ? buildGarrisonPayload(primaryGarrison, primaryLoss, primaryRemaining)
     : null;
 
   payload['participants'] = participants;
@@ -415,6 +427,25 @@ export function collectParticipantIds(
     if (!includeDestroyed && participant.destruction_handled) {
       continue;
     }
+    const key = participant.owner_character_id ?? participant.combatant_id;
+    ids.add(key);
+  }
+  return Array.from(ids);
+}
+
+/**
+ * Owner-character IDs of all destroyed (destruction_handled) character
+ * participants. Used to exclude them from sector-observer fan-out: a
+ * destroyed player's escape pod still occupies the sector, so the standard
+ * visibility query would re-include them in subsequent round broadcasts.
+ */
+export function getDestroyedOwnerIds(
+  encounter: CombatEncounterState,
+): string[] {
+  const ids: Set<string> = new Set();
+  for (const participant of Object.values(encounter.participants)) {
+    if (participant.combatant_type !== 'character') continue;
+    if (!participant.destruction_handled) continue;
     const key = participant.owner_character_id ?? participant.combatant_id;
     ids.add(key);
   }

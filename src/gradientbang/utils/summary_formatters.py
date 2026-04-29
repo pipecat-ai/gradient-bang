@@ -1440,11 +1440,8 @@ def ship_destroyed_summary(event: Dict[str, Any]) -> str:
     sector = event.get("sector", {})
     sector_id = sector.get("id", "unknown") if isinstance(sector, dict) else "unknown"
 
-    salvage = event.get("salvage_created", False)
-    salvage_clause = " Salvage created." if salvage else ""
-
     prefix = "Corp ship" if is_corp else "Ship"
-    return f'{prefix} \"{name}\" ({ship_type}) destroyed in sector {sector_id}.{salvage_clause}'
+    return f'{prefix} \"{name}\" ({ship_type}) destroyed in sector {sector_id}.'
 
 
 def salvage_created_summary(event: Dict[str, Any]) -> str:

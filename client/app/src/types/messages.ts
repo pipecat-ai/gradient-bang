@@ -416,7 +416,6 @@ export interface ShipDestroyedMessage extends ServerMessagePayload {
   player_name: string
   sector: { id: number }
   combat_id: string
-  salvage_created: boolean
   timestamp?: string
 }
 

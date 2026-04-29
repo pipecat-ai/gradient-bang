@@ -256,9 +256,7 @@ export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDes
 
   gameStore.addActivityLogEntry({
     type: "ship.destroyed",
-    message: `${shipDescription} destroyed in [sector ${destroyed.sector.id}]${
-      destroyed.salvage_created ? " - salvage created" : ""
-    }`,
+    message: `${shipDescription} destroyed in [sector ${destroyed.sector.id}]`,
   })
 
   if (destroyed.player_type === "corporation_ship" || isLocalShipDestroyed) {

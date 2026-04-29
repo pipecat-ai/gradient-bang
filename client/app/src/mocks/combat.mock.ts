@@ -290,7 +290,6 @@ export const SHIP_DESTROYED_PAYLOAD_MOCK: ShipDestroyedMessage = {
   player_name: "Rook AI",
   sector: { id: SECTOR_ID },
   combat_id: COMBAT_ID,
-  salvage_created: true,
   timestamp: "2026-02-06T22:15:01.620Z",
   source: source("ship.destroyed", "2026-02-06T22:15:01.620Z"),
 }
