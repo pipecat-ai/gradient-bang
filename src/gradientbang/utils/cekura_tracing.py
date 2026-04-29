@@ -7,6 +7,7 @@ Cekura as custom metadata.
 """
 
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 from cekura.pipecat import PipecatTracer
@@ -39,9 +40,10 @@ def get_tracer() -> Optional[PipecatTracer]:
     return _tracer
 
 
-def cekura_append_context_dump(key: str, value: List[Dict[str, Any]]) -> None:
+def cekura_append_context_dump(value: List[Dict[str, Any]]) -> None:
     if not _tracer:
         return
+    key = f"context_dump_{int(time.time())}"
     metadata = _tracer.get_custom_metadata()
     context_dumps = metadata.get("context_dumps", {})
     context_dumps[key] = value
