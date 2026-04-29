@@ -391,12 +391,28 @@ export function getCorpIdsFromParticipants(
 
 /**
  * Collect character IDs from combat participants.
- * Returns only character combatants (not garrisons).
+ *
+ * Returns only character combatants (not garrisons). Destroyed participants
+ * (those flagged `destruction_handled = true`) are excluded by default —
+ * they've already received their personalized combat.ended via
+ * ejectDestroyedFromCombat and don't need redundant round_waiting events.
+ *
+ * Set `includeDestroyed: true` to include destroyed participants. The only
+ * place that should opt in is the round_resolved broadcast for the round in
+ * which a participant just died — that round's event correctly describes
+ * their death and should reach them.
  */
-export function collectParticipantIds(encounter: CombatEncounterState): string[] {
+export function collectParticipantIds(
+  encounter: CombatEncounterState,
+  options: { includeDestroyed?: boolean } = {},
+): string[] {
+  const includeDestroyed = options.includeDestroyed === true;
   const ids: Set<string> = new Set();
   for (const participant of Object.values(encounter.participants)) {
     if (participant.combatant_type !== 'character') {
+      continue;
+    }
+    if (!includeDestroyed && participant.destruction_handled) {
       continue;
     }
     const key = participant.owner_character_id ?? participant.combatant_id;

@@ -121,7 +121,12 @@ export function resolveRound(
     const candidates = Array.from(activeIds)
       .filter((id) => id !== fleerId)
       .map((id) => encounter.participants[id])
-      .filter((state) => state.fighters > 0);
+      .filter(
+        (state) =>
+          state.fighters > 0 &&
+          !state.is_escape_pod &&
+          !state.destruction_handled,
+      );
     if (!candidates.length) {
       return null;
     }
@@ -244,12 +249,25 @@ export function resolveRound(
       if (remainingCommits[pid] <= 0) {
         continue;
       }
-      if (!activeIds.has(pid) || currentFighters[pid] <= 0) {
+      const attackerState = encounter.participants[pid];
+      if (
+        !activeIds.has(pid) ||
+        currentFighters[pid] <= 0 ||
+        attackerState?.is_escape_pod ||
+        attackerState?.destruction_handled
+      ) {
         remainingCommits[pid] = 0;
         continue;
       }
       const targetId = effectiveActions[pid].target_id;
-      if (!targetId || !activeIds.has(targetId) || currentFighters[targetId] <= 0) {
+      const targetState = targetId ? encounter.participants[targetId] : null;
+      if (
+        !targetId ||
+        !activeIds.has(targetId) ||
+        currentFighters[targetId] <= 0 ||
+        targetState?.is_escape_pod ||
+        targetState?.destruction_handled
+      ) {
         remainingCommits[pid] = 0;
         continue;
       }

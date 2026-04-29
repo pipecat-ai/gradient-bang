@@ -238,9 +238,14 @@ async function handleDumpCargo(
     throw new DumpCargoError("Ship sector is unavailable", 500);
   }
 
-  // Check if character is in combat
+  // Check if character is in combat. Destroyed participants
+  // (destruction_handled === true) keep their entry for narrative continuity
+  // but count as out-of-combat — they're free to dump cargo from their
+  // escape pod just like any non-combatant.
   const combat = await loadCombatForSector(supabase, ship.current_sector);
-  if (combat && !combat.ended && combat.participants[characterId]) {
+  const myParticipant =
+    combat && !combat.ended ? combat.participants[characterId] : null;
+  if (myParticipant && !myParticipant.destruction_handled) {
     throw new DumpCargoError("Cannot dump cargo while in combat", 409);
   }
 

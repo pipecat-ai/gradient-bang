@@ -303,14 +303,18 @@ async function handleMove({
     return errorResponse("Character ship missing sector", 500);
   }
 
-  // Combat check (already loaded via context CTE)
+  // Combat check (already loaded via context CTE). A destroyed participant
+  // (destruction_handled === true) keeps their entry in the encounter for
+  // narrative continuity, but counts as out-of-combat — they're flying an
+  // escape pod and must be free to move.
   if (combatRaw) {
     const combat = deserializeCombat({
       ...(combatRaw as Record<string, unknown>),
       sector_id: ship.current_sector,
     });
     if (combat && !combat.ended) {
-      if (characterId in combat.participants) {
+      const myParticipant = combat.participants[characterId];
+      if (myParticipant && !myParticipant.destruction_handled) {
         await emitErrorEvent(supabase, {
           characterId,
           method: "move",

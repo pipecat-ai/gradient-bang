@@ -4,6 +4,7 @@ import {
   CombatEncounterState,
   CombatRoundOutcome,
   CombatantState,
+  PendingCorpShipDeletion,
 } from "./combat_types.ts";
 import {
   appendSalvageEntry,
@@ -76,6 +77,198 @@ interface ShipDestroyedEventData {
 export interface FinalizeCombatResult {
   salvageEntries: SalvageEntry[];
   deferredDeletions: DeferredCorpShipDeletion[];
+}
+
+/**
+ * Eject every newly-destroyed character participant from the live combat:
+ * capture their salvage onto the encounter blob (NOT dropped to the sector
+ * yet), convert player ships to escape pods, run pseudo-character cleanup
+ * for corp ships, mark destruction_handled, and emit a personalized
+ * combat.ended for player ships so their UI exits combat.
+ *
+ * The participant entry STAYS in encounter.participants flagged as
+ * destroyed — observers keep seeing them in subsequent round payloads with
+ * the destroyed flag, so the LLM doesn't misinterpret a missing entry as
+ * having fled. The defensive filters in combat_engine / combat_action /
+ * collectParticipantIds make sure being-in-the-list doesn't translate into
+ * being targetable or able to act.
+ *
+ * Skipped when combat is ending — finalize handles terminal-round deaths.
+ */
+export async function ejectDestroyedFromCombat(params: {
+  supabase: SupabaseClient;
+  encounter: CombatEncounterState;
+  outcome: CombatRoundOutcome;
+  requestId: string;
+  departedFleers: Set<string>;
+}): Promise<Set<string>> {
+  const { supabase, encounter, outcome, requestId, departedFleers } = params;
+  const ejected = new Set<string>();
+
+  // Collect newly-destroyed character participants (died this round, not
+  // already ejected, not a successful fleer).
+  const newlyDestroyed: Array<{ pid: string; participant: CombatantState }> =
+    [];
+  for (const [pid, participant] of Object.entries(encounter.participants)) {
+    if (participant.combatant_type !== "character") continue;
+    if (participant.destruction_handled) continue;
+    const remaining = outcome.fighters_remaining?.[pid] ?? participant.fighters;
+    if ((remaining ?? 0) > 0) continue;
+    const ownerCharId =
+      participant.owner_character_id ?? participant.combatant_id;
+    if (departedFleers.has(ownerCharId)) continue;
+    newlyDestroyed.push({ pid, participant });
+  }
+
+  if (newlyDestroyed.length === 0) return ejected;
+
+  // Lazy-load definitions: only needed for player-ship escape-pod conversion.
+  let definitionMap: Map<string, ShipDefinitionRow> | null = null;
+  const ensureDefinitionMap = async (): Promise<Map<string, ShipDefinitionRow>> => {
+    if (definitionMap) return definitionMap;
+    const types = ["escape_pod"];
+    for (const { participant } of newlyDestroyed) {
+      if (participant.ship_type) types.push(participant.ship_type);
+    }
+    definitionMap = await loadShipDefinitionMap(supabase, types);
+    return definitionMap;
+  };
+
+  for (const { pid, participant } of newlyDestroyed) {
+    try {
+      const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+      const shipId =
+        typeof metadata.ship_id === "string" ? metadata.ship_id : null;
+      if (!shipId) {
+        // Nothing we can do for a participant without a ship_id; just flag.
+        participant.destruction_handled = true;
+        ejected.add(pid);
+        continue;
+      }
+      const playerType = (metadata.player_type as string) ?? "human";
+      const isCorpShip = playerType === "corporation_ship";
+
+      const def = participant.ship_type
+        ? (await ensureDefinitionMap()).get(participant.ship_type)
+        : undefined;
+
+      // 1. Capture salvage onto the encounter blob (NOT dropped yet).
+      await captureSalvageForDefeatedShip(supabase, encounter, participant, def);
+
+      // 2. Apply destruction to canonical tables. For player ships this is
+      // the escape-pod conversion. For corp ships this is a noop here (the
+      // previous-PR helper persistRoundOutcomeToCanonicalTables already wrote
+      // destroyed_at + zeroed fighters/shields).
+      const defs = await ensureDefinitionMap();
+      await applyShipDestructionToCanonicalTables(supabase, participant, defs);
+
+      // 3. Corp ship: drain the matching entry from pending_corp_ship_deletions
+      // and run executeCorpShipDeletions for just that one ship. Pseudo-character
+      // and corporation_ships row removal happens here, not at end of combat.
+      if (isCorpShip) {
+        encounter.pending_corp_ship_deletions ??= [];
+        const idx = encounter.pending_corp_ship_deletions.findIndex(
+          (entry) => entry.ship_id === shipId,
+        );
+        if (idx >= 0) {
+          const entry = encounter.pending_corp_ship_deletions[idx];
+          encounter.pending_corp_ship_deletions.splice(idx, 1);
+          try {
+            await executeCorpShipDeletions(supabase, [
+              { shipId: entry.ship_id, characterId: entry.character_id },
+            ]);
+          } catch (err) {
+            // Re-queue so finalize gets another chance — destroyed_at is
+            // already set on the ship row, so the corp-ship is filtered
+            // out of active queries even if deletion fails here.
+            encounter.pending_corp_ship_deletions.push(entry);
+            console.error("combat_finalization.eject_corp_cleanup", {
+              shipId,
+              err,
+            });
+          }
+        }
+      }
+
+      // 4. Mark destruction_handled now that all DB side-effects committed.
+      participant.destruction_handled = true;
+
+      // 5. Personalized combat.ended for player ships only — corp ships have
+      // no client to notify; their corp members already get ship.destroyed
+      // from emitNewlyDefeatedDestructions.
+      if (!isCorpShip) {
+        const characterId =
+          participant.owner_character_id ?? participant.combatant_id;
+        try {
+          const postShip = await loadShip(supabase, shipId);
+          let shipSnapshot: Record<string, unknown> | undefined;
+          if (postShip) {
+            const escapePodDef = (await ensureDefinitionMap()).get("escape_pod");
+            const podDef = escapePodDef ?? def;
+            if (podDef) {
+              shipSnapshot = buildShipSnapshotForEjectedPlayer(postShip, podDef);
+            }
+          }
+          await emitCharacterEvent({
+            supabase,
+            characterId,
+            eventType: "combat.ended",
+            payload: {
+              source: buildEventSource("combat.ended", requestId),
+              timestamp: new Date().toISOString(),
+              combat_id: encounter.combat_id,
+              sector: { id: encounter.sector_id },
+              result: `${participant.name}_destroyed`,
+              end: `${participant.name}_destroyed`,
+              ...(shipSnapshot ? { ship: shipSnapshot } : {}),
+            },
+            sectorId: encounter.sector_id,
+            shipId,
+            requestId,
+          });
+        } catch (err) {
+          console.error("combat_finalization.eject_combat_ended_emit", {
+            shipId,
+            err,
+          });
+        }
+      }
+
+      ejected.add(pid);
+    } catch (err) {
+      console.error("combat_finalization.eject_destroyed_failed", {
+        pid,
+        err: String(err),
+      });
+    }
+  }
+
+  return ejected;
+}
+
+/**
+ * Build a minimal ship snapshot for the personalized combat.ended emitted to
+ * an ejected (destroyed) player. Reflects the post-conversion escape-pod
+ * state — cargo and credits are zero (convertShipToEscapePod nuked them),
+ * fighters and shields are zero, and warp power equals the escape-pod
+ * definition's full capacity (the conversion sets current_warp_power to that).
+ */
+function buildShipSnapshotForEjectedPlayer(
+  ship: ShipRow,
+  def: ShipDefinitionRow,
+): Record<string, unknown> {
+  return {
+    ship_id: ship.ship_id,
+    ship_type: ship.ship_type,
+    ship_name: ship.ship_name ?? def.display_name,
+    credits: 0,
+    cargo: { quantum_foam: 0, retro_organics: 0, neuro_symbolics: 0 },
+    warp_power: def.warp_power_capacity,
+    warp_power_capacity: def.warp_power_capacity,
+    shields: 0,
+    fighters: 0,
+    sector: ship.current_sector,
+  };
 }
 
 async function loadShip(
@@ -161,6 +354,148 @@ function buildCargoFromShip(ship: ShipRow): Record<string, number> {
   return cargo;
 }
 
+/**
+ * Capture salvage data from a freshly-defeated ship into the encounter blob.
+ *
+ * The ship row is loaded BEFORE any escape-pod conversion runs (cargo/credits
+ * still intact). A salvage entry is built and pushed onto
+ * `encounter.pending_salvage_entries`. The actual sector-level salvage drop
+ * (`appendSalvageEntry` + `salvage.created` event) is deferred to
+ * `dropPendingSalvageAtCombatEnd` — held until combat ends so a passer-by
+ * cannot collect mid-fight.
+ *
+ * Returns the captured entry (or null when there's nothing to salvage).
+ */
+export async function captureSalvageForDefeatedShip(
+  supabase: SupabaseClient,
+  encounter: CombatEncounterState,
+  participant: CombatantState,
+  definition: ShipDefinitionRow | undefined,
+): Promise<SalvageEntry | null> {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  const shipId = typeof metadata.ship_id === "string" ? metadata.ship_id : null;
+  if (!shipId) return null;
+
+  const ship = await loadShip(supabase, shipId);
+  if (!ship) return null;
+
+  const cargo = buildCargoFromShip(ship);
+  const credits = ship.credits ?? 0;
+  const scrapBase = definition?.purchase_price ?? 0;
+  const scrap = Math.max(5, Math.floor(scrapBase / 1000));
+  const hasSalvage = Object.keys(cargo).length > 0 || scrap > 0 || credits > 0;
+  if (!hasSalvage) return null;
+
+  const salvage = buildSalvageEntry(
+    { ship_name: ship.ship_name, ship_type: ship.ship_type },
+    definition?.display_name ?? ship.ship_type,
+    cargo,
+    scrap,
+    credits,
+    {
+      combat_id: encounter.combat_id,
+      ship_type: ship.ship_type,
+    },
+  );
+
+  encounter.pending_salvage_entries ??= [];
+  encounter.pending_salvage_entries.push(salvage as Record<string, unknown>);
+  return salvage;
+}
+
+/**
+ * Apply destruction to canonical tables for a defeated character participant.
+ *
+ * Player ship: convert to escape pod (zeros cargo / credits / fighters /
+ * shields, sets ship_type='escape_pod'). Mirror the resulting ship_type +
+ * is_escape_pod onto the in-memory participant so subsequent payloads
+ * serialize the post-conversion state.
+ *
+ * Corp ship: noop on the ship_instances side (the previous-PR helper
+ * `persistRoundOutcomeToCanonicalTables` already wrote `destroyed_at` and
+ * enqueued the deletion). The pseudo-character / corporation_ships cleanup
+ * is the caller's job — pull the entry from
+ * `encounter.pending_corp_ship_deletions` and run `executeCorpShipDeletions`.
+ *
+ * Idempotent for player ships (a second call against an already-converted
+ * ship just rewrites the same escape-pod values).
+ */
+export async function applyShipDestructionToCanonicalTables(
+  supabase: SupabaseClient,
+  participant: CombatantState,
+  shipDefs: Map<string, ShipDefinitionRow>,
+): Promise<void> {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  const shipId = typeof metadata.ship_id === "string" ? metadata.ship_id : null;
+  if (!shipId) return;
+
+  const playerType = (metadata.player_type as string) ?? "human";
+  const isCorpShip = playerType === "corporation_ship";
+  if (isCorpShip) {
+    // Corp ships: destroyed_at + zero fighters/shields was already written by
+    // persistRoundOutcomeToCanonicalTables. Caller drains
+    // pending_corp_ship_deletions for the row-level cleanup.
+    return;
+  }
+
+  // Player ship already converted in a prior round — skip the redundant DB
+  // write. We mirrored the participant flag at the time of conversion.
+  if (participant.is_escape_pod) return;
+
+  await convertShipToEscapePod(supabase, shipId, shipDefs);
+  participant.ship_type = "escape_pod";
+  participant.is_escape_pod = true;
+  participant.fighters = 0;
+  participant.shields = 0;
+}
+
+/**
+ * Drain `encounter.pending_salvage_entries` into `sector_contents.salvage`
+ * and emit `salvage.created` for each entry. Call ONLY when combat is
+ * actually ending — never mid-round.
+ */
+export async function dropPendingSalvageAtCombatEnd(
+  supabase: SupabaseClient,
+  encounter: CombatEncounterState,
+  requestId: string,
+): Promise<SalvageEntry[]> {
+  const pending = encounter.pending_salvage_entries ?? [];
+  if (pending.length === 0) return [];
+  const dropped: SalvageEntry[] = [];
+  for (const raw of pending) {
+    const entry = raw as SalvageEntry;
+    try {
+      await appendSalvageEntry(supabase, encounter.sector_id, entry);
+      const timestamp = new Date().toISOString();
+      await emitSectorEnvelope({
+        supabase,
+        sectorId: encounter.sector_id,
+        eventType: "salvage.created",
+        payload: {
+          source: buildEventSource("combat.ended", requestId),
+          timestamp,
+          salvage_id: entry.salvage_id,
+          sector: { id: encounter.sector_id },
+          cargo: entry.cargo,
+          scrap: entry.scrap,
+          credits: entry.credits,
+          from_ship_type: entry.source.ship_type,
+          from_ship_name: entry.source.ship_name,
+        },
+        requestId,
+      });
+      dropped.push(entry);
+    } catch (err) {
+      console.error("combat_finalization.drop_pending_salvage", {
+        salvage_id: entry.salvage_id,
+        err,
+      });
+    }
+  }
+  encounter.pending_salvage_entries = [];
+  return dropped;
+}
+
 async function handleDefeatedCharacter(
   supabase: SupabaseClient,
   encounter: CombatEncounterState,
@@ -183,29 +518,22 @@ async function handleDefeatedCharacter(
     return { salvage: null, deferredDeletion: null, shipDestroyedEvent: null };
   }
 
-  const cargo = buildCargoFromShip(ship);
-  const credits = ship.credits ?? 0;
-  const scrapBase = definition?.purchase_price ?? 0;
-  const scrap = Math.max(5, Math.floor(scrapBase / 1000));
-  const hasSalvage = Object.keys(cargo).length > 0 || scrap > 0 || credits > 0;
-
+  // Capture salvage onto the encounter (will be dropped at combat end). For
+  // already-handled participants (ejected mid-round in a prior round) salvage
+  // is already on the encounter blob from that round — skip the recapture.
   let salvage: SalvageEntry | null = null;
-  if (hasSalvage) {
-    salvage = buildSalvageEntry(
-      { ship_name: ship.ship_name, ship_type: ship.ship_type },
-      definition?.display_name ?? ship.ship_type,
-      cargo,
-      scrap,
-      credits,
-      {
-        combat_id: encounter.combat_id,
-        ship_type: ship.ship_type,
-      },
+  if (!participant.destruction_handled) {
+    salvage = await captureSalvageForDefeatedShip(
+      supabase,
+      encounter,
+      participant,
+      definition,
     );
-    await appendSalvageEntry(supabase, encounter.sector_id, salvage);
   }
 
-  // Build ship.destroyed event data (always emit, regardless of salvage)
+  // Build ship.destroyed event data. salvage_created stays false here:
+  // mid-round emissions of ship.destroyed already use false (salvage hasn't
+  // dropped to the sector yet), and finalize doesn't re-emit ship.destroyed.
   const shipDestroyedEvent: ShipDestroyedEventData = {
     shipId,
     shipType: ship.ship_type,
@@ -215,41 +543,36 @@ async function handleDefeatedCharacter(
     ownerCharacterId:
       participant.owner_character_id ?? participant.combatant_id,
     corpId,
-    salvageCreated: salvage !== null,
+    salvageCreated: false,
   };
 
-  // Handle ship destruction differently for corp ships vs human ships
-  if (isCorpShip) {
-    // Corp ships: mark as destroyed immediately (not converted to escape pod).
-    // We set destroyed_at here so the ship is removed from active queries even
-    // if the deferred pseudo-character cleanup in executeCorpShipDeletions fails
-    // (e.g. due to an error during combat.ended event emission).
-    await supabase
-      .from("ship_instances")
-      .update({
-        current_fighters: 0,
-        current_shields: 0,
-        destroyed_at: new Date().toISOString(),
-      })
-      .eq("ship_id", shipId);
+  // Apply destruction to canonical tables (idempotent for both branches).
+  await applyShipDestructionToCanonicalTables(supabase, participant, shipDefs);
 
-    // Defer deletion until after combat.ended payloads are built
-    const characterId =
-      participant.owner_character_id ?? participant.combatant_id;
-    return {
-      salvage,
-      deferredDeletion: { shipId, characterId },
-      shipDestroyedEvent,
-    };
-  } else {
-    // Human ships: convert to escape pod immediately
-    await convertShipToEscapePod(supabase, shipId, shipDefs);
+  if (isCorpShip) {
+    if (!participant.destruction_handled) {
+      const characterId =
+        participant.owner_character_id ?? participant.combatant_id;
+      participant.destruction_handled = true;
+      return {
+        salvage,
+        deferredDeletion: { shipId, characterId },
+        shipDestroyedEvent,
+      };
+    }
     return {
       salvage,
       deferredDeletion: null,
       shipDestroyedEvent,
     };
   }
+
+  participant.destruction_handled = true;
+  return {
+    salvage,
+    deferredDeletion: null,
+    shipDestroyedEvent,
+  };
 }
 
 async function updateGarrisonState(
@@ -305,6 +628,148 @@ async function updateGarrisonState(
     );
   } catch (err) {
     console.error("combat_finalization.garrison_map_update.failed", err);
+  }
+}
+
+/**
+ * Persist this round's outcome to the canonical tables (ship_instances,
+ * garrisons) so that DB-sourced reads (corporation.data, status.update,
+ * my_status / my_corporation tool replies, etc.) reflect the live combat
+ * state instead of pre-combat values.
+ *
+ * Call from resolveEncounterRound AFTER applying the in-memory update to
+ * encounter.participants and BEFORE broadcasting combat.round_resolved, so
+ * that any client snapshot triggered in response to the round event sees
+ * the same numbers the event carried.
+ *
+ * Idempotency: writes for survivors are safe to re-apply (same value);
+ * writes for newly defeated participants are guarded by `destruction_handled`
+ * so finalizeCombat can skip them on the terminal round. Escape pod
+ * conversion for defeated player ships is intentionally NOT done here —
+ * it nukes cargo, and salvage in finalizeCombat needs cargo intact.
+ */
+export async function persistRoundOutcomeToCanonicalTables(
+  supabase: SupabaseClient,
+  encounter: CombatEncounterState,
+  requestId: string,
+): Promise<void> {
+  encounter.pending_corp_ship_deletions ??= [];
+
+  for (const [pid, participant] of Object.entries(encounter.participants)) {
+    // Read from the live participant state, not outcome. The caller has
+    // already applied this round's losses AND any between-round shield regen
+    // to encounter.participants — so participant.shields is the next-round-
+    // start value that round_waiting will broadcast. Using outcome here would
+    // persist the pre-regen value and disagree with the encounter blob.
+    const remaining = participant.fighters ?? 0;
+    const remainingShields = participant.shields ?? 0;
+
+    if (participant.combatant_type === "garrison") {
+      if (participant.destruction_handled) continue;
+      await updateGarrisonState(
+        supabase,
+        encounter,
+        participant,
+        remaining,
+        requestId,
+      );
+      // Garrisons have no separate eject path — once
+      // updateGarrisonState handles the row delete + map.update, mark them
+      // destroyed-handled so subsequent rounds (and finalize) don't redo it.
+      if (remaining <= 0) {
+        participant.destruction_handled = true;
+      }
+      continue;
+    }
+
+    if (participant.combatant_type !== "character") continue;
+    if (participant.destruction_handled) continue;
+
+    const shipId =
+      typeof participant.metadata?.ship_id === "string"
+        ? (participant.metadata.ship_id as string)
+        : null;
+    if (!shipId) continue;
+
+    if (remaining > 0) {
+      // Survivor: write live values so external snapshots agree with the
+      // round_resolved payload.
+      const { error } = await supabase
+        .from("ship_instances")
+        .update({
+          current_fighters: remaining,
+          current_shields: remainingShields,
+        })
+        .eq("ship_id", shipId);
+      if (error) {
+        console.error("combat_finalization.persist_round_survivor", {
+          shipId,
+          error,
+        });
+      }
+      continue;
+    }
+
+    // Newly defeated this round.
+    const playerType =
+      typeof participant.metadata?.player_type === "string"
+        ? (participant.metadata.player_type as string)
+        : "human";
+    const isCorpShip = playerType === "corporation_ship";
+
+    if (isCorpShip) {
+      const { error } = await supabase
+        .from("ship_instances")
+        .update({
+          current_fighters: 0,
+          current_shields: 0,
+          destroyed_at: new Date().toISOString(),
+        })
+        .eq("ship_id", shipId);
+      if (error) {
+        console.error("combat_finalization.persist_round_corp_destroyed", {
+          shipId,
+          error,
+        });
+        continue;
+      }
+      const characterId =
+        participant.owner_character_id ?? participant.combatant_id;
+      const alreadyPending = encounter.pending_corp_ship_deletions.some(
+        (entry) => entry.ship_id === shipId,
+      );
+      if (!alreadyPending) {
+        encounter.pending_corp_ship_deletions.push({
+          ship_id: shipId,
+          character_id: characterId,
+        });
+      }
+    } else {
+      // Player ship: zero fighters/shields so my_status reads are honest.
+      // Escape pod conversion (cargo zero, ship_type swap) and the
+      // destruction_handled flag flip happen later in
+      // ejectDestroyedFromCombat (mid-round) or finalizeCombat (terminal).
+      const { error } = await supabase
+        .from("ship_instances")
+        .update({
+          current_fighters: 0,
+          current_shields: 0,
+        })
+        .eq("ship_id", shipId);
+      if (error) {
+        console.error("combat_finalization.persist_round_player_destroyed", {
+          shipId,
+          error,
+        });
+        continue;
+      }
+    }
+    // Note: destruction_handled is intentionally NOT set here. The eject
+    // helper (mid-round) and finalizeCombat (terminal) own that lifecycle
+    // step — they need to see the participant unflagged so they can run
+    // salvage capture / escape-pod conversion / corp-ship cleanup against
+    // it. persistRoundOutcomeToCanonicalTables only commits the canonical-
+    // table writes that should be visible to external snapshot readers.
   }
 }
 
@@ -574,7 +1039,14 @@ export async function finalizeCombat(
   requestId?: string,
 ): Promise<FinalizeCombatResult> {
   const salvageEntries: SalvageEntry[] = [];
-  const deferredDeletions: DeferredCorpShipDeletion[] = [];
+  // Seed with deletions queued by mid-round persistence (corp ships destroyed
+  // in earlier rounds). handleDefeatedCharacter dedupes when adding any fresh
+  // deletions detected on the terminal round.
+  const pendingFromEncounter: PendingCorpShipDeletion[] =
+    encounter.pending_corp_ship_deletions ?? [];
+  const deferredDeletions: DeferredCorpShipDeletion[] = pendingFromEncounter.map(
+    (entry) => ({ shipId: entry.ship_id, characterId: entry.character_id }),
+  );
   const defeated = Object.entries(outcome.fighters_remaining ?? {}).filter(
     ([pid, remaining]) => remaining <= 0,
   );
@@ -592,14 +1064,17 @@ export async function finalizeCombat(
   const definitionMap = await loadShipDefinitionMap(supabase, shipTypes);
 
   // Destruction events (ship.destroyed / garrison.destroyed) already fired
-  // mid-round via emitNewlyDefeatedDestructions in resolveEncounterRound,
-  // including for participants that died THIS terminal round. finalizeCombat
-  // therefore handles only the cleanup side — escape pod conversion,
-  // garrison row deletion, salvage drop, and the salvage.created event.
+  // mid-round via emitNewlyDefeatedDestructions. Destruction side-effects
+  // (escape-pod conversion, garrison row deletion, corp-ship destroyed_at)
+  // for non-terminal-round deaths already ran in ejectDestroyedFromCombat.
+  // finalize only does the work for terminal-round-just-died participants.
   for (const [pid] of defeated) {
     const participant = encounter.participants[pid];
     if (!participant || participant.combatant_type !== "character") {
-      if (participant?.combatant_type === "garrison") {
+      if (
+        participant?.combatant_type === "garrison" &&
+        !participant.destruction_handled
+      ) {
         await updateGarrisonState(
           supabase,
           encounter,
@@ -607,6 +1082,7 @@ export async function finalizeCombat(
           outcome.fighters_remaining?.[pid] ?? 0,
           requestId ?? `combat:${encounter.combat_id}`,
         );
+        participant.destruction_handled = true;
       }
       continue;
     }
@@ -622,39 +1098,19 @@ export async function finalizeCombat(
       definitionMap,
     );
 
-    if (result.salvage) {
-      salvageEntries.push(result.salvage);
-
-      // Emit salvage.created event to all sector occupants
-      const timestamp = new Date().toISOString();
-      await emitSectorEnvelope({
-        supabase,
-        sectorId: encounter.sector_id,
-        eventType: "salvage.created",
-        payload: {
-          source: buildEventSource(
-            "combat.ended",
-            requestId ?? `combat:${encounter.combat_id}`,
-          ),
-          timestamp,
-          salvage_id: result.salvage.salvage_id,
-          sector: { id: encounter.sector_id },
-          cargo: result.salvage.cargo,
-          scrap: result.salvage.scrap,
-          credits: result.salvage.credits,
-          from_ship_type: result.salvage.source.ship_type,
-          from_ship_name: result.salvage.source.ship_name,
-        },
-        requestId: requestId ?? `combat:${encounter.combat_id}`,
-      });
-    }
-
-    // ship.destroyed already fired in emitNewlyDefeatedDestructions when
-    // this ship's fighters first hit 0 (mid-round). The result struct is
-    // still consumed below for deferredDeletion / escape-pod bookkeeping.
+    // Salvage capture for this participant has been pushed onto
+    // encounter.pending_salvage_entries by handleDefeatedCharacter (when
+    // not already destruction_handled). The actual sector drop +
+    // salvage.created emission happens once at the end of finalize via
+    // dropPendingSalvageAtCombatEnd — never per-defeated mid-round.
 
     if (result.deferredDeletion) {
-      deferredDeletions.push(result.deferredDeletion);
+      const alreadyQueued = deferredDeletions.some(
+        (entry) => entry.shipId === result.deferredDeletion!.shipId,
+      );
+      if (!alreadyQueued) {
+        deferredDeletions.push(result.deferredDeletion);
+      }
       // DON'T update participant.ship_type for corp ships - they won't become escape pods
     } else {
       // Update participant state to reflect escape pod conversion for event payload
@@ -663,45 +1119,16 @@ export async function finalizeCombat(
     }
   }
 
-  for (const [pid, participant] of Object.entries(encounter.participants)) {
-    if (participant.combatant_type === "garrison") {
-      const remaining = outcome.fighters_remaining?.[pid] ?? participant.fighters;
-      // Defeated garrisons (remaining <= 0) are handled in the defeated
-      // loop above — running updateGarrisonState a second time would
-      // emit garrison.destroyed twice. Only update survivors here.
-      if (remaining <= 0) continue;
-      await updateGarrisonState(
-        supabase,
-        encounter,
-        participant,
-        remaining,
-        requestId ?? `combat:${encounter.combat_id}`,
-      );
-      continue;
-    }
-
-    // Persist surviving character ships' fighters/shields to ship_instances
-    if (participant.combatant_type === "character") {
-      const remainingFighters = outcome.fighters_remaining?.[pid];
-      if (remainingFighters === undefined || remainingFighters <= 0) {
-        // Defeated ships are already handled above (escape pod conversion)
-        continue;
-      }
-      const shipId = participant.metadata?.ship_id as string | undefined;
-      if (!shipId) continue;
-      const remainingShields = outcome.shields_remaining?.[pid] ?? participant.shields;
-      const { error } = await supabase
-        .from("ship_instances")
-        .update({
-          current_fighters: remainingFighters,
-          current_shields: remainingShields,
-        })
-        .eq("ship_id", shipId);
-      if (error) {
-        console.error("combat_finalization.update_surviving_ship", { shipId, error });
-      }
-    }
-  }
+  // Drain salvage captured this round AND in any prior rounds where players
+  // / corp ships died via ejectDestroyedFromCombat. This is the only place
+  // sector_contents.salvage gets the new entries — guaranteeing a passer-by
+  // can't loot mid-fight.
+  const droppedSalvage = await dropPendingSalvageAtCombatEnd(
+    supabase,
+    encounter,
+    requestId ?? `combat:${encounter.combat_id}`,
+  );
+  salvageEntries.push(...droppedSalvage);
 
   return { salvageEntries, deferredDeletions };
 }

@@ -743,9 +743,13 @@ async function handleWithdraw(
     );
   }
 
-  // Check if character is in combat
+  // Check if character is in combat. Destroyed participants
+  // (destruction_handled === true) keep their entry for narrative continuity
+  // but count as out-of-combat.
   const combat = await loadCombatForSector(supabase, ship.current_sector);
-  if (combat && !combat.ended && combat.participants[characterId]) {
+  const myParticipant =
+    combat && !combat.ended ? combat.participants[characterId] : null;
+  if (myParticipant && !myParticipant.destruction_handled) {
     throw new BankTransferError(
       "Cannot withdraw from bank while in combat",
       409,

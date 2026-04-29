@@ -2226,7 +2226,7 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "combat — escape pod cannot flee → 400",
+  name: "combat — escape pod cannot act → 410",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -2264,16 +2264,16 @@ Deno.test({
       });
     });
 
-    await t.step("P1 (escape pod) tries to flee → 400", async () => {
+    await t.step("P1 (escape pod) tries to flee → 410", async () => {
       const result = await api("combat_action", {
         character_id: p1Id,
         combat_id: combatId,
         action: "flee",
       });
-      assertEquals(result.status, 400, "Expected 400 for escape pod flee");
+      assertEquals(result.status, 410, "Expected 410 Gone for escape pod actions");
       assert(
-        (result.body.error ?? "").includes("Escape pods cannot flee"),
-        `Expected escape pod error, got: ${result.body.error}`,
+        (result.body.error ?? "").toLowerCase().includes("destroyed"),
+        `Expected destroyed-ship error, got: ${result.body.error}`,
       );
     });
   },
@@ -3696,26 +3696,41 @@ Deno.test({
     });
 
     await t.step("force combat to end and assert combat.ended payload + ship.destroyed", async () => {
-      // Crush P2 so they die: max P1 fighters, P2 already at 50.
+      // Drive the encounter forward with `expireCombatDeadline` + tick.
+      // Picking a single hard-coded target (P2) is unreliable: once P2
+      // dies the garrison is still hostile, so combat keeps going and
+      // combat_action against the dead P2 now rejects (target invalid),
+      // leaving the round stuck. Instead, drive each round by ticking the
+      // deadline — that lets P1's auto-brace + the garrison's auto-attack
+      // resolve naturally until end_state is reached. We also re-pick
+      // P1's attack target each round from whatever hostile is still alive.
       const endCursor = await getEventCursor(p1Id);
-      // Loop submitting actions until combat_action returns 404 (combat
-      // ended) or we hit a safety limit.
-      for (let round = 0; round < 8; round++) {
-        const result = await api("combat_action", {
-          character_id: p1Id,
-          combat_id: combatId,
-          action: "attack",
-          target_id: p2Id,
-          commit: 200,
-        });
-        if (result.status === 404) break;
-        await api("combat_action", {
-          character_id: p2Id,
-          combat_id: combatId,
-          action: "brace",
-        });
-        // Brief settle so round-resolution events land before the next loop.
-        await new Promise((resolve) => setTimeout(resolve, 50));
+      for (let round = 0; round < 30; round++) {
+        const state = await queryCombatState(3);
+        if (!state || (state as Record<string, unknown>).ended === true) break;
+        // Pick the first alive non-P1 character/garrison participant as P1's target.
+        const participants = (state as Record<string, unknown>)
+          .participants as Record<string, { fighters: number; combatant_type: string; destruction_handled?: boolean }>;
+        let liveTarget: string | null = null;
+        for (const [pid, p] of Object.entries(participants)) {
+          if (pid === p1Id) continue;
+          if (p.destruction_handled) continue;
+          if ((p.fighters ?? 0) > 0) {
+            liveTarget = pid;
+            break;
+          }
+        }
+        if (liveTarget) {
+          await api("combat_action", {
+            character_id: p1Id,
+            combat_id: combatId,
+            action: "attack",
+            target_id: liveTarget,
+            commit: 200,
+          });
+        }
+        await expireCombatDeadline(3);
+        await api("combat_tick", {});
       }
       const ended = await eventsOfType(p1Id, "combat.ended", endCursor);
       assert(ended.length >= 1, "combat.ended should fire for P1");

@@ -4,6 +4,7 @@ import {
   CombatEncounterState,
   CombatantState,
   nowIso,
+  PendingCorpShipDeletion,
   RoundActionState,
 } from "./combat_types.ts";
 
@@ -41,6 +42,12 @@ export function deserializeCombat(raw: unknown): CombatEncounterState | null {
         : Math.floor(Math.random() * 1_000_000),
     last_updated:
       typeof data.last_updated === "string" ? data.last_updated : nowIso(),
+    pending_corp_ship_deletions: Array.isArray(data.pending_corp_ship_deletions)
+      ? (data.pending_corp_ship_deletions as PendingCorpShipDeletion[])
+      : [],
+    pending_salvage_entries: Array.isArray(data.pending_salvage_entries)
+      ? (data.pending_salvage_entries as Array<Record<string, unknown>>)
+      : [],
   };
 }
 
@@ -61,6 +68,8 @@ function serializeCombat(
     end_state: encounter.end_state,
     base_seed: encounter.base_seed,
     last_updated: nowIso(),
+    pending_corp_ship_deletions: encounter.pending_corp_ship_deletions ?? [],
+    pending_salvage_entries: encounter.pending_salvage_entries ?? [],
   };
 }
 

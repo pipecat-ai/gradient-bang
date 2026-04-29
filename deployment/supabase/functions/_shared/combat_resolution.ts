@@ -14,9 +14,11 @@ import {
 } from "./combat_garrison.ts";
 import { resolveRound } from "./combat_engine.ts";
 import {
+  ejectDestroyedFromCombat,
   emitNewlyDefeatedDestructions,
   executeCorpShipDeletions,
   finalizeCombat,
+  persistRoundOutcomeToCanonicalTables,
 } from "./combat_finalization.ts";
 import { departSuccessfulFleers } from "./combat_flee.ts";
 import {
@@ -148,10 +150,43 @@ export async function resolveEncounterRound(options: {
       outcome.shields_remaining?.[pid] ?? participant.shields;
   }
 
+  // Apply between-rounds shield regen ahead of the per-round persistence
+  // call so DB-sourced snapshots (corporation.data, my_status, etc.) reflect
+  // the same shield value the next round_waiting payload will carry. Skipped
+  // when combat is ending — there is no next round, and regen would corrupt
+  // the post-loss values that buildCombatEndedPayload reports.
+  if (!outcome.end_state) {
+    for (const participant of Object.values(encounter.participants)) {
+      if ((participant.fighters ?? 0) > 0 && !participant.is_escape_pod) {
+        const currentShields = participant.shields ?? 0;
+        const maxShields = participant.max_shields ?? 0;
+        participant.shields = Math.min(
+          currentShields + SHIELD_REGEN_PER_ROUND,
+          maxShields,
+        );
+      }
+    }
+  }
+
   encounter.pending_actions = {};
   encounter.awaiting_resolution = false;
 
+  // Snapshot recipients BEFORE persistRoundOutcomeToCanonicalTables flips
+  // destruction_handled. This serves both the round_resolved broadcast
+  // below and the personalized combat.ended emission inside finalizeCombat
+  // for the terminal round: a participant who just died this round still
+  // has destruction_handled=false at this point, so the default filter
+  // includes them and they receive both events. Prior-round-destroyed
+  // participants are already filtered out — their UI left combat via the
+  // personalized combat.ended ejectDestroyedFromCombat sent at their death.
   const recipients = collectParticipantIds(encounter);
+
+  // Flush this round's outcome to ship_instances / garrisons before
+  // broadcasting combat.round_resolved. Without this, any DB-sourced snapshot
+  // a client triggers in response to the round event (corporation.data,
+  // status.update, my_status / my_corporation tool calls) would serve the
+  // pre-combat values and clobber the fresh in-memory state.
+  await persistRoundOutcomeToCanonicalTables(supabase, encounter, requestId);
 
   await broadcastCombatEvent({
     supabase,
@@ -181,6 +216,23 @@ export async function resolveEncounterRound(options: {
         delete encounter.participants[pid];
       }
     }
+  }
+
+  // Eject any newly-destroyed character participants when combat is
+  // continuing. Drops salvage onto encounter.pending_salvage_entries (NOT
+  // sector_contents.salvage), runs escape-pod conversion / corp-ship
+  // pseudo-character cleanup, marks destruction_handled, and emits a
+  // personalized combat.ended for player ships so their UI exits combat.
+  // Skipped on the terminal round — finalizeCombat handles those deaths
+  // and the personalized combat.ended emission downstream.
+  if (!outcome.end_state) {
+    await ejectDestroyedFromCombat({
+      supabase,
+      encounter,
+      outcome,
+      requestId,
+      departedFleers,
+    });
   }
 
   if (outcome.end_state) {
@@ -293,17 +345,8 @@ export async function resolveEncounterRound(options: {
     encounter.round = outcome.round_number + 1;
     encounter.deadline = computeNextCombatDeadline();
 
-    // Recharge shields between rounds
-    for (const participant of Object.values(encounter.participants)) {
-      if ((participant.fighters ?? 0) > 0 && !participant.is_escape_pod) {
-        const currentShields = participant.shields ?? 0;
-        const maxShields = participant.max_shields ?? 0;
-        participant.shields = Math.min(
-          currentShields + SHIELD_REGEN_PER_ROUND,
-          maxShields,
-        );
-      }
-    }
+    // Shield regen for the next round was already applied earlier (before
+    // persistRoundOutcomeToCanonicalTables) so DB and round_waiting agree.
 
     const waitingPayload = buildRoundWaitingPayload(encounter);
     waitingPayload.source = buildEventSource("combat.round_waiting", requestId);

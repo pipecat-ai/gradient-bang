@@ -225,14 +225,19 @@ async function handleCombatAction(params: {
     throw err;
   }
 
-  const action = normalizeAction(actionRaw);
-  if (participant.is_escape_pod && action === "flee") {
-    const err = new Error("Escape pods cannot flee") as Error & {
+  // A destroyed ship or escape pod no longer participates in combat — block
+  // every action, not just flee. Their participant entry stays in the
+  // encounter for narrative continuity (so observers / LLM see them flagged
+  // destroyed across remaining rounds), but they cannot act.
+  if (participant.destruction_handled || participant.is_escape_pod) {
+    const err = new Error("Your ship is destroyed.") as Error & {
       status?: number;
     };
-    err.status = 400;
+    err.status = 410;
     throw err;
   }
+
+  const action = normalizeAction(actionRaw);
 
   const validated = await buildActionState({
     supabase,
@@ -453,6 +458,21 @@ async function buildActionState(params: {
       actorCombatantId: participant.combatant_id,
       targetIdRaw: targetId,
     });
+    // Reject targeting a participant that's already been destroyed (in this
+    // round or a prior round) or that's an escape pod. The participant entry
+    // stays in encounter.participants for narrative continuity, but it's not
+    // a valid attack target.
+    const resolvedTarget = encounter.participants[targetId];
+    if (
+      resolvedTarget?.destruction_handled ||
+      resolvedTarget?.is_escape_pod
+    ) {
+      const err = new Error(
+        "Target is no longer a valid combatant",
+      ) as Error & { status?: number };
+      err.status = 400;
+      throw err;
+    }
     // Prevent friendly fire. Applies to BOTH garrison and character
     // targets: own ship, own garrison, corpmate ship, corpmate garrison,
     // and corp-owned ships are all off-limits. Uses the shared in-memory
