@@ -329,10 +329,9 @@ async function handleCombatInitiate(params: {
       if (!participant) {
         throw new Error("Initiator not present in sector");
       }
-      // Stamp the joiner with the live round so the diagnostic
-      // `joined_round` field reflects when they entered. The
-      // user-facing `just_joined` flag is driven by the explicit
-      // `justJoinedIds` set we pass into the round_waiting builder.
+      // Mid-encounter joiner: stamp `joined_round` so the action-submit
+      // and round-ready gates lock them out of acting in this round.
+      // They brace by default and become full participants on round N+1.
       encounter.participants[participant.combatant_id] = {
         ...participant,
         joined_round: encounter.round,
@@ -343,18 +342,17 @@ async function handleCombatInitiate(params: {
       encounter.base_seed = deterministicSeed(encounter.combat_id);
     }
   } else {
-    // Fresh encounter — every starting participant is "just joined" so the
-    // first round_waiting annotates each with `(joined encounter)`.
+    // Fresh encounter — initial combatants do NOT get `joined_round` set
+    // (reserved for mid-encounter joiners). Their first round_waiting
+    // still marks them via the explicit `justJoinedIds` set so the
+    // `(joined encounter)` annotation fires once.
     const participants: Record<string, CombatantState> = {};
     for (const state of participantStates) {
-      participants[state.combatant_id] = { ...state, joined_round: 1 };
+      participants[state.combatant_id] = state;
       justJoinedIds.add(state.combatant_id);
     }
     for (const garrison of garrisons) {
-      participants[garrison.state.combatant_id] = {
-        ...garrison.state,
-        joined_round: 1,
-      };
+      participants[garrison.state.combatant_id] = garrison.state;
       justJoinedIds.add(garrison.state.combatant_id);
     }
     if (Object.keys(participants).length < MIN_PARTICIPANTS && !debug) {

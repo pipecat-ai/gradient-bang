@@ -246,6 +246,21 @@ async function handleCombatAction(params: {
     throw err;
   }
 
+  // Mid-encounter joiner: locked out of acting in the round they joined.
+  // They default to brace this round (engine: missing pending_action →
+  // brace) and become full action submitters on round N+1, when their
+  // joined_round no longer equals encounter.round.
+  if (
+    typeof participant.joined_round === "number" &&
+    participant.joined_round === encounter.round
+  ) {
+    const err = new Error(
+      "Cannot submit a combat action in the round you joined; act on the next round.",
+    ) as Error & { status?: number };
+    err.status = 409;
+    throw err;
+  }
+
   const action = normalizeAction(actionRaw);
 
   const validated = await buildActionState({
@@ -289,36 +304,36 @@ async function handleCombatAction(params: {
 
   const resolvedRound = ready || deadlineReached;
 
-  // Emit combat.action_accepted BEFORE resolving the round. For DIRECT
-  // participants this preserves the natural order in their event stream
-  // (action confirmed → round resolved → combat ended), instead of
-  // surfacing the action confirmation after the round outcome already
-  // landed. resolveEncounterRound emits round_resolved /
-  // ship.destroyed / combat.ended downstream of this point.
-  await emitCharacterEvent({
-    supabase,
-    characterId,
-    eventType: "combat.action_accepted",
-    payload: {
-      combat_id: encounter.combat_id,
-      round: submittedRound,
-      action: actionRaw,
-      commit,
-      target_id: targetId,
-      round_resolved: resolvedRound,
-      source: buildEventSource("combat.action", requestId),
-    },
-    sectorId: encounter.sector_id,
-    requestId,
-    taskId,
-    shipId: ship.ship_id,
-  });
+  const emitActionAccepted = () =>
+    emitCharacterEvent({
+      supabase,
+      characterId,
+      eventType: "combat.action_accepted",
+      payload: {
+        combat_id: encounter.combat_id,
+        round: submittedRound,
+        action: actionRaw,
+        commit,
+        target_id: targetId,
+        round_resolved: resolvedRound,
+        source: buildEventSource("combat.action", requestId),
+      },
+      sectorId: encounter.sector_id,
+      requestId,
+      taskId,
+      shipId: ship.ship_id,
+    });
 
   if (resolvedRound) {
     console.log("combat_action.resolving_round", {
       combat_id: encounter.combat_id,
       round: encounter.round,
     });
+    // Resolving branch: emit action_accepted BEFORE resolveEncounterRound
+    // so the participant's event order stays action_accepted → round_resolved
+    // → combat.ended. resolveEncounterRound takes its own OCC lock at entry
+    // and bails on conflict before any side effects (see combat_resolution).
+    await emitActionAccepted();
     await resolveEncounterRound({
       supabase,
       encounter,
@@ -339,6 +354,11 @@ async function handleCombatAction(params: {
       }
       throw err;
     }
+    // Non-resolving branch: emit AFTER the CAS persist commits. If CAS
+    // fails above we throw 409 before this line, so a conflicting writer
+    // never leaks an action_accepted event for an action that wasn't
+    // recorded.
+    await emitActionAccepted();
   }
 
   return successResponse({ success: true, combat_id: encounter.combat_id });
@@ -608,6 +628,17 @@ function isRoundReady(encounter: CombatEncounterState): boolean {
     }
     // Skip escape pods - they cannot participate in combat
     if (participant.is_escape_pod) {
+      continue;
+    }
+    // Skip mid-encounter joiners for the round they joined in. They
+    // brace by default this round (engine: missing pending_action → brace)
+    // and become full participants on round N+1. Without this skip a
+    // joiner would hold the current round open waiting for an action they
+    // can't submit (combat_action rejects same-round submissions below).
+    if (
+      typeof participant.joined_round === "number" &&
+      participant.joined_round === encounter.round
+    ) {
       continue;
     }
     const remaining = encounter.pending_actions[pid];

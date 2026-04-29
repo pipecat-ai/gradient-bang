@@ -15,9 +15,11 @@
 -- the function returns false and the caller can retry from a fresh
 -- read.
 --
--- The `IS NOT DISTINCT FROM` operator handles a NULL expected value
--- correctly (treats NULL = NULL as true), which lets a "first write"
--- caller skip CAS by passing NULL explicitly.
+-- NULL expected matches NULL current (first write to a row that has never
+-- had combat) via `IS NOT DISTINCT FROM`. NULL expected vs a set current
+-- value is a mismatch — that's the case where a concurrent writer created
+-- combat in the sector between this caller's read and write, and we want
+-- the CAS to fail so the caller can fall through.
 
 CREATE OR REPLACE FUNCTION cas_update_combat(
   p_sector_id INTEGER,
@@ -33,10 +35,7 @@ BEGIN
   SET combat = p_new_combat,
       updated_at = NOW()
   WHERE sector_id = p_sector_id
-    AND (
-      p_expected_last_updated IS NULL
-      OR (combat->>'last_updated') IS NOT DISTINCT FROM p_expected_last_updated
-    );
+    AND (combat->>'last_updated') IS NOT DISTINCT FROM p_expected_last_updated;
 
   GET DIAGNOSTICS v_updated_count = ROW_COUNT;
   RETURN v_updated_count > 0;

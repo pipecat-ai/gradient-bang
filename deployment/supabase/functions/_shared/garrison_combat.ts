@@ -252,18 +252,17 @@ async function initiateGarrisonCombat(params: {
     expectedLastUpdated,
   } = params;
 
-  // Build participants map. All initial participants get joined_round = 1
-  // so the just_joined flag computed by event payload formatters is true on
-  // the first round_waiting (consistent with mid-encounter joiners).
+  // Build participants map. Initial combatants do NOT get `joined_round`
+  // — that field is reserved for mid-encounter joiners (set by
+  // joinExistingCombat) and is what the action-submit / round-ready gates
+  // use to lock joiners out of their join round. Initial round_waiting
+  // marks everyone via the explicit `justJoinedIds` set instead.
   const participants: Record<string, CombatantState> = {};
   for (const state of participantStates) {
-    participants[state.combatant_id] = { ...state, joined_round: 1 };
+    participants[state.combatant_id] = state;
   }
   for (const garrison of garrisons) {
-    participants[garrison.state.combatant_id] = {
-      ...garrison.state,
-      joined_round: 1,
-    };
+    participants[garrison.state.combatant_id] = garrison.state;
   }
 
   if (Object.keys(participants).length < MIN_PARTICIPANTS) {

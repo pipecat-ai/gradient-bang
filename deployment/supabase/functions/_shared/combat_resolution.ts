@@ -67,14 +67,38 @@ export async function resolveEncounterRound(options: {
   const { supabase, encounter, requestId } = options;
   const sourceName = options.source ?? "combat.resolution";
 
-  // OCC fence at exit: the final persistCombatState compares against
-  // `encounter.last_updated` AS IT IS at the time of that call. Each
-  // internal persist (eject's mid-round salvage capture, finalize's
-  // per-defeat salvage capture) updates `encounter.last_updated` in-place
-  // on success, so the fence chains forward through them. An external
-  // concurrent writer (a join arriving mid-resolve, a peer combat_action)
-  // bumping the row's last_updated between any of our writes is what
-  // triggers CombatStateConflictError below.
+  // Entry lock: take an OCC persist FIRST, before any events fire or any
+  // canonical-table writes happen. This bumps the row's last_updated so
+  // any concurrent writer (mid-encounter join, peer combat_action) holding
+  // the pre-resolve fence value will fail their CAS and re-read fresh.
+  // If our own entry CAS fails, a concurrent writer beat us — bail
+  // *before* any side effects so canonical state and event stream stay
+  // consistent. The next combat_tick will re-pick this encounter from
+  // its post-conflict state.
+  try {
+    await persistCombatState(supabase, encounter, {
+      expectedLastUpdated: encounter.last_updated,
+    });
+  } catch (err) {
+    if (err instanceof CombatStateConflictError) {
+      console.warn("combat_resolution.preempted_at_entry", {
+        combat_id: encounter.combat_id,
+        sector_id: encounter.sector_id,
+        round: encounter.round,
+        source: sourceName,
+      });
+      return;
+    }
+    throw err;
+  }
+
+  // From here on we hold the conceptual lock — the row's last_updated is
+  // ahead of what any concurrent writer was holding when they read. Side
+  // effects (events, canonical writes, eject / finalize internal persists)
+  // proceed safely. Internal persists in eject / finalize and the final
+  // persist below all use CAS chained off encounter.last_updated, so a
+  // retry-from-fresh writer that snuck through after the entry lock is
+  // still detected and we'd bail at the next checkpoint.
 
   const corpMap = buildCorporationMap(encounter);
   const timeoutActions = buildTimeoutActions(encounter);
