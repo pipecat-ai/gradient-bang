@@ -48,7 +48,32 @@ export function deserializeCombat(raw: unknown): CombatEncounterState | null {
     pending_salvage_entries: Array.isArray(data.pending_salvage_entries)
       ? (data.pending_salvage_entries as Array<Record<string, unknown>>)
       : [],
+    resolving_started_at:
+      typeof data.resolving_started_at === "string"
+        ? data.resolving_started_at
+        : null,
   };
+}
+
+/**
+ * resolveEncounterRound writes `resolving_started_at = nowIso()` at entry
+ * (under CAS) and clears it at exit. Other writers (joinExistingCombat,
+ * combat_action) treat a recent value as a held lock and bail before
+ * mutating. A stale value (older than this TTL) is treated as residue
+ * from a crashed tick run and ignored — the next combat_tick that picks
+ * up the encounter will overwrite it. 30s is comfortably longer than any
+ * non-pathological resolveEncounterRound execution.
+ */
+export const RESOLVING_LOCK_TTL_MS = 30_000;
+
+export function isResolvingLockHeld(
+  encounter: { resolving_started_at?: string | null },
+): boolean {
+  const ts = encounter.resolving_started_at;
+  if (!ts) return false;
+  const startedMs = Date.parse(ts);
+  if (!Number.isFinite(startedMs)) return false;
+  return Date.now() - startedMs < RESOLVING_LOCK_TTL_MS;
 }
 
 function serializeCombat(
@@ -71,6 +96,7 @@ function serializeCombat(
     last_updated: lastUpdated,
     pending_corp_ship_deletions: encounter.pending_corp_ship_deletions ?? [],
     pending_salvage_entries: encounter.pending_salvage_entries ?? [],
+    resolving_started_at: encounter.resolving_started_at ?? null,
   };
 }
 

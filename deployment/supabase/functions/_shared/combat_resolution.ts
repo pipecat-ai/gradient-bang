@@ -39,6 +39,7 @@ import {
   CombatEncounterState,
   CombatRoundLog,
   CombatRoundOutcome,
+  nowIso,
   RoundActionState,
 } from "./combat_types.ts";
 import {
@@ -67,19 +68,28 @@ export async function resolveEncounterRound(options: {
   const { supabase, encounter, requestId } = options;
   const sourceName = options.source ?? "combat.resolution";
 
-  // Entry lock: take an OCC persist FIRST, before any events fire or any
-  // canonical-table writes happen. This bumps the row's last_updated so
-  // any concurrent writer (mid-encounter join, peer combat_action) holding
-  // the pre-resolve fence value will fail their CAS and re-read fresh.
-  // If our own entry CAS fails, a concurrent writer beat us — bail
-  // *before* any side effects so canonical state and event stream stay
-  // consistent. The next combat_tick will re-pick this encounter from
-  // its post-conflict state.
+  // Entry lock: stamp `resolving_started_at` so other writers
+  // (joinExistingCombat, combat_action) see the marker on their fresh
+  // load and bail rather than slip in mid-resolve. The CAS persist also
+  // fences against any writer holding the pre-resolve last_updated.
+  //
+  // Both effects matter:
+  //  - The CAS bump catches writers that loaded BEFORE we did (theirs
+  //    fails on write because last_updated changed).
+  //  - The marker catches writers that loaded AFTER our entry persist
+  //    (theirs reads the marker and bails before mutating).
+  //
+  // On entry-CAS conflict we THROW instead of returning silently — a
+  // concurrent writer beat us and no side effects have run. combat_tick
+  // catches and continues to the next encounter; combat_action catches
+  // and translates to 409 (and skips emitting action_accepted).
+  encounter.resolving_started_at = nowIso();
   try {
     await persistCombatState(supabase, encounter, {
       expectedLastUpdated: encounter.last_updated,
     });
   } catch (err) {
+    encounter.resolving_started_at = null;
     if (err instanceof CombatStateConflictError) {
       console.warn("combat_resolution.preempted_at_entry", {
         combat_id: encounter.combat_id,
@@ -87,18 +97,16 @@ export async function resolveEncounterRound(options: {
         round: encounter.round,
         source: sourceName,
       });
-      return;
+      throw err;
     }
     throw err;
   }
 
-  // From here on we hold the conceptual lock — the row's last_updated is
-  // ahead of what any concurrent writer was holding when they read. Side
-  // effects (events, canonical writes, eject / finalize internal persists)
-  // proceed safely. Internal persists in eject / finalize and the final
-  // persist below all use CAS chained off encounter.last_updated, so a
-  // retry-from-fresh writer that snuck through after the entry lock is
-  // still detected and we'd bail at the next checkpoint.
+  // From here on we hold the lock. Side effects (events, canonical
+  // writes, eject / finalize internal persists) proceed safely; other
+  // writers see resolving_started_at and bail. Internal persists chain
+  // CAS off encounter.last_updated, so any writer that does sneak in
+  // (e.g. one that ignored a stale-TTL marker) is still detected.
 
   const corpMap = buildCorporationMap(encounter);
   const timeoutActions = buildTimeoutActions(encounter);
@@ -403,6 +411,12 @@ export async function resolveEncounterRound(options: {
     });
   }
 
+  // Release the resolving lock before the final persist. The CAS still
+  // fences against any concurrent writer that snuck through (e.g. one
+  // that ignored a stale-TTL marker) — but the marker is cleared in the
+  // committed blob either way (we set it to null in-memory here regardless
+  // of CAS success).
+  encounter.resolving_started_at = null;
   try {
     await persistCombatState(supabase, encounter, {
       expectedLastUpdated: encounter.last_updated,
@@ -415,7 +429,7 @@ export async function resolveEncounterRound(options: {
       // re-read the post-conflict state and resolve from there. Logged
       // (not re-thrown) so combat_tick's batch loop continues to the
       // next encounter.
-      console.warn("combat_resolution.cas_conflict", {
+      console.warn("combat_resolution.cas_conflict_at_exit", {
         combat_id: encounter.combat_id,
         sector_id: encounter.sector_id,
         round: encounter.round,

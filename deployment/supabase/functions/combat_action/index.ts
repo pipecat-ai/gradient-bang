@@ -24,6 +24,7 @@ import {
 } from "../_shared/request.ts";
 import {
   CombatStateConflictError,
+  isResolvingLockHeld,
   loadCombatById,
   persistCombatState,
 } from "../_shared/combat_state.ts";
@@ -216,6 +217,19 @@ async function handleCombatAction(params: {
   // load and our write will fail the CAS instead of clobbering.
   const expectedLastUpdated = encounter.last_updated;
 
+  // Active resolution in progress — bail with 409 rather than mutate
+  // pending_actions for a round that's about to resolve (or just did)
+  // under us. Stale marker (older than TTL) is ignored. Without this gate
+  // a peer's tick could set the marker between our load and our write,
+  // and our write would slip in.
+  if (isResolvingLockHeld(encounter)) {
+    const err = new Error(
+      "Combat round is being resolved; resubmit shortly.",
+    ) as Error & { status?: number };
+    err.status = 409;
+    throw err;
+  }
+
   // Validate round hint if provided
   if (roundHint !== null && encounter.round !== roundHint) {
     const err = new Error("Round mismatch for action submission") as Error & {
@@ -329,17 +343,32 @@ async function handleCombatAction(params: {
       combat_id: encounter.combat_id,
       round: encounter.round,
     });
-    // Resolving branch: emit action_accepted BEFORE resolveEncounterRound
-    // so the participant's event order stays action_accepted → round_resolved
-    // → combat.ended. resolveEncounterRound takes its own OCC lock at entry
-    // and bails on conflict before any side effects (see combat_resolution).
+    // Resolving branch: call resolveEncounterRound first. Its entry lock
+    // throws CombatStateConflictError on conflict (a concurrent join /
+    // peer action / overlapping tick beat us). We catch and translate to
+    // 409 — and crucially DON'T emit action_accepted in that case, since
+    // the action was never persisted or resolved. On success we DO emit
+    // action_accepted, after the round_resolved chain has fired (acceptable
+    // ordering trade-off for the rare resolving-branch case; the alternative
+    // would leak the event on every CAS conflict).
+    try {
+      await resolveEncounterRound({
+        supabase,
+        encounter,
+        requestId,
+        source: "combat.action",
+      });
+    } catch (err) {
+      if (err instanceof CombatStateConflictError) {
+        const conflictErr = new Error(
+          "Combat round was resolving concurrently; resubmit.",
+        ) as Error & { status?: number };
+        conflictErr.status = 409;
+        throw conflictErr;
+      }
+      throw err;
+    }
     await emitActionAccepted();
-    await resolveEncounterRound({
-      supabase,
-      encounter,
-      requestId,
-      source: "combat.action",
-    });
   } else {
     encounter.deadline = encounter.deadline ?? computeNextCombatDeadline();
     try {

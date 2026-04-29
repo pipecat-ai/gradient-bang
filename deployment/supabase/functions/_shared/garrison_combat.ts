@@ -18,6 +18,7 @@ import { areFriendlyFromMeta, buildCorporationMap } from "./friendly.ts";
 import { getEffectiveCorporationId } from "./corporations.ts";
 import {
   CombatStateConflictError,
+  isResolvingLockHeld,
   loadCombatForSector,
   persistCombatState,
 } from "./combat_state.ts";
@@ -430,6 +431,18 @@ export async function joinExistingCombat(params: {
     if (!encounter) return false;
     if (encounter.ended) return false;
     if (encounter.participants[characterId]) return false;
+    // Active resolution lock — bail rather than slip a participant into
+    // the encounter while resolveEncounterRound is mid-flight (would land
+    // canonical writes / events from the pre-join participant set, then
+    // our persist would change the membership the next-tick run starts
+    // from). Stale marker (older than TTL) is ignored.
+    if (isResolvingLockHeld(encounter)) {
+      console.warn("garrison_combat.join.bailed_on_resolving_lock", {
+        sector_id: encounter.sector_id,
+        character_id: characterId,
+      });
+      return false;
+    }
 
     // Build the new participant. The build helper handles current_ship_id
     // mismatches and missing definitions and returns null when the ship

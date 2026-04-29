@@ -223,13 +223,15 @@ async function handleCombatInitiate(params: {
   }
 
   const existingEncounter = await loadCombatForSector(supabase, sectorId);
-  // OCC fence — only meaningful when we'll be RMW'ing an existing
-  // encounter below. Captured here so the value reflects load time, not
-  // post-mutation. Undefined when there's no existing encounter (the
-  // fresh-create path doesn't need CAS).
+  // OCC fence — captured at load time so the CAS below detects any
+  // concurrent writer. For the fresh-create case (no existing encounter)
+  // we pass `null` rather than `undefined`: the cas_update_combat SQL
+  // function uses `IS NOT DISTINCT FROM` so NULL expected matches a
+  // currently-null `combat` column AND fails when a peer raced us to
+  // create combat in this sector first.
   const expectedLastUpdated = existingEncounter
     ? existingEncounter.last_updated
-    : undefined;
+    : null;
   const participantStates = await loadCharacterCombatants(supabase, sectorId);
   const ownerNames = await loadCharacterNames(
     supabase,

@@ -98,6 +98,13 @@ export interface CombatEncounterState {
   end_state: string | null;
   base_seed: number;
   last_updated: string;
+  // ISO timestamp at which resolveEncounterRound took its entry lock, or
+  // null if no resolution is in flight. Other writers (joinExistingCombat,
+  // combat_action submitter, combat_leave_fighters auto-init) treat a
+  // recent value as a "round in progress" lock and bail. Stale values
+  // (older than RESOLVING_LOCK_TTL_MS) are treated as crashed-tick
+  // residue and ignored.
+  resolving_started_at?: string | null;
   // Corp ships destroyed mid-combat that still need their pseudo-character /
   // corporation_ships rows cleaned up after combat.ended fires. Persisted on
   // the encounter blob so the cleanup survives across edge-function
