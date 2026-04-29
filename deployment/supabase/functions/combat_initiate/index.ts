@@ -10,7 +10,7 @@ import { createServiceRoleClient } from "../_shared/client.ts";
 import {
   emitErrorEvent,
   buildEventSource,
-  recordEventWithRecipients,
+  recordBroadcastByCorp,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
@@ -34,6 +34,8 @@ import {
 import { nowIso, CombatEncounterState } from "../_shared/combat_types.ts";
 import { getEffectiveCorporationId } from "../_shared/corporations.ts";
 import {
+  CombatStateConflictError,
+  isResolvingLockHeld,
   loadCombatForSector,
   persistCombatState,
 } from "../_shared/combat_state.ts";
@@ -222,6 +224,33 @@ async function handleCombatInitiate(params: {
   }
 
   const existingEncounter = await loadCombatForSector(supabase, sectorId);
+  // Resolution lock — combat_tick's resolveEncounterRound stamps
+  // resolving_started_at on entry under CAS and clears it at exit.
+  // Mutating the encounter while that's in flight would land canonical
+  // writes / events from the pre-mutation participant set followed by a
+  // persist that swaps membership underneath the next-tick run. Bail
+  // with 409 and let the client retry once resolution completes (or the
+  // 30s TTL ages it out as crash residue).
+  if (
+    existingEncounter &&
+    !existingEncounter.ended &&
+    isResolvingLockHeld(existingEncounter)
+  ) {
+    const err = new Error(
+      "Combat is currently resolving; retry shortly.",
+    ) as Error & { status?: number };
+    err.status = 409;
+    throw err;
+  }
+  // OCC fence — captured at load time so the CAS below detects any
+  // concurrent writer. For the fresh-create case (no existing encounter)
+  // we pass `null` rather than `undefined`: the cas_update_combat SQL
+  // function uses `IS NOT DISTINCT FROM` so NULL expected matches a
+  // currently-null `combat` column AND fails when a peer raced us to
+  // create combat in this sector first.
+  const expectedLastUpdated = existingEncounter
+    ? existingEncounter.last_updated
+    : null;
   const participantStates = await loadCharacterCombatants(supabase, sectorId);
   const ownerNames = await loadCharacterNames(
     supabase,
@@ -306,6 +335,11 @@ async function handleCombatInitiate(params: {
     throw err;
   }
 
+  // IDs that should be marked `just_joined` on the round_waiting we emit
+  // below. Existing-encounter case = just the new initiator; fresh-encounter
+  // case = every starting participant. Empty when nothing actually joined.
+  const justJoinedIds = new Set<string>();
+
   let encounter: CombatEncounterState;
   if (existingEncounter && !existingEncounter.ended) {
     encounter = existingEncounter;
@@ -316,18 +350,31 @@ async function handleCombatInitiate(params: {
       if (!participant) {
         throw new Error("Initiator not present in sector");
       }
-      encounter.participants[participant.combatant_id] = participant;
+      // Mid-encounter joiner: stamp `joined_round` so the action-submit
+      // and round-ready gates lock them out of acting in this round.
+      // They brace by default and become full participants on round N+1.
+      encounter.participants[participant.combatant_id] = {
+        ...participant,
+        joined_round: encounter.round,
+      };
+      justJoinedIds.add(participant.combatant_id);
     }
     if (!encounter.base_seed) {
       encounter.base_seed = deterministicSeed(encounter.combat_id);
     }
   } else {
+    // Fresh encounter — initial combatants do NOT get `joined_round` set
+    // (reserved for mid-encounter joiners). Their first round_waiting
+    // still marks them via the explicit `justJoinedIds` set so the
+    // `(joined encounter)` annotation fires once.
     const participants: Record<string, CombatantState> = {};
     for (const state of participantStates) {
       participants[state.combatant_id] = state;
+      justJoinedIds.add(state.combatant_id);
     }
     for (const garrison of garrisons) {
       participants[garrison.state.combatant_id] = garrison.state;
+      justJoinedIds.add(garrison.state.combatant_id);
     }
     if (Object.keys(participants).length < MIN_PARTICIPANTS && !debug) {
       const err = new Error("No opponents available to engage") as Error & {
@@ -359,8 +406,32 @@ async function handleCombatInitiate(params: {
     };
   }
 
-  await persistCombatState(supabase, encounter);
-  await emitRoundWaitingEvents(supabase, encounter, requestId, taskId);
+  // OCC: every persist goes through compare-and-swap so a concurrent join
+  // / tick / peer action can't clobber. Existing-encounter path CASes on
+  // the loaded encounter's last_updated; fresh-create path CASes on
+  // `null` (cas_update_combat uses IS NOT DISTINCT FROM, so NULL expected
+  // matches a currently-null `combat` column AND fails when a peer raced
+  // us to create combat first). On conflict, throw 409 so the client
+  // retries with fresh state.
+  try {
+    await persistCombatState(supabase, encounter, { expectedLastUpdated });
+  } catch (err) {
+    if (err instanceof CombatStateConflictError) {
+      const conflictErr = new Error(
+        "Combat state changed during initiation; resubmit.",
+      ) as Error & { status?: number };
+      conflictErr.status = 409;
+      throw conflictErr;
+    }
+    throw err;
+  }
+  await emitRoundWaitingEvents(
+    supabase,
+    encounter,
+    requestId,
+    taskId,
+    justJoinedIds,
+  );
 
   return successResponse({
     success: true,
@@ -375,8 +446,9 @@ async function emitRoundWaitingEvents(
   encounter: CombatEncounterState,
   requestId: string,
   taskId: string | null,
+  justJoinedIds?: Set<string>,
 ): Promise<void> {
-  const payload = buildRoundWaitingPayload(encounter);
+  const payload = buildRoundWaitingPayload(encounter, { justJoinedIds });
   const source = buildEventSource("combat.round_waiting", requestId);
   payload.source = source;
 
@@ -396,16 +468,16 @@ async function emitRoundWaitingEvents(
     return;
   }
 
-  // Single emission to all unique recipients
-  await recordEventWithRecipients({
+  await recordBroadcastByCorp({
     supabase,
     eventType: "combat.round_waiting",
     scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,
-    actorCharacterId: null, // System-originated
+    actorCharacterId: null,
     recipients: allRecipients,
+    stakeholderCorpIds: corpIds,
     taskId,
   });
 }

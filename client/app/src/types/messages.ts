@@ -385,6 +385,17 @@ export interface GarrisonModeChangedMessage extends ServerMessagePayload {
   garrison: CombatGarrisonSnapshot
 }
 
+export interface GarrisonDestroyedMessage extends ServerMessagePayload {
+  combat_id: string
+  garrison_id: string
+  combatant_id: string
+  owner_character_id: string
+  owner_corp_id: string | null
+  owner_name: string
+  sector: { id: number }
+  mode: "offensive" | "defensive" | "toll"
+}
+
 export interface GarrisonCharacterMovedMessage extends CharacterMovedMessage {
   garrison: {
     owner_id: string
@@ -405,7 +416,6 @@ export interface ShipDestroyedMessage extends ServerMessagePayload {
   player_name: string
   sector: { id: number }
   combat_id: string
-  salvage_created: boolean
   timestamp?: string
 }
 

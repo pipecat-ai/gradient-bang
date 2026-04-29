@@ -357,6 +357,7 @@ class VoiceAgent(LLMAgent):
             "send_message": self._handle_send_message,
             "combat_initiate": self._handle_combat_initiate,
             "combat_action": self._handle_combat_action,
+            "ship_strategy": self._handle_ship_strategy,
             "corporation_info": self._handle_corporation_info,
             "leaderboard_resources": self._handle_leaderboard_resources,
             "ship_definitions": self._handle_ship_definitions,
@@ -589,9 +590,10 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
+            self._begin_assistant_response_cycle()
             await params.result_callback(
                 {"status": "Executed."},
-                properties=FunctionCallResultProperties(run_llm=False),
+                properties=FunctionCallResultProperties(run_llm=True),
             )
         except Exception as exc:
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
@@ -1037,6 +1039,122 @@ class VoiceAgent(LLMAgent):
         except Exception as exc:
             await self._finish_event_tool_with_error(params, exc, run_llm=True)
 
+    async def _handle_ship_strategy(self, params: FunctionCallParams):
+        """Get or set a ship's combat strategy.
+
+        GET mode (no template arg): returns the strategy inline so the voice
+        agent can answer follow-up questions from it directly.
+
+        SET mode (template arg present): acks with ``run_llm=False``. The
+        server emits a ``ships.strategy_set`` event that the relay delivers
+        with InferenceRule.ALWAYS — that event is what wakes the agent to
+        confirm the change verbally.
+        """
+        args = params.arguments
+        ship_id = args.get("ship_id")
+        if not isinstance(ship_id, str) or not ship_id.strip():
+            await self._finish_event_tool_with_error(
+                params, ValueError("ship_id is required"), run_llm=True
+            )
+            return
+        ship_id = ship_id.strip()
+        template = args.get("template")
+        custom_prompt = args.get("custom_prompt")
+
+        # Any write field present → SET (with merge for unspecified fields).
+        # Only ship_id present → GET. Partial SETs (e.g. only custom_prompt)
+        # merge with the ship's current strategy so the commander can "add a
+        # custom prompt" without having to restate the template.
+        is_set = template is not None or custom_prompt is not None
+
+        try:
+            if not is_set:
+                # GET — edge function returns:
+                #   {strategy: {template, custom_prompt, doctrine, ...} | null,
+                #    default_template, default_doctrine}
+                result = await self._game_client.combat_get_strategy(
+                    ship_id=ship_id,
+                    character_id=self._character_id,
+                )
+                strategy = result.get("strategy") if isinstance(result, dict) else None
+                default_template = (
+                    result.get("default_template") if isinstance(result, dict) else None
+                ) or "balanced"
+                default_doctrine = (
+                    result.get("default_doctrine") if isinstance(result, dict) else None
+                )
+                if strategy is None:
+                    await params.result_callback(
+                        {
+                            "ship_id": ship_id,
+                            "strategy": None,
+                            "default_template": default_template,
+                            "default_doctrine": default_doctrine,
+                            "note": (
+                                f"No explicit strategy set; the ship uses the "
+                                f"default '{default_template}' combat doctrine. "
+                                "Describe it to the commander from the "
+                                "default_doctrine text."
+                            ),
+                        }
+                    )
+                else:
+                    await params.result_callback(
+                        {
+                            "ship_id": ship_id,
+                            "strategy": strategy,
+                            "note": (
+                                "Strategy = base doctrine (template) + optional "
+                                "custom_prompt. Describe BOTH when asked, "
+                                "since custom_prompt is additive guidance "
+                                "layered on top of the doctrine."
+                            ),
+                        }
+                    )
+                return
+
+            # SET — merge missing fields from the current row so a call like
+            # `ship_strategy(ship_id, custom_prompt="…")` doesn't reset the
+            # template and `ship_strategy(ship_id, template="…")` doesn't
+            # blow away existing custom guidance.
+            if template is None or custom_prompt is None:
+                current = await self._game_client.combat_get_strategy(
+                    ship_id=ship_id,
+                    character_id=self._character_id,
+                )
+                current_strategy = (
+                    current.get("strategy") if isinstance(current, dict) else None
+                ) or {}
+                current_default = (
+                    current.get("default_template") if isinstance(current, dict) else None
+                ) or "balanced"
+                if template is None:
+                    template = (
+                        current_strategy.get("template")
+                        if isinstance(current_strategy, dict)
+                        else None
+                    ) or current_default
+                if custom_prompt is None:
+                    custom_prompt = (
+                        current_strategy.get("custom_prompt")
+                        if isinstance(current_strategy, dict)
+                        else None
+                    )
+
+            result = await self._game_client.combat_set_strategy(
+                ship_id=ship_id,
+                template=str(template).lower(),
+                custom_prompt=custom_prompt,
+                character_id=self._character_id,
+            )
+            self._track_request_id_from_result(result)
+            await params.result_callback(
+                {"status": "Executed."},
+                properties=FunctionCallResultProperties(run_llm=False),
+            )
+        except Exception as exc:
+            await self._finish_event_tool_with_error(params, exc, run_llm=True)
+
     # ── Direct-response tools ──────────────────────────────────────────
 
     async def _handle_corporation_info(self, params: FunctionCallParams):
@@ -1283,14 +1401,21 @@ class VoiceAgent(LLMAgent):
     def _is_valid_uuid(value: str) -> bool:
         return bool(_UUID_PATTERN.match(value))
 
-    async def _resolve_ship_id_prefix(self, prefix: str) -> Optional[str]:
+    async def _resolve_ship_id_prefix(self, prefix: str) -> Optional[dict]:
+        """Resolve a ship_id prefix to the matching corp ship dict.
+
+        Returns the full ship entry from `corp.ships` so callers can read
+        `ship_id`/`name` without a second `my_corporation` RPC. A bare UUID
+        is returned as a stub dict with just `ship_id` set — the caller is
+        responsible for any further lookup on that branch.
+        """
         if not isinstance(prefix, str):
             return None
         cleaned = prefix.strip().strip("[]").lower()
         if not cleaned:
             return None
         if self._is_valid_uuid(cleaned):
-            return cleaned
+            return {"ship_id": cleaned}
         try:
             corp_result = await self._game_client._request(
                 "my_corporation",
@@ -1311,7 +1436,7 @@ class VoiceAgent(LLMAgent):
                 continue
             ship_id = ship.get("ship_id")
             if isinstance(ship_id, str) and ship_id.lower().startswith(cleaned):
-                matches.append(ship_id)
+                matches.append(ship)
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
@@ -1523,14 +1648,15 @@ class VoiceAgent(LLMAgent):
                 if isinstance(ship_id, str):
                     ship_id = ship_id.strip().strip("[]")
 
+                resolved_ship: Optional[dict] = None
                 if ship_id and not self._is_valid_uuid(ship_id):
                     try:
-                        resolved = await self._resolve_ship_id_prefix(ship_id)
+                        resolved_ship = await self._resolve_ship_id_prefix(ship_id)
                     except ValueError as exc:
                         return {"success": False, "error": str(exc)}
-                    if not resolved:
+                    if not resolved_ship:
                         return {"success": False, "error": f"Unknown ship_id '{ship_id}'."}
-                    ship_id = resolved
+                    ship_id = resolved_ship.get("ship_id")
 
                 # If ship_id is the player's character_id, or resolves to their
                 # personal ship rather than a corp ship, treat as a player task.
@@ -1538,6 +1664,12 @@ class VoiceAgent(LLMAgent):
                 if ship_id:
                     if ship_id == self._character_id:
                         ship_id = None
+                    elif resolved_ship is not None:
+                        # Came from corp.ships — known corp ship, name in hand.
+                        # Skips a second `my_corporation` RPC.
+                        name = resolved_ship.get("name")
+                        if isinstance(name, str) and name.strip():
+                            corp_ship_name = name
                     else:
                         is_corp, corp_ship_name = await self._is_corp_ship_id(ship_id)
                         if not is_corp:

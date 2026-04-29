@@ -24,7 +24,11 @@ import {
 } from "../_shared/request.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import { ActorAuthorizationError } from "../_shared/actors.ts";
-import { checkGarrisonAutoEngage } from "../_shared/garrison_combat.ts";
+import {
+  checkGarrisonAutoEngage,
+  joinExistingCombat,
+} from "../_shared/garrison_combat.ts";
+import { loadCombatForSector } from "../_shared/combat_state.ts";
 import { traced, type WeaveSpan } from "../_shared/weave.ts";
 import { deserializeCombat } from "../_shared/combat_state.ts";
 import {
@@ -303,14 +307,18 @@ async function handleMove({
     return errorResponse("Character ship missing sector", 500);
   }
 
-  // Combat check (already loaded via context CTE)
+  // Combat check (already loaded via context CTE). A destroyed participant
+  // (destruction_handled === true) keeps their entry in the encounter for
+  // narrative continuity, but counts as out-of-combat — they're flying an
+  // escape pod and must be free to move.
   if (combatRaw) {
     const combat = deserializeCombat({
       ...(combatRaw as Record<string, unknown>),
       sector_id: ship.current_sector,
     });
     if (combat && !combat.ended) {
-      if (characterId in combat.participants) {
+      const myParticipant = combat.participants[characterId];
+      if (myParticipant && !myParticipant.destruction_handled) {
         await emitErrorEvent(supabase, {
           characterId,
           method: "move",
@@ -830,29 +838,54 @@ async function completeMovement({
     });
     sEmitArrive.end();
 
-    // Check for garrison auto-combat after arrival
-    // Use fast pg check first, only fall back to REST if combat initiation needed
+    // Combat-on-arrival. Two paths:
+    //  - Active encounter in this sector → JOIN it as a new participant
+    //    (mid-encounter reinforcement). Skips fresh combat init entirely.
+    //  - No encounter, or an ended one → fall through to the existing
+    //    auto-engage path. The ended-blob case naturally falls through
+    //    `pgCheckGarrisonAutoEngage`'s gate at pg_queries.ts:3120-3122 and
+    //    the REST mirror at garrison_combat.ts:90-92, so initiateGarrisonCombat
+    //    starts a fresh combat (new combat_id) over the dead blob.
+    //
+    // Concurrency: joinExistingCombat uses OCC (compare-and-swap on
+    // `encounter.last_updated`) and retries on conflict, so a tick or
+    // peer arrival landing between this load and write doesn't clobber
+    // the joiner. See `cas_update_combat` migration + persistCombatState's
+    // expectedLastUpdated path.
     const sGarrison = ws.span("garrison_auto_engage");
     try {
-      const needsCombat = await pgCheckGarrisonAutoEngage({
-        pg,
-        characterId,
-        sectorId: destination,
-        requestId,
-        shipId,
-        inHyperspace: false, // Just completed hyperspace
-      });
-      if (needsCombat) {
-        // Combat initiation needed - use REST version for full combat setup
-        // Pass pre-loaded character/ship to avoid re-fetching
-        await checkGarrisonAutoEngage({
+      const existingEncounter = await loadCombatForSector(supabase, destination);
+      let joined = false;
+      if (existingEncounter && !existingEncounter.ended) {
+        joined = await joinExistingCombat({
           supabase,
+          encounter: existingEncounter,
+          characterId,
+          ship: updatedShip,
+          character,
+          requestId,
+        });
+      }
+
+      if (!joined) {
+        const needsCombat = await pgCheckGarrisonAutoEngage({
+          pg,
           characterId,
           sectorId: destination,
           requestId,
-          character,
-          ship: updatedShip,
+          shipId,
+          inHyperspace: false,
         });
+        if (needsCombat) {
+          await checkGarrisonAutoEngage({
+            supabase,
+            characterId,
+            sectorId: destination,
+            requestId,
+            character,
+            ship: updatedShip,
+          });
+        }
       }
       sGarrison.end();
     } catch (garrisonError) {

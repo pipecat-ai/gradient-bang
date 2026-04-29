@@ -107,6 +107,139 @@ export async function recordEventWithRecipients(
   }
 }
 
+/**
+ * Load a corporation's "delivery membership set" — the set of character_ids
+ * that the SQL `record_event_with_recipients` function treats as receiving
+ * via the corp row instead of an individual row. Mirrors the v_corp_member_ids
+ * union (active corp members + corp-owned ship pseudo-chars) from migration
+ * 20260414000000.
+ */
+async function loadCorpDeliverySet(
+  supabase: SupabaseClient,
+  corpId: string,
+): Promise<Set<string>> {
+  const set = new Set<string>();
+
+  const { data: members, error: memberErr } = await supabase
+    .from("corporation_members")
+    .select("character_id")
+    .eq("corp_id", corpId)
+    .is("left_at", null);
+  if (memberErr) {
+    console.error("events.loadCorpDeliverySet.members", { corpId, memberErr });
+  }
+  for (const row of members ?? []) {
+    if (typeof row?.character_id === "string") set.add(row.character_id);
+  }
+
+  const { data: ships, error: shipErr } = await supabase
+    .from("ship_instances")
+    .select("ship_id")
+    .eq("owner_type", "corporation")
+    .eq("owner_corporation_id", corpId);
+  if (shipErr) {
+    console.error("events.loadCorpDeliverySet.ships", { corpId, shipErr });
+  }
+  for (const row of ships ?? []) {
+    if (typeof row?.ship_id === "string") set.add(row.ship_id);
+  }
+
+  return set;
+}
+
+export interface RecordBroadcastByCorpOptions {
+  supabase: SupabaseClient;
+  eventType: string;
+  payload: Record<string, unknown>;
+  scope?: EventScope;
+  requestId: string;
+  sectorId?: number | null;
+  recipients: EventRecipientSnapshot[];
+  stakeholderCorpIds: string[];
+  actorCharacterId?: string | null;
+  taskId?: string | null;
+}
+
+/**
+ * Emit a multi-recipient event with deliveries partitioned by corp affiliation.
+ *
+ * For each stakeholder corp, recipients in that corp's delivery set are
+ * bundled into a single emit with that `corpId` so the SQL merge logic
+ * collapses individual + corp delivery into one corp row (one delivery per
+ * member). Recipients outside every stakeholder corp fall into a residual
+ * emit with `corpId=null` and receive individual rows.
+ *
+ * Why this exists: a single `recordEventWithRecipients` call accepts only
+ * one `corpId`. In multi-corp scenarios (e.g. corp-vs-corp combat,
+ * corp-ship-vs-enemy-garrison), passing one corp's id leaves the other
+ * corp's members getting both an individual row AND a duplicate via their
+ * own corp poll filter. Partitioning per-corp keeps the merge logic correct
+ * for every recipient simultaneously.
+ */
+export async function recordBroadcastByCorp(
+  options: RecordBroadcastByCorpOptions,
+): Promise<void> {
+  const {
+    supabase,
+    eventType,
+    payload,
+    scope = "sector",
+    requestId,
+    sectorId,
+    recipients,
+    stakeholderCorpIds,
+    actorCharacterId = null,
+    taskId = null,
+  } = options;
+
+  if (!recipients.length) return;
+
+  const uniqueCorpIds = Array.from(
+    new Set(
+      stakeholderCorpIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      ),
+    ),
+  );
+  const corpSets = new Map<string, Set<string>>();
+  if (uniqueCorpIds.length) {
+    const sets = await Promise.all(
+      uniqueCorpIds.map((cid) => loadCorpDeliverySet(supabase, cid)),
+    );
+    uniqueCorpIds.forEach((cid, i) => corpSets.set(cid, sets[i]));
+  }
+
+  const buckets = new Map<string | null, EventRecipientSnapshot[]>();
+  for (const recipient of recipients) {
+    let assigned: string | null = null;
+    for (const [cid, members] of corpSets) {
+      if (members.has(recipient.characterId)) {
+        assigned = cid;
+        break;
+      }
+    }
+    const arr = buckets.get(assigned) ?? [];
+    arr.push(recipient);
+    buckets.set(assigned, arr);
+  }
+
+  for (const [corpId, bucketRecipients] of buckets) {
+    if (!bucketRecipients.length) continue;
+    await recordEventWithRecipients({
+      supabase,
+      eventType,
+      scope,
+      payload,
+      requestId,
+      sectorId,
+      corpId,
+      actorCharacterId,
+      recipients: bucketRecipients,
+      taskId,
+    });
+  }
+}
+
 export function buildEventSource(
   method: string,
   requestId: string,

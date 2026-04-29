@@ -133,6 +133,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const mapData = useGameStore.use.regional_map_data?.()
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
+  const combatSectorsRecord = useGameStore((state) => state.combat_sectors)
   const mapCenterSector = useGameStore((state) => state.mapCenterSector)
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const mapCenterWorld = useGameStore((state) => state.mapCenterWorld)
@@ -164,6 +165,12 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
       ship_name: s.ship_name,
       ship_type: s.ship_type,
     }))
+
+  const combatSectorsSet = useMemo(() => {
+    const ids = new Set<number>()
+    for (const id of Object.values(combatSectorsRecord)) ids.add(id)
+    return ids
+  }, [combatSectorsRecord])
 
   // Initial fetch of map data
   useEffect(() => {
@@ -274,6 +281,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
               onMapFetch={handleMapFetch}
               coursePlot={coursePlot ?? null}
               ships={shipSectors}
+              combatSectors={combatSectorsSet}
               center_world={mapCenterWorld}
               fit_bounds_world={mapFitBoundsWorld}
               mapFitEpoch={mapFitEpoch}

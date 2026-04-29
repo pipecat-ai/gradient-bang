@@ -22,7 +22,12 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
-import { loadCombatById, persistCombatState } from "../_shared/combat_state.ts";
+import {
+  CombatStateConflictError,
+  isResolvingLockHeld,
+  loadCombatById,
+  persistCombatState,
+} from "../_shared/combat_state.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
@@ -206,6 +211,24 @@ async function handleCombatAction(params: {
     err.status = 404;
     throw err;
   }
+  // OCC fence captured at load — both the non-resolving persist below and
+  // resolveEncounterRound (when the round resolves here) compare-and-swap
+  // against this. Concurrent join / tick / peer action writes between this
+  // load and our write will fail the CAS instead of clobbering.
+  const expectedLastUpdated = encounter.last_updated;
+
+  // Active resolution in progress — bail with 409 rather than mutate
+  // pending_actions for a round that's about to resolve (or just did)
+  // under us. Stale marker (older than TTL) is ignored. Without this gate
+  // a peer's tick could set the marker between our load and our write,
+  // and our write would slip in.
+  if (isResolvingLockHeld(encounter)) {
+    const err = new Error(
+      "Combat round is being resolved; resubmit shortly.",
+    ) as Error & { status?: number };
+    err.status = 409;
+    throw err;
+  }
 
   // Validate round hint if provided
   if (roundHint !== null && encounter.round !== roundHint) {
@@ -225,14 +248,34 @@ async function handleCombatAction(params: {
     throw err;
   }
 
-  const action = normalizeAction(actionRaw);
-  if (participant.is_escape_pod && action === "flee") {
-    const err = new Error("Escape pods cannot flee") as Error & {
+  // A destroyed ship or escape pod no longer participates in combat — block
+  // every action, not just flee. Their participant entry stays in the
+  // encounter for narrative continuity (so observers / LLM see them flagged
+  // destroyed across remaining rounds), but they cannot act.
+  if (participant.destruction_handled || participant.is_escape_pod) {
+    const err = new Error("Your ship is destroyed.") as Error & {
       status?: number;
     };
-    err.status = 400;
+    err.status = 410;
     throw err;
   }
+
+  // Mid-encounter joiner: locked out of acting in the round they joined.
+  // They default to brace this round (engine: missing pending_action →
+  // brace) and become full action submitters on round N+1, when their
+  // joined_round no longer equals encounter.round.
+  if (
+    typeof participant.joined_round === "number" &&
+    participant.joined_round === encounter.round
+  ) {
+    const err = new Error(
+      "Cannot submit a combat action in the round you joined; act on the next round.",
+    ) as Error & { status?: number };
+    err.status = 409;
+    throw err;
+  }
+
+  const action = normalizeAction(actionRaw);
 
   const validated = await buildActionState({
     supabase,
@@ -275,40 +318,77 @@ async function handleCombatAction(params: {
 
   const resolvedRound = ready || deadlineReached;
 
+  const emitActionAccepted = () =>
+    emitCharacterEvent({
+      supabase,
+      characterId,
+      eventType: "combat.action_accepted",
+      payload: {
+        combat_id: encounter.combat_id,
+        round: submittedRound,
+        action: actionRaw,
+        commit,
+        target_id: targetId,
+        round_resolved: resolvedRound,
+        source: buildEventSource("combat.action", requestId),
+      },
+      sectorId: encounter.sector_id,
+      requestId,
+      taskId,
+      shipId: ship.ship_id,
+    });
+
   if (resolvedRound) {
     console.log("combat_action.resolving_round", {
       combat_id: encounter.combat_id,
       round: encounter.round,
     });
-    await resolveEncounterRound({
-      supabase,
-      encounter,
-      requestId,
-      source: "combat.action",
-    });
+    // Resolving branch: call resolveEncounterRound first. Its entry lock
+    // throws CombatStateConflictError on conflict (a concurrent join /
+    // peer action / overlapping tick beat us). We catch and translate to
+    // 409 — and crucially DON'T emit action_accepted in that case, since
+    // the action was never persisted or resolved. On success we DO emit
+    // action_accepted, after the round_resolved chain has fired (acceptable
+    // ordering trade-off for the rare resolving-branch case; the alternative
+    // would leak the event on every CAS conflict).
+    try {
+      await resolveEncounterRound({
+        supabase,
+        encounter,
+        requestId,
+        source: "combat.action",
+      });
+    } catch (err) {
+      if (err instanceof CombatStateConflictError) {
+        const conflictErr = new Error(
+          "Combat round was resolving concurrently; resubmit.",
+        ) as Error & { status?: number };
+        conflictErr.status = 409;
+        throw conflictErr;
+      }
+      throw err;
+    }
+    await emitActionAccepted();
   } else {
     encounter.deadline = encounter.deadline ?? computeNextCombatDeadline();
-    await persistCombatState(supabase, encounter);
+    try {
+      await persistCombatState(supabase, encounter, { expectedLastUpdated });
+    } catch (err) {
+      if (err instanceof CombatStateConflictError) {
+        const conflictErr = new Error(
+          "Combat state changed during action submission; resubmit.",
+        ) as Error & { status?: number };
+        conflictErr.status = 409;
+        throw conflictErr;
+      }
+      throw err;
+    }
+    // Non-resolving branch: emit AFTER the CAS persist commits. If CAS
+    // fails above we throw 409 before this line, so a conflicting writer
+    // never leaks an action_accepted event for an action that wasn't
+    // recorded.
+    await emitActionAccepted();
   }
-
-  await emitCharacterEvent({
-    supabase,
-    characterId,
-    eventType: "combat.action_accepted",
-    payload: {
-      combat_id: encounter.combat_id,
-      round: submittedRound,
-      action: actionRaw,
-      commit,
-      target_id: targetId,
-      round_resolved: resolvedRound,
-      source: buildEventSource("combat.action", requestId),
-    },
-    sectorId: encounter.sector_id,
-    requestId,
-    taskId,
-    shipId: ship.ship_id,
-  });
 
   return successResponse({ success: true, combat_id: encounter.combat_id });
 }
@@ -447,6 +527,21 @@ async function buildActionState(params: {
       actorCombatantId: participant.combatant_id,
       targetIdRaw: targetId,
     });
+    // Reject targeting a participant that's already been destroyed (in this
+    // round or a prior round) or that's an escape pod. The participant entry
+    // stays in encounter.participants for narrative continuity, but it's not
+    // a valid attack target.
+    const resolvedTarget = encounter.participants[targetId];
+    if (
+      resolvedTarget?.destruction_handled ||
+      resolvedTarget?.is_escape_pod
+    ) {
+      const err = new Error(
+        "Target is no longer a valid combatant",
+      ) as Error & { status?: number };
+      err.status = 400;
+      throw err;
+    }
     // Prevent friendly fire. Applies to BOTH garrison and character
     // targets: own ship, own garrison, corpmate ship, corpmate garrison,
     // and corp-owned ships are all off-limits. Uses the shared in-memory
@@ -476,6 +571,26 @@ async function buildActionState(params: {
         ) as Error & { status?: number };
         err.status = 400;
         throw err;
+      }
+      // Per-payer toll: once a payer has paid this garrison, the peace
+      // contract rules out further attacks against it from the same payer.
+      if (targetParticipant.combatant_type === "garrison") {
+        const tollRegistry = (
+          encounter.context as Record<string, unknown> | undefined
+        )?.toll_registry as
+          | Record<string, { payments?: Array<{ payer: string }> }>
+          | undefined;
+        const entry = tollRegistry?.[targetParticipant.combatant_id];
+        const alreadyPaid = (entry?.payments ?? []).some(
+          (p) => p.payer === participant.combatant_id,
+        );
+        if (alreadyPaid) {
+          const err = new Error(
+            "Cannot attack a garrison you have already paid the toll to",
+          ) as Error & { status?: number };
+          err.status = 400;
+          throw err;
+        }
       }
     }
     commit = Math.max(
@@ -544,6 +659,17 @@ function isRoundReady(encounter: CombatEncounterState): boolean {
     if (participant.is_escape_pod) {
       continue;
     }
+    // Skip mid-encounter joiners for the round they joined in. They
+    // brace by default this round (engine: missing pending_action → brace)
+    // and become full participants on round N+1. Without this skip a
+    // joiner would hold the current round open waiting for an action they
+    // can't submit (combat_action rejects same-round submissions below).
+    if (
+      typeof participant.joined_round === "number" &&
+      participant.joined_round === encounter.round
+    ) {
+      continue;
+    }
     const remaining = encounter.pending_actions[pid];
     const fighters = participant.fighters ?? 0;
     if (!remaining && fighters > 0) {
@@ -590,6 +716,19 @@ async function processTollPayment(
 
     const entry = tollRegistry[garrisonId] as Record<string, unknown>;
     if (!entry) {
+      return false;
+    }
+
+    // Per-payer toll: reject re-pay if this payer is already on the entry's
+    // payments list. The peace contract is in force; paying again would
+    // double-charge them.
+    const existingPayments = entry.payments as
+      | Array<{ payer?: string }>
+      | undefined;
+    if (
+      Array.isArray(existingPayments) &&
+      existingPayments.some((p) => p?.payer === payerId)
+    ) {
       return false;
     }
 

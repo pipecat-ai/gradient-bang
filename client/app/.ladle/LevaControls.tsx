@@ -134,6 +134,74 @@ export const LevaControls = ({
             })
           }
         }),
+        ["Combat"]: buttonGroup({
+          opts: {
+            ["In"]: (get) => {
+              const filter = (get("Ships.Target Ship") as string).toLowerCase().trim()
+              const ships = useGameStore.getState().ships.data ?? []
+              const corpShip =
+                filter ?
+                  ships.find(
+                    (s) =>
+                      s.owner_type === "corporation" &&
+                      !s.destroyed_at &&
+                      s.ship_name.toLowerCase().includes(filter)
+                  )
+                : ships.find((s) => s.owner_type === "corporation" && !s.destroyed_at)
+              if (!corpShip) return
+              const state = useGameStore.getState()
+              const session = state.activeCombatSession
+              const participant: CombatParticipant = {
+                id: corpShip.ship_id,
+                name: corpShip.ship_name,
+                created_at: new Date().toISOString(),
+                player_type: "corporation_ship",
+                ship: {
+                  ship_type: corpShip.ship_type,
+                  ship_name: corpShip.ship_name,
+                  shield_integrity: corpShip.shields ?? 0,
+                },
+              }
+              if (session) {
+                if (session.participants.some((p) => p.id === corpShip.ship_id)) return
+                state.updateActiveCombatSession({
+                  participants: [...session.participants, participant],
+                })
+              } else {
+                state.setActiveCombatSession({
+                  combat_id: faker.string.uuid(),
+                  participants: [participant],
+                  round: 1,
+                  deadline: null,
+                  current_time: new Date().toISOString(),
+                })
+              }
+            },
+            ["Out"]: (get) => {
+              const filter = (get("Ships.Target Ship") as string).toLowerCase().trim()
+              const ships = useGameStore.getState().ships.data ?? []
+              const corpShip =
+                filter ?
+                  ships.find(
+                    (s) =>
+                      s.owner_type === "corporation" &&
+                      !s.destroyed_at &&
+                      s.ship_name.toLowerCase().includes(filter)
+                  )
+                : ships.find((s) => s.owner_type === "corporation" && !s.destroyed_at)
+              if (!corpShip) return
+              const state = useGameStore.getState()
+              const session = state.activeCombatSession
+              if (!session) return
+              const remaining = session.participants.filter((p) => p.id !== corpShip.ship_id)
+              if (remaining.length === 0) {
+                state.endActiveCombatSession()
+              } else {
+                state.updateActiveCombatSession({ participants: remaining })
+              }
+            },
+          },
+        }),
       },
       { collapsed: true }
     ),

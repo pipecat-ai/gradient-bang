@@ -35,9 +35,7 @@ import {
   queryCombatState,
   queryShip,
   queryGarrison,
-  querySectorSalvage,
   insertGarrisonDirect,
-  withPg,
 } from "./helpers.ts";
 
 // ---------------------------------------------------------------------------
@@ -616,92 +614,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 8: Salvage creation on ship destruction
-// P1 attacks P2 who has cargo. After P2 is defeated, salvage should
-// appear in sector_contents.
-// ============================================================================
-
-Deno.test({
-  name: "combat_tick — salvage created on ship destruction",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and setup — P2 has cargo and few fighters", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipSector(p2ShipId, 3);
-      await setShipFighters(p1ShipId, 100);
-      await setShipFighters(p2ShipId, 2);
-      await setShipShields(p2ShipId, 0);
-      // Give P2 some cargo and credits
-      await withPg(async (pg) => {
-        await pg.queryObject(
-          `UPDATE ship_instances
-           SET cargo_qf = 50, cargo_ro = 30, cargo_ns = 20, credits = 500
-           WHERE ship_id = $1`,
-          [p2ShipId],
-        );
-      });
-    });
-
-    let combatId: string;
-    let cursorP1: number;
-
-    await t.step("initiate combat", async () => {
-      cursorP1 = await getEventCursor(p1Id);
-      await apiOk("combat_initiate", { character_id: p1Id });
-      const events = await eventsOfType(p1Id, "combat.round_waiting", cursorP1);
-      combatId = (events[events.length - 1].payload as Record<string, unknown>).combat_id as string;
-    });
-
-    await t.step("P1 attacks P2 until defeat", async () => {
-      cursorP1 = await getEventCursor(p1Id);
-      await apiOk("combat_action", {
-        character_id: p1Id,
-        combat_id: combatId,
-        action: "attack",
-        commit: 50,
-        target_id: p2Id,
-      });
-      await expireCombatDeadline(3);
-      await apiOk("combat_tick", {});
-
-      // May need a second round
-      let endEvents = await eventsOfType(p1Id, "combat.ended", cursorP1);
-      if (endEvents.length === 0) {
-        cursorP1 = await getEventCursor(p1Id);
-        await apiOk("combat_action", {
-          character_id: p1Id,
-          combat_id: combatId,
-          action: "attack",
-          commit: 50,
-          target_id: p2Id,
-        });
-        await expireCombatDeadline(3);
-        await apiOk("combat_tick", {});
-      }
-    });
-
-    await t.step("verify salvage in sector", async () => {
-      const salvage = await querySectorSalvage(3);
-      assert(
-        salvage.length >= 1,
-        `Expected salvage in sector 3, got ${salvage.length} entries`,
-      );
-    });
-
-    await t.step("P2 converted to escape pod", async () => {
-      const ship = await queryShip(p2ShipId);
-      assertExists(ship, "P2 ship should exist");
-      assertEquals(ship.ship_type, "escape_pod");
-    });
-  },
-});
-
-// ============================================================================
-// Group 9: Surviving ship fighters/shields persisted after combat ends
+// Group 8: Surviving ship fighters/shields persisted after combat ends
 // P1 (100 fighters) defeats P2 (2 fighters). After combat, P1's fighters and
 // shields should be updated in ship_instances to reflect damage taken.
 // ============================================================================

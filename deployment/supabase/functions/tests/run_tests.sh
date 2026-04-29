@@ -163,11 +163,25 @@ echo ""
 rm -rf "$COVERAGE_DIR"
 
 set +e
+# Optional file/dir args after "--" let callers run a targeted subset
+# (e.g. `bash run_tests.sh -- combat_test.ts combat_destruction_test.ts`).
+TEST_TARGETS=("$SCRIPT_DIR/")
+if [ "$#" -gt 0 ]; then
+  TEST_TARGETS=()
+  for t in "$@"; do
+    if [[ "$t" = /* ]]; then
+      TEST_TARGETS+=("$t")
+    else
+      TEST_TARGETS+=("$SCRIPT_DIR/$t")
+    fi
+  done
+fi
+
 deno test \
   --config "$FUNCTIONS_DIR/deno.json" \
   --allow-all \
   --coverage="$COVERAGE_DIR" \
-  "$SCRIPT_DIR/" \
+  "${TEST_TARGETS[@]}" \
   2>&1
 TEST_EXIT=$?
 set -e

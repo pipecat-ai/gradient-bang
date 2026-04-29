@@ -12,7 +12,10 @@ import {
   applyCombatEndedState,
   applyCombatRoundResolvedState,
   applyCombatRoundWaitingState,
+  applyObservedCombatEndedState,
+  applyObservedCombatRoundWaitingState,
   applyShipDestroyedState,
+  syncCorpShipsFromCombatRound,
 } from "@/utils/combat"
 import {
   salvageCollectedSummaryString,
@@ -777,13 +780,23 @@ export function GameProvider({ children }: GameProviderProps) {
               // Sync fleet ships from the corporation payload so the
               // PlayerShipsPanel sees them immediately (join) or drops them
               // (leave/kick, handled by setCorporation stripping corp ships).
+              //
+              // `sector` is only written for ships we haven't seen before —
+              // for existing ships, `character.moved` / `movement.complete`
+              // are the live writers, and corp-data snapshots can lag enough
+              // that overwriting the sector would rewind icons that already
+              // moved (e.g. mid-route during a multi-hop task).
               if (data.corporation?.ships) {
+                const existingShipIds = new Set(
+                  (useGameStore.getState().ships.data ?? []).map((s) => s.ship_id)
+                )
                 for (const ship of data.corporation.ships) {
+                  const isNewShip = !existingShipIds.has(ship.ship_id)
                   upsertCorporationShip(ship.ship_id, {
                     ship_id: ship.ship_id,
                     ship_name: ship.name,
                     ship_type: ship.ship_type,
-                    sector: ship.sector ?? undefined,
+                    ...(isNewShip ? { sector: ship.sector ?? undefined } : {}),
                     owner_type: "corporation",
                     credits: ship.credits,
                     cargo: ship.cargo,
@@ -828,13 +841,20 @@ export function GameProvider({ children }: GameProviderProps) {
               // Update corporation data (including destroyed_ships)
               useGameStore.getState().setCorporation(corpData)
 
-              // Update fleet ships
+              // Update fleet ships. See the corporation.data branch above
+              // for the rationale on omitting `sector` for existing ships —
+              // movement events are the live writer, snapshot lag must not
+              // rewind ship positions.
+              const existingShipIds = new Set(
+                (useGameStore.getState().ships.data ?? []).map((s) => s.ship_id)
+              )
               for (const ship of corpData.ships) {
+                const isNewShip = !existingShipIds.has(ship.ship_id)
                 upsertCorporationShip(ship.ship_id, {
                   ship_id: ship.ship_id,
                   ship_name: ship.name,
                   ship_type: ship.ship_type,
-                  sector: ship.sector ?? undefined,
+                  ...(isNewShip ? { sector: ship.sector ?? undefined } : {}),
                   owner_type: "corporation",
                   credits: ship.credits,
                   cargo: ship.cargo,
@@ -1272,25 +1292,43 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.round_waiting": {
               console.debug("[GAME EVENT] Combat round waiting", e.payload)
               const data = e.payload as Msg.CombatRoundWaitingMessage
-              if (!playerSessionId) {
-                logIgnored("combat.round_waiting", "personalPlayerId not set", data)
-                break
+
+              // Mark sector as in-combat for the map overlay regardless of
+              // whether we are a participant — observed-combat flavors land
+              // here too and should still highlight the sector.
+              const overlaySectorId = getPayloadSectorId(data)
+              if (typeof data.combat_id === "string" && typeof overlaySectorId === "number") {
+                useGameStore.getState().addCombatSector(data.combat_id, overlaySectorId)
               }
-              const isParticipant = data.participants?.some(
-                (participant) => participant.id === playerSessionId
-              )
-              if (!isParticipant) {
-                logIgnored("combat.round_waiting", "not a participant", data)
+
+              const isParticipant =
+                !!playerSessionId &&
+                !!data.participants?.some((participant) => participant.id === playerSessionId)
+              if (isParticipant) {
+                applyCombatRoundWaitingState(useGameStore.getState(), data as CombatSession)
                 break
               }
 
-              applyCombatRoundWaitingState(useGameStore.getState(), data as CombatSession)
+              const corpShipIds = new Set(
+                (useGameStore.getState().ships.data ?? [])
+                  .filter((s) => s.owner_type === "corporation")
+                  .map((s) => s.ship_id)
+              )
+              const hasCorpShipParticipant = data.participants?.some(
+                (p) => p.id && corpShipIds.has(p.id)
+              )
+              if (hasCorpShipParticipant) {
+                applyObservedCombatRoundWaitingState(useGameStore.getState(), data as CombatSession)
+              } else {
+                logIgnored("combat.round_waiting", "not a participant", data)
+              }
               break
             }
 
             case "combat.round_resolved": {
               console.debug("[GAME EVENT] Combat round resolved", e.payload)
               const data = e.payload as Msg.CombatRoundResolvedMessage
+              syncCorpShipsFromCombatRound(useGameStore.getState(), data as CombatRound)
               const activeCombatId = useGameStore.getState().activeCombatSession?.combat_id
               const hasPersonalAction =
                 !!playerSessionId &&
@@ -1330,6 +1368,24 @@ export function GameProvider({ children }: GameProviderProps) {
             case "combat.ended": {
               console.debug("[GAME EVENT] Combat ended", e.payload)
               const data = e.payload as Msg.CombatEndedMessage
+
+              // Always clear the map overlay entry — fires for participant
+              // and observer (observed: true) flavors alike.
+              if (typeof data.combat_id === "string") {
+                useGameStore.getState().removeCombatSector(data.combat_id)
+              }
+
+              syncCorpShipsFromCombatRound(useGameStore.getState(), data as CombatRound)
+
+              // Clean up any observed session for this combat_id (corp ship
+              // observer flow) regardless of personal participation.
+              if (
+                typeof data.combat_id === "string" &&
+                useGameStore.getState().observedCombatSessions[data.combat_id]
+              ) {
+                applyObservedCombatEndedState(useGameStore.getState(), data.combat_id)
+              }
+
               const activeCombatId = useGameStore.getState().activeCombatSession?.combat_id
               const hasPersonalAction =
                 !!playerSessionId &&
@@ -1551,6 +1607,60 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "garrison.destroyed": {
+              console.debug("[GAME EVENT] Garrison destroyed", e.payload)
+              const data = e.payload as Msg.GarrisonDestroyedMessage
+
+              useGameStore.getState().updateMapSectors([{ id: data.sector.id, garrison: null }])
+
+              useGameStore.getState().addActivityLogEntry({
+                type: "garrison.destroyed",
+                message: `Garrison destroyed in [sector ${data.sector.id}] (mode=${data.mode}, owner=${data.owner_name})`,
+              })
+              break
+            }
+
+            case "ships.strategy_set": {
+              console.debug("[GAME EVENT] Ship strategy set", e.payload)
+              const data = e.payload as {
+                ship_id?: string
+                ship_name?: string
+                strategy?: {
+                  strategy_id?: string
+                  template?: "balanced" | "offensive" | "defensive"
+                  custom_prompt?: string | null
+                  doctrine?: string
+                  updated_at?: string
+                  is_default?: boolean
+                }
+              }
+              if (!data.ship_id || !data.strategy || !data.strategy.template) {
+                logIgnored("ships.strategy_set", "missing required fields", data)
+                break
+              }
+              useGameStore.getState().setShipStrategy(data.ship_id, {
+                strategy_id: data.strategy.strategy_id,
+                ship_id: data.ship_id,
+                template: data.strategy.template,
+                custom_prompt: data.strategy.custom_prompt ?? null,
+                doctrine: data.strategy.doctrine,
+                updated_at: data.strategy.updated_at,
+                is_default: data.strategy.is_default,
+              })
+              break
+            }
+
+            case "ships.strategy_cleared": {
+              console.debug("[GAME EVENT] Ship strategy cleared", e.payload)
+              const data = e.payload as { ship_id?: string }
+              if (!data.ship_id) {
+                logIgnored("ships.strategy_cleared", "missing ship_id", data)
+                break
+              }
+              useGameStore.getState().clearShipStrategy(data.ship_id)
+              break
+            }
+
             case "garrison.character_moved": {
               console.debug("[GAME EVENT] Garrison character moved", e.payload)
               const data = e.payload as Msg.GarrisonCharacterMovedMessage
@@ -1716,6 +1826,13 @@ export function GameProvider({ children }: GameProviderProps) {
                   useGameStore.getState().setActiveModal(uiPayload.show_modal as UIModal)
                 }
 
+                // Switch the player ship panel tab (e.g. ship strategies)
+                if (typeof uiPayload.show_player_ship_tab === "string") {
+                  useGameStore
+                    .getState()
+                    .setPlayerShipTabFromAgent(uiPayload.show_player_ship_tab as PlayerShipTab)
+                }
+
                 // Everything else is map-domain
                 useGameStore.getState().handleMapUIAction({
                   mapCenterSector:
@@ -1809,7 +1926,7 @@ export function GameProvider({ children }: GameProviderProps) {
             case "llm.context_summarized": {
               const data = e.payload as Msg.ContextSummarizedMessage
               useConversationStore.getState().injectMessage({
-                role: "system",
+                role: "ui",
                 parts: [
                   {
                     text: `Context summarized: ${data.original_message_count} → ${data.new_message_count} messages (${data.summarized_message_count} compressed, ${data.preserved_message_count} preserved)`,

@@ -1,32 +1,51 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  buildEventSource,
   emitCharacterEvent,
   emitSectorEnvelope,
-  buildEventSource,
-  recordEventWithRecipients,
+  recordBroadcastByCorp,
 } from "./events.ts";
-import { buildGarrisonActions } from "./combat_garrison.ts";
+import {
+  allHostilesPaid,
+  anyOutstandingToll,
+  buildGarrisonActions,
+  type TollRegistryEntry,
+} from "./combat_garrison.ts";
 import { resolveRound } from "./combat_engine.ts";
 import {
-  finalizeCombat,
+  ejectDestroyedFromCombat,
+  emitNewlyDefeatedDestructions,
   executeCorpShipDeletions,
+  finalizeCombat,
+  persistRoundOutcomeToCanonicalTables,
 } from "./combat_finalization.ts";
+import { departSuccessfulFleers } from "./combat_flee.ts";
 import {
+  buildCombatEndedPayload,
   buildRoundResolvedPayload,
   buildRoundWaitingPayload,
-  getCorpIdsFromParticipants,
   collectParticipantIds,
+  getCorpIdsFromParticipants,
+  getDestroyedOwnerIds,
 } from "./combat_events.ts";
 import { buildSectorSnapshot, getAdjacentSectors } from "./map.ts";
-import { computeEventRecipients } from "./visibility.ts";
+import {
+  computeEventRecipients,
+  dedupeRecipientSnapshots,
+  type EventRecipientSnapshot,
+} from "./visibility.ts";
 import {
   CombatEncounterState,
+  CombatRoundLog,
   CombatRoundOutcome,
+  nowIso,
   RoundActionState,
-  CombatantState,
 } from "./combat_types.ts";
-import { persistCombatState } from "./combat_state.ts";
+import {
+  CombatStateConflictError,
+  persistCombatState,
+} from "./combat_state.ts";
 import { buildCorporationMap } from "./friendly.ts";
 
 const ROUND_TIMEOUT_SECONDS = Number(
@@ -49,6 +68,46 @@ export async function resolveEncounterRound(options: {
   const { supabase, encounter, requestId } = options;
   const sourceName = options.source ?? "combat.resolution";
 
+  // Entry lock: stamp `resolving_started_at` so other writers
+  // (joinExistingCombat, combat_action) see the marker on their fresh
+  // load and bail rather than slip in mid-resolve. The CAS persist also
+  // fences against any writer holding the pre-resolve last_updated.
+  //
+  // Both effects matter:
+  //  - The CAS bump catches writers that loaded BEFORE we did (theirs
+  //    fails on write because last_updated changed).
+  //  - The marker catches writers that loaded AFTER our entry persist
+  //    (theirs reads the marker and bails before mutating).
+  //
+  // On entry-CAS conflict we THROW instead of returning silently — a
+  // concurrent writer beat us and no side effects have run. combat_tick
+  // catches and continues to the next encounter; combat_action catches
+  // and translates to 409 (and skips emitting action_accepted).
+  encounter.resolving_started_at = nowIso();
+  try {
+    await persistCombatState(supabase, encounter, {
+      expectedLastUpdated: encounter.last_updated,
+    });
+  } catch (err) {
+    encounter.resolving_started_at = null;
+    if (err instanceof CombatStateConflictError) {
+      console.warn("combat_resolution.preempted_at_entry", {
+        combat_id: encounter.combat_id,
+        sector_id: encounter.sector_id,
+        round: encounter.round,
+        source: sourceName,
+      });
+      throw err;
+    }
+    throw err;
+  }
+
+  // From here on we hold the lock. Side effects (events, canonical
+  // writes, eject / finalize internal persists) proceed safely; other
+  // writers see resolving_started_at and bail. Internal persists chain
+  // CAS off encounter.last_updated, so any writer that does sneak in
+  // (e.g. one that ignored a stale-TTL marker) is still detected.
+
   const corpMap = buildCorporationMap(encounter);
   const timeoutActions = buildTimeoutActions(encounter);
   const garrisonActions = buildGarrisonActions(encounter, corpMap);
@@ -68,22 +127,17 @@ export async function resolveEncounterRound(options: {
     destroyed: outcome.destroyed,
   });
 
-  // A toll demand round results in mutual brace (garrison demands, player
-  // refuses). The engine sees this as stalemate, but the garrison should
-  // escalate to attack in the next round. Clear the stalemate so combat
-  // continues.
+  // A toll demand round (or any all-brace round while tolls are outstanding)
+  // resolves to "stalemate" in the engine. Per-payer toll: clear the stalemate
+  // so combat continues whenever any toll garrison still has unpaid hostiles —
+  // the garrison will escalate to attack on the next round.
   if (outcome.end_state === "stalemate") {
     const ctx = encounter.context as Record<string, unknown> | undefined;
     const tollRegistry = ctx?.toll_registry as
-      | Record<string, unknown>
+      | Record<string, TollRegistryEntry>
       | undefined;
-    if (tollRegistry) {
-      const hasUnpaidToll = Object.values(tollRegistry).some(
-        (e) => !(e as Record<string, unknown>).paid,
-      );
-      if (hasUnpaidToll) {
-        outcome.end_state = null;
-      }
+    if (tollRegistry && anyOutstandingToll(encounter, tollRegistry, corpMap)) {
+      outcome.end_state = null;
     }
   }
 
@@ -113,12 +167,26 @@ export async function resolveEncounterRound(options: {
     timestamp: new Date().toISOString(),
   });
 
+  // Resolve flee destinations + mark participants BEFORE building the resolved
+  // payload so consumers can tell 'fled' apart from 'destroyed' for absent
+  // combatants. The actual ship_instances move happens later in
+  // moveSuccessfulFleers (DB write) using the destinations resolved here.
+  await resolveFleeOutcomes(supabase, encounter, outcome, combinedActions);
+
   const resolvedPayload = buildRoundResolvedPayload(
     encounter,
     outcome,
     combinedActions,
   );
   resolvedPayload.source = buildEventSource("combat.round_resolved", requestId);
+
+  // Announce ship/garrison destructions for participants whose fighters
+  // dropped to 0 THIS round, before we overwrite participant.fighters with
+  // the post-round values. The actual cleanup (escape pod conversion,
+  // garrison row deletion, salvage drops) still runs at terminal in
+  // finalizeCombat — only the events fire here so clients can react in
+  // real time instead of waiting for the entire encounter to end.
+  await emitNewlyDefeatedDestructions(supabase, encounter, outcome, requestId);
 
   for (const [pid, participant] of Object.entries(encounter.participants)) {
     participant.fighters =
@@ -127,10 +195,43 @@ export async function resolveEncounterRound(options: {
       outcome.shields_remaining?.[pid] ?? participant.shields;
   }
 
+  // Apply between-rounds shield regen ahead of the per-round persistence
+  // call so DB-sourced snapshots (corporation.data, my_status, etc.) reflect
+  // the same shield value the next round_waiting payload will carry. Skipped
+  // when combat is ending — there is no next round, and regen would corrupt
+  // the post-loss values that buildCombatEndedPayload reports.
+  if (!outcome.end_state) {
+    for (const participant of Object.values(encounter.participants)) {
+      if ((participant.fighters ?? 0) > 0 && !participant.is_escape_pod) {
+        const currentShields = participant.shields ?? 0;
+        const maxShields = participant.max_shields ?? 0;
+        participant.shields = Math.min(
+          currentShields + SHIELD_REGEN_PER_ROUND,
+          maxShields,
+        );
+      }
+    }
+  }
+
   encounter.pending_actions = {};
   encounter.awaiting_resolution = false;
 
+  // Snapshot recipients BEFORE persistRoundOutcomeToCanonicalTables flips
+  // destruction_handled. This serves both the round_resolved broadcast
+  // below and the personalized combat.ended emission inside finalizeCombat
+  // for the terminal round: a participant who just died this round still
+  // has destruction_handled=false at this point, so the default filter
+  // includes them and they receive both events. Prior-round-destroyed
+  // participants are already filtered out — their UI left combat via the
+  // personalized combat.ended ejectDestroyedFromCombat sent at their death.
   const recipients = collectParticipantIds(encounter);
+
+  // Flush this round's outcome to ship_instances / garrisons before
+  // broadcasting combat.round_resolved. Without this, any DB-sourced snapshot
+  // a client triggers in response to the round event (corporation.data,
+  // status.update, my_status / my_corporation tool calls) would serve the
+  // pre-combat values and clobber the fresh in-memory state.
+  await persistRoundOutcomeToCanonicalTables(supabase, encounter, requestId);
 
   await broadcastCombatEvent({
     supabase,
@@ -140,6 +241,44 @@ export async function resolveEncounterRound(options: {
     payload: resolvedPayload,
     requestId,
   });
+
+  // Move successful fleers out of the encounter and emit their full
+  // movement cascade (movement.start/complete + map updates +
+  // character.moved observers + personalized combat.ended). Runs every
+  // round so a fleer's ship moves and their client unsticks even when
+  // combat continues for the others. Departed fleers are removed from
+  // encounter.participants below so they don't ghost subsequent rounds.
+  const departedFleers = await departSuccessfulFleers({
+    supabase,
+    encounter,
+    outcome,
+    requestId,
+  });
+  if (departedFleers.size > 0) {
+    for (const [pid, participant] of Object.entries(encounter.participants)) {
+      const cid = participant.owner_character_id ?? participant.combatant_id;
+      if (departedFleers.has(cid)) {
+        delete encounter.participants[pid];
+      }
+    }
+  }
+
+  // Eject any newly-destroyed character participants when combat is
+  // continuing. Drops salvage onto encounter.pending_salvage_entries (NOT
+  // sector_contents.salvage), runs escape-pod conversion / corp-ship
+  // pseudo-character cleanup, marks destruction_handled, and emits a
+  // personalized combat.ended for player ships so their UI exits combat.
+  // Skipped on the terminal round — finalizeCombat handles those deaths
+  // and the personalized combat.ended emission downstream.
+  if (!outcome.end_state) {
+    await ejectDestroyedFromCombat({
+      supabase,
+      encounter,
+      outcome,
+      requestId,
+      departedFleers,
+    });
+  }
 
   if (outcome.end_state) {
     console.log("combat_resolution.ending", {
@@ -157,12 +296,10 @@ export async function resolveEncounterRound(options: {
       requestId,
     );
 
-    // Move successful fleers to their destination sector
-    await moveSuccessfulFleers(supabase, encounter, outcome, combinedActions);
-
     console.log("combat_resolution.broadcasting_ended", {
       combat_id: encounter.combat_id,
       recipients: recipients.length,
+      departed_fleers: departedFleers.size,
     });
 
     // Send personalized combat.ended event to each participant with their own ship data
@@ -171,10 +308,13 @@ export async function resolveEncounterRound(options: {
     // Wrapped in try-catch so that deferred corp ship deletions always run even
     // if an event emission fails (the ship is already marked destroyed_at in
     // handleDefeatedCharacter, but we still need pseudo-character cleanup).
+    // Successful fleers already received their personalized combat.ended via
+    // departSuccessfulFleers — skip them here to avoid a duplicate emission.
     try {
       const { buildCombatEndedPayloadForViewer } =
         await import("./combat_events.ts");
       for (const recipient of recipients) {
+        if (departedFleers.has(recipient)) continue;
         const personalizedPayload = await buildCombatEndedPayloadForViewer(
           supabase,
           encounter,
@@ -210,6 +350,17 @@ export async function resolveEncounterRound(options: {
       });
     }
 
+    await broadcastObservedCombatEndedEvent({
+      supabase,
+      encounter,
+      outcome,
+      salvageEntries,
+      logs: encounter.logs ?? [],
+      participantRecipients: recipients,
+      departedFleers,
+      requestId,
+    });
+
     // Execute deferred corp ship deletions AFTER combat.ended events are emitted
     if (deferredDeletions.length > 0) {
       await executeCorpShipDeletions(supabase, deferredDeletions);
@@ -239,24 +390,20 @@ export async function resolveEncounterRound(options: {
     encounter.round = outcome.round_number + 1;
     encounter.deadline = computeNextCombatDeadline();
 
-    // Recharge shields between rounds
-    for (const participant of Object.values(encounter.participants)) {
-      if ((participant.fighters ?? 0) > 0 && !participant.is_escape_pod) {
-        const currentShields = participant.shields ?? 0;
-        const maxShields = participant.max_shields ?? 0;
-        participant.shields = Math.min(
-          currentShields + SHIELD_REGEN_PER_ROUND,
-          maxShields,
-        );
-      }
-    }
+    // Shield regen for the next round was already applied earlier (before
+    // persistRoundOutcomeToCanonicalTables) so DB and round_waiting agree.
 
     const waitingPayload = buildRoundWaitingPayload(encounter);
     waitingPayload.source = buildEventSource("combat.round_waiting", requestId);
 
+    // Recompute recipients from the current participants — fleers were
+    // removed earlier in this round, and we must NOT re-target them with
+    // round_waiting after they already received a personalized combat.ended.
+    const continuingRecipients = collectParticipantIds(encounter);
+
     await broadcastCombatEvent({
       supabase,
-      recipients,
+      recipients: continuingRecipients,
       encounter,
       eventType: "combat.round_waiting",
       payload: waitingPayload,
@@ -264,7 +411,34 @@ export async function resolveEncounterRound(options: {
     });
   }
 
-  await persistCombatState(supabase, encounter);
+  // Release the resolving lock before the final persist. The CAS still
+  // fences against any concurrent writer that snuck through (e.g. one
+  // that ignored a stale-TTL marker) — but the marker is cleared in the
+  // committed blob either way (we set it to null in-memory here regardless
+  // of CAS success).
+  encounter.resolving_started_at = null;
+  try {
+    await persistCombatState(supabase, encounter, {
+      expectedLastUpdated: encounter.last_updated,
+    });
+  } catch (err) {
+    if (err instanceof CombatStateConflictError) {
+      // A concurrent writer mutated the combat blob between this round's
+      // load and write. Events fired during resolution describe a state
+      // that didn't atomically commit; the next combat_tick run will
+      // re-read the post-conflict state and resolve from there. Logged
+      // (not re-thrown) so combat_tick's batch loop continues to the
+      // next encounter.
+      console.warn("combat_resolution.cas_conflict_at_exit", {
+        combat_id: encounter.combat_id,
+        sector_id: encounter.sector_id,
+        round: encounter.round,
+        source: sourceName,
+      });
+      return;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -353,99 +527,181 @@ async function broadcastCombatEvent(params: {
   // Extract corp IDs from all participants (including garrisons)
   const corpIds = getCorpIdsFromParticipants(encounter.participants);
 
+  // Exclude destroyed (already-ejected) participants. Their escape pods are
+  // still in the sector and would otherwise be re-added by the sector
+  // visibility query — they already received their personalized combat.ended
+  // and shouldn't keep getting subsequent round events.
+  const destroyedOwnerIds = getDestroyedOwnerIds(encounter);
+
   // Compute ALL recipients: participants + sector observers + corp members (deduped)
   const allRecipients = await computeEventRecipients({
     supabase,
     sectorId: encounter.sector_id,
     corpIds,
     directRecipients: recipients,
+    excludeCharacterIds: destroyedOwnerIds,
   });
 
   if (allRecipients.length === 0) {
     return;
   }
 
-  // Single emission to all unique recipients
-  await recordEventWithRecipients({
+  await recordBroadcastByCorp({
     supabase,
     eventType,
     scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,
-    actorCharacterId: null, // System-originated
+    actorCharacterId: null,
     recipients: allRecipients,
+    stakeholderCorpIds: corpIds,
+  });
+}
+
+async function broadcastObservedCombatEndedEvent(params: {
+  supabase: SupabaseClient;
+  encounter: CombatEncounterState;
+  outcome: CombatRoundOutcome;
+  salvageEntries: Array<Record<string, unknown>>;
+  logs: CombatRoundLog[];
+  participantRecipients: string[];
+  departedFleers: Set<string>;
+  requestId: string;
+}): Promise<void> {
+  const {
+    supabase,
+    encounter,
+    outcome,
+    salvageEntries,
+    logs,
+    participantRecipients,
+    departedFleers,
+    requestId,
+  } = params;
+
+  const excluded = new Set<string>([
+    ...participantRecipients,
+    ...departedFleers,
+  ]);
+  const corpIds = getCorpIdsFromParticipants(encounter.participants);
+  const corpRecipients = await computeEventRecipients({
+    supabase,
+    corpIds,
+    excludeCharacterIds: [...excluded],
+  });
+  const garrisonOwnerRecipients: EventRecipientSnapshot[] = Object.values(
+    encounter.participants,
+  )
+    .filter((participant) => participant.combatant_type === "garrison")
+    .map((participant) => participant.owner_character_id)
+    .filter((ownerId): ownerId is string =>
+      typeof ownerId === "string" &&
+      ownerId.length > 0 &&
+      !excluded.has(ownerId)
+    )
+    .map((ownerId) => ({ characterId: ownerId, reason: "garrison_owner" }));
+
+  const recipients = dedupeRecipientSnapshots([
+    ...garrisonOwnerRecipients,
+    ...corpRecipients,
+  ]);
+  if (recipients.length === 0) {
+    return;
+  }
+
+  const payload = buildCombatEndedPayload(
+    encounter,
+    outcome,
+    salvageEntries,
+    logs,
+  );
+  payload.source = buildEventSource("combat.ended", requestId);
+  payload.observed = true;
+
+  // No stakeholderCorpIds for the observer-safe event: the recipient list is
+  // already filtered to non-participants (and non-fleers). Partitioning by
+  // stakeholder corp would tag rows with corp_id = a participant's corp, and
+  // the participant's corp poll would then surface the observer-tagged event
+  // alongside their own personalized combat.ended — confusing the client
+  // that's already exited combat.
+  await recordBroadcastByCorp({
+    supabase,
+    eventType: "combat.ended",
+    scope: "sector",
+    payload,
+    requestId,
+    sectorId: encounter.sector_id,
+    actorCharacterId: null,
+    recipients,
+    stakeholderCorpIds: [],
   });
 }
 
 function checkTollStanddown(
   encounter: CombatEncounterState,
-  outcome: { round_number: number; end_state: string | null },
+  _outcome: { round_number: number; end_state: string | null },
   actions: Record<string, RoundActionState>,
 ): boolean {
-  // Check if there's a toll registry in the context
   const context = encounter.context as Record<string, unknown> | undefined;
   if (!context) {
     return false;
   }
   const tollRegistry = context.toll_registry as
-    | Record<string, unknown>
+    | Record<string, TollRegistryEntry>
     | undefined;
   if (!tollRegistry) {
     return false;
   }
 
-  // Check each garrison to see if toll was paid this round
-  for (const [garrisonId, entryRaw] of Object.entries(tollRegistry)) {
-    const entry = entryRaw as Record<string, unknown>;
-    if (!entry.paid) {
-      continue;
+  // Per-payer toll standdown: combat ends only when (a) at least one toll
+  // garrison is in the registry, (b) every hostile of every toll garrison
+  // has paid (allHostilesPaid), and (c) no participant attacked this round
+  // (a paid payer attacking would invalidate the peace contract).
+  const corps = buildCorporationMap(encounter);
+  let sawTollGarrison = false;
+  for (const [garrisonId, entry] of Object.entries(tollRegistry)) {
+    const garrison = encounter.participants[garrisonId];
+    if (!garrison || garrison.combatant_type !== "garrison") continue;
+    sawTollGarrison = true;
+    if (!allHostilesPaid(encounter, garrison, entry, corps)) {
+      return false;
     }
-    const paidRound = entry.paid_round as number | undefined;
-    // Use outcome.round_number instead of encounter.round
-    if (paidRound !== outcome.round_number) {
-      continue;
-    }
-
-    // Check if garrison braced or paid
+    // Garrison itself must have braced or paid this round.
     const garrisonAction = actions[garrisonId];
     if (
       garrisonAction &&
       garrisonAction.action !== "brace" &&
       garrisonAction.action !== "pay"
     ) {
-      continue;
+      return false;
     }
+  }
+  if (!sawTollGarrison) return false;
 
-    // Check if all other participants braced or paid
-    let othersBraced = true;
-    for (const [pid, participantAction] of Object.entries(actions)) {
-      if (pid === garrisonId) {
-        continue;
-      }
-      if (
-        participantAction.action !== "brace" &&
-        participantAction.action !== "pay"
-      ) {
-        othersBraced = false;
-        break;
-      }
-    }
-
-    if (othersBraced) {
-      return true;
+  // Every other participant must have braced or paid (no active attacks).
+  for (const [pid, participantAction] of Object.entries(actions)) {
+    if (pid in tollRegistry) continue;
+    if (
+      participantAction.action !== "brace" &&
+      participantAction.action !== "pay"
+    ) {
+      return false;
     }
   }
 
-  return false;
+  return true;
 }
 
 /**
- * Move ships of players who successfully fled to their chosen destination sector.
- * Called after finalizeCombat but before combat.ended events so the personalized
- * payload reflects the new sector.
+ * Resolve each successful fleer's destination sector and mark the participant.
+ * Runs synchronously before buildRoundResolvedPayload so has_fled / fled_to_sector
+ * surface on the resolved payload consumers see, not just on combat.ended.
+ *
+ * The actual DB move happens later in moveSuccessfulFleers, which reads
+ * participant.fled_to_sector that this helper sets.
  */
-async function moveSuccessfulFleers(
+async function resolveFleeOutcomes(
   supabase: SupabaseClient,
   encounter: CombatEncounterState,
   outcome: CombatRoundOutcome,
@@ -456,9 +712,6 @@ async function moveSuccessfulFleers(
 
     const participant = encounter.participants[pid];
     if (!participant || participant.combatant_type !== "character") continue;
-
-    const shipId = (participant.metadata as Record<string, unknown>)?.ship_id;
-    if (typeof shipId !== "string") continue;
 
     let destination = actions[pid]?.destination_sector ?? null;
 
@@ -474,17 +727,7 @@ async function moveSuccessfulFleers(
       }
     }
 
-    if (destination == null) continue;
-
-    const { error } = await supabase
-      .from("ship_instances")
-      .update({ current_sector: destination })
-      .eq("ship_id", shipId);
-
-    if (error) {
-      console.error("combat_resolution.move_fleer", { pid, shipId, destination, error });
-    } else {
-      console.log("combat_resolution.fleer_moved", { pid, shipId, destination });
-    }
+    participant.has_fled = true;
+    participant.fled_to_sector = destination;
   }
 }

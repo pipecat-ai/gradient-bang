@@ -4,9 +4,10 @@ Deploys the bot to Pipecat Cloud using cloud builds.
 
 ## Parameters
 
-The user specifies the environment as an argument: `/deploy-bot dev` or `/deploy-bot prod`. If not provided, ask which environment to deploy to.
+The user specifies the environment as an argument: `/deploy-bot dev`, `/deploy-bot eval`, or `/deploy-bot prod`. If not provided, ask which environment to deploy to.
 
 - `dev` → config file: `deployment/pcc-deploy.dev.toml`
+- `eval` → config file: `deployment/pcc-deploy.eval.toml`
 - `prod` → config file: `deployment/pcc-deploy.prod.toml`
 
 ## Steps
@@ -31,6 +32,6 @@ pipecat cloud build logs <build-id>
 
 ## Important notes
 
-- Config files are at `deployment/pcc-deploy.dev.toml` and `deployment/pcc-deploy.prod.toml`.
+- Config files are at `deployment/pcc-deploy.dev.toml`, `deployment/pcc-deploy.eval.toml`, and `deployment/pcc-deploy.prod.toml`.
 - The `.dockerignore` at the repo root controls what gets included in the build context.
 - Secrets should already be configured on Pipecat Cloud. If the user hasn't set secrets yet, remind them to do so.

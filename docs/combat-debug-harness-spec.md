@@ -150,7 +150,7 @@ Garrisons are static sector assets that an absent owner (in a different sector) 
 1. **Engine `recipients` list** — controls *delivery*. For any combat event involving a garrison, the owner, the owner's corp members, and same-sector observers are all added to `event.recipients`. Uninvolved bystanders (different sector, not in the owner's corp) are NEVER in the set. See `combatRecipients` in `engine.ts` and the per-test lock-in in `agent.test.ts > remote garrison event flow`.
 2. **Agent XML filter** (`toAgentEventXml`) — controls *context appending*. Checks both ship participation AND garrison ownership: a viewer whose garrison is in the fight passes `isInvolved` even if they're not a ship participant.
 3. **Inference trigger** (`run_llm`, production-only — harness has no voice loop) — controls whether the incoming event *wakes the voice agent*. The harness doesn't enforce this; the production migration must:
-   - `combat.round_waiting` / `round_resolved` / `ended` delivered to the absent garrison owner → `run_llm: false` (silent context append). The voice agent must not narrate "round 3 of your garrison's fight" every 30s. RTVI events still fire so the client UI can update the garrison's health bar.
+   - `combat.round_waiting` / `round_resolved` delivered to the absent garrison owner → round-1 initiation and terminal `round_resolved` use `run_llm: true`; continuing updates use `run_llm: false` (silent context append). The voice agent must not narrate "round 3 of your garrison's fight" every 30s. RTVI events still fire so the client UI can update the garrison's health bar.
    - `garrison.destroyed` delivered to the owner → `run_llm: true`. The voice agent SHOULD speak — this is the one moment the player needs a verbal heads-up ("Commander, the garrison in sector 42 has fallen.").
    - Same-sector observer receiving combat events about a hostile garrison → standard combat rules apply (`run_llm: true` on their own `combat.round_waiting`, since they're a participant and must act).
 
@@ -285,6 +285,8 @@ All new, all under `client/combat-sim/`:
 
 ## Migrating back to production
 
+> **Superseded.** The swap approach described below has been replaced by an in-place surgical sync — see [combat-migration-phase-plan.md](combat-migration-phase-plan.md). Legacy `_shared/combat_*.ts` files stay in place; we edit them to functionally match the harness. The rest of this section is kept as historical context for the swap idea, not as an active plan.
+
 Once the engine is stable, we swap it into the real edge functions as one atomic PR. The `events` table schema and the edge-function HTTP contract do **not** change — the bot, GameContext, clients, and RTVI consumers see zero behavioural difference. Safety comes from golden tests plus a fixture-diff pass, not runtime feature flags (flagging Deno edge functions is painful and we'd rather not).
 
 ### Readiness checklist
@@ -362,7 +364,7 @@ The engine port also adds event types that don't exist in production today. Thes
 
 - **`garrison.destroyed`** — production today deletes the garrison row silently in [combat_finalization.ts:248-279](deployment/supabase/functions/_shared/combat_finalization.ts:248) (`updateGarrisonState` with `remainingFighters <= 0` → `.delete()` + no emit). Downstream consumers must infer destruction from `fighters_remaining[garrison_id] = 0` inside `combat.round_resolved`. That's fragile: the voice agent has no clean moment to say "commander, the garrison fell", and the client UI has to diff two payloads to notice.
   - **Harness behaviour:** the engine emits `garrison.destroyed` with `garrison_id` / `owner_character_id` / `owner_corp_id` / `owner_name` / `sector` / `mode` / `combat_id` before the row is deleted. Recipients = owner + owner-corp members + sector observers.
-  - **Migration work:** add `"garrison.destroyed"` to [event_identity.ts](deployment/supabase/functions/_shared/event_identity.ts)'s type set, emit in `updateGarrisonState` (or `finalizeCombat`) with the same payload shape, and add an `EventConfig` in [event_relay.py](src/gradientbang/pipecat_server/subagents/event_relay.py) with `AppendRule.PARTICIPANT` + `InferenceRule.ON_PARTICIPANT` so the voice agent speaks when a player's own garrison dies.
+  - **Migration work:** add `"garrison.destroyed"` to [event_identity.ts](deployment/supabase/functions/_shared/event_identity.ts)'s type set, emit in `updateGarrisonState` (or `finalizeCombat`) with the same payload shape, and add an `EventConfig` in [event_relay.py](src/gradientbang/pipecat_server/subagents/event_relay.py) with `AppendRule.PARTICIPANT` + `InferenceRule.OWNED` so the voice agent speaks only when a player's own garrison dies.
   - **Test parity:** `agent.test.ts > remote garrison event flow` covers the four routing cases; re-run those scenarios against the ported engine to confirm identical event sequence.
 
 ### Controllers migration (Phase 6, separate lift)

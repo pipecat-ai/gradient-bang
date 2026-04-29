@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Combat round outcomes are now persisted to `ship_instances` after every round, not just at end of combat — DB-sourced reads (`my_corporation`, `corporation_info`, `status.update`, voice/task tools) reflect live fighter and shield counts during a fight instead of pre-combat values
+- Destroyed players exit combat immediately: escape-pod conversion, personalized `combat.ended`, and unblocked movement / trade / bank actions all happen the moment the ship dies — no more sitting through the rest of someone else's fight
+- Destroyed corp ships clean up immediately when they die (pseudo-character + `corporation_ships` row removed mid-round) instead of waiting for the encounter to end
+- Destroyed combatants stay in the participant list flagged `destruction_handled = true` so observers and the LLM see "destroyed in round N" persistently across the rest of the encounter, not a vague absence
+
+### Changed
+
+- Salvage from a ship destroyed mid-combat now drops to the sector only when combat ends — preventing in-fight loots and sector passers-by from collecting wrecks while the battle is still going
+- `combat_action` rejects all actions from destroyed or escape-pod participants (was: only rejected `flee`); attacks on a destroyed target are rejected at submission with a clear error
+
+## [0.2.0] - 2026-04-28
+
+### Added
+
+- Ship combat strategies: per-ship doctrine (`balanced` / `offensive` / `defensive`) plus optional custom prompt; voice + UI tools to set/get/clear; auto-injected at round-1 combat
+- Combat strategies panel for selecting doctrine and editing the custom prompt
+- `garrison.destroyed` event with voice narration for the owner; silent context for corp and sector observers
+- Per-viewer combat POV (DIRECT / corp-ship observer / garrison observer / sector-only) shapes both summary lines and XML envelope attrs on every encounter event
+- Round-1 fan-out: combat-start broadcasts to all stakeholders (corp members, absent garrison owners, sector observers); rounds 2+ stay participant-only
+- Successful flee now emits the full movement cascade to the fleer (`movement.start`, `character.moved` depart, `movement.complete`, `map.local`, `character.moved` arrive) plus a personalized `combat.ended` so the client unsticks from combat state immediately, even when the fight continues for the others
+- `has_fled` / `fled_to_sector` fields on participants in combat round payloads — distinguishes fled combatants from destroyed ones
+- Standalone combat sim client for offline strategy experimentation
+- Map marker for a destroyed garrison is cleared and logged to the activity feed
+- Per-garrison fighter cap of 32,000; deploys that would exceed are rejected with a clear `max additional = N` error
+- Client: BigMap panel shows sectors with active combat
+
+### Changed
+
+- Combat event payloads: participants gain `fighters` / `destroyed` / `corp_id`; garrison gains `owner_character_id` / `owner_corp_id`
+- `ship.destroyed`: adds `owner_character_id` / `corp_id`; inference flips `NEVER → OWNED` so voice narrates the loss for the owner
+- Toll garrisons are now per-payer: paying a toll is a peace contract scoped to that payer ↔ that garrison. Other hostiles must still pay (no free rides), paid payers cannot attack the garrison or re-pay it, and the garrison re-targets to unpaid hostiles on escalation rounds. Combat ends `toll_satisfied` only when every hostile has paid and nobody is attacking
+- Combat reference prompt rewritten around the four POVs and the new payload fields
+- Voice combat announcements widened to cover observed combats, not just direct participation
+
+### Fixed
+
+- `combat.round_resolved` reports post-round fighter counts correctly (was reading the participant snapshot before losses applied)
+- A successful fleer is now moved out of the encounter every round, not only when combat happens to end the same round — previously a fleer who left mid-fight had their ship row stay in the combat sector until the rest of combat resolved
+- Combat XML envelope attrs are escaped before being sent to the LLM — a ship name with quotes or angle brackets can no longer corrupt the event frame
+
 ## [0.1.5] - 2026-04-22
 
 ### Added

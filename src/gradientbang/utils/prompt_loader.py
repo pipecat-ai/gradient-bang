@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 
 class TaskOutputType(Enum):
@@ -104,6 +104,118 @@ def load_fragment(topic: str) -> str:
             f"Unknown topic: {topic}. Available topics: {', '.join(AVAILABLE_TOPICS)}"
         )
     return load_prompt(f"fragments/{topic}.md")
+
+
+# Premade combat-strategy templates map to files in fragments/strategies/.
+# A ship's strategy always has a base doctrine (one of these) plus an
+# optional free-form ``custom_prompt`` appended as additional commander
+# guidance — custom is never a template value on its own.
+COMBAT_STRATEGY_TEMPLATES = {"balanced", "offensive", "defensive"}
+DEFAULT_STRATEGY_TEMPLATE = "balanced"
+
+
+def load_combat_strategy_doctrine(template: str) -> str:
+    """Load a premade combat-strategy doctrine fragment by template name.
+
+    Args:
+        template: One of 'balanced', 'offensive', 'defensive'
+
+    Returns:
+        Contents of fragments/strategies/<template>.md
+    """
+    if template not in COMBAT_STRATEGY_TEMPLATES:
+        raise ValueError(
+            f"Unknown strategy template: {template}. "
+            f"Expected one of: {', '.join(sorted(COMBAT_STRATEGY_TEMPLATES))}"
+        )
+    return load_prompt(f"fragments/strategies/{template}.md")
+
+
+def render_combat_md_preamble_message() -> str:
+    """First combat-preamble message — full mechanics reference.
+
+    Loaded once per agent lifetime; the wording matches both the player
+    voice agent (in ``EventRelay``) and corp-ship task agents so an LLM
+    that has been demoted/re-spun into a different role still sees an
+    identical reference text.
+    """
+    combat_md = load_fragment("combat")
+    return (
+        "# Combat reference\n\n"
+        "Combat has begun. Full mechanics reference "
+        "(load once, remembered for the session):\n\n"
+        f"{combat_md}"
+    )
+
+
+def render_ship_doctrine_preamble_message(
+    strategy: Optional[Mapping[str, Any]],
+) -> str:
+    """Second combat-preamble message — ship's doctrine + custom additions.
+
+    ``strategy`` is the ``strategy`` field of a ``combat.get_strategy``
+    response (or ``None`` when the ship has none authored). An unset or
+    malformed strategy falls back to the default 'balanced' doctrine so
+    every ship in combat has *some* doctrine in context — the agent never
+    has to reason about "no strategy at all".
+    """
+    if isinstance(strategy, Mapping):
+        template = strategy.get("template") or "balanced"
+        custom_prompt = strategy.get("custom_prompt")
+        is_default = False
+    else:
+        template = "balanced"
+        custom_prompt = None
+        is_default = True
+    if not isinstance(template, str):
+        template = "balanced"
+        is_default = True
+    doctrine = render_combat_strategy_preamble(
+        template,
+        custom_prompt if isinstance(custom_prompt, str) else None,
+    )
+    header_line = (
+        "Your ship has no authored doctrine, so it is running the "
+        "default 'balanced' combat strategy."
+        if is_default
+        else "Your ship has an authored combat doctrine."
+    )
+    return (
+        "# Your ship's combat strategy\n\n"
+        f"{header_line} Use it to bias combat recommendations and actions "
+        "you take.\n\n"
+        f"{doctrine}"
+    )
+
+
+def render_combat_strategy_preamble(
+    template: str,
+    custom_prompt: Optional[str] = None,
+) -> str:
+    """Build the LLM-context preamble for a ship's combat strategy.
+
+    The base doctrine comes from the template file on disk. When the
+    commander has attached a ``custom_prompt``, it is appended as
+    additional guidance — layered on top of, not in place of, the base
+    doctrine. Passing ``template='custom'`` is rejected; the
+    database-level constraint enforces the same rule.
+    """
+    if template == "custom":
+        raise ValueError(
+            "'custom' is no longer a valid standalone template; pass a real "
+            "template (balanced / offensive / defensive) plus an optional "
+            "custom_prompt appended as additive guidance."
+        )
+    doctrine = load_combat_strategy_doctrine(template)
+    trimmed_custom = (custom_prompt or "").strip()
+    if not trimmed_custom:
+        return doctrine
+    return (
+        f"{doctrine}\n"
+        "## Additional commander guidance\n\n"
+        "Layer the following on top of the doctrine above:\n\n"
+        f"{trimmed_custom}"
+    )
 
 
 def build_voice_agent_prompt() -> str:

@@ -353,6 +353,41 @@ Deno.test({
         `P2 should be in sector 3 or adjacent (1,4,7), got ${sector}`,
       );
     });
+
+    await t.step("if flee succeeded, fleer gets full movement cascade", async () => {
+      const ship = await queryShip(p2ShipId);
+      assertExists(ship);
+      const fled = (ship.current_sector as number) !== 3;
+      if (!fled) return; // Probabilistic — skip when flee didn't succeed.
+
+      // Round_resolved payload should mark P2 has_fled=true with the
+      // resolved fled_to_sector.
+      const resolved = await eventsOfType(p2Id, "combat.round_resolved", cursorP2);
+      assert(resolved.length >= 1, "P2 should have a round_resolved event");
+      const participants = resolved[0].payload.participants as Array<
+        Record<string, unknown>
+      >;
+      const p2Entry = participants.find((p) => p.id === p2Id);
+      assertExists(p2Entry, "P2 in participants list");
+      assertEquals(p2Entry.has_fled, true, "has_fled should be true on fleer");
+      assertEquals(
+        p2Entry.fled_to_sector,
+        ship.current_sector,
+        "fled_to_sector should match ship's new sector",
+      );
+
+      // The fleer should also receive the full movement cascade.
+      const moveStart = await eventsOfType(p2Id, "movement.start", cursorP2);
+      const moveComplete = await eventsOfType(p2Id, "movement.complete", cursorP2);
+      const mapLocal = await eventsOfType(p2Id, "map.local", cursorP2);
+      assert(moveStart.length >= 1, "fleer should receive movement.start");
+      assert(moveComplete.length >= 1, "fleer should receive movement.complete");
+      assert(mapLocal.length >= 1, "fleer should receive map.local");
+
+      // Personalized combat.ended for the fleer.
+      const ended = await eventsOfType(p2Id, "combat.ended", cursorP2);
+      assert(ended.length >= 1, "fleer should receive combat.ended");
+    });
   },
 });
 
@@ -649,91 +684,9 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 10: Offensive garrison auto-engages
-// ============================================================================
-
-Deno.test({
-  name: "combat — offensive garrison auto-engages opponents",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and deploy offensive garrison", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      // P1 in sector 3, deploy offensive garrison
-      await setShipSector(p1ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-      // P2 starts in a different sector
-      await setShipSector(p2ShipId, 4);
-      await setShipFighters(p2ShipId, 200);
-      // Deploy offensive garrison while P2 is NOT in sector
-      await apiOk("combat_leave_fighters", {
-        character_id: p1Id,
-        sector: 3,
-        quantity: 80,
-        mode: "offensive",
-      });
-    });
-
-    // Now move P2 into sector 3 where offensive garrison is
-    let cursorP2: number;
-
-    await t.step("capture P2 cursor and move to sector 3", async () => {
-      cursorP2 = await getEventCursor(p2Id);
-      await setShipSector(p2ShipId, 3);
-    });
-
-    // The offensive garrison should auto-engage when we trigger
-    // combat_leave_fighters with P2 present. Let's test by deploying
-    // with P2 in the sector directly.
-    await t.step("reset for auto-engage scenario", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipSector(p2ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-      await setShipFighters(p2ShipId, 200);
-    });
-
-    let cursorP1: number;
-
-    await t.step("capture cursors", async () => {
-      cursorP1 = await getEventCursor(p1Id);
-      cursorP2 = await getEventCursor(p2Id);
-    });
-
-    await t.step("P1 deploys offensive garrison with P2 in sector", async () => {
-      const result = await apiOk("combat_leave_fighters", {
-        character_id: p1Id,
-        sector: 3,
-        quantity: 80,
-        mode: "offensive",
-      });
-      assert(result.success);
-    });
-
-    await t.step("P2 receives combat.round_waiting (auto-engaged)", async () => {
-      const events = await eventsOfType(p2Id, "combat.round_waiting", cursorP2);
-      assert(
-        events.length >= 1,
-        `Expected >= 1 combat.round_waiting for P2 (auto-engage), got ${events.length}`,
-      );
-    });
-
-    await t.step("P1 receives combat.round_waiting", async () => {
-      const events = await eventsOfType(p1Id, "combat.round_waiting", cursorP1);
-      assert(
-        events.length >= 1,
-        `Expected >= 1 combat.round_waiting for P1, got ${events.length}`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 11: Garrison deploy fails with zero quantity
+// Group 10: Garrison deploy fails with zero quantity
+// (Offensive garrison auto-engage is covered in Group 25 below — see
+// "combat — offensive garrison auto-engages on deploy".)
 // ============================================================================
 
 Deno.test({
@@ -907,6 +860,297 @@ Deno.test({
       assert(!result.ok || !result.body.success, "Expected payment to fail");
       assert(result.status !== 500, "Should not crash");
     });
+  },
+});
+
+// ============================================================================
+// Group 14b: Per-payer toll semantics
+// A toll payment is a peace contract scoped to one payer ↔ one garrison.
+// Other hostiles must still pay; paid payers cannot attack the garrison or
+// re-pay; the garrison re-targets to unpaid hostiles on escalation rounds.
+// Mirrors client/combat-sim/src/engine/__tests__/combat.test.ts §
+// "toll garrison with multiple players (per-payer semantics)".
+// ============================================================================
+
+Deno.test({
+  name: "combat — per-payer toll: P1 pays, P2 braces → combat continues",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup", async () => {
+      await resetDatabase([P1, P2, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 4);
+      await setShipSector(p3ShipId, 4);
+      await setShipFighters(p1ShipId, 100);
+      await setShipFighters(p2ShipId, 100);
+      await setShipFighters(p3ShipId, 100);
+      await setShipCredits(p2ShipId, 1000);
+      await setShipCredits(p3ShipId, 1000);
+    });
+
+    let combatId: string;
+    await t.step(
+      "P1 deploys toll garrison; P2 enters (auto-engage), P3 joins via combat_initiate",
+      async () => {
+        await apiOk("combat_leave_fighters", {
+          character_id: p1Id,
+          sector: 3,
+          quantity: 80,
+          mode: "toll",
+          toll_amount: 100,
+        });
+        await setShipSector(p1ShipId, 4);
+        // P2 enters first → toll_registry populated via auto-engage
+        await apiOk("move", { character_id: p2Id, to_sector: 3 });
+        // P3 moves in (becomes sector observer; move doesn't auto-join
+        // existing combat) and explicitly calls combat_initiate to be
+        // added to the encounter's participants.
+        await apiOk("move", { character_id: p3Id, to_sector: 3 });
+        await apiOk("combat_initiate", { character_id: p3Id });
+        const events = await eventsOfType(p2Id, "combat.round_waiting");
+        combatId = events[events.length - 1].payload.combat_id as string;
+        assertExists(combatId, "combat_id");
+      },
+    );
+
+    await t.step("round 1: P2 pays, P3 braces → combat continues", async () => {
+      await apiOk("combat_action", {
+        character_id: p2Id,
+        combat_id: combatId,
+        action: "pay",
+      });
+      await apiOk("combat_action", {
+        character_id: p3Id,
+        combat_id: combatId,
+        action: "brace",
+      });
+
+      const ended = await eventsOfType(p2Id, "combat.ended");
+      assertEquals(
+        ended.length,
+        0,
+        "combat must NOT end — P3 still owes the toll",
+      );
+      const combat = await queryCombatState(3);
+      assertExists(combat, "combat state should still exist");
+      assertEquals(
+        combat.ended ?? false,
+        false,
+        "active combat should remain in sector_contents",
+      );
+    });
+  },
+});
+
+Deno.test({
+  name: "combat — per-payer toll: paid payer cannot attack the garrison they paid",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let combatId: string;
+    let garrisonCombatantId: string;
+
+    await t.step("setup + P2 pays the toll", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 4);
+      await setShipFighters(p1ShipId, 100);
+      await setShipFighters(p2ShipId, 100);
+      await setShipCredits(p2ShipId, 1000);
+      await apiOk("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 80,
+        mode: "toll",
+        toll_amount: 100,
+      });
+      await setShipSector(p1ShipId, 4);
+      await apiOk("move", { character_id: p2Id, to_sector: 3 });
+      const events = await eventsOfType(p2Id, "combat.round_waiting");
+      combatId = events[events.length - 1].payload.combat_id as string;
+      // Garrison combatant lives in payload.garrison (not payload.participants[]).
+      const garrisonObj = events[events.length - 1].payload.garrison as
+        | { id?: string }
+        | null;
+      assertExists(garrisonObj, "garrison object in payload");
+      assertExists(garrisonObj.id, "garrison.id in payload");
+      garrisonCombatantId = garrisonObj.id as string;
+
+      await apiOk("combat_action", {
+        character_id: p2Id,
+        combat_id: combatId,
+        action: "pay",
+      });
+    });
+
+    await t.step("attack against the paid garrison is rejected", async () => {
+      // Trigger another round so we can submit a fresh action.
+      // P2 tries to attack the garrison they just paid — must reject.
+      const result = await api("combat_action", {
+        character_id: p2Id,
+        combat_id: combatId,
+        action: "attack",
+        target_id: garrisonCombatantId,
+        commit: 50,
+      });
+      assert(
+        !result.ok || result.status === 400,
+        `Expected attack to be rejected; got ok=${result.ok} status=${result.status}`,
+      );
+    });
+  },
+});
+
+Deno.test({
+  name: "combat — per-payer toll: paid payer cannot pay the same garrison twice",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let combatId: string;
+
+    await t.step("setup + first pay succeeds", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 4);
+      await setShipFighters(p1ShipId, 100);
+      await setShipFighters(p2ShipId, 100);
+      await setShipCredits(p2ShipId, 1000);
+      await apiOk("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 80,
+        mode: "toll",
+        toll_amount: 100,
+      });
+      await setShipSector(p1ShipId, 4);
+      await apiOk("move", { character_id: p2Id, to_sector: 3 });
+      const events = await eventsOfType(p2Id, "combat.round_waiting");
+      combatId = events[events.length - 1].payload.combat_id as string;
+      await apiOk("combat_action", {
+        character_id: p2Id,
+        combat_id: combatId,
+        action: "pay",
+      });
+      const ship = await queryShip(p2ShipId);
+      assertExists(ship);
+      assertEquals(
+        ship.credits,
+        900,
+        "credits should drop by toll amount on first pay",
+      );
+    });
+
+    await t.step("second pay is rejected; no additional credits deducted", async () => {
+      const result = await api("combat_action", {
+        character_id: p2Id,
+        combat_id: combatId,
+        action: "pay",
+      });
+      assert(
+        !result.ok || !result.body.success,
+        "Re-pay must not succeed",
+      );
+      const ship = await queryShip(p2ShipId);
+      assertExists(ship);
+      assertEquals(
+        ship.credits,
+        900,
+        "credits must remain at 900 — no double-charge",
+      );
+    });
+  },
+});
+
+Deno.test({
+  name: "combat — per-payer toll: garrison re-targets to unpaid hostile after pay",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let combatId: string;
+
+    await t.step("setup + round 1: P2 pays, P3 braces", async () => {
+      await resetDatabase([P1, P2, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 4);
+      await setShipSector(p3ShipId, 4);
+      await setShipFighters(p1ShipId, 50);
+      await setShipFighters(p2ShipId, 50);
+      await setShipFighters(p3ShipId, 50);
+      await setShipCredits(p2ShipId, 1000);
+      await setShipCredits(p3ShipId, 1000);
+      await apiOk("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 30,
+        mode: "toll",
+        toll_amount: 100,
+      });
+      await setShipSector(p1ShipId, 4);
+      await apiOk("move", { character_id: p2Id, to_sector: 3 });
+      // P3 moves in then joins the existing combat explicitly.
+      await apiOk("move", { character_id: p3Id, to_sector: 3 });
+      await apiOk("combat_initiate", { character_id: p3Id });
+      const events = await eventsOfType(p2Id, "combat.round_waiting");
+      combatId = events[events.length - 1].payload.combat_id as string;
+      await apiOk("combat_action", {
+        character_id: p2Id,
+        combat_id: combatId,
+        action: "pay",
+      });
+      await apiOk("combat_action", {
+        character_id: p3Id,
+        combat_id: combatId,
+        action: "brace",
+      });
+    });
+
+    await t.step(
+      "round 2: P2 + P3 brace → garrison attacks, target is NOT P2",
+      async () => {
+        await apiOk("combat_action", {
+          character_id: p2Id,
+          combat_id: combatId,
+          action: "brace",
+        });
+        await apiOk("combat_action", {
+          character_id: p3Id,
+          combat_id: combatId,
+          action: "brace",
+        });
+
+        // Look at the round 2 resolved payload's actions map for the garrison.
+        const resolved = await eventsOfType(p3Id, "combat.round_resolved");
+        assert(resolved.length >= 2, "expected two resolved events");
+        const round2 = resolved[resolved.length - 1].payload;
+        const actions = (round2.actions ?? {}) as Record<
+          string,
+          Record<string, unknown>
+        >;
+        const garrisonAction = Object.entries(actions).find(([key]) =>
+          key.toLowerCase().includes("garrison"),
+        );
+        assertExists(garrisonAction, "garrison action should appear");
+        // The garrison should attack on the escalation round, and never
+        // target the paid payer (P2).
+        if (garrisonAction[1].action === "attack") {
+          assert(
+            garrisonAction[1].target !== p2Id,
+            `garrison must not target paid payer; got ${garrisonAction[1].target}`,
+          );
+        }
+      },
+    );
   },
 });
 
@@ -1982,7 +2226,7 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "combat — escape pod cannot flee → 400",
+  name: "combat — escape pod cannot act → 410",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -2020,16 +2264,16 @@ Deno.test({
       });
     });
 
-    await t.step("P1 (escape pod) tries to flee → 400", async () => {
+    await t.step("P1 (escape pod) tries to flee → 410", async () => {
       const result = await api("combat_action", {
         character_id: p1Id,
         combat_id: combatId,
         action: "flee",
       });
-      assertEquals(result.status, 400, "Expected 400 for escape pod flee");
+      assertEquals(result.status, 410, "Expected 410 Gone for escape pod actions");
       assert(
-        (result.body.error ?? "").includes("Escape pods cannot flee"),
-        `Expected escape pod error, got: ${result.body.error}`,
+        (result.body.error ?? "").toLowerCase().includes("destroyed"),
+        `Expected destroyed-ship error, got: ${result.body.error}`,
       );
     });
   },
@@ -3170,6 +3414,107 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name:
+    "combat events: corp member receives observer-safe combat.ended for player ship combat",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let combatId: string;
+    let cursorP2: number;
+    let corpId: string;
+
+    await t.step("setup: P1 and P2 are corpmates; P1 fights P3", async () => {
+      await resetDatabase([P1, P2, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 4);
+      await setShipSector(p3ShipId, 3);
+      await setShipFighters(p1ShipId, 500);
+      await setShipFighters(p3ShipId, 50);
+      await setShipCredits(p1ShipId, 50_000);
+
+      const createResult = await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Combat Watch Corp",
+      });
+      corpId = (createResult as Record<string, unknown>).corp_id as string;
+      const inviteCode = (createResult as Record<string, unknown>)
+        .invite_code as string;
+      await apiOk("corporation_join", {
+        character_id: p2Id,
+        corp_id: corpId,
+        invite_code: inviteCode,
+      });
+
+      cursorP2 = await getEventCursor(p2Id);
+      await apiOk("combat_initiate", {
+        character_id: p1Id,
+        target_id: p3Id,
+      });
+      // Corp-scoped events deliver via the corp row; poll with corpId to
+      // mirror the bot's real subscription (character_ids ∪ ship_ids ∪ corp_id).
+      const events = await eventsOfType(
+        p1Id,
+        "combat.round_waiting",
+        0,
+        corpId,
+      );
+      assert(events.length >= 1);
+      combatId = events[events.length - 1].payload.combat_id as string;
+    });
+
+    await t.step("resolve combat to terminal state", async () => {
+      for (let round = 0; round < 5; round++) {
+        const ended = await eventsOfType(
+          p2Id,
+          "combat.ended",
+          cursorP2,
+          corpId,
+        );
+        if (ended.some((event) => event.payload.combat_id === combatId)) break;
+        const result = await api("combat_action", {
+          character_id: p1Id,
+          combat_id: combatId,
+          action: "attack",
+          target_id: p3Id,
+          commit: 200,
+        });
+        if (result.status === 404) break;
+        await api("combat_action", {
+          character_id: p3Id,
+          combat_id: combatId,
+          action: "brace",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    });
+
+    await t.step(
+      "remote corp member P2 receives observer-safe combat.ended",
+      async () => {
+        const events = await eventsOfType(
+          p2Id,
+          "combat.ended",
+          cursorP2,
+          corpId,
+        );
+        const ended = events.find((event) =>
+          event.payload.combat_id === combatId
+        );
+        assertExists(ended, "P2 should receive observed combat.ended");
+        assertEquals(ended.payload.observed, true);
+        assert(
+          !("ship" in ended.payload),
+          "observed combat.ended should not include personalized ship payload",
+        );
+      },
+    );
+  },
+});
+
 // ============================================================================
 // Group 60: combat_action rejects attacks against corpmate player ships
 // ============================================================================
@@ -3259,6 +3604,262 @@ Deno.test({
         commit: 50,
       });
       assert(result.success);
+    });
+  },
+});
+
+// ============================================================================
+// Group 26: Combat events catalog payload-shape coverage
+// Asserts the new fields landed in Phase 1 are surfaced on every combat
+// encounter event (combat.round_waiting / _resolved / ended) AND that
+// ship.destroyed carries owner_character_id + corp_id.
+// ============================================================================
+
+Deno.test({
+  name: "combat events: catalog fields land on round_waiting / resolved / ended / ship.destroyed",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let combatId: string;
+
+    await t.step("setup: P1 vs P2 combat in sector with a defensive garrison", async () => {
+      await resetDatabase([P1, P2, P3]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await apiOk("join", { character_id: p3Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 3);
+      await setShipSector(p3ShipId, 4);
+      await setShipFighters(p1ShipId, 200);
+      await setShipFighters(p2ShipId, 50);
+      // Plant P3's defensive garrison directly so combat.round_waiting carries
+      // a populated `garrison` sub-object (the new owner_* fields live there).
+      // Direct insert dodges the same-sector deploy requirement.
+      await insertGarrisonDirect(3, p3Id, 50, "defensive");
+      await apiOk("combat_initiate", { character_id: p1Id });
+      const events = await eventsOfType(p1Id, "combat.round_waiting");
+      assert(events.length >= 1);
+      combatId = events[events.length - 1].payload.combat_id as string;
+    });
+
+    await t.step("combat.round_waiting payload exposes new participant + garrison fields", async () => {
+      const events = await eventsOfType(p1Id, "combat.round_waiting");
+      const payload = events[events.length - 1].payload;
+      const participants = payload.participants as Array<Record<string, unknown>>;
+      assert(participants.length >= 2, "two character participants expected");
+      for (const p of participants) {
+        assert("fighters" in p, "participant missing `fighters`");
+        assert("destroyed" in p, "participant missing `destroyed`");
+        assert("corp_id" in p, "participant missing `corp_id`");
+        assert("has_fled" in p, "participant missing `has_fled`");
+        assert("fled_to_sector" in p, "participant missing `fled_to_sector`");
+        assertEquals(p.has_fled, false, "no one has fled at round 1");
+      }
+      const garrison = payload.garrison as Record<string, unknown> | null;
+      assertExists(garrison, "garrison sub-object on round_waiting");
+      assert("owner_character_id" in garrison, "garrison missing `owner_character_id`");
+      assert("owner_corp_id" in garrison, "garrison missing `owner_corp_id`");
+      assertEquals(garrison.owner_character_id, p3Id);
+    });
+
+    let resolvedCursor: number;
+    await t.step("capture cursor + resolve a round so we have round_resolved", async () => {
+      resolvedCursor = await getEventCursor(p1Id);
+      await apiOk("combat_action", {
+        character_id: p1Id,
+        combat_id: combatId,
+        action: "attack",
+        target_id: p2Id,
+        commit: 50,
+      });
+      await apiOk("combat_action", {
+        character_id: p2Id,
+        combat_id: combatId,
+        action: "brace",
+      });
+    });
+
+    await t.step("combat.round_resolved payload carries the new fields", async () => {
+      const events = await eventsOfType(p1Id, "combat.round_resolved", resolvedCursor);
+      assert(events.length >= 1, "expected combat.round_resolved");
+      const payload = events[0].payload;
+      const participants = payload.participants as Array<Record<string, unknown>>;
+      for (const p of participants) {
+        assert("fighters" in p, "resolved.participant missing `fighters`");
+        assert("destroyed" in p, "resolved.participant missing `destroyed`");
+        assert("corp_id" in p, "resolved.participant missing `corp_id`");
+      }
+      const garrison = payload.garrison as Record<string, unknown> | null;
+      assertExists(garrison, "garrison on round_resolved");
+      assert("owner_character_id" in garrison, "resolved.garrison missing owner_character_id");
+      assert("owner_corp_id" in garrison, "resolved.garrison missing owner_corp_id");
+    });
+
+    await t.step("force combat to end and assert combat.ended payload + ship.destroyed", async () => {
+      // Drive the encounter forward with `expireCombatDeadline` + tick.
+      // Picking a single hard-coded target (P2) is unreliable: once P2
+      // dies the garrison is still hostile, so combat keeps going and
+      // combat_action against the dead P2 now rejects (target invalid),
+      // leaving the round stuck. Instead, drive each round by ticking the
+      // deadline — that lets P1's auto-brace + the garrison's auto-attack
+      // resolve naturally until end_state is reached. We also re-pick
+      // P1's attack target each round from whatever hostile is still alive.
+      const endCursor = await getEventCursor(p1Id);
+      for (let round = 0; round < 30; round++) {
+        const state = await queryCombatState(3);
+        if (!state || (state as Record<string, unknown>).ended === true) break;
+        // Pick the first alive non-P1 character/garrison participant as P1's target.
+        const participants = (state as Record<string, unknown>)
+          .participants as Record<string, { fighters: number; combatant_type: string; destruction_handled?: boolean }>;
+        let liveTarget: string | null = null;
+        for (const [pid, p] of Object.entries(participants)) {
+          if (pid === p1Id) continue;
+          if (p.destruction_handled) continue;
+          if ((p.fighters ?? 0) > 0) {
+            liveTarget = pid;
+            break;
+          }
+        }
+        if (liveTarget) {
+          await api("combat_action", {
+            character_id: p1Id,
+            combat_id: combatId,
+            action: "attack",
+            target_id: liveTarget,
+            commit: 200,
+          });
+        }
+        await expireCombatDeadline(3);
+        await api("combat_tick", {});
+      }
+      const ended = await eventsOfType(p1Id, "combat.ended", endCursor);
+      assert(ended.length >= 1, "combat.ended should fire for P1");
+      const endedPayload = ended[ended.length - 1].payload;
+      const endedParticipants = endedPayload.participants as Array<
+        Record<string, unknown>
+      >;
+      for (const p of endedParticipants) {
+        assert("fighters" in p, "ended.participant missing `fighters`");
+        assert("destroyed" in p, "ended.participant missing `destroyed`");
+        assert("corp_id" in p, "ended.participant missing `corp_id`");
+      }
+
+      // ship.destroyed for P2 — owner_character_id + corp_id must be present.
+      const destroyed = await eventsOfType(p1Id, "ship.destroyed", endCursor);
+      assert(destroyed.length >= 1, "ship.destroyed should fire for P2's ship");
+      const destroyedPayload = destroyed[destroyed.length - 1].payload;
+      assert("owner_character_id" in destroyedPayload, "ship.destroyed missing owner_character_id");
+      assert("corp_id" in destroyedPayload, "ship.destroyed missing corp_id");
+    });
+  },
+});
+
+// ============================================================================
+// Group 27: garrison.destroyed event emission
+// Drop a garrison's fighters to 0 in combat; assert the event fires with the
+// full payload BEFORE the garrison row is deleted, and that recipients
+// include the absent garrison owner.
+// ============================================================================
+
+Deno.test({
+  name: "combat events: garrison.destroyed fires with full payload + reaches absent owner",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let combatId: string;
+
+    await t.step("setup: P1 deploys defensive garrison and moves away; P2 attacks it", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipSector(p1ShipId, 3);
+      await setShipSector(p2ShipId, 3);
+      await setShipFighters(p1ShipId, 200);
+      await setShipFighters(p2ShipId, 500);
+
+      await apiOk("combat_leave_fighters", {
+        character_id: p1Id,
+        sector: 3,
+        quantity: 5, // tiny — easy to one-shot
+        mode: "defensive",
+      });
+      await setShipSector(p1ShipId, 4); // owner leaves the sector
+
+      await apiOk("combat_initiate", { character_id: p2Id });
+      const events = await eventsOfType(p2Id, "combat.round_waiting");
+      assert(events.length >= 1);
+      combatId = events[events.length - 1].payload.combat_id as string;
+    });
+
+    let cursorP1: number;
+    await t.step("capture P1 cursor and attack the garrison", async () => {
+      cursorP1 = await getEventCursor(p1Id);
+      // Pick the garrison combatant id from the round_waiting payload.
+      const events = await eventsOfType(p2Id, "combat.round_waiting");
+      const garrisonObj = events[events.length - 1].payload.garrison as
+        | { id?: string }
+        | null;
+      assertExists(garrisonObj, "garrison sub-object");
+      assertExists(garrisonObj.id, "garrison.id");
+
+      // Sustained attack until the 5-fighter garrison falls (typically 1 round).
+      for (let round = 0; round < 5; round++) {
+        const dest = await eventsOfType(p1Id, "garrison.destroyed", cursorP1);
+        if (dest.length) break;
+        const wait = await eventsOfType(p2Id, "combat.round_waiting");
+        if (!wait.length) break;
+        await apiOk("combat_action", {
+          character_id: p2Id,
+          combat_id: combatId,
+          action: "attack",
+          target_id: garrisonObj.id,
+          commit: 100,
+        });
+      }
+    });
+
+    await t.step("absent owner P1 receives garrison.destroyed with full payload", async () => {
+      const events = await eventsOfType(p1Id, "garrison.destroyed", cursorP1);
+      assert(events.length >= 1, "P1 should receive garrison.destroyed");
+      const payload = events[0].payload;
+      assertEquals(payload.owner_character_id, p1Id);
+      assert(typeof payload.combat_id === "string", "combat_id");
+      assert(typeof payload.garrison_id === "string", "garrison_id");
+      assert("owner_corp_id" in payload, "owner_corp_id");
+      // owner_name is a non-empty string — the exact value depends on the
+      // character's display-name in the fixture (defaults to UUID for
+      // resetDatabase-created chars), so we just assert presence.
+      assert(
+        typeof payload.owner_name === "string" && payload.owner_name.length > 0,
+        "owner_name should be a non-empty string",
+      );
+      const sector = payload.sector as { id?: number } | undefined;
+      assertEquals(sector?.id, 3);
+      assertEquals(payload.mode, "defensive");
+    });
+
+    await t.step(
+      "absent owner P1 receives observer-safe combat.ended",
+      async () => {
+        const events = await eventsOfType(p1Id, "combat.ended", cursorP1);
+        const ended = events.find((event) =>
+          event.payload.combat_id === combatId
+        );
+        assertExists(ended, "P1 should receive observed combat.ended");
+        assertEquals(ended.payload.observed, true);
+        assert(
+          !("ship" in ended.payload),
+          "observed combat.ended should not include personalized ship payload",
+        );
+      },
+    );
+
+    await t.step("garrison row was deleted (event captured the metadata before delete)", async () => {
+      const garrison = await queryGarrison(3);
+      // After destruction, no row should remain.
+      // Either null or a row with fighters > 0 (different garrison) — but
+      // since we only deployed P1's, null is expected.
+      assertEquals(garrison, null, "garrison row should be deleted");
     });
   },
 });

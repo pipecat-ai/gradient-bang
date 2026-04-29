@@ -4,6 +4,7 @@ import {
   CombatEncounterState,
   CombatantState,
   nowIso,
+  PendingCorpShipDeletion,
   RoundActionState,
 } from "./combat_types.ts";
 
@@ -41,11 +42,43 @@ export function deserializeCombat(raw: unknown): CombatEncounterState | null {
         : Math.floor(Math.random() * 1_000_000),
     last_updated:
       typeof data.last_updated === "string" ? data.last_updated : nowIso(),
+    pending_corp_ship_deletions: Array.isArray(data.pending_corp_ship_deletions)
+      ? (data.pending_corp_ship_deletions as PendingCorpShipDeletion[])
+      : [],
+    pending_salvage_entries: Array.isArray(data.pending_salvage_entries)
+      ? (data.pending_salvage_entries as Array<Record<string, unknown>>)
+      : [],
+    resolving_started_at:
+      typeof data.resolving_started_at === "string"
+        ? data.resolving_started_at
+        : null,
   };
+}
+
+/**
+ * resolveEncounterRound writes `resolving_started_at = nowIso()` at entry
+ * (under CAS) and clears it at exit. Other writers (joinExistingCombat,
+ * combat_action) treat a recent value as a held lock and bail before
+ * mutating. A stale value (older than this TTL) is treated as residue
+ * from a crashed tick run and ignored — the next combat_tick that picks
+ * up the encounter will overwrite it. 30s is comfortably longer than any
+ * non-pathological resolveEncounterRound execution.
+ */
+export const RESOLVING_LOCK_TTL_MS = 30_000;
+
+export function isResolvingLockHeld(
+  encounter: { resolving_started_at?: string | null },
+): boolean {
+  const ts = encounter.resolving_started_at;
+  if (!ts) return false;
+  const startedMs = Date.parse(ts);
+  if (!Number.isFinite(startedMs)) return false;
+  return Date.now() - startedMs < RESOLVING_LOCK_TTL_MS;
 }
 
 function serializeCombat(
   encounter: CombatEncounterState,
+  lastUpdated: string,
 ): Record<string, unknown> {
   return {
     combat_id: encounter.combat_id,
@@ -60,7 +93,10 @@ function serializeCombat(
     ended: encounter.ended,
     end_state: encounter.end_state,
     base_seed: encounter.base_seed,
-    last_updated: nowIso(),
+    last_updated: lastUpdated,
+    pending_corp_ship_deletions: encounter.pending_corp_ship_deletions ?? [],
+    pending_salvage_entries: encounter.pending_salvage_entries ?? [],
+    resolving_started_at: encounter.resolving_started_at ?? null,
   };
 }
 
@@ -109,22 +145,71 @@ export async function loadCombatById(
   });
 }
 
+/**
+ * Thrown by `persistCombatState` when an OCC compare-and-swap fails. The
+ * caller's load-modify-write was racing against a concurrent writer; the
+ * caller should re-load the encounter and re-evaluate.
+ */
+export class CombatStateConflictError extends Error {
+  constructor(sectorId: number) {
+    super(
+      `Concurrent write conflict on sector_contents.combat (sector_id=${sectorId})`,
+    );
+    this.name = "CombatStateConflictError";
+  }
+}
+
 export async function persistCombatState(
   supabase: SupabaseClient,
   encounter: CombatEncounterState,
+  options?: { expectedLastUpdated?: string | null },
 ): Promise<void> {
-  const payload = serializeCombat(encounter);
-  const { error } = await supabase
-    .from("sector_contents")
-    .update({
-      combat: payload,
-      updated_at: nowIso(),
-    })
-    .eq("sector_id", encounter.sector_id);
+  const newLastUpdated = nowIso();
+  const payload = serializeCombat(encounter, newLastUpdated);
+  const expected = options?.expectedLastUpdated;
+
+  // Plain write path — used during the fresh-encounter creation flow and
+  // any RMW that doesn't need cross-writer protection. Combat tick and
+  // mid-encounter join paths pass `expectedLastUpdated` to take the OCC
+  // path below.
+  if (expected === undefined) {
+    const { error } = await supabase
+      .from("sector_contents")
+      .update({
+        combat: payload,
+        updated_at: newLastUpdated,
+      })
+      .eq("sector_id", encounter.sector_id);
+    if (error) {
+      console.error("combat_state.persist", error);
+      throw new Error("Failed to persist combat state");
+    }
+    encounter.last_updated = newLastUpdated;
+    return;
+  }
+
+  // OCC path — cas_update_combat returns true when the row's current
+  // last_updated matches `expected`, false otherwise. Migration:
+  // 20260429000000_combat_state_cas.sql.
+  const { data, error } = await supabase.rpc("cas_update_combat", {
+    p_sector_id: encounter.sector_id,
+    p_expected_last_updated: expected,
+    p_new_combat: payload,
+  });
   if (error) {
-    console.error("combat_state.persist", error);
+    console.error("combat_state.persist.cas", error);
     throw new Error("Failed to persist combat state");
   }
+  if (data !== true) {
+    throw new CombatStateConflictError(encounter.sector_id);
+  }
+  // After a successful CAS, mirror the new last_updated back onto the
+  // in-memory encounter. Subsequent persist() calls in the same logical
+  // operation (eject's mid-round persist, finalize's per-defeat persist,
+  // and the final persist at the end of resolveEncounterRound) can then
+  // pass `encounter.last_updated` as their next CAS fence and compose
+  // correctly.
+  encounter.last_updated = newLastUpdated;
 }
 
 export async function clearCombatState(

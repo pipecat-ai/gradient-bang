@@ -416,7 +416,14 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     ship_name = _shorten_embedded_ids(ship_name)
     ship_type_raw = ship.get("ship_type") or ship.get("ship_type_name")
     ship_type = _friendly_ship_type(ship_type_raw)
-    lines.append(f"Ship: {ship_name} ({ship_type})")
+    raw_ship_id = ship.get("ship_id")
+    ship_id_suffix = ""
+    if isinstance(raw_ship_id, str) and raw_ship_id.strip():
+        # Short 6-char prefix for consistency with ships.list and corp-ship
+        # lines elsewhere in the summary. Edge-function tools accept the
+        # prefix and resolve it against the caller's fleet.
+        ship_id_suffix = f" [{raw_ship_id.strip()[:6]}]"
+    lines.append(f"Ship: {ship_name}{ship_id_suffix} ({ship_type})")
 
     # Credits and cargo
     ship_credits = ship.get("credits")
@@ -799,6 +806,36 @@ def path_region_summary(result: Dict[str, Any]) -> str:
 def _format_participant_names(event: Dict[str, Any]) -> str:
     participants = event.get("participants")
     labels: List[str] = []
+
+    def _is_destroyed(entry: Dict[str, Any]) -> bool:
+        # Server flag is authoritative when present; fall back to a fighter
+        # count check so older payloads still annotate correctly.
+        flag = entry.get("destroyed")
+        if isinstance(flag, bool):
+            return flag
+        fighters = entry.get("fighters")
+        if isinstance(fighters, (int, float)):
+            return fighters <= 0
+        return False
+
+    def _annotate(
+        display: str, target_id: Any, destroyed: bool, just_joined: bool = False
+    ) -> str:
+        markers: List[str] = []
+        if destroyed:
+            markers.append("destroyed")
+        if just_joined:
+            # One-shot marker on the round the participant first appears, so
+            # the LLM can narrate "X joined the encounter" without surfing
+            # the participants list across rounds. The server clears
+            # `just_joined` on the next event automatically.
+            markers.append("joined encounter")
+        if isinstance(target_id, str) and target_id.strip():
+            markers.append(f"target_id={target_id.strip()}")
+        if not markers:
+            return display
+        return f"{display} ({', '.join(markers)})"
+
     if isinstance(participants, list):
         for entry in participants:
             if not isinstance(entry, dict):
@@ -811,10 +848,26 @@ def _format_participant_names(event: Dict[str, Any]) -> str:
                 continue
 
             display_name = _shorten_embedded_ids(str(name)) if name else "unknown"
-            if isinstance(participant_id, str) and participant_id.strip():
-                labels.append(f"{display_name} (target_id={participant_id})")
-            else:
-                labels.append(display_name)
+            labels.append(
+                _annotate(
+                    display_name,
+                    participant_id,
+                    _is_destroyed(entry),
+                    bool(entry.get("just_joined")),
+                )
+            )
+    # Garrisons are combat participants too, but the server emits them in a
+    # separate `garrison` sub-object instead of inside `participants[]`. The
+    # TaskAgent needs the garrison's combatant_id as a target_id to attack —
+    # without this branch it would see itself as the only participant and
+    # have no valid target.
+    garrison = event.get("garrison")
+    if isinstance(garrison, dict):
+        gname = garrison.get("name") or garrison.get("owner_name")
+        gid = garrison.get("id")
+        if gname or gid:
+            display = _shorten_embedded_ids(str(gname)) if gname else "garrison"
+            labels.append(_annotate(display, gid, _is_destroyed(garrison)))
     if not labels:
         return "unknown opponents"
     if len(labels) > 4:
@@ -834,9 +887,28 @@ def combat_round_waiting_summary(event: Dict[str, Any]) -> str:
     round_display = round_number if isinstance(round_number, int) else "?"
     combat_id = event.get("combat_id", "unknown")
 
+    # An out-of-cycle round_waiting fires when a hostile ship arrives mid-
+    # encounter. The extension_reason field lists the joiner(s) so the LLM
+    # can say "combat extended — X joined" rather than treating it as a
+    # normal round tick.
+    extension = event.get("extension_reason")
+    extension_clause = ""
+    if isinstance(extension, dict) and extension.get("type") == "joined":
+        joiners = extension.get("joiners")
+        if isinstance(joiners, list) and joiners:
+            names = [
+                str(j.get("name"))
+                for j in joiners
+                if isinstance(j, dict) and j.get("name")
+            ]
+            if names:
+                extension_clause = (
+                    f" Combat extended — reinforcement: {', '.join(names)}."
+                )
+
     return (
         f"Combat {combat_id} round {round_display} waiting in sector {sector_id}; "
-        f"deadline {deadline}; participants: {participants}."
+        f"deadline {deadline}; participants: {participants}.{extension_clause}"
     )
 
 
@@ -1180,6 +1252,17 @@ def character_moved_summary(
     ship_name = _shorten_embedded_ids(ship_name_raw or "unknown ship")
     movement = event.get("movement")
 
+    # Sector tag — the payload carries the destination sector for arrives and
+    # the source sector for departs; including it lets the LLM tell hops
+    # apart (otherwise an intermediate "arrived" reads identically to the
+    # final destination arrival).
+    sector_value = event.get("sector")
+    sector_part = (
+        f" in sector {sector_value}"
+        if isinstance(sector_value, int)
+        else ""
+    )
+
     # Determine movement verb
     if movement == "arrive":
         verb = "arrived"
@@ -1194,10 +1277,10 @@ def character_moved_summary(
             corp_desc = "your corp"
         else:
             corp_desc = "another corp"
-        return f'Corp ship "{ship_name}" owned by {corp_desc} {verb}.'
+        return f'Corp ship "{ship_name}" owned by {corp_desc} {verb}{sector_part}.'
 
     # Player ship format (no enum string, just display name)
-    return f"{name} in {ship_name} {verb}."
+    return f"{name} in {ship_name} {verb}{sector_part}."
 
 
 def garrison_character_moved_summary(
@@ -1391,11 +1474,8 @@ def ship_destroyed_summary(event: Dict[str, Any]) -> str:
     sector = event.get("sector", {})
     sector_id = sector.get("id", "unknown") if isinstance(sector, dict) else "unknown"
 
-    salvage = event.get("salvage_created", False)
-    salvage_clause = " Salvage created." if salvage else ""
-
     prefix = "Corp ship" if is_corp else "Ship"
-    return f'{prefix} \"{name}\" ({ship_type}) destroyed in sector {sector_id}.{salvage_clause}'
+    return f'{prefix} \"{name}\" ({ship_type}) destroyed in sector {sector_id}.'
 
 
 def salvage_created_summary(event: Dict[str, Any]) -> str:

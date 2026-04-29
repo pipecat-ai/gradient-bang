@@ -8,6 +8,25 @@ Combat is disabled in Federation Space (fedspace).
 
 Any non-friendly ship, corporation ship, or garrison in your sector is a valid target.
 
+## Participating vs Observing
+
+You receive combat events from one of four POVs — check the opening line:
+
+- **DIRECT** — You're a combatant. Call `combat_action` each round or timeout defaults to BRACE.
+  - Round 1: `A new combat has begun. You are a participant.`
+  - Rounds 2+: `Combat state: you are currently in active combat.`
+- **OBSERVED — corp ship** — Your corp owns a participating ship.
+  - Round 1: `A new combat has begun. Your corp's "<name>" (ship_id=<id>) has entered combat in sector <N>.`
+  - Round resolved: `Combat state: your corp's "<name>" is engaged in combat.`
+  - Ended: `Your corp's "<name>" combat in sector <N> has ended.`
+- **OBSERVED — garrison** — Your (or your corp-mate's) garrison is in a fight.
+  - Round 1: `A new combat has begun. Your[/Your corp's] garrison in sector <N> has engaged. It is currently in <mode> mode.`
+  - Round resolved: `Combat state: your[/your corp's] garrison in sector <N> is engaged in combat.`
+  - Ended: `Your[/Your corp's] garrison in sector <N> (garrison_id=<id>) combat has ended.`
+- **OBSERVED — sector only** — In the sector with no other stake. Round 1: `A new combat has begun in sector <N>.`
+
+For all OBSERVED POVs: do NOT call `combat_action`. Voice announces once on combat start, then stays silent. **Observers only receive the round-1 broadcast** — subsequent round events are filtered out. Answer follow-ups from the round-1 context.
+
 ## Round Actions
 
 Each round, every participant declares one action:
@@ -34,9 +53,31 @@ Each round, every participant declares one action:
 
 ### PAY
 
-- Offer credits to toll garrisons
-- Successful payments mark the toll satisfied
-- If everyone braces afterward, the encounter concludes peacefully
+- Offer credits to a toll garrison
+- Payment is a peace contract with THAT garrison, scoped to YOU only
+- After paying, you cannot attack that garrison (rejected) and it cannot target you
+- Other hostiles in the combat keep fighting until they pay, flee, or are destroyed
+- Combat ends `toll_satisfied` when every hostile has paid AND no one is attacking
+- Never re-pay a garrison you've already paid — rejected
+
+## Reading Event Payloads
+
+### Participant fields
+Each entry in `participants[]`:
+- `fighters` — current count; size attack commits against this
+- `destroyed: true` — a corpse; never target (attacks rejected)
+- `corp_id` — opponent's corp; if it matches yours, do NOT attack (corp cohesion)
+
+### Garrison sub-object fields
+Combat events involving a garrison carry a `garrison` sub-object:
+- `owner_character_id` matches your id → your garrison
+- `owner_corp_id` matches your corp → your corp's garrison
+
+### Envelope attributes
+XML envelope tags identify what an event is about:
+- `combat_id` — every combat event
+- `garrison_id` / `garrison_owner` — garrison-subject events (e.g. `garrison.destroyed`)
+- `ship_id` / `ship_name` — ship-subject events (e.g. `ship.destroyed`)
 
 ## Round Timing
 
@@ -88,7 +129,30 @@ Encounters conclude when:
 - `mutual_defeat` - Both sides destroyed
 - `<combatant>_fled` - Specific combatant escaped
 - `stalemate` - Fight ended without resolution
-- `toll_satisfied` - Toll was paid and accepted
+- `toll_satisfied` - Every hostile has paid the toll garrison
+- `no_hostiles` - Only friendly combatants remain
+
+### garrison.destroyed event
+
+Fires when a garrison's fighters reach 0. Terminal for that garrison — any later pay/attack against its id is rejected. For your own garrison, voice narrates the loss.
+
+## Salvage and Defeat
+
+### When your ship is destroyed in combat
+- Ship becomes an `escape_pod` (you survive, but fighter/shield/cargo/credits reset to 0)
+- All cargo and ship credits drop as salvage in the sector
+- Bank funds are untouched
+- Escape pod gets a full warp power tank so you can move
+
+### When you win
+- Defeated opponents' cargo + credits + scrap drop as salvage in the sector
+- Salvage entries carry: `cargo`, `credits`, `scrap` (ship wreckage value), `from_ship_type`, `from_ship_name`
+- Collect with `salvage_collect` before another player claims it
+- Salvage expires after ~15 minutes (check `expires_at`)
+
+### Relevant events
+- `salvage.created` - wreckage appeared (sector-scoped)
+- `ship.destroyed` - specific ship was destroyed (subject-scoped; `ship_id`, `ship_name` on envelope)
 
 ## Strategy Tips
 
@@ -123,6 +187,26 @@ Encounters conclude when:
 - Receive combat.ended event
 - Check the result in the event payload
 - Continue with the task if applicable
+
+## Ship Strategy Tool
+
+`ship_strategy` gets or sets a ship's combat strategy. A strategy is a **base doctrine** (`balanced | offensive | defensive`) PLUS an optional **additive custom_prompt** — both active together during combat.
+
+- `ship_id` MUST be a real UUID (or 6-8 hex prefix) from a SHIP object's `ship_id` field. **Never pass the commander's `character_id` / `player.id`** — that's a person, not a ship. character_id ≠ ship_id.
+- Never pass a ship name ("Sparrow Scout"), ship type, or placeholder ("self", "mine") either.
+- Resolve the right UUID first:
+  - Personal ship → `my_status` → `ship.ship_id` (NOT `player.id`)
+  - Corp ship → `ships.list[].ship_id` or `corporation_info()`
+- GET: `ship_strategy(ship_id="<UUID>")` returns `{strategy: {template, custom_prompt, doctrine, …} | null, default_template, default_doctrine}`. If strategy is null, the ship uses `default_template` (balanced). Never tell the user "no strategy"; describe the active doctrine.
+- SET: `ship_strategy(ship_id="<UUID>", template="balanced")` — or `offensive` / `defensive`. Optionally add `custom_prompt="…"` (≤ 1000 chars) with ANY template to layer additional commander guidance on top of the base doctrine.
+
+## Strategy Templates (base doctrines)
+
+- **balanced** (default when none set) — read the situation each round and adapt. No fixed bias toward attack or brace.
+- **offensive** — commit fighters aggressively; default to ATTACK. Only flee when near-dead.
+- **defensive** — BRACE by default; attack only with clear advantage; retreat early.
+
+`custom_prompt` is free-form text the commander can layer on top of any of the above (e.g. "Never flee below 30% fighters; dig in instead."). Both the base doctrine AND the custom guidance are active together during combat — describe both when asked.
 
 ## Combat Action Tool
 

@@ -104,6 +104,52 @@ const syncShipFromCombatRound = (gameStore: GameStore, combatRound: CombatRound)
   })
 }
 
+export const syncCorpShipsFromCombatRound = (gameStore: GameStore, combatRound: CombatRound) => {
+  const corpShipIds = new Set(
+    (gameStore.ships.data ?? [])
+      .filter((s) => s.owner_type === "corporation" && !s.destroyed_at)
+      .map((s) => s.ship_id)
+  )
+  if (corpShipIds.size === 0) return
+
+  for (const participant of combatRound.participants ?? []) {
+    if (!participant.id || !corpShipIds.has(participant.id)) continue
+    const fighters = readRoundValue(combatRound.fighters_remaining, [
+      participant.id,
+      participant.name,
+    ])
+    const shields = readRoundValue(combatRound.shields_remaining, [
+      participant.id,
+      participant.name,
+    ])
+    if (!Number.isFinite(fighters) && !Number.isFinite(shields)) continue
+    gameStore.updateShip({
+      ship_id: participant.id,
+      ...(Number.isFinite(fighters) ? { fighters: Math.max(0, fighters as number) } : {}),
+      ...(Number.isFinite(shields) ? { shields: Math.max(0, shields as number) } : {}),
+    })
+  }
+}
+
+/** True if the given ship_id is a participant in any tracked combat — personal or observed. */
+export const isShipInCombat = (gameStore: GameStore, shipId: string): boolean => {
+  if (gameStore.activeCombatSession?.participants.some((p) => p.id === shipId)) return true
+  return Object.values(gameStore.observedCombatSessions).some((session) =>
+    session.participants.some((p) => p.id === shipId)
+  )
+}
+
+export const applyObservedCombatRoundWaitingState = (
+  gameStore: GameStore,
+  combatSession: CombatSession
+) => {
+  gameStore.setObservedCombatSession(combatSession)
+}
+
+export const applyObservedCombatEndedState = (gameStore: GameStore, combatId: string) => {
+  gameStore.removeObservedCombatSession(combatId)
+}
+
 export const applyCombatRoundWaitingState = (
   gameStore: GameStore,
   combatSession: CombatSession
@@ -229,9 +275,7 @@ export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDes
 
   gameStore.addActivityLogEntry({
     type: "ship.destroyed",
-    message: `${shipDescription} destroyed in [sector ${destroyed.sector.id}]${
-      destroyed.salvage_created ? " - salvage created" : ""
-    }`,
+    message: `${shipDescription} destroyed in [sector ${destroyed.sector.id}]`,
   })
 
   if (destroyed.player_type === "corporation_ship" || isLocalShipDestroyed) {

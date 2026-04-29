@@ -528,6 +528,8 @@ export interface SectorMapProps {
   maxDistance?: number
   coursePlot?: CoursePlot | null
   ships?: Map<number, Array<{ ship_name: string; ship_type: string }>>
+  /** Sectors with active combat — drawn as a dotted red border overlay. */
+  combatSectors?: Set<number> | null
 }
 
 export interface CameraState {
@@ -1480,6 +1482,28 @@ function renderSectorOffsetFrames(
   })
 }
 
+function renderSectorCombatHighlights(
+  ctx: CanvasRenderingContext2D,
+  data: MapSectorNode[],
+  scale: number,
+  hexSize: number,
+  combatSectors: Set<number>
+) {
+  if (combatSectors.size === 0) return
+  ctx.save()
+  ctx.strokeStyle = "#ff3344"
+  ctx.lineWidth = 4
+  ctx.setLineDash([5, 5])
+  ctx.lineCap = "butt"
+  for (const node of data) {
+    if (!combatSectors.has(node.id)) continue
+    const world = hexToWorld(node.position[0], node.position[1], scale)
+    drawHex(ctx, world.x, world.y, hexSize + 10, false)
+  }
+  ctx.setLineDash([])
+  ctx.restore()
+}
+
 /** Render hop number badges for course plot sectors (rendered above animation overlay) */
 function renderCoursePlotBadges(
   ctx: CanvasRenderingContext2D,
@@ -2153,12 +2177,14 @@ function renderShipLabels(
   config: SectorMapConfigBase,
   ships: Map<number, ShipInfo[]> | undefined,
   hoveredSectorId: number | null = null,
-  hitBoxesOut?: ShipLabelHitBox[]
+  hitBoxesOut?: ShipLabelHitBox[],
+  combatSectors?: Set<number> | null
 ) {
   if (!ships || ships.size === 0) return
 
   const labelStyle = config.labelStyles.shipCount
   const iconSize = 14
+  const combatColor = "#ff3344"
 
   ctx.save()
   ctx.textAlign = "left"
@@ -2218,12 +2244,14 @@ function renderShipLabels(
     if (node.id === hoveredSectorId) return
 
     const labelOpacity = 1
+    const isCombat = combatSectors?.has(node.id) ?? false
+    const bgColor = isCombat ? combatColor : labelStyle.backgroundColor
 
     ctx.save()
     ctx.translate(labelX, labelY)
 
     // Draw background (offset to left from anchor)
-    ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity)
+    ctx.fillStyle = applyAlpha(bgColor, labelOpacity)
     ctx.fillRect(
       -totalWidth - padding,
       -ascent - padding,
@@ -2612,6 +2640,15 @@ function renderWithCameraStateAndInteraction(
     )
   })
 
+  // Combat overlay sits on top of base sector fills but under the offset
+  // frames (so the current-sector ring still wins visually) and well below
+  // the label layers — driven entirely by props.combatSectors so the
+  // overlay can toggle on/off via cheap controller.render() with no
+  // topology recompute or camera reframe.
+  if (props.combatSectors && props.combatSectors.size > 0) {
+    renderSectorCombatHighlights(ctx, cameraState.filteredData, scale, hexSize, props.combatSectors)
+  }
+
   // Render offset frames on top of all sectors (e.g. current sector frame)
   renderSectorOffsetFrames(
     ctx,
@@ -2649,7 +2686,8 @@ function renderWithCameraStateAndInteraction(
     config,
     ships,
     hoveredSectorId,
-    shipLabelHitBoxesOut
+    shipLabelHitBoxesOut,
+    props.combatSectors
   )
   renderPortLabels(
     ctx,

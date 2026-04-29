@@ -449,10 +449,14 @@ npx supabase migration up --workdir deployment/ --db-url "$POSTGRES_POOLER_URL"
 
 ### Combat round resolution cron config (cloud)
 
-Populate `app_runtime_config` with the Supabase URL and edge token (run after migrations).
+Populate `app_runtime_config` with the Supabase URL and edge token (run after migrations). The script requires `--env <file>`; production additionally requires `--allow-production`.
 
 ```bash
-scripts/setup-production-combat-tick.sh
+# dev
+scripts/setup-production-combat-tick.sh --env .env.cloud.dev
+
+# production (manual; will prompt to type 'MODIFY PRODUCTION')
+scripts/setup-production-combat-tick.sh --env .env.cloud --allow-production
 ```
 
 Verify:
@@ -584,6 +588,8 @@ pnpm run dev
 | `SHIELD_REGEN_PER_ROUND`      | No       | `10`                                     | Shields regenerated per combat round                                                                                     |
 | `SALVAGE_TTL_SECONDS`         | No       | `900`                                    | TTL for salvage debris (seconds)                                                                                         |
 | `CHARACTER_SPAWN_MP_DISTANCE` | No       | `8`                                      | Graph distance (hops) from nearest mega port for new character spawns (min `2`)                                          |
+| `CHARACTER_STARTING_CREDITS`  | No       | `12000`                                  | Credits granted to a new character's starting ship                                                                       |
+| `CHARACTER_SKIP_AUTO_QUESTS`  | No       | `false`                                  | Set to `true` to skip auto-assigned quests (e.g. tutorial) on new character creation                                     |
 | `EDGE_ADMIN_PASSWORD`         | No       | —                                        | Admin password for admin-only endpoints                                                                                  |
 | `EDGE_ADMIN_PASSWORD_HASH`    | No       | —                                        | SHA-256 hash of admin password (alternative to plaintext)                                                                |
 
@@ -672,7 +678,7 @@ pnpm run dev
 - **App gate (gameplay)**: every gameplay edge function expects `X-API-Token: $EDGE_API_TOKEN` and uses `SUPABASE_SERVICE_ROLE_KEY` internally for DB access.
 - **Bot/client calls**: send both headers. The anon key can be public; the gameplay token must stay secret.
 - **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_POOLER_URL`, `EDGE_API_TOKEN` (+ bot envs if used).
-- **Combat cron**: ensure `app_runtime_config` has `supabase_url` and `edge_api_token` set to the live values (use `scripts/setup-production-combat-tick.sh`).
+- **Combat cron**: ensure `app_runtime_config` has `supabase_url` and `edge_api_token` set to the live values (use `scripts/setup-production-combat-tick.sh --env <env-file>`; prod requires `--allow-production`).
 
 ---
 
@@ -694,3 +700,26 @@ This project includes a set of [Claude Code](https://docs.anthropic.com/en/docs/
 | `/deploy <env>`     | Full deployment: deploys edge functions then bot to Pipecat Cloud.                                                                        | `dev` or `prod`                                                                |
 | `/deploy-functions` | Deploys all Supabase edge functions.                                                                                                      | `dev` or `prod`                                                                |
 | `/deploy-bot`       | Deploys the bot to Pipecat Cloud via cloud build.                                                                                         | `dev` or `prod`                                                                |
+| `/newspaper`        | Generates *Gradient News & Observer* visual assets — banners, full front pages, prompt experiments — by dispatching to the right script.  | Asset type (`banner`, `front-page`, `prompt-experiment`) plus type-specific args |
+
+### `/newspaper` — generating newspaper assets
+
+The newspaper system uses a shared retro-digital aesthetic across multiple asset types. `/newspaper` is the single entry point that routes to the right underlying script. All outputs land under `artifacts/` (gitignored).
+
+**Banners** — single wide masthead-style image (e.g. recruitment header, special-edition broadside):
+
+```
+/newspaper banner Call to arms recruiting pilots to test the combat rework. CTA: #gradient-bang
+```
+
+The skill drafts kicker / headline / subhead / body / CTA in the newspaper's voice, confirms the copy with you, then renders a 2048×1024 PNG via `news-banner` (~2 minutes per render). Override the shape with `--size 2880x1024` for a Discord-style banner.
+
+**Front pages** — full ten-section newspaper from real game events:
+
+```
+/news-front-page 24h
+```
+
+`/newspaper front-page` simply forwards to `/news-front-page` — use that directly. It pulls events from the configured Supabase environment, mines storylines, writes the front-page Markdown, and renders a 2160×3840 PNG.
+
+**Prompt experiments** — sweep prompt variants for front-page rendering. See `news-front-page-prompt-experiment --help`.

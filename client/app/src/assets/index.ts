@@ -29,7 +29,6 @@ import skybox7 from "./images/skybox-7.png"
 import skybox8 from "./images/skybox-8.png"
 import skybox9 from "./images/skybox-9.png"
 import splash1 from "./images/splash-1.png"
-// Sounds
 import chime1Sound from "./sounds/chime-1.wav"
 import chime2Sound from "./sounds/chime-2.wav"
 import chime3Sound from "./sounds/chime-3.wav"
@@ -40,8 +39,11 @@ import chime7Sound from "./sounds/chime-7.wav"
 import chime8Sound from "./sounds/chime-8.wav"
 import chime9Sound from "./sounds/chime-9.wav"
 import chime10Sound from "./sounds/chime-10.wav"
+import chime11Sound from "./sounds/chime-11.wav"
 import codec1Sound from "./sounds/codec-1.wav"
 import codec2Sound from "./sounds/codec-2.wav"
+// Sounds
+import combatChime1Sound from "./sounds/combat-chime-1.wav"
 import currencySound from "./sounds/currency.wav"
 import enterSound from "./sounds/enter.wav"
 import enterCombatSound from "./sounds/enter-combat.wav"
@@ -105,6 +107,7 @@ export const sounds = {
   enter: enterSound,
   enterCombat: enterCombatSound,
   message: messageSound,
+  combatChime1: combatChime1Sound,
   chime1: chime1Sound,
   chime2: chime2Sound,
   chime3: chime3Sound,
@@ -115,6 +118,7 @@ export const sounds = {
   chime8: chime8Sound,
   chime9: chime9Sound,
   chime10: chime10Sound,
+  chime11: chime11Sound,
   impact1: impact1Sound,
   impact2: impact2Sound,
   impact3: impact3Sound,

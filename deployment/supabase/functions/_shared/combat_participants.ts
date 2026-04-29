@@ -55,6 +55,41 @@ export interface GarrisonCombatantResult {
   source: GarrisonRow;
 }
 
+async function loadCorpNames(
+  supabase: SupabaseClient,
+  corpIds: Iterable<string | null | undefined>,
+): Promise<Map<string, string>> {
+  const unique = Array.from(
+    new Set(
+      Array.from(corpIds).filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      ),
+    ),
+  );
+  if (!unique.length) {
+    return new Map();
+  }
+  const { data, error } = await supabase
+    .from("corporations")
+    .select("corp_id, name")
+    .in("corp_id", unique);
+  if (error) {
+    console.error("combat_participants.load_corp_names", error);
+    return new Map();
+  }
+  const result = new Map<string, string>();
+  for (const row of data ?? []) {
+    if (
+      typeof row?.corp_id === "string" &&
+      typeof row?.name === "string" &&
+      row.name.length > 0
+    ) {
+      result.set(row.corp_id, row.name);
+    }
+  }
+  return result;
+}
+
 export async function loadCharacterNames(
   supabase: SupabaseClient,
   characterIds: string[],
@@ -139,9 +174,12 @@ export async function loadGarrisonCombatants(
     }
   }
 
+  const corpNameMap = await loadCorpNames(supabase, ownerCorpMap.values());
+
   return rows.map((row) => {
     const combatantId = `garrison:${row.sector_id}:${row.owner_id}`;
     const ownerName = ownerNames.get(row.owner_id) ?? row.owner_id;
+    const ownerCorpId = ownerCorpMap.get(row.owner_id) ?? null;
     const state: CombatantState = {
       combatant_id: combatantId,
       combatant_type: "garrison",
@@ -161,7 +199,10 @@ export async function loadGarrisonCombatants(
         deployed_at: row.deployed_at,
         sector_id: row.sector_id,
         owner_name: ownerName, // Store human-readable owner name in metadata
-        owner_corporation_id: ownerCorpMap.get(row.owner_id) ?? null,
+        owner_corporation_id: ownerCorpId,
+        owner_corporation_name: ownerCorpId
+          ? corpNameMap.get(ownerCorpId) ?? null
+          : null,
       },
     };
     return { state, source: row };
@@ -227,6 +268,22 @@ export async function loadCharacterCombatants(
     (definitions ?? []).map((row) => [row.ship_type, row]),
   );
 
+  const combatantCorpIds = new Set<string>();
+  for (const ship of filteredShips) {
+    const characterKey =
+      ship.owner_type === "character" ? ship.owner_character_id : ship.ship_id;
+    if (!characterKey) continue;
+    const character = characterMap.get(characterKey);
+    const cid =
+      ship.owner_type === "corporation"
+        ? ship.owner_corporation_id
+        : character?.corporation_id ?? null;
+    if (typeof cid === "string" && cid.length > 0) {
+      combatantCorpIds.add(cid);
+    }
+  }
+  const corpNameMap = await loadCorpNames(supabase, combatantCorpIds);
+
   const combatants: CharacterCombatant[] = [];
   for (const ship of filteredShips) {
     // Skip escape pods — they should never be combat participants
@@ -246,46 +303,120 @@ export async function loadCharacterCombatants(
     if (!definition) {
       continue;
     }
-    const fighters = Math.max(
-      0,
-      Number.isFinite(ship.current_fighters)
-        ? ship.current_fighters
-        : definition.fighters,
-    );
-    const shields = Math.max(
-      0,
-      Number.isFinite(ship.current_shields)
-        ? ship.current_shields
-        : definition.shields,
-    );
-    const combatant: CharacterCombatant = {
-      combatant_id: character.character_id,
-      combatant_type: "character",
-      name: character.name ?? character.character_id,
-      fighters,
-      shields,
-      turns_per_warp: definition.turns_per_warp ?? 1,
-      max_fighters: definition.fighters ?? fighters,
-      max_shields: definition.shields ?? shields,
-      is_escape_pod:
-        Boolean(ship.is_escape_pod) || ship.ship_type === "escape_pod",
-      owner_character_id: character.character_id,
-      ship_type: ship.ship_type,
-      metadata: {
-        ship_id: ship.ship_id,
-        ship_name: ship.ship_name ?? definition.display_name,
-        ship_display_name: definition.display_name,
-        // Use ship's owner_corporation_id for corp-owned ships, else character's corp_id
-        corporation_id:
-          ship.owner_type === "corporation"
-            ? ship.owner_corporation_id
-            : character.corporation_id,
-        player_type:
-          ship.owner_type === "corporation" ? "corporation_ship" : "human",
-        first_visit: character.first_visit,
-      },
-    };
-    combatants.push(combatant);
+    const corpId =
+      ship.owner_type === "corporation"
+        ? ship.owner_corporation_id
+        : character.corporation_id;
+    const corpName =
+      typeof corpId === "string" ? corpNameMap.get(corpId) ?? null : null;
+    const combatant = buildCharacterCombatantFromRows(ship, character, definition, corpName);
+    if (combatant) combatants.push(combatant);
   }
   return combatants;
+}
+
+/**
+ * Build a single CharacterCombatant from pre-loaded ship + character +
+ * definition rows. Returns null when the ship is an escape pod or the
+ * character/ship pairing is invalid (e.g. ship is no longer the character's
+ * current ship). Used by both `loadCharacterCombatants` (bulk path on combat
+ * start) and `joinExistingCombat` (single-participant path on mid-encounter
+ * arrival).
+ */
+function buildCharacterCombatantFromRows(
+  ship: ShipRecord,
+  character: CharacterRecord,
+  definition: ShipDefinitionRecord,
+  corpName: string | null,
+): CharacterCombatant | null {
+  if (ship.is_escape_pod || ship.ship_type === "escape_pod") return null;
+  if (character.current_ship_id !== ship.ship_id) return null;
+
+  const fighters = Math.max(
+    0,
+    Number.isFinite(ship.current_fighters)
+      ? ship.current_fighters
+      : definition.fighters,
+  );
+  const shields = Math.max(
+    0,
+    Number.isFinite(ship.current_shields)
+      ? ship.current_shields
+      : definition.shields,
+  );
+  const corpId =
+    ship.owner_type === "corporation"
+      ? ship.owner_corporation_id
+      : character.corporation_id;
+
+  return {
+    combatant_id: character.character_id,
+    combatant_type: "character",
+    name: character.name ?? character.character_id,
+    fighters,
+    shields,
+    turns_per_warp: definition.turns_per_warp ?? 1,
+    max_fighters: definition.fighters ?? fighters,
+    max_shields: definition.shields ?? shields,
+    is_escape_pod:
+      Boolean(ship.is_escape_pod) || ship.ship_type === "escape_pod",
+    owner_character_id: character.character_id,
+    ship_type: ship.ship_type,
+    metadata: {
+      ship_id: ship.ship_id,
+      ship_name: ship.ship_name ?? definition.display_name,
+      ship_display_name: definition.display_name,
+      corporation_id: corpId,
+      corporation_name: corpName,
+      player_type:
+        ship.owner_type === "corporation" ? "corporation_ship" : "human",
+      first_visit: character.first_visit,
+    },
+  };
+}
+
+/**
+ * Public single-ship variant of `loadCharacterCombatants` for the mid-encounter
+ * join path. Loads the character + definition + corp name needed to assemble
+ * one CombatantState. Returns null when the ship cannot be a participant
+ * (escape pod, mismatched current_ship_id, missing definition, etc.).
+ *
+ * Caller is responsible for verifying the ship is in the expected sector.
+ */
+export async function buildCharacterCombatant(
+  supabase: SupabaseClient,
+  ship: ShipRecord,
+  character: CharacterRecord,
+): Promise<CharacterCombatant | null> {
+  if (ship.is_escape_pod || ship.ship_type === "escape_pod") return null;
+  if (character.current_ship_id !== ship.ship_id) return null;
+
+  const { data: defRow, error: defError } = await supabase
+    .from<ShipDefinitionRecord>("ship_definitions")
+    .select("ship_type, display_name, turns_per_warp, fighters, shields")
+    .eq("ship_type", ship.ship_type)
+    .maybeSingle();
+  if (defError || !defRow) {
+    console.error("combat_participants.build_one.def", defError ?? "not found");
+    return null;
+  }
+
+  const corpId =
+    ship.owner_type === "corporation"
+      ? ship.owner_corporation_id
+      : character.corporation_id;
+  let corpName: string | null = null;
+  if (corpId) {
+    const { data: corpRow } = await supabase
+      .from("corporations")
+      .select("name")
+      .eq("corp_id", corpId)
+      .maybeSingle();
+    corpName =
+      corpRow && typeof (corpRow as Record<string, unknown>).name === "string"
+        ? ((corpRow as Record<string, unknown>).name as string)
+        : null;
+  }
+
+  return buildCharacterCombatantFromRows(ship, character, defRow, corpName);
 }

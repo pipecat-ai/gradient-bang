@@ -68,6 +68,11 @@ CONTROL_UI_SCHEMA = FunctionSchema(
             "enum": ["corporation_details"],
             "description": "Open a modal dialog. Use 'corporation_details' when the user asks to see / show / view their corporation info, members, or invite code.",
         },
+        "show_player_ship_tab": {
+            "type": "string",
+            "enum": ["ships", "cargo", "modules", "strategy"],
+            "description": "Switch the player ship panel to a specific tab. Use 'strategy' ONLY when the user explicitly asks to see their ship's combat strategies (e.g., 'show me my ship's strategies', 'show the ship strategy'). Do NOT use as a general strategy catch-all.",
+        },
         "map_center_sector": {
             "type": "integer",
             "description": "Center the map on this sector ID (discovered sector only)",
@@ -213,6 +218,7 @@ class UIAgentContext(FrameProcessor):
 
         # control_ui dedup state
         self._last_show_panel: str | None = None
+        self._last_show_player_ship_tab: str | None = None
         self._last_map_center_sector: int | None = None
         self._last_map_zoom_level: int | None = None
         self._last_map_highlight_path: tuple[int, ...] | None = None
@@ -1790,6 +1796,12 @@ class UIAgentContext(FrameProcessor):
             if effective_show_panel != self._last_show_panel:
                 changed = True
                 self._last_show_panel = effective_show_panel
+
+        show_player_ship_tab = arguments.get("show_player_ship_tab")
+        if isinstance(show_player_ship_tab, str):
+            if show_player_ship_tab != self._last_show_player_ship_tab:
+                changed = True
+                self._last_show_player_ship_tab = show_player_ship_tab
 
         if isinstance(map_center, int) and map_center != self._last_map_center_sector:
             changed = True

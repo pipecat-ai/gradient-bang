@@ -1,3 +1,11 @@
+/**
+ * Maximum number of fighters a single garrison may hold. Mirrors the Trade Wars
+ * 2002 sector-fighter cap (32k, originally tied to int16 max). The DB also
+ * enforces this via a CHECK constraint on `garrisons.fighters` — keep the two
+ * in sync if the cap value changes.
+ */
+export const MAX_GARRISON_FIGHTERS = 32_000;
+
 export interface PgQueryClient {
   queryObject<T>(
     query: string,
@@ -195,6 +203,21 @@ export async function runLeaveFightersTransaction(
       // Corp mate reinforcement: add fighters to the existing garrison
       // but preserve the original owner.
       effectiveOwnerId = existingGarrison.owner_id;
+    }
+
+    // Enforce per-garrison fighter cap. Authoritative check — runs after the
+    // sector lock so we have a consistent view of `existingGarrison.fighters`.
+    // Edge function does a cheaper upper-bound pre-check, but races there are
+    // resolved here.
+    const existingFighters = existingGarrison
+      ? asNumber(existingGarrison.fighters)
+      : 0;
+    if (existingFighters + input.quantity > MAX_GARRISON_FIGHTERS) {
+      const maxAdditional = Math.max(0, MAX_GARRISON_FIGHTERS - existingFighters);
+      throw buildStatusError(
+        `Garrison would exceed maximum of ${MAX_GARRISON_FIGHTERS} fighters; max additional = ${maxAdditional}`,
+        400,
+      );
     }
 
     const shipResult = await pg.queryObject<LockedShipLeaveRow>(

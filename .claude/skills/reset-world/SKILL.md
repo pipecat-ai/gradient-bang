@@ -27,36 +27,45 @@ Additional optional parameters (ask if not provided, or use defaults):
 
 ## Steps
 
-### 1. Source environment variables
+### 1. Derive the project ref (cloud only)
+
+For **dev**, extract the Supabase project ref from `SUPABASE_URL` in the env file. This value is passed to both scripts via `--confirm-ref` so confirmation prompts can run non-interactively, while still aborting on any mismatch:
+
+```bash
+ref=$(grep '^SUPABASE_URL=' .env.cloud.dev | sed 's|.*//||;s|\..*||')
+```
+
+Skip for **local**.
+
+### 2. Source environment variables (optional)
+
+The scripts source the env file themselves via `--env`. Pre-sourcing is only needed if you want the env vars in your shell for follow-up commands.
 
 ```bash
 set -a && source <env-file> && set +a
 ```
 
-### 2. Run the world reset script
+### 3. Run the world reset script
 
 This truncates all game data tables (preserving auth.users), generates a new universe, loads it into Supabase, and loads quest definitions.
 
 For **local**:
 ```bash
-scripts/reset-world.sh <sector_count> [seed]
+scripts/reset-world.sh --yes <sector_count> [seed]
 ```
 
-For **dev** or **prod**:
+For **dev**:
 ```bash
-scripts/reset-world.sh --env <env-file> <sector_count> [seed]
+scripts/reset-world.sh --env .env.cloud.dev --confirm-ref "$ref" <sector_count> [seed]
 ```
 
-Redirect output to a file and monitor with `tail`:
-```bash
-scripts/reset-world.sh <args> > /tmp/reset-world.log 2>&1
-```
+Production is never run from this skill. The script enforces this independently — `.env.cloud` requires `--allow-production` AND will refuse to honor `--confirm-ref` for production (forces interactive `DESTROY PRODUCTION` typing).
 
 ### 4. Seed combat cron config
 
 After the world reset, seed the combat cron runtime config into `app_runtime_config`.
 
-For **local**, run this docker exec command (env vars should already be sourced from step 1):
+For **local**, run this docker exec command (env vars should already be sourced from step 2):
 
 ```bash
 docker exec -e PGPASSWORD=postgres supabase_db_gb-world-server \
@@ -68,18 +77,22 @@ docker exec -e PGPASSWORD=postgres supabase_db_gb-world-server \
   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();"
 ```
 
-For **dev** or **prod**, run:
+For **dev**, run:
 ```bash
-scripts/setup-production-combat-tick.sh
+scripts/setup-production-combat-tick.sh --env .env.cloud.dev --confirm-ref "$ref"
+```
+
+For **prod** (manual only — never invoke through this skill):
+```bash
+scripts/setup-production-combat-tick.sh --env .env.cloud --allow-production
 ```
 
 ### 5. Verify
 
-Confirm the reset completed by checking the log output for the "Complete!" message and that no errors occurred.
+Confirm the reset completed by checking the script output for the "Complete!" message and that no errors occurred.
 
 ## Important notes
 
 - The `reset-world.sh` script handles: truncating tables, generating universe (`universe-bang`), loading universe data, and loading quest definitions.
-- All output from scripts should be redirected to files. Do NOT use `tee`.
-- For cloud resets (dev/prod), the script will prompt for confirmation before wiping data.
+- For cloud resets, `--confirm-ref` answers the project-ref prompt non-interactively. The script still aborts if the ref doesn't match what it derives from `SUPABASE_URL` in the env file — so you can't accidentally pass a stale ref from a different project.
 - Combat cron config is NOT modified by `reset-world.sh` -- you must run the cron script separately.

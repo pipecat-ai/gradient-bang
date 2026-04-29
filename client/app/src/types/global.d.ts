@@ -285,6 +285,7 @@ declare global {
   type UIMode = "tasks" | "map"
   type UIScreen = "combat-results"
   type UIPanel = (typeof import("./constants"))["UI_PANELS"][number]
+  type PlayerShipTab = "ships" | "cargo" | "modules" | "strategy"
   type UIModal =
     | "settings"
     | "leaderboard"

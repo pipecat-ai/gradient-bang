@@ -489,10 +489,11 @@ Sent when:
   "player_type": "corporation_ship",
   "player_name": "Rook AI",
   "sector": { "id": 42 },
-  "combat_id": "9f6d3c2c4d6f47f19d40a2f31a9d4a7b",
-  "salvage_created": true
+  "combat_id": "9f6d3c2c4d6f47f19d40a2f31a9d4a7b"
 }
 ```
+
+Salvage from a destroyed ship is signalled separately by a `salvage.created` event emitted at end-of-combat; `ship.destroyed` itself does not carry a salvage flag.
 
 ### Mock payload template
 ```json
@@ -510,8 +511,7 @@ Sent when:
   "player_type": "human",
   "player_name": "<character_name>",
   "sector": { "id": 0 },
-  "combat_id": "<combat_id>",
-  "salvage_created": false
+  "combat_id": "<combat_id>"
 }
 ```
 

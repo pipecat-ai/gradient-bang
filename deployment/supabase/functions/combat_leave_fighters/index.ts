@@ -14,7 +14,7 @@ import {
   emitErrorEvent,
   emitSectorEnvelope,
   buildEventSource,
-  recordEventWithRecipients,
+  recordBroadcastByCorp,
 } from "../_shared/events.ts";
 import { buildSectorSnapshot, buildSectorGarrisonMapUpdate } from "../_shared/map.ts";
 import {
@@ -47,6 +47,7 @@ import {
 } from "../_shared/combat_types.ts";
 import { getEffectiveCorporationId } from "../_shared/corporations.ts";
 import {
+  CombatStateConflictError,
   loadCombatForSector,
   persistCombatState,
 } from "../_shared/combat_state.ts";
@@ -58,7 +59,10 @@ import {
 import { computeNextCombatDeadline } from "../_shared/combat_resolution.ts";
 import { computeEventRecipients } from "../_shared/visibility.ts";
 import { loadUniverseMeta, isFedspaceSector, isAdjacentToFedspace } from "../_shared/fedspace.ts";
-import { runLeaveFightersTransaction } from "../_shared/garrison_transactions.ts";
+import {
+  MAX_GARRISON_FIGHTERS,
+  runLeaveFightersTransaction,
+} from "../_shared/garrison_transactions.ts";
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("combat_leave_fighters", async (req, trace) => {
@@ -210,6 +214,17 @@ async function handleCombatLeaveFighters(params: {
     const err = new Error("Quantity must be positive") as Error & {
       status?: number;
     };
+    err.status = 400;
+    throw err;
+  }
+
+  // Cheap upper-bound pre-check. The transaction layer also enforces the cap
+  // against existing garrison fighters (authoritative), but rejecting clearly
+  // unsatisfiable requests here avoids unnecessary lock contention.
+  if (quantity > MAX_GARRISON_FIGHTERS) {
+    const err = new Error(
+      `Garrison would exceed maximum of ${MAX_GARRISON_FIGHTERS} fighters; max additional = ${MAX_GARRISON_FIGHTERS}`,
+    ) as Error & { status?: number };
     err.status = 400;
     throw err;
   }
@@ -428,6 +443,12 @@ async function autoInitiateCombatIfOffensive(params: {
     // Combat already ongoing, don't create a new one
     return;
   }
+  // OCC fence captured at load — null when there is no row yet, last_updated
+  // when the prior combat ended. CAS-persist below detects a concurrent
+  // writer creating combat in the same sector between this load and write.
+  const expectedLastUpdated = existingEncounter
+    ? existingEncounter.last_updated
+    : null;
 
   // Load character names for garrison display
   const ownerNames = await loadCharacterNames(
@@ -477,8 +498,20 @@ async function autoInitiateCombatIfOffensive(params: {
     last_updated: nowIso(),
   };
 
-  // Persist combat state
-  await persistCombatState(supabase, encounter);
+  // Persist combat state. CAS guards against a concurrent writer (another
+  // auto-engage / combat_initiate) creating combat in the same sector
+  // between our load and write. On conflict, leave the auto-init silently
+  // — the other writer's combat will pick up the deployed fighters on its
+  // next round.
+  try {
+    await persistCombatState(supabase, encounter, { expectedLastUpdated });
+  } catch (err) {
+    if (err instanceof CombatStateConflictError) {
+      console.warn("combat_leave_fighters.cas_conflict", { sector });
+      return;
+    }
+    throw err;
+  }
 
   // Emit combat.round_waiting events to all participants
   await emitRoundWaitingEvents(supabase, encounter, requestId, characterId);
@@ -510,15 +543,15 @@ async function emitRoundWaitingEvents(
     return;
   }
 
-  // Single emission to all unique recipients
-  await recordEventWithRecipients({
+  await recordBroadcastByCorp({
     supabase,
     eventType: "combat.round_waiting",
     scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,
-    actorCharacterId: null, // System-originated
+    actorCharacterId: null,
     recipients: allRecipients,
+    stakeholderCorpIds: corpIds,
   });
 }

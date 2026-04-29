@@ -364,12 +364,14 @@ Deno.serve(traced("join", async (req, trace) => {
         : null;
     }
 
-    // LAST: Emit combat.round_waiting if character is in active combat
-    if (
-      activeEncounter &&
-      !activeEncounter.ended &&
-      activeEncounter.participants[characterId]
-    ) {
+    // LAST: Emit combat.round_waiting if character is in active combat.
+    // Skip if their participant entry is flagged destruction_handled — they're
+    // a destroyed combatant, not actively fighting, so no round_waiting.
+    const joinCombatEntry =
+      activeEncounter && !activeEncounter.ended
+        ? activeEncounter.participants[characterId]
+        : null;
+    if (joinCombatEntry && !joinCombatEntry.destruction_handled) {
       const sCombatEvent = trace.span("emit_combat_round_waiting");
       const t14 = performance.now();
       console.log(

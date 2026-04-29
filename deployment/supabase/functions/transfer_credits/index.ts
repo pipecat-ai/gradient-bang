@@ -264,18 +264,24 @@ async function handleTransfer(
     throw new TransferCreditsError("Cannot transfer credits to yourself", 400);
   }
 
-  // Check if sender or receiver is in combat
+  // Check if sender or receiver is in combat. Destroyed participants
+  // (destruction_handled === true) keep their entry for narrative continuity
+  // but count as out-of-combat — they can send/receive credits from their
+  // escape pod.
   const sectorId = fromRecord.ship.current_sector;
   if (sectorId !== null) {
     const combat = await loadCombatForSector(supabase, sectorId);
     if (combat && !combat.ended) {
-      if (combat.participants[fromCharacterId]) {
+      const sender = combat.participants[fromCharacterId];
+      if (sender && !sender.destruction_handled) {
         throw new TransferCreditsError(
           "Cannot transfer credits while in combat",
           409,
         );
       }
-      if (combat.participants[toRecord.character.character_id]) {
+      const receiver =
+        combat.participants[toRecord.character.character_id];
+      if (receiver && !receiver.destruction_handled) {
         throw new TransferCreditsError(
           "Cannot transfer credits to a character in combat",
           409,

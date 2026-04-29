@@ -18,6 +18,10 @@ from gradientbang.pipecat_server.subagents.event_relay import (
     _summarize_combat_waiting,
     _summarize_event_query,
     _summarize_ships_list,
+    _xml_attrs_combat_encounter,
+    _xml_attrs_garrison_destroyed,
+    _xml_attrs_ship_destroyed,
+    _xml_escape_attr,
 )
 
 
@@ -406,6 +410,8 @@ class TestVoiceSummary:
                 "participants": [
                     {
                         "id": "char-123",
+                        "name": "You",
+                        "fighters": 45,
                         "ship": {"fighter_loss": 5, "shield_damage": 12.5},
                     }
                 ],
@@ -413,8 +419,8 @@ class TestVoiceSummary:
         }
         result = _summarize_combat_round(relay, event)
         assert "round 3" in result
-        assert "fighters lost 5" in result
-        assert "shield damage 12.5%" in result
+        assert "lost 5 this round" in result
+        assert "took 12.5% shield damage" in result
         assert "Combat state:" in result
 
     def test_fallback_to_summary(self):
@@ -424,34 +430,522 @@ class TestVoiceSummary:
 
 
 @pytest.mark.unit
-class TestCombatVoiceSummaries:
-    """Combat voice_summary callbacks produce correct context."""
+class TestCombatPOVSummaries:
+    """Snapshot tests for the per-POV combat summary lines.
 
-    def test_combat_ended_for_player(self):
+    Locks the catalog-defined wording so refactors of the POV-line
+    helpers cannot silently drift the LLM-context strings. One snapshot
+    per (event, POV) combination — extending or rewording these lines
+    is intentional, so a failure here means update the snapshot AND the
+    catalog together.
+    """
+
+    @staticmethod
+    def _payload(
+        *,
+        round_num: int = 1,
+        viewer_is_participant: bool = False,
+        corp_ship_participant: bool = False,
+        garrison: Optional[dict] = None,
+        sector_id: int = 42,
+        combat_id: str = "cbt-1",
+        result: Optional[str] = None,
+        include_round_losses: bool = True,
+    ) -> dict:
+        # Per-round losses (fighter_loss / shield_damage) live on
+        # round_resolved payloads only; round_waiting payloads carry the
+        # same participants list but without these fields. Set
+        # include_round_losses=False to mirror that shape.
+        def _ship(ship_name: str, fighter_loss: int, shield_damage: float) -> dict:
+            ship: dict = {"ship_name": ship_name}
+            if include_round_losses:
+                ship["fighter_loss"] = fighter_loss
+                ship["shield_damage"] = shield_damage
+            return ship
+
+        participants: list[dict] = []
+        if viewer_is_participant:
+            participants.append(
+                {
+                    "id": "char-123",
+                    "name": "You",
+                    "player_type": "human",
+                    "ship_id": "ship-self",
+                    "ship": _ship("Valkyrie", 2, 14.5),
+                    "fighters": 48,
+                    "destroyed": False,
+                    "corp_id": "corp-1",
+                }
+            )
+        if corp_ship_participant:
+            participants.append(
+                {
+                    "id": "corp-ship-pseudo",
+                    "name": "Probe-1",
+                    "player_type": "corporation_ship",
+                    "ship_id": "ship-probe",
+                    "ship": _ship("Probe-1", 1, 0.0),
+                    "fighters": 19,
+                    "destroyed": False,
+                    "corp_id": "corp-1",
+                }
+            )
+        # Always add an opponent so observers have someone to "observe"
+        participants.append(
+            {
+                "id": "char-foe",
+                "name": "Foe",
+                "player_type": "human",
+                "ship_id": "ship-foe",
+                "ship": _ship("Bandit", 0, 0.0),
+                "fighters": 50,
+                "destroyed": False,
+                "corp_id": "corp-foe",
+            }
+        )
+        payload: dict = {
+            "combat_id": combat_id,
+            "sector": {"id": sector_id},
+            "round": round_num,
+            "participants": participants,
+        }
+        if garrison is not None:
+            payload["garrison"] = garrison
+        if result is not None:
+            payload["result"] = result
+        return payload
+
+    # ── round_waiting ───────────────────────────────────────────────
+
+    def test_waiting_direct_round1(self):
         relay, _, _, _ = _make_relay()
-        event = {"payload": {"combat_id": "cbt-1", "participants": [{"id": "char-123"}]}}
-        result = _summarize_combat_ended(relay, event)
-        assert "your combat has ended" in result
+        event = {
+            "payload": self._payload(
+                round_num=1,
+                viewer_is_participant=True,
+                include_round_losses=False,
+            )
+        }
+        result = _summarize_combat_waiting(relay, event)
+        assert result == (
+            "A new combat has begun. You are a participant. (round 1)\n"
+            "Participants:\n"
+            "- You [you, no corp]: 48 fighters\n"
+            "- Foe [opponent, no corp]: 50 fighters\n"
+            "Submit a combat action now."
+        )
 
-    def test_combat_ended_not_for_player(self):
+    def test_waiting_direct_round2(self):
         relay, _, _, _ = _make_relay()
-        event = {"payload": {"combat_id": "cbt-1", "participants": [{"id": "other"}]}}
-        result = _summarize_combat_ended(relay, event)
-        assert "observed combat ended" in result
+        event = {
+            "payload": self._payload(
+                round_num=2,
+                viewer_is_participant=True,
+                include_round_losses=False,
+            )
+        }
+        result = _summarize_combat_waiting(relay, event)
+        assert result == (
+            "Combat state: you are currently in active combat. (round 2)\n"
+            "Participants:\n"
+            "- You [you, no corp]: 48 fighters\n"
+            "- Foe [opponent, no corp]: 50 fighters\n"
+            "Submit a combat action now."
+        )
 
-    def test_combat_waiting_for_player(self):
+    def test_waiting_observed_corp_ship_round1(self):
+        relay, _, _, _ = _make_relay()
+        event = {
+            "payload": self._payload(
+                round_num=1,
+                corp_ship_participant=True,
+                include_round_losses=False,
+            )
+        }
+        result = _summarize_combat_waiting(relay, event)
+        assert result == (
+            'A new combat has begun. Your corp\'s "Probe-1" '
+            "has entered combat in sector 42. (round 1)\n"
+            "Participants:\n"
+            "- Probe-1 [your corp, no corp]: 19 fighters\n"
+            "- Foe [opponent, no corp]: 50 fighters"
+        )
+
+    def test_waiting_observed_garrison_own_round1(self):
+        relay, _, _, _ = _make_relay()
+        garrison = {
+            "id": "garrison:42:char-123",
+            "name": "You Garrison",
+            "owner_character_id": "char-123",
+            "owner_corp_id": None,
+            "owner_name": "You",
+            "mode": "offensive",
+            "fighters": 30,
+        }
+        event = {
+            "payload": self._payload(
+                round_num=1, garrison=garrison, include_round_losses=False
+            )
+        }
+        result = _summarize_combat_waiting(relay, event)
+        assert result == (
+            "A new combat has begun. Your garrison in sector 42 has engaged. "
+            "It is currently in offensive mode. (round 1)\n"
+            "Participants:\n"
+            "- Foe [opponent, no corp]: 50 fighters\n"
+            "- You Garrison "
+            "[target_id=garrison:42:char-123, owner You, no corp, offensive mode]: "
+            "30 fighters"
+        )
+
+    def test_waiting_observed_garrison_corpmate_round1(self):
+        relay, _, _, _ = _make_relay()
+        garrison = {
+            "id": "garrison:42:char-other",
+            "name": "Carla Garrison",
+            "owner_character_id": "char-other",
+            "owner_corp_id": "corp-1",
+            "owner_name": "Carla",
+            "mode": "toll",
+            "fighters": 30,
+        }
+        event = {
+            "payload": self._payload(
+                round_num=1, garrison=garrison, include_round_losses=False
+            )
+        }
+        result = _summarize_combat_waiting(relay, event)
+        assert result == (
+            "A new combat has begun. Your corp's garrison in sector 42 has engaged. "
+            "It is currently in toll mode. (round 1)\n"
+            "Participants:\n"
+            "- Foe [opponent, no corp]: 50 fighters\n"
+            "- Carla Garrison "
+            "[target_id=garrison:42:char-other, owner Carla, toll mode]: "
+            "30 fighters"
+        )
+
+    def test_waiting_observed_sector_only_round1(self):
+        relay, _, _, _ = _make_relay()
+        event = {
+            "payload": self._payload(round_num=1, include_round_losses=False)
+        }
+        result = _summarize_combat_waiting(relay, event)
+        assert result == (
+            "A new combat has begun in sector 42. (round 1)\n"
+            "Participants:\n"
+            "- Foe [opponent, no corp]: 50 fighters"
+        )
+
+    # ── round_resolved ──────────────────────────────────────────────
+
+    def test_resolved_direct_includes_round_summary(self):
+        relay, _, _, _ = _make_relay()
+        payload = self._payload(
+            round_num=1, viewer_is_participant=True, result="in_progress"
+        )
+        payload["actions"] = {
+            "You": {"action": "attack", "commit": 25, "target_id": "char-foe"},
+        }
+        event = {"payload": payload}
+        result = _summarize_combat_round(relay, event)
+        assert result == (
+            "Combat state: you are currently in active combat. (round 1)\n"
+            "Round resolved: in_progress.\n"
+            "Your action: attack target char-f commit 25.\n"
+            "Participants:\n"
+            "- You [you, no corp]: 48 fighters, "
+            "lost 2 this round; took 14.5% shield damage\n"
+            "- Foe [opponent, no corp]: 50 fighters"
+        )
+
+    def test_resolved_observed_corp_ship_includes_action_and_participants(self):
+        relay, _, _, _ = _make_relay()
+        payload = self._payload(
+            round_num=1, corp_ship_participant=True, result="in_progress"
+        )
+        payload["actions"] = {
+            "Probe-1": {"action": "brace", "commit": 0},
+        }
+        event = {"payload": payload}
+        result = _summarize_combat_round(relay, event)
+        assert result == (
+            'Combat state: your corp\'s "Probe-1" is engaged in combat. (round 1)\n'
+            "Round resolved: in_progress.\n"
+            "Your ship's action: brace.\n"
+            "Participants:\n"
+            "- Probe-1 [your corp, no corp]: 19 fighters, lost 1 this round\n"
+            "- Foe [opponent, no corp]: 50 fighters"
+        )
+
+    def test_resolved_observed_sector_only_no_action_line(self):
+        relay, _, _, _ = _make_relay()
+        event = {"payload": self._payload(round_num=1, result="in_progress")}
+        result = _summarize_combat_round(relay, event)
+        assert result == (
+            "Combat state: this combat event is not your fight. (round 1)\n"
+            "Round resolved: in_progress.\n"
+            "Participants:\n"
+            "- Foe [opponent, no corp]: 50 fighters"
+        )
+
+    def test_resolved_corp_name_renders_in_participant_line(self):
+        relay, _, _, _ = _make_relay()
+        payload = self._payload(
+            round_num=1, corp_ship_participant=True, result="in_progress"
+        )
+        # Tag the corp ship with its corp name (server-side payload now
+        # surfaces this from combat_participants metadata).
+        for participant in payload["participants"]:
+            if participant["id"] == "corp-ship-pseudo":
+                participant["corp_name"] = "Probe Crew"
+        event = {"payload": payload}
+        result = _summarize_combat_round(relay, event)
+        assert "Probe-1 [your corp, Probe Crew]" in result
+
+    # ── combat.ended ────────────────────────────────────────────────
+
+    def test_ended_direct(self):
+        relay, _, _, _ = _make_relay()
+        event = {
+            "payload": self._payload(
+                round_num=2, viewer_is_participant=True, result="mutual_destruction"
+            )
+        }
+        result = _summarize_combat_ended(relay, event)
+        assert result == "Your combat has ended. Result: mutual_destruction."
+
+    def test_ended_observed_corp_ship(self):
+        relay, _, _, _ = _make_relay()
+        event = {
+            "payload": self._payload(
+                round_num=2, corp_ship_participant=True, result="mutual_destruction"
+            )
+        }
+        result = _summarize_combat_ended(relay, event)
+        assert result == (
+            'Your corp\'s "Probe-1" combat in sector 42 has ended. '
+            "Result: mutual_destruction."
+        )
+
+    def test_ended_observed_garrison_own(self):
+        relay, _, _, _ = _make_relay()
+        garrison = {
+            "id": "garrison:42:char-123",
+            "owner_character_id": "char-123",
+            "owner_corp_id": None,
+            "owner_name": "You",
+            "mode": "offensive",
+            "fighters": 0,
+        }
+        event = {
+            "payload": self._payload(round_num=2, garrison=garrison, result="one_side_destroyed")
+        }
+        result = _summarize_combat_ended(relay, event)
+        assert result == (
+            "Your garrison in sector 42 (garrison_id=garrison:42:char-123) "
+            "combat has ended. Result: one_side_destroyed."
+        )
+
+    def test_ended_observed_sector_only(self):
+        relay, _, _, _ = _make_relay()
+        event = {"payload": self._payload(round_num=2, result="stalemate")}
+        result = _summarize_combat_ended(relay, event)
+        assert result == "Observed combat in sector 42 has ended. Result: stalemate."
+
+    # ── garrison.destroyed ──────────────────────────────────────────
+
+    def test_garrison_destroyed_owner(self):
+        from gradientbang.pipecat_server.subagents.event_relay import (
+            _summarize_garrison_destroyed,
+        )
+
         relay, _, _, _ = _make_relay()
         event = {
             "payload": {
                 "combat_id": "cbt-1",
-                "round": 1,
-                "deadline": "2024-01-01T00:00:00Z",
-                "participants": [{"id": "char-123"}],
+                "garrison_id": "garrison:42:char-123",
+                "owner_character_id": "char-123",
+                "owner_name": "You",
+                "sector": {"id": 42},
+                "mode": "offensive",
             }
         }
-        result = _summarize_combat_waiting(relay, event)
-        assert "Submit a combat action now" in result
-        assert "round 1" in result
+        result = _summarize_garrison_destroyed(relay, event)
+        assert result == (
+            "Your garrison was destroyed in sector 42 "
+            "garrison_id=garrison:42:char-123, mode=offensive."
+        )
+
+    def test_garrison_destroyed_observer(self):
+        from gradientbang.pipecat_server.subagents.event_relay import (
+            _summarize_garrison_destroyed,
+        )
+
+        relay, _, _, _ = _make_relay()
+        event = {
+            "payload": {
+                "combat_id": "cbt-1",
+                "garrison_id": "garrison:42:char-other",
+                "owner_character_id": "char-other",
+                "owner_name": "Bob",
+                "sector": {"id": 42},
+                "mode": "toll",
+            }
+        }
+        result = _summarize_garrison_destroyed(relay, event)
+        assert result == (
+            "Garrison destroyed in sector 42 "
+            "garrison_id=garrison:42:char-other, mode=toll (owner: Bob)."
+        )
+
+
+@pytest.mark.unit
+class TestCombatXmlEnvelope:
+    """XML envelope attr selection per POV (catalog Appendix A) and the
+    user-content escape applied to attr values."""
+
+    @staticmethod
+    def _attrs(pairs: list[tuple[str, str]]) -> dict[str, str]:
+        return dict(pairs)
+
+    # ── _xml_attrs_combat_encounter ─────────────────────────────────
+
+    def test_encounter_envelope_direct_only_combat_id(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": 1,
+            "participants": [
+                {"id": "char-123", "name": "You", "player_type": "human", "corp_id": "corp-1"},
+                {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"},
+            ],
+        }
+        attrs = self._attrs(_xml_attrs_combat_encounter(relay, payload))
+        # DIRECT viewer (in participants): combat_id + combat_pov="direct".
+        assert attrs == {"combat_id": "cbt-1", "combat_pov": "direct"}
+
+    def test_encounter_envelope_corp_ship_observer_adds_ship_attrs(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": 1,
+            "participants": [
+                {
+                    "id": "corp-ship-pseudo",
+                    "name": "Probe-1",
+                    "player_type": "corporation_ship",
+                    "ship_id": "ship-probe",
+                    "ship": {"ship_name": "Probe-1"},
+                    "corp_id": "corp-1",
+                },
+                {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"},
+            ],
+        }
+        attrs = self._attrs(_xml_attrs_combat_encounter(relay, payload))
+        # ship_id is shortened (6-char prefix) for compactness; the full
+        # UUID is in the body/payload when needed for tool calls.
+        assert attrs == {
+            "combat_id": "cbt-1",
+            "combat_pov": "observed_via_corp_ship",
+            "ship_id": "ship-p",
+            "ship_name": "Probe-1",
+        }
+
+    def test_encounter_envelope_garrison_observer_adds_garrison_attrs(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": 1,
+            "participants": [
+                {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"},
+            ],
+            "garrison": {
+                "id": "garrison:42:char-123",
+                "owner_character_id": "char-123",
+                "owner_corp_id": None,
+                "owner_name": "You",
+                "mode": "offensive",
+                "fighters": 30,
+            },
+        }
+        attrs = self._attrs(_xml_attrs_combat_encounter(relay, payload))
+        assert attrs == {
+            "combat_id": "cbt-1",
+            "combat_pov": "observed_via_garrison",
+            "garrison_id": "garrison:42:char-123",
+            "garrison_owner": "char-123",
+        }
+
+    def test_encounter_envelope_sector_only_observer(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": 1,
+            # Viewer not a participant; no garrison stake.
+            "participants": [
+                {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"},
+            ],
+        }
+        attrs = self._attrs(_xml_attrs_combat_encounter(relay, payload))
+        assert attrs == {"combat_id": "cbt-1", "combat_pov": "observed_sector_only"}
+
+    # ── _xml_attrs_ship_destroyed (subject-scoped, always same shape) ──
+
+    def test_ship_destroyed_envelope_full_attrs(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "ship_id": "ship-probe",
+            "ship_name": "Probe-1",
+            "owner_character_id": "char-other",
+            "corp_id": "corp-1",
+        }
+        attrs = self._attrs(_xml_attrs_ship_destroyed(relay, payload))
+        assert attrs == {
+            "combat_id": "cbt-1",
+            "ship_id": "ship-probe",
+            "ship_name": "Probe-1",
+        }
+
+    def test_ship_destroyed_envelope_skips_missing_ship_name(self):
+        relay, _, _, _ = _make_relay()
+        payload = {"combat_id": "cbt-1", "ship_id": "ship-x"}
+        attrs = self._attrs(_xml_attrs_ship_destroyed(relay, payload))
+        assert attrs == {"combat_id": "cbt-1", "ship_id": "ship-x"}
+
+    # ── _xml_attrs_garrison_destroyed ───────────────────────────────
+
+    def test_garrison_destroyed_envelope_full_attrs(self):
+        relay, _, _, _ = _make_relay()
+        payload = {
+            "combat_id": "cbt-1",
+            "garrison_id": "garrison:42:char-123",
+            "owner_character_id": "char-123",
+        }
+        attrs = self._attrs(_xml_attrs_garrison_destroyed(relay, payload))
+        assert attrs == {
+            "combat_id": "cbt-1",
+            "garrison_id": "garrison:42:char-123",
+            "garrison_owner": "char-123",
+        }
+
+    # ── _xml_escape_attr ────────────────────────────────────────────
+
+    def test_xml_escape_handles_quotes_brackets_amp(self):
+        # The literal ship_name a player could set; without escaping, the
+        # double-quote would close the attribute and corrupt the envelope.
+        raw = 'Probe & Co "<flagship>"'
+        escaped = _xml_escape_attr(raw)
+        assert escaped == "Probe &amp; Co &quot;&lt;flagship&gt;&quot;"
+        # Round-trip-safe: re-applying produces the same string (idempotent
+        # only at the final escaped form, but no double-encoding hazards
+        # at this stage).
+        assert "&" in escaped and '"' not in escaped
 
 
 @pytest.mark.unit
@@ -557,6 +1051,238 @@ class TestRelayEventRouting:
         # RTVI push + LLM delivery via task_state
         assert mock_rtvi.push_frame.call_count == 1
         assert len(task_state.deferred_events) >= 1
+
+
+@pytest.mark.unit
+class TestCombatPOVRouting:
+    """Combat append + run_llm decisions per POV.
+
+    Direct: appended, run_llm=True, combat_pov="direct" — InferenceGate
+        upgrades to combat_event priority.
+    Observed corp-ship / garrison: append the full context stream; run_llm
+        only on initiation and terminal resolution.
+    Sector-only: appended (silent context), run_llm=False — never wakes
+        the bot for a fight the viewer has no stake in.
+    """
+
+    @staticmethod
+    def _payload(
+        *,
+        round_num: int = 1,
+        viewer_is_participant: bool = False,
+        corp_ship_participant: bool = False,
+        garrison: Optional[dict] = None,
+        result: Optional[str] = None,
+    ) -> dict:
+        participants: list[dict] = []
+        if viewer_is_participant:
+            participants.append(
+                {"id": "char-123", "name": "You", "player_type": "human", "corp_id": "corp-1"}
+            )
+        if corp_ship_participant:
+            participants.append(
+                {
+                    "id": "corp-ship-pseudo",
+                    "name": "Probe-1",
+                    "player_type": "corporation_ship",
+                    "ship_id": "ship-probe",
+                    "ship": {"ship_name": "Probe-1"},
+                    "corp_id": "corp-1",
+                }
+            )
+        participants.append(
+            {"id": "char-foe", "name": "Foe", "player_type": "human", "corp_id": "corp-foe"}
+        )
+        # Direct viewers get reason="direct"; observers come in under the
+        # broader sector/corp/garrison reasons. The relay's PARTICIPANT
+        # append rule treats event_context=None as "deliver everywhere"
+        # for safety, so always supply a context to exercise the real
+        # observer codepath.
+        if viewer_is_participant:
+            event_context: dict = {"scope": "direct", "reason": "direct"}
+        else:
+            event_context = {"scope": "sector", "reason": "sector_snapshot"}
+        payload: dict = {
+            "combat_id": "cbt-1",
+            "sector": {"id": 42},
+            "round": round_num,
+            "participants": participants,
+            "__event_context": event_context,
+        }
+        if garrison is not None:
+            payload["garrison"] = garrison
+        if result is not None:
+            payload["result"] = result
+        return payload
+
+    @staticmethod
+    def _find_event_frame(task_state) -> tuple[str, bool]:
+        """Locate the <event …> frame among deferred frames.
+
+        Direct round-1 combat also queues combat.md preamble + strategy
+        frames ahead of the event itself; tests want the event frame
+        regardless of how many preamble frames preceded it."""
+        for content, run_llm in task_state.deferred_events:
+            if content.lstrip().startswith("<event"):
+                return content, run_llm
+        raise AssertionError(
+            f"No <event> frame in deferred_events: {task_state.deferred_events}"
+        )
+
+    async def test_direct_round1_runs_llm_with_direct_pov(self):
+        relay, task_state, _, _ = _make_relay()
+        # Skip the combat.md preamble fetch (its strategy call hits the
+        # mock client and isn't what this test is exercising).
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting",
+                self._payload(round_num=1, viewer_is_participant=True),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is True
+        assert 'combat_pov="direct"' in content
+
+    async def test_observed_corp_ship_round1_runs_llm_with_normal_priority_pov(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting",
+                self._payload(round_num=1, corp_ship_participant=True),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        # Observed corp ship: bot should speak the notification...
+        assert run_llm is True
+        # ...but the POV attr keeps InferenceGate on the normal `event` lane
+        # so it cannot bypass cooldown / interrupt the bot mid-speech.
+        assert 'combat_pov="observed_via_corp_ship"' in content
+
+    async def test_observed_garrison_round1_runs_llm_with_normal_priority_pov(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        garrison = {
+            "id": "garrison:42:char-123",
+            "owner_character_id": "char-123",
+            "owner_corp_id": None,
+            "owner_name": "You",
+            "mode": "offensive",
+            "fighters": 30,
+        }
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting", self._payload(round_num=1, garrison=garrison)
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is True
+        assert 'combat_pov="observed_via_garrison"' in content
+
+    async def test_observed_sector_only_round1_appends_silently(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event("combat.round_waiting", self._payload(round_num=1))
+        )
+        # Sector-only viewer: appended for awareness but no inference.
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is False
+        assert 'combat_pov="observed_sector_only"' in content
+
+    async def test_observed_corp_ship_round2_appends_silently(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting",
+                self._payload(round_num=2, corp_ship_participant=True),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is False
+        assert 'combat_pov="observed_via_corp_ship"' in content
+
+    async def test_observed_corp_ship_round_resolved_continuing_appends_silently(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_resolved",
+                self._payload(
+                    round_num=2,
+                    corp_ship_participant=True,
+                    result="in_progress",
+                ),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is False
+        assert 'combat_pov="observed_via_corp_ship"' in content
+
+    async def test_observed_corp_ship_terminal_round_resolved_runs_llm(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        await relay._relay_event(
+            _make_event(
+                "combat.round_resolved",
+                self._payload(
+                    round_num=3,
+                    corp_ship_participant=True,
+                    result="no_hostiles",
+                ),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is True
+        assert 'combat_pov="observed_via_corp_ship"' in content
+
+    async def test_observed_garrison_round2_appends_silently(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        garrison = {
+            "id": "garrison:42:char-123",
+            "owner_character_id": "char-123",
+            "owner_corp_id": None,
+            "owner_name": "You",
+            "mode": "offensive",
+            "fighters": 30,
+        }
+        await relay._relay_event(
+            _make_event(
+                "combat.round_waiting",
+                self._payload(round_num=2, garrison=garrison),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is False
+        assert 'combat_pov="observed_via_garrison"' in content
+
+    async def test_observed_garrison_terminal_round_resolved_runs_llm(self):
+        relay, task_state, _, _ = _make_relay()
+        relay._combat_md_loaded = True
+        garrison = {
+            "id": "garrison:42:char-123",
+            "owner_character_id": "char-123",
+            "owner_corp_id": None,
+            "owner_name": "You",
+            "mode": "offensive",
+            "fighters": 0,
+        }
+        await relay._relay_event(
+            _make_event(
+                "combat.round_resolved",
+                self._payload(
+                    round_num=2,
+                    garrison=garrison,
+                    result="one_side_destroyed",
+                ),
+            )
+        )
+        content, run_llm = self._find_event_frame(task_state)
+        assert run_llm is True
+        assert 'combat_pov="observed_via_garrison"' in content
 
     async def test_other_player_departure_from_other_sector_rtvi_only(self):
         """Other-player departures from different sectors get RTVI push but no LLM append."""
@@ -811,17 +1537,25 @@ class TestCombatEventRouting:
             "combat.round_waiting",
             {
                 "combat_id": "cbt-1",
-                "round": 1,
+                "round": 2,  # Round 2+ skips the round-1 combat.md preamble injection
                 "participants": [{"id": "char-123"}],
             },
         )
         await relay._relay_event(event)
         assert len(task_state.deferred_events) >= 1
-        _, run_llm = task_state.deferred_events[0]
+        # Filter to the actual combat.round_waiting XML frame (preamble injection
+        # may queue earlier frames at round 1; we use round 2 to avoid it).
+        combat_frames = [
+            (c, r) for c, r in task_state.deferred_events
+            if 'name="combat.round_waiting"' in c
+        ]
+        assert len(combat_frames) == 1
+        _, run_llm = combat_frames[0]
         assert run_llm is True
 
     async def test_combat_round_waiting_no_inference_for_observer(self):
-        """ON_PARTICIPANT rule: no inference when player is not a participant."""
+        """Round-1 fan-out appends for observers (silent context), but
+        ON_PARTICIPANT inference still doesn't fire for non-participants."""
         relay, task_state, _, mock_rtvi = _make_relay()
         event = _make_event(
             "combat.round_waiting",
@@ -833,7 +1567,25 @@ class TestCombatEventRouting:
             },
         )
         await relay._relay_event(event)
-        # Not appended (PARTICIPANT rule, not a participant)
+        # Round-1 broadcast: silent append for every recipient.
+        assert len(task_state.deferred_events) >= 1
+        _, run_llm = task_state.deferred_events[0]
+        assert run_llm is False  # ON_PARTICIPANT — observer gets no inference
+
+    async def test_combat_round_waiting_observer_no_append_after_round_1(self):
+        """Round 2+ drops non-participants entirely (the round-1 fan-out is
+        a one-shot broadcast; subsequent rounds stay participant-only)."""
+        relay, task_state, _, mock_rtvi = _make_relay()
+        event = _make_event(
+            "combat.round_waiting",
+            {
+                "combat_id": "cbt-1",
+                "round": 2,
+                "participants": [{"id": "other-player"}],
+                "__event_context": {"scope": "local", "reason": "observer"},
+            },
+        )
+        await relay._relay_event(event)
         assert len(task_state.deferred_events) == 0
 
 
@@ -990,7 +1742,14 @@ class TestAppendRuleParticipant:
                 "action": "Attack",
                 "commit": 5,
                 "participants": [{"id": "char-123"}],
-                "__event_context": {"scope": "direct", "reason": "direct"},
+                # combat.action_accepted is now actor-scoped (only the row's
+                # recipient sees it admitted) so the event_context must
+                # carry character_id matching the viewer.
+                "__event_context": {
+                    "scope": "direct",
+                    "reason": "direct",
+                    "character_id": "char-123",
+                },
             },
         )
         await relay._relay_event(event)
@@ -1492,7 +2251,12 @@ class TestXmlFormat:
                 "round": 1,
                 "action": "Flee",
                 "participants": [{"id": "char-123"}],
-                "__event_context": {"scope": "direct", "reason": "direct"},
+                # combat.action_accepted is actor-scoped: must match viewer.
+                "__event_context": {
+                    "scope": "direct",
+                    "reason": "direct",
+                    "character_id": "char-123",
+                },
             },
         )
         await relay._relay_event(event)

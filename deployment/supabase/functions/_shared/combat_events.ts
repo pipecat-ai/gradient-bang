@@ -1,6 +1,7 @@
 import {
   CombatEncounterState,
   CombatRoundOutcome,
+  CombatRoundLog,
   CombatantState,
 } from './combat_types.ts';
 
@@ -8,6 +9,16 @@ interface ParticipantEventContext {
   shieldIntegrity: number;
   shieldDamage?: number;
   fighterLoss?: number;
+  fighters: number;
+  corpId: string | null;
+  corpName: string | null;
+  // True when this participant should be marked with the one-shot
+  // `(joined encounter)` annotation in the LLM-facing XML. Strictly
+  // controlled by the caller via `justJoinedIds` on the round_waiting
+  // builder so it fires only on the FIRST event each participant appears
+  // in (initial round_waiting #1, OR reinforcement round_waiting after a
+  // mid-encounter join). Subsequent events drop the flag.
+  justJoined?: boolean;
 }
 
 function buildParticipantPayload(
@@ -37,24 +48,71 @@ function buildParticipantPayload(
     player_type: (metadata.player_type as string) ?? 'human',
     ship_id: typeof metadata.ship_id === 'string' ? metadata.ship_id : null,
     ship: shipPayload,
+    fighters: ctx.fighters,
+    destroyed: ctx.fighters <= 0,
+    corp_id: ctx.corpId,
+    corp_name: ctx.corpName,
+    has_fled: participant.has_fled === true,
+    fled_to_sector:
+      typeof participant.fled_to_sector === 'number' ? participant.fled_to_sector : null,
+    just_joined: ctx.justJoined === true,
   };
+}
+
+function readCorpId(participant: CombatantState): string | null {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  return typeof metadata.corporation_id === 'string' ? metadata.corporation_id : null;
+}
+
+function readCorpName(participant: CombatantState): string | null {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  return typeof metadata.corporation_name === 'string' ? metadata.corporation_name : null;
+}
+
+function readOwnerCorpId(participant: CombatantState): string | null {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  return typeof metadata.owner_corporation_id === 'string'
+    ? metadata.owner_corporation_id
+    : null;
+}
+
+function readOwnerCorpName(participant: CombatantState): string | null {
+  const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
+  return typeof metadata.owner_corporation_name === 'string'
+    ? metadata.owner_corporation_name
+    : null;
 }
 
 function buildGarrisonPayload(
   participant: CombatantState,
   fighterLoss = 0,
+  fightersOverride?: number,
 ): Record<string, unknown> {
   const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
   // Use owner_name from metadata (human-readable), fallback to owner_character_id
   const ownerName = typeof metadata.owner_name === 'string'
     ? metadata.owner_name
     : (participant.owner_character_id ?? participant.combatant_id);
+  // round_resolved is built from the pre-update participant snapshot, so
+  // participant.fighters can still hold the previous round's value when a
+  // garrison dies that round. Callers in that path pass fightersOverride
+  // (computed from outcome.fighters_remaining) so both `fighters` and the
+  // derived `destroyed` flag reflect post-round state.
+  const fighters = fightersOverride ?? participant.fighters ?? 0;
   return {
     id: participant.combatant_id,
     name: participant.name,
     owner_name: ownerName,  // Human-readable name, not UUID
-    fighters: participant.fighters,
+    owner_character_id: participant.owner_character_id ?? null,
+    owner_corp_id: readOwnerCorpId(participant),
+    owner_corp_name: readOwnerCorpName(participant),
+    fighters,
     fighter_loss: fighterLoss > 0 ? fighterLoss : null,
+    // Mirror the ship-side flag so observers can tell a wiped garrison from
+    // a still-active one without scanning fighter counts. Set as soon as
+    // fighters hit zero — even mid-combat — so subsequent round_waiting /
+    // round_resolved payloads carry the destroyed marker.
+    destroyed: fighters <= 0,
     mode: metadata.mode ?? 'offensive',
     toll_amount: metadata.toll_amount ?? 0,
     deployed_at: metadata.deployed_at ?? null,
@@ -114,7 +172,10 @@ function basePayload(encounter: CombatEncounterState): Record<string, unknown> {
   };
 }
 
-export function buildRoundWaitingPayload(encounter: CombatEncounterState): Record<string, unknown> {
+export function buildRoundWaitingPayload(
+  encounter: CombatEncounterState,
+  options?: { justJoinedIds?: Set<string> },
+): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     ...basePayload(encounter),
     current_time: new Date().toISOString(),
@@ -125,7 +186,15 @@ export function buildRoundWaitingPayload(encounter: CombatEncounterState): Recor
   for (const participant of Object.values(encounter.participants)) {
     const shieldIntegrity = computeShieldIntegrity(participant);
     if (participant.combatant_type === 'character') {
-      participants.push(buildParticipantPayload(participant, { shieldIntegrity }));
+      participants.push(
+        buildParticipantPayload(participant, {
+          shieldIntegrity,
+          fighters: participant.fighters ?? 0,
+          corpId: readCorpId(participant),
+          corpName: readCorpName(participant),
+          justJoined: options?.justJoinedIds?.has(participant.combatant_id),
+        }),
+      );
     } else {
       garrisonParticipants.push(participant);
     }
@@ -198,6 +267,12 @@ export function buildRoundResolvedPayload(
           shieldIntegrity,
           shieldDamage: shieldDamagePercent,
           fighterLoss,
+          fighters: fightersRemaining,
+          corpId: readCorpId(participant),
+          corpName: readCorpName(participant),
+          // round_resolved never marks just_joined — that flag is reserved
+          // for the round_waiting events at debut (initial #1 and any
+          // mid-encounter reinforcement round_waiting).
         }),
       );
     } else {
@@ -215,8 +290,13 @@ export function buildRoundResolvedPayload(
       (entry) => entry.participant.combatant_id === primaryGarrison.combatant_id,
     )?.fighterLoss ?? 0)
     : 0;
+  const primaryRemaining = primaryGarrison
+    ? (outcome.fighters_remaining?.[primaryGarrison.combatant_id]
+      ?? primaryGarrison.fighters
+      ?? 0)
+    : 0;
   const garrisonPayload = primaryGarrison
-    ? buildGarrisonPayload(primaryGarrison, primaryLoss)
+    ? buildGarrisonPayload(primaryGarrison, primaryLoss, primaryRemaining)
     : null;
 
   payload['participants'] = participants;
@@ -249,7 +329,7 @@ export function buildCombatEndedPayload(
   encounter: CombatEncounterState,
   outcome: CombatRoundOutcome,
   salvage: Array<Record<string, unknown>>,
-  logs: Array<Record<string, unknown>>,
+  logs: CombatRoundLog[] | Array<Record<string, unknown>>,
 ): Record<string, unknown> {
   const payload = buildRoundResolvedPayload(encounter, outcome);
   payload['salvage'] = salvage;
@@ -266,7 +346,7 @@ export async function buildCombatEndedPayloadForViewer(
   encounter: CombatEncounterState,
   outcome: CombatRoundOutcome,
   salvage: Array<Record<string, unknown>>,
-  logs: Array<Record<string, unknown>>,
+  logs: CombatRoundLog[] | Array<Record<string, unknown>>,
   viewerId: string,
 ): Promise<Record<string, unknown>> {
   const payload = buildCombatEndedPayload(encounter, outcome, salvage, logs);
@@ -338,14 +418,49 @@ export function getCorpIdsFromParticipants(
 
 /**
  * Collect character IDs from combat participants.
- * Returns only character combatants (not garrisons).
+ *
+ * Returns only character combatants (not garrisons). Destroyed participants
+ * (those flagged `destruction_handled = true`) are excluded by default —
+ * they've already received their personalized combat.ended via
+ * ejectDestroyedFromCombat and don't need redundant round_waiting events.
+ *
+ * Set `includeDestroyed: true` to include destroyed participants. The only
+ * place that should opt in is the round_resolved broadcast for the round in
+ * which a participant just died — that round's event correctly describes
+ * their death and should reach them.
  */
-export function collectParticipantIds(encounter: CombatEncounterState): string[] {
+export function collectParticipantIds(
+  encounter: CombatEncounterState,
+  options: { includeDestroyed?: boolean } = {},
+): string[] {
+  const includeDestroyed = options.includeDestroyed === true;
   const ids: Set<string> = new Set();
   for (const participant of Object.values(encounter.participants)) {
     if (participant.combatant_type !== 'character') {
       continue;
     }
+    if (!includeDestroyed && participant.destruction_handled) {
+      continue;
+    }
+    const key = participant.owner_character_id ?? participant.combatant_id;
+    ids.add(key);
+  }
+  return Array.from(ids);
+}
+
+/**
+ * Owner-character IDs of all destroyed (destruction_handled) character
+ * participants. Used to exclude them from sector-observer fan-out: a
+ * destroyed player's escape pod still occupies the sector, so the standard
+ * visibility query would re-include them in subsequent round broadcasts.
+ */
+export function getDestroyedOwnerIds(
+  encounter: CombatEncounterState,
+): string[] {
+  const ids: Set<string> = new Set();
+  for (const participant of Object.values(encounter.participants)) {
+    if (participant.combatant_type !== 'character') continue;
+    if (!participant.destruction_handled) continue;
     const key = participant.owner_character_id ?? participant.combatant_id;
     ids.add(key);
   }

@@ -52,7 +52,8 @@ EXPECTED_TOOLS = {
     "regenerate_invite_code",
     "sell_ship",
     "leaderboard_resources", "ship_definitions", "send_message",
-    "combat_initiate", "combat_action", "load_game_info",
+    "combat_initiate", "combat_action", "ship_strategy", "load_game_info",
+    "confirm_action",
     "start_task", "stop_task", "steer_task", "query_task_progress",
 }
 

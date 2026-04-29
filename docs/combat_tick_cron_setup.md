@@ -28,15 +28,23 @@ The combat cron helper (`invoke_combat_tick`) now reads its target URL and API t
 
 ## Production / staging (Supabase Cloud)
 
-1. Set env vars in your shell (do **not** commit them):
-- `DATABASE_URL` **or** `SUPABASE_DB_URL` (service-role connection string from Supabase dashboard)
+1. Make sure your env file (`.env.cloud.dev`, `.env.cloud`, etc.) contains:
+- `DATABASE_URL` **or** `POSTGRES_POOLER_URL` (service-role connection string from Supabase dashboard)
 - `SUPABASE_URL` (e.g., `https://your-project.supabase.co`)
 - `EDGE_API_TOKEN` (same token edge functions expect in `x-api-token`)
 - `SUPABASE_ANON_KEY` (used by cron auth headers)
-2. Upsert the config:
+
+   Do **not** commit these files.
+2. Upsert the config (script requires `--env`; will prompt to confirm by typing the project ref):
    ```bash
-   scripts/setup-production-combat-tick.sh
+   # dev / staging
+   scripts/setup-production-combat-tick.sh --env .env.cloud.dev
+
+   # production (manual; will prompt to type 'MODIFY PRODUCTION')
+   scripts/setup-production-combat-tick.sh --env .env.cloud --allow-production
    ```
+
+   Production is blocked unless `--allow-production` is passed. The basename of the env file determines the gate (`.env.cloud` = production).
 3. Verify:
    ```sql
    SELECT key, updated_at FROM app_runtime_config
