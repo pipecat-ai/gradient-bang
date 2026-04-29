@@ -21,6 +21,7 @@ import {
   isResolvingLockHeld,
   loadCombatForSector,
   persistCombatState,
+  RESOLVING_LOCK_TTL_MS,
 } from "./combat_state.ts";
 import type { WeaveSpan } from "./weave.ts";
 import {
@@ -428,16 +429,23 @@ export async function joinExistingCombat(params: {
 
   const MAX_RETRIES = 3;
   // Resolution-lock backoff. resolveEncounterRound typically runs in
-  // <500ms but the worst non-pathological case is a few seconds. Bailing
-  // immediately would silently drop the joiner — move's auto-engage
-  // fallback also no-ops while combat is active, so they end up in the
-  // sector but not in the encounter with no later retry hook. Wait
-  // ~1s in 200ms slices, then bail with a warn if the lock outlives that.
-  // Stale markers (older than RESOLVING_LOCK_TTL_MS) are treated as
-  // released by isResolvingLockHeld, so this loop won't spin on crash
-  // residue.
+  // <500ms but the realistic upper bound is a few seconds: it does
+  // canonical writes (ship destruction, garrison cleanup, sector
+  // snapshots), broadcasts events to all observers, then clears the
+  // lock. Bailing immediately would silently drop the joiner — move's
+  // auto-engage fallback also no-ops while combat is active, so they
+  // end up in the sector but not in the encounter with no later retry
+  // hook. Wait up to RESOLVING_LOCK_TTL_MS (the same TTL after which
+  // isResolvingLockHeld treats the marker as crash residue and returns
+  // false anyway), so any non-stale resolution gets a chance to finish.
+  // Stale markers short-circuit naturally — isResolvingLockHeld goes
+  // false and we proceed to join. We're inside move's async-completion
+  // path (after the HTTP response is returned) so this wait doesn't
+  // affect user-perceived latency.
   const RESOLVING_RETRY_DELAY_MS = 200;
-  const MAX_RESOLVING_WAITS = 5;
+  const MAX_RESOLVING_WAITS = Math.ceil(
+    RESOLVING_LOCK_TTL_MS / RESOLVING_RETRY_DELAY_MS,
+  );
   let resolvingWaits = 0;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     if (!encounter) return false;
