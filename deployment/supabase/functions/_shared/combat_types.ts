@@ -34,6 +34,13 @@ export interface CombatantState {
   // conversion + corp cleanup succeed, leaving a window where salvage could
   // be re-captured.
   salvage_captured?: boolean;
+  // The encounter.round at which this participant joined. Set at
+  // combat_initiate / garrison-auto-engage / mid-encounter join. Event
+  // payload formatters compare this against the live encounter.round to
+  // compute a one-shot `just_joined` flag for participants that newly
+  // appeared this round, so the LLM-facing XML can mark them with
+  // "(joined encounter)" exactly once.
+  joined_round?: number;
 }
 
 export interface PendingCorpShipDeletion {

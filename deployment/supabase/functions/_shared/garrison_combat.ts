@@ -9,10 +9,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CharacterRow, ShipRow } from "./status.ts";
 import { loadCharacter, loadShip } from "./status.ts";
 import {
+  buildCharacterCombatant,
   loadCharacterCombatants,
   loadCharacterNames,
   loadGarrisonCombatants,
 } from "./combat_participants.ts";
+import { areFriendlyFromMeta, buildCorporationMap } from "./friendly.ts";
 import { getEffectiveCorporationId } from "./corporations.ts";
 import { loadCombatForSector, persistCombatState } from "./combat_state.ts";
 import type { WeaveSpan } from "./weave.ts";
@@ -235,13 +237,18 @@ async function initiateGarrisonCombat(params: {
     requestId,
   } = params;
 
-  // Build participants map
+  // Build participants map. All initial participants get joined_round = 1
+  // so the just_joined flag computed by event payload formatters is true on
+  // the first round_waiting (consistent with mid-encounter joiners).
   const participants: Record<string, CombatantState> = {};
   for (const state of participantStates) {
-    participants[state.combatant_id] = state;
+    participants[state.combatant_id] = { ...state, joined_round: 1 };
   }
   for (const garrison of garrisons) {
-    participants[garrison.state.combatant_id] = garrison.state;
+    participants[garrison.state.combatant_id] = {
+      ...garrison.state,
+      joined_round: 1,
+    };
   }
 
   if (Object.keys(participants).length < MIN_PARTICIPANTS) {
@@ -294,17 +301,37 @@ async function initiateGarrisonCombat(params: {
   };
 
   await persistCombatState(supabase, encounter);
-  await emitRoundWaitingEvents(supabase, encounter, requestId);
+  // Initial round_waiting #1 marks every starting participant as just_joined
+  // (they all "joined" at this round) so the LLM-facing XML annotates each
+  // with `(joined encounter)` exactly once. Subsequent rounds drop the flag.
+  const justJoinedIds = new Set<string>(Object.keys(encounter.participants));
+  await emitRoundWaitingEvents(
+    supabase,
+    encounter,
+    requestId,
+    null,
+    justJoinedIds,
+  );
 }
 
 async function emitRoundWaitingEvents(
   supabase: SupabaseClient,
   encounter: CombatEncounterState,
   requestId: string,
+  extensionReason?:
+    | {
+        type: "joined";
+        joiners: Array<{ combatant_id: string; name: string }>;
+      }
+    | null,
+  justJoinedIds?: Set<string>,
 ): Promise<void> {
-  const payload = buildRoundWaitingPayload(encounter);
+  const payload = buildRoundWaitingPayload(encounter, { justJoinedIds });
   const source = buildEventSource("combat.round_waiting", requestId);
   payload.source = source;
+  if (extensionReason && extensionReason.joiners.length > 0) {
+    payload.extension_reason = extensionReason;
+  }
 
   // Get direct participant IDs and corp IDs for visibility
   const directRecipients = collectParticipantIds(encounter);
@@ -333,4 +360,128 @@ async function emitRoundWaitingEvents(
     recipients: allRecipients,
     stakeholderCorpIds: corpIds,
   });
+}
+
+/**
+ * Mid-encounter join: a hostile ship just arrived in a sector with an
+ * active (`!ended`) combat encounter. Build a CombatantState for them,
+ * inject into encounter.participants with joined_round = encounter.round,
+ * persist, and emit a reinforcement round_waiting tagged with
+ * `extension_reason: { type: "joined", joiner_name }`.
+ *
+ * Returns true if the ship joined, false otherwise (already a participant,
+ * friendly to all active combatants, escape pod, etc.).
+ *
+ * The caller is responsible for serializing read-modify-write on the
+ * sector's combat blob via a postgres advisory lock — this helper does the
+ * mutation but not the locking.
+ */
+export async function joinExistingCombat(params: {
+  supabase: SupabaseClient;
+  encounter: CombatEncounterState;
+  characterId: string;
+  ship: ShipRow;
+  character: CharacterRow;
+  requestId: string;
+}): Promise<boolean> {
+  const { supabase, encounter, characterId, ship, character, requestId } =
+    params;
+
+  // Already a participant (idempotent re-entry, e.g. fled-then-returned, or
+  // a duplicate request). Skip without resetting their state.
+  if (encounter.participants[characterId]) return false;
+
+  // Escape pods can't combat. ship_type is the source of truth for this on
+  // ShipRow; the bool flag on ShipRecord is just a convenience mirror.
+  if (ship.ship_type === "escape_pod") return false;
+
+  // Build the new participant. The build helper handles current_ship_id
+  // mismatches and missing definitions and returns null when the ship
+  // can't legitimately be a participant.
+  const newParticipant = await buildCharacterCombatant(
+    supabase,
+    {
+      ship_id: ship.ship_id,
+      ship_type: ship.ship_type,
+      ship_name: ship.ship_name ?? null,
+      current_sector: ship.current_sector ?? encounter.sector_id,
+      current_fighters: ship.current_fighters ?? 0,
+      current_shields: ship.current_shields ?? 0,
+      in_hyperspace: false,
+      owner_character_id: ship.owner_character_id ?? null,
+      owner_type: ship.owner_type ?? "character",
+      owner_corporation_id: ship.owner_corporation_id ?? null,
+      is_escape_pod: ship.ship_type === "escape_pod",
+    },
+    {
+      character_id: character.character_id,
+      name: character.name,
+      corporation_id: character.corporation_id ?? null,
+      current_ship_id: character.current_ship_id ?? null,
+      first_visit: character.first_visit ?? null,
+    },
+  );
+  if (!newParticipant) return false;
+  newParticipant.joined_round = encounter.round;
+
+  // Hostility check — at least one ACTIVE participant must be hostile to
+  // the new arrival. Active = combatant_type=garrison with fighters>0, OR
+  // character with fighters>0 AND not destruction_handled AND not has_fled.
+  // Build the corp map from existing participants and append the new
+  // arrival's metadata so areFriendlyFromMeta can read both sides.
+  const corps = buildCorporationMap(encounter);
+  const newKey =
+    newParticipant.owner_character_id ?? newParticipant.combatant_id;
+  const newCorpId =
+    typeof newParticipant.metadata?.corporation_id === "string"
+      ? (newParticipant.metadata.corporation_id as string)
+      : null;
+  corps.set(newKey, newCorpId);
+
+  let hasHostile = false;
+  for (const existing of Object.values(encounter.participants)) {
+    if ((existing.fighters ?? 0) <= 0) continue;
+    if (existing.destruction_handled) continue;
+    if (existing.has_fled) continue;
+    if (!areFriendlyFromMeta(corps, newParticipant, existing)) {
+      hasHostile = true;
+      break;
+    }
+  }
+  if (!hasHostile) return false;
+
+  // Inject and persist. No pending_actions entry — engine defaults missing
+  // entries to brace for the current round; the joiner can submit
+  // combat_action for round N+1.
+  encounter.participants[newParticipant.combatant_id] = newParticipant;
+  encounter.last_updated = nowIso();
+
+  await persistCombatState(supabase, encounter);
+
+  // Emit reinforcement round_waiting. The payload's extension_reason +
+  // per-participant just_joined flag together let observers and the LLM
+  // narrate "combat extended by reinforcement <name>". The joiners array
+  // is one element here — the join helper handles a single arrival per
+  // call — but the field is array-shaped so a future coalesced multi-
+  // arrival path can list more without breaking consumers.
+  // justJoinedIds is the singleton set of the new arrival — existing
+  // participants must NOT carry just_joined on this event (they were
+  // already announced when they themselves first appeared).
+  await emitRoundWaitingEvents(
+    supabase,
+    encounter,
+    requestId,
+    {
+      type: "joined",
+      joiners: [
+        {
+          combatant_id: newParticipant.combatant_id,
+          name: newParticipant.name,
+        },
+      ],
+    },
+    new Set([newParticipant.combatant_id]),
+  );
+
+  return true;
 }

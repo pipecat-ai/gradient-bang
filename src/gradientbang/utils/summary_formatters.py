@@ -818,8 +818,18 @@ def _format_participant_names(event: Dict[str, Any]) -> str:
             return fighters <= 0
         return False
 
-    def _annotate(display: str, target_id: Any, destroyed: bool) -> str:
-        markers = ["destroyed"] if destroyed else []
+    def _annotate(
+        display: str, target_id: Any, destroyed: bool, just_joined: bool = False
+    ) -> str:
+        markers: List[str] = []
+        if destroyed:
+            markers.append("destroyed")
+        if just_joined:
+            # One-shot marker on the round the participant first appears, so
+            # the LLM can narrate "X joined the encounter" without surfing
+            # the participants list across rounds. The server clears
+            # `just_joined` on the next event automatically.
+            markers.append("joined encounter")
         if isinstance(target_id, str) and target_id.strip():
             markers.append(f"target_id={target_id.strip()}")
         if not markers:
@@ -839,7 +849,12 @@ def _format_participant_names(event: Dict[str, Any]) -> str:
 
             display_name = _shorten_embedded_ids(str(name)) if name else "unknown"
             labels.append(
-                _annotate(display_name, participant_id, _is_destroyed(entry))
+                _annotate(
+                    display_name,
+                    participant_id,
+                    _is_destroyed(entry),
+                    bool(entry.get("just_joined")),
+                )
             )
     # Garrisons are combat participants too, but the server emits them in a
     # separate `garrison` sub-object instead of inside `participants[]`. The
@@ -872,9 +887,28 @@ def combat_round_waiting_summary(event: Dict[str, Any]) -> str:
     round_display = round_number if isinstance(round_number, int) else "?"
     combat_id = event.get("combat_id", "unknown")
 
+    # An out-of-cycle round_waiting fires when a hostile ship arrives mid-
+    # encounter. The extension_reason field lists the joiner(s) so the LLM
+    # can say "combat extended — X joined" rather than treating it as a
+    # normal round tick.
+    extension = event.get("extension_reason")
+    extension_clause = ""
+    if isinstance(extension, dict) and extension.get("type") == "joined":
+        joiners = extension.get("joiners")
+        if isinstance(joiners, list) and joiners:
+            names = [
+                str(j.get("name"))
+                for j in joiners
+                if isinstance(j, dict) and j.get("name")
+            ]
+            if names:
+                extension_clause = (
+                    f" Combat extended — reinforcement: {', '.join(names)}."
+                )
+
     return (
         f"Combat {combat_id} round {round_display} waiting in sector {sector_id}; "
-        f"deadline {deadline}; participants: {participants}."
+        f"deadline {deadline}; participants: {participants}.{extension_clause}"
     )
 
 

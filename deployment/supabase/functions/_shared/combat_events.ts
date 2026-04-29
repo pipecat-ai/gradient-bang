@@ -12,6 +12,13 @@ interface ParticipantEventContext {
   fighters: number;
   corpId: string | null;
   corpName: string | null;
+  // True when this participant should be marked with the one-shot
+  // `(joined encounter)` annotation in the LLM-facing XML. Strictly
+  // controlled by the caller via `justJoinedIds` on the round_waiting
+  // builder so it fires only on the FIRST event each participant appears
+  // in (initial round_waiting #1, OR reinforcement round_waiting after a
+  // mid-encounter join). Subsequent events drop the flag.
+  justJoined?: boolean;
 }
 
 function buildParticipantPayload(
@@ -48,6 +55,7 @@ function buildParticipantPayload(
     has_fled: participant.has_fled === true,
     fled_to_sector:
       typeof participant.fled_to_sector === 'number' ? participant.fled_to_sector : null,
+    just_joined: ctx.justJoined === true,
   };
 }
 
@@ -164,7 +172,10 @@ function basePayload(encounter: CombatEncounterState): Record<string, unknown> {
   };
 }
 
-export function buildRoundWaitingPayload(encounter: CombatEncounterState): Record<string, unknown> {
+export function buildRoundWaitingPayload(
+  encounter: CombatEncounterState,
+  options?: { justJoinedIds?: Set<string> },
+): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     ...basePayload(encounter),
     current_time: new Date().toISOString(),
@@ -181,6 +192,7 @@ export function buildRoundWaitingPayload(encounter: CombatEncounterState): Recor
           fighters: participant.fighters ?? 0,
           corpId: readCorpId(participant),
           corpName: readCorpName(participant),
+          justJoined: options?.justJoinedIds?.has(participant.combatant_id),
         }),
       );
     } else {
@@ -258,6 +270,9 @@ export function buildRoundResolvedPayload(
           fighters: fightersRemaining,
           corpId: readCorpId(participant),
           corpName: readCorpName(participant),
+          // round_resolved never marks just_joined — that flag is reserved
+          // for the round_waiting events at debut (initial #1 and any
+          // mid-encounter reinforcement round_waiting).
         }),
       );
     } else {

@@ -306,6 +306,11 @@ async function handleCombatInitiate(params: {
     throw err;
   }
 
+  // IDs that should be marked `just_joined` on the round_waiting we emit
+  // below. Existing-encounter case = just the new initiator; fresh-encounter
+  // case = every starting participant. Empty when nothing actually joined.
+  const justJoinedIds = new Set<string>();
+
   let encounter: CombatEncounterState;
   if (existingEncounter && !existingEncounter.ended) {
     encounter = existingEncounter;
@@ -316,18 +321,33 @@ async function handleCombatInitiate(params: {
       if (!participant) {
         throw new Error("Initiator not present in sector");
       }
-      encounter.participants[participant.combatant_id] = participant;
+      // Stamp the joiner with the live round so the diagnostic
+      // `joined_round` field reflects when they entered. The
+      // user-facing `just_joined` flag is driven by the explicit
+      // `justJoinedIds` set we pass into the round_waiting builder.
+      encounter.participants[participant.combatant_id] = {
+        ...participant,
+        joined_round: encounter.round,
+      };
+      justJoinedIds.add(participant.combatant_id);
     }
     if (!encounter.base_seed) {
       encounter.base_seed = deterministicSeed(encounter.combat_id);
     }
   } else {
+    // Fresh encounter — every starting participant is "just joined" so the
+    // first round_waiting annotates each with `(joined encounter)`.
     const participants: Record<string, CombatantState> = {};
     for (const state of participantStates) {
-      participants[state.combatant_id] = state;
+      participants[state.combatant_id] = { ...state, joined_round: 1 };
+      justJoinedIds.add(state.combatant_id);
     }
     for (const garrison of garrisons) {
-      participants[garrison.state.combatant_id] = garrison.state;
+      participants[garrison.state.combatant_id] = {
+        ...garrison.state,
+        joined_round: 1,
+      };
+      justJoinedIds.add(garrison.state.combatant_id);
     }
     if (Object.keys(participants).length < MIN_PARTICIPANTS && !debug) {
       const err = new Error("No opponents available to engage") as Error & {
@@ -360,7 +380,13 @@ async function handleCombatInitiate(params: {
   }
 
   await persistCombatState(supabase, encounter);
-  await emitRoundWaitingEvents(supabase, encounter, requestId, taskId);
+  await emitRoundWaitingEvents(
+    supabase,
+    encounter,
+    requestId,
+    taskId,
+    justJoinedIds,
+  );
 
   return successResponse({
     success: true,
@@ -375,8 +401,9 @@ async function emitRoundWaitingEvents(
   encounter: CombatEncounterState,
   requestId: string,
   taskId: string | null,
+  justJoinedIds?: Set<string>,
 ): Promise<void> {
-  const payload = buildRoundWaitingPayload(encounter);
+  const payload = buildRoundWaitingPayload(encounter, { justJoinedIds });
   const source = buildEventSource("combat.round_waiting", requestId);
   payload.source = source;
 
