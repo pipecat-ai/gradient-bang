@@ -152,16 +152,25 @@ export async function ejectDestroyedFromCombat(params: {
         ? (await ensureDefinitionMap()).get(participant.ship_type)
         : undefined;
 
-      // 1. Capture salvage onto the encounter blob (NOT dropped yet).
-      await captureSalvageForDefeatedShip(supabase, encounter, participant, def);
+      // 1. Capture salvage onto the encounter blob (NOT dropped yet). The
+      // capture is idempotent on participant.salvage_captured, so a retry
+      // after the persist below skips and proceeds directly to conversion.
+      const captured = await captureSalvageForDefeatedShip(
+        supabase,
+        encounter,
+        participant,
+        def,
+      );
 
-      // Persist the combat blob now so the captured salvage entry is durable
-      // before the destructive cargo-zeroing write below. Without this, a
-      // crash between escape-pod conversion and the final persistCombatState
-      // at the end of resolveEncounterRound would lose the salvage forever:
-      // the next round's eject would re-run, find the cargo already zeroed,
-      // and capture nothing.
-      await persistCombatState(supabase, encounter);
+      // Persist the combat blob now so the captured salvage entry +
+      // salvage_captured flag are durable before the destructive cargo-zero
+      // write below. Without this, a retry between conversion and the final
+      // persistCombatState at the end of resolveEncounterRound would either
+      // lose the salvage entry (in-memory only) or, with stale
+      // salvage_captured=false, capture again and duplicate the entry.
+      if (captured) {
+        await persistCombatState(supabase, encounter);
+      }
 
       // 2. Apply destruction to canonical tables. For player ships this is
       // the escape-pod conversion. For corp ships this is a noop here (the
@@ -380,6 +389,12 @@ export async function captureSalvageForDefeatedShip(
   participant: CombatantState,
   definition: ShipDefinitionRow | undefined,
 ): Promise<SalvageEntry | null> {
+  // Idempotent: skip if this participant's salvage was already pushed onto
+  // pending_salvage_entries. The flag is durable on the encounter blob via
+  // the persistCombatState that follows capture in the eject/finalize paths,
+  // so a retry after the persist finds the flag set and won't double-capture.
+  if (participant.salvage_captured) return null;
+
   const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
   const shipId = typeof metadata.ship_id === "string" ? metadata.ship_id : null;
   if (!shipId) return null;
@@ -392,7 +407,12 @@ export async function captureSalvageForDefeatedShip(
   const scrapBase = definition?.purchase_price ?? 0;
   const scrap = Math.max(5, Math.floor(scrapBase / 1000));
   const hasSalvage = Object.keys(cargo).length > 0 || scrap > 0 || credits > 0;
-  if (!hasSalvage) return null;
+  if (!hasSalvage) {
+    // No salvage to capture, but still mark captured so a retry doesn't
+    // re-load the ship row needlessly.
+    participant.salvage_captured = true;
+    return null;
+  }
 
   const salvage = buildSalvageEntry(
     { ship_name: ship.ship_name, ship_type: ship.ship_type },
@@ -408,6 +428,7 @@ export async function captureSalvageForDefeatedShip(
 
   encounter.pending_salvage_entries ??= [];
   encounter.pending_salvage_entries.push(salvage as Record<string, unknown>);
+  participant.salvage_captured = true;
   return salvage;
 }
 
@@ -526,17 +547,23 @@ async function handleDefeatedCharacter(
     return { salvage: null, deferredDeletion: null, shipDestroyedEvent: null };
   }
 
-  // Capture salvage onto the encounter (will be dropped at combat end). For
-  // already-handled participants (ejected mid-round in a prior round) salvage
-  // is already on the encounter blob from that round — skip the recapture.
-  let salvage: SalvageEntry | null = null;
-  if (!participant.destruction_handled) {
-    salvage = await captureSalvageForDefeatedShip(
-      supabase,
-      encounter,
-      participant,
-      definition,
-    );
+  // Capture salvage onto the encounter (will be dropped at combat end).
+  // captureSalvageForDefeatedShip is idempotent on participant.salvage_captured,
+  // so prior-round-ejected participants and same-call retries both no-op.
+  const salvage = await captureSalvageForDefeatedShip(
+    supabase,
+    encounter,
+    participant,
+    definition,
+  );
+
+  // Persist the combat blob now so the captured salvage entry + the
+  // salvage_captured flag are durable before applyShipDestructionToCanonicalTables
+  // zeroes the cargo. Without this, a crash here would leave the ship
+  // converted (cargo gone) but no salvage entry persisted — and on retry
+  // the (now-zero-cargo) ship would yield nothing to capture.
+  if (salvage) {
+    await persistCombatState(supabase, encounter);
   }
 
   const shipDestroyedEvent: ShipDestroyedEventData = {

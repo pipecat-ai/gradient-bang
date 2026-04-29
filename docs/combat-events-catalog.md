@@ -557,9 +557,10 @@ Short IDs use the 6-char-prefix convention from `_short_id` in [`summary_formatt
 | `player_name` | string | |
 | `sector` | `{ id: number }` | |
 | `combat_id` | string | |
-| `salvage_created` | boolean | |
 | `owner_character_id` | string | **NET field (CHANGED)** — for corp ships, pseudo-character id; for personal ships, owning human |
 | `corp_id` | string \| null | **NET field (CHANGED)** |
+
+Salvage existence is signalled by a separate `salvage.created` event emitted at end-of-combat (so passers-by can't loot mid-fight); `ship.destroyed` itself carries no salvage field.
 
 **Example:**
 ```json
@@ -571,7 +572,6 @@ Short IDs use the 6-char-prefix convention from `_short_id` in [`summary_formatt
   "player_name": "Alice",
   "sector": { "id": 42 },
   "combat_id": "3f2a01",
-  "salvage_created": true,
   "owner_character_id": "a1ce0d",
   "corp_id": "c0afed"
 }

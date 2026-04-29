@@ -26,6 +26,14 @@ export interface CombatantState {
   // row deletion for garrisons, current_fighters=0 for player ships). Prevents
   // finalizeCombat from re-running the same writes on the terminal round.
   destruction_handled?: boolean;
+  // Set true once captureSalvageForDefeatedShip has pushed an entry onto
+  // encounter.pending_salvage_entries for this participant. Persisted along
+  // with the entry so a crash between salvage capture and escape-pod
+  // conversion (which zeros cargo) cannot lead to a duplicate capture on
+  // retry. destruction_handled is too coarse for this — it flips only after
+  // conversion + corp cleanup succeed, leaving a window where salvage could
+  // be re-captured.
+  salvage_captured?: boolean;
 }
 
 export interface PendingCorpShipDeletion {
