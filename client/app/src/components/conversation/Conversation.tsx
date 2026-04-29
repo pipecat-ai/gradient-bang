@@ -13,7 +13,10 @@ import useAudioStore from "@/stores/audio"
 import { useConversationStore } from "@/stores/conversation"
 
 import { CopyContextButton } from "./CopyContextButton"
+import { ConversationLiveAnnouncer } from "./ConversationLiveAnnouncer"
 import { MessageContainer } from "./MessageContainer"
+
+import type { ConversationMessage } from "@/types/conversation"
 
 /**
  * Props for the Conversation component
@@ -105,6 +108,11 @@ export interface ConversationProps {
   aggregationMetadata?: React.ComponentProps<typeof MessageContainer>["aggregationMetadata"]
 }
 
+const getMessageKey = (message: ConversationMessage): string => {
+  const suffix = message.functionCall?.tool_call_id ?? message.createdAt
+  return `${message.role}:${suffix}`
+}
+
 /**
  * Conversation component that displays real-time conversation history between users and AI assistants.
  *
@@ -191,6 +199,7 @@ export const Conversation: React.FC<ConversationProps> = memo(
           : "group relative flex-1 h-full opacity-50 stripe-frame-white/30"
         }
       >
+        <ConversationLiveAnnouncer assistantLabel={assistantLabel} clientLabel={clientLabel} />
         {!panelActive ?
           <CardContent className="flex h-full items-center justify-center">
             <div className="text-center text-xs">
@@ -248,9 +257,9 @@ export const Conversation: React.FC<ConversationProps> = memo(
               <CardContent className="absolute inset-0 min-h-0 mask-[linear-gradient(to_bottom,black_60%,transparent_100%)] -mx-ui-xs @md:mx-0">
                 <ScrollArea className="relative w-full h-full pointer-events-auto">
                   <div className="flex flex-col gap-2 pb-20">
-                    {messages.map((message, index) => (
+                    {messages.map((message) => (
                       <MessageContainer
-                        key={index}
+                        key={getMessageKey(message)}
                         message={message}
                         assistantLabel={assistantLabel}
                         clientLabel={clientLabel}
