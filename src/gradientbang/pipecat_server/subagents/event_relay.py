@@ -1064,7 +1064,11 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "corporation.member_left": EventConfig(corp_scope_if_own_action=True),
     "corporation.member_kicked": EventConfig(corp_scope_if_own_action=True),
     "corporation.disbanded": EventConfig(corp_scope_if_own_action=True),
-    "corporation.data": EventConfig(corp_scope_if_own_action=True),
+    # Snapshot event used for client UI hydration and TaskAgent corp-state seeding
+    # (delivered via bus broadcast). Voice agent gets corp info via corporation_info
+    # tool, which returns summarize_corporation_info; the raw event would only
+    # duplicate ~3KB of redundant ship/member/destroyed-ship history per call.
+    "corporation.data": EventConfig(append=AppendRule.NEVER),
     # Pending confirmation events: client-only. The client opens a
     # confirmation modal; the bot's client_message_handler drives the
     # follow-up confirm/cancel and injects its own <event> context for
