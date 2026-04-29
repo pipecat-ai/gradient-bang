@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Salvage from a ship destroyed mid-combat now drops to the sector only when combat ends — preventing in-fight loots and sector passers-by from collecting wrecks while the battle is still going
 - `combat_action` rejects all actions from destroyed or escape-pod participants (was: only rejected `flee`); attacks on a destroyed target are rejected at submission with a clear error
 
+### Fixed
+
+- Bot audio volume slider now actually controls remote bot audio: a local `PipecatClientAudio` binds the media element's `volume` to the store's `remoteAudioVolume` setting (the default component from `@pipecat-ai/client-react` ignored it)
+- Sector map edge feather is now applied after the zoomed scene render, so it fades the final composed viewport instead of being painted over by ships, course plot, and badges
+
 ## [0.2.0] - 2026-04-28
 
 ### Added
