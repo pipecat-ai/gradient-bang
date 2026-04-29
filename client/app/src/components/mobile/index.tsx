@@ -1,8 +1,7 @@
-import { PipecatClientAudio } from "@pipecat-ai/client-react"
-
 import { ConversationPanel } from "@/components/conversation/ConversationPanel"
 import { MobileMap } from "@/components/mobile/Map"
 import { TopBar } from "@/components/mobile/TopBar"
+import { PipecatClientAudio } from "@/components/PipecatClientAudio"
 import { Divider } from "@/components/primitives/Divider"
 
 export const Mobile = () => {

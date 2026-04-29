@@ -2580,9 +2580,6 @@ function renderWithCameraStateAndInteraction(
 
   ctx.restore()
 
-  const featherSize = Math.min(config.uiStyles.edgeFeather.size, Math.min(width, height) / 2)
-  applyRectangularFeatherMask(ctx, width, height, featherSize, config.uiStyles.edgeFeather.falloff)
-
   ctx.save()
   ctx.translate(width / 2, height / 2)
   ctx.scale(cameraState.zoom, cameraState.zoom)
@@ -2671,6 +2668,9 @@ function renderWithCameraStateAndInteraction(
   if (coursePlot && courseAnimationOffset !== undefined) {
     renderCoursePlotAnimation(canvas, props, cameraState, courseAnimationOffset)
   }
+
+  const featherSize = Math.min(config.uiStyles.edgeFeather.size, Math.min(width, height) / 2)
+  applyRectangularFeatherMask(ctx, width, height, featherSize, config.uiStyles.edgeFeather.falloff)
 
   if (coursePlot) {
     renderCoursePlotBadges(ctx, scale, hexSize, width, height, cameraState, coursePlot)
