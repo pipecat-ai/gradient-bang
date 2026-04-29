@@ -98,11 +98,14 @@ from gradientbang.pipecat_server.subagents.ui_agent import (
 from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStrategy
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
+from gradientbang.utils.cekura_tracing import get_tracer, init_cekura, is_cekura_enabled
 from gradientbang.utils.weave_tracing import init_weave, traced
 
 # Initialize Weave early (before @traced decorators are applied to startup functions).
 # Must come after load_dotenv so WANDB_API_KEY is available.
 init_weave()
+
+init_cekura()
 
 # Default personality/tone used when the start payload doesn't provide one.
 # Substituted into ${personality_tone} in voice_agent.md.
@@ -579,6 +582,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 if isinstance(obs, RTVIObserver):
                     obs._ignored_sources = ui_branch_sources
                     break
+            if is_cekura_enabled():
+                get_tracer().register_task_handlers(task, transport=transport)
             return task
 
         async def build_pipeline(self) -> Pipeline:
@@ -594,7 +599,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 await self.add_agent(voice_agent)
                 await self.add_agent(scripted_agent)
 
-            return Pipeline(
+            pipeline = Pipeline(
                 [
                     transport.input(),
                     stt,
@@ -615,6 +620,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     ),
                 ]
             )
+            if is_cekura_enabled():
+                get_tracer().track_pipeline(
+                    pipeline, context, runner_args=runner_args
+                )
+            return pipeline
 
     agent_runner = AgentRunner(handle_sigint=getattr(runner_args, "handle_sigint", False))
 
