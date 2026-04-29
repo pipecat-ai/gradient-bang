@@ -8,6 +8,7 @@ import { ShipCardStat } from "@/components/ShipCardStat"
 import { CreditsIcon, CurrentSectorIcon, FighterIcon, FuelIcon } from "@/icons"
 import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
+import { isShipInCombat } from "@/utils/combat"
 import { formatCurrency } from "@/utils/formatting"
 import { shipTypeVerbose } from "@/utils/game"
 import { cn } from "@/utils/tailwind"
@@ -53,18 +54,12 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
   )
   const isBusy = !!(activeTask || ship.current_task_id)
   const actorName = activeTask?.actor_character_name ?? ship.current_task_actor_name
-  const isInCombat = useGameStore(
-    (state) => state.activeCombatSession?.participants.some((p) => p.id === ship.ship_id) ?? false
-  )
+  const isInCombat = useGameStore((state) => isShipInCombat(state, ship.ship_id))
 
   useEffect(() => {
-    let prev =
-      useGameStore
-        .getState()
-        .activeCombatSession?.participants.some((p) => p.id === ship.ship_id) ?? false
+    let prev = isShipInCombat(useGameStore.getState(), ship.ship_id)
     return useGameStore.subscribe((state) => {
-      const next =
-        state.activeCombatSession?.participants.some((p) => p.id === ship.ship_id) ?? false
+      const next = isShipInCombat(state, ship.ship_id)
       if (next && !prev) useAudioStore.getState().playSound("combatChime1")
       prev = next
     })
@@ -197,12 +192,18 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
   }, [destroyingShipIds, corpShips.length])
 
   useEffect(() => {
-    const getParticipantIds = (state: ReturnType<typeof useGameStore.getState>) =>
-      new Set(
-        (state.activeCombatSession?.participants ?? [])
-          .map((p) => p.id)
-          .filter((id): id is string => !!id)
-      )
+    const getParticipantIds = (state: ReturnType<typeof useGameStore.getState>) => {
+      const ids = new Set<string>()
+      for (const p of state.activeCombatSession?.participants ?? []) {
+        if (p.id) ids.add(p.id)
+      }
+      for (const session of Object.values(state.observedCombatSessions)) {
+        for (const p of session.participants) {
+          if (p.id) ids.add(p.id)
+        }
+      }
+      return ids
+    }
     let prevIds = getParticipantIds(useGameStore.getState())
     return useGameStore.subscribe((state) => {
       const currentIds = getParticipantIds(state)

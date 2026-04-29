@@ -131,6 +131,25 @@ export const syncCorpShipsFromCombatRound = (gameStore: GameStore, combatRound: 
   }
 }
 
+/** True if the given ship_id is a participant in any tracked combat — personal or observed. */
+export const isShipInCombat = (gameStore: GameStore, shipId: string): boolean => {
+  if (gameStore.activeCombatSession?.participants.some((p) => p.id === shipId)) return true
+  return Object.values(gameStore.observedCombatSessions).some((session) =>
+    session.participants.some((p) => p.id === shipId)
+  )
+}
+
+export const applyObservedCombatRoundWaitingState = (
+  gameStore: GameStore,
+  combatSession: CombatSession
+) => {
+  gameStore.setObservedCombatSession(combatSession)
+}
+
+export const applyObservedCombatEndedState = (gameStore: GameStore, combatId: string) => {
+  gameStore.removeObservedCombatSession(combatId)
+}
+
 export const applyCombatRoundWaitingState = (
   gameStore: GameStore,
   combatSession: CombatSession

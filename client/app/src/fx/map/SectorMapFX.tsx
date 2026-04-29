@@ -1494,7 +1494,7 @@ function renderSectorCombatHighlights(
   ctx.strokeStyle = "#ff3344"
   ctx.lineWidth = 4
   ctx.setLineDash([5, 5])
-  ctx.lineCap = "round"
+  ctx.lineCap = "butt"
   for (const node of data) {
     if (!combatSectors.has(node.id)) continue
     const world = hexToWorld(node.position[0], node.position[1], scale)

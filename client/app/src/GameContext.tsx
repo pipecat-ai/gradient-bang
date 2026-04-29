@@ -12,6 +12,8 @@ import {
   applyCombatEndedState,
   applyCombatRoundResolvedState,
   applyCombatRoundWaitingState,
+  applyObservedCombatEndedState,
+  applyObservedCombatRoundWaitingState,
   applyShipDestroyedState,
   syncCorpShipsFromCombatRound,
 } from "@/utils/combat"
@@ -1299,19 +1301,27 @@ export function GameProvider({ children }: GameProviderProps) {
                 useGameStore.getState().addCombatSector(data.combat_id, overlaySectorId)
               }
 
-              if (!playerSessionId) {
-                logIgnored("combat.round_waiting", "personalPlayerId not set", data)
-                break
-              }
-              const isParticipant = data.participants?.some(
-                (participant) => participant.id === playerSessionId
-              )
-              if (!isParticipant) {
-                logIgnored("combat.round_waiting", "not a participant", data)
+              const isParticipant =
+                !!playerSessionId &&
+                !!data.participants?.some((participant) => participant.id === playerSessionId)
+              if (isParticipant) {
+                applyCombatRoundWaitingState(useGameStore.getState(), data as CombatSession)
                 break
               }
 
-              applyCombatRoundWaitingState(useGameStore.getState(), data as CombatSession)
+              const corpShipIds = new Set(
+                (useGameStore.getState().ships.data ?? [])
+                  .filter((s) => s.owner_type === "corporation")
+                  .map((s) => s.ship_id)
+              )
+              const hasCorpShipParticipant = data.participants?.some(
+                (p) => p.id && corpShipIds.has(p.id)
+              )
+              if (hasCorpShipParticipant) {
+                applyObservedCombatRoundWaitingState(useGameStore.getState(), data as CombatSession)
+              } else {
+                logIgnored("combat.round_waiting", "not a participant", data)
+              }
               break
             }
 
@@ -1366,6 +1376,15 @@ export function GameProvider({ children }: GameProviderProps) {
               }
 
               syncCorpShipsFromCombatRound(useGameStore.getState(), data as CombatRound)
+
+              // Clean up any observed session for this combat_id (corp ship
+              // observer flow) regardless of personal participation.
+              if (
+                typeof data.combat_id === "string" &&
+                useGameStore.getState().observedCombatSessions[data.combat_id]
+              ) {
+                applyObservedCombatEndedState(useGameStore.getState(), data.combat_id)
+              }
 
               const activeCombatId = useGameStore.getState().activeCombatSession?.combat_id
               const hasPersonalAction =

@@ -3,6 +3,13 @@ import type { StateCreator } from "zustand"
 
 export interface CombatSlice {
   activeCombatSession: CombatSession | null
+  /**
+   * Combats the local player is NOT a participant in but is observing
+   * (e.g. corp ships fighting solo). Keyed by combat_id. Used to power
+   * "in combat" indicators on corp ship cards without polluting the
+   * personal combat UI flow that depends on activeCombatSession.
+   */
+  observedCombatSessions: Record<string, CombatSession>
   combatRounds: CombatRound[]
   combatActionReceipts: CombatActionReceipt[]
   combatHistory: CombatEndedRound[]
@@ -12,6 +19,9 @@ export interface CombatSlice {
 
   setActiveCombatSession: (combatSession: CombatSession | null) => void
   updateActiveCombatSession: (updates: Partial<CombatSession>) => void
+
+  setObservedCombatSession: (combatSession: CombatSession) => void
+  removeObservedCombatSession: (combatId: string) => void
 
   setCombatRounds: (rounds: CombatRound[]) => void
   addCombatRound: (combatRound: CombatRound) => void
@@ -30,6 +40,7 @@ export interface CombatSlice {
 
 export const createCombatSlice: StateCreator<CombatSlice> = (set) => ({
   activeCombatSession: null,
+  observedCombatSessions: {},
   combatRounds: [],
   combatActionReceipts: [],
   combatHistory: [],
@@ -67,6 +78,20 @@ export const createCombatSlice: StateCreator<CombatSlice> = (set) => ({
           ...state.activeCombatSession,
           ...updates,
         }
+      })
+    ),
+
+  setObservedCombatSession: (combatSession: CombatSession) =>
+    set(
+      produce((state: CombatSlice) => {
+        state.observedCombatSessions[combatSession.combat_id] = combatSession
+      })
+    ),
+
+  removeObservedCombatSession: (combatId: string) =>
+    set(
+      produce((state: CombatSlice) => {
+        delete state.observedCombatSessions[combatId]
       })
     ),
 
@@ -166,6 +191,7 @@ export const createCombatSlice: StateCreator<CombatSlice> = (set) => ({
     set(
       produce((state: CombatSlice) => {
         state.activeCombatSession = null
+        state.observedCombatSessions = {}
         state.combatRounds = []
         state.combatActionReceipts = []
         state.combatHistory = []
