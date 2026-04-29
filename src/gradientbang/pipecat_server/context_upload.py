@@ -61,7 +61,7 @@ def upload_context(
         least ``character_id``, ``session_id``, ``snapshot_type``,
         ``s3_key``, ``message_count``, ``snapshot_reason``.
     """
-    cekura_append_context_dump(s3_key, messages)
+    cekura_append_context_dump(messages)
 
     config = _get_config()
     if config is None:

@@ -28,7 +28,7 @@ bot = [
     "pipecat-ai-flows>=0.0.22",
     "boto3>=1.35.0",
     "soundfile>=0.12.0",
-    "cekura[pipecat]==1.2.0rc2",
+    "cekura[pipecat]==1.2.0rc3",
 ]
 
 tracing = ["weave>=0.50"]
