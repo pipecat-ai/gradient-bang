@@ -1,7 +1,12 @@
+import { useEffect, useRef, useState } from "react"
+
 import { AnimatePresence, motion } from "motion/react"
 import { ArrowUpIcon, CircleNotchIcon, ShieldIcon, UserIcon } from "@phosphor-icons/react"
 
+import { PlayerShipCombatMarker } from "@/components/PlayerShipCombatMarker"
+import { ShipCardStat } from "@/components/ShipCardStat"
 import { CreditsIcon, CurrentSectorIcon, FighterIcon, FuelIcon } from "@/icons"
+import useAudioStore from "@/stores/audio"
 import useGameStore from "@/stores/game"
 import { formatCurrency } from "@/utils/formatting"
 import { shipTypeVerbose } from "@/utils/game"
@@ -48,19 +53,41 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
   )
   const isBusy = !!(activeTask || ship.current_task_id)
   const actorName = activeTask?.actor_character_name ?? ship.current_task_actor_name
+  const isInCombat = useGameStore(
+    (state) => state.activeCombatSession?.participants.some((p) => p.id === ship.ship_id) ?? false
+  )
+
+  useEffect(() => {
+    let prev =
+      useGameStore
+        .getState()
+        .activeCombatSession?.participants.some((p) => p.id === ship.ship_id) ?? false
+    return useGameStore.subscribe((state) => {
+      const next =
+        state.activeCombatSession?.participants.some((p) => p.id === ship.ship_id) ?? false
+      if (next && !prev) useAudioStore.getState().playSound("combatChime1")
+      prev = next
+    })
+  }, [ship.ship_id])
+
   return (
-    <div className="uppercase shrink-0 py-2 pb-3.5 flex flex-row gap-2 items-center justify-between">
-      <div className="flex flex-col gap-2 flex-1 min-w-0">
+    <div className="relative isolate uppercase shrink-0 pl-ui-sm py-2 pb-3.5 flex flex-row gap-2 items-center justify-between">
+      <AnimatePresence>
+        {isInCombat && (
+          <PlayerShipCombatMarker className="absolute -left-3 top-0 h-full w-32 z-0 text-warning-background pointer-events-none" />
+        )}
+      </AnimatePresence>
+      <div className="relative z-10 flex flex-col gap-2 flex-1 min-w-0">
         <div className="flex flex-row gap-2 items-center">
           <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
           <div className="text-xxs text-subtle-foreground">{shipTypeVerbose(ship.ship_type)}</div>
         </div>
         <div className="text-sm text-subtle-foreground flex flex-row gap-ui-xxs items-center min-w-0">
-          <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">
+          <Badge variant="secondary" border="elbow" size="sm" className="font-semibold bg-white/7">
             <CurrentSectorIcon weight="duotone" className="size-4" />
             <span className="min-w-9 text-right text-muted-foreground">{ship.sector}</span>
           </Badge>
-          <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">
+          <Badge variant="secondary" border="elbow" size="sm" className="font-semibold bg-white/7">
             <CreditsIcon weight="duotone" className="size-4" />
             <span
               className={cn(
@@ -72,42 +99,45 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
             </span>
           </Badge>
           <DotDivider />
-          <Badge
-            variant={isBusy ? "success" : "secondary"}
-            border="bracket"
-            size="sm"
-            className="font-semibold w-20"
-          >
-            {isBusy ?
-              <>
-                <CircleNotchIcon weight="duotone" size={16} className="animate-spin" /> Active
-              </>
-            : <span className="text-muted-foreground">Inactive</span>}
-          </Badge>
-          <div
-            className={cn(
-              "flex flex-row gap-1 items-center text-xs truncate flex-1 min-w-0 overflow-hidden w-full",
-              isBusy ? "gap-1.5 text-white" : "text-accent-foreground"
-            )}
-          >
-            <UserIcon weight="duotone" className="size-4 shrink-0" />
-            <span className="truncate">{actorName ?? "---"}</span>
-          </div>
+          {isInCombat ?
+            <Badge
+              variant="warning"
+              border="elbow"
+              size="sm"
+              className="animate-pulse font-semibold w-20 border-warning/20 elbow-offset-1 elbow-warning"
+            >
+              In Combat
+            </Badge>
+          : <>
+              <Badge
+                variant={isBusy ? "success" : "secondary"}
+                border="bracket"
+                size="sm"
+                className="font-semibold w-20 "
+              >
+                {isBusy ?
+                  <>
+                    <CircleNotchIcon weight="duotone" size={16} className="animate-spin" /> Active
+                  </>
+                : <span className="text-muted-foreground">Inactive</span>}
+              </Badge>
+              <div
+                className={cn(
+                  "flex flex-row gap-1 items-center text-xs truncate flex-1 min-w-0 overflow-hidden w-full",
+                  isBusy ? "gap-1.5 text-white" : "text-accent-foreground"
+                )}
+              >
+                <UserIcon weight="duotone" className="size-4 shrink-0" />
+                <span className="truncate">{actorName ?? "---"}</span>
+              </div>
+            </>
+          }
         </div>
       </div>
-      <dl className="grid grid-cols-[auto_1fr] text-xxs gap-y-px my-auto">
-        <div className="grid grid-cols-subgrid col-span-2 items-center gap-x-1 py-px pr-ui-xs pl-1 bg-accent-background">
-          <FuelIcon weight="bold" className="size-3 shrink-0" />
-          <dd className="tabular-nums text-right">{ship.warp_power ?? "---"}</dd>
-        </div>
-        <div className="grid grid-cols-subgrid col-span-2 items-center gap-x-1 py-px pr-ui-xs pl-1 bg-accent-background">
-          <FighterIcon weight="bold" className="size-3" />
-          <dd className="tabular-nums text-right">{ship.fighters ?? "---"}</dd>
-        </div>
-        <div className="grid grid-cols-subgrid col-span-2 items-center gap-x-1 py-px pr-ui-xs pl-1 bg-accent-background">
-          <ShieldIcon weight="bold" className="size-3" />
-          <dd className="tabular-nums text-right">{ship.shields ?? "---"}</dd>
-        </div>
+      <dl className="relative z-10 grid grid-cols-[auto_1fr] text-xxs gap-y-px my-auto">
+        <ShipCardStat Icon={FuelIcon} value={ship.warp_power} />
+        <ShipCardStat Icon={FighterIcon} value={ship.fighters} />
+        <ShipCardStat Icon={ShieldIcon} value={ship.shields} />
       </dl>
     </div>
   )
@@ -116,6 +146,10 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
 // Blink keyframes for destroyed ship animation (~5s blink in-place)
 const BLINK_STEPS = 10
 const blinkOpacity = Array.from({ length: BLINK_STEPS }, (_, i) => (i % 2 === 0 ? 1 : 0.15))
+
+// Three-blink attention keyframes used when a ship enters combat.
+const combatBlinkOpacity = [1, 0.15, 1, 0.15, 1, 0.15, 1]
+const COMBAT_BLINK_DURATION_S = 1.0
 
 const exitTransition = {
   height: { duration: 0.3, ease: "easeInOut" as const },
@@ -136,6 +170,64 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
     (s) => s.owner_type === "corporation" && destroyingShipIds.includes(s.ship_id)
   )
   const corpShips = [...animatingShips, ...activeCorpShips]
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const prevActiveCountRef = useRef(activeCorpShips.length)
+  const prevDestroyingIdsRef = useRef<string[]>(destroyingShipIds)
+  const [combatEnteredShipIds, setCombatEnteredShipIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (activeCorpShips.length > prevActiveCountRef.current && corpShips.length > 3) {
+      const timer = setTimeout(() => {
+        const el = scrollRef.current
+        if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+      }, 350)
+      prevActiveCountRef.current = activeCorpShips.length
+      return () => clearTimeout(timer)
+    }
+    prevActiveCountRef.current = activeCorpShips.length
+  }, [activeCorpShips.length, corpShips.length])
+
+  useEffect(() => {
+    const newId = destroyingShipIds.find((id) => !prevDestroyingIdsRef.current.includes(id))
+    prevDestroyingIdsRef.current = destroyingShipIds
+    if (!newId || corpShips.length <= 3) return
+    const el = scrollRef.current?.querySelector(`[data-ship-id="${newId}"]`)
+    el?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [destroyingShipIds, corpShips.length])
+
+  useEffect(() => {
+    const getParticipantIds = (state: ReturnType<typeof useGameStore.getState>) =>
+      new Set(
+        (state.activeCombatSession?.participants ?? [])
+          .map((p) => p.id)
+          .filter((id): id is string => !!id)
+      )
+    let prevIds = getParticipantIds(useGameStore.getState())
+    return useGameStore.subscribe((state) => {
+      const currentIds = getParticipantIds(state)
+      const corpShipIds = new Set(
+        (state.ships.data ?? []).filter((s) => s.owner_type === "corporation").map((s) => s.ship_id)
+      )
+      const totalCorpCount = corpShipIds.size
+      for (const id of currentIds) {
+        if (prevIds.has(id) || !corpShipIds.has(id)) continue
+        if (totalCorpCount > 3) {
+          const el = scrollRef.current?.querySelector(`[data-ship-id="${id}"]`)
+          el?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+        }
+        setCombatEnteredShipIds((prev) => new Set(prev).add(id))
+        setTimeout(() => {
+          setCombatEnteredShipIds((prev) => {
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          })
+        }, COMBAT_BLINK_DURATION_S * 1000)
+      }
+      prevIds = currentIds
+    })
+  }, [])
 
   return (
     <motion.div
@@ -181,13 +273,18 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
               <div className="relative flex flex-row gap-panel-gap px-0 py-panel-gap shrink-0">
                 <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert text-card pointer-events-none" />
                 <div className="w-2 dashed-bg-vertical-tight dashed-bg-muted ml-panel-gap"></div>
-                <div className="bg-subtle-background border border-r-0 pl-3 flex-1 overflow-y-scroll overflow-x-hidden max-h-40 @tall-lg:max-h-59 tall-lg:max-h-[23rem] pb-12">
+                <div
+                  ref={scrollRef}
+                  className="bg-subtle-background border border-r-0 flex-1 overflow-y-scroll overflow-x-hidden max-h-40 @tall-lg:max-h-59 tall-lg:max-h-[23rem] pb-12"
+                >
                   <AnimatePresence initial={false}>
                     {corpShips.map((ship) => {
                       const isDestroying = destroyingShipIds.includes(ship.ship_id)
+                      const isCombatBlinking = combatEnteredShipIds.has(ship.ship_id)
                       return (
                         <motion.div
                           key={ship.ship_id}
+                          data-ship-id={ship.ship_id}
                           initial={{ height: 0, x: 40, opacity: 0 }}
                           animate={
                             isDestroying ?
@@ -197,6 +294,18 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
                                 opacity: [...blinkOpacity, 0],
                                 transition: {
                                   opacity: { duration: 5.5, ease: "linear" as const },
+                                },
+                              }
+                            : isCombatBlinking ?
+                              {
+                                height: "auto",
+                                x: 0,
+                                opacity: combatBlinkOpacity,
+                                transition: {
+                                  opacity: {
+                                    duration: COMBAT_BLINK_DURATION_S,
+                                    ease: "linear" as const,
+                                  },
                                 },
                               }
                             : { height: "auto", x: 0, opacity: 1 }
@@ -213,7 +322,7 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
                             }
                           }}
                           transition={exitTransition}
-                          className="relative shadow-[inset_0_-1px_0_0_var(--border)] last:shadow-none overflow-hidden"
+                          className="relative overflow-hidden after:content-[''] after:absolute after:bottom-0 after:left-ui-sm after:right-0 after:h-px after:bg-white/20 last:after:hidden"
                         >
                           <ShipCard ship={ship} />
                           <motion.div

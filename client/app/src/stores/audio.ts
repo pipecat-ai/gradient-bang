@@ -26,6 +26,7 @@ const soundTypes: Record<SoundName, SoundType> = {
   enter: "fx",
   enterCombat: "fx",
   message: "fx",
+  combatChime1: "fx",
   chime1: "fx",
   chime2: "fx",
   chime3: "fx",
