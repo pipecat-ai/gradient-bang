@@ -265,54 +265,43 @@ Deno.test({
     let firstCombatId = "";
 
     await t.step(
-      "reset, deploy toll garrison, P1 fights and flees so combat ends",
+      "reset, deploy offensive garrison, drive combat to P1 destruction",
       async () => {
         await resetDatabase([P1, P2, P3]);
         await apiOk("join", { character_id: p1Id });
         await apiOk("join", { character_id: p2Id });
         await apiOk("join", { character_id: p3Id });
-        await insertGarrisonDirect(3, p3Id, 400, "toll", 500, 0);
+        // Offensive garrison attacks every round; P1 with very few fighters
+        // gets destroyed quickly so combat reliably ends with P1_destroyed
+        // (no toll dance, no probabilistic flee).
+        await insertGarrisonDirect(3, p3Id, 400, "offensive", 0, 0);
 
-        await setShipFighters(p1ShipId, 300);
-        await setShipShields(p1ShipId, 200);
+        await setShipFighters(p1ShipId, 5);
+        await setShipShields(p1ShipId, 0);
         await setShipSector(p1ShipId, 1);
         await apiOk("move", { character_id: p1Id, to_sector: 3 });
 
         const state = (await queryCombatState(3)) as Record<string, unknown>;
         firstCombatId = state.combat_id as string;
 
-        // Drive P1 to flee. We can't simulate flee perfectly here without a
-        // lot of scaffolding, so instead force-end the combat by setting
-        // ended=true directly via a tick-driven loop with brace timeouts.
-        // After enough timeouts, the toll garrison defeats P1 OR escalates
-        // into combat that resolves. For test stability, we just attempt
-        // to flee.
-        const flee = await api("combat_action", {
-          character_id: p1Id,
-          combat_id: firstCombatId,
-          action: "flee",
-          to_sector: 1,
-        });
-        assertEquals(flee.status, 200);
-        // Resolve the round — flee succeeds, combat ends with P1_fled
-        // (P1 is the only attacker; toll standdown empties hostiles).
-        await expireCombatDeadline(3);
-        await apiOk("combat_tick", {});
+        // Drive ticks until combat ends or we hit a safety cap.
+        for (let i = 0; i < 10; i++) {
+          const cur = (await queryCombatState(3)) as Record<string, unknown>;
+          if (!cur || cur.ended === true) break;
+          await expireCombatDeadline(3);
+          await apiOk("combat_tick", {});
+        }
       },
     );
 
-    await t.step("combat blob shows ended=true after P1 fled", async () => {
+    await t.step("combat blob shows ended=true after destruction", async () => {
       const state = await queryCombatState(3);
-      // Encounter blob may persist with ended=true or be cleared depending
-      // on the resolution path. Either way is acceptable input for the
-      // ended-blob-restart case.
-      if (state) {
-        assertEquals(
-          (state as Record<string, unknown>).ended,
-          true,
-          "Prior combat must be ended",
-        );
-      }
+      assertExists(state, "Encounter blob still in sector");
+      assertEquals(
+        (state as Record<string, unknown>).ended,
+        true,
+        "Prior combat must be ended",
+      );
     });
 
     await t.step(

@@ -169,7 +169,14 @@ export async function ejectDestroyedFromCombat(params: {
       // lose the salvage entry (in-memory only) or, with stale
       // salvage_captured=false, capture again and duplicate the entry.
       if (captured) {
-        await persistCombatState(supabase, encounter);
+        // Use OCC: pass the current last_updated as the fence so a
+        // concurrent external writer (a join arriving mid-resolve) is
+        // detected. persistCombatState updates encounter.last_updated
+        // in-place after a successful write so the subsequent persist
+        // at the end of resolveEncounterRound composes correctly.
+        await persistCombatState(supabase, encounter, {
+          expectedLastUpdated: encounter.last_updated,
+        });
       }
 
       // 2. Apply destruction to canonical tables. For player ships this is
@@ -562,8 +569,12 @@ async function handleDefeatedCharacter(
   // zeroes the cargo. Without this, a crash here would leave the ship
   // converted (cargo gone) but no salvage entry persisted — and on retry
   // the (now-zero-cargo) ship would yield nothing to capture.
+  // Pass the current last_updated as the OCC fence so the chain composes
+  // with the surrounding resolveEncounterRound's CAS at exit.
   if (salvage) {
-    await persistCombatState(supabase, encounter);
+    await persistCombatState(supabase, encounter, {
+      expectedLastUpdated: encounter.last_updated,
+    });
   }
 
   const shipDestroyedEvent: ShipDestroyedEventData = {

@@ -41,7 +41,10 @@ import {
   CombatRoundOutcome,
   RoundActionState,
 } from "./combat_types.ts";
-import { persistCombatState } from "./combat_state.ts";
+import {
+  CombatStateConflictError,
+  persistCombatState,
+} from "./combat_state.ts";
 import { buildCorporationMap } from "./friendly.ts";
 
 const ROUND_TIMEOUT_SECONDS = Number(
@@ -63,6 +66,15 @@ export async function resolveEncounterRound(options: {
 }): Promise<void> {
   const { supabase, encounter, requestId } = options;
   const sourceName = options.source ?? "combat.resolution";
+
+  // OCC fence at exit: the final persistCombatState compares against
+  // `encounter.last_updated` AS IT IS at the time of that call. Each
+  // internal persist (eject's mid-round salvage capture, finalize's
+  // per-defeat salvage capture) updates `encounter.last_updated` in-place
+  // on success, so the fence chains forward through them. An external
+  // concurrent writer (a join arriving mid-resolve, a peer combat_action)
+  // bumping the row's last_updated between any of our writes is what
+  // triggers CombatStateConflictError below.
 
   const corpMap = buildCorporationMap(encounter);
   const timeoutActions = buildTimeoutActions(encounter);
@@ -367,7 +379,28 @@ export async function resolveEncounterRound(options: {
     });
   }
 
-  await persistCombatState(supabase, encounter);
+  try {
+    await persistCombatState(supabase, encounter, {
+      expectedLastUpdated: encounter.last_updated,
+    });
+  } catch (err) {
+    if (err instanceof CombatStateConflictError) {
+      // A concurrent writer mutated the combat blob between this round's
+      // load and write. Events fired during resolution describe a state
+      // that didn't atomically commit; the next combat_tick run will
+      // re-read the post-conflict state and resolve from there. Logged
+      // (not re-thrown) so combat_tick's batch loop continues to the
+      // next encounter.
+      console.warn("combat_resolution.cas_conflict", {
+        combat_id: encounter.combat_id,
+        sector_id: encounter.sector_id,
+        round: encounter.round,
+        source: sourceName,
+      });
+      return;
+    }
+    throw err;
+  }
 }
 
 /**

@@ -34,6 +34,7 @@ import {
 import { nowIso, CombatEncounterState } from "../_shared/combat_types.ts";
 import { getEffectiveCorporationId } from "../_shared/corporations.ts";
 import {
+  CombatStateConflictError,
   loadCombatForSector,
   persistCombatState,
 } from "../_shared/combat_state.ts";
@@ -222,6 +223,13 @@ async function handleCombatInitiate(params: {
   }
 
   const existingEncounter = await loadCombatForSector(supabase, sectorId);
+  // OCC fence — only meaningful when we'll be RMW'ing an existing
+  // encounter below. Captured here so the value reflects load time, not
+  // post-mutation. Undefined when there's no existing encounter (the
+  // fresh-create path doesn't need CAS).
+  const expectedLastUpdated = existingEncounter
+    ? existingEncounter.last_updated
+    : undefined;
   const participantStates = await loadCharacterCombatants(supabase, sectorId);
   const ownerNames = await loadCharacterNames(
     supabase,
@@ -379,7 +387,23 @@ async function handleCombatInitiate(params: {
     };
   }
 
-  await persistCombatState(supabase, encounter);
+  // OCC: when we loaded an existing encounter, compare-and-swap the persist
+  // so a concurrent join / tick / peer action can't clobber. The fresh-
+  // create path passes undefined → plain UPDATE (no CAS needed; nothing to
+  // race against on a row whose `combat` column was previously null or
+  // ended). On conflict, throw 409 so the client retries with fresh state.
+  try {
+    await persistCombatState(supabase, encounter, { expectedLastUpdated });
+  } catch (err) {
+    if (err instanceof CombatStateConflictError) {
+      const conflictErr = new Error(
+        "Combat state changed during initiation; resubmit.",
+      ) as Error & { status?: number };
+      conflictErr.status = 409;
+      throw conflictErr;
+    }
+    throw err;
+  }
   await emitRoundWaitingEvents(
     supabase,
     encounter,

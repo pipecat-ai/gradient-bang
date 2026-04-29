@@ -22,7 +22,11 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
-import { loadCombatById, persistCombatState } from "../_shared/combat_state.ts";
+import {
+  CombatStateConflictError,
+  loadCombatById,
+  persistCombatState,
+} from "../_shared/combat_state.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
@@ -206,6 +210,11 @@ async function handleCombatAction(params: {
     err.status = 404;
     throw err;
   }
+  // OCC fence captured at load — both the non-resolving persist below and
+  // resolveEncounterRound (when the round resolves here) compare-and-swap
+  // against this. Concurrent join / tick / peer action writes between this
+  // load and our write will fail the CAS instead of clobbering.
+  const expectedLastUpdated = encounter.last_updated;
 
   // Validate round hint if provided
   if (roundHint !== null && encounter.round !== roundHint) {
@@ -318,7 +327,18 @@ async function handleCombatAction(params: {
     });
   } else {
     encounter.deadline = encounter.deadline ?? computeNextCombatDeadline();
-    await persistCombatState(supabase, encounter);
+    try {
+      await persistCombatState(supabase, encounter, { expectedLastUpdated });
+    } catch (err) {
+      if (err instanceof CombatStateConflictError) {
+        const conflictErr = new Error(
+          "Combat state changed during action submission; resubmit.",
+        ) as Error & { status?: number };
+        conflictErr.status = 409;
+        throw conflictErr;
+      }
+      throw err;
+    }
   }
 
   return successResponse({ success: true, combat_id: encounter.combat_id });

@@ -16,7 +16,11 @@ import {
 } from "./combat_participants.ts";
 import { areFriendlyFromMeta, buildCorporationMap } from "./friendly.ts";
 import { getEffectiveCorporationId } from "./corporations.ts";
-import { loadCombatForSector, persistCombatState } from "./combat_state.ts";
+import {
+  CombatStateConflictError,
+  loadCombatForSector,
+  persistCombatState,
+} from "./combat_state.ts";
 import type { WeaveSpan } from "./weave.ts";
 import {
   nowIso,
@@ -205,7 +209,12 @@ export async function checkGarrisonAutoEngage(params: {
     return false;
   }
 
-  // Initiate combat automatically
+  // Initiate combat automatically. Pass the loaded encounter's
+  // last_updated (or null if no row) as the OCC fence — the persist below
+  // uses CAS to detect a concurrent writer that beat us to creating
+  // combat in this sector. On conflict initiateGarrisonCombat just logs
+  // and bails; the next move arrival will see the now-active combat and
+  // join via joinExistingCombat instead.
   const sInitiate = ws.span("initiate_garrison_combat");
   await initiateGarrisonCombat({
     supabase,
@@ -214,6 +223,9 @@ export async function checkGarrisonAutoEngage(params: {
     participantStates,
     garrisons,
     requestId,
+    expectedLastUpdated: existingEncounter
+      ? existingEncounter.last_updated
+      : null,
   });
   sInitiate.end();
 
@@ -227,6 +239,8 @@ async function initiateGarrisonCombat(params: {
   participantStates: CombatantState[];
   garrisons: Array<{ state: CombatantState; source: unknown }>;
   requestId: string;
+  /** OCC fence captured at load — null when no prior combat row, last_updated of the prior (ended) encounter otherwise. */
+  expectedLastUpdated?: string | null;
 }): Promise<void> {
   const {
     supabase,
@@ -235,6 +249,7 @@ async function initiateGarrisonCombat(params: {
     participantStates,
     garrisons,
     requestId,
+    expectedLastUpdated,
   } = params;
 
   // Build participants map. All initial participants get joined_round = 1
@@ -300,7 +315,23 @@ async function initiateGarrisonCombat(params: {
     last_updated: nowIso(),
   };
 
-  await persistCombatState(supabase, encounter);
+  // CAS-protect against a concurrent writer (peer arrival, combat_initiate)
+  // creating combat in this sector between our load and our write. On
+  // conflict, log + bail — caller (`checkGarrisonAutoEngage`) returns true
+  // upstream, but no combat events fire from this path. The losing
+  // arrival is in the sector but not in the new winning combat; their
+  // next action / arrival will route through `joinExistingCombat`.
+  try {
+    await persistCombatState(supabase, encounter, { expectedLastUpdated });
+  } catch (err) {
+    if (err instanceof CombatStateConflictError) {
+      console.warn("garrison_combat.initiate.cas_conflict", {
+        sector_id: sectorId,
+      });
+      return;
+    }
+    throw err;
+  }
   // Initial round_waiting #1 marks every starting participant as just_joined
   // (they all "joined" at this round) so the LLM-facing XML annotates each
   // with `(joined encounter)` exactly once. Subsequent rounds drop the flag.
@@ -366,15 +397,18 @@ async function emitRoundWaitingEvents(
  * Mid-encounter join: a hostile ship just arrived in a sector with an
  * active (`!ended`) combat encounter. Build a CombatantState for them,
  * inject into encounter.participants with joined_round = encounter.round,
- * persist, and emit a reinforcement round_waiting tagged with
- * `extension_reason: { type: "joined", joiner_name }`.
+ * persist via OCC, and emit a reinforcement round_waiting tagged with
+ * `extension_reason: { type: "joined", ... }`.
  *
  * Returns true if the ship joined, false otherwise (already a participant,
- * friendly to all active combatants, escape pod, etc.).
+ * friendly to all active combatants, escape pod, encounter ended in a
+ * concurrent write, etc.).
  *
- * The caller is responsible for serializing read-modify-write on the
- * sector's combat blob via a postgres advisory lock — this helper does the
- * mutation but not the locking.
+ * Concurrency: the persist is compare-and-swap on `encounter.last_updated`.
+ * If a concurrent writer (combat_tick / combat_action / another join)
+ * mutated the blob between our load and our write, the CAS fails and we
+ * re-load + re-evaluate up to MAX_RETRIES times. Event emission is
+ * deferred until after the successful persist so retries never double-emit.
  */
 export async function joinExistingCombat(params: {
   supabase: SupabaseClient;
@@ -384,104 +418,124 @@ export async function joinExistingCombat(params: {
   character: CharacterRow;
   requestId: string;
 }): Promise<boolean> {
-  const { supabase, encounter, characterId, ship, character, requestId } =
-    params;
-
-  // Already a participant (idempotent re-entry, e.g. fled-then-returned, or
-  // a duplicate request). Skip without resetting their state.
-  if (encounter.participants[characterId]) return false;
+  const { supabase, characterId, ship, character, requestId } = params;
+  let encounter: CombatEncounterState | null = params.encounter;
 
   // Escape pods can't combat. ship_type is the source of truth for this on
   // ShipRow; the bool flag on ShipRecord is just a convenience mirror.
+  // Cheap up-front check — bail before any DB round-trips.
   if (ship.ship_type === "escape_pod") return false;
 
-  // Build the new participant. The build helper handles current_ship_id
-  // mismatches and missing definitions and returns null when the ship
-  // can't legitimately be a participant.
-  const newParticipant = await buildCharacterCombatant(
-    supabase,
-    {
-      ship_id: ship.ship_id,
-      ship_type: ship.ship_type,
-      ship_name: ship.ship_name ?? null,
-      current_sector: ship.current_sector ?? encounter.sector_id,
-      current_fighters: ship.current_fighters ?? 0,
-      current_shields: ship.current_shields ?? 0,
-      in_hyperspace: false,
-      owner_character_id: ship.owner_character_id ?? null,
-      owner_type: ship.owner_type ?? "character",
-      owner_corporation_id: ship.owner_corporation_id ?? null,
-      is_escape_pod: ship.ship_type === "escape_pod",
-    },
-    {
-      character_id: character.character_id,
-      name: character.name,
-      corporation_id: character.corporation_id ?? null,
-      current_ship_id: character.current_ship_id ?? null,
-      first_visit: character.first_visit ?? null,
-    },
-  );
-  if (!newParticipant) return false;
-  newParticipant.joined_round = encounter.round;
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (!encounter) return false;
+    if (encounter.ended) return false;
+    if (encounter.participants[characterId]) return false;
 
-  // Hostility check — at least one ACTIVE participant must be hostile to
-  // the new arrival. Active = combatant_type=garrison with fighters>0, OR
-  // character with fighters>0 AND not destruction_handled AND not has_fled.
-  // Build the corp map from existing participants and append the new
-  // arrival's metadata so areFriendlyFromMeta can read both sides.
-  const corps = buildCorporationMap(encounter);
-  const newKey =
-    newParticipant.owner_character_id ?? newParticipant.combatant_id;
-  const newCorpId =
-    typeof newParticipant.metadata?.corporation_id === "string"
-      ? (newParticipant.metadata.corporation_id as string)
-      : null;
-  corps.set(newKey, newCorpId);
+    // Build the new participant. The build helper handles current_ship_id
+    // mismatches and missing definitions and returns null when the ship
+    // can't legitimately be a participant.
+    const newParticipant = await buildCharacterCombatant(
+      supabase,
+      {
+        ship_id: ship.ship_id,
+        ship_type: ship.ship_type,
+        ship_name: ship.ship_name ?? null,
+        current_sector: ship.current_sector ?? encounter.sector_id,
+        current_fighters: ship.current_fighters ?? 0,
+        current_shields: ship.current_shields ?? 0,
+        in_hyperspace: false,
+        owner_character_id: ship.owner_character_id ?? null,
+        owner_type: ship.owner_type ?? "character",
+        owner_corporation_id: ship.owner_corporation_id ?? null,
+        is_escape_pod: ship.ship_type === "escape_pod",
+      },
+      {
+        character_id: character.character_id,
+        name: character.name,
+        corporation_id: character.corporation_id ?? null,
+        current_ship_id: character.current_ship_id ?? null,
+        first_visit: character.first_visit ?? null,
+      },
+    );
+    if (!newParticipant) return false;
+    newParticipant.joined_round = encounter.round;
 
-  let hasHostile = false;
-  for (const existing of Object.values(encounter.participants)) {
-    if ((existing.fighters ?? 0) <= 0) continue;
-    if (existing.destruction_handled) continue;
-    if (existing.has_fled) continue;
-    if (!areFriendlyFromMeta(corps, newParticipant, existing)) {
-      hasHostile = true;
-      break;
+    // Hostility check — at least one ACTIVE participant must be hostile to
+    // the new arrival. Active = garrison with fighters>0, OR character with
+    // fighters>0 AND not destruction_handled AND not has_fled.
+    const corps = buildCorporationMap(encounter);
+    const newKey =
+      newParticipant.owner_character_id ?? newParticipant.combatant_id;
+    const newCorpId =
+      typeof newParticipant.metadata?.corporation_id === "string"
+        ? (newParticipant.metadata.corporation_id as string)
+        : null;
+    corps.set(newKey, newCorpId);
+
+    let hasHostile = false;
+    for (const existing of Object.values(encounter.participants)) {
+      if ((existing.fighters ?? 0) <= 0) continue;
+      if (existing.destruction_handled) continue;
+      if (existing.has_fled) continue;
+      if (!areFriendlyFromMeta(corps, newParticipant, existing)) {
+        hasHostile = true;
+        break;
+      }
     }
+    if (!hasHostile) return false;
+
+    // Capture the OCC fence value BEFORE any in-memory mutation. The CAS
+    // below succeeds only if the row's last_updated still matches this.
+    const expectedLastUpdated = encounter.last_updated;
+
+    // Inject and persist. No pending_actions entry — engine defaults
+    // missing entries to brace for the current round; the joiner can
+    // submit combat_action for round N+1.
+    encounter.participants[newParticipant.combatant_id] = newParticipant;
+
+    try {
+      await persistCombatState(supabase, encounter, { expectedLastUpdated });
+    } catch (err) {
+      if (err instanceof CombatStateConflictError) {
+        console.warn("garrison_combat.join.cas_conflict", {
+          sector_id: encounter.sector_id,
+          attempt,
+        });
+        // Re-load and retry. A concurrent writer (tick / action / another
+        // join) wrote between our load and our write. The fresh load may
+        // show the encounter has ended, in which case the loop bails on
+        // the next iteration.
+        encounter = await loadCombatForSector(supabase, params.encounter.sector_id);
+        continue;
+      }
+      throw err;
+    }
+
+    // Persist committed — now safe to emit events. Deferring until here
+    // means a retry on conflict never produces a duplicate emission.
+    await emitRoundWaitingEvents(
+      supabase,
+      encounter,
+      requestId,
+      {
+        type: "joined",
+        joiners: [
+          {
+            combatant_id: newParticipant.combatant_id,
+            name: newParticipant.name,
+          },
+        ],
+      },
+      new Set([newParticipant.combatant_id]),
+    );
+
+    return true;
   }
-  if (!hasHostile) return false;
 
-  // Inject and persist. No pending_actions entry — engine defaults missing
-  // entries to brace for the current round; the joiner can submit
-  // combat_action for round N+1.
-  encounter.participants[newParticipant.combatant_id] = newParticipant;
-  encounter.last_updated = nowIso();
-
-  await persistCombatState(supabase, encounter);
-
-  // Emit reinforcement round_waiting. The payload's extension_reason +
-  // per-participant just_joined flag together let observers and the LLM
-  // narrate "combat extended by reinforcement <name>". The joiners array
-  // is one element here — the join helper handles a single arrival per
-  // call — but the field is array-shaped so a future coalesced multi-
-  // arrival path can list more without breaking consumers.
-  // justJoinedIds is the singleton set of the new arrival — existing
-  // participants must NOT carry just_joined on this event (they were
-  // already announced when they themselves first appeared).
-  await emitRoundWaitingEvents(
-    supabase,
-    encounter,
-    requestId,
-    {
-      type: "joined",
-      joiners: [
-        {
-          combatant_id: newParticipant.combatant_id,
-          name: newParticipant.name,
-        },
-      ],
-    },
-    new Set([newParticipant.combatant_id]),
-  );
-
-  return true;
+  console.warn("garrison_combat.join.max_retries", {
+    sector_id: params.encounter.sector_id,
+    character_id: characterId,
+  });
+  return false;
 }

@@ -847,13 +847,11 @@ async function completeMovement({
     //    the REST mirror at garrison_combat.ts:90-92, so initiateGarrisonCombat
     //    starts a fresh combat (new combat_id) over the dead blob.
     //
-    // KNOWN race (TODO: optimistic concurrency on `combat.last_updated`):
-    // combat_tick / combat_action / combat_initiate read-modify-write the
-    // same `sector_contents.combat` blob via the supabase REST client, on
-    // different connections. Without OCC, a tick resolution overlapping a
-    // move arrival can clobber the joiner (or vice versa). Rare in practice
-    // — the window is the few-ms while resolveEncounterRound runs — but
-    // worth fixing as a follow-up if seen in production.
+    // Concurrency: joinExistingCombat uses OCC (compare-and-swap on
+    // `encounter.last_updated`) and retries on conflict, so a tick or
+    // peer arrival landing between this load and write doesn't clobber
+    // the joiner. See `cas_update_combat` migration + persistCombatState's
+    // expectedLastUpdated path.
     const sGarrison = ws.span("garrison_auto_engage");
     try {
       const existingEncounter = await loadCombatForSector(supabase, destination);
