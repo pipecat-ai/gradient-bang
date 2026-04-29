@@ -34,12 +34,14 @@ export interface CombatantState {
   // conversion + corp cleanup succeed, leaving a window where salvage could
   // be re-captured.
   salvage_captured?: boolean;
-  // The encounter.round at which this participant joined. Set at
-  // combat_initiate / garrison-auto-engage / mid-encounter join. Event
-  // payload formatters compare this against the live encounter.round to
-  // compute a one-shot `just_joined` flag for participants that newly
-  // appeared this round, so the LLM-facing XML can mark them with
-  // "(joined encounter)" exactly once.
+  // The encounter.round at which this participant joined mid-encounter.
+  // Set ONLY by joinExistingCombat and combat_initiate's existing-
+  // encounter branch — initial combatants from a fresh encounter do NOT
+  // have this set. combat_action and the round-ready gate read this to
+  // lock joiners out of submitting / resolving in their join round; they
+  // brace by default and become full participants from round N+1.
+  // The `just_joined` flag on event payloads is computed from an explicit
+  // Set passed to the payload builder, not from this field.
   joined_round?: number;
 }
 

@@ -427,21 +427,41 @@ export async function joinExistingCombat(params: {
   if (ship.ship_type === "escape_pod") return false;
 
   const MAX_RETRIES = 3;
+  // Resolution-lock backoff. resolveEncounterRound typically runs in
+  // <500ms but the worst non-pathological case is a few seconds. Bailing
+  // immediately would silently drop the joiner — move's auto-engage
+  // fallback also no-ops while combat is active, so they end up in the
+  // sector but not in the encounter with no later retry hook. Wait
+  // ~1s in 200ms slices, then bail with a warn if the lock outlives that.
+  // Stale markers (older than RESOLVING_LOCK_TTL_MS) are treated as
+  // released by isResolvingLockHeld, so this loop won't spin on crash
+  // residue.
+  const RESOLVING_RETRY_DELAY_MS = 200;
+  const MAX_RESOLVING_WAITS = 5;
+  let resolvingWaits = 0;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     if (!encounter) return false;
     if (encounter.ended) return false;
     if (encounter.participants[characterId]) return false;
-    // Active resolution lock — bail rather than slip a participant into
-    // the encounter while resolveEncounterRound is mid-flight (would land
-    // canonical writes / events from the pre-join participant set, then
-    // our persist would change the membership the next-tick run starts
-    // from). Stale marker (older than TTL) is ignored.
     if (isResolvingLockHeld(encounter)) {
-      console.warn("garrison_combat.join.bailed_on_resolving_lock", {
-        sector_id: encounter.sector_id,
-        character_id: characterId,
-      });
-      return false;
+      if (resolvingWaits >= MAX_RESOLVING_WAITS) {
+        console.warn("garrison_combat.join.resolving_lock_persisted", {
+          sector_id: encounter.sector_id,
+          character_id: characterId,
+          waits: resolvingWaits,
+        });
+        return false;
+      }
+      resolvingWaits++;
+      await new Promise((resolve) =>
+        setTimeout(resolve, RESOLVING_RETRY_DELAY_MS),
+      );
+      encounter = await loadCombatForSector(
+        supabase,
+        params.encounter.sector_id,
+      );
+      attempt--;
+      continue;
     }
 
     // Build the new participant. The build helper handles current_ship_id

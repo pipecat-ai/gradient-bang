@@ -35,6 +35,7 @@ import { nowIso, CombatEncounterState } from "../_shared/combat_types.ts";
 import { getEffectiveCorporationId } from "../_shared/corporations.ts";
 import {
   CombatStateConflictError,
+  isResolvingLockHeld,
   loadCombatForSector,
   persistCombatState,
 } from "../_shared/combat_state.ts";
@@ -223,6 +224,24 @@ async function handleCombatInitiate(params: {
   }
 
   const existingEncounter = await loadCombatForSector(supabase, sectorId);
+  // Resolution lock — combat_tick's resolveEncounterRound stamps
+  // resolving_started_at on entry under CAS and clears it at exit.
+  // Mutating the encounter while that's in flight would land canonical
+  // writes / events from the pre-mutation participant set followed by a
+  // persist that swaps membership underneath the next-tick run. Bail
+  // with 409 and let the client retry once resolution completes (or the
+  // 30s TTL ages it out as crash residue).
+  if (
+    existingEncounter &&
+    !existingEncounter.ended &&
+    isResolvingLockHeld(existingEncounter)
+  ) {
+    const err = new Error(
+      "Combat is currently resolving; retry shortly.",
+    ) as Error & { status?: number };
+    err.status = 409;
+    throw err;
+  }
   // OCC fence — captured at load time so the CAS below detects any
   // concurrent writer. For the fresh-create case (no existing encounter)
   // we pass `null` rather than `undefined`: the cas_update_combat SQL
@@ -387,11 +406,13 @@ async function handleCombatInitiate(params: {
     };
   }
 
-  // OCC: when we loaded an existing encounter, compare-and-swap the persist
-  // so a concurrent join / tick / peer action can't clobber. The fresh-
-  // create path passes undefined → plain UPDATE (no CAS needed; nothing to
-  // race against on a row whose `combat` column was previously null or
-  // ended). On conflict, throw 409 so the client retries with fresh state.
+  // OCC: every persist goes through compare-and-swap so a concurrent join
+  // / tick / peer action can't clobber. Existing-encounter path CASes on
+  // the loaded encounter's last_updated; fresh-create path CASes on
+  // `null` (cas_update_combat uses IS NOT DISTINCT FROM, so NULL expected
+  // matches a currently-null `combat` column AND fails when a peer raced
+  // us to create combat first). On conflict, throw 409 so the client
+  // retries with fresh state.
   try {
     await persistCombatState(supabase, encounter, { expectedLastUpdated });
   } catch (err) {
