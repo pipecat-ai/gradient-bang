@@ -1036,7 +1036,11 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
         task_scoped_allowlisted=True,
         voice_summary=_summarize_chat,
     ),
-    "ship.renamed": EventConfig(inference=InferenceRule.ALWAYS, corp_scope_if_own_action=True),
+    # rename_ship is a direct-response VoiceAgent tool — the tool result already
+    # triggers the spoken acknowledgment, so appending the server-echoed event
+    # would fire a redundant second inference (double-speak). Same pattern as
+    # ports.list and corporation.invite_code_regenerated.
+    "ship.renamed": EventConfig(append=AppendRule.NEVER),
     # Voice-agent inference only — when a TaskAgent action completes a quest
     # step, on_task_response already triggers inference with run_llm=True.
     # Using ALWAYS here would double-fire (same pattern as task.finish).
