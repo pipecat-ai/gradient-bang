@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-30
+
 ### Added
 
 - Combat round outcomes are now persisted to `ship_instances` after every round, not just at end of combat — DB-sourced reads (`my_corporation`, `corporation_info`, `status.update`, voice/task tools) reflect live fighter and shield counts during a fight instead of pre-combat values
