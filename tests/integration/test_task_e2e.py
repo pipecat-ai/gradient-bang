@@ -891,64 +891,6 @@ class TestInferenceCoalescingE2E:
         finally:
             await h.stop()
 
-    async def test_task_completion_waits_for_spoken_turn_and_cooldown(self, monkeypatch):
-        """Task completion waits for the prior spoken turn to finish before injection."""
-        import gradientbang.pipecat_server.subagents.voice_agent as voice_agent_module
-        from gradientbang.subagents.agents import TaskStatus
-        from gradientbang.subagents.bus.messages import BusTaskResponseMessage
-
-        h = E2EHarness(self.character_id, self.api, self.make_game_client)
-        await h.start()
-        try:
-            await h.join_game()
-            monkeypatch.setattr(voice_agent_module, "TASK_RESPONSE_COOLDOWN_SECONDS", 0.05)
-            monkeypatch.setattr(
-                voice_agent_module,
-                "TASK_RESPONSE_SPEECH_START_GRACE_SECONDS",
-                1.0,
-            )
-
-            h.voice_agent._task_output_handler = AsyncMock()
-            h.voice_agent.send_message = AsyncMock()
-            h.voice_agent._update_polling_scope = MagicMock()
-            h.voice_agent._queue_task_completion_event = AsyncMock()
-
-            child = MagicMock()
-            child.name = "task_abc123"
-            child._is_corp_ship = False
-            child._game_client = h.voice_agent._game_client
-            h.voice_agent._children = [child]
-
-            h.voice_agent._handle_llm_response_started()
-            h.voice_agent._handle_llm_response_ended()
-
-            response_task = asyncio.create_task(
-                h.voice_agent.on_task_response(
-                    BusTaskResponseMessage(
-                        source=child.name,
-                        task_id="tid-1",
-                        status=TaskStatus.COMPLETED,
-                        response={"message": "Task done"},
-                    )
-                )
-            )
-            await asyncio.sleep(0.01)
-            h.voice_agent._queue_task_completion_event.assert_not_awaited()
-
-            h.voice_agent._handle_bot_started_speaking()
-            await asyncio.sleep(0.01)
-            h.voice_agent._queue_task_completion_event.assert_not_awaited()
-
-            h.voice_agent._handle_bot_stopped_speaking()
-            await asyncio.sleep(0.02)
-            h.voice_agent._queue_task_completion_event.assert_not_awaited()
-
-            await asyncio.wait_for(response_task, timeout=1.0)
-            h.voice_agent._queue_task_completion_event.assert_awaited_once()
-        finally:
-            await h.stop()
-
-
 # ── Voice-agent error isolation ───────────────────────────────────────────
 
 

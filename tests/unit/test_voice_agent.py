@@ -462,118 +462,6 @@ class TestInjectContextManagedTask:
         await asyncio.sleep(0)
 
 
-@pytest.mark.unit
-class TestTaskCompletionCooldown:
-    @staticmethod
-    def _make_task_response(agent: VoiceAgent):
-        from gradientbang.subagents.agents import TaskStatus
-        from gradientbang.subagents.bus.messages import BusTaskResponseMessage
-
-        child = MagicMock()
-        child.name = "task_abc123"
-        child._is_corp_ship = False
-        child._game_client = agent._game_client
-        agent._children = [child]
-
-        message = BusTaskResponseMessage(
-            source=child.name,
-            task_id="tid-1",
-            status=TaskStatus.COMPLETED,
-            response={"message": "Task done"},
-        )
-        return child, message
-
-    @staticmethod
-    def _stub_task_completion(agent: VoiceAgent) -> AsyncMock:
-        agent._task_output_handler = AsyncMock()
-        agent.send_message = AsyncMock()
-        agent._update_polling_scope = MagicMock()
-        agent._queue_task_completion_event = AsyncMock()
-        return agent._queue_task_completion_event
-
-    async def test_waits_through_llm_end_to_speech_start_gap(self, monkeypatch):
-        import gradientbang.pipecat_server.subagents.voice_agent as voice_agent_module
-
-        monkeypatch.setattr(voice_agent_module, "TASK_RESPONSE_COOLDOWN_SECONDS", 0.0)
-        monkeypatch.setattr(
-            voice_agent_module,
-            "TASK_RESPONSE_SPEECH_START_GRACE_SECONDS",
-            1.0,
-        )
-
-        agent = _make_voice_agent()
-        queue_completion = self._stub_task_completion(agent)
-        _, message = self._make_task_response(agent)
-
-        agent._handle_llm_response_started()
-        agent._handle_llm_response_ended()
-
-        response_task = asyncio.create_task(agent.on_task_response(message))
-        await asyncio.sleep(0)
-        queue_completion.assert_not_awaited()
-
-        agent._handle_bot_started_speaking()
-        await asyncio.sleep(0)
-        queue_completion.assert_not_awaited()
-
-        agent._handle_bot_stopped_speaking()
-        await asyncio.wait_for(response_task, timeout=0.5)
-        queue_completion.assert_awaited_once()
-
-    async def test_speech_start_grace_releases_silent_response_cycle(self, monkeypatch):
-        import gradientbang.pipecat_server.subagents.voice_agent as voice_agent_module
-
-        monkeypatch.setattr(voice_agent_module, "TASK_RESPONSE_COOLDOWN_SECONDS", 0.0)
-        monkeypatch.setattr(
-            voice_agent_module,
-            "TASK_RESPONSE_SPEECH_START_GRACE_SECONDS",
-            0.01,
-        )
-
-        agent = _make_voice_agent()
-        queue_completion = self._stub_task_completion(agent)
-        _, message = self._make_task_response(agent)
-
-        agent._handle_llm_response_started()
-        agent._handle_llm_response_ended()
-
-        response_task = asyncio.create_task(agent.on_task_response(message))
-        await asyncio.sleep(0)
-        queue_completion.assert_not_awaited()
-
-        await asyncio.wait_for(response_task, timeout=0.5)
-        queue_completion.assert_awaited_once()
-        assert agent._assistant_cycle_active is False
-
-    async def test_cooldown_uses_actual_bot_stop_time(self, monkeypatch):
-        import gradientbang.pipecat_server.subagents.voice_agent as voice_agent_module
-
-        monkeypatch.setattr(voice_agent_module, "TASK_RESPONSE_COOLDOWN_SECONDS", 0.05)
-        monkeypatch.setattr(
-            voice_agent_module,
-            "TASK_RESPONSE_SPEECH_START_GRACE_SECONDS",
-            1.0,
-        )
-
-        agent = _make_voice_agent()
-        queue_completion = self._stub_task_completion(agent)
-        _, message = self._make_task_response(agent)
-
-        agent._handle_llm_response_started()
-        agent._handle_bot_started_speaking()
-        agent._handle_llm_response_ended()
-
-        response_task = asyncio.create_task(agent.on_task_response(message))
-        await asyncio.sleep(0.01)
-        queue_completion.assert_not_awaited()
-
-        agent._handle_bot_stopped_speaking()
-        await asyncio.sleep(0.02)
-        queue_completion.assert_not_awaited()
-
-        await asyncio.wait_for(response_task, timeout=0.5)
-        queue_completion.assert_awaited_once()
-
 # ── Task tool handlers ────────────────────────────────────────────────
 
 
@@ -675,6 +563,7 @@ class TestHandleSteerTask:
         child = MagicMock(spec=TaskAgent)
         child.name = "task_abc123"
         child._is_corp_ship = False
+        child._character_id = "ship_character_id_xyz"
         agent._children = [child]
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
@@ -1471,7 +1360,7 @@ class TestCorpShipRouting:
         agent._task_groups = {}
         agent._children = []
         agent._inject_context = AsyncMock()
-        agent._queue_task_completion_event = AsyncMock()
+        agent._enqueue_deferred_update = MagicMock()
 
         async def add_agent(task_agent):
             await asyncio.sleep(0)
@@ -1496,7 +1385,6 @@ class TestCorpShipRouting:
         agent.send_message = AsyncMock()
         agent._tool_call_inflight = 0
         agent._assistant_cycle_active = False
-        agent._assistant_cycle_idle_event.set()
         agent._bot_stopped_speaking_at = 0.0
         agent._update_polling_scope = MagicMock()
 
@@ -1543,7 +1431,7 @@ class TestCorpShipRouting:
         agent._task_groups = {}
         agent._children = []
         agent._inject_context = AsyncMock()
-        agent._queue_task_completion_event = AsyncMock()
+        agent._enqueue_deferred_update = MagicMock()
 
         async def add_agent(task_agent):
             await asyncio.sleep(0)
@@ -1595,7 +1483,7 @@ class TestCorpShipRouting:
         agent._task_groups = {}
         agent._children = []
         agent._inject_context = AsyncMock()
-        agent._queue_task_completion_event = AsyncMock()
+        agent._enqueue_deferred_update = MagicMock()
         agent._VoiceAgent__game_client.base_url = "http://localhost"
         mock_client_cls.return_value = MagicMock()
 
@@ -1623,7 +1511,6 @@ class TestCorpShipRouting:
         agent.send_message = AsyncMock()
         agent._tool_call_inflight = 0
         agent._assistant_cycle_active = False
-        agent._assistant_cycle_idle_event.set()
         agent._bot_stopped_speaking_at = 0.0
         agent._update_polling_scope = MagicMock()
 
