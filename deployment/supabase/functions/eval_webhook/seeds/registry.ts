@@ -6,6 +6,7 @@ import { sql as epsilonCorp } from "./epsilon_corp.ts";
 import { sql as gammaExplorer } from "./gamma_explorer.ts";
 import { sql as orionVale } from "./orion_vale.ts";
 import { sql as phiTrader } from "./phi_trader.ts";
+import { sql as sigmaFleet } from "./sigma_fleet.ts";
 
 /** Slug → SQL mapping for individual character resets. */
 export const SEED_BY_SLUG: Record<string, string> = {
@@ -16,6 +17,7 @@ export const SEED_BY_SLUG: Record<string, string> = {
   gamma_explorer: gammaExplorer,
   orion_vale: orionVale,
   phi_trader: phiTrader,
+  sigma_fleet: sigmaFleet,
 };
 
 /** Ordered list for seed-all (shared players first, then alphabetical). */
@@ -28,4 +30,5 @@ export const ALL_SEEDS: Array<{ name: string; sql: string }> = [
   { name: "gamma_explorer", sql: gammaExplorer },
   { name: "orion_vale", sql: orionVale },
   { name: "phi_trader", sql: phiTrader },
+  { name: "sigma_fleet", sql: sigmaFleet },
 ];
