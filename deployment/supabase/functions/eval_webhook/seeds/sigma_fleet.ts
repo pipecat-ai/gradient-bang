@@ -246,41 +246,37 @@ DECLARE
     '50000000-3000-4000-8000-000000000007'::uuid,
     '50000000-4000-4000-8000-000000000007'::uuid
   ];
-  v_char_id UUID;
 BEGIN
-  SELECT sector_id INTO v_mega_port
-    FROM sectors WHERE region = 'fedspace' AND has_mega_port = true
-    ORDER BY sector_id LIMIT 1;
+  SELECT (meta->'mega_port_sectors'->>0)::int INTO v_mega_port
+    FROM universe_config WHERE id = 1;
   IF v_mega_port IS NULL THEN
-    RAISE NOTICE 'sigma_fleet seed: no mega-port sectors found, skipping map_knowledge augmentation';
+    RAISE NOTICE 'No mega-port configured in universe_config; skipping mega-port knowledge seed.';
     RETURN;
   END IF;
-
-  SELECT to_jsonb(array_agg(adj_sector_id))
-    INTO v_adj
-    FROM sector_warps WHERE sector_id = v_mega_port;
-  v_adj := COALESCE(v_adj, '[]'::jsonb);
-  SELECT to_jsonb(ARRAY[col, row])
-    INTO v_pos
-    FROM sectors WHERE sector_id = v_mega_port;
-  v_pos := COALESCE(v_pos, '[0, 0]'::jsonb);
-
+  SELECT
+    COALESCE((SELECT jsonb_agg((w->>'to')::int) FROM jsonb_array_elements(warps) w), '[]'::jsonb),
+    jsonb_build_array(position_x, position_y)
+  INTO v_adj, v_pos
+  FROM universe_structure WHERE sector_id = v_mega_port;
   v_sector_entry := jsonb_build_object(
     'adjacent_sectors', v_adj,
-    'last_visited', '2026-04-10T00:00:00Z',
+    'last_visited', (NOW() - INTERVAL '2 days')::text,
     'position', v_pos
   );
-
-  FOREACH v_char_id IN ARRAY v_char_ids LOOP
-    UPDATE characters
-      SET map_knowledge = jsonb_set(
-        COALESCE(map_knowledge, '{"total_sectors_visited": 0, "sectors_visited": {}}'::jsonb),
-        ARRAY['sectors_visited', v_mega_port::text],
-        v_sector_entry,
-        true
-      )
-      WHERE character_id = v_char_id;
-  END LOOP;
+  UPDATE characters
+  SET map_knowledge = jsonb_set(
+    COALESCE(map_knowledge, '{"sectors_visited": {}, "total_sectors_visited": 0}'::jsonb),
+    ARRAY['sectors_visited', v_mega_port::text],
+    v_sector_entry
+  )
+  WHERE character_id = ANY(v_char_ids);
+  UPDATE characters
+  SET map_knowledge = jsonb_set(
+    map_knowledge,
+    '{total_sectors_visited}',
+    to_jsonb((SELECT count(*) FROM jsonb_object_keys(map_knowledge->'sectors_visited')))
+  )
+  WHERE character_id = ANY(v_char_ids);
 END $sigma_mega_port$;
 
 -- Seed a prior-session history so event-log queries return non-empty.
