@@ -33,7 +33,15 @@ Update these files to the new version:
 1. **`pyproject.toml`** — the `version = "X.Y.Z"` line
 2. **`deployment/supabase/functions/_shared/version.ts`** — the `export const VERSION = "X.Y.Z";` line
 
-### 4. Update CHANGELOG.md
+### 4. Sync uv.lock
+
+```bash
+uv lock
+```
+
+The project itself is recorded in `uv.lock` (`name = "gradient-bang"`), so a `pyproject.toml` version bump invalidates the lockfile. The bot's Docker build runs `uv sync --locked` and will fail without this. No dependency changes — only the project's own version line moves.
+
+### 5. Update CHANGELOG.md
 
 In `CHANGELOG.md`:
 
@@ -44,7 +52,7 @@ In `CHANGELOG.md`:
 
 If there are no entries under Unreleased, warn the user but proceed.
 
-### 5. Bump client versions
+### 6. Bump client versions
 
 From the `client/` directory, run the matching pnpm bump script:
 
@@ -54,10 +62,10 @@ cd client && pnpm run bump:<major|minor|patch>
 
 This bumps `client/app/package.json` and `client/starfield/package.json`, then rebuilds.
 
-### 6. Commit, tag, and push
+### 7. Commit, tag, and push
 
 ```bash
-git add pyproject.toml deployment/supabase/functions/_shared/version.ts CHANGELOG.md client/
+git add pyproject.toml deployment/supabase/functions/_shared/version.ts uv.lock CHANGELOG.md client/
 git commit -m "release: vA.B.C"
 git tag vA.B.C
 git push origin HEAD
@@ -66,7 +74,7 @@ git push origin vA.B.C
 
 Pushing the tag triggers `.github/workflows/release.yml`, which extracts the new `## [A.B.C]` section from `CHANGELOG.md` and creates the GitHub release.
 
-### 7. Report
+### 8. Report
 
 Print the new version and remind the user:
 - GitHub release will be created automatically by the release workflow
@@ -74,5 +82,4 @@ Print the new version and remind the user:
 
 ## Does NOT
 
-- Run `uv lock` or regenerate `uv.lock` — a version-only bump does not change dependencies
 - Deploy anything (use `/deploy` for that)
