@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+from gradientbang.utils.cekura_tracing import cekura_append_context_dump
+
 
 class ContextNotFoundError(Exception):
     """Raised when no context snapshot exists for the requested task."""
@@ -59,6 +61,8 @@ def upload_context(
         least ``character_id``, ``session_id``, ``snapshot_type``,
         ``s3_key``, ``message_count``, ``snapshot_reason``.
     """
+    cekura_append_context_dump(messages)
+
     config = _get_config()
     if config is None:
         return
