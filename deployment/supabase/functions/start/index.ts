@@ -205,6 +205,26 @@ Deno.serve(traced("start", async (req, trace) => {
       if (charRow?.name && requestData?.body) {
         requestData.body.character_name = charRow.name;
       }
+
+      // Stamp the Daily meeting token with the character_id as user_id (and
+      // the display name as user_name) so the user's participant in the
+      // Daily room is identifiable via /presence without scraping the
+      // browser. Server-side consumers (MCP server, in-game UIs) can find
+      // a character's active session by filtering /presence for userId.
+      // We always set this — even if the client already passed
+      // dailyMeetingTokenProperties — because user_id is auth-significant
+      // and must be the verified character_id, not whatever the caller
+      // chose to send.
+      if (requestData && typeof requestData === "object") {
+        const reqWithToken = requestData as Record<string, unknown>;
+        const existing =
+          (reqWithToken.dailyMeetingTokenProperties as
+            | Record<string, unknown>
+            | undefined) ?? {};
+        existing.user_id = characterId;
+        if (charRow?.name) existing.user_name = charRow.name;
+        reqWithToken.dailyMeetingTokenProperties = existing;
+      }
     } else if (action === "proxy_session") {
       // Proxying to existing session - forward as /sessions/{id} on bot
       // e.g., /functions/v1/start/abc/api/offer -> http://bot/sessions/abc/api/offer
