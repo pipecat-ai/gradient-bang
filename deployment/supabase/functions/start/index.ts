@@ -26,7 +26,11 @@ import {
   enforcePublicRateLimit,
   RateLimitError,
 } from "../_shared/rate_limiting.ts";
-import { parseJsonRequest, respondWithError } from "../_shared/request.ts";
+import {
+  parseJsonRequest,
+  respondWithError,
+  type JsonRecord,
+} from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
 
 // CORS headers for public access from web clients
@@ -206,24 +210,19 @@ Deno.serve(traced("start", async (req, trace) => {
         requestData.body.character_name = charRow.name;
       }
 
-      // Stamp the Daily meeting token with the character_id as user_id (and
-      // the display name as user_name) so the user's participant in the
-      // Daily room is identifiable via /presence without scraping the
-      // browser. Server-side consumers (MCP server, in-game UIs) can find
-      // a character's active session by filtering /presence for userId.
-      // We always set this — even if the client already passed
-      // dailyMeetingTokenProperties — because user_id is auth-significant
-      // and must be the verified character_id, not whatever the caller
-      // chose to send.
-      if (requestData && typeof requestData === "object") {
-        const reqWithToken = requestData as Record<string, unknown>;
-        const existing =
-          (reqWithToken.dailyMeetingTokenProperties as
-            | Record<string, unknown>
-            | undefined) ?? {};
-        existing.user_id = characterId;
-        if (charRow?.name) existing.user_name = charRow.name;
-        reqWithToken.dailyMeetingTokenProperties = existing;
+      // Stamp the Daily meeting token so the user's participant carries
+      // userId == character_id in /presence — lets server-side consumers
+      // (MCP server, in-game UIs) find a character's active session room
+      // without scraping the browser. We always overwrite a client-supplied
+      // user_id because the field is auth-significant and must reflect the
+      // character whose ownership we just verified.
+      if (requestData) {
+        const data = requestData as JsonRecord;
+        const tokenProps =
+          (data.dailyMeetingTokenProperties as JsonRecord | undefined) ?? {};
+        tokenProps.user_id = characterId;
+        if (charRow?.name) tokenProps.user_name = charRow.name;
+        data.dailyMeetingTokenProperties = tokenProps;
       }
     } else if (action === "proxy_session") {
       // Proxying to existing session - forward as /sessions/{id} on bot
