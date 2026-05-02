@@ -26,7 +26,11 @@ import {
   enforcePublicRateLimit,
   RateLimitError,
 } from "../_shared/rate_limiting.ts";
-import { parseJsonRequest, respondWithError } from "../_shared/request.ts";
+import {
+  parseJsonRequest,
+  respondWithError,
+  type JsonRecord,
+} from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
 
 // CORS headers for public access from web clients
@@ -204,6 +208,21 @@ Deno.serve(traced("start", async (req, trace) => {
       const charRow = characterData.characters as unknown as { name: string } | null;
       if (charRow?.name && requestData?.body) {
         requestData.body.character_name = charRow.name;
+      }
+
+      // Stamp the Daily meeting token so the user's participant carries
+      // userId == character_id in /presence — lets server-side consumers
+      // (MCP server, in-game UIs) find a character's active session room
+      // without scraping the browser. We always overwrite a client-supplied
+      // user_id because the field is auth-significant and must reflect the
+      // character whose ownership we just verified.
+      if (requestData) {
+        const data = requestData as JsonRecord;
+        const tokenProps =
+          (data.dailyMeetingTokenProperties as JsonRecord | undefined) ?? {};
+        tokenProps.user_id = characterId;
+        if (charRow?.name) tokenProps.user_name = charRow.name;
+        data.dailyMeetingTokenProperties = tokenProps;
       }
     } else if (action === "proxy_session") {
       // Proxying to existing session - forward as /sessions/{id} on bot
