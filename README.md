@@ -654,7 +654,7 @@ pnpm run dev
 | --- | --- | --- | --- |
 | `SUPABASE_URL` | Yes | — | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Service role key for DB access |
-| `EDGE_API_TOKEN` | Yes | — | Token for authenticating edge function calls |
+| `EDGE_API_TOKEN` | No | — | Admin-mode credential. Required only for callers without a per-user access_token (NPC bots, scripts, the combat-tick cron job). The voice bot session receives `access_token` from the proxy `/start` (or `BOT_TEST_ACCESS_TOKEN` in dev) and does not need this. |
 | `DAILY_API_KEY` | No | — | [Daily](https://www.daily.co/) API key (required for Daily transport) |
 | `LOCAL_API_POSTGRES_URL` | No | — | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead |
 | `EVENT_TRANSPORT` | No | `polling` | Event-delivery transport: `polling` (HTTP via `events_since`, default) or `pubsub` (direct Postgres long-poll on per-character pgmq queues). See [Event delivery modes](#event-delivery-modes). |
