@@ -159,13 +159,20 @@ export ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1
 # ── 4. Run tests (server starts in-process for coverage) ──────────────
 # server.ts is imported inside the test process so that deno test --coverage
 # can measure coverage of all edge function code.
+#
+# We run the suite TWICE to exercise both event-delivery transports on the
+# producer side:
+#   - polling: PGMQ_PUBLISH_ENABLED=0   (events table only)
+#   - pubsub:  PGMQ_PUBLISH_ENABLED=1   (also writes per-character pgmq queues
+#                                         and fans broadcasts via notify_broadcast)
+# This catches regressions in either path. Pass `TRANSPORT=polling|pubsub` to
+# run only one (e.g. for fast iteration on a non-event change).
 echo ""
 echo "==> Running integration tests (with coverage)..."
 echo ""
 
 rm -rf "$COVERAGE_DIR"
 
-set +e
 # Optional file/dir args after "--" let callers run a targeted subset
 # (e.g. `bash run_tests.sh -- combat_test.ts combat_destruction_test.ts`).
 TEST_TARGETS=("$SCRIPT_DIR/")
@@ -180,28 +187,67 @@ if [ "$#" -gt 0 ]; then
   done
 fi
 
-deno test \
-  --config "$FUNCTIONS_DIR/deno.json" \
-  --allow-all \
-  --coverage="$COVERAGE_DIR" \
-  "${TEST_TARGETS[@]}" \
-  2>&1
-TEST_EXIT=$?
-set -e
+if [ -n "${TRANSPORT:-}" ]; then
+  TRANSPORTS=("$TRANSPORT")
+else
+  TRANSPORTS=("polling" "pubsub")
+fi
+
+OVERALL_EXIT=0
+declare -a FAILED_TRANSPORTS
+
+for transport in "${TRANSPORTS[@]}"; do
+  case "$transport" in
+    polling) PGMQ_FLAG="0" ;;
+    pubsub)  PGMQ_FLAG="1" ;;
+    *)
+      echo "ERROR: unknown TRANSPORT='$transport' (expected polling|pubsub)"
+      exit 2
+      ;;
+  esac
+
+  echo ""
+  echo "==> Pass: transport=$transport (PGMQ_PUBLISH_ENABLED=$PGMQ_FLAG)"
+  echo ""
+
+  set +e
+  PGMQ_PUBLISH_ENABLED="$PGMQ_FLAG" \
+    deno test \
+      --config "$FUNCTIONS_DIR/deno.json" \
+      --allow-all \
+      --coverage="$COVERAGE_DIR/$transport" \
+      "${TEST_TARGETS[@]}" \
+      2>&1
+  PASS_EXIT=$?
+  set -e
+
+  if [ "$PASS_EXIT" -eq 0 ]; then
+    echo ""
+    echo "==> Pass $transport: PASSED"
+  else
+    echo ""
+    echo "==> Pass $transport: FAILED (exit $PASS_EXIT)"
+    FAILED_TRANSPORTS+=("$transport")
+    OVERALL_EXIT=$PASS_EXIT
+  fi
+done
+
+TEST_EXIT=$OVERALL_EXIT
 
 echo ""
 if [ "$TEST_EXIT" -eq 0 ]; then
-  echo "==> All tests passed."
+  echo "==> All passes succeeded (${#TRANSPORTS[@]}/${#TRANSPORTS[@]})."
 else
-  echo "==> Tests failed (exit code: $TEST_EXIT)."
+  echo "==> Failed transports: ${FAILED_TRANSPORTS[*]}"
 fi
 
 # ── 5. Coverage report ────────────────────────────────────────────────
-# deno test --coverage writes V8 coverage profiles on exit. We use
-# deno coverage to generate a summary filtered to the edge function code.
+# deno test --coverage writes V8 coverage profiles on exit. We point
+# `deno coverage` at the parent dir so it unions the per-transport profiles
+# into a single report (filtered to the edge function code).
 if [ -d "$COVERAGE_DIR" ]; then
   echo ""
-  echo "==> Code coverage report (edge functions)"
+  echo "==> Code coverage report (edge functions, all transports)"
   echo ""
   deno coverage "$COVERAGE_DIR" \
     --include="^file://.*/deployment/supabase/functions/" \
