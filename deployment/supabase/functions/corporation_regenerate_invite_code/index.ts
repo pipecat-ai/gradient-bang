@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   successResponse,
   errorResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { buildEventSource, emitErrorEvent } from "../_shared/events.ts";
@@ -36,8 +38,11 @@ class CorporationInviteError extends Error {
 }
 
 Deno.serve(traced("corporation_regenerate_invite_code", async (req, trace) => {
-  if (!(await validateApiToken(req))) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   let payload;
@@ -64,6 +69,10 @@ Deno.serve(traced("corporation_regenerate_invite_code", async (req, trace) => {
   const characterId = requireString(payload, "character_id");
   const actorCharacterId = optionalString(payload, "actor_character_id");
   ensureActorMatches(actorCharacterId, characterId);
+
+  if (!(await canActOnCharacter(auth, characterId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({ characterId, requestId });
 
