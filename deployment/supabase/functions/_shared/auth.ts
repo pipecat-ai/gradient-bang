@@ -115,11 +115,16 @@ export async function authenticate(req: Request): Promise<AuthContext> {
   const token = readCallerToken(req);
   const adminToken = getApiToken();
 
+  // Dev convenience: when EDGE_API_TOKEN is unset (e.g. local dev stack,
+  // integration test harness) we bypass all auth checks and return admin.
+  // This preserves the pre-migration `validateApiToken` semantics where
+  // unset env meant "allow everything". Production environments always set
+  // EDGE_API_TOKEN, so this branch is impossible there.
+  if (!adminToken) {
+    return { kind: "admin" };
+  }
+
   if (!token) {
-    if (!adminToken) {
-      // Dev convenience: no token configured, no token presented → admin.
-      return { kind: "admin" };
-    }
     throw new AuthError("no_token");
   }
 

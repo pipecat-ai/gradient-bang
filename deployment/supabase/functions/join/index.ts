@@ -58,9 +58,12 @@ warmupAdjacencyCache(fetchAllAdjacencies);
 
 Deno.serve(traced("join", async (req, trace) => {
   const sAuth = trace.span("auth_check");
-  if (!(await validateApiToken(req))) {
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
     sAuth.end({ error: "unauthorized" });
-    return unauthorizedResponse();
+    return authErrorResponse(err);
   }
   sAuth.end();
 
@@ -102,6 +105,9 @@ Deno.serve(traced("join", async (req, trace) => {
   }
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
 
+  // Supabase client (used by canActOnCharacter and downstream combat ops)
+  const supabase = createServiceRoleClient();
+
   if (!(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))) {
     return errorResponse("forbidden", 403);
   }
@@ -114,9 +120,6 @@ Deno.serve(traced("join", async (req, trace) => {
     creditsOverride: creditsOverride ?? null,
     requestId,
   });
-
-  // Supabase client for combat operations (still REST-based)
-  const supabase = createServiceRoleClient();
   const pg = await acquirePgClient();
 
   try {
