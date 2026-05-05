@@ -2,10 +2,12 @@ import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import type { QueryClient } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { acquirePgClient, warmupAdjacencyCache } from "../_shared/pg.ts";
@@ -99,6 +101,10 @@ Deno.serve(traced("join", async (req, trace) => {
     }
   }
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+
+  if (!(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({
     characterId,
