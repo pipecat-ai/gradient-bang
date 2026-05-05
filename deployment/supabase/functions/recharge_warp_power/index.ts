@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -53,8 +55,11 @@ class RechargeWarpPowerError extends Error {
 const PRICE_PER_UNIT = 2;
 
 Deno.serve(traced("recharge_warp_power", async (req, trace) => {
-  if (!(await validateApiToken(req))) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -86,6 +91,12 @@ Deno.serve(traced("recharge_warp_power", async (req, trace) => {
     : null;
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
+
+  // Per-character authorization: caller must own the actor or target.
+  const authTargetId = actorCharacterId ?? characterId;
+  if (!(await canActOnCharacter(auth, authTargetId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({
     characterId,
