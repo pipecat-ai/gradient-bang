@@ -118,8 +118,8 @@ UPDATE characters SET first_visit = NOW() - INTERVAL '1 day' WHERE character_id 
 ```sql
 DELETE FROM player_quests
 WHERE player_id = '<character_id>'
-  AND quest_code IN (
-    SELECT code FROM quest_definitions WHERE assign_on_creation = true
+  AND quest_id IN (
+    SELECT id FROM quest_definitions WHERE assign_on_creation = true
   );
 ```
 

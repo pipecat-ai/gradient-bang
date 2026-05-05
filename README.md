@@ -341,12 +341,14 @@ The `pubsub_client` role has zero direct grants on the `pgmq` schema, so cross-c
 2. Give the `pubsub_client` role a login password, then point `PGMQ_URL` at the direct DB:
    ```bash
    PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
-     -c "ALTER ROLE pubsub_client WITH LOGIN PASSWORD 'localdev';"
+     -c "ALTER ROLE pubsub_client WITH LOGIN PASSWORD 'postgres';"
    ```
+   (We reuse the local `postgres` superuser/pooler password — local dev only. Production sets the password out-of-band via secret manager. The `/init` skill applies this automatically; re-run it any time you `supabase db reset`.)
+
    Then in `.env.bot`:
    ```
    EVENT_TRANSPORT=pubsub
-   PGMQ_URL=postgresql://pubsub_client:localdev@127.0.0.1:54322/postgres
+   PGMQ_URL=postgresql://pubsub_client:postgres@127.0.0.1:54322/postgres
    ```
 3. Make sure the bot's `/start` body includes a real Supabase Auth `access_token` (or set `BOT_TEST_ACCESS_TOKEN`). The bot's `/start` requires this in **both** transport modes — pubsub uses it for per-character queue auth, polling uses it as `X-API-Token` so per-character endpoint checks pass.
 

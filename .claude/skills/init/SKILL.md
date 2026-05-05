@@ -78,6 +78,15 @@ scripts/supabase-reset-with-cron.sh > /tmp/supabase-reset-cron.log 2>&1
 
 Check the log for the `[reset] Done.` message to confirm success.
 
+### 4b. Enable pubsub_client login (local dev only)
+
+The pubsub migration (`20260505000000_enable_pgmq_pubsub.sql`) deliberately creates the `pubsub_client` role as `NOLOGIN` with no password — it's environment-agnostic, and production sets the password via secret manager. For local dev, we set it to the same password as the session pooler (`postgres`) so `EVENT_TRANSPORT=pubsub` works out of the box. This is a local-only credential and is wiped by every `supabase db reset`, so re-run this any time you reset the DB.
+
+```bash
+psql postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  -c "ALTER ROLE pubsub_client WITH LOGIN PASSWORD 'postgres';"
+```
+
 ### 5. Generate world data and load into Supabase
 
 Generate a universe (5000 sectors, seed 1234) and load it plus quest definitions:
