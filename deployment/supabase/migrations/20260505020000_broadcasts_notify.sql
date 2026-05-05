@@ -29,12 +29,16 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  -- Cap to a safe headroom under Postgres' 8000-byte NOTIFY limit. If the
-  -- payload exceeds, drop the broadcast rather than raising — broadcasts
-  -- are best-effort and a single oversize message must not break event
-  -- recording (which already happened on the events table side).
-  IF length(p_payload::text) > 7800 THEN
-    RAISE WARNING 'notify_broadcast: payload too large (%). dropping', length(p_payload::text);
+  -- Cap to a safe headroom under Postgres' 8000-byte NOTIFY limit. The
+  -- limit is bytes, not characters — chat can contain multibyte UTF-8, so
+  -- length() would undercount and let pg_notify raise. octet_length() is
+  -- the correct check. If the payload exceeds, drop the broadcast rather
+  -- than raising: broadcasts are best-effort, and a single oversize
+  -- message must not break event recording (already done on the events
+  -- table side).
+  IF octet_length(p_payload::text) > 7800 THEN
+    RAISE WARNING 'notify_broadcast: payload too large (% bytes). dropping',
+      octet_length(p_payload::text);
     RETURN;
   END IF;
   PERFORM pg_notify('gb_broadcasts', p_payload::text);
