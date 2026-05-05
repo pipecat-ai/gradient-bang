@@ -24,6 +24,7 @@ Many of the steps described in this README also have corresponding Claude Code s
 
 - [Initial setup](#initial-setup)
 - [Running locally](#running-locally)
+- [Event delivery modes](#event-delivery-modes)
 - [Deployment](#deployment)
 - [Environment variables](#environment-variables)
 - [Auth & secrets quick guide](#auth--secrets-quick-guide)
@@ -316,6 +317,47 @@ gb start
 
 ---
 
+## Event delivery modes
+
+The bot's `AsyncGameClient` receives game events via one of two transports, picked at construction time based on `EVENT_TRANSPORT`.
+
+### `polling` (default)
+
+HTTP polling against the `events_since` edge function, authenticated by `EDGE_API_TOKEN`. Works in any environment without per-character credentials. This is what every existing deployment uses today.
+
+### `pubsub`
+
+Direct Postgres long-poll against per-character pgmq queues. Each subscriber connects as the locked-down `pubsub_client` role and calls a SECURITY DEFINER function (`subscribe_my_events`) that:
+
+1. Verifies the caller's Supabase Auth `access_token` (HS256 via the `pgjwt` extension).
+2. Checks the user owns the requested `character_id` directly (via `user_characters`) **or** via corp membership for corp ships.
+3. Returns up to N pending messages for that character via `pgmq.read_with_poll`.
+
+The `pubsub_client` role has zero direct grants on the `pgmq` schema, so cross-character access is impossible even from a misbehaving client. Auth failures (`forbidden` / `token_expired` / `invalid_token`) propagate up and disconnect the bot — there is intentionally no token-refresh path; sessions terminate on expiry (JWTs are 24h).
+
+**Setup for local pubsub:**
+
+1. Set `PGMQ_PUBLISH_ENABLED=1` in `.env.supabase` (so edge functions dual-write events into pgmq) and restart edge functions.
+2. Give the `pubsub_client` role a login password, then point `PGMQ_URL` at the direct DB:
+   ```bash
+   PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
+     -c "ALTER ROLE pubsub_client WITH LOGIN PASSWORD 'localdev';"
+   ```
+   Then in `.env.bot`:
+   ```
+   EVENT_TRANSPORT=pubsub
+   PGMQ_URL=postgresql://pubsub_client:localdev@127.0.0.1:54322/postgres
+   ```
+3. Make sure the bot's `/start` body includes a real Supabase Auth `access_token` (or set `BOT_TEST_ACCESS_TOKEN`). Required for pubsub mode.
+
+Migration `20260505000000_enable_pgmq_pubsub.sql` installs the `pgmq` and `pgjwt` extensions, creates the `pubsub_client` role, the auth functions, and an `INSERT` trigger on `characters` that auto-creates per-character queues. Existing characters are backfilled at migration time.
+
+### Why two modes?
+
+Polling is the simplest path and works everywhere. Pubsub eliminates the busy-poll loop and the polling lag, and is the foundation for the upcoming distributed-runtime work (where a separate process per task can subscribe to its ship's queue independently). Both modes deliver byte-equivalent events through the same client sinks, so the rest of the bot doesn't care which is in use.
+
+---
+
 ## Running tests
 
 ### Edge function tests (Deno)
@@ -592,6 +634,7 @@ pnpm run dev
 | `CHARACTER_SKIP_AUTO_QUESTS`  | No       | `false`                                  | Set to `true` to skip auto-assigned quests (e.g. tutorial) on new character creation                                     |
 | `EDGE_ADMIN_PASSWORD`         | No       | —                                        | Admin password for admin-only endpoints                                                                                  |
 | `EDGE_ADMIN_PASSWORD_HASH`    | No       | —                                        | SHA-256 hash of admin password (alternative to plaintext)                                                                |
+| `PGMQ_PUBLISH_ENABLED`        | No       | —                                        | Set to `1` to dual-write events to per-character pgmq queues alongside the events table. Required when any client uses `EVENT_TRANSPORT=pubsub`. See [Event delivery modes](#event-delivery-modes). |
 
 ### Bot (`.env.bot`)
 
@@ -614,6 +657,8 @@ pnpm run dev
 | `EDGE_API_TOKEN` | Yes | — | Token for authenticating edge function calls |
 | `DAILY_API_KEY` | No | — | [Daily](https://www.daily.co/) API key (required for Daily transport) |
 | `LOCAL_API_POSTGRES_URL` | No | — | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead |
+| `EVENT_TRANSPORT` | No | `polling` | Event-delivery transport: `polling` (HTTP via `events_since`, default) or `pubsub` (direct Postgres long-poll on per-character pgmq queues). See [Event delivery modes](#event-delivery-modes). |
+| `PGMQ_URL` | No | — | Direct (NOT pooled) postgres URL with the `pubsub_client` role's credentials. Required when `EVENT_TRANSPORT=pubsub`. |
 
 #### LLM configuration
 
@@ -656,6 +701,7 @@ pnpm run dev
 | `BOT_TEST_CHARACTER_ID` | — | Hardcoded character ID for testing |
 | `BOT_TEST_CHARACTER_NAME` | — | Hardcoded character name for testing |
 | `BOT_TEST_NPC_CHARACTER_NAME` | — | Hardcoded NPC name for testing |
+| `BOT_TEST_ACCESS_TOKEN` | — | Dev-only Supabase Auth `access_token` for invoking `/start` directly (bypassing the proxy). Required when no proxy supplies one. |
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, etc.) |
 | `TOKEN_USAGE_LOG` | — | Path for token usage metrics CSV |
 
