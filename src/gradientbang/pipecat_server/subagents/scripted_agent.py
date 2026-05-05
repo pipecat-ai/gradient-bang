@@ -15,8 +15,8 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIServerMessageFrame,
 )
 
-from gradientbang.subagents.agents.base_agent import BaseAgent
-from gradientbang.subagents.bus import AgentBus
+from pipecat_subagents.agents.base_agent import BaseAgent
+from pipecat_subagents.bus import AgentBus
 
 
 @dataclass

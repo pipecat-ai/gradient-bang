@@ -550,7 +550,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     from pipecat.pipeline.task import PipelineParams, PipelineTask
     from pipecat.processors.frameworks.rtvi import (
         RTVIFunctionCallReportLevel,
-        RTVIObserver,
         RTVIObserverParams,
     )
 
@@ -559,10 +558,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     from gradientbang.pipecat_server.subagents.event_relay import EventRelay
     from gradientbang.pipecat_server.subagents.scripted_agent import ScriptedAgent
     from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
-    from gradientbang.subagents.agents import BaseAgent, LLMAgentActivationArgs
-    from gradientbang.subagents.bus import BusBridgeProcessor
-    from gradientbang.subagents.runner import AgentRunner
-    from gradientbang.subagents.types import AgentReadyData
+    from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
+    from pipecat_subagents.bus import BusBridgeProcessor
+    from pipecat_subagents.runner import AgentRunner
+    from pipecat_subagents.types import AgentReadyData
 
     class MainAgent(BaseAgent):
         """Transport agent — bridges voice I/O to VoiceAgent via the bus.
@@ -579,7 +578,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             logger.info(f"MainAgent: {data.agent_name} ready")
 
         def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
-            task = PipelineTask(
+            return PipelineTask(
                 pipeline,
                 params=PipelineParams(
                     enable_metrics=True,
@@ -590,6 +589,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     function_call_report_level={
                         "*": RTVIFunctionCallReportLevel.FULL,
                     },
+                    ignored_sources=list(ui_branch_sources),
                 ),
                 cancel_on_idle_timeout=False,
                 idle_timeout_secs=600,
@@ -599,11 +599,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     TaskActivityFrame,
                 ),
             )
-            for obs in task._observer._observers:
-                if isinstance(obs, RTVIObserver):
-                    obs._ignored_sources = ui_branch_sources
-                    break
-            return task
 
         async def build_pipeline(self) -> Pipeline:
             bridge = BusBridgeProcessor(

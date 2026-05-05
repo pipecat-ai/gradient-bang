@@ -45,8 +45,8 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
 )
 from gradientbang.pipecat_server.subagents.event_relay import EventRelay
 from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-from gradientbang.subagents.agents import LLMAgent, TaskStatus
-from gradientbang.subagents.bus import (
+from pipecat_subagents.agents import LLMAgent, TaskStatus
+from pipecat_subagents.bus import (
     AgentBus,
     BusEndAgentMessage,
     BusTaskResponseMessage,
@@ -430,7 +430,6 @@ class VoiceAgent(LLMAgent):
             safe = self._wrap_tool_errors(schema.name, handler)
             tracked = self._track_tool_call(safe)
             llm.register_function(schema.name, tracked)
-        llm.add_event_handler("on_function_calls_started", self._on_tool_batch_started)
         return llm
 
     def build_tools(self) -> list:
@@ -1710,14 +1709,49 @@ class VoiceAgent(LLMAgent):
         pending = self._pending_tasks.pop(data.agent_name, None)
         if pending:
             framework_task_id, payload = pending
-            await self.request_task(
+            await self._dispatch_task_with_id(
                 data.agent_name,
+                framework_task_id,
                 payload=payload,
-                task_id=framework_task_id,
                 timeout=self._task_agent_timeout,
             )
             self._update_polling_scope()
             logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.agent_name)
+
+    async def _dispatch_task_with_id(
+        self,
+        agent_name: str,
+        task_id: str,
+        *,
+        payload: dict,
+        timeout: Optional[float],
+    ) -> None:
+        """Dispatch a task to ``agent_name`` using the supplied ``task_id``.
+
+        Mirrors :meth:`BaseAgent.create_task_group_and_request_task` but lets the
+        caller pin the task identifier instead of generating a fresh UUID. The
+        voice agent needs this so it can return a stable ``task_id`` to the LLM
+        synchronously from the start_task tool call, then dispatch the request
+        once the worker pipeline has come up.
+        """
+        from pipecat_subagents.agents.task_context import TaskGroup, TaskGroupError
+
+        all_ready = await self._wait_agents_ready([agent_name])
+        try:
+            await asyncio.wait_for(all_ready, timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            raise TaskGroupError("agents not ready within timeout") from exc
+
+        group = TaskGroup(
+            task_id=task_id, agent_names={agent_name}, cancel_on_error=True
+        )
+        self._task_groups[task_id] = group
+        if timeout is not None:
+            group.timeout_task = self.create_asyncio_task(
+                self._task_timeout(task_id, timeout), f"task_timeout_{task_id[:8]}"
+            )
+
+        await self._send_task_request(agent_name, task_id, payload=payload)
 
     # ── Bus task protocol ─────────────────────────────────────────────
 

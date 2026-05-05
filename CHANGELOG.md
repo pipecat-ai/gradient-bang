@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bumped to Pipecat 1.0 (`pipecat-ai` 0.0.108 → 1.1.0). Replaced the in-repo `gradientbang.subagents` framework fork with the published `pipecat-ai-subagents` 0.4.0; dropped `pipecat-ai-flows`; bumped `pipecatcloud` 0.4.1 → 0.6.0. Game agents updated for the upstream API drift: explicit `task_id` on `send_task_response`/`send_task_update`, RTVIObserver `_ignored_sources` poke replaced with the public `ignored_sources` param, legacy `OpenAILLMContext` import dropped from the OpenAI Responses service, and `_dispatch_task_with_id` helper added on `VoiceAgent` so the start_task tool can still hand the LLM a stable task id before the worker is ready
 - Supabase Auth JWT expiry bumped from 1h to 24h so a single access_token covers any plausible gameplay session without a refresh path
 - `EDGE_API_TOKEN` is now positioned as an admin-only credential (cron jobs, NPC bots, internal pg_net invocations, dev tooling). The user-facing voice bot session no longer requires it
 - Local-dev admin bypass is now explicit: `authenticate()` only returns admin without `EDGE_API_TOKEN` if `ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1` is also set. JWTs are still verified normally either way. Closes a prod foot-gun where env drift could silently grant unauthenticated callers admin context

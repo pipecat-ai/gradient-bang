@@ -32,7 +32,7 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 
-from gradientbang.subagents.bus import AsyncQueueBus
+from pipecat_subagents.bus import AsyncQueueBus
 import httpx
 from gradientbang.pipecat_server.subagents.event_relay import EventRelay
 from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
@@ -439,7 +439,7 @@ class E2EHarness:
                 VoiceAgent will have their pipelines built and started
                 by the runner (needed for task E2E tests).
         """
-        from gradientbang.subagents.runner import AgentRunner
+        from pipecat_subagents.runner import AgentRunner
 
         # Prevent VoiceAgent from needing a real LLM API key
         self.voice_agent.build_llm = lambda: ScriptedLLMService([])

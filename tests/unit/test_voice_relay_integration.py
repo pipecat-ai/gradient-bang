@@ -1395,7 +1395,7 @@ class TestVoiceLlmRoutingPolicy:
 
 def _make_voice_agent_with_tasks(character_id="char-test"):
     """Create a VoiceAgent with mock children and task groups for combat tests."""
-    from gradientbang.subagents.agents.base_agent import TaskGroup
+    from pipecat_subagents.agents.base_agent import TaskGroup
 
     from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 

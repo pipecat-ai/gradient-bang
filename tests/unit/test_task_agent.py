@@ -13,8 +13,8 @@ from gradientbang.pipecat_server.subagents.task_agent import (
     TaskAgent,
     _SPECIAL_HANDLERS,
 )
-from gradientbang.subagents.agents import TaskStatus
-from gradientbang.subagents.bus import (
+from pipecat_subagents.agents import TaskStatus
+from pipecat_subagents.bus import (
     BusTaskCancelMessage,
     BusTaskRequestMessage,
     BusTaskUpdateMessage,
@@ -329,7 +329,7 @@ class TestCancellation:
         agent._active_task_id = "task-1"
         agent._game_client.task_lifecycle = AsyncMock()
         agent.send_task_response = AsyncMock()
-        agent._task_id = "task-1"
+        agent._active_task_id = "task-1"
         agent._task_requester = "parent"
         await agent.on_task_cancelled(BusTaskCancelMessage(source="parent", task_id="task-1", reason="test reason"))
         assert agent._cancelled is True
@@ -429,7 +429,7 @@ class TestTaskIdTagging:
         agent._active_task_id = "task-1"
         agent._game_client.task_lifecycle = AsyncMock()
         agent.send_task_response = AsyncMock()
-        agent._task_id = "task-1"
+        agent._active_task_id = "task-1"
         agent._task_requester = "parent"
         agent._game_client.current_task_id = "shared-task"
 
@@ -468,12 +468,12 @@ class TestTaskIdTagging:
 class TestTaskOutputDelivery:
     async def test_action_output_uses_captured_task_route(self):
         agent = _make_task_agent()
-        agent._task_id = "framework-task"
+        agent._active_task_id = "framework-task"
         agent._task_requester = "voice_agent"
         agent.send_message = AsyncMock()
 
         agent._output("move({\"to_sector\": 5})", TaskOutputType.ACTION)
-        agent._task_id = None
+        agent._active_task_id = None
         agent._task_requester = None
 
         await agent._drain_pending_task_outputs()
@@ -491,7 +491,7 @@ class TestTaskOutputDelivery:
 
     async def test_complete_task_drains_pending_output_before_response(self):
         agent = _make_task_agent()
-        agent._task_id = "framework-task"
+        agent._active_task_id = "framework-task"
         agent._task_requester = "voice_agent"
         agent._active_task_id = "task-1"
         agent._task_finished_status = "completed"
@@ -501,7 +501,7 @@ class TestTaskOutputDelivery:
         async def _send_message(message):
             call_order.append(("update", message.update["message_type"]))
 
-        async def _send_task_response(*, response, status):
+        async def _send_task_response(task_id, *, response, status):
             call_order.append(("response", response["message"]))
 
         agent.send_message = AsyncMock(side_effect=_send_message)
@@ -514,7 +514,7 @@ class TestTaskOutputDelivery:
 
     async def test_task_output_delivery_failure_is_logged_and_completion_continues(self):
         agent = _make_task_agent()
-        agent._task_id = "framework-task"
+        agent._active_task_id = "framework-task"
         agent._task_requester = "voice_agent"
         agent._active_task_id = "task-1"
         agent._task_finished_status = "completed"
@@ -622,7 +622,7 @@ class TestEventQueryCompletionCorrelation:
     async def test_event_query_tool_stores_request_id(self):
         agent = _make_task_agent()
         agent._active_task_id = "task-1"
-        agent._task_id = "framework-task"
+        agent._active_task_id = "framework-task"
         agent._task_requester = "voice_agent"
         params = _make_function_call_params(
             "event_query",
@@ -642,7 +642,7 @@ class TestEventQueryCompletionCorrelation:
     async def test_event_query_without_request_id_clears_await(self):
         agent = _make_task_agent()
         agent._active_task_id = "task-1"
-        agent._task_id = "framework-task"
+        agent._active_task_id = "framework-task"
         agent._task_requester = "voice_agent"
         params = _make_function_call_params(
             "event_query",
@@ -745,7 +745,7 @@ class TestEventQuerySummaryHandling:
 class TestPipelineErrorFailureHandling:
     async def test_on_error_fails_task_normally(self):
         agent = _make_task_agent()
-        agent._task_id = "framework-task"
+        agent._active_task_id = "framework-task"
         agent._task_requester = "voice_agent"
         agent._active_task_id = "task-1"
         agent._game_client.task_lifecycle = AsyncMock()

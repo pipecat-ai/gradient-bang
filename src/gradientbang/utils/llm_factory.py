@@ -223,44 +223,25 @@ def _create_google_service(
 
             Upstream iterates content.parts without a None check, which crashes
             on transient Gemini responses where content exists but parts is None.
+            Body mirrors GoogleLLMService.run_inference (pipecat 1.1) with the
+            None-check applied.
             """
-            # Call the grandparent (LLMService) implementation's setup portion
-            # by delegating to the parent, but wrapping the response extraction.
-            # We reproduce the parent's run_inference with the fix applied.
-            from pipecat.processors.aggregators.llm_context import LLMContext as PcLLMContext
+            from google.genai.types import GenerateContentConfig
 
-            messages = []
-            system = []
-            tools = []
-            if isinstance(context, PcLLMContext):
-                adapter = self.get_llm_adapter()
-                params = adapter.get_llm_invocation_params(context)
-                messages = params["messages"]
-                system = params["system_instruction"]
-                tools = params["tools"]
-            else:
-                from pipecat.services.google.llm import GoogleLLMContext
-
-                context = GoogleLLMContext.upgrade_to_google(context)
-                messages = context.messages
-                system = getattr(context, "system_message", None)
-                tools = context.tools or []
-
-            if system_instruction is not None:
-                if system:
-                    logger.warning(
-                        f"{self}: Both system_instruction and a system message in context"
-                        " are set. Using system_instruction."
-                    )
-                system = system_instruction
+            effective_instruction = system_instruction or self._settings.system_instruction
+            adapter = self.get_llm_adapter()
+            params = adapter.get_llm_invocation_params(
+                context, system_instruction=effective_instruction
+            )
+            messages = params["messages"]
+            system = params["system_instruction"]
+            tools = params["tools"]
 
             generation_params = self._build_generation_params(
                 system_instruction=system, tools=tools if tools else None
             )
             if max_tokens is not None:
                 generation_params["max_output_tokens"] = max_tokens
-
-            from google.genai.types import GenerateContentConfig
 
             generation_config = GenerateContentConfig(**generation_params)
 

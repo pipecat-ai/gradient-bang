@@ -26,7 +26,6 @@ from pipecat.frames.frames import (
 )
 from pipecat.metrics.metrics import LLMTokenUsage
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.services.openai.base_llm import BaseOpenAILLMService
 
@@ -153,23 +152,18 @@ class OpenAIResponsesLLMService(BaseOpenAILLMService):
 
     # ── Core inference using Responses API ───────────────────────────────
 
-    async def _process_context(self, context: OpenAILLMContext | LLMContext):
+    async def _process_context(self, context: LLMContext):
         """Process LLM context using the Responses API with streaming.
 
         Converts messages and tools from Chat Completions format, calls the
         Responses API, and emits appropriate pipecat frames for reasoning
         summary text, output text, and function calls.
         """
-        # Extract messages and tools from context
         t_prep_start = time.perf_counter()
-        if isinstance(context, OpenAILLMContext):
-            messages = context.get_messages()
-            tools_list = context.tools if context.tools else []
-        else:
-            adapter = self.get_llm_adapter()
-            params = adapter.get_llm_invocation_params(context, convert_developer_to_user=False)
-            messages = params.get("messages", [])
-            tools_list = params.get("tools", [])
+        adapter = self.get_llm_adapter()
+        params = adapter.get_llm_invocation_params(context, convert_developer_to_user=False)
+        messages = params.get("messages", [])
+        tools_list = params.get("tools", [])
 
         # Convert to Responses API format
         instructions, input_items = self._convert_messages_to_responses_input(messages)
