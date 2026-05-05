@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -66,8 +68,11 @@ function generateCombatId(): string {
 }
 
 Deno.serve(traced("combat_initiate", async (req, trace) => {
-  if (!(await validateApiToken(req))) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -96,6 +101,10 @@ Deno.serve(traced("combat_initiate", async (req, trace) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const debug = optionalBoolean(payload, "debug") ?? false;
   const taskId = optionalString(payload, "task_id");
+
+  if (!(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({ requestId, characterId, actorCharacterId, adminOverride, debug, taskId });
 

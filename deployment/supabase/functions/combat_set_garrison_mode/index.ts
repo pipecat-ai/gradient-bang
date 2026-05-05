@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -34,8 +36,11 @@ import { getEffectiveCorporationId } from "../_shared/corporations.ts";
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("combat_set_garrison_mode", async (req, trace) => {
-  if (!(await validateApiToken(req))) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -68,6 +73,10 @@ Deno.serve(traced("combat_set_garrison_mode", async (req, trace) => {
 
   if (sector === null || sector === undefined) {
     return errorResponse("sector is required", 400);
+  }
+
+  if (!(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))) {
+    return errorResponse("forbidden", 403);
   }
 
   trace.setInput({ requestId, characterId, sector, mode, tollAmount, actorCharacterId, adminOverride });
