@@ -126,7 +126,7 @@ export async function recordEventWithRecipients(
       actorCharacterId,
       corpId,
       taskId,
-      recipientIds,
+      recipients: normalizedRecipients,
       broadcast,
     });
   }
@@ -139,6 +139,13 @@ export async function recordEventWithRecipients(
  * direct recipient ids plus, when corp_id is set, the full corp delivery set
  * (active members + corp-owned ship pseudo-characters). De-duplicated so
  * each character receives exactly one message per event.
+ *
+ * Each recipient gets a message body shaped like a single ``events_since``
+ * row — top-level ``event_context`` with that recipient's id/reason, plus
+ * ``__task_id`` injected into the payload — so ``PubsubEventAdapter``'s
+ * dispatch path can lift it into ``__event_context`` exactly the way the
+ * polling adapter does. Without this, ``EventRelay`` drops non-combat events
+ * (event_context missing) and loses task-scoped routing.
  *
  * Failures are logged but never raised — the events table is authoritative
  * and pubsub is opt-in / additive.
@@ -158,14 +165,27 @@ async function publishEventToPgmq(opts: {
   actorCharacterId?: string | null;
   corpId?: string | null;
   taskId?: string | null;
-  recipientIds: string[];
+  recipients: EventRecipientSnapshot[];
   broadcast: boolean;
 }): Promise<void> {
-  const targets = new Set<string>(opts.recipientIds);
+  // Direct recipients win over corp-expanded ones (preserve their reason).
+  const reasonByRecipient = new Map<string, string>();
+  for (const r of opts.recipients) {
+    if (!reasonByRecipient.has(r.characterId)) {
+      reasonByRecipient.set(r.characterId, r.reason);
+    }
+  }
   if (opts.corpId) {
     try {
-      const corpSet = await loadCorpDeliverySet(opts.supabase, opts.corpId);
-      for (const id of corpSet) targets.add(id);
+      const corpReasonMap = await loadCorpDeliveryReasons(
+        opts.supabase,
+        opts.corpId,
+      );
+      for (const [id, reason] of corpReasonMap) {
+        if (!reasonByRecipient.has(id)) {
+          reasonByRecipient.set(id, reason);
+        }
+      }
     } catch (err) {
       console.warn("events.publishEventToPgmq.corp_expand_failed", {
         eventType: opts.eventType,
@@ -176,30 +196,94 @@ async function publishEventToPgmq(opts: {
     }
   }
 
-  if (targets.size === 0) return;
+  // Mirror events_since/normalizeEventRow: __task_id lives inside the payload.
+  const basePayload = opts.payload ?? {};
+  const payloadOut =
+    typeof opts.taskId === "string" && opts.taskId.length > 0
+      ? { ...basePayload, __task_id: opts.taskId }
+      : basePayload;
 
-  // Shape mirrors what `_deliver_polled_event` consumes on the client side:
-  // event_type + payload + meta + per-event context. Subscribers can dispatch
-  // these without an additional fetch round-trip.
-  const msg = {
-    event_type: opts.eventType,
-    direction: opts.direction,
-    scope: opts.scope,
-    payload: opts.payload ?? {},
-    meta: opts.meta ?? null,
-    request_id: opts.requestId ?? null,
-    sector_id: opts.sectorId ?? null,
-    ship_id: opts.shipId ?? null,
-    character_id: opts.characterId ?? null,
-    sender_id: opts.senderId ?? null,
-    actor_character_id: opts.actorCharacterId ?? null,
-    corp_id: opts.corpId ?? null,
-    task_id: opts.taskId ?? null,
-    is_broadcast: opts.broadcast,
-  };
+  // Broadcast events fan out to every active subscriber via Postgres
+  // LISTEN/NOTIFY (see migration 20260505020000_broadcasts_notify.sql).
+  // pgmq is the wrong primitive here — read+archive is competing-consumer,
+  // the first reader to archive consumes the message for everyone else.
+  // notify_broadcast() is service_role-only, so subscribers cannot publish.
+  if (opts.broadcast) {
+    const broadcastMsg = {
+      event_type: opts.eventType,
+      direction: opts.direction,
+      scope: opts.scope,
+      payload: payloadOut,
+      meta: opts.meta ?? null,
+      request_id: opts.requestId ?? null,
+      sector_id: opts.sectorId ?? null,
+      ship_id: opts.shipId ?? null,
+      character_id: opts.characterId ?? null,
+      sender_id: opts.senderId ?? null,
+      actor_character_id: opts.actorCharacterId ?? null,
+      corp_id: opts.corpId ?? null,
+      task_id: opts.taskId ?? null,
+      is_broadcast: true,
+      recipient_id: null as string | null,
+      recipient_reason: null as string | null,
+      recipient_ids: [] as string[],
+      recipient_reasons: [] as string[],
+      event_context: {
+        event_id: null as number | null,
+        character_id: null as string | null,
+        reason: null as string | null,
+        scope: opts.scope,
+        recipient_ids: [] as string[],
+        recipient_reasons: [] as string[],
+      },
+    };
+    const { error: broadcastErr } = await opts.supabase.rpc(
+      "notify_broadcast",
+      { p_payload: broadcastMsg },
+    );
+    if (broadcastErr) {
+      console.warn("events.publishEventToPgmq.broadcast_send_failed", {
+        eventType: opts.eventType,
+        error: broadcastErr,
+      });
+    }
+  }
 
-  for (const recipient of targets) {
+  if (reasonByRecipient.size === 0) return;
+
+  for (const [recipient, reason] of reasonByRecipient) {
     const queueName = `chr_${recipient}`;
+    const msg = {
+      event_type: opts.eventType,
+      direction: opts.direction,
+      scope: opts.scope,
+      payload: payloadOut,
+      meta: opts.meta ?? null,
+      request_id: opts.requestId ?? null,
+      sector_id: opts.sectorId ?? null,
+      ship_id: opts.shipId ?? null,
+      character_id: opts.characterId ?? null,
+      sender_id: opts.senderId ?? null,
+      actor_character_id: opts.actorCharacterId ?? null,
+      corp_id: opts.corpId ?? null,
+      task_id: opts.taskId ?? null,
+      is_broadcast: opts.broadcast,
+      recipient_id: recipient,
+      recipient_reason: reason,
+      recipient_ids: [recipient],
+      recipient_reasons: [reason],
+      // event_id is null because record_event_with_recipients doesn't return
+      // the inserted id. Pubsub dedupes via pgmq msg_id; polling.py's
+      // _record_event_id treats non-int as "always allow", so this is safe.
+      event_context: {
+        event_id: null as number | null,
+        character_id: recipient,
+        reason,
+        scope: opts.scope,
+        recipient_ids: [recipient],
+        recipient_reasons: [reason],
+      },
+    };
     const { error } = await opts.supabase.rpc("pgmq_publish", {
       p_queue_name: queueName,
       p_msg: msg,
@@ -225,19 +309,21 @@ async function loadCorpDeliverySet(
   supabase: SupabaseClient,
   corpId: string,
 ): Promise<Set<string>> {
-  const set = new Set<string>();
+  return new Set((await loadCorpDeliveryReasons(supabase, corpId)).keys());
+}
 
-  const { data: members, error: memberErr } = await supabase
-    .from("corporation_members")
-    .select("character_id")
-    .eq("corp_id", corpId)
-    .is("left_at", null);
-  if (memberErr) {
-    console.error("events.loadCorpDeliverySet.members", { corpId, memberErr });
-  }
-  for (const row of members ?? []) {
-    if (typeof row?.character_id === "string") set.add(row.character_id);
-  }
+/**
+ * Same union as :func:`loadCorpDeliverySet` but tagged with the per-recipient
+ * delivery reason so pubsub messages can carry an accurate ``recipient_reason``
+ * (``corp_member`` for active members, ``corp_ship`` for corp-owned ship
+ * pseudo-chars). Direct corp_member rows take precedence over corp_ship for
+ * any id that appears in both sets.
+ */
+async function loadCorpDeliveryReasons(
+  supabase: SupabaseClient,
+  corpId: string,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
 
   const { data: ships, error: shipErr } = await supabase
     .from("ship_instances")
@@ -248,10 +334,24 @@ async function loadCorpDeliverySet(
     console.error("events.loadCorpDeliverySet.ships", { corpId, shipErr });
   }
   for (const row of ships ?? []) {
-    if (typeof row?.ship_id === "string") set.add(row.ship_id);
+    if (typeof row?.ship_id === "string") map.set(row.ship_id, "corp_ship");
   }
 
-  return set;
+  const { data: members, error: memberErr } = await supabase
+    .from("corporation_members")
+    .select("character_id")
+    .eq("corp_id", corpId)
+    .is("left_at", null);
+  if (memberErr) {
+    console.error("events.loadCorpDeliverySet.members", { corpId, memberErr });
+  }
+  for (const row of members ?? []) {
+    if (typeof row?.character_id === "string") {
+      map.set(row.character_id, "corp_member");
+    }
+  }
+
+  return map;
 }
 
 export interface RecordBroadcastByCorpOptions {

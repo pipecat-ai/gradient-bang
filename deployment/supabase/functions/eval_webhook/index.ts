@@ -1,5 +1,6 @@
 import {
   errorResponse,
+  requireAdminToken,
   successResponse,
 } from "../_shared/auth.ts";
 import {
@@ -59,12 +60,11 @@ log("boot", {
   has_edge_api_token: Boolean(EDGE_API_TOKEN),
 });
 
-// the value we are looking for is EDGE_API_TOKEN
-// the _key_ is X-CEKURA-SECRET, because this is coming from
-// Cekura's webhook event service
-function validateCekuraSecret(req: Request): boolean {
-  const provided = req.headers.get("X-CEKURA-SECRET") ?? "";
-  return Boolean(EDGE_API_TOKEN) && provided === EDGE_API_TOKEN;
+// Cekura sends the shared secret in X-CEKURA-SECRET, not the standard
+// X-API-Token header — requireAdminToken's headerName option lets us reuse
+// the same admin gate (incl. fail-closed when EDGE_API_TOKEN is unset).
+function validateCekuraSecret(req: Request): Promise<boolean> {
+  return requireAdminToken(req, { headerName: "X-CEKURA-SECRET" });
 }
 
 function getCharacterSlug(name: string): string {
@@ -98,7 +98,7 @@ Deno.serve(
     }
 
     // All requests require X-CEKURA-SECRET
-    if (!validateCekuraSecret(req)) {
+    if (!(await validateCekuraSecret(req))) {
       logError("reject auth");
       return errorResponse("invalid or missing X-CEKURA-SECRET", 401);
     }

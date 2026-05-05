@@ -16,11 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Per-character authentication on every gameplay edge function — caller's Supabase Auth JWT is verified server-side via a new `authenticate()` helper that returns a typed `AuthContext` (admin / user / future BYOC), and `canActOnCharacter()` enforces direct character ownership or corp-ship access via corp membership. Closes the long-standing gap where any caller with `EDGE_API_TOKEN` could claim any character. Migrated 41 functions across move, combat, trade/bank, corp actions, quests, status reads, and tasks
 - `AsyncGameClient` sends the user's `access_token` as `X-API-Token` when present (admin `EDGE_API_TOKEN` is now a fallback for NPCs / scripts / cron). Bot deployments no longer need EDGE_API_TOKEN in their environment if the bot session always carries an access_token
+- New `requireAdminToken()` helper rejects user JWTs outright; `combat_tick`, `test_reset`, and `eval_webhook` are now strictly admin-only (previously `validateApiToken` admitted any authenticated user). `corporation_info` member-only payload (members, ships, cargo, credits, fighters, founder fields) is now gated behind `canActOnCharacter` — non-owners get the public payload
+- Broadcast events (chat broadcasts, gm/system messages) reach pubsub subscribers via Postgres LISTEN/NOTIFY on `gb_broadcasts`. Publish path is server-only (`notify_broadcast()` SECURITY DEFINER granted to `service_role`); pgmq is the wrong primitive here (competing-consumer would drop broadcasts to peers). Toggle with `PGMQ_SUBSCRIBE_BROADCASTS`
+- Pubsub messages are now wire-compatible with `events_since`: per-recipient `event_context`, `recipient_ids`, `recipient_reasons`, plus `__task_id` injected into the payload. Without this `EventRelay` was silently dropping non-combat events and losing task-scoped routing in pubsub mode
 
 ### Changed
 
 - Supabase Auth JWT expiry bumped from 1h to 24h so a single access_token covers any plausible gameplay session without a refresh path
 - `EDGE_API_TOKEN` is now positioned as an admin-only credential (cron jobs, NPC bots, internal pg_net invocations, dev tooling). The user-facing voice bot session no longer requires it
+- Local-dev admin bypass is now explicit: `authenticate()` only returns admin without `EDGE_API_TOKEN` if `ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1` is also set. JWTs are still verified normally either way. Closes a prod foot-gun where env drift could silently grant unauthenticated callers admin context
+
+### Fixed
+
+- `PubsubEventAdapter.set_scope()` could schedule polling tasks before `start()` ran its env validations. Replaced the implicit gate (`_stop_event` + missing-loop catch) with an explicit `_started` flag set after env checks succeed
 
 ## [0.3.0] - 2026-04-30
 

@@ -151,7 +151,10 @@ export LOCAL_API_PORT="$SERVER_PORT"
 export TEST_BASE_URL="http://localhost:$SERVER_PORT"
 export SUPABASE_ALLOW_LEGACY_IDS=1
 export MOVE_DELAY_SCALE=0
-# No EDGE_API_TOKEN — auth bypassed in local dev mode
+# No EDGE_API_TOKEN — auth bypassed in local dev mode (gated behind
+# ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1 since the per-character auth migration).
+# Production never sets either env var.
+export ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1
 
 # ── 4. Run tests (server starts in-process for coverage) ──────────────
 # server.ts is imported inside the test process so that deno test --coverage

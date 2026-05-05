@@ -35,7 +35,9 @@ function readCallerToken(req: Request): string | null {
  * NOTE: this only validates *that* the caller is authenticated; it does NOT
  * verify ownership of any character_id in the request body. Functions that
  * mutate per-character state should use ``authenticate()`` +
- * ``canActOnCharacter()`` instead.
+ * ``canActOnCharacter()`` instead. Endpoints that must be admin-only
+ * (cron jobs, test-reset, internal webhooks) should use
+ * ``requireAdminToken()`` instead — this helper accepts user JWTs.
  */
 export async function validateApiToken(req: Request): Promise<boolean> {
   try {
@@ -44,6 +46,46 @@ export async function validateApiToken(req: Request): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Strict admin-only token check. Returns true ONLY when the caller presents
+ * the shared ``EDGE_API_TOKEN``. JWT-shaped tokens are rejected outright with
+ * no Supabase round-trip. Use this for endpoints that should never be
+ * reachable by an authenticated end user (cron jobs, test_reset, internal
+ * webhooks).
+ *
+ * ``options.headerName`` lets callers read from a non-default header (e.g.
+ * ``X-CEKURA-SECRET`` for the eval webhook). Defaults to ``X-API-Token``.
+ *
+ * Local-dev convenience: when ``EDGE_API_TOKEN`` is unset and
+ * ``ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1`` is set, a request with no token is
+ * treated as admin. Both env vars must be present to opt in. Production
+ * always sets ``EDGE_API_TOKEN``, so the bypass cannot fire there.
+ */
+export async function requireAdminToken(
+  req: Request,
+  options?: { headerName?: string },
+): Promise<boolean> {
+  const token = options?.headerName
+    ? req.headers.get(options.headerName)
+    : readCallerToken(req);
+  const adminToken = getApiToken();
+
+  if (adminToken) {
+    return Boolean(token) && token === adminToken;
+  }
+
+  // EDGE_API_TOKEN unset. Only allow when explicit dev opt-in is set AND no
+  // token was presented (a presented token in this state is suspicious —
+  // fail closed rather than silently accept anything).
+  if (
+    Deno.env.get("ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV") === "1" &&
+    !token
+  ) {
+    return true;
+  }
+  return false;
 }
 
 // ============================================================================
@@ -104,31 +146,25 @@ function looksLikeJwt(token: string): boolean {
  *
  * Tries each credential type in priority order:
  *   1. JWT-shaped token → verify via Supabase Auth → user context.
+ *      (Verified regardless of whether EDGE_API_TOKEN is configured — an
+ *      explicitly-presented user token is never silently bypassed.)
  *   2. Exact match on ``EDGE_API_TOKEN`` env → admin context.
  *   3. Otherwise → throw ``AuthError``.
  *
- * Local-dev convenience: when ``EDGE_API_TOKEN`` is unset *and* the caller
- * presents no token, we treat it as admin. This preserves the pre-migration
- * behavior of ``validateApiToken`` for ``--no-verify-jwt`` local stacks.
+ * Local-dev convenience: when ``EDGE_API_TOKEN`` is unset *and*
+ * ``ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1`` is set *and* no token is presented,
+ * the caller is treated as admin. Both env vars must be present to opt in.
+ * Production always sets EDGE_API_TOKEN, so this branch cannot fire there
+ * even if the bypass env leaks in.
  */
 export async function authenticate(req: Request): Promise<AuthContext> {
   const token = readCallerToken(req);
   const adminToken = getApiToken();
 
-  // Dev convenience: when EDGE_API_TOKEN is unset (e.g. local dev stack,
-  // integration test harness) we bypass all auth checks and return admin.
-  // This preserves the pre-migration `validateApiToken` semantics where
-  // unset env meant "allow everything". Production environments always set
-  // EDGE_API_TOKEN, so this branch is impossible there.
-  if (!adminToken) {
-    return { kind: "admin" };
-  }
-
-  if (!token) {
-    throw new AuthError("no_token");
-  }
-
-  if (looksLikeJwt(token)) {
+  // Verify a presented JWT regardless of whether EDGE_API_TOKEN is set.
+  // A user explicitly identifying themselves with a JWT must always be
+  // validated — never silently upgraded to admin by env state.
+  if (token && looksLikeJwt(token)) {
     let supabase;
     try {
       supabase = createPublicClient();
@@ -151,11 +187,29 @@ export async function authenticate(req: Request): Promise<AuthContext> {
     return { kind: "user", userId: user.id, email: user.email ?? null };
   }
 
-  if (adminToken && token === adminToken) {
-    return { kind: "admin" };
+  if (adminToken) {
+    if (!token) {
+      throw new AuthError("no_token");
+    }
+    if (token === adminToken) {
+      return { kind: "admin" };
+    }
+    throw new AuthError("invalid_token");
   }
 
-  throw new AuthError("invalid_token");
+  // EDGE_API_TOKEN unset. Only allow on explicit dev opt-in AND no token.
+  // Anything else fails closed — env drift in production must not silently
+  // grant admin to unauthenticated callers.
+  if (
+    Deno.env.get("ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV") === "1" &&
+    !token
+  ) {
+    return { kind: "admin" };
+  }
+  throw new AuthError(
+    "auth_unavailable",
+    "EDGE_API_TOKEN not configured",
+  );
 }
 
 /**

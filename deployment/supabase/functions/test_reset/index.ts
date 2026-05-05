@@ -6,7 +6,7 @@ import structureFixture from "./fixtures/universe_structure.json" with { type: "
 import sectorContentsFixture from "./fixtures/sector_contents.json" with { type: "json" };
 
 import {
-  validateApiToken,
+  requireAdminToken,
   unauthorizedResponse,
   errorResponse,
   successResponse,
@@ -224,7 +224,7 @@ class TestResetError extends Error {
 }
 
 Deno.serve(traced("test_reset", async (req, trace) => {
-  if (!(await validateApiToken(req))) {
+  if (!(await requireAdminToken(req))) {
     return unauthorizedResponse();
   }
 

@@ -77,6 +77,61 @@ class TestDispatchParity:
         await adapter._dispatch({"event_type": "", "payload": {}})  # empty event_type
         # No assertion needed — we just want no exception.
 
+    async def test_dispatch_rehydrates_event_context_and_task_id(
+        self, client: AsyncGameClient, adapter: PubsubEventAdapter
+    ) -> None:
+        """Pubsub consumer must mirror polling's __event_context / __task_id
+        rehydration. EventRelay drops non-combat events when __event_context
+        is missing (event_relay.py:1784) and routes tasks via
+        payload['__task_id'] (event_relay.py:1953)."""
+        seen: list[tuple[str, dict]] = []
+
+        async def capture(name, payload, **_):
+            seen.append((name, dict(payload)))
+
+        client._process_event = capture  # type: ignore[assignment]
+
+        msg = {
+            "event_type": "task.progress",
+            "payload": {"step": 1},
+            "task_id": "task-abc",
+            "event_context": {
+                "event_id": None,
+                "character_id": PLAYER_ID,
+                "reason": "direct",
+                "scope": "direct",
+                "recipient_ids": [PLAYER_ID],
+                "recipient_reasons": ["direct"],
+            },
+        }
+        await adapter._dispatch(msg)
+
+        assert len(seen) == 1
+        _, payload = seen[0]
+        assert payload["__event_context"]["character_id"] == PLAYER_ID
+        assert payload["__event_context"]["reason"] == "direct"
+        assert payload["__task_id"] == "task-abc"
+
+    async def test_dispatch_preserves_payload_injected_task_id(
+        self, client: AsyncGameClient, adapter: PubsubEventAdapter
+    ) -> None:
+        """When the producer already injected __task_id into the payload
+        (the default path now), the consumer must not overwrite it."""
+        seen: list[tuple[str, dict]] = []
+
+        async def capture(name, payload, **_):
+            seen.append((name, dict(payload)))
+
+        client._process_event = capture  # type: ignore[assignment]
+
+        msg = {
+            "event_type": "task.progress",
+            "payload": {"__task_id": "from-payload"},
+            "task_id": "from-toplevel",
+        }
+        await adapter._dispatch(msg)
+        assert seen[0][1]["__task_id"] == "from-payload"
+
 
 class TestSetScope:
     """``set_scope`` mirrors the public API of the polling adapter."""
@@ -103,3 +158,18 @@ class TestSetScope:
         assert adapter._corp_id == "33333333-3333-3333-3333-333333333333"
         adapter.set_scope(corp_id=None)
         assert adapter._corp_id is None
+
+    def test_set_scope_before_start_does_not_spawn_tasks(
+        self, adapter: PubsubEventAdapter
+    ) -> None:
+        """A pre-start scope update must absorb into self._character_ids only.
+
+        The previous gate fired before start() validated PGMQ_URL/access_token,
+        relying on the missing event loop to no-op. The explicit _started
+        flag makes that contract precise.
+        """
+        assert adapter._started is False
+        adapter.set_scope(ship_ids=[CORP_SHIP_ID])
+        assert CORP_SHIP_ID in adapter._character_ids
+        assert adapter._char_tasks == {}
+        assert adapter._started is False

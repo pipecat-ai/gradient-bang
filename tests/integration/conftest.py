@@ -4,6 +4,8 @@ These fixtures are only active when pytest is invoked via
 scripts/run-integration-tests.sh, which exports the required env vars.
 """
 
+import os
+
 import httpx
 import pytest
 
@@ -14,6 +16,21 @@ from gradientbang.utils.supabase_client import AsyncGameClient
 def supabase_url(test_supabase_env):
     """Test Supabase API URL."""
     return test_supabase_env["SUPABASE_URL"]
+
+
+@pytest.fixture(scope="session")
+def edge_functions_url(supabase_url):
+    """Edge function base URL.
+
+    Prefers the standalone server.ts on EDGE_FUNCTIONS_URL (started by the
+    integration harness with ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1) so admin-only
+    endpoints like test_reset succeed without an EDGE_API_TOKEN. Falls back
+    to the Supabase gateway path.
+    """
+    base = os.environ.get("EDGE_FUNCTIONS_URL")
+    if base:
+        return base.rstrip("/")
+    return f"{supabase_url}/functions/v1"
 
 
 @pytest.fixture(scope="session")
@@ -29,7 +46,7 @@ def supabase_service_role_key(test_supabase_env):
 
 
 @pytest.fixture(scope="class")
-async def reset_db(supabase_url, supabase_service_role_key):
+async def reset_db(edge_functions_url, supabase_service_role_key):
     """Reset the test database via the test_reset edge function.
 
     Truncates all tables and re-seeds the 10-sector test universe.
@@ -37,7 +54,7 @@ async def reset_db(supabase_url, supabase_service_role_key):
     """
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"{supabase_url}/functions/v1/test_reset",
+            f"{edge_functions_url}/test_reset",
             json={"character_ids": []},
             headers={
                 "Content-Type": "application/json",
@@ -53,7 +70,7 @@ async def reset_db(supabase_url, supabase_service_role_key):
 
 
 @pytest.fixture(scope="class")
-async def reset_db_with_characters(supabase_url, supabase_service_role_key):
+async def reset_db_with_characters(edge_functions_url, supabase_service_role_key):
     """Factory fixture: reset DB and create specific test characters.
 
     Usage:
@@ -65,7 +82,7 @@ async def reset_db_with_characters(supabase_url, supabase_service_role_key):
     async def _reset(character_ids: list[str]):
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"{supabase_url}/functions/v1/test_reset",
+                f"{edge_functions_url}/test_reset",
                 json={"character_ids": character_ids},
                 headers={
                     "Content-Type": "application/json",

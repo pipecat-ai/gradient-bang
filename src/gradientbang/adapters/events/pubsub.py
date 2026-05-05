@@ -32,6 +32,7 @@ arise from a crash between dispatch and archive, which is acceptable.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from contextlib import suppress
@@ -80,8 +81,18 @@ class PubsubEventAdapter:
         self._corp_id: Optional[str] = None
 
         self._char_tasks: dict[str, asyncio.Task] = {}
+        # Single session-wide task that LISTENs on `gb_broadcasts` to receive
+        # chat broadcasts and gm/system messages. Postgres NOTIFY is the
+        # correct fan-out primitive (every listener gets every notification).
+        # pgmq is competing-consumer and would drop broadcasts to peers.
+        self._broadcast_task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
         self._scope_lock = asyncio.Lock()
+        # Set True at the end of start() once env validations and the initial
+        # task sync have completed. set_scope() consults this before scheduling
+        # any reconcile work, so a pre-start scope update can't spawn polling
+        # tasks before start() has had a chance to validate PGMQ_URL/access_token.
+        self._started: bool = False
 
     # ------------------------------------------------------------------
     # EventAdapter Protocol
@@ -110,11 +121,26 @@ class PubsubEventAdapter:
 
         await self._sync_tasks()
 
+        # Spawn the LISTEN/NOTIFY broadcast subscriber. Disable via
+        # PGMQ_SUBSCRIBE_BROADCASTS=0 if a deploy goes sideways; default on.
+        if os.getenv("PGMQ_SUBSCRIBE_BROADCASTS", "1") != "0":
+            self._broadcast_task = asyncio.create_task(
+                self._listen_broadcasts_loop(),
+                name="pubsub-listen-broadcasts",
+            )
+
+        self._started = True
+
     async def stop(self) -> None:
+        self._started = False
         self._stop_event.set()
         async with self._scope_lock:
             tasks = list(self._char_tasks.values())
             self._char_tasks.clear()
+        broadcast_task = self._broadcast_task
+        self._broadcast_task = None
+        if broadcast_task is not None:
+            tasks.append(broadcast_task)
         for task in tasks:
             task.cancel()
         for task in tasks:
@@ -150,15 +176,13 @@ class PubsubEventAdapter:
             cleaned = corp_id.strip()
             self._corp_id = cleaned or None
 
-        # Reconcile tasks if we're already running. Schedule the sync as a
-        # background task — set_scope is sync and we shouldn't block the
-        # caller waiting for asyncio cleanup.
-        if self._char_tasks or not self._stop_event.is_set():
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                # No running loop; sync will happen at next start().
-                return
+        # Reconcile tasks only after start() has succeeded. Schedule the sync
+        # as a background task — set_scope is sync and we shouldn't block the
+        # caller waiting for asyncio cleanup. Pre-start scope updates are
+        # absorbed into self._character_ids and applied by start()'s initial
+        # _sync_tasks() call.
+        if self._started:
+            loop = asyncio.get_running_loop()
             loop.create_task(self._sync_tasks())
 
     # ------------------------------------------------------------------
@@ -217,6 +241,30 @@ class PubsubEventAdapter:
                     await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
                 backoff = min(backoff * 2, RECONNECT_BACKOFF_MAX)
 
+    async def _listen_broadcasts_loop(self) -> None:
+        """LISTEN on `gb_broadcasts` for the lifetime of the session.
+
+        One connection, one LISTEN, one async loop pulling notifications and
+        dispatching them through the same `_dispatch` path as per-character
+        messages. Reconnects with backoff on connection error.
+        """
+        backoff = 1.0
+        while not self._stop_event.is_set():
+            try:
+                await self._listen_broadcasts_once()
+                backoff = 1.0
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    "pubsub.broadcast_listen_error; reconnecting after %.1fs",
+                    backoff,
+                    exc_info=True,
+                )
+                with suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
+                backoff = min(backoff * 2, RECONNECT_BACKOFF_MAX)
+
     async def _poll_once(self, character_id: str) -> None:
         """One long-poll + dispatch + archive cycle."""
         pgmq_url = os.environ["PGMQ_URL"]
@@ -261,11 +309,55 @@ class PubsubEventAdapter:
                         (character_id, access_token, delivered_msg_ids),
                     )
 
+    async def _listen_broadcasts_once(self) -> None:
+        """One LISTEN session: hold a connection, dispatch notifications.
+
+        Returns when the connection drops or the stop_event fires. The outer
+        loop reconnects on error with backoff.
+        """
+        pgmq_url = os.environ["PGMQ_URL"]
+
+        async with await psycopg.AsyncConnection.connect(
+            pgmq_url, autocommit=True
+        ) as conn:
+            await conn.execute("LISTEN gb_broadcasts")
+            # `notifies(timeout=...)` yields received notifications and ends
+            # after the idle timeout — we wrap it in an outer loop so we can
+            # bail when stop_event fires without a notification.
+            while not self._stop_event.is_set():
+                # Use the same long-poll window as per-character queues so the
+                # generator periodically returns and we can re-check stop_event.
+                async for notify in conn.notifies(
+                    timeout=DEFAULT_MAX_POLL_SECONDS
+                ):
+                    if self._stop_event.is_set():
+                        return
+                    await self._handle_broadcast_notify(notify)
+
+    async def _handle_broadcast_notify(
+        self, notify: psycopg.Notify
+    ) -> None:
+        try:
+            message = json.loads(notify.payload)
+        except json.JSONDecodeError:
+            logger.debug("pubsub.broadcast_skip_invalid_json")
+            return
+        if not isinstance(message, Mapping):
+            return
+        try:
+            await self._dispatch(message)
+        except Exception:
+            logger.exception("pubsub.broadcast_dispatch_error")
+
     async def _dispatch(self, message: Mapping[str, Any]) -> None:
         """Dispatch one pgmq message into the client's existing event sinks.
 
         Mirrors `PollingEventAdapter._deliver_polled_event` so pubsub and
-        polling deliver to the same downstream code paths.
+        polling deliver to the same downstream code paths. In particular:
+        lift top-level ``event_context`` into ``payload["__event_context"]``
+        and (defensively) inject ``__task_id`` if the producer didn't already.
+        Without these, EventRelay drops non-combat events and loses task
+        routing (event_relay.py:1784, 1953).
         """
         event_name = message.get("event_type")
         if not isinstance(event_name, str) or not event_name:
@@ -281,6 +373,20 @@ class PubsubEventAdapter:
         meta = message.get("meta")
         if isinstance(meta, Mapping) and "meta" not in payload:
             payload["meta"] = dict(meta)
+
+        # Mirror polling.py:_build_polled_event_payload — lift event_context
+        # into __event_context so EventRelay's gate at event_relay.py:1784
+        # accepts the message.
+        event_context = message.get("event_context")
+        if isinstance(event_context, Mapping) and "__event_context" not in payload:
+            payload["__event_context"] = dict(event_context)
+
+        # Defensive: if the producer didn't already inject __task_id into the
+        # payload, fall back to the top-level task_id field.
+        if "__task_id" not in payload:
+            top_task_id = message.get("task_id")
+            if isinstance(top_task_id, str) and top_task_id.strip():
+                payload["__task_id"] = top_task_id.strip()
 
         request_id = message.get("request_id")
         request_id_str = (
