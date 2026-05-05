@@ -234,6 +234,7 @@ async def bot_startup(
     server_url: str,
     voice_id: str = DEFAULT_VOICE_ID,
     language: Language = Language.EN,
+    access_token: str | None = None,
 ):
     """Traced startup wrapper — initializes all services for the bot pipeline."""
 
@@ -267,11 +268,15 @@ async def bot_startup(
         _startup_init_tts(voice_id, language),
     )
 
-    # Create game client directly
+    # Create game client directly. access_token is threaded through from
+    # /start (proxy injects after Supabase Auth verification, or dev sets
+    # BOT_TEST_ACCESS_TOKEN). Polling adapter ignores it; pubsub adapter
+    # uses it to authenticate against per-character pgmq queues.
     game_client = AsyncGameClient(
         character_id=character_id,
         base_url=server_url,
         transport="supabase",
+        access_token=access_token,
     )
 
     return rtvi, local_api_server, character_id, character_display_name, game_client, stt, tts
@@ -288,6 +293,20 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     body = getattr(runner_args, "body", None) or {}
     character_id_hint = body.get("character_id") or os.getenv("BOT_TEST_CHARACTER_ID")
     character_name_hint = body.get("character_name")
+    # Per-character auth token — required so the bot can prove identity to
+    # downstream auth-gated services (e.g. pgmq pubsub channels). Production
+    # path: proxy `start` edge function injects this after verifying the
+    # caller's Supabase Auth session. Dev/test path: set BOT_TEST_ACCESS_TOKEN
+    # to a real token obtained via Supabase Auth login (mirrors the existing
+    # BOT_TEST_CHARACTER_ID dev override).
+    access_token = body.get("access_token") or os.getenv("BOT_TEST_ACCESS_TOKEN")
+    if not access_token:
+        raise RuntimeError(
+            "access_token required to start a bot session. "
+            "Production: comes from the proxy `start` edge function. "
+            "Dev: set BOT_TEST_ACCESS_TOKEN or include access_token in the /start body "
+            "(obtain via Supabase Auth login)."
+        )
     # Resolve voice: prefer short name lookup, fall back to raw voice_id
     voice_name = body.get("voice")
     if voice_name and voice_name in VOICES:
@@ -309,7 +328,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         stt,
         tts,
     ) = await bot_startup(
-        character_id_hint, character_name_hint, server_url, voice_id, voice_language
+        character_id_hint,
+        character_name_hint,
+        server_url,
+        voice_id,
+        voice_language,
+        access_token=access_token,
     )
 
     token_usage_metrics = TokenUsageMetricsProcessor(source="bot")

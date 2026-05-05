@@ -37,6 +37,7 @@ class AsyncGameClient(BaseAsyncGameClient):
         entity_type: str = "character",
         allow_corp_actorless_control: bool = False,
         enable_event_polling: bool = True,
+        access_token: Optional[str] = None,
         websocket_frame_callback=None,
     ) -> None:
         env_supabase_url = (os.getenv("SUPABASE_URL") or "").rstrip("/")
@@ -95,11 +96,17 @@ class AsyncGameClient(BaseAsyncGameClient):
         self._event_log_path = os.getenv("SUPABASE_EVENT_LOG_PATH")
         self._enable_event_polling = enable_event_polling
 
+        # User's Supabase Auth access_token, used by the pubsub event adapter
+        # to authenticate against per-character pgmq queues. Optional here so
+        # polling-mode callers (tests, NPC bots, scripts) don't need to fetch
+        # one. The pubsub adapter raises at start() if it's None.
+        self._access_token = access_token
+
         # Event-delivery adapter. Polling-related state (scope, cursor, dedup
         # ring, task lifecycle) lives inside the adapter — see
         # ``gradientbang.adapters.events`` for the Protocol and the polling
         # implementation. The factory currently always returns the polling
-        # adapter; the upcoming pubsub PR will branch on EVENT_TRANSPORT here.
+        # adapter; the upcoming pubsub commit will branch on EVENT_TRANSPORT.
         self._event_adapter = make_event_adapter(self)
 
     def set_event_polling_scope(
