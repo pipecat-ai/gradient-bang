@@ -14,9 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bot's `/start` now requires a Supabase Auth `access_token` in the body (forwarded by the proxy `start` edge function) so per-character credentials can flow into the new pubsub channel; dev workflows can use `BOT_TEST_ACCESS_TOKEN`
 - New migrations: `pgmq` + `pgjwt` extensions enabled; locked-down `pubsub_client` Postgres role with no direct grants on the `pgmq` schema; per-character queues created automatically via INSERT trigger on `characters` and backfilled
 
+- Per-character authentication on every gameplay edge function — caller's Supabase Auth JWT is verified server-side via a new `authenticate()` helper that returns a typed `AuthContext` (admin / user / future BYOC), and `canActOnCharacter()` enforces direct character ownership or corp-ship access via corp membership. Closes the long-standing gap where any caller with `EDGE_API_TOKEN` could claim any character. Migrated 41 functions across move, combat, trade/bank, corp actions, quests, status reads, and tasks
+- `AsyncGameClient` sends the user's `access_token` as `X-API-Token` when present (admin `EDGE_API_TOKEN` is now a fallback for NPCs / scripts / cron). Bot deployments no longer need EDGE_API_TOKEN in their environment if the bot session always carries an access_token
+
 ### Changed
 
 - Supabase Auth JWT expiry bumped from 1h to 24h so a single access_token covers any plausible gameplay session without a refresh path
+- `EDGE_API_TOKEN` is now positioned as an admin-only credential (cron jobs, NPC bots, internal pg_net invocations, dev tooling). The user-facing voice bot session no longer requires it
 
 ## [0.3.0] - 2026-04-30
 

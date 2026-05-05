@@ -721,9 +721,11 @@ pnpm run dev
 ## Auth & secrets quick guide
 
 - **Gateway check (Supabase)**: default `verify_jwt=true` requires `Authorization: Bearer $SUPABASE_ANON_KEY` (or a user access token). Keep this on in production; optional `--no-verify-jwt` only for local.
-- **App gate (gameplay)**: every gameplay edge function expects `X-API-Token: $EDGE_API_TOKEN` and uses `SUPABASE_SERVICE_ROLE_KEY` internally for DB access.
-- **Bot/client calls**: send both headers. The anon key can be public; the gameplay token must stay secret.
-- **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_POOLER_URL`, `EDGE_API_TOKEN` (+ bot envs if used).
+- **App gate (gameplay)**: every gameplay edge function expects a credential in `X-API-Token`. The shared `_shared/auth.ts` `authenticate()` helper accepts two kinds:
+  - **User auth**: a Supabase Auth `access_token` JWT. The bot threads this from the proxy `start` edge function (verified via `supabase.auth.getUser`) all the way into per-action `canActOnCharacter()` checks, so the caller can only operate on characters they own directly or via corp membership.
+  - **Admin token**: the shared `EDGE_API_TOKEN` env. Used by NPCs, the combat-tick cron job, internal `pg_net` invocations, and dev tooling. Bypasses per-character checks (god mode by design).
+- **Bot/client calls**: send `apikey: $SUPABASE_ANON_KEY`, `Authorization: Bearer $SUPABASE_ANON_KEY` (gateway), and `X-API-Token: <user-access-token>` (per-character). NPCs / scripts substitute the admin token in `X-API-Token`.
+- **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_POOLER_URL`, `EDGE_API_TOKEN` (admin / cron / NPCs only — the user-facing voice bot session does not require this in its env any more).
 - **Combat cron**: ensure `app_runtime_config` has `supabase_url` and `edge_api_token` set to the live values (use `scripts/setup-production-combat-tick.sh --env <env-file>`; prod requires `--allow-production`).
 
 ---
