@@ -135,7 +135,16 @@ Show the user:
 
 ### 6. Update .env.bot (optional)
 
-After reporting the result, check if `BOT_TEST_CHARACTER_ID` exists in `.env.bot`. If it does, ask the user if they want to update it to the newly created character ID. If yes, replace the value in `.env.bot`.
+After reporting the result, check whether `BOT_TEST_CHARACTER_ID` exists in `.env.bot`. If it does, ask whether to update the bot's dev session to this new character.
+
+If yes, write **both** of these (the bot's `/start` requires a real Supabase Auth JWT for the owning user — needed even in polling mode, because per-character endpoints check the JWT instead of falling back to `EDGE_API_TOKEN`):
+
+- `BOT_TEST_CHARACTER_ID` → the new `character_id`
+- `BOT_TEST_ACCESS_TOKEN` → the `session.access_token` from step 2's login response
+
+If `BOT_TEST_ACCESS_TOKEN` is not present in `.env.bot`, append it. If present, replace the value.
+
+Note: access tokens currently last 24h (Supabase Auth JWT expiry). When it expires, re-run this skill or call `/login` again to refresh.
 
 ## Defaults
 

@@ -348,7 +348,7 @@ The `pubsub_client` role has zero direct grants on the `pgmq` schema, so cross-c
    EVENT_TRANSPORT=pubsub
    PGMQ_URL=postgresql://pubsub_client:localdev@127.0.0.1:54322/postgres
    ```
-3. Make sure the bot's `/start` body includes a real Supabase Auth `access_token` (or set `BOT_TEST_ACCESS_TOKEN`). Required for pubsub mode.
+3. Make sure the bot's `/start` body includes a real Supabase Auth `access_token` (or set `BOT_TEST_ACCESS_TOKEN`). The bot's `/start` requires this in **both** transport modes — pubsub uses it for per-character queue auth, polling uses it as `X-API-Token` so per-character endpoint checks pass.
 
 Migration `20260505000000_enable_pgmq_pubsub.sql` installs the `pgmq` and `pgjwt` extensions, creates the `pubsub_client` role, the auth functions, and an `INSERT` trigger on `characters` that auto-creates per-character queues. Existing characters are backfilled at migration time.
 
@@ -698,10 +698,10 @@ pnpm run dev
 | `BOT_IDLE_REPORT_TIME` | `7.5` | Seconds of silence before the bot gives a one-sentence task status update |
 | `BOT_IDLE_REPORT_COOLDOWN` | `30` | Minimum seconds between consecutive idle reports |
 | `BOT_USE_KRISP` | `0` | Enable Krisp noise cancellation (`1` for production, `0` for local dev) |
-| `BOT_TEST_CHARACTER_ID` | — | Hardcoded character ID for testing |
+| `BOT_TEST_CHARACTER_ID` | — | Hardcoded character ID for testing. Pair with `BOT_TEST_ACCESS_TOKEN` when invoking `/start` directly (e.g. ladle, curl) — the bot needs both: the character to bind to, and a JWT for that character's owner. |
 | `BOT_TEST_CHARACTER_NAME` | — | Hardcoded character name for testing |
 | `BOT_TEST_NPC_CHARACTER_NAME` | — | Hardcoded NPC name for testing |
-| `BOT_TEST_ACCESS_TOKEN` | — | Dev-only Supabase Auth `access_token` for invoking `/start` directly (bypassing the proxy). Required when no proxy supplies one. |
+| `BOT_TEST_ACCESS_TOKEN` | — | Dev-only Supabase Auth `access_token` for invoking `/start` directly (ladle, curl, scripts). The bot's `/start` always requires an access_token — production gets it from the proxy edge function; dev sets this env (or passes `access_token` in the body). Use the `/character-create` skill to mint a fresh one alongside `BOT_TEST_CHARACTER_ID`. JWT lifetime is 24h. |
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, etc.) |
 | `TOKEN_USAGE_LOG` | — | Path for token usage metrics CSV |
 
