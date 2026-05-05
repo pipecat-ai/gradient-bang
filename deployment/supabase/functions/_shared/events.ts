@@ -105,6 +105,113 @@ export async function recordEventWithRecipients(
     });
     throw new Error(`failed to record event ${eventType}: ${error.message}`);
   }
+
+  // Dual-write to pgmq (best-effort; gated by env). The events table remains
+  // the authoritative source — if pgmq publish fails, we log and continue
+  // so the event row stays consistent. Subscribers reading via
+  // `subscribe_my_events` get the full event payload (parity with polling).
+  if (Deno.env.get("PGMQ_PUBLISH_ENABLED") === "1") {
+    await publishEventToPgmq({
+      supabase,
+      eventType,
+      scope,
+      direction,
+      payload,
+      requestId,
+      meta,
+      sectorId,
+      shipId,
+      characterId,
+      senderId,
+      actorCharacterId,
+      corpId,
+      taskId,
+      recipientIds,
+      broadcast,
+    });
+  }
+}
+
+/**
+ * Best-effort fan-out of an event to per-character pgmq queues.
+ *
+ * Mirrors the recipient expansion done by `record_event_with_recipients`:
+ * direct recipient ids plus, when corp_id is set, the full corp delivery set
+ * (active members + corp-owned ship pseudo-characters). De-duplicated so
+ * each character receives exactly one message per event.
+ *
+ * Failures are logged but never raised — the events table is authoritative
+ * and pubsub is opt-in / additive.
+ */
+async function publishEventToPgmq(opts: {
+  supabase: SupabaseClient;
+  eventType: string;
+  scope: EventScope;
+  direction: "rpc_in" | "event_out";
+  payload?: Record<string, unknown>;
+  requestId?: string | null;
+  meta?: Record<string, unknown> | null;
+  sectorId?: number | null;
+  shipId?: string | null;
+  characterId?: string | null;
+  senderId?: string | null;
+  actorCharacterId?: string | null;
+  corpId?: string | null;
+  taskId?: string | null;
+  recipientIds: string[];
+  broadcast: boolean;
+}): Promise<void> {
+  const targets = new Set<string>(opts.recipientIds);
+  if (opts.corpId) {
+    try {
+      const corpSet = await loadCorpDeliverySet(opts.supabase, opts.corpId);
+      for (const id of corpSet) targets.add(id);
+    } catch (err) {
+      console.warn("events.publishEventToPgmq.corp_expand_failed", {
+        eventType: opts.eventType,
+        corpId: opts.corpId,
+        err,
+      });
+      // Continue with whatever we have — direct recipients still get the message.
+    }
+  }
+
+  if (targets.size === 0) return;
+
+  // Shape mirrors what `_deliver_polled_event` consumes on the client side:
+  // event_type + payload + meta + per-event context. Subscribers can dispatch
+  // these without an additional fetch round-trip.
+  const msg = {
+    event_type: opts.eventType,
+    direction: opts.direction,
+    scope: opts.scope,
+    payload: opts.payload ?? {},
+    meta: opts.meta ?? null,
+    request_id: opts.requestId ?? null,
+    sector_id: opts.sectorId ?? null,
+    ship_id: opts.shipId ?? null,
+    character_id: opts.characterId ?? null,
+    sender_id: opts.senderId ?? null,
+    actor_character_id: opts.actorCharacterId ?? null,
+    corp_id: opts.corpId ?? null,
+    task_id: opts.taskId ?? null,
+    is_broadcast: opts.broadcast,
+  };
+
+  for (const recipient of targets) {
+    const queueName = `chr_${recipient}`;
+    const { error } = await opts.supabase.rpc("pgmq_publish", {
+      p_queue_name: queueName,
+      p_msg: msg,
+    });
+    if (error) {
+      console.warn("events.publishEventToPgmq.send_failed", {
+        eventType: opts.eventType,
+        queueName,
+        error,
+      });
+    }
+  }
 }
 
 /**
