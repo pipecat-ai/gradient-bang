@@ -52,7 +52,7 @@ class ShipSellError extends Error {
 }
 
 Deno.serve(traced("ship_sell", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

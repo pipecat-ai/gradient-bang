@@ -38,7 +38,7 @@ import { loadUniverseMeta, isFedspaceSector } from "../_shared/fedspace.ts";
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("combat_disband_garrison", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

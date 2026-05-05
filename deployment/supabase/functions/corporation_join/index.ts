@@ -55,7 +55,7 @@ class CorporationJoinError extends Error {
 }
 
 Deno.serve(traced("corporation_join", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

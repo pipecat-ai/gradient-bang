@@ -48,7 +48,7 @@ class PlotCourseError extends Error {
 
 Deno.serve(traced("plot_course", async (req, trace) => {
   const sAuth = trace.span("auth_check");
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     sAuth.end({ error: "unauthorized" });
     return unauthorizedResponse();
   }

@@ -66,7 +66,7 @@ function generateCombatId(): string {
 }
 
 Deno.serve(traced("combat_initiate", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

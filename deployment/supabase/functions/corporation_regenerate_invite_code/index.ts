@@ -36,7 +36,7 @@ class CorporationInviteError extends Error {
 }
 
 Deno.serve(traced("corporation_regenerate_invite_code", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

@@ -39,7 +39,7 @@ const HYPERSPACE_ERROR =
 const STUCK_THRESHOLD_MS = 20_000; // 20 seconds past ETA = stuck
 
 Deno.serve(traced("my_status", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

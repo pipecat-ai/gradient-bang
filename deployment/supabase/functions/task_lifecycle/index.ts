@@ -27,7 +27,7 @@ import { traced } from "../_shared/weave.ts";
  * - task.finish: When a task completes, includes summary/result
  */
 Deno.serve(traced("task_lifecycle", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

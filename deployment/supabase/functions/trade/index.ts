@@ -71,7 +71,7 @@ class TradeError extends Error {
 const MAX_PORT_ATTEMPTS = 15;
 
 Deno.serve(traced("trade", async (req, wt) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

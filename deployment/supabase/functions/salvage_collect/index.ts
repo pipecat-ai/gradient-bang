@@ -53,7 +53,7 @@ const COMMODITY_TO_COLUMN: Record<string, string> = {
 };
 
 Deno.serve(traced("salvage_collect", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

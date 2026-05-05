@@ -63,7 +63,7 @@ class ShipRenameError extends Error {
 type JsonRecord = Record<string, unknown>;
 
 Deno.serve(traced("ship_rename", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

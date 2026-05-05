@@ -224,7 +224,7 @@ class TestResetError extends Error {
 }
 
 Deno.serve(traced("test_reset", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

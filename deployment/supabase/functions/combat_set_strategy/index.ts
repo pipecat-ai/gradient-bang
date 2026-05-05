@@ -39,7 +39,7 @@ import { traced } from "../_shared/weave.ts";
 const MAX_CUSTOM_PROMPT_CHARS = 1000;
 
 Deno.serve(traced("combat_set_strategy", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

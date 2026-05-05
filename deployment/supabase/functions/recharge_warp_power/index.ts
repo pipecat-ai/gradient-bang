@@ -53,7 +53,7 @@ class RechargeWarpPowerError extends Error {
 const PRICE_PER_UNIT = 2;
 
 Deno.serve(traced("recharge_warp_power", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

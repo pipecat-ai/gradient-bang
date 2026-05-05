@@ -34,7 +34,7 @@ import { getEffectiveCorporationId } from "../_shared/corporations.ts";
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("combat_set_garrison_mode", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

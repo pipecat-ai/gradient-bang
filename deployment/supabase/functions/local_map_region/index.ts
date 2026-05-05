@@ -39,7 +39,7 @@ const DEFAULT_MAX_HOPS = 3;
 const DEFAULT_MAX_SECTORS = 100;
 
 Deno.serve(traced("local_map_region", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

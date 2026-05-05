@@ -42,7 +42,7 @@ class CorporationKickError extends Error {
 }
 
 Deno.serve(traced("corporation_kick", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

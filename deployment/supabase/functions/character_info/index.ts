@@ -27,7 +27,7 @@ import { traced } from "../_shared/weave.ts";
  */
 Deno.serve(traced("character_info", async (req, trace) => {
   const sAuth = trace.span("auth_check");
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     sAuth.end({ error: "unauthorized" });
     return unauthorizedResponse();
   }

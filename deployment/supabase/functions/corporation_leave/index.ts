@@ -47,7 +47,7 @@ class CorporationLeaveError extends Error {
 }
 
 Deno.serve(traced("corporation_leave", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

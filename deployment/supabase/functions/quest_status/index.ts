@@ -54,7 +54,7 @@ interface QuestInfo {
 }
 
 Deno.serve(traced("quest_status", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

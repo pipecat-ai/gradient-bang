@@ -50,7 +50,7 @@ const DEFAULT_MAX_SECTORS = 200;
 const MAX_ALLOWED_SECTORS = 400;
 
 Deno.serve(traced("path_with_region", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

@@ -53,7 +53,7 @@ class PurchaseFightersError extends Error {
 }
 
 Deno.serve(traced("purchase_fighters", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

@@ -78,7 +78,7 @@ type TransferTarget = {
 };
 
 Deno.serve(traced("transfer_credits", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

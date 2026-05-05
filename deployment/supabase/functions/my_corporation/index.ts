@@ -36,7 +36,7 @@ class MyCorporationError extends Error {
 }
 
 Deno.serve(traced("my_corporation", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

@@ -22,7 +22,7 @@ import {
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("quest_claim_reward", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

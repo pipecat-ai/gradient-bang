@@ -34,7 +34,7 @@ import type { EventRecipientSnapshot } from "../_shared/visibility.ts";
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("send_message", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

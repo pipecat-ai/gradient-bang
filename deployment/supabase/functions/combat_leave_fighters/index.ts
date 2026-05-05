@@ -66,7 +66,7 @@ import {
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("combat_leave_fighters", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

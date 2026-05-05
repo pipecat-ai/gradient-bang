@@ -71,7 +71,7 @@ class EventQueryError extends Error {
 }
 
 Deno.serve(traced("event_query", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

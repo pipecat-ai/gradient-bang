@@ -66,7 +66,7 @@ const PERSONAL_PURCHASE = "personal";
 const CORPORATION_PURCHASE = "corporation";
 
 Deno.serve(traced("ship_purchase", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

@@ -50,7 +50,7 @@ interface EventRow {
 }
 
 Deno.serve(traced("events_since", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

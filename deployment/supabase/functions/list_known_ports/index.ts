@@ -162,7 +162,7 @@ function getPortPrices(
 
 Deno.serve(traced("list_known_ports", async (req, trace) => {
   const sAuth = trace.span("auth_check");
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     sAuth.end({ error: "unauthorized" });
     return unauthorizedResponse();
   }

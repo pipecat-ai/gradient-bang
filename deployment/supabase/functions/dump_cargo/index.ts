@@ -56,7 +56,7 @@ class DumpCargoError extends Error {
 }
 
 Deno.serve(traced("dump_cargo", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

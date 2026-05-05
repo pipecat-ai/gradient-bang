@@ -73,7 +73,7 @@ const MAX_LOCAL_MAP_HOPS = 4;
 const MAX_LOCAL_MAP_NODES = 28;
 
 Deno.serve(traced("move", async (req, wt) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

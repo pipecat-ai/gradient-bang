@@ -15,7 +15,7 @@ import { traced } from "../_shared/weave.ts";
 const MAX_BATCH = Number(Deno.env.get("COMBAT_TICK_BATCH_SIZE") ?? "20");
 
 Deno.serve(traced("combat_tick", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

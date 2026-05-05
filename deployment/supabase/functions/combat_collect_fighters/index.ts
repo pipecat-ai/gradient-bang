@@ -38,7 +38,7 @@ import { runCollectFightersTransaction } from "../_shared/garrison_transactions.
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("combat_collect_fighters", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

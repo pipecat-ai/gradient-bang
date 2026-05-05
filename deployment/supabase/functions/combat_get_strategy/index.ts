@@ -30,7 +30,7 @@ import {
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("combat_get_strategy", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await validateApiToken(req))) {
     return unauthorizedResponse();
   }
 

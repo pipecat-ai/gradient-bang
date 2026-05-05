@@ -22,7 +22,7 @@ import { traced } from "../_shared/weave.ts";
 
 Deno.serve(
   traced("ship_definitions", async (req, trace) => {
-    if (!validateApiToken(req)) {
+    if (!(await validateApiToken(req))) {
       return unauthorizedResponse();
     }
 
