@@ -2,10 +2,12 @@ import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -66,8 +68,11 @@ const PERSONAL_PURCHASE = "personal";
 const CORPORATION_PURCHASE = "corporation";
 
 Deno.serve(traced("ship_purchase", async (req, trace) => {
-  if (!(await validateApiToken(req))) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -105,6 +110,10 @@ Deno.serve(traced("ship_purchase", async (req, trace) => {
   const actorCharacterId = optionalString(payload, "actor_character_id");
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
+
+  if (!(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({
     characterId,

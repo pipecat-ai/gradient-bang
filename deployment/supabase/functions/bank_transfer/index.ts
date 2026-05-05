@@ -1,8 +1,10 @@
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -57,8 +59,11 @@ class BankTransferError extends Error {
 }
 
 Deno.serve(traced("bank_transfer", async (req, trace) => {
-  if (!(await validateApiToken(req))) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -93,6 +98,15 @@ Deno.serve(traced("bank_transfer", async (req, trace) => {
   // Try to get a character_id from the payload for error logging
   const characterIdForErrors =
     optionalString(payload, "character_id") ?? actorCharacterId;
+
+  // Per-character authorization: caller must own actor or character.
+  const authTargetId = actorCharacterId ?? characterIdForErrors;
+  if (
+    authTargetId &&
+    !(await canActOnCharacter(auth, authTargetId, supabase))
+  ) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({
     requestId,
