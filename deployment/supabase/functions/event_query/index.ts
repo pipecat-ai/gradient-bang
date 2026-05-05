@@ -3,10 +3,12 @@ import { timingSafeEqual } from "https://deno.land/std@0.197.0/crypto/timing_saf
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { emitCharacterEvent, buildEventSource } from "../_shared/events.ts";
@@ -71,8 +73,11 @@ class EventQueryError extends Error {
 }
 
 Deno.serve(traced("event_query", async (req, trace) => {
-  if (!(await validateApiToken(req))) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -96,6 +101,17 @@ Deno.serve(traced("event_query", async (req, trace) => {
   }
 
   const requestId = resolveRequestId(payload);
+
+  // Per-character authorization: caller must own the actor or target.
+  const authCharacterId =
+    optionalString(payload, "actor_character_id") ??
+    optionalString(payload, "character_id");
+  if (
+    authCharacterId &&
+    !(await canActOnCharacter(auth, authCharacterId, supabase))
+  ) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({
     characterId: optionalString(payload, "character_id"),

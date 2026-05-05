@@ -8,10 +8,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { emitCharacterEvent, buildEventSource } from "../_shared/events.ts";
@@ -55,8 +57,11 @@ interface ShipsListResult {
 }
 
 Deno.serve(traced("list_user_ships", async (req, trace) => {
-  if (!(await validateApiToken(req))) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -81,6 +86,10 @@ Deno.serve(traced("list_user_ships", async (req, trace) => {
   try {
     // character_id is the user's personal character
     const characterId = requireString(payload, "character_id");
+
+    if (!(await canActOnCharacter(auth, characterId, supabase))) {
+      return errorResponse("forbidden", 403);
+    }
 
     trace.setInput({ characterId, requestId });
 
