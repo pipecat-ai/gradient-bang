@@ -81,8 +81,15 @@ class AsyncGameClient(BaseAsyncGameClient):
             or os.getenv("SUPABASE_API_TOKEN")
             or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         )
-        if not self._edge_api_token:
-            raise ValueError("EDGE_API_TOKEN or SUPABASE_API_TOKEN is required")
+        # At least one credential must be available. The bot supplies
+        # ``access_token`` (Supabase Auth JWT, per-character auth); NPCs and
+        # scripts supply ``EDGE_API_TOKEN`` (admin / god-mode). Either is
+        # acceptable so that the bot's deployment env no longer needs to
+        # carry the admin token at all.
+        if not self._edge_api_token and not access_token:
+            raise ValueError(
+                "AsyncGameClient requires either access_token or EDGE_API_TOKEN"
+            )
 
         self._http = httpx.AsyncClient(timeout=10.0)
         self._requested_transport = requested_transport
