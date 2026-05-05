@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional pgmq-backed pubsub event delivery (`EVENT_TRANSPORT=pubsub`) — long-polls per-character queues via auth-gated SECURITY DEFINER functions (`subscribe_my_events` / `archive_my_events`) that verify the caller's Supabase Auth `access_token` and check character ownership including corp-ship access via corp membership. Polling remains the default; pubsub is opt-in and gated server-side by `PGMQ_PUBLISH_ENABLED`
+- `AsyncGameClient` event delivery is now plugged in via an `EventAdapter` Protocol (`src/gradientbang/adapters/events/`) so polling and pubsub share dispatch sinks; switching modes is one env var
+- Bot's `/start` now requires a Supabase Auth `access_token` in the body (forwarded by the proxy `start` edge function) so per-character credentials can flow into the new pubsub channel; dev workflows can use `BOT_TEST_ACCESS_TOKEN`
+- New migrations: `pgmq` + `pgjwt` extensions enabled; locked-down `pubsub_client` Postgres role with no direct grants on the `pgmq` schema; per-character queues created automatically via INSERT trigger on `characters` and backfilled
+
+### Changed
+
+- Supabase Auth JWT expiry bumped from 1h to 24h so a single access_token covers any plausible gameplay session without a refresh path
+
 ## [0.3.0] - 2026-04-30
 
 ### Added
