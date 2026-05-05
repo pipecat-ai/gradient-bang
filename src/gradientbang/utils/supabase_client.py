@@ -214,11 +214,19 @@ class AsyncGameClient(BaseAsyncGameClient):
         return await self._request(endpoint, payload)
 
     def _edge_headers(self) -> Dict[str, str]:
+        # X-API-Token carries the caller's credential. The server-side
+        # `authenticate()` helper distinguishes JWT-shaped tokens (Supabase
+        # Auth, → user context) from the shared admin token (EDGE_API_TOKEN
+        # → admin context). Prefer the user token when available so per-
+        # character authorization works downstream; fall back to the admin
+        # token for NPC bots, scripts, and cron-style callers that have no
+        # user identity.
+        caller_token = self._access_token or self._edge_api_token
         return {
             "Content-Type": "application/json",
             "apikey": self._anon_key,
             "Authorization": f"Bearer {self._anon_key}",
-            "X-API-Token": self._edge_api_token,
+            "X-API-Token": caller_token,
         }
 
     async def ensure_character_jwt(self, force: bool = False) -> str:
