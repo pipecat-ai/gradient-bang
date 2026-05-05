@@ -9,5 +9,11 @@ client relies on.
 from gradientbang.adapters.events.base import EventAdapter
 from gradientbang.adapters.events.factory import make_event_adapter
 from gradientbang.adapters.events.polling import PollingEventAdapter
+from gradientbang.adapters.events.pubsub import PubsubEventAdapter
 
-__all__ = ["EventAdapter", "PollingEventAdapter", "make_event_adapter"]
+__all__ = [
+    "EventAdapter",
+    "PollingEventAdapter",
+    "PubsubEventAdapter",
+    "make_event_adapter",
+]
