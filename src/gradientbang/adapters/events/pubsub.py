@@ -232,10 +232,11 @@ class PubsubEventAdapter:
             raise RuntimeError(
                 "access_token missing on AsyncGameClient; cannot mint internal token"
             )
-        # X-Edge-Auth proves the request came from a trusted backend. In
-        # production EDGE_API_TOKEN is always set; in tests/local-dev the
-        # server bypass (ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1) fills in for it,
-        # so we omit the header when no token is configured.
+        # X-Edge-Auth proves the request came from a trusted backend. The
+        # bot must set EDGE_API_TOKEN in production — verify_token requires
+        # X-Edge-Auth and will 401 without it. Tests/local-dev rely on the
+        # server bypass (ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1), so we omit the
+        # header when no token is configured.
         edge_auth = os.environ.get("EDGE_API_TOKEN")
 
         url = f"{supabase_url}/functions/v1/verify_token"

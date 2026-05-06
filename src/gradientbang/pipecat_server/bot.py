@@ -142,6 +142,7 @@ async def _lookup_character_display_name(
             character_id=character_id,
             transport="supabase",
             access_token=access_token,
+            enable_event_polling=False,
         ) as client:
             result = await client.character_info(character_id=character_id)
     except Exception as exc:
