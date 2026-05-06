@@ -30,7 +30,8 @@ class InferenceGateState:
         self._cooldown_seconds = float(cooldown_seconds)
         self._post_llm_grace_seconds = float(post_llm_grace_seconds)
         self._bot_speaking = False
-        self._user_speaking = False
+        self._user_audio_active = False
+        self._user_turn_active = False
         self._cooldown_until: Optional[float] = None
         self._llm_in_flight = False
         self._last_llm_end: Optional[float] = None
@@ -98,17 +99,26 @@ class InferenceGateState:
                 self._ensure_pending_task_locked()
 
     async def update_user_speaking(self, speaking: bool) -> None:
+        await self.update_user_turn_active(speaking, clear_pending=not speaking)
+
+    async def update_user_audio_active(self, active: bool) -> None:
         async with self._lock:
-            if self._user_speaking == speaking:
+            if self._user_audio_active == active:
                 return
-            self._user_speaking = speaking
-            if speaking:
-                self._user_idle_event.clear()
-            else:
-                self._user_idle_event.set()
-                if self._pending:
-                    self._pending = False
-                    self._pending_reason = None
+            self._user_audio_active = active
+            self._sync_user_idle_event_locked()
+            if self._pending:
+                self._ensure_pending_task_locked()
+
+    async def update_user_turn_active(self, active: bool, *, clear_pending: bool = False) -> None:
+        async with self._lock:
+            if self._user_turn_active == active:
+                return
+            self._user_turn_active = active
+            self._sync_user_idle_event_locked()
+            if not active and clear_pending and self._pending:
+                self._pending = False
+                self._pending_reason = None
             if self._pending:
                 self._ensure_pending_task_locked()
 
@@ -128,7 +138,7 @@ class InferenceGateState:
     def _can_run_now_locked(self) -> bool:
         if self._bot_speaking:
             return False
-        if self._user_speaking:
+        if self._user_audio_active or self._user_turn_active:
             return False
         if self._llm_in_flight:
             return False
@@ -136,6 +146,12 @@ class InferenceGateState:
             if time.monotonic() < self._cooldown_until:
                 return False
         return True
+
+    def _sync_user_idle_event_locked(self) -> None:
+        if self._user_audio_active or self._user_turn_active:
+            self._user_idle_event.clear()
+        else:
+            self._user_idle_event.set()
 
     def _ensure_pending_task_locked(self) -> None:
         if self._pending_task and not self._pending_task.done():
@@ -328,7 +344,10 @@ class PostLLMInferenceGate(FrameProcessor):
             await self.push_frame(frame, direction)
             return
 
-        if isinstance(frame, FunctionCallInProgressFrame) and direction == FrameDirection.DOWNSTREAM:
+        if (
+            isinstance(frame, FunctionCallInProgressFrame)
+            and direction == FrameDirection.DOWNSTREAM
+        ):
             self._function_calls_in_progress.add(frame.tool_call_id)
             await self.push_frame(frame, direction)
             return

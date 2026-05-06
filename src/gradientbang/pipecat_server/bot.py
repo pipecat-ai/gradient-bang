@@ -44,6 +44,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
+    LLMAssistantAggregator,
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
@@ -61,6 +62,7 @@ from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_start import VADUserTurnStartStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.context.llm_context_summarization import (
     LLMAutoContextSummarizationConfig,
@@ -91,6 +93,15 @@ from gradientbang.pipecat_server.inference_gate import (
     PostLLMInferenceGate,
     PreLLMInferenceGate,
 )
+from gradientbang.pipecat_server.openai_realtime import (
+    OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE,
+    OPENAI_REALTIME_SAMPLE_RATE,
+    RealtimeAudioLLMUserAggregator,
+    RealtimeAudioOnlyS3TurnStopStrategy,
+    RealtimeFunctionResultRelay,
+    RealtimeMainContextRelay,
+    build_realtime_output_mux,
+)
 from gradientbang.pipecat_server.subagents.ui_agent import (
     UIAgentContext,
     UIAgentResponseCollector,
@@ -112,6 +123,12 @@ DEFAULT_PERSONALITY_TONE = (
     "Wistful about the old days when the Federation meant something, but too disciplined to dwell. "
     "Addresses the player as 'commander'."
 )
+
+
+def _env_flag(name: str, default: str = "") -> bool:
+    value = os.getenv(name, default)
+    return str(value).strip().lower() not in ("", "0", "false", "no", "off")
+
 
 if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
@@ -234,13 +251,16 @@ async def bot_startup(
     server_url: str,
     voice_id: str = DEFAULT_VOICE_ID,
     language: Language = Language.EN,
+    openai_realtime_mode: bool = False,
 ):
     """Traced startup wrapper — initializes all services for the bot pipeline."""
 
     rtvi = RTVIProcessor()
 
     # Chain A: local API server → resolve character (sequential)
-    # Chain B: STT + TTS init (independent)
+    # Chain B: STT + TTS init (independent). Realtime mode sends audio
+    # directly to OpenAI Realtime, so the standalone Deepgram STT service is
+    # not constructed.
 
     async def _chain_a():
         local_api_server: LocalApiServer | None = None
@@ -261,9 +281,14 @@ async def bot_startup(
         )
         return local_api_server, character_id, character_display_name
 
+    async def _chain_b_stt():
+        if openai_realtime_mode:
+            return None
+        return await _startup_init_stt(language)
+
     (local_api_server, character_id, character_display_name), stt, tts = await asyncio.gather(
         _chain_a(),
-        _startup_init_stt(language),
+        _chain_b_stt(),
         _startup_init_tts(voice_id, language),
     )
 
@@ -279,6 +304,10 @@ async def bot_startup(
 
 async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     """Main bot function that creates and runs the pipeline."""
+
+    openai_realtime_mode = _env_flag("OPENAI_REALTIME_MODE")
+    if openai_realtime_mode:
+        logger.info("OpenAI Realtime mode enabled")
 
     server_url = os.getenv("SUPABASE_URL")
     if not server_url:
@@ -309,7 +338,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         stt,
         tts,
     ) = await bot_startup(
-        character_id_hint, character_name_hint, server_url, voice_id, voice_language
+        character_id_hint,
+        character_name_hint,
+        server_url,
+        voice_id,
+        voice_language,
+        openai_realtime_mode=openai_realtime_mode,
     )
 
     token_usage_metrics = TokenUsageMetricsProcessor(source="bot")
@@ -344,49 +378,60 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         },
     ]
 
-    # Create dedicated Gemini Flash LLM for context summarization
-    summarization_llm = create_llm_service(
-        LLMServiceConfig(provider=LLMProvider.GOOGLE, model="gemini-2.5-flash")
-    )
-    message_limit = int(os.getenv("CONTEXT_SUMMARIZATION_MESSAGE_LIMIT", "200"))
-    auto_summarization_config = LLMAutoContextSummarizationConfig(
-        max_context_tokens=None,
-        max_unsummarized_messages=message_limit,
-        summary_config=LLMContextSummaryConfig(
-            target_context_tokens=6000,
-            min_messages_after_summary=5,
-            summarization_prompt=load_prompt("fragments/context_summarization.md"),
-            summary_message_template="<session_history_summary>\n{summary}\n</session_history_summary>",
-            llm=summarization_llm,
-            summarization_timeout=120.0,
-        ),
-    )
+    auto_summarization_config = None
+    if not openai_realtime_mode:
+        # Create dedicated Gemini Flash LLM for context summarization.
+        summarization_llm = create_llm_service(
+            LLMServiceConfig(provider=LLMProvider.GOOGLE, model="gemini-2.5-flash")
+        )
+        message_limit = int(os.getenv("CONTEXT_SUMMARIZATION_MESSAGE_LIMIT", "200"))
+        auto_summarization_config = LLMAutoContextSummarizationConfig(
+            max_context_tokens=None,
+            max_unsummarized_messages=message_limit,
+            summary_config=LLMContextSummaryConfig(
+                target_context_tokens=6000,
+                min_messages_after_summary=5,
+                summarization_prompt=load_prompt("fragments/context_summarization.md"),
+                summary_message_template="<session_history_summary>\n{summary}\n</session_history_summary>",
+                llm=summarization_llm,
+                summarization_timeout=120.0,
+            ),
+        )
 
     # Context starts empty — messages and tools are injected into the
     # VoiceAgent via LLMAgentActivationArgs on the bus.
     context = LLMContext()
     mute_strategy = TextInputBypassFirstBotMuteStrategy()
-    user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
-        context,
-        user_params=LLMUserAggregatorParams(
-            filter_incomplete_user_turns=True,
-            user_turn_strategies=UserTurnStrategies(
-                stop=[
-                    TurnAnalyzerUserTurnStopStrategy(
-                        turn_analyzer=S3SmartTurnAnalyzerV3(player_id=character_id)
-                    )
-                ],
-            ),
-            user_mute_strategies=[
-                mute_strategy,
+    user_params = LLMUserAggregatorParams(
+        filter_incomplete_user_turns=not openai_realtime_mode,
+        user_turn_strategies=UserTurnStrategies(
+            start=[VADUserTurnStartStrategy()] if openai_realtime_mode else None,
+            stop=[
+                (
+                    RealtimeAudioOnlyS3TurnStopStrategy
+                    if openai_realtime_mode
+                    else TurnAnalyzerUserTurnStopStrategy
+                )(turn_analyzer=S3SmartTurnAnalyzerV3(player_id=character_id))
             ],
-            vad_analyzer=SileroVADAnalyzer(),
         ),
-        assistant_params=LLMAssistantAggregatorParams(
-            enable_auto_context_summarization=True,
-            auto_context_summarization_config=auto_summarization_config,
-        ),
+        user_mute_strategies=[
+            mute_strategy,
+        ],
+        vad_analyzer=SileroVADAnalyzer(),
     )
+    assistant_params = LLMAssistantAggregatorParams(
+        enable_auto_context_summarization=not openai_realtime_mode,
+        auto_context_summarization_config=auto_summarization_config,
+    )
+    if openai_realtime_mode:
+        user_aggregator = RealtimeAudioLLMUserAggregator(context, params=user_params)
+        assistant_aggregator = LLMAssistantAggregator(context, params=assistant_params)
+    else:
+        user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
+            context,
+            user_params=user_params,
+            assistant_params=assistant_params,
+        )
     # The aggregator defaults _user_is_muted to False. When the mute strategy
     # first evaluates and returns "muted", the False→True transition emits a
     # UserMuteStartedFrame before the pipeline is fully started, which can
@@ -520,7 +565,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # ── Create subagents and wire everything together ───────────────────
 
-    from pipecat.frames.frames import BotSpeakingFrame, UserSpeakingFrame
+    from pipecat.frames.frames import (
+        BotSpeakingFrame,
+        BotStartedSpeakingFrame,
+        BotStoppedSpeakingFrame,
+        UserSpeakingFrame,
+    )
     from pipecat.pipeline.parallel_pipeline import ParallelPipeline
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -558,6 +608,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             task = PipelineTask(
                 pipeline,
                 params=PipelineParams(
+                    audio_in_sample_rate=(
+                        OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE if openai_realtime_mode else 16000
+                    ),
+                    audio_out_sample_rate=(
+                        OPENAI_REALTIME_SAMPLE_RATE if openai_realtime_mode else 24000
+                    ),
                     enable_metrics=True,
                     enable_usage_metrics=True,
                 ),
@@ -586,6 +642,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 bus=self.bus,
                 agent_name=self.name,
                 name=f"{self.name}::BusBridge",
+                fanout_frames=(
+                    (InterruptionFrame, BotStartedSpeakingFrame, BotStoppedSpeakingFrame)
+                    if openai_realtime_mode
+                    else None
+                ),
             )
 
             @transport.event_handler("on_client_connected")
@@ -594,23 +655,40 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 await self.add_agent(voice_agent)
                 await self.add_agent(scripted_agent)
 
-            return Pipeline(
+            input_branch = [transport.input()]
+            if stt is not None:
+                input_branch.append(stt)
+            input_branch.extend(
                 [
-                    transport.input(),
-                    stt,
                     idle_report_processor,
                     pre_llm_gate,
-                    user_aggregator,
+                ]
+            )
+            if openai_realtime_mode:
+                input_branch.append(realtime_main_context_relay)
+            input_branch.append(user_aggregator)
+
+            voice_output_branch = [
+                bridge,
+                post_llm_gate,
+            ]
+            if openai_realtime_mode:
+                voice_output_branch.append(realtime_function_result_relay)
+            voice_output_branch.extend(
+                [
+                    token_usage_metrics,
+                    say_text_voice_guard,
+                    (build_realtime_output_mux(tts) if openai_realtime_mode else tts),
+                    transport.output(),
+                    assistant_aggregator,
+                ]
+            )
+
+            return Pipeline(
+                [
+                    *input_branch,
                     ParallelPipeline(
-                        [
-                            bridge,
-                            post_llm_gate,
-                            token_usage_metrics,
-                            say_text_voice_guard,
-                            tts,
-                            transport.output(),
-                            assistant_aggregator,
-                        ],
+                        voice_output_branch,
                         ui_branch,
                     ),
                 ]
@@ -624,6 +702,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         game_client=game_client,
         character_id=character_id,
         rtvi_processor=rtvi,
+        openai_realtime_mode=openai_realtime_mode,
+        realtime_inference_gate_state=inference_gate_state,
+    )
+    realtime_main_context_relay = RealtimeMainContextRelay(lambda: voice_agent.realtime_llm_service)
+    realtime_function_result_relay = RealtimeFunctionResultRelay(
+        lambda: voice_agent.realtime_llm_service
     )
 
     # ── Universe info substitution ────────────────────────────────────
@@ -769,6 +853,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         voice_agent=voice_agent,
         on_skip_tutorial=_on_tutorial_complete,
         active_voice_state=active_voice_state,
+        openai_realtime_mode=openai_realtime_mode,
     )
 
     @rtvi.event_handler("on_client_message")
@@ -909,16 +994,25 @@ async def bot(runner_args: RunnerArguments):
 
     logger.info(f"Gradient Bang v{__version__}")
     logger.info(f"Bot started with runner_args: {runner_args}")
+    openai_realtime_mode = _env_flag("OPENAI_REALTIME_MODE")
 
     transport_params = {
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
+            audio_in_sample_rate=(
+                OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE if openai_realtime_mode else None
+            ),
+            audio_out_sample_rate=(OPENAI_REALTIME_SAMPLE_RATE if openai_realtime_mode else None),
             audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
         ),
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
+            audio_in_sample_rate=(
+                OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE if openai_realtime_mode else None
+            ),
+            audio_out_sample_rate=(OPENAI_REALTIME_SAMPLE_RATE if openai_realtime_mode else None),
             audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
         ),
     }

@@ -40,6 +40,7 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
         target_agent: Optional[str] = None,
         bridge: Optional[str] = None,
         exclude_frames: Optional[Tuple[Type[Frame], ...]] = None,
+        fanout_frames: Optional[Tuple[Type[Frame], ...]] = None,
         **kwargs,
     ):
         """Initialize the BusBridgeProcessor.
@@ -53,6 +54,8 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
                 with the same bridge name are accepted.
             exclude_frames: Extra frame types that should never cross the bus
                 (on top of lifecycle frames which are always excluded).
+            fanout_frames: Extra frame types that should both cross the bus and
+                continue through the local pipeline.
             **kwargs: Additional arguments passed to ``FrameProcessor``.
         """
         super().__init__(**kwargs)
@@ -61,6 +64,7 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
         self._target_agent = target_agent
         self._bridge = bridge
         self._exclude_frames = exclude_frames or ()
+        self._fanout_frames = fanout_frames or ()
 
     async def setup(self, setup: FrameProcessorSetup):
         """Subscribe to the bus during processor setup."""
@@ -105,6 +109,8 @@ class BusBridgeProcessor(FrameProcessor, BusSubscriber):
             bridge=self._bridge,
         )
         await self._bus.send(msg)
+        if self._fanout_frames and isinstance(frame, self._fanout_frames):
+            await self.push_frame(frame, direction)
 
     async def on_bus_message(self, message: BusMessage) -> None:
         """Handle an incoming bus message by pushing its frame into the pipeline.

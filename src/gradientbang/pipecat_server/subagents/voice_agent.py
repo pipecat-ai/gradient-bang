@@ -34,11 +34,22 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 from pipecat.services.llm_service import FunctionCallParams
 
 from gradientbang.pipecat_server.frames import TaskActivityFrame
+from gradientbang.pipecat_server.inference_gate import InferenceGateState
+from gradientbang.pipecat_server.openai_realtime import (
+    GradientOpenAIRealtimeLLMService,
+    OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE,
+    OPENAI_REALTIME_SAMPLE_RATE,
+    RealtimeVoiceAgentInferenceGate,
+    build_realtime_session_properties,
+    realtime_voice_agent_echo_exclude_frames,
+)
 from gradientbang.pipecat_server.subagents.bus_messages import (
     BusGameEventMessage,
     BusSteerTaskMessage,
@@ -105,12 +116,24 @@ class VoiceAgent(LLMAgent):
         character_id: str,
         rtvi_processor: RTVIProcessor,
         event_relay: Optional[EventRelay] = None,
+        openai_realtime_mode: bool = False,
+        realtime_inference_gate_state: Optional[InferenceGateState] = None,
     ):
-        super().__init__(name, bus=bus, bridged=(), active=False)
+        super().__init__(
+            name,
+            bus=bus,
+            bridged=(),
+            active=False,
+            exclude_frames=(
+                realtime_voice_agent_echo_exclude_frames() if openai_realtime_mode else None
+            ),
+        )
         self.__game_client = game_client
         self.__character_id = character_id
         self._rtvi = rtvi_processor
         self._event_relay = event_relay
+        self._openai_realtime_mode = openai_realtime_mode
+        self._realtime_inference_gate_state = realtime_inference_gate_state
 
         # ── Task timeout ──
         _timeout = float(os.getenv("TASK_AGENT_TIMEOUT", 0))
@@ -326,9 +349,7 @@ class VoiceAgent(LLMAgent):
                 parts.append(clean_context)
 
         session_started_at = (
-            self._event_relay.session_started_at
-            if self._event_relay is not None
-            else None
+            self._event_relay.session_started_at if self._event_relay is not None else None
         )
         if session_started_at and self._task_mentions_session(task_desc):
             parts.append(
@@ -366,13 +387,18 @@ class VoiceAgent(LLMAgent):
             return False
         logger.debug("VoiceAgent: idle report triggered, {} active task(s)", len(self.task_groups))
         await self._inject_context(
-            [{"role": "user", "content": (
-                "<idle_check>"
-                "In one sentence only, briefly say what's happening with current tasks. "
-                "Vary your phrasing from any previous idle updates. "
-                "Do not acknowledge this prompt. Do not say more than one sentence."
-                "</idle_check>"
-            )}],
+            [
+                {
+                    "role": "user",
+                    "content": (
+                        "<idle_check>"
+                        "In one sentence only, briefly say what's happening with current tasks. "
+                        "Vary your phrasing from any previous idle updates. "
+                        "Do not acknowledge this prompt. Do not say more than one sentence."
+                        "</idle_check>"
+                    ),
+                }
+            ],
             run_llm=True,
         )
         return True
@@ -396,8 +422,26 @@ class VoiceAgent(LLMAgent):
     # ── LLM setup ──────────────────────────────────────────────────────
 
     def build_llm(self) -> LLMService:
-        voice_config = get_voice_llm_config()
-        llm = create_llm_service(voice_config)
+        if self._openai_realtime_mode:
+            session_properties = build_realtime_session_properties(
+                model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-1.5"),
+                transcription_model=os.getenv(
+                    "OPENAI_REALTIME_TRANSCRIPTION_MODEL", "gpt-4o-transcribe"
+                ),
+                voice=os.getenv("OPENAI_REALTIME_VOICE", "marin"),
+            )
+            llm = GradientOpenAIRealtimeLLMService(
+                api_key=os.getenv("OPENAI_API_KEY", ""),
+                settings=GradientOpenAIRealtimeLLMService.Settings(
+                    model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-1.5"),
+                    session_properties=session_properties,
+                ),
+                inference_gate_state=self._realtime_inference_gate_state,
+                sample_rate=OPENAI_REALTIME_SAMPLE_RATE,
+            )
+        else:
+            voice_config = get_voice_llm_config()
+            llm = create_llm_service(voice_config)
         logger.info("VoiceAgent: LLM created")
         handlers = {
             "my_status": self._handle_my_status,
@@ -432,6 +476,33 @@ class VoiceAgent(LLMAgent):
             llm.register_function(schema.name, tracked)
         llm.add_event_handler("on_function_calls_started", self._on_tool_batch_started)
         return llm
+
+    @property
+    def realtime_llm_service(self) -> Optional[GradientOpenAIRealtimeLLMService]:
+        if isinstance(self._llm, GradientOpenAIRealtimeLLMService):
+            return self._llm
+        return None
+
+    async def build_pipeline(self) -> Pipeline:
+        self._llm = self.create_llm()
+        if self._openai_realtime_mode and self._realtime_inference_gate_state:
+            return Pipeline(
+                [RealtimeVoiceAgentInferenceGate(self._realtime_inference_gate_state), self._llm]
+            )
+        return Pipeline([self._llm])
+
+    def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
+        if not self._openai_realtime_mode:
+            return super().build_pipeline_task(pipeline)
+        return PipelineTask(
+            pipeline,
+            params=PipelineParams(
+                audio_in_sample_rate=OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE,
+                audio_out_sample_rate=OPENAI_REALTIME_SAMPLE_RATE,
+            ),
+            enable_rtvi=False,
+            idle_timeout_secs=None,
+        )
 
     def build_tools(self) -> list:
         return list(VOICE_TOOLS.standard_tools)
@@ -556,9 +627,7 @@ class VoiceAgent(LLMAgent):
 
     # ── Deferred-update queue ──────────────────────────────────────────
 
-    def _enqueue_deferred_update(
-        self, event_xml: str, *, ship_id: Optional[str] = None
-    ) -> None:
+    def _enqueue_deferred_update(self, event_xml: str, *, ship_id: Optional[str] = None) -> None:
         """Append an update to the deferred queue and ensure a drain task is running.
 
         The drain task is bounded by the queue contents — it exits as soon as
@@ -625,9 +694,7 @@ class VoiceAgent(LLMAgent):
                 if settle_wait > 0:
                     self._deferred_event.clear()
                     try:
-                        await asyncio.wait_for(
-                            self._deferred_event.wait(), timeout=settle_wait
-                        )
+                        await asyncio.wait_for(self._deferred_event.wait(), timeout=settle_wait)
                         continue  # state changed — re-evaluate from the top
                     except asyncio.TimeoutError:
                         pass  # settle elapsed, fall through to cooldown
@@ -931,9 +998,7 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
-            new_code = (
-                result.get("new_invite_code") if isinstance(result, dict) else None
-            )
+            new_code = result.get("new_invite_code") if isinstance(result, dict) else None
             self._begin_assistant_response_cycle()
             await params.result_callback(
                 {
@@ -1049,7 +1114,10 @@ class VoiceAgent(LLMAgent):
         # Joined in a single round-trip (no pending). Narrate normally.
         self._begin_assistant_response_cycle()
         await params.result_callback(
-            {"success": True, "corp_name": result.get("name") if isinstance(result, dict) else None},
+            {
+                "success": True,
+                "corp_name": result.get("name") if isinstance(result, dict) else None,
+            },
             properties=FunctionCallResultProperties(run_llm=True),
         )
 
@@ -1064,8 +1132,7 @@ class VoiceAgent(LLMAgent):
             await params.result_callback(
                 {
                     "error": (
-                        "target_id is required. Ask the player to identify "
-                        "which member to remove."
+                        "target_id is required. Ask the player to identify which member to remove."
                     )
                 },
                 properties=FunctionCallResultProperties(run_llm=True),
@@ -1085,12 +1152,8 @@ class VoiceAgent(LLMAgent):
             except Exception as exc:
                 await self._finish_event_tool_with_error(params, exc, run_llm=True)
                 return
-            corp = (
-                my_corp.get("corporation") if isinstance(my_corp, dict) else None
-            )
-            members = (
-                corp.get("members") if isinstance(corp, dict) else None
-            ) or []
+            corp = my_corp.get("corporation") if isinstance(my_corp, dict) else None
+            members = (corp.get("members") if isinstance(corp, dict) else None) or []
             lowered = target_id.lower()
             resolved: Optional[str] = None
             for member in members:
@@ -1413,9 +1476,7 @@ class VoiceAgent(LLMAgent):
         self._begin_assistant_response_cycle()
         if not summary:
             await params.result_callback(
-                {
-                    "error": "Leaderboard data is unavailable or too large to summarize safely."
-                }
+                {"error": "Leaderboard data is unavailable or too large to summarize safely."}
             )
             return
         await params.result_callback({"summary": summary})
@@ -1423,9 +1484,7 @@ class VoiceAgent(LLMAgent):
     async def _handle_ship_definitions(self, params: FunctionCallParams):
         from gradientbang.utils.formatting import summarize_ship_definitions
 
-        result = await self._game_client.get_ship_definitions(
-            include_description=True
-        )
+        result = await self._game_client.get_ship_definitions(include_description=True)
         definitions = result.get("definitions", result)
         summary = summarize_ship_definitions(definitions)
         self._begin_assistant_response_cycle()
@@ -1444,9 +1503,7 @@ class VoiceAgent(LLMAgent):
             if args.get(key) is not None:
                 kwargs[key] = args[key]
 
-        result = await self._game_client.list_known_ports(
-            character_id=self._character_id, **kwargs
-        )
+        result = await self._game_client.list_known_ports(character_id=self._character_id, **kwargs)
         summary = list_known_ports_summary(result)
         self._begin_assistant_response_cycle()
         await params.result_callback({"summary": summary})
@@ -1560,9 +1617,7 @@ class VoiceAgent(LLMAgent):
 
     # ── Child agent helpers ───────────────────────────────────────────
 
-    def _find_task_agent_by_task_id(
-        self, task_id: str
-    ) -> Optional[Tuple[str, TaskAgent]]:
+    def _find_task_agent_by_task_id(self, task_id: str) -> Optional[Tuple[str, TaskAgent]]:
         """Resolve an active task to (framework_task_id, TaskAgent child).
 
         Accepts the framework/game task UUID — full form or any unique
@@ -1757,7 +1812,6 @@ class VoiceAgent(LLMAgent):
             (c for c in self.children if isinstance(c, TaskAgent) and c.name == agent_name), None
         )
         task_type = "corp_ship" if child and child._is_corp_ship else "player_ship"
-        is_corp = child._is_corp_ship if child else False
 
         if message.status == TaskStatus.COMPLETED:
             await self._task_output_handler(
@@ -1894,7 +1948,8 @@ class VoiceAgent(LLMAgent):
                 if target_character_id in self._locked_ships:
                     active_child = next(
                         (
-                            c for c in self.children
+                            c
+                            for c in self.children
                             if isinstance(c, TaskAgent)
                             and c._character_id == target_character_id
                             and c._active_task_id
@@ -1905,7 +1960,8 @@ class VoiceAgent(LLMAgent):
                     if active_child is not None:
                         active_task_id = next(
                             (
-                                tid for tid, group in self._task_groups.items()
+                                tid
+                                for tid, group in self._task_groups.items()
                                 if active_child.name in group.agent_names
                             ),
                             None,
@@ -1959,9 +2015,13 @@ class VoiceAgent(LLMAgent):
                 # all state and starts fresh.
                 if not ship_id:
                     existing = next(
-                        (c for c in self.children
-                         if isinstance(c, TaskAgent) and not c._is_corp_ship
-                         and not c._active_task_id),
+                        (
+                            c
+                            for c in self.children
+                            if isinstance(c, TaskAgent)
+                            and not c._is_corp_ship
+                            and not c._active_task_id
+                        ),
                         None,
                     )
                     if existing:
@@ -2019,7 +2079,9 @@ class VoiceAgent(LLMAgent):
                     self._children = [c for c in self._children if c.name != agent_name]
                     try:
                         await self.send_message(
-                            BusEndAgentMessage(source=self.name, target=agent_name, reason="startup failed")
+                            BusEndAgentMessage(
+                                source=self.name, target=agent_name, reason="startup failed"
+                            )
                         )
                     except Exception:
                         pass
@@ -2062,7 +2124,11 @@ class VoiceAgent(LLMAgent):
                 if not child:
                     return {"success": False, "error": "No player ship task is currently running"}
                 framework_task_id = next(
-                    (tid for tid, group in self._task_groups.items() if child.name in group.agent_names),
+                    (
+                        tid
+                        for tid, group in self._task_groups.items()
+                        if child.name in group.agent_names
+                    ),
                     None,
                 )
                 if framework_task_id is None:
@@ -2162,7 +2228,11 @@ class VoiceAgent(LLMAgent):
             if not child:
                 return {"success": False, "error": "No active task found."}
             framework_task_id = next(
-                (tid for tid, group in self._task_groups.items() if child.name in group.agent_names),
+                (
+                    tid
+                    for tid, group in self._task_groups.items()
+                    if child.name in group.agent_names
+                ),
                 None,
             )
             if framework_task_id is None:
@@ -2190,7 +2260,9 @@ class VoiceAgent(LLMAgent):
             if isinstance(child, TaskAgent):
                 try:
                     await self.send_message(
-                        BusEndAgentMessage(source=self.name, target=child.name, reason="Disconnected")
+                        BusEndAgentMessage(
+                            source=self.name, target=child.name, reason="Disconnected"
+                        )
                     )
                 except Exception as e:
                     logger.error(f"Failed to end task agent '{child.name}': {e}")

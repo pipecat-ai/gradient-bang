@@ -83,6 +83,7 @@ class LLMAgent(BaseAgent):
         active: bool = False,
         bridged: Optional[tuple[str, ...]] = None,
         defer_tool_frames: bool = True,
+        exclude_frames: Optional[tuple[type[Frame], ...]] = None,
     ):
         """Initialize the LLMAgent.
 
@@ -93,13 +94,16 @@ class LLMAgent(BaseAgent):
             bridged: Bridge configuration. See ``BaseAgent`` for details.
             defer_tool_frames: Whether to defer frames queued during
                 tool execution until all tools complete. Defaults to True.
+            exclude_frames: Additional frame types to exclude from bus
+                forwarding when bridged.
         """
+        combined_exclude_frames = (PipelineFlushFrame, *(exclude_frames or ()))
         super().__init__(
             name,
             bus=bus,
             active=active,
             bridged=bridged,
-            exclude_frames=(PipelineFlushFrame,),
+            exclude_frames=combined_exclude_frames,
         )
         # LLM service, created in build_pipeline via create_llm().
         self._llm: Optional[LLMService] = None
@@ -323,11 +327,7 @@ class LLMAgent(BaseAgent):
             original_cb = params.result_callback
 
             async def _batched_result_cb(result, *, properties=None):
-                if (
-                    self._tool_batch_remaining > 1
-                    and properties is not None
-                    and properties.run_llm
-                ):
+                if self._tool_batch_remaining > 1 and properties is not None and properties.run_llm:
                     properties = dataclasses.replace(properties, run_llm=None)
                 await original_cb(result, properties=properties)
 
