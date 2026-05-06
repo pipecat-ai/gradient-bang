@@ -7,12 +7,13 @@
 --   2. Auto-provisions a stable internal HS256 signing secret into
 --      `app_runtime_config` (generated on first run via gen_random_bytes,
 --      preserved by reset-world.sh alongside the other runtime config)
---   3. Adds SECURITY DEFINER functions for authenticated subscribe/archive
---   4. Creates per-character pgmq queues via INSERT trigger on `characters`
---   5. Backfills queues for existing characters
---   6. Adds `pgmq_publish` — service-role wrapper so edge functions can
---      enqueue alongside writing to the `events` table
---   7. Adds `notify_broadcast` — service-role wrapper around pg_notify on
+--   3. Adds SECURITY DEFINER functions for authenticated subscribe/archive.
+--      Per-character queues are created lazily on first authorized subscribe
+--      (no trigger, no backfill) so polling-only deployments do zero pgmq work.
+--   4. Adds `pgmq_publish` — service-role wrapper so edge functions can
+--      enqueue alongside writing to the `events` table. Silently no-ops if
+--      the target queue does not yet exist.
+--   5. Adds `notify_broadcast` — service-role wrapper around pg_notify on
 --      the `gb_broadcasts` channel, for fan-out events that every subscriber
 --      must receive (chat, gm/system messages)
 --
@@ -97,7 +98,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.ensure_character_queue IS
-  'Idempotent: ensure a pgmq queue exists for a character_id. Called automatically via trigger on INSERT INTO characters.';
+  'Idempotent: ensure a pgmq queue exists for a character_id. Called by subscribe_my_events on first authorized subscribe.';
 
 -- -----------------------------------------------------------------------------
 -- Ownership predicate: can user U access character/ship C?
@@ -199,6 +200,9 @@ BEGIN
     RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
   END IF;
 
+  -- Lazy: queue only exists once an authorized subscriber has connected.
+  PERFORM public.ensure_character_queue(p_character_id);
+
   RETURN QUERY
     SELECT * FROM pgmq.read_with_poll(
       'chr_' || p_character_id::text,
@@ -298,11 +302,16 @@ DECLARE
 BEGIN
   v_msg_id := pgmq.send(p_queue_name, p_msg);
   RETURN v_msg_id;
+EXCEPTION
+  -- Queue doesn't exist yet — no subscriber has ever connected for this
+  -- recipient. Silent no-op so polling-only deployments don't error.
+  WHEN undefined_table THEN
+    RETURN NULL;
 END;
 $$;
 
 COMMENT ON FUNCTION public.pgmq_publish IS
-  'Server-side publish wrapper for pgmq.send. Granted to service_role only. Subscribers must use subscribe_my_events.';
+  'Server-side publish wrapper for pgmq.send. Returns NULL if queue does not exist (no subscriber yet). Granted to service_role only; subscribers must use subscribe_my_events.';
 
 REVOKE ALL ON FUNCTION public.pgmq_publish(text, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.pgmq_publish(text, jsonb) TO service_role;
@@ -350,42 +359,3 @@ COMMENT ON FUNCTION public.notify_broadcast IS
 REVOKE ALL ON FUNCTION public.notify_broadcast(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.notify_broadcast(jsonb) TO service_role;
 
--- -----------------------------------------------------------------------------
--- Trigger: create queue on character INSERT
---
--- Covers all character creation paths: register, character_create, ship
--- purchase (corp ships), NPC seeding, world reset. Idempotent — safe to
--- re-run on existing characters.
--- -----------------------------------------------------------------------------
-
-CREATE OR REPLACE FUNCTION public._tg_ensure_character_queue()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pgmq
-AS $$
-BEGIN
-  PERFORM public.ensure_character_queue(NEW.character_id);
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_ensure_character_queue ON public.characters;
-CREATE TRIGGER trg_ensure_character_queue
-  AFTER INSERT ON public.characters
-  FOR EACH ROW
-  EXECUTE FUNCTION public._tg_ensure_character_queue();
-
--- -----------------------------------------------------------------------------
--- Backfill: ensure queues exist for every current character.
--- -----------------------------------------------------------------------------
-
-DO $$
-DECLARE
-  v_count integer;
-BEGIN
-  SELECT count(*) INTO v_count FROM public.characters;
-  PERFORM public.ensure_character_queue(character_id) FROM public.characters;
-  RAISE NOTICE 'pgmq pubsub: ensured queues for % existing characters', v_count;
-END;
-$$;
