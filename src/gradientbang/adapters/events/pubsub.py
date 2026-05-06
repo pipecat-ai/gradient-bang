@@ -78,6 +78,11 @@ RECONNECT_BACKOFF_MAX = float(os.getenv("PGMQ_RECONNECT_BACKOFF_MAX", "10.0"))
 # Doesn't disconnect — there are legitimate quiet windows — but makes silent
 # mis-wiring (the symptom this guard exists for) visible.
 NO_EVENTS_WARNING_SECONDS = float(os.getenv("PGMQ_NO_EVENTS_WARNING_SECONDS", "30.0"))
+# Max number of times a single message will be dispatched before we give up
+# and archive it as poison. pgmq's read_with_poll increments read_ct on each
+# read; with a 10s VT (see subscribe_my_events SQL) this gives a transient
+# fault ~MAX_DISPATCH_ATTEMPTS * 10s of redelivery before we drop the message.
+MAX_DISPATCH_ATTEMPTS = int(os.getenv("PGMQ_MAX_DISPATCH_ATTEMPTS", "3"))
 
 
 def _is_fatal_pubsub_error(exc: BaseException) -> bool:
@@ -465,7 +470,7 @@ class PubsubEventAdapter:
         ) as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "SELECT msg_id, message FROM public.subscribe_my_events(%s, %s, %s, %s)",
+                    "SELECT msg_id, read_ct, message FROM public.subscribe_my_events(%s, %s, %s, %s)",
                     (character_id, internal_token, DEFAULT_MAX_POLL_SECONDS, DEFAULT_QTY),
                 )
                 rows = await cur.fetchall()
@@ -473,32 +478,44 @@ class PubsubEventAdapter:
                 if not rows:
                     return
 
-                delivered_msg_ids: list[int] = []
-                for msg_id, message in rows:
+                # Archive on success or when we give up (poison/malformed).
+                # Transient dispatch failures are deliberately left un-archived
+                # so pgmq's visibility-timeout redelivery can retry them.
+                msg_ids_to_archive: list[int] = []
+                for msg_id, read_ct, message in rows:
                     if not isinstance(message, Mapping):
                         logger.debug(
                             f"pubsub.skip_malformed msg_id={msg_id} "
                             f"character={character_id}"
                         )
-                        delivered_msg_ids.append(msg_id)
+                        msg_ids_to_archive.append(msg_id)
                         continue
                     try:
                         await self._dispatch(message)
+                        msg_ids_to_archive.append(msg_id)
                     except Exception:
-                        logger.exception(
-                            f"pubsub.dispatch_error msg_id={msg_id} "
-                            f"character={character_id}"
-                        )
-                    delivered_msg_ids.append(msg_id)
+                        if read_ct >= MAX_DISPATCH_ATTEMPTS:
+                            logger.exception(
+                                f"pubsub.poison_msg msg_id={msg_id} "
+                                f"character={character_id} read_ct={read_ct} "
+                                f"(archiving after {MAX_DISPATCH_ATTEMPTS} attempts)"
+                            )
+                            msg_ids_to_archive.append(msg_id)
+                        else:
+                            logger.exception(
+                                f"pubsub.dispatch_error msg_id={msg_id} "
+                                f"character={character_id} read_ct={read_ct} "
+                                f"(will redeliver)"
+                            )
 
-                if delivered_msg_ids:
+                if msg_ids_to_archive:
                     # Re-fetch in case the cached token expired during the
                     # poll window (rare — typical poll window is 30s, refresh
                     # margin is 60s — but cheap to be safe).
                     archive_token = await self._ensure_internal_token(character_id)
                     await cur.execute(
                         "SELECT public.archive_my_events(%s, %s, %s)",
-                        (character_id, archive_token, delivered_msg_ids),
+                        (character_id, archive_token, msg_ids_to_archive),
                     )
 
     async def _listen_broadcasts_once(self) -> None:
