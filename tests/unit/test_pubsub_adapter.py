@@ -175,3 +175,44 @@ class TestEnsureInternalToken:
         token = await adapter._ensure_internal_token(PLAYER_ID)
         assert token == "fresh-token"
         assert post_mock.await_count == 1
+
+    async def test_sends_edge_auth_header(
+        self,
+        adapter: PubsubEventAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """verify_token is a bot-internal bridge; the call must carry
+        X-Edge-Auth (the EDGE_API_TOKEN) alongside the user JWT in
+        Authorization. Without it, the edge function returns 401 because
+        the trusted-backend gate fails.
+        """
+        future_exp = int(time.time()) + 600
+        mock_resp = MagicMock(status_code=200, text="ok")
+        mock_resp.json.return_value = {
+            "success": True, "token": "tok-X", "expires_at": future_exp,
+        }
+        post_mock = AsyncMock(return_value=mock_resp)
+
+        class FakeAsyncClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            post = post_mock
+
+        monkeypatch.setattr(
+            "gradientbang.adapters.events.pubsub.httpx.AsyncClient",
+            FakeAsyncClient,
+        )
+
+        await adapter._ensure_internal_token(PLAYER_ID)
+        assert post_mock.await_count == 1
+        _, kwargs = post_mock.await_args
+        headers = kwargs["headers"]
+        assert headers["X-Edge-Auth"] == "test-token"
+        assert headers["Authorization"] == "Bearer test-access-token"

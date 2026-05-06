@@ -192,8 +192,9 @@ else
 fi
 
 OVERALL_EXIT=0
-declare -a FAILED_TRANSPORTS
-declare -A TRANSPORT_LOGS
+# bash 3.2 compat (stock macOS): no `declare -A`. Logs live at a
+# deterministic path, so look them up by reconstruction below.
+FAILED_TRANSPORTS=()
 
 LOG_DIR=$(mktemp -d /tmp/gb-test-logs.XXXXXX)
 
@@ -211,7 +212,6 @@ for transport in "${TRANSPORTS[@]}"; do
   echo ""
 
   LOG_FILE="$LOG_DIR/$transport.log"
-  TRANSPORT_LOGS[$transport]="$LOG_FILE"
 
   set +e
   deno test \
@@ -245,7 +245,7 @@ else
   echo ""
   echo "==> Failed tests:"
   for transport in "${FAILED_TRANSPORTS[@]}"; do
-    log="${TRANSPORT_LOGS[$transport]}"
+    log="$LOG_DIR/$transport.log"
     [ -f "$log" ] || continue
     # With --reporter=dot, deno emits a "FAILURES" block before the summary
     # line, with one line per failed test of the form "name => path:line:col".

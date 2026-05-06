@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Bumped to Pipecat 1.0 (`pipecat-ai` 1.1.0, `pipecatcloud` 0.6.0). Replaced the in-repo subagents framework fork with the published `pipecat-ai-subagents` 0.4.0
-- `EDGE_API_TOKEN` is now an admin-only credential (cron, NPCs, internal invocations). Bot deployments no longer need it in their environment when the session carries an `access_token`
+- Bot edge function calls now require BOTH the user JWT (`X-API-Token`) and `EDGE_API_TOKEN` (new `X-Edge-Auth` header). A bare user JWT is rejected with `admin_token_required` — closes a gap where any logged-in user could invoke gameplay edge functions directly with their access token. Auth contexts are now `admin` (X-Edge-Auth only), `bot` (both headers), and `byoa` (future, third-party agents)
 - Bot's `/start` now requires a Supabase Auth `access_token` in the body so per-character credentials flow into pubsub and ownership checks; dev workflows can use `BOT_TEST_ACCESS_TOKEN`
 - Supabase Auth JWT expiry bumped from 1h to 24h so a session covers any plausible gameplay length without a refresh path
 - Local-dev admin bypass now requires explicit `ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1` — closes a prod foot-gun where missing `EDGE_API_TOKEN` could silently grant admin context

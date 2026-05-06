@@ -249,3 +249,55 @@ class TestDeadFieldRemoval:
             "_current_sector_id was removed; any reintroduction would resurrect "
             "the dead-duplicate cache documented in the pollution fix plan."
         )
+
+
+class TestEdgeHeaders:
+    """``_edge_headers()`` must always send X-Edge-Auth (the trusted-backend
+    secret) and only include X-API-Token (the user JWT) when an access_token
+    is bound. This is the gap closure that keeps a bare user JWT from being
+    sufficient to invoke gameplay edge functions directly.
+    """
+
+    def test_npc_caller_sends_edge_auth_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.setenv("EDGE_API_TOKEN", "test-edge-token")
+        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+        headers = client._edge_headers()
+        assert headers["X-Edge-Auth"] == "test-edge-token"
+        assert "X-API-Token" not in headers
+
+    def test_bot_caller_sends_both_headers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.setenv("EDGE_API_TOKEN", "test-edge-token")
+        client = AsyncGameClient(
+            character_id=PLAYER_ID,
+            access_token="user-jwt-here",
+            enable_event_polling=False,
+        )
+        headers = client._edge_headers()
+        assert headers["X-Edge-Auth"] == "test-edge-token"
+        assert headers["X-API-Token"] == "user-jwt-here"
+
+    def test_unset_edge_api_token_omits_header(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Bypass-mode (test/local-dev) callers don't have EDGE_API_TOKEN set.
+        The client must construct successfully and skip X-Edge-Auth so the
+        server's ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV branch can fire. Production
+        always sets the env var, so the gap-closure still holds there.
+        """
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.delenv("EDGE_API_TOKEN", raising=False)
+        monkeypatch.delenv("SUPABASE_API_TOKEN", raising=False)
+        client = AsyncGameClient(
+            character_id=PLAYER_ID,
+            access_token="user-jwt-here",
+            enable_event_polling=False,
+        )
+        headers = client._edge_headers()
+        assert "X-Edge-Auth" not in headers
+        assert headers["X-API-Token"] == "user-jwt-here"

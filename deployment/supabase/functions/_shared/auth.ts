@@ -27,17 +27,26 @@ function readCallerToken(req: Request): string | null {
   );
 }
 
+function readEdgeAuth(req: Request): string | null {
+  return (
+    req.headers.get("x-edge-auth") ??
+    req.headers.get("X-Edge-Auth") ??
+    null
+  );
+}
+
 /**
- * Backward-compatible boolean check. Returns true if the caller token is
- * either the shared admin token (`EDGE_API_TOKEN`) or a valid Supabase Auth
- * JWT. Used by edge functions that have not yet adopted ``authenticate()``.
+ * Backward-compatible boolean check. Returns true if the request passes
+ * ``authenticate()`` (i.e. ``X-Edge-Auth`` matches the admin token, with
+ * an optional valid user JWT in ``X-API-Token``). Used by edge functions
+ * that have not yet adopted the typed ``AuthContext``.
  *
  * NOTE: this only validates *that* the caller is authenticated; it does NOT
  * verify ownership of any character_id in the request body. Functions that
  * mutate per-character state should use ``authenticate()`` +
  * ``canActOnCharacter()`` instead. Endpoints that must be admin-only
  * (cron jobs, test-reset, internal webhooks) should use
- * ``requireAdminToken()`` instead — this helper accepts user JWTs.
+ * ``requireAdminToken()`` instead — this helper accepts bot callers.
  */
 export async function validateApiToken(req: Request): Promise<boolean> {
   try {
@@ -50,13 +59,12 @@ export async function validateApiToken(req: Request): Promise<boolean> {
 
 /**
  * Strict admin-only token check. Returns true ONLY when the caller presents
- * the shared ``EDGE_API_TOKEN``. JWT-shaped tokens are rejected outright with
- * no Supabase round-trip. Use this for endpoints that should never be
- * reachable by an authenticated end user (cron jobs, test_reset, internal
- * webhooks).
+ * the shared ``EDGE_API_TOKEN`` in ``X-Edge-Auth``. Use this for endpoints
+ * that should never be reachable by an end user (cron jobs, test_reset,
+ * internal webhooks).
  *
  * ``options.headerName`` lets callers read from a non-default header (e.g.
- * ``X-CEKURA-SECRET`` for the eval webhook). Defaults to ``X-API-Token``.
+ * ``X-CEKURA-SECRET`` for the eval webhook). Defaults to ``X-Edge-Auth``.
  *
  * Local-dev convenience: when ``EDGE_API_TOKEN`` is unset and
  * ``ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1`` is set, a request with no token is
@@ -69,7 +77,7 @@ export async function requireAdminToken(
 ): Promise<boolean> {
   const token = options?.headerName
     ? req.headers.get(options.headerName)
-    : readCallerToken(req);
+    : readEdgeAuth(req);
   const adminToken = getApiToken();
 
   if (adminToken) {
@@ -95,26 +103,29 @@ export async function requireAdminToken(
 /**
  * Discriminated auth context returned by ``authenticate()``.
  *
- * - ``admin``: caller presented the shared ``EDGE_API_TOKEN``. Used by NPCs,
- *   cron jobs (combat_tick), pg_net invocations, and other internal services.
- *   Bypasses per-character ownership checks.
- * - ``user``: caller presented a valid Supabase Auth JWT. ``userId`` is the
- *   ``auth.users.id`` from the token's ``sub`` claim. Per-character
- *   authorization must be checked via ``canActOnCharacter()``.
- * - ``byoc``: future. Reserved for per-operator API tokens once we ship the
- *   bring-your-own-compute integration. Not issued today.
+ * - ``admin``: caller presented ``X-Edge-Auth: <EDGE_API_TOKEN>`` only (no
+ *   user JWT). Used by NPCs, cron jobs (combat_tick), pg_net invocations,
+ *   and other internal services. Bypasses per-character ownership checks.
+ * - ``bot``: caller presented BOTH ``X-Edge-Auth: <EDGE_API_TOKEN>`` AND
+ *   ``X-API-Token: <user JWT>``. The platform voice agent (bot.py) acting
+ *   on behalf of a user. ``userId`` is the ``auth.users.id`` from the JWT's
+ *   ``sub`` claim. Per-character authorization must be checked via
+ *   ``canActOnCharacter()``.
+ * - ``byoa``: future. Reserved for per-operator API tokens once we ship
+ *   the bring-your-own-agent integration. Not issued today.
  */
 export type AuthContext =
   | { kind: "admin" }
-  | { kind: "user"; userId: string; email: string | null }
-  | { kind: "byoc"; userId: string; tokenId: string };
+  | { kind: "bot"; userId: string; email: string | null }
+  | { kind: "byoa"; userId: string; tokenId: string };
 
 export class AuthError extends Error {
   readonly code:
     | "no_token"
     | "invalid_token"
     | "token_expired"
-    | "auth_unavailable";
+    | "auth_unavailable"
+    | "admin_token_required";
   readonly status: number;
 
   constructor(
@@ -122,7 +133,8 @@ export class AuthError extends Error {
       | "no_token"
       | "invalid_token"
       | "token_expired"
-      | "auth_unavailable",
+      | "auth_unavailable"
+      | "admin_token_required",
     message?: string,
   ) {
     super(message ?? code);
@@ -142,29 +154,57 @@ function looksLikeJwt(token: string): boolean {
 }
 
 /**
- * Resolve the caller's auth context from the ``X-API-Token`` header.
+ * Resolve the caller's auth context.
  *
- * Tries each credential type in priority order:
- *   1. JWT-shaped token → verify via Supabase Auth → user context.
- *      (Verified regardless of whether EDGE_API_TOKEN is configured — an
- *      explicitly-presented user token is never silently bypassed.)
- *   2. Exact match on ``EDGE_API_TOKEN`` env → admin context.
- *   3. Otherwise → throw ``AuthError``.
+ * Two headers are inspected:
+ *   - ``X-Edge-Auth``: must equal ``EDGE_API_TOKEN``. Proves the request
+ *     came through a trusted backend (bot.py, NPC scripts, cron). REQUIRED.
+ *   - ``X-API-Token``: optional user JWT. When present and valid, the
+ *     caller is the platform bot acting on behalf of that user (``bot``
+ *     context). When absent, the caller is internal (``admin`` context).
+ *
+ * A bare ``X-API-Token`` (JWT) without ``X-Edge-Auth`` is rejected with
+ * ``admin_token_required`` — closes the gap where any logged-in user could
+ * invoke gameplay edge functions directly with their JWT alone.
  *
  * Local-dev convenience: when ``EDGE_API_TOKEN`` is unset *and*
- * ``ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1`` is set *and* no token is presented,
- * the caller is treated as admin. Both env vars must be present to opt in.
- * Production always sets EDGE_API_TOKEN, so this branch cannot fire there
- * even if the bypass env leaks in.
+ * ``ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1`` is set *and* no headers are
+ * presented, the caller is treated as admin. Both env vars must be
+ * present to opt in. Production always sets EDGE_API_TOKEN, so this
+ * branch cannot fire there even if the bypass env leaks in.
  */
 export async function authenticate(req: Request): Promise<AuthContext> {
-  const token = readCallerToken(req);
+  const edgeAuth = readEdgeAuth(req);
+  const apiToken = readCallerToken(req);
   const adminToken = getApiToken();
+  const bypassEnabled =
+    Deno.env.get("ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV") === "1";
 
-  // Verify a presented JWT regardless of whether EDGE_API_TOKEN is set.
-  // A user explicitly identifying themselves with a JWT must always be
-  // validated — never silently upgraded to admin by env state.
-  if (token && looksLikeJwt(token)) {
+  if (adminToken) {
+    // Production / configured-with-secret: X-Edge-Auth is required and must
+    // match. A bare JWT in X-API-Token is rejected — closes the gap where
+    // any logged-in user could invoke gameplay edge functions directly.
+    if (!edgeAuth) {
+      throw new AuthError("admin_token_required");
+    }
+    if (edgeAuth !== adminToken) {
+      throw new AuthError("invalid_token");
+    }
+  } else if (!bypassEnabled) {
+    // No EDGE_API_TOKEN AND no bypass: fail closed. Production never sets
+    // ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV, so missing-EDGE_API_TOKEN there hits
+    // this branch and surfaces visibly instead of silently granting admin.
+    throw new AuthError("auth_unavailable", "EDGE_API_TOKEN not configured");
+  }
+  // else: bypass mode (local-dev / tests). X-Edge-Auth gate skipped; JWT
+  // (if presented) is still validated below.
+
+  // If a user JWT is presented, validate it and return bot context. JWTs
+  // are validated in every mode — never silently dropped.
+  if (apiToken) {
+    if (!looksLikeJwt(apiToken)) {
+      throw new AuthError("invalid_token");
+    }
     let supabase;
     try {
       supabase = createPublicClient();
@@ -175,7 +215,7 @@ export async function authenticate(req: Request): Promise<AuthContext> {
     const {
       data: { user },
       error,
-    } = await supabase.auth.getUser(token);
+    } = await supabase.auth.getUser(apiToken);
     if (error || !user) {
       // Distinguish expired vs other invalid for better client UX.
       const msg = error?.message ?? "no user";
@@ -184,32 +224,11 @@ export async function authenticate(req: Request): Promise<AuthContext> {
         : "invalid_token";
       throw new AuthError(code, msg);
     }
-    return { kind: "user", userId: user.id, email: user.email ?? null };
+    return { kind: "bot", userId: user.id, email: user.email ?? null };
   }
 
-  if (adminToken) {
-    if (!token) {
-      throw new AuthError("no_token");
-    }
-    if (token === adminToken) {
-      return { kind: "admin" };
-    }
-    throw new AuthError("invalid_token");
-  }
-
-  // EDGE_API_TOKEN unset. Only allow on explicit dev opt-in AND no token.
-  // Anything else fails closed — env drift in production must not silently
-  // grant admin to unauthenticated callers.
-  if (
-    Deno.env.get("ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV") === "1" &&
-    !token
-  ) {
-    return { kind: "admin" };
-  }
-  throw new AuthError(
-    "auth_unavailable",
-    "EDGE_API_TOKEN not configured",
-  );
+  // No user JWT — internal/admin caller (NPC, cron, script).
+  return { kind: "admin" };
 }
 
 /**
@@ -233,8 +252,8 @@ export function authErrorResponse(err: unknown): Response {
  * in the pgmq pubsub migration) which permits direct ownership via
  * ``user_characters`` OR corp ship access via corp membership.
  *
- * Admin contexts bypass the check (true). BYOC contexts (future) will use
- * the same predicate with the BYOC-token-bound user_id.
+ * Admin contexts bypass the check (true). BYOA contexts (future) will use
+ * the same predicate with the BYOA-token-bound user_id.
  */
 export async function canActOnCharacter(
   auth: AuthContext,

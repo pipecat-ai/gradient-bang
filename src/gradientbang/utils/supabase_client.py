@@ -76,20 +76,15 @@ class AsyncGameClient(BaseAsyncGameClient):
             raise ValueError("SUPABASE_SERVICE_ROLE_KEY is required")
         """
         self._anon_key = os.getenv("SUPABASE_ANON_KEY") or "anon-key"
+        # EDGE_API_TOKEN goes in X-Edge-Auth and proves the request came
+        # through a trusted backend. Production always sets it; tests and
+        # local-dev rely on the server-side bypass (ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1)
+        # where it's intentionally unset. We do NOT fall back to
+        # SUPABASE_SERVICE_ROLE_KEY — that key is for direct DB access and
+        # has different semantics from the edge-auth gate.
         self._edge_api_token = (
-            os.getenv("EDGE_API_TOKEN")
-            or os.getenv("SUPABASE_API_TOKEN")
-            or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            os.getenv("EDGE_API_TOKEN") or os.getenv("SUPABASE_API_TOKEN")
         )
-        # At least one credential must be available. The bot supplies
-        # ``access_token`` (Supabase Auth JWT, per-character auth); NPCs and
-        # scripts supply ``EDGE_API_TOKEN`` (admin / god-mode). Either is
-        # acceptable so that the bot's deployment env no longer needs to
-        # carry the admin token at all.
-        if not self._edge_api_token and not access_token:
-            raise ValueError(
-                "AsyncGameClient requires either access_token or EDGE_API_TOKEN"
-            )
 
         self._http = httpx.AsyncClient(timeout=10.0)
         self._requested_transport = requested_transport
@@ -221,20 +216,22 @@ class AsyncGameClient(BaseAsyncGameClient):
         return await self._request(endpoint, payload)
 
     def _edge_headers(self) -> Dict[str, str]:
-        # X-API-Token carries the caller's credential. The server-side
-        # `authenticate()` helper distinguishes JWT-shaped tokens (Supabase
-        # Auth, → user context) from the shared admin token (EDGE_API_TOKEN
-        # → admin context). Prefer the user token when available so per-
-        # character authorization works downstream; fall back to the admin
-        # token for NPC bots, scripts, and cron-style callers that have no
-        # user identity.
-        caller_token = self._access_token or self._edge_api_token
-        return {
+        # X-Edge-Auth carries EDGE_API_TOKEN — the trusted-backend gate the
+        # server requires on every gameplay edge function call in production.
+        # When the env var isn't set (test/local-dev), we omit the header
+        # and rely on the server-side bypass (ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1).
+        # X-API-Token carries the user's Supabase Auth JWT when the bot is
+        # acting on behalf of a user — server returns ``bot`` context.
+        headers = {
             "Content-Type": "application/json",
             "apikey": self._anon_key,
             "Authorization": f"Bearer {self._anon_key}",
-            "X-API-Token": caller_token,
         }
+        if self._edge_api_token:
+            headers["X-Edge-Auth"] = self._edge_api_token
+        if self._access_token:
+            headers["X-API-Token"] = self._access_token
+        return headers
 
     async def ensure_character_jwt(self, force: bool = False) -> str:
         """Ensure a per-character JWT is available (prefetch helper for changefeed rollout)."""

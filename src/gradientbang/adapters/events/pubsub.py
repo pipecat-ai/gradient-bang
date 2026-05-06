@@ -232,12 +232,20 @@ class PubsubEventAdapter:
             raise RuntimeError(
                 "access_token missing on AsyncGameClient; cannot mint internal token"
             )
+        # X-Edge-Auth proves the request came from a trusted backend. In
+        # production EDGE_API_TOKEN is always set; in tests/local-dev the
+        # server bypass (ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1) fills in for it,
+        # so we omit the header when no token is configured.
+        edge_auth = os.environ.get("EDGE_API_TOKEN")
 
         url = f"{supabase_url}/functions/v1/verify_token"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        if edge_auth:
+            headers["X-Edge-Auth"] = edge_auth
         async with httpx.AsyncClient(timeout=10.0) as http:
             resp = await http.post(
                 url,
-                headers={"Authorization": f"Bearer {access_token}"},
+                headers=headers,
                 json={"character_id": character_id},
             )
         if resp.status_code != 200:

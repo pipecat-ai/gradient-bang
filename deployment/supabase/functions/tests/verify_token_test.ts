@@ -111,12 +111,16 @@ async function provisionUser(
 async function callVerifyToken(
   characterId: string | undefined,
   authHeader: string | null,
+  edgeAuth?: string | null,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   // Hit the in-process server so PUBSUB_INTERNAL_SECRET (set in the test
   // process env by run_tests.sh) is visible to the verify_token handler.
   const url = `${getBaseUrl()}/verify_token`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (authHeader !== null) headers["Authorization"] = authHeader;
+  if (edgeAuth !== undefined && edgeAuth !== null) {
+    headers["X-Edge-Auth"] = edgeAuth;
+  }
   const resp = await fetch(url, {
     method: "POST",
     headers,
@@ -223,6 +227,55 @@ Deno.test({
       assert(Array.isArray(result.rows));
     } finally {
       await pg.end();
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "verify_token: trusted-backend gate — JWT alone (no X-Edge-Auth) → 401 in production-like env",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // The default test env runs with ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1 and
+    // no EDGE_API_TOKEN, so requireAdminToken returns true on a tokenless
+    // request (bypass branch). Override that here to simulate prod:
+    // EDGE_API_TOKEN set, bypass disabled. A bare JWT in Authorization
+    // without X-Edge-Auth must now be rejected by requireAdminToken
+    // before getAuthenticatedUser ever runs — closing the gap where any
+    // logged-in user could mint internal tokens by hitting verify_token.
+    const prevToken = Deno.env.get("EDGE_API_TOKEN");
+    const prevBypass = Deno.env.get("ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV");
+    Deno.env.set("EDGE_API_TOKEN", "prod-like-secret");
+    Deno.env.delete("ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV");
+    try {
+      // JWT only, no X-Edge-Auth → must 401.
+      const denied = await callVerifyToken(
+        ownerId,
+        `Bearer ${owner.accessToken}`,
+      );
+      assertEquals(denied.status, 401);
+      assertEquals(denied.body.success, false);
+      assertStringIncludes(
+        String(denied.body.error),
+        "admin_token_required",
+      );
+
+      // JWT + correct X-Edge-Auth → succeeds (proves the JWT path still
+      // works once the gate is satisfied).
+      const allowed = await callVerifyToken(
+        ownerId,
+        `Bearer ${owner.accessToken}`,
+        "prod-like-secret",
+      );
+      assertEquals(allowed.status, 200, `body=${JSON.stringify(allowed.body)}`);
+      assertEquals(allowed.body.success, true);
+    } finally {
+      if (prevToken === undefined) Deno.env.delete("EDGE_API_TOKEN");
+      else Deno.env.set("EDGE_API_TOKEN", prevToken);
+      if (prevBypass !== undefined) {
+        Deno.env.set("ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV", prevBypass);
+      }
     }
   },
 });

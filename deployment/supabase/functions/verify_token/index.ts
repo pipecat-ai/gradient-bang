@@ -21,7 +21,7 @@
  *     internal grant never outlives the underlying auth session.
  */
 
-import { getAuthenticatedUser } from "../_shared/auth.ts";
+import { getAuthenticatedUser, requireAdminToken } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
   enforcePublicRateLimit,
@@ -142,6 +142,16 @@ Deno.serve(traced("verify_token", async (req, trace) => {
     return corsResponse(
       { success: false, error: "POST required" },
       405,
+    );
+  }
+
+  // Trusted-backend gate: verify_token is a bot-internal bridge to pgmq, not
+  // a public endpoint. Require X-Edge-Auth so a user can't mint internal
+  // tokens directly with a bare JWT.
+  if (!(await requireAdminToken(req))) {
+    return corsResponse(
+      { success: false, error: "admin_token_required" },
+      401,
     );
   }
 
