@@ -7,16 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-06
+
 ### Added
 
-- Per-character authentication on every gameplay edge function: the caller's Supabase Auth JWT is verified server-side and `canActOnCharacter()` enforces direct ownership or corp-ship access via corp membership. Closes the gap where any caller with `EDGE_API_TOKEN` could act as any character
+- Per-character authentication on every gameplay edge function: the caller's Supabase Auth JWT is verified server-side and `canActOnCharacter()` enforces direct ownership or corp-ship access via corp membership.
 - Optional pgmq-backed event delivery (`EVENT_TRANSPORT=pubsub`) — long-polls per-character queues via auth-gated SQL functions, eliminating the busy-poll loop. Polling remains the default; both modes are wire-compatible. Broadcast events (chat, gm/system) fan out to pubsub subscribers via Postgres LISTEN/NOTIFY
-- Admin-only credential path: `combat_tick`, `test_reset`, and `eval_webhook` now strictly require an admin token (previously they admitted any authenticated user). `corporation_info`'s member-only payload is gated behind ownership — non-members get the public view
+- Admin-only credential path: `combat_tick`, `test_reset`, and `eval_webhook` now strictly require an admin token. `corporation_info`'s member-only payload is gated behind ownership — non-members get the public view
 
 ### Changed
 
 - Bumped to Pipecat 1.0 (`pipecat-ai` 1.1.0, `pipecatcloud` 0.6.0). Replaced the in-repo subagents framework fork with the published `pipecat-ai-subagents` 0.4.0
-- Bot edge function calls now require BOTH the user JWT (`X-API-Token`) and `EDGE_API_TOKEN` (new `X-Edge-Auth` header). A bare user JWT is rejected with `admin_token_required` — closes a gap where any logged-in user could invoke gameplay edge functions directly with their access token. Auth contexts are now `admin` (X-Edge-Auth only), `bot` (both headers), and `byoa` (future, third-party agents)
+- Bot edge function calls now require BOTH the user JWT (`X-API-Token`) and `EDGE_API_TOKEN` (new `X-Edge-Auth` header). A bare user JWT is rejected with `admin_token_required`. Auth contexts are now `admin` (X-Edge-Auth only), `bot` (both headers), and `byoa` (future, third-party agents)
 - Bot's `/start` now requires a Supabase Auth `access_token` in the body so per-character credentials flow into pubsub and ownership checks; dev workflows can use `BOT_TEST_ACCESS_TOKEN`
 - Supabase Auth JWT expiry bumped from 1h to 24h so a session covers any plausible gameplay length without a refresh path
 - Local-dev admin bypass now requires explicit `ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1` — closes a prod foot-gun where missing `EDGE_API_TOKEN` could silently grant admin context
