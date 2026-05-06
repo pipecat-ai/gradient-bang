@@ -35,9 +35,9 @@ Failure modes:
   the auth design: no token-refresh path; expired sessions terminate).
 
 No client-side dedup ring: per the design, a fresh pubsub session does not
-replay history. Messages already in queues at connect time are still consumed
-(at-least-once via pgmq vt+archive); duplicates within a session would only
-arise from a crash between dispatch and archive, which is acceptable.
+replay history. Anything sitting in the queue at connect time is drained and
+discarded by ``_drain_backlog`` before the long-poll loop starts; only events
+arriving after ``start()`` are dispatched.
 """
 
 from __future__ import annotations
@@ -198,6 +198,16 @@ class PubsubEventAdapter:
         # otherwise only show up minutes later when a long-poll fails.
         for character_id in self._character_ids:
             await self._run_startup_self_test(character_id)
+
+        # Discard anything left over from a previous session. pgmq is
+        # persistent; without this a crash mid-archive would replay history
+        # on the next connect.
+        for character_id in self._character_ids:
+            drained = await self._drain_backlog(character_id)
+            if drained:
+                logger.info(
+                    f"pubsub.backlog_drained character={character_id} count={drained}"
+                )
 
         await self._sync_tasks()
 
@@ -459,6 +469,33 @@ class PubsubEventAdapter:
                 with suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
                 backoff = min(backoff * 2, RECONNECT_BACKOFF_MAX)
+
+    async def _drain_backlog(self, character_id: str) -> int:
+        """Archive every message currently queued for this character without
+        dispatching. Run once at session start to enforce no-history-replay."""
+        pgmq_url = os.environ["PGMQ_URL"]
+        internal_token = await self._ensure_internal_token(character_id)
+        drained = 0
+
+        async with await psycopg.AsyncConnection.connect(
+            pgmq_url, autocommit=True, row_factory=tuple_row
+        ) as conn:
+            async with conn.cursor() as cur:
+                while True:
+                    await cur.execute(
+                        "SELECT msg_id FROM public.subscribe_my_events(%s, %s, %s, %s)",
+                        (character_id, internal_token, 0, DEFAULT_QTY),
+                    )
+                    rows = await cur.fetchall()
+                    if not rows:
+                        break
+                    msg_ids = [r[0] for r in rows]
+                    await cur.execute(
+                        "SELECT public.archive_my_events(%s, %s, %s)",
+                        (character_id, internal_token, msg_ids),
+                    )
+                    drained += len(msg_ids)
+        return drained
 
     async def _poll_once(self, character_id: str) -> None:
         """One long-poll + dispatch + archive cycle."""

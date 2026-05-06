@@ -420,3 +420,54 @@ class TestPollOnceArchival:
         await adapter._poll_once(PLAYER_ID)
 
         assert _archived_msg_ids(cursor) == [404]
+
+
+@pytest.mark.asyncio
+class TestStartDrain:
+    """`_drain_backlog` archives every queued message without dispatching.
+    A new pubsub session must not replay history left over from a previous
+    one — the protocol guarantees session-scoped delivery."""
+
+    async def test_drain_archives_pending_then_returns_empty(
+        self,
+        adapter: PubsubEventAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("PGMQ_URL", "postgresql://fake")
+        # Drain queries with msg_id only, so single-column rows.
+        cursor = _FakeCursor(
+            fetch_results=[
+                [(101,), (102,)],
+                [],
+            ]
+        )
+        _install_fake_psycopg(monkeypatch, cursor)
+        _stub_internal_token(adapter)
+
+        async def _explode(_message):
+            raise AssertionError("drain must not dispatch")
+
+        adapter._dispatch = _explode  # type: ignore[assignment]
+
+        drained = await adapter._drain_backlog(PLAYER_ID)
+
+        assert drained == 2
+        assert _archived_msg_ids(cursor) == [101, 102]
+
+    async def test_drain_no_backlog_is_silent(
+        self,
+        adapter: PubsubEventAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("PGMQ_URL", "postgresql://fake")
+        cursor = _FakeCursor(fetch_results=[[]])
+        _install_fake_psycopg(monkeypatch, cursor)
+        _stub_internal_token(adapter)
+        adapter._dispatch = AsyncMock()  # type: ignore[assignment]
+
+        drained = await adapter._drain_backlog(PLAYER_ID)
+
+        assert drained == 0
+        assert all(
+            "archive_my_events" not in sql for sql, _ in cursor.executions
+        )
