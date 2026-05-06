@@ -117,31 +117,52 @@ if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 
-async def _lookup_character_display_name(character_id: str, server_url: str) -> str | None:
+async def _lookup_character_display_name(
+    character_id: str, server_url: str, access_token: str | None
+) -> str:
     """Return the stored display name for a character ID via API lookup.
 
     Args:
         character_id: Character UUID to look up
         server_url: Game server base URL
+        access_token: Per-character Supabase Auth JWT (required by character_info
+            under per-character auth)
 
     Returns:
-        Character display name or None if not found
+        Character display name.
+
+    Raises:
+        RuntimeError: If the lookup fails or the server returns no name. The
+            caller should let this propagate so we don't run with a broken
+            display_name (e.g. the raw UUID).
     """
     try:
         async with AsyncGameClient(
-            base_url=server_url, character_id=character_id, transport="supabase"
+            base_url=server_url,
+            character_id=character_id,
+            transport="supabase",
+            access_token=access_token,
         ) as client:
             result = await client.character_info(character_id=character_id)
-            return result.get("name")
     except Exception as exc:
-        logger.warning(f"Unable to lookup character {character_id} from server: {exc}")
-        return None
+        raise RuntimeError(
+            f"character_info lookup failed for {character_id}: {exc}"
+        ) from exc
+
+    name = result.get("name") if isinstance(result, dict) else None
+    if not name:
+        raise RuntimeError(
+            f"character_info returned no name for {character_id} "
+            "(token may be invalid or character may not exist)"
+        )
+    return name
 
 
 async def _resolve_character_identity(
     character_id: str | None,
     server_url: str,
     character_name_hint: str | None = None,
+    access_token: str | None = None,
 ) -> tuple[str, str]:
     """Resolve the character UUID and display name for the voice bot.
 
@@ -149,6 +170,7 @@ async def _resolve_character_identity(
         character_id: Optional character ID (will use env vars if not provided)
         server_url: Game server base URL for API lookups
         character_name_hint: Optional display name from the start payload (avoids DB lookup)
+        access_token: Per-character Supabase Auth JWT (used when the lookup runs)
 
     Returns:
         Tuple of (character_id, display_name)
@@ -165,13 +187,19 @@ async def _resolve_character_identity(
         raise RuntimeError(
             "Set BOT_TEST_CHARACTER_ID (or BOT_TEST_NPC_CHARACTER_NAME) in the environment before starting the bot."
         )
+
     display_name = (
         character_name_hint
         or os.getenv("BOT_TEST_CHARACTER_NAME")
         or os.getenv("BOT_TEST_NPC_CHARACTER_NAME")
-        or await _lookup_character_display_name(character_id, server_url)
-        or character_id
     )
+    if not display_name:
+        # No hint or env override — must look up via the authenticated API.
+        # Let exceptions propagate so we bail on auth/lookup failure rather
+        # than fall through to using the raw UUID as the display_name.
+        display_name = await _lookup_character_display_name(
+            character_id, server_url, access_token=access_token
+        )
     return character_id, display_name
 
 
@@ -197,11 +225,17 @@ async def _startup_init_local_api() -> tuple[LocalApiServer, str]:
 
 @traced
 async def _startup_resolve_character(
-    character_id_hint: str | None, character_name_hint: str | None, server_url: str
+    character_id_hint: str | None,
+    character_name_hint: str | None,
+    server_url: str,
+    access_token: str | None = None,
 ):
     """Resolve character identity (traced span)."""
     return await _resolve_character_identity(
-        character_id_hint, server_url, character_name_hint=character_name_hint
+        character_id_hint,
+        server_url,
+        character_name_hint=character_name_hint,
+        access_token=access_token,
     )
 
 
@@ -259,6 +293,7 @@ async def bot_startup(
             character_id_hint,
             character_name_hint,
             server_url,
+            access_token=access_token,
         )
         return local_api_server, character_id, character_display_name
 
@@ -294,19 +329,22 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     character_id_hint = body.get("character_id") or os.getenv("BOT_TEST_CHARACTER_ID")
     character_name_hint = body.get("character_name")
     # Per-character auth token — required so the bot can prove identity to
-    # downstream auth-gated services (e.g. pgmq pubsub channels). Production
-    # path: proxy `start` edge function injects this after verifying the
-    # caller's Supabase Auth session. Dev/test path: set BOT_TEST_ACCESS_TOKEN
-    # to a real token obtained via Supabase Auth login (mirrors the existing
-    # BOT_TEST_CHARACTER_ID dev override).
-    access_token = body.get("access_token") or os.getenv("BOT_TEST_ACCESS_TOKEN")
+    # downstream auth-gated services (e.g. pgmq pubsub channels, character_info
+    # lookup). The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev/Ladle
+    # fallback for sessions that bypass the login → start proxy flow.
+    body_access_token = body.get("access_token")
+    access_token = body_access_token or os.getenv("BOT_TEST_ACCESS_TOKEN")
     if not access_token:
         raise RuntimeError(
             "access_token required to start a bot session. "
-            "Production: comes from the proxy `start` edge function. "
-            "Dev: set BOT_TEST_ACCESS_TOKEN or include access_token in the /start body "
-            "(obtain via Supabase Auth login)."
+            "Production: client/app passes it on /start after Supabase Auth login "
+            "(forwarded by the proxy edge function). "
+            "Dev/Ladle: set BOT_TEST_ACCESS_TOKEN in .env.bot."
         )
+    logger.info(
+        "access_token source: {}",
+        "start payload" if body_access_token else "BOT_TEST_ACCESS_TOKEN env",
+    )
     # Resolve voice: prefer short name lookup, fall back to raw voice_id
     voice_name = body.get("voice")
     if voice_name and voice_name in VOICES:
