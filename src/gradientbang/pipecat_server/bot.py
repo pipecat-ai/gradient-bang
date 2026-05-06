@@ -805,6 +805,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
+        _upload_voice_context("disconnect")
         await main_agent.cancel()
 
     # ── Periodic voice context upload (every 10 minutes) ─────────────

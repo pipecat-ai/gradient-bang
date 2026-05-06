@@ -43,7 +43,7 @@ def get_tracer() -> Optional[PipecatTracer]:
 def cekura_append_context_dump(value: List[Dict[str, Any]]) -> None:
     if not _tracer:
         return
-    key = f"context_dump_{int(time.time())}"
+    key = f"context_dump_{time.time_ns()}"
     metadata = _tracer.get_custom_metadata()
     context_dumps = metadata.get("context_dumps", {})
     context_dumps[key] = value
