@@ -160,13 +160,11 @@ export ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1
 # server.ts is imported inside the test process so that deno test --coverage
 # can measure coverage of all edge function code.
 #
-# We run the suite TWICE to exercise both event-delivery transports on the
-# producer side:
-#   - polling: PGMQ_PUBLISH_ENABLED=0   (events table only)
-#   - pubsub:  PGMQ_PUBLISH_ENABLED=1   (also writes per-character pgmq queues
-#                                         and fans broadcasts via notify_broadcast)
-# This catches regressions in either path. Pass `TRANSPORT=polling|pubsub` to
-# run only one (e.g. for fast iteration on a non-event change).
+# Edge functions always dual-write to both the events table and per-character
+# pgmq queues. 
+# The matrix split is preserved for CI parallelism: both passes do the same
+# producer work and assert the suite is stable. Pass `TRANSPORT=polling|pubsub`
+# to run only one (e.g. for fast iteration on a non-event change).
 echo ""
 echo "==> Running integration tests (with coverage)..."
 echo ""
@@ -195,11 +193,13 @@ fi
 
 OVERALL_EXIT=0
 declare -a FAILED_TRANSPORTS
+declare -A TRANSPORT_LOGS
+
+LOG_DIR=$(mktemp -d /tmp/gb-test-logs.XXXXXX)
 
 for transport in "${TRANSPORTS[@]}"; do
   case "$transport" in
-    polling) PGMQ_FLAG="0" ;;
-    pubsub)  PGMQ_FLAG="1" ;;
+    polling|pubsub) ;;
     *)
       echo "ERROR: unknown TRANSPORT='$transport' (expected polling|pubsub)"
       exit 2
@@ -207,18 +207,21 @@ for transport in "${TRANSPORTS[@]}"; do
   esac
 
   echo ""
-  echo "==> Pass: transport=$transport (PGMQ_PUBLISH_ENABLED=$PGMQ_FLAG)"
+  echo "==> Pass: transport=$transport"
   echo ""
 
+  LOG_FILE="$LOG_DIR/$transport.log"
+  TRANSPORT_LOGS[$transport]="$LOG_FILE"
+
   set +e
-  PGMQ_PUBLISH_ENABLED="$PGMQ_FLAG" \
-    deno test \
-      --config "$FUNCTIONS_DIR/deno.json" \
-      --allow-all \
-      --coverage="$COVERAGE_DIR/$transport" \
-      "${TEST_TARGETS[@]}" \
-      2>&1
-  PASS_EXIT=$?
+  deno test \
+    --config "$FUNCTIONS_DIR/deno.json" \
+    --allow-all \
+    --reporter=dot \
+    --coverage="$COVERAGE_DIR/$transport" \
+    "${TEST_TARGETS[@]}" \
+    2>&1 | tee "$LOG_FILE"
+  PASS_EXIT=${PIPESTATUS[0]}
   set -e
 
   if [ "$PASS_EXIT" -eq 0 ]; then
@@ -239,6 +242,28 @@ if [ "$TEST_EXIT" -eq 0 ]; then
   echo "==> All passes succeeded (${#TRANSPORTS[@]}/${#TRANSPORTS[@]})."
 else
   echo "==> Failed transports: ${FAILED_TRANSPORTS[*]}"
+  echo ""
+  echo "==> Failed tests:"
+  for transport in "${FAILED_TRANSPORTS[@]}"; do
+    log="${TRANSPORT_LOGS[$transport]}"
+    [ -f "$log" ] || continue
+    # With --reporter=dot, deno emits a "FAILURES" block before the summary
+    # line, with one line per failed test of the form "name => path:line:col".
+    failures=$(awk '
+      /FAILURES/      { flag=1; next }
+      /^FAILED \|/    { flag=0 }
+      flag && / => / { print }
+    ' "$log")
+    echo ""
+    echo "  [$transport]"
+    if [ -n "$failures" ]; then
+      echo "$failures" | sed 's/^/    /'
+    else
+      echo "    (no FAILURES block parsed; see $log)"
+    fi
+  done
+  echo ""
+  echo "==> Full logs: $LOG_DIR"
 fi
 
 # ── 5. Coverage report ────────────────────────────────────────────────

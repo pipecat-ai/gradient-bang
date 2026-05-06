@@ -12,6 +12,11 @@ import { Client } from "postgres";
 // config which are static reference data). TRUNCATE ... CASCADE handles FK
 // ordering automatically.
 // ---------------------------------------------------------------------------
+// app_runtime_config is intentionally NOT in this list — see the
+// DELETE-with-WHERE block below. Wiping the whole table drops the migration's
+// auto-provisioned `pubsub_internal_secret`, which then breaks verify_token +
+// subscribe_my_events (and worse, would invalidate verify_token's
+// module-scope cache mid-suite).
 const TRUNCATE_TABLES = [
   "quest_progress_events",
   "player_quest_steps",
@@ -37,7 +42,6 @@ const TRUNCATE_TABLES = [
   "ports",
   "universe_structure",
   "universe_config",
-  "app_runtime_config",
 ];
 
 // ---------------------------------------------------------------------------
@@ -91,6 +95,15 @@ export async function resetDatabase(
       VALUES (1, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '2000-01-01T00:00:00Z')
       ON CONFLICT (id) DO NOTHING
     `);
+
+    // Clear app_runtime_config but preserve `pubsub_internal_secret` (the
+    // HS256 secret auto-provisioned by the pgmq migration). Wiping the secret
+    // breaks verify_token + subscribe_my_events; rotating it mid-suite would
+    // invalidate verify_token's module-scope cache. Other runtime-config rows
+    // (e.g. cron knobs) are still wiped to keep parity with reset-world.sh.
+    await pg.queryObject(
+      `DELETE FROM public.app_runtime_config WHERE key <> 'pubsub_internal_secret'`,
+    );
   } finally {
     await pg.end();
   }

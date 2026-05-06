@@ -106,34 +106,32 @@ export async function recordEventWithRecipients(
     throw new Error(`failed to record event ${eventType}: ${error.message}`);
   }
 
-  // Dual-write to pgmq (best-effort; gated by env). The events table remains
-  // the authoritative source — if pgmq publish fails, we log and continue
-  // so the event row stays consistent. Subscribers reading via
-  // `subscribe_my_events` get the full event payload (parity with polling).
-  if (Deno.env.get("PGMQ_PUBLISH_ENABLED") === "1") {
-    await publishEventToPgmq({
-      supabase,
-      eventType,
-      scope,
-      direction,
-      payload,
-      requestId,
-      meta,
-      sectorId,
-      shipId,
-      characterId,
-      senderId,
-      actorCharacterId,
-      corpId,
-      taskId,
-      recipients: normalizedRecipients,
-      broadcast,
-    });
-  }
+  // Dual-write to pgmq. The events row above is authoritative — polling reads
+  // from `events_since` which queries the events table directly, so a pgmq
+  // failure here cannot affect polling subscribers. Failures inside the helper
+  // are logged at error level; we never raise out of this block.
+  await publishEventToPgmq({
+    supabase,
+    eventType,
+    scope,
+    direction,
+    payload,
+    requestId,
+    meta,
+    sectorId,
+    shipId,
+    characterId,
+    senderId,
+    actorCharacterId,
+    corpId,
+    taskId,
+    recipients: normalizedRecipients,
+    broadcast,
+  });
 }
 
 /**
- * Best-effort fan-out of an event to per-character pgmq queues.
+ * Fan out an event to per-character pgmq queues.
  *
  * Mirrors the recipient expansion done by `record_event_with_recipients`:
  * direct recipient ids plus, when corp_id is set, the full corp delivery set
@@ -147,8 +145,10 @@ export async function recordEventWithRecipients(
  * polling adapter does. Without this, ``EventRelay`` drops non-combat events
  * (event_context missing) and loses task-scoped routing.
  *
- * Failures are logged but never raised — the events table is authoritative
- * and pubsub is opt-in / additive.
+ * Failures are logged at error level but never raised — the events table is
+ * authoritative (polling reads from it) and one bad recipient must not block
+ * the rest. Errors here mean pubsub subscribers won't receive the event;
+ * watch the logs.
  */
 async function publishEventToPgmq(opts: {
   supabase: SupabaseClient;
@@ -187,7 +187,7 @@ async function publishEventToPgmq(opts: {
         }
       }
     } catch (err) {
-      console.warn("events.publishEventToPgmq.corp_expand_failed", {
+      console.error("events.publishEventToPgmq.corp_expand_failed", {
         eventType: opts.eventType,
         corpId: opts.corpId,
         err,
@@ -204,7 +204,7 @@ async function publishEventToPgmq(opts: {
       : basePayload;
 
   // Broadcast events fan out to every active subscriber via Postgres
-  // LISTEN/NOTIFY (see migration 20260505020000_broadcasts_notify.sql).
+  // LISTEN/NOTIFY (see migration 20260505000000_pubsub_and_broadcasts.sql).
   // pgmq is the wrong primitive here — read+archive is competing-consumer,
   // the first reader to archive consumes the message for everyone else.
   // notify_broadcast() is service_role-only, so subscribers cannot publish.
@@ -242,7 +242,7 @@ async function publishEventToPgmq(opts: {
       { p_payload: broadcastMsg },
     );
     if (broadcastErr) {
-      console.warn("events.publishEventToPgmq.broadcast_send_failed", {
+      console.error("events.publishEventToPgmq.broadcast_send_failed", {
         eventType: opts.eventType,
         error: broadcastErr,
       });
@@ -289,7 +289,7 @@ async function publishEventToPgmq(opts: {
       p_msg: msg,
     });
     if (error) {
-      console.warn("events.publishEventToPgmq.send_failed", {
+      console.error("events.publishEventToPgmq.send_failed", {
         eventType: opts.eventType,
         queueName,
         error,

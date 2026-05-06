@@ -14,21 +14,18 @@ Tuning env vars:
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 from collections import deque
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Deque, Dict, Mapping, Optional
+
+from loguru import logger
 
 from gradientbang.utils.api_client import RPCError
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 if TYPE_CHECKING:
     from gradientbang.utils.supabase_client import AsyncGameClient
-
-
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
 
 
 POLL_INTERVAL_SECONDS = max(0.25, float(os.getenv("SUPABASE_POLL_INTERVAL_SECONDS", "1.0")))

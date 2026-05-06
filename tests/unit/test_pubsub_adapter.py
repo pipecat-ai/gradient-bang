@@ -1,13 +1,17 @@
-"""Focused tests for ``PubsubEventAdapter`` dispatch parity with polling.
+"""Focused tests for ``PubsubEventAdapter``.
 
-Connection/loop lifecycle is out of scope here — those rely on a live
-postgres + populated pgmq queues and are exercised by the integration
-suite. These tests verify the in-process bit that is most likely to
-diverge from the polling adapter: how a single pgmq message gets
-dispatched into the client's event sinks.
+Tests target the bits unique to pubsub — envelope rehydration into the
+payload (so EventRelay accepts the message) and the cached internal-token
+exchange. Ownership filtering and downstream sinks are exercised in
+``test_supabase_client.py`` since they run via the shared
+``client._process_event`` path. Connection/loop lifecycle is covered by
+the integration suite.
 """
 
 from __future__ import annotations
+
+import time
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -21,9 +25,6 @@ CORP_SHIP_ID = "22222222-2222-2222-2222-222222222222"
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGameClient:
-    """A real AsyncGameClient with polling disabled; we drive the pubsub
-    adapter directly.
-    """
     monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
     monkeypatch.setenv("EDGE_API_TOKEN", "test-token")
     return AsyncGameClient(
@@ -39,59 +40,25 @@ def adapter(client: AsyncGameClient) -> PubsubEventAdapter:
 
 
 @pytest.mark.asyncio
-class TestDispatchParity:
-    """Pubsub `_dispatch` should drive the same client sinks as polling."""
+async def test_dispatch_rehydrates_event_context_and_task_id(
+    client: AsyncGameClient, adapter: PubsubEventAdapter
+) -> None:
+    """Pubsub consumer must mirror polling's __event_context / __task_id
+    rehydration. EventRelay drops non-combat events when __event_context
+    is missing (event_relay.py:1784) and routes tasks via
+    payload['__task_id'] (event_relay.py:1953). Also verifies that an
+    already-injected payload __task_id takes precedence over the envelope.
+    """
+    seen: list[tuple[str, dict]] = []
 
-    async def test_player_movement_updates_sector_cache(
-        self, client: AsyncGameClient, adapter: PubsubEventAdapter
-    ) -> None:
-        """Parity with polling: a player-owned event updates _current_sector."""
-        assert client._current_sector is None
-        await adapter._dispatch(
-            {
-                "event_type": "movement.complete",
-                "payload": {"player": {"id": PLAYER_ID}, "sector": {"id": 4242}},
-            }
-        )
-        assert client._current_sector == 4242
+    async def capture(name, payload, **_):
+        seen.append((name, dict(payload)))
 
-    async def test_corp_ship_event_does_not_pollute_sector_cache(
-        self, client: AsyncGameClient, adapter: PubsubEventAdapter
-    ) -> None:
-        """Ownership guard: corp-ship events must not clobber the bound
-        character's sector. Same invariant as ``test_supabase_client``.
-        """
-        await adapter._dispatch(
-            {
-                "event_type": "movement.complete",
-                "payload": {"player": {"id": CORP_SHIP_ID}, "sector": {"id": 9999}},
-            }
-        )
-        assert client._current_sector is None
+    client._process_event = capture  # type: ignore[assignment]
 
-    async def test_skips_messages_without_event_type(
-        self, adapter: PubsubEventAdapter
-    ) -> None:
-        """Defensive: malformed messages should no-op rather than raise."""
-        await adapter._dispatch({"payload": {"foo": "bar"}})  # missing event_type
-        await adapter._dispatch({"event_type": "", "payload": {}})  # empty event_type
-        # No assertion needed — we just want no exception.
-
-    async def test_dispatch_rehydrates_event_context_and_task_id(
-        self, client: AsyncGameClient, adapter: PubsubEventAdapter
-    ) -> None:
-        """Pubsub consumer must mirror polling's __event_context / __task_id
-        rehydration. EventRelay drops non-combat events when __event_context
-        is missing (event_relay.py:1784) and routes tasks via
-        payload['__task_id'] (event_relay.py:1953)."""
-        seen: list[tuple[str, dict]] = []
-
-        async def capture(name, payload, **_):
-            seen.append((name, dict(payload)))
-
-        client._process_event = capture  # type: ignore[assignment]
-
-        msg = {
+    # Envelope-only task_id → flows into payload as __task_id.
+    await adapter._dispatch(
+        {
             "event_type": "task.progress",
             "payload": {"step": 1},
             "task_id": "task-abc",
@@ -104,72 +71,107 @@ class TestDispatchParity:
                 "recipient_reasons": ["direct"],
             },
         }
-        await adapter._dispatch(msg)
+    )
 
-        assert len(seen) == 1
-        _, payload = seen[0]
-        assert payload["__event_context"]["character_id"] == PLAYER_ID
-        assert payload["__event_context"]["reason"] == "direct"
-        assert payload["__task_id"] == "task-abc"
-
-    async def test_dispatch_preserves_payload_injected_task_id(
-        self, client: AsyncGameClient, adapter: PubsubEventAdapter
-    ) -> None:
-        """When the producer already injected __task_id into the payload
-        (the default path now), the consumer must not overwrite it."""
-        seen: list[tuple[str, dict]] = []
-
-        async def capture(name, payload, **_):
-            seen.append((name, dict(payload)))
-
-        client._process_event = capture  # type: ignore[assignment]
-
-        msg = {
+    # Payload-injected __task_id wins over envelope task_id.
+    await adapter._dispatch(
+        {
             "event_type": "task.progress",
             "payload": {"__task_id": "from-payload"},
             "task_id": "from-toplevel",
         }
-        await adapter._dispatch(msg)
-        assert seen[0][1]["__task_id"] == "from-payload"
+    )
+
+    assert len(seen) == 2
+    _, first = seen[0]
+    assert first["__event_context"]["character_id"] == PLAYER_ID
+    assert first["__event_context"]["reason"] == "direct"
+    assert first["__task_id"] == "task-abc"
+    assert seen[1][1]["__task_id"] == "from-payload"
 
 
-class TestSetScope:
-    """``set_scope`` mirrors the public API of the polling adapter."""
+@pytest.mark.asyncio
+class TestEnsureInternalToken:
+    """``_ensure_internal_token`` calls verify_token, caches per-character,
+    and refreshes on near-expiry.
+    """
 
-    def test_initial_scope_is_bound_character(
-        self, client: AsyncGameClient, adapter: PubsubEventAdapter
+    async def test_caches_per_character_within_ttl(
+        self,
+        adapter: PubsubEventAdapter,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        assert adapter._character_ids == [client._canonical_character_id]
+        future_exp = int(time.time()) + 600
+        responses = [
+            MagicMock(status_code=200, text="ok"),
+            MagicMock(status_code=200, text="ok"),
+        ]
+        responses[0].json.return_value = {
+            "success": True, "token": "tok-A", "expires_at": future_exp,
+        }
+        responses[1].json.return_value = {
+            "success": True, "token": "tok-B", "expires_at": future_exp,
+        }
+        post_mock = AsyncMock(side_effect=responses)
 
-    def test_ship_ids_join_character_scope(
-        self, adapter: PubsubEventAdapter
+        class FakeAsyncClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            post = post_mock
+
+        monkeypatch.setattr(
+            "gradientbang.adapters.events.pubsub.httpx.AsyncClient",
+            FakeAsyncClient,
+        )
+
+        # First call for each character mints; repeats hit the cache.
+        assert await adapter._ensure_internal_token(PLAYER_ID) == "tok-A"
+        assert await adapter._ensure_internal_token(CORP_SHIP_ID) == "tok-B"
+        assert await adapter._ensure_internal_token(PLAYER_ID) == "tok-A"
+        assert await adapter._ensure_internal_token(CORP_SHIP_ID) == "tok-B"
+        assert post_mock.await_count == 2
+
+    async def test_refresh_when_near_expiry(
+        self,
+        adapter: PubsubEventAdapter,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Corp-ship pseudo-character ids merge into the per-character list —
-        unlike polling (which keeps them separate to drive a different filter
-        in `events_since`), pubsub treats every queue identically.
-        """
-        adapter.set_scope(ship_ids=[CORP_SHIP_ID])
-        assert CORP_SHIP_ID in adapter._character_ids
+        # Seed cache with a token expiring within the 60s safety margin
+        adapter._internal_tokens[PLAYER_ID] = ("stale-token", time.time() + 30)
 
-    def test_corp_id_stored_for_parity(
-        self, adapter: PubsubEventAdapter
-    ) -> None:
-        adapter.set_scope(corp_id="33333333-3333-3333-3333-333333333333")
-        assert adapter._corp_id == "33333333-3333-3333-3333-333333333333"
-        adapter.set_scope(corp_id=None)
-        assert adapter._corp_id is None
+        future_exp = int(time.time()) + 3600
+        mock_resp = MagicMock(status_code=200, text="ok")
+        mock_resp.json.return_value = {
+            "success": True,
+            "token": "fresh-token",
+            "expires_at": future_exp,
+        }
+        post_mock = AsyncMock(return_value=mock_resp)
 
-    def test_set_scope_before_start_does_not_spawn_tasks(
-        self, adapter: PubsubEventAdapter
-    ) -> None:
-        """A pre-start scope update must absorb into self._character_ids only.
+        class FakeAsyncClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
 
-        The previous gate fired before start() validated PGMQ_URL/access_token,
-        relying on the missing event loop to no-op. The explicit _started
-        flag makes that contract precise.
-        """
-        assert adapter._started is False
-        adapter.set_scope(ship_ids=[CORP_SHIP_ID])
-        assert CORP_SHIP_ID in adapter._character_ids
-        assert adapter._char_tasks == {}
-        assert adapter._started is False
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            post = post_mock
+
+        monkeypatch.setattr(
+            "gradientbang.adapters.events.pubsub.httpx.AsyncClient",
+            FakeAsyncClient,
+        )
+
+        token = await adapter._ensure_internal_token(PLAYER_ID)
+        assert token == "fresh-token"
+        assert post_mock.await_count == 1

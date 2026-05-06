@@ -1,10 +1,11 @@
 """pgmq-backed pubsub implementation of :class:`EventAdapter`.
 
-Connects directly to Postgres as ``pubsub_client`` and long-polls per-character
-queues via the auth-gated SECURITY DEFINER functions:
+Connects directly to Postgres (admin URL — same as the rest of the system)
+and long-polls per-character queues via the auth-gated SECURITY DEFINER
+functions:
 
-- ``public.subscribe_my_events(character_id, access_token, max_seconds, qty)``
-- ``public.archive_my_events(character_id, access_token, msg_ids[])``
+- ``public.subscribe_my_events(character_id, internal_token, max_seconds, qty)``
+- ``public.archive_my_events(character_id, internal_token, msg_ids[])``
 
 Per-character authorization (direct ownership or corp membership) is enforced
 inside those functions; this adapter trusts what they return. The adapter
@@ -12,13 +13,23 @@ runs one long-poll task per character in the active scope; ``set_scope`` adds
 and removes tasks as the bound voice agent expands subscription (e.g. when a
 corp ship joins the session).
 
-Required env: ``PGMQ_URL`` — direct (NOT pooled) postgres URL with the
-``pubsub_client`` role's credentials. Required client state: ``access_token``
-on the ``AsyncGameClient`` (set at construction time by the bot, originating
-from the proxy ``start`` edge function or the BOT_TEST_ACCESS_TOKEN dev env).
+Auth model: each SQL call carries a short-lived **internal HS256 token**
+minted by the ``verify_token`` edge function in exchange for the user's
+Supabase Auth JWT. The internal token is signed with a stable secret we
+control end-to-end (``PUBSUB_INTERNAL_SECRET``), decoupling SQL verification
+from Supabase Auth's signing-key rotation. We cache one internal token per
+character and refresh before expiry.
+
+Required env: ``PGMQ_URL`` — direct (NOT pooled) postgres URL with admin
+credentials (same value as ``POSTGRES_POOLER_URL`` in ``.env.supabase``).
+Required client state: ``access_token`` on the ``AsyncGameClient`` (set at
+construction time by the bot, originating from the proxy ``start`` edge
+function or the BOT_TEST_ACCESS_TOKEN dev env). Required also:
+``SUPABASE_URL`` so we can reach the ``verify_token`` edge function.
 
 Failure modes:
-- Missing ``PGMQ_URL`` or ``access_token`` → raise at ``start()``.
+- Missing ``PGMQ_URL`` / ``SUPABASE_URL`` / ``access_token`` → raise at ``start()``.
+- ``verify_token`` non-2xx → raise (bot session terminates).
 - Auth raises (``forbidden`` / ``token_expired`` / ``invalid_token``) inside
   ``subscribe_my_events`` → adapter re-raises so the bot can disconnect (per
   the auth design: no token-refresh path; expired sessions terminate).
@@ -33,23 +44,27 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
+import time
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
+import httpx
 import psycopg
-from psycopg.errors import RaiseException
+from loguru import logger
+from psycopg.errors import (
+    InsufficientPrivilege,
+    InvalidAuthorizationSpecification,
+    InvalidCatalogName,
+    InvalidPassword,
+    RaiseException,
+)
 from psycopg.rows import tuple_row
 
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 if TYPE_CHECKING:
     from gradientbang.utils.supabase_client import AsyncGameClient
-
-
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
 
 
 # Long-poll window per subscribe_my_events call. Connection stays in
@@ -59,6 +74,34 @@ DEFAULT_MAX_POLL_SECONDS = int(os.getenv("PGMQ_MAX_POLL_SECONDS", "30"))
 DEFAULT_QTY = int(os.getenv("PGMQ_BATCH_QTY", "100"))
 # Backoff cap on transient connection errors.
 RECONNECT_BACKOFF_MAX = float(os.getenv("PGMQ_RECONNECT_BACKOFF_MAX", "10.0"))
+# Warn if no events have been dispatched within this many seconds of start.
+# Doesn't disconnect — there are legitimate quiet windows — but makes silent
+# mis-wiring (the symptom this guard exists for) visible.
+NO_EVENTS_WARNING_SECONDS = float(os.getenv("PGMQ_NO_EVENTS_WARNING_SECONDS", "30.0"))
+
+
+def _is_fatal_pubsub_error(exc: BaseException) -> bool:
+    """Connection/auth errors that indicate misconfiguration, not transient state.
+
+    Retrying these forever just hides the real problem (wrong PGMQ_URL, expired
+    token, revoked ownership). Surface them as fatal so the session disconnects
+    with a clear error instead of silently spinning in a backoff loop.
+    """
+    if isinstance(exc, (RaiseException, InsufficientPrivilege)):
+        return True
+    if isinstance(
+        exc, (InvalidPassword, InvalidAuthorizationSpecification, InvalidCatalogName)
+    ):
+        return True
+    if isinstance(exc, psycopg.OperationalError):
+        # libpq FATAL errors (auth failed, role/database missing) arrive as
+        # bare OperationalError without a SQLSTATE — match on the message.
+        msg = str(exc).lower()
+        if "authentication failed" in msg:
+            return True
+        if "does not exist" in msg and ("role " in msg or "database " in msg):
+            return True
+    return False
 
 
 class PubsubEventAdapter:
@@ -88,11 +131,19 @@ class PubsubEventAdapter:
         self._broadcast_task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
         self._scope_lock = asyncio.Lock()
+        # Per-character internal token cache. Keyed by character_id; values
+        # are (token, expires_at_unix). Tokens are minted by the verify_token
+        # edge function. Refreshed in _ensure_internal_token before expiry.
+        self._internal_tokens: dict[str, tuple[str, float]] = {}
         # Set True at the end of start() once env validations and the initial
         # task sync have completed. set_scope() consults this before scheduling
         # any reconcile work, so a pre-start scope update can't spawn polling
         # tasks before start() has had a chance to validate PGMQ_URL/access_token.
         self._started: bool = False
+        # Watchdog: warn loudly if no events arrive within N seconds of start.
+        # Set on first _dispatch; the watchdog short-circuits when this is set.
+        self._first_event_at: Optional[float] = None
+        self._watchdog_task: Optional[asyncio.Task] = None
 
     # ------------------------------------------------------------------
     # EventAdapter Protocol
@@ -105,8 +156,13 @@ class PubsubEventAdapter:
         if not os.getenv("PGMQ_URL"):
             raise RuntimeError(
                 "PGMQ_URL is required when EVENT_TRANSPORT=pubsub. "
-                "Set it to a direct (NOT pooled) postgres URL with the "
-                "pubsub_client role's credentials."
+                "Set it to a direct (NOT pooled) postgres URL using the same "
+                "admin credentials as POSTGRES_POOLER_URL in .env.supabase."
+            )
+        if not os.getenv("SUPABASE_URL"):
+            raise RuntimeError(
+                "SUPABASE_URL is required when EVENT_TRANSPORT=pubsub "
+                "(used to reach the verify_token edge function)."
             )
         if not getattr(self._client, "_access_token", None):
             raise RuntimeError(
@@ -119,6 +175,25 @@ class PubsubEventAdapter:
         if self._stop_event.is_set():
             self._stop_event = asyncio.Event()
 
+        logger.info(
+            f"pubsub.start character_ids={self._character_ids} "
+            f"poll_window={DEFAULT_MAX_POLL_SECONDS}s"
+        )
+
+        # Pre-fetch the internal token for the bound character so misconfig
+        # (bad access_token, verify_token edge function down, etc.) surfaces
+        # at session start instead of first poll. Other characters added via
+        # set_scope mint on demand.
+        for character_id in self._character_ids:
+            await self._ensure_internal_token(character_id)
+
+        # Self-test: verify the SQL roundtrip works end-to-end before we
+        # silently accept the session. Catches verify_token/secret mismatch,
+        # missing per-character queue, or auth-gate misconfig — symptoms that
+        # otherwise only show up minutes later when a long-poll fails.
+        for character_id in self._character_ids:
+            await self._run_startup_self_test(character_id)
+
         await self._sync_tasks()
 
         # Spawn the LISTEN/NOTIFY broadcast subscriber. Disable via
@@ -129,7 +204,109 @@ class PubsubEventAdapter:
                 name="pubsub-listen-broadcasts",
             )
 
+        # Watchdog: if no event has been dispatched within N seconds, warn
+        # loudly. Catches the "connected, no errors, but pgmq is empty"
+        # silent-failure mode that prompted these guards.
+        self._watchdog_task = asyncio.create_task(
+            self._no_events_watchdog(), name="pubsub-no-events-watchdog"
+        )
+
         self._started = True
+
+    async def _ensure_internal_token(self, character_id: str) -> str:
+        """Return a valid internal token for ``character_id``, refreshing if needed.
+
+        Tokens are minted by the ``verify_token`` edge function in exchange
+        for the AsyncGameClient's Supabase Auth access_token. We cache one per
+        character and refresh when within 60s of expiry.
+        """
+        cached = self._internal_tokens.get(character_id)
+        if cached:
+            token, expires_at = cached
+            if time.time() < expires_at - 60:
+                return token
+
+        supabase_url = os.environ["SUPABASE_URL"].rstrip("/")
+        access_token = self._client._access_token
+        if not access_token:
+            raise RuntimeError(
+                "access_token missing on AsyncGameClient; cannot mint internal token"
+            )
+
+        url = f"{supabase_url}/functions/v1/verify_token"
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            resp = await http.post(
+                url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"character_id": character_id},
+            )
+        if resp.status_code != 200:
+            logger.error(
+                f"pubsub.verify_token_failed character={character_id} "
+                f"status={resp.status_code} body={resp.text}"
+            )
+            raise RuntimeError(
+                f"verify_token returned {resp.status_code}: {resp.text}"
+            )
+        data = resp.json()
+        if not data.get("success") or not data.get("token"):
+            raise RuntimeError(f"verify_token returned malformed response: {data}")
+
+        token = str(data["token"])
+        expires_at = float(data.get("expires_at") or 0)
+        self._internal_tokens[character_id] = (token, expires_at)
+        return token
+
+    async def _run_startup_self_test(self, character_id: str) -> None:
+        """One-shot subscribe_my_events to prove the SQL auth path works.
+
+        Calls with max_seconds=0 so pgmq.read_with_poll exits after a single
+        non-blocking read. The assertion is "no exception raised"; we discard
+        any rows. Catches verify_token/secret mismatch, queue-missing, or
+        ownership-revoked failures at session start instead of letting them
+        manifest minutes later as a silent stalled poll.
+        """
+        pgmq_url = os.environ["PGMQ_URL"]
+        internal_token = await self._ensure_internal_token(character_id)
+        try:
+            async with await psycopg.AsyncConnection.connect(
+                pgmq_url, autocommit=True, row_factory=tuple_row
+            ) as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "SELECT msg_id, message FROM public.subscribe_my_events(%s, %s, %s, %s)",
+                        (character_id, internal_token, 0, 1),
+                    )
+                    await cur.fetchall()
+        except Exception as exc:
+            logger.error(
+                f"pubsub.startup_self_test_failed character={character_id} "
+                f"error={exc}"
+            )
+            raise
+
+    async def _no_events_watchdog(self) -> None:
+        """Wait NO_EVENTS_WARNING_SECONDS; warn if no event has been dispatched.
+
+        Doesn't disconnect — there are legitimate reasons for silence (player
+        idle in a quiet sector, bot started before any state change). Just
+        logs a single visible warning to surface the "connected but receiving
+        nothing" failure mode that misconfig used to hide.
+        """
+        try:
+            await asyncio.wait_for(
+                self._stop_event.wait(),
+                timeout=NO_EVENTS_WARNING_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            if self._first_event_at is None:
+                logger.warning(
+                    f"pubsub.no_events_after_start_warning "
+                    f"window_seconds={NO_EVENTS_WARNING_SECONDS} "
+                    f"character_ids={self._character_ids} — adapter is "
+                    f"connected but no events have been received. Check "
+                    f"that edge functions are publishing to pgmq."
+                )
 
     async def stop(self) -> None:
         self._started = False
@@ -141,6 +318,10 @@ class PubsubEventAdapter:
         self._broadcast_task = None
         if broadcast_task is not None:
             tasks.append(broadcast_task)
+        watchdog_task = self._watchdog_task
+        self._watchdog_task = None
+        if watchdog_task is not None:
+            tasks.append(watchdog_task)
         for task in tasks:
             task.cancel()
         for task in tasks:
@@ -213,6 +394,7 @@ class PubsubEventAdapter:
 
     async def _character_loop(self, character_id: str) -> None:
         """Long-poll one character's queue forever (until stop)."""
+        logger.info(f"pubsub.character_loop_started character={character_id}")
         backoff = 1.0
         while not self._stop_event.is_set():
             try:
@@ -220,21 +402,16 @@ class PubsubEventAdapter:
                 backoff = 1.0
             except asyncio.CancelledError:
                 raise
-            except (RaiseException, psycopg.errors.InsufficientPrivilege) as exc:
-                # Auth failure — token expired/invalid or character ownership
-                # was revoked. Per design: no refresh, surface to disconnect.
-                logger.error(
-                    "pubsub.auth_failed character=%s error=%s",
-                    character_id,
-                    exc,
-                )
-                self._stop_event.set()
-                raise
-            except Exception:
+            except Exception as exc:
+                if _is_fatal_pubsub_error(exc):
+                    logger.error(
+                        f"pubsub.fatal_error character={character_id} error={exc}"
+                    )
+                    self._stop_event.set()
+                    raise
                 logger.warning(
-                    "pubsub.poll_error character=%s; reconnecting after %.1fs",
-                    character_id,
-                    backoff,
+                    f"pubsub.poll_error character={character_id}; "
+                    f"reconnecting after {backoff:.1f}s",
                     exc_info=True,
                 )
                 with suppress(asyncio.TimeoutError):
@@ -248,6 +425,7 @@ class PubsubEventAdapter:
         dispatching them through the same `_dispatch` path as per-character
         messages. Reconnects with backoff on connection error.
         """
+        logger.info("pubsub.broadcast_listener_started channel=gb_broadcasts")
         backoff = 1.0
         while not self._stop_event.is_set():
             try:
@@ -255,10 +433,13 @@ class PubsubEventAdapter:
                 backoff = 1.0
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
+                if _is_fatal_pubsub_error(exc):
+                    logger.error(f"pubsub.broadcast_fatal_error error={exc}")
+                    self._stop_event.set()
+                    raise
                 logger.warning(
-                    "pubsub.broadcast_listen_error; reconnecting after %.1fs",
-                    backoff,
+                    f"pubsub.broadcast_listen_error; reconnecting after {backoff:.1f}s",
                     exc_info=True,
                 )
                 with suppress(asyncio.TimeoutError):
@@ -268,7 +449,7 @@ class PubsubEventAdapter:
     async def _poll_once(self, character_id: str) -> None:
         """One long-poll + dispatch + archive cycle."""
         pgmq_url = os.environ["PGMQ_URL"]
-        access_token = self._client._access_token
+        internal_token = await self._ensure_internal_token(character_id)
 
         async with await psycopg.AsyncConnection.connect(
             pgmq_url, autocommit=True, row_factory=tuple_row
@@ -276,7 +457,7 @@ class PubsubEventAdapter:
             async with conn.cursor() as cur:
                 await cur.execute(
                     "SELECT msg_id, message FROM public.subscribe_my_events(%s, %s, %s, %s)",
-                    (character_id, access_token, DEFAULT_MAX_POLL_SECONDS, DEFAULT_QTY),
+                    (character_id, internal_token, DEFAULT_MAX_POLL_SECONDS, DEFAULT_QTY),
                 )
                 rows = await cur.fetchall()
 
@@ -287,9 +468,8 @@ class PubsubEventAdapter:
                 for msg_id, message in rows:
                     if not isinstance(message, Mapping):
                         logger.debug(
-                            "pubsub.skip_malformed msg_id=%s character=%s",
-                            msg_id,
-                            character_id,
+                            f"pubsub.skip_malformed msg_id={msg_id} "
+                            f"character={character_id}"
                         )
                         delivered_msg_ids.append(msg_id)
                         continue
@@ -297,16 +477,19 @@ class PubsubEventAdapter:
                         await self._dispatch(message)
                     except Exception:
                         logger.exception(
-                            "pubsub.dispatch_error msg_id=%s character=%s",
-                            msg_id,
-                            character_id,
+                            f"pubsub.dispatch_error msg_id={msg_id} "
+                            f"character={character_id}"
                         )
                     delivered_msg_ids.append(msg_id)
 
                 if delivered_msg_ids:
+                    # Re-fetch in case the cached token expired during the
+                    # poll window (rare — typical poll window is 30s, refresh
+                    # margin is 60s — but cheap to be safe).
+                    archive_token = await self._ensure_internal_token(character_id)
                     await cur.execute(
                         "SELECT public.archive_my_events(%s, %s, %s)",
-                        (character_id, access_token, delivered_msg_ids),
+                        (character_id, archive_token, delivered_msg_ids),
                     )
 
     async def _listen_broadcasts_once(self) -> None:
@@ -362,6 +545,11 @@ class PubsubEventAdapter:
         event_name = message.get("event_type")
         if not isinstance(event_name, str) or not event_name:
             return
+
+        # First-event signal for the no-events watchdog. Set it once; the
+        # watchdog short-circuits on this and stops warning.
+        if self._first_event_at is None:
+            self._first_event_at = time.time()
 
         raw_payload = message.get("payload")
         payload: dict[str, Any]

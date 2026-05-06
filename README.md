@@ -331,36 +331,29 @@ HTTP polling against the `events_since` edge function, authenticated by `EDGE_AP
 
 ### `pubsub`
 
-Direct Postgres long-poll against per-character pgmq queues. Each subscriber connects as the locked-down `pubsub_client` role and calls a SECURITY DEFINER function (`subscribe_my_events`) that:
+Direct Postgres long-poll against per-character pgmq queues. The bot connects with admin credentials (same URL as the rest of the system, `POSTGRES_POOLER_URL`) and calls SECURITY DEFINER functions (`subscribe_my_events` / `archive_my_events`) that:
 
-1. Verifies the caller's Supabase Auth `access_token` (HS256 via the `pgjwt` extension).
-2. Checks the user owns the requested `character_id` directly (via `user_characters`) **or** via corp membership for corp ships.
-3. Returns up to N pending messages for that character via `pgmq.read_with_poll`.
+1. Verify a short-lived **internal HS256 token** scoped to one character.
+2. Check the user owns the requested `character_id` directly (via `user_characters`) **or** via corp membership for corp ships.
+3. Return up to N pending messages for that character via `pgmq.read_with_poll`.
 
-The `pubsub_client` role has zero direct grants on the `pgmq` schema, so cross-character access is impossible even from a misbehaving client. Auth failures (`forbidden` / `token_expired` / `invalid_token`) propagate up and disconnect the bot — there is intentionally no token-refresh path; sessions terminate on expiry (JWTs are 24h).
+The internal token is minted by the `verify_token` edge function in exchange for the bot's Supabase Auth `access_token`. The edge function handles the JWT verification (Supabase Auth has moved to ES256 with rotating signing keys, which is awkward to verify inside Postgres); the SQL functions only need to verify the internal token against a stable HS256 secret we control end-to-end. That secret is auto-provisioned by the migration into `public.app_runtime_config` — no manual ALTER step, no env var to wire up. Auth failures (`forbidden` / `token_expired` / `invalid_token`) propagate up and disconnect the bot — there is intentionally no token-refresh path; sessions terminate on expiry (JWTs are 24h).
 
 **Setup for local pubsub:**
 
-1. Set `PGMQ_PUBLISH_ENABLED=1` in `.env.supabase` (so edge functions dual-write events into pgmq) and restart edge functions.
-2. Give the `pubsub_client` role a login password, then point `PGMQ_URL` at the direct DB:
-
-   ```bash
-   PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
-     -c "ALTER ROLE pubsub_client WITH LOGIN PASSWORD 'postgres';"
-   ```
-
-   (We reuse the local `postgres` superuser/pooler password — local dev only. Production sets the password out-of-band via secret manager. The `/init` skill applies this automatically; re-run it any time you `supabase db reset`.)
-
-   Then in `.env.bot`:
+1. Edge functions always dual-write events into pgmq queues — no flag to set, just deploy the migration.
+2. In `.env.bot`:
 
    ```
    EVENT_TRANSPORT=pubsub
-   PGMQ_URL=postgresql://pubsub_client:postgres@127.0.0.1:54322/postgres
+   PGMQ_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
    ```
 
-3. Make sure the bot's `/start` body includes a real Supabase Auth `access_token` (or set `BOT_TEST_ACCESS_TOKEN`). The bot's `/start` requires this in **both** transport modes — pubsub uses it for per-character queue auth, polling uses it as `X-API-Token` so per-character endpoint checks pass.
+   (Same admin URL as `POSTGRES_POOLER_URL` in `.env.supabase` — there is no separate pubsub role.)
 
-Migration `20260505000000_enable_pgmq_pubsub.sql` installs the `pgmq` and `pgjwt` extensions, creates the `pubsub_client` role, the auth functions, and an `INSERT` trigger on `characters` that auto-creates per-character queues. Existing characters are backfilled at migration time.
+3. Make sure the bot's `/start` body includes a real Supabase Auth `access_token` (or set `BOT_TEST_ACCESS_TOKEN`). The bot's `/start` requires this in **both** transport modes — pubsub uses it to mint internal tokens via `verify_token`, polling uses it as `X-API-Token` so per-character endpoint checks pass.
+
+Migration `20260505000000_pubsub_and_broadcasts.sql` installs the `pgmq` and `pgjwt` extensions, provisions the internal signing secret in `public.app_runtime_config`, defines the auth functions (`subscribe_my_events` / `archive_my_events`), the service-role publish wrappers (`pgmq_publish` / `notify_broadcast`), and adds an `INSERT` trigger on `characters` that auto-creates per-character queues. Existing characters are backfilled at migration time. Production deploys are migration-only — no manual SQL or secret-injection step.
 
 ### Why two modes?
 
@@ -644,7 +637,6 @@ pnpm run dev
 | `CHARACTER_SKIP_AUTO_QUESTS`  | No       | `false`                                  | Set to `true` to skip auto-assigned quests (e.g. tutorial) on new character creation                                                                                                                |
 | `EDGE_ADMIN_PASSWORD`         | No       | —                                        | Admin password for admin-only endpoints                                                                                                                                                             |
 | `EDGE_ADMIN_PASSWORD_HASH`    | No       | —                                        | SHA-256 hash of admin password (alternative to plaintext)                                                                                                                                           |
-| `PGMQ_PUBLISH_ENABLED`        | No       | —                                        | Set to `1` to dual-write events to per-character pgmq queues alongside the events table. Required when any client uses `EVENT_TRANSPORT=pubsub`. See [Event delivery modes](#event-delivery-modes). |
 
 ### Bot (`.env.bot`)
 

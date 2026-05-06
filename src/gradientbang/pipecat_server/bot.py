@@ -56,7 +56,7 @@ from pipecat.processors.frameworks.rtvi import (
 from pipecat.runner.types import RunnerArguments, DailyRunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
+from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
@@ -244,7 +244,7 @@ async def _startup_init_stt(language: Language = Language.EN):
     """Initialize STT service (traced span)."""
     return DeepgramSTTService(
         api_key=os.getenv("DEEPGRAM_API_KEY"),
-        live_options=LiveOptions(language=language),
+        settings=DeepgramSTTService.Settings(language=language),
     )
 
 
@@ -256,8 +256,7 @@ async def _startup_init_tts(voice_id: str = DEFAULT_VOICE_ID, language: Language
         logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
     return CartesiaTTSService(
         api_key=cartesia_key,
-        voice_id=voice_id,
-        params=CartesiaTTSService.InputParams(language=language),
+        settings=CartesiaTTSService.Settings(voice=voice_id, language=language),
     )
 
 
