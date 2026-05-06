@@ -2047,6 +2047,10 @@ class VoiceAgent(LLMAgent):
                 self._locked_ships.add(target_character_id)
                 try:
                     await self.add_agent(task_agent)
+                    # pipecat-subagents 0.4 requires explicit watch_agent for
+                    # on_agent_ready to fire on dynamically-spawned children.
+                    # Without it, _pending_tasks is never drained.
+                    await self.watch_agent(agent_name)
                 except Exception:
                     self._locked_ships.discard(target_character_id)
                     self._pending_tasks.pop(agent_name, None)
