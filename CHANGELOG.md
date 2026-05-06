@@ -9,27 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Optional pgmq-backed pubsub event delivery (`EVENT_TRANSPORT=pubsub`) — long-polls per-character queues via auth-gated SECURITY DEFINER functions (`subscribe_my_events` / `archive_my_events`) that verify the caller's Supabase Auth `access_token` and check character ownership including corp-ship access via corp membership. Polling remains the default; pubsub is opt-in and gated server-side by `PGMQ_PUBLISH_ENABLED`
-- `AsyncGameClient` event delivery is now plugged in via an `EventAdapter` Protocol (`src/gradientbang/adapters/events/`) so polling and pubsub share dispatch sinks; switching modes is one env var
-- Bot's `/start` now requires a Supabase Auth `access_token` in the body (forwarded by the proxy `start` edge function) so per-character credentials can flow into the new pubsub channel; dev workflows can use `BOT_TEST_ACCESS_TOKEN`
-- New migrations: `pgmq` + `pgjwt` extensions enabled; locked-down `pubsub_client` Postgres role with no direct grants on the `pgmq` schema; per-character queues created automatically via INSERT trigger on `characters` and backfilled
-
-- Per-character authentication on every gameplay edge function — caller's Supabase Auth JWT is verified server-side via a new `authenticate()` helper that returns a typed `AuthContext` (admin / user / future BYOC), and `canActOnCharacter()` enforces direct character ownership or corp-ship access via corp membership. Closes the long-standing gap where any caller with `EDGE_API_TOKEN` could claim any character. Migrated 41 functions across move, combat, trade/bank, corp actions, quests, status reads, and tasks
-- `AsyncGameClient` sends the user's `access_token` as `X-API-Token` when present (admin `EDGE_API_TOKEN` is now a fallback for NPCs / scripts / cron). Bot deployments no longer need EDGE_API_TOKEN in their environment if the bot session always carries an access_token
-- New `requireAdminToken()` helper rejects user JWTs outright; `combat_tick`, `test_reset`, and `eval_webhook` are now strictly admin-only (previously `validateApiToken` admitted any authenticated user). `corporation_info` member-only payload (members, ships, cargo, credits, fighters, founder fields) is now gated behind `canActOnCharacter` — non-owners get the public payload
-- Broadcast events (chat broadcasts, gm/system messages) reach pubsub subscribers via Postgres LISTEN/NOTIFY on `gb_broadcasts`. Publish path is server-only (`notify_broadcast()` SECURITY DEFINER granted to `service_role`); pgmq is the wrong primitive here (competing-consumer would drop broadcasts to peers). Toggle with `PGMQ_SUBSCRIBE_BROADCASTS`
-- Pubsub messages are now wire-compatible with `events_since`: per-recipient `event_context`, `recipient_ids`, `recipient_reasons`, plus `__task_id` injected into the payload. Without this `EventRelay` was silently dropping non-combat events and losing task-scoped routing in pubsub mode
+- Per-character authentication on every gameplay edge function: the caller's Supabase Auth JWT is verified server-side and `canActOnCharacter()` enforces direct ownership or corp-ship access via corp membership. Closes the gap where any caller with `EDGE_API_TOKEN` could act as any character
+- Optional pgmq-backed event delivery (`EVENT_TRANSPORT=pubsub`) — long-polls per-character queues via auth-gated SQL functions, eliminating the busy-poll loop. Polling remains the default; both modes are wire-compatible. Broadcast events (chat, gm/system) fan out to pubsub subscribers via Postgres LISTEN/NOTIFY
+- Admin-only credential path: `combat_tick`, `test_reset`, and `eval_webhook` now strictly require an admin token (previously they admitted any authenticated user). `corporation_info`'s member-only payload is gated behind ownership — non-members get the public view
 
 ### Changed
 
-- Bumped to Pipecat 1.0 (`pipecat-ai` 0.0.108 → 1.1.0). Replaced the in-repo `gradientbang.subagents` framework fork with the published `pipecat-ai-subagents` 0.4.0; dropped `pipecat-ai-flows`; bumped `pipecatcloud` 0.4.1 → 0.6.0. Game agents updated for the upstream API drift: explicit `task_id` on `send_task_response`/`send_task_update`, RTVIObserver `_ignored_sources` poke replaced with the public `ignored_sources` param, legacy `OpenAILLMContext` import dropped from the OpenAI Responses service, and `_dispatch_task_with_id` helper added on `VoiceAgent` so the start_task tool can still hand the LLM a stable task id before the worker is ready
-- Supabase Auth JWT expiry bumped from 1h to 24h so a single access_token covers any plausible gameplay session without a refresh path
-- `EDGE_API_TOKEN` is now positioned as an admin-only credential (cron jobs, NPC bots, internal pg_net invocations, dev tooling). The user-facing voice bot session no longer requires it
-- Local-dev admin bypass is now explicit: `authenticate()` only returns admin without `EDGE_API_TOKEN` if `ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1` is also set. JWTs are still verified normally either way. Closes a prod foot-gun where env drift could silently grant unauthenticated callers admin context
-
-### Fixed
-
-- `PubsubEventAdapter.set_scope()` could schedule polling tasks before `start()` ran its env validations. Replaced the implicit gate (`_stop_event` + missing-loop catch) with an explicit `_started` flag set after env checks succeed
+- Bumped to Pipecat 1.0 (`pipecat-ai` 1.1.0, `pipecatcloud` 0.6.0). Replaced the in-repo subagents framework fork with the published `pipecat-ai-subagents` 0.4.0
+- `EDGE_API_TOKEN` is now an admin-only credential (cron, NPCs, internal invocations). Bot deployments no longer need it in their environment when the session carries an `access_token`
+- Bot's `/start` now requires a Supabase Auth `access_token` in the body so per-character credentials flow into pubsub and ownership checks; dev workflows can use `BOT_TEST_ACCESS_TOKEN`
+- Supabase Auth JWT expiry bumped from 1h to 24h so a session covers any plausible gameplay length without a refresh path
+- Local-dev admin bypass now requires explicit `ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1` — closes a prod foot-gun where missing `EDGE_API_TOKEN` could silently grant admin context
 
 ## [0.3.0] - 2026-04-30
 
