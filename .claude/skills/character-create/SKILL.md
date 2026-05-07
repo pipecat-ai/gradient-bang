@@ -1,6 +1,6 @@
 ---
 name: character-create
-description: Create a new game character with optional custom ship, credits, and onboarding skip. Usage `/character-create [env] <name> <email> <password> [credits <N>] [ship <type>] [skip-onboarding]`.
+description: Create a new game character with optional custom ship, credits, onboarding skip, and bulk contract completion. Usage `/character-create [env] <name> <email> <password> [credits <N>] [ship <type>] [skip-onboarding] [complete-contracts]`.
 ---
 
 # Create Character
@@ -12,7 +12,7 @@ Creates a new game character for an authenticated user via the public `user_char
 The user specifies the environment and options as arguments. If not provided, default to `local` and ask for any missing required params.
 
 ```
-/character-create [env] <name> <email> <password> [credits <N>] [ship <ship_type>] [skip-onboarding]
+/character-create [env] <name> <email> <password> [credits <N>] [ship <ship_type>] [skip-onboarding] [complete-contracts]
 ```
 
 - **env**: `local` (default) or `dev`
@@ -23,7 +23,8 @@ The user specifies the environment and options as arguments. If not provided, de
 - **password**: user password (required)
 - **credits**: optional, number of starting credits (default: 12000)
 - **ship**: optional, ship type as snake_case (default: `sparrow_scout`). Convert display names to snake_case (e.g., "Kestrel Courier" → `kestrel_courier`)
-- **skip-onboarding**: optional flag. If absent, ask the user if they want to skip onboarding.
+- **skip-onboarding**: optional flag. Backdates `first_visit` so the join endpoint won't flag the character as a first-time player and trigger the in-app onboarding flow. Independent of quests. If absent, ask the user.
+- **complete-contracts**: optional flag. Assigns every enabled `quest_definition` to the character and marks all steps + the parent quest as `claimed` (the in-game name for quests is "contracts"). Independent of onboarding — can be combined with `skip-onboarding`. If absent, ask the user.
 
 ### Valid ship types
 
@@ -105,25 +106,57 @@ WHERE ship_instances.ship_id = '<ship_id>'
 
 #### 4c. Skip onboarding
 
-Two things need to happen:
-
-1. Set `first_visit` to the past so the join endpoint does not flag `is_first_visit`:
+Onboarding is the in-app first-run flow gated by `characters.first_visit`. Skipping it means backdating that timestamp so the join endpoint does not flag `is_first_visit`. This does NOT touch quests/contracts — see 4d for that.
 
 ```sql
 UPDATE characters SET first_visit = NOW() - INTERVAL '1 day' WHERE character_id = '<character_id>';
 ```
 
-2. Remove any auto-assigned onboarding quests:
+**Note:** `psql -c "<multi-statement>"` runs the whole string in a single implicit transaction — if any statement fails, the prior ones roll back.
+
+#### 4d. Complete all contracts
+
+For every enabled `quest_definition`, ensure the character has a `player_quests` row, mark every step's `player_quest_steps` row complete + claimed, and set the parent quest to `claimed`. This claims the auto-assigned tutorial quest along with the rest, so it is safe to combine with `skip-onboarding`.
+
+Run this against the character (single psql call):
 
 ```sql
-DELETE FROM player_quests
-WHERE player_id = '<character_id>'
-  AND quest_code IN (
-    SELECT code FROM quest_definitions WHERE assign_on_creation = true
-  );
+WITH ins_quests AS (
+  INSERT INTO player_quests (player_id, quest_id, status, current_step_index, started_at, completed_at, claimed_at)
+  SELECT '<character_id>', qd.id, 'claimed',
+         COALESCE((SELECT MAX(step_index) FROM quest_step_definitions s WHERE s.quest_id = qd.id), 1),
+         NOW(), NOW(), NOW()
+  FROM quest_definitions qd
+  WHERE qd.enabled = true
+  ON CONFLICT (player_id, quest_id) DO UPDATE
+    SET status = 'claimed', completed_at = NOW(), claimed_at = NOW()
+  RETURNING id, quest_id
+)
+INSERT INTO player_quest_steps (player_quest_id, step_id, current_value, completed_at, reward_claimed_at)
+SELECT iq.id, sd.id, sd.target_value, NOW(), NOW()
+FROM ins_quests iq
+JOIN quest_step_definitions sd ON sd.quest_id = iq.quest_id
+ON CONFLICT DO NOTHING;
 ```
 
-You can combine multiple SQL statements in a single psql call separated by semicolons.
+This bypasses the `claim_quest_step_reward` RPC, so any `reward_credits` defined on a step are NOT granted. If the user wants the credit rewards too, sum them up and add to `ship_instances.credits` in the same transaction:
+
+```sql
+UPDATE ship_instances SET credits = credits + (
+  SELECT COALESCE(SUM(sd.reward_credits), 0)
+  FROM quest_step_definitions sd
+  JOIN quest_definitions qd ON qd.id = sd.quest_id
+  WHERE qd.enabled = true AND sd.reward_credits IS NOT NULL
+) WHERE ship_id = '<ship_id>';
+```
+
+After running, verify with:
+```sql
+SELECT pq.status, COUNT(*) FROM player_quests pq WHERE pq.player_id = '<character_id>' GROUP BY pq.status;
+SELECT COUNT(*) AS step_rows_claimed FROM player_quest_steps pqs
+  JOIN player_quests pq ON pq.id = pqs.player_quest_id
+  WHERE pq.player_id = '<character_id>' AND pqs.reward_claimed_at IS NOT NULL;
+```
 
 ### 5. Report the result
 
@@ -132,6 +165,7 @@ Show the user:
 - Ship: `ship_id`, `ship_type`, `current_sector`
 - Credits (final value after any customization)
 - Whether onboarding was skipped
+- Whether contracts were bulk-completed (and if so, how many quests + steps were claimed, and the credits granted from step rewards if the user opted in)
 
 ### 6. Update .env.bot (optional)
 

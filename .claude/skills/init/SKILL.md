@@ -120,10 +120,24 @@ The `.env.bot` file needs values from two sources:
 - `CARTESIA_API_KEY` — for text-to-speech (https://play.cartesia.ai)
 - `GOOGLE_API_KEY` — for Gemini LLM, used by voice and UI agent (https://aistudio.google.com/apikey)
 - `ANTHROPIC_API_KEY` — for Claude LLM, used by task agent (https://console.anthropic.com)
+- `OPENAI_API_KEY` — for OpenAI models (https://platform.openai.com/api-keys)
 
 Use AskUserQuestion to collect these keys one prompt at a time. For each key, show the service name and where to get it. If the user provides a value, write it into `.env.bot`. If the user skips a key (empty response), leave it blank in the file and warn them which bot features won't work without it.
 
 After filling in the keys, use `sed` or similar to update the values in `.env.bot`.
+
+### 7b. Choose pipecat transport (Daily vs SmallWebRTC)
+
+Ask the user which transport to use with AskUserQuestion. Default/recommended is **smallwebrtc** (no extra accounts needed). Pick **daily** if the user wants WebRTC via Daily.co rooms (requires `DAILY_API_KEY`).
+
+Save the choice for use in step 8 (it determines the `-t` flag for `uv run bot` and the `VITE_PIPECAT_TRANSPORT` value).
+
+If the user picked **daily**:
+- Confirm `DAILY_API_KEY` is set in `.env.bot` (the env.bot.example already lists it; if blank, prompt the user for it the same way as the other API keys in step 7).
+- Write `VITE_PIPECAT_TRANSPORT=daily` to `client/app/.env.local` (create the file if missing; if it exists with a different value, ask before overwriting).
+
+If the user picked **smallwebrtc**:
+- No client env file needed (the client defaults to smallwebrtc). If `client/app/.env.local` already exists with `VITE_PIPECAT_TRANSPORT=daily`, ask whether to remove/change it.
 
 ### 8. Summary
 
@@ -140,13 +154,20 @@ Then tell the user the next steps to start developing:
 npx supabase functions serve --workdir deployment --no-verify-jwt --env-file .env.supabase
 
 # Terminal 2: Bot
-set -a && source .env.bot && set +a && uv run bot
+#   - smallwebrtc transport (default):
+set -a && source .env.bot && set +a && uv run bot --host 0.0.0.0
+#   - daily transport:
+set -a && source .env.bot && set +a && uv run bot --host 0.0.0.0 -t daily
 
 # Terminal 3: Client
 cd client && pnpm i && pnpm run dev
 
 # Then open http://localhost:5173
+#   - To force daily on a single load without setting VITE_PIPECAT_TRANSPORT:
+#     http://localhost:5173/?transport=daily
 ```
+
+Substitute the bot command for whichever transport the user picked in step 7b. If they picked **daily**, the `VITE_PIPECAT_TRANSPORT=daily` written to `client/app/.env.local` makes the client match without the `?transport=` query param.
 
 ## Important notes
 
