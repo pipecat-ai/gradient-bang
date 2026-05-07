@@ -64,7 +64,7 @@ from gradientbang.pipecat_server.inference_gate import (
 OPENAI_REALTIME_SAMPLE_RATE = 24000
 OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE = 16000
 OPENAI_REALTIME_DEFAULT_MODEL = "gpt-realtime-2"
-OPENAI_REALTIME_DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe-alpha-walrus-2"
+OPENAI_REALTIME_DEFAULT_TRANSCRIPTION_MODEL = "gpt-realtime-translate"
 
 _REALTIME_OUTPUT_ATTR = "_gradientbang_openai_realtime_output"
 

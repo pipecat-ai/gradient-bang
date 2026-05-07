@@ -107,7 +107,7 @@ async def test_default_realtime_session_uses_default_models_and_24khz(monkeypatc
     )
 
     assert sp.model == "gpt-realtime-2"
-    assert sp.audio.input.transcription.model == "gpt-transcribe-alpha-walrus-2"
+    assert sp.audio.input.transcription.model == "gpt-realtime-translate"
     assert sp.audio.input.format.rate == 24000
     assert sp.audio.output.format.rate == 24000
     assert sp.audio.input.turn_detection.type == "semantic_vad"
