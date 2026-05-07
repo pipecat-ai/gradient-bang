@@ -1,0 +1,51 @@
+name: Deploy Bot (Eval)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "deployment/Dockerfile.bot"
+      - "deployment/pcc-deploy.eval.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+
+concurrency:
+  group: deploy-bot-eval
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Pipecat Cloud (eval)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      # Intentionally NO `uv lock` step — the cloud build runs `uv sync --locked`
+      # and we want it to fail loudly if uv.lock drifts from pyproject.toml,
+      # not silently regenerate the lockfile on the runner.
+
+      - name: Install Pipecat CLI
+        run: pip install pipecat-ai-cli==0.3.2 pipecatcloud==0.4.1
+
+      - name: Configure Pipecat Cloud credentials
+        run: |
+          mkdir -p ~/.config/pipecatcloud
+          cat > ~/.config/pipecatcloud/pipecatcloud.toml << EOF
+          token = "${{ secrets.PCC_PAT }}"
+          org = "gradientbang"
+          EOF
+
+      - name: Deploy
+        run: pipecat cloud deploy --config-file deployment/pcc-deploy.eval.toml --yes
