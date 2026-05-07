@@ -62,7 +62,7 @@ from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
-from pipecat.turns.user_start import VADUserTurnStartStrategy
+from pipecat.turns.user_start import ExternalUserTurnStartStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.context.llm_context_summarization import (
     LLMAutoContextSummarizationConfig,
@@ -97,10 +97,9 @@ from gradientbang.pipecat_server.openai_realtime import (
     OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE,
     OPENAI_REALTIME_SAMPLE_RATE,
     RealtimeAudioLLMUserAggregator,
-    RealtimeAudioOnlyS3TurnStopStrategy,
     RealtimeFunctionResultRelay,
     RealtimeMainContextRelay,
-    build_realtime_output_mux,
+    RealtimeSemanticUserTurnStopStrategy,
 )
 from gradientbang.pipecat_server.subagents.ui_agent import (
     UIAgentContext,
@@ -130,7 +129,49 @@ def _env_flag(name: str, default: str = "") -> bool:
     return str(value).strip().lower() not in ("", "0", "false", "no", "off")
 
 
-if os.getenv("BOT_USE_KRISP"):
+def _is_openai_realtime_failed_marker_metadata(metadata: dict | None) -> bool:
+    return bool((metadata or {}).get("openai_realtime_transcription_failed"))
+
+
+def _context_frame_latest_message_is_openai_realtime_failed_marker(frame) -> bool:
+    context = getattr(frame, "context", None)
+    if context is None:
+        return False
+    if hasattr(context, "get_messages"):
+        messages = context.get_messages()
+    else:
+        messages = getattr(context, "messages", None)
+    if not messages:
+        return False
+    message = messages[-1]
+    if not isinstance(message, dict):
+        return False
+    return _is_openai_realtime_failed_marker_metadata(message.get("metadata"))
+
+
+def _install_openai_realtime_rtvi_marker_filters(observer) -> None:
+    if getattr(observer, "_gradient_openai_realtime_marker_filters_installed", False):
+        return
+
+    original_user_transcriptions = observer._handle_user_transcriptions
+    original_context = observer._handle_context
+
+    async def _handle_user_transcriptions(frame):
+        if _is_openai_realtime_failed_marker_metadata(getattr(frame, "metadata", None)):
+            return
+        await original_user_transcriptions(frame)
+
+    async def _handle_context(frame):
+        if _context_frame_latest_message_is_openai_realtime_failed_marker(frame):
+            return
+        await original_context(frame)
+
+    observer._handle_user_transcriptions = _handle_user_transcriptions
+    observer._handle_context = _handle_context
+    observer._gradient_openai_realtime_marker_filters_installed = True
+
+
+if _env_flag("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 
@@ -146,7 +187,10 @@ async def _lookup_character_display_name(character_id: str, server_url: str) -> 
     """
     try:
         async with AsyncGameClient(
-            base_url=server_url, character_id=character_id, transport="supabase"
+            base_url=server_url,
+            character_id=character_id,
+            transport="supabase",
+            enable_event_polling=_env_flag("SUPABASE_EVENT_POLLING", "1"),
         ) as client:
             result = await client.character_info(character_id=character_id)
             return result.get("name")
@@ -258,9 +302,9 @@ async def bot_startup(
     rtvi = RTVIProcessor()
 
     # Chain A: local API server → resolve character (sequential)
-    # Chain B: STT + TTS init (independent). Realtime mode sends audio
-    # directly to OpenAI Realtime, so the standalone Deepgram STT service is
-    # not constructed.
+    # Chain B: STT + TTS init (independent). Realtime mode sends input and
+    # output audio directly through OpenAI Realtime, so standalone STT/TTS
+    # services are not constructed.
 
     async def _chain_a():
         local_api_server: LocalApiServer | None = None
@@ -286,10 +330,15 @@ async def bot_startup(
             return None
         return await _startup_init_stt(language)
 
+    async def _chain_b_tts():
+        if openai_realtime_mode:
+            return None
+        return await _startup_init_tts(voice_id, language)
+
     (local_api_server, character_id, character_display_name), stt, tts = await asyncio.gather(
         _chain_a(),
         _chain_b_stt(),
-        _startup_init_tts(voice_id, language),
+        _chain_b_tts(),
     )
 
     # Create game client directly
@@ -297,6 +346,7 @@ async def bot_startup(
         character_id=character_id,
         base_url=server_url,
         transport="supabase",
+        enable_event_polling=_env_flag("SUPABASE_EVENT_POLLING", "1"),
     )
 
     return rtvi, local_api_server, character_id, character_display_name, game_client, stt, tts
@@ -402,22 +452,28 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     # VoiceAgent via LLMAgentActivationArgs on the bus.
     context = LLMContext()
     mute_strategy = TextInputBypassFirstBotMuteStrategy()
+    if openai_realtime_mode:
+        user_turn_strategies = UserTurnStrategies(
+            start=[ExternalUserTurnStartStrategy()],
+            stop=[RealtimeSemanticUserTurnStopStrategy()],
+        )
+        vad_analyzer = None
+    else:
+        user_turn_strategies = UserTurnStrategies(
+            stop=[
+                TurnAnalyzerUserTurnStopStrategy(
+                    turn_analyzer=S3SmartTurnAnalyzerV3(player_id=character_id)
+                )
+            ],
+        )
+        vad_analyzer = SileroVADAnalyzer()
     user_params = LLMUserAggregatorParams(
         filter_incomplete_user_turns=not openai_realtime_mode,
-        user_turn_strategies=UserTurnStrategies(
-            start=[VADUserTurnStartStrategy()] if openai_realtime_mode else None,
-            stop=[
-                (
-                    RealtimeAudioOnlyS3TurnStopStrategy
-                    if openai_realtime_mode
-                    else TurnAnalyzerUserTurnStopStrategy
-                )(turn_analyzer=S3SmartTurnAnalyzerV3(player_id=character_id))
-            ],
-        ),
+        user_turn_strategies=user_turn_strategies,
         user_mute_strategies=[
             mute_strategy,
         ],
-        vad_analyzer=SileroVADAnalyzer(),
+        vad_analyzer=vad_analyzer,
     )
     assistant_params = LLMAssistantAggregatorParams(
         enable_auto_context_summarization=not openai_realtime_mode,
@@ -634,6 +690,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             for obs in task._observer._observers:
                 if isinstance(obs, RTVIObserver):
                     obs._ignored_sources = ui_branch_sources
+                    if openai_realtime_mode:
+                        _install_openai_realtime_rtvi_marker_filters(obs)
                     break
             return task
 
@@ -674,15 +732,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             ]
             if openai_realtime_mode:
                 voice_output_branch.append(realtime_function_result_relay)
-            voice_output_branch.extend(
-                [
-                    token_usage_metrics,
-                    say_text_voice_guard,
-                    (build_realtime_output_mux(tts) if openai_realtime_mode else tts),
-                    transport.output(),
-                    assistant_aggregator,
-                ]
-            )
+            voice_output_branch.append(token_usage_metrics)
+            if not openai_realtime_mode:
+                if tts is None:
+                    raise RuntimeError("TTS service is required outside OpenAI Realtime mode")
+                voice_output_branch.extend([say_text_voice_guard, tts])
+            voice_output_branch.extend([transport.output(), assistant_aggregator])
 
             return Pipeline(
                 [
@@ -762,12 +817,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             )
         )
         # Interrupt any in-flight scripted TTS by injecting directly into the
-        # TTS service. We can't push via the main pipeline source (the
-        # BusBridgeProcessor swallows upstream frames into the bus instead of
-        # forwarding downstream), and we can't route via the scripted agent's
-        # bus path either (the InterruptionFrame would broadcast to the voice
-        # agent and cancel its activation).
-        await tts.queue_frame(InterruptionFrame())
+        # TTS service. In OpenAI Realtime mode there is no local TTS service.
+        if tts is not None:
+            await tts.queue_frame(InterruptionFrame())
         await main_agent.deactivate_agent("scripted")
         # Reset mute strategy so the normal first-bot-speech logic applies fresh.
         # Release force_mute AFTER deactivating scripted agent to avoid any
@@ -822,12 +874,17 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await game_client.resume_event_delivery()
 
             # Activate the correct agent based on first visit status
-            if is_first_visit and not bypass_tutorial:
+            if is_first_visit and not bypass_tutorial and not openai_realtime_mode:
                 logger.info("First visit detected, activating ScriptedAgent")
                 mute_strategy.force_mute = True
                 await main_agent.activate_agent("scripted")
             else:
-                if is_first_visit and bypass_tutorial:
+                if is_first_visit and openai_realtime_mode and not bypass_tutorial:
+                    logger.info(
+                        "First visit detected but OpenAI Realtime mode has no local TTS; "
+                        "skipping ScriptedAgent"
+                    )
+                elif is_first_visit and bypass_tutorial:
                     logger.info(
                         "First visit detected but bypass_tutorial=True; skipping ScriptedAgent"
                     )
@@ -1004,7 +1061,7 @@ async def bot(runner_args: RunnerArguments):
                 OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE if openai_realtime_mode else None
             ),
             audio_out_sample_rate=(OPENAI_REALTIME_SAMPLE_RATE if openai_realtime_mode else None),
-            audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
+            audio_in_filter=(KrispVivaFilter() if _env_flag("BOT_USE_KRISP") else None),
         ),
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
@@ -1013,7 +1070,7 @@ async def bot(runner_args: RunnerArguments):
                 OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE if openai_realtime_mode else None
             ),
             audio_out_sample_rate=(OPENAI_REALTIME_SAMPLE_RATE if openai_realtime_mode else None),
-            audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
+            audio_in_filter=(KrispVivaFilter() if _env_flag("BOT_USE_KRISP") else None),
         ),
     }
 

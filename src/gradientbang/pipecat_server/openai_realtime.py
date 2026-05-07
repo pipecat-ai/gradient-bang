@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 import hashlib
 import json
+import os
 import time
 from typing import Any, Callable, Optional
 
@@ -12,12 +14,9 @@ import numpy as np
 from loguru import logger
 from av import AudioFrame, AudioResampler
 
-from pipecat.audio.turn.base_turn_analyzer import BaseTurnAnalyzer, EndOfTurnState
 from pipecat.frames.frames import (
     AggregationType,
     BotStoppedSpeakingFrame,
-    CancelFrame,
-    EndFrame,
     Frame,
     FunctionCallResultFrame,
     InputAudioRawFrame,
@@ -30,28 +29,20 @@ from pipecat.frames.frames import (
     LLMRunFrame,
     LLMSetToolsFrame,
     LLMTextFrame,
-    MetricsFrame,
-    SpeechControlParamsFrame,
-    StartFrame,
-    TextFrame,
     TranscriptionFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
-    TTSSpeakFrame,
     TTSTextFrame,
-    TTSUpdateSettingsFrame,
     UserSpeakingFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
-    VADUserStartedSpeakingFrame,
-    VADUserStoppedSpeakingFrame,
 )
-from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregator,
     LLMUserAggregatorParams,
+    UserTurnStoppedMessage,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallFromLLM, LLMService
@@ -132,58 +123,74 @@ def _serialize_tool_output(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
-class RealtimeAudioOnlyS3TurnStopStrategy(BaseUserTurnStopStrategy):
-    """Stop a user turn from S3/SmartTurn audio classification only."""
+def _message_key(message: Any) -> tuple[int, str]:
+    return (id(message), _message_digest(message))
 
-    def __init__(self, *, turn_analyzer: BaseTurnAnalyzer, **kwargs):
-        super().__init__(**kwargs)
-        self._turn_analyzer = turn_analyzer
-        self._vad_user_speaking = False
 
-    async def reset(self):
-        await super().reset()
-        self._vad_user_speaking = False
+def _frame_realtime_item_id(frame: Frame) -> Optional[str]:
+    metadata = getattr(frame, "metadata", None) or {}
+    item_id = metadata.get("openai_realtime_item_id") or metadata.get("item_id")
+    if isinstance(item_id, str) and item_id:
+        return item_id
+    result = getattr(frame, "result", None)
+    item_id = getattr(result, "item_id", None)
+    if isinstance(item_id, str) and item_id:
+        return item_id
+    return None
 
-    async def cleanup(self):
-        await super().cleanup()
-        await self._turn_analyzer.cleanup()
+
+def _realtime_error_payload(error: Any) -> Any:
+    if hasattr(error, "model_dump"):
+        return error.model_dump(exclude_none=True)
+    if error is None:
+        return None
+    return str(error)
+
+
+OPENAI_REALTIME_TRANSCRIPTION_FAILED_MARKER = "[voice input transcription failed]"
+
+
+class RealtimeSemanticUserTurnStopStrategy(BaseUserTurnStopStrategy):
+    """Stop a local user turn immediately from OpenAI semantic VAD frames."""
+
+    def __init__(self, **kwargs):
+        super().__init__(enable_user_speaking_frames=False, **kwargs)
 
     async def process_frame(self, frame: Frame) -> ProcessFrameResult:
         await super().process_frame(frame)
 
-        if isinstance(frame, StartFrame):
-            await self._start(frame)
-        elif isinstance(frame, VADUserStartedSpeakingFrame):
-            self._turn_analyzer.update_vad_start_secs(frame.start_secs)
-            self._vad_user_speaking = True
-        elif isinstance(frame, VADUserStoppedSpeakingFrame):
-            self._vad_user_speaking = False
-            await self._analyze_end_of_turn()
-        elif isinstance(frame, InputAudioRawFrame):
-            self._turn_analyzer.append_audio(frame.audio, self._vad_user_speaking)
+        if isinstance(frame, UserStoppedSpeakingFrame):
+            await self.trigger_user_turn_stopped()
+            return ProcessFrameResult.STOP
 
         return ProcessFrameResult.CONTINUE
 
-    async def _start(self, frame: StartFrame):
-        self._turn_analyzer.set_sample_rate(frame.audio_in_sample_rate)
-        await self.broadcast_frame(SpeechControlParamsFrame, turn_params=self._turn_analyzer.params)
 
-    async def _analyze_end_of_turn(self):
-        state, result = await self._turn_analyzer.analyze_end_of_turn()
-        if result:
-            await self.push_frame(MetricsFrame(data=[result]))
-
-        if state is EndOfTurnState.COMPLETE and result is not None:
-            if getattr(result, "is_complete", True):
-                await self.trigger_user_turn_stopped()
+@dataclass
+class _RealtimeUserItemState:
+    item_id: str
+    start_sequence: int = 0
+    anchor_observed: bool = False
+    anchor_key: Optional[tuple[int, str]] = None
+    anchor_index: int = 0
+    start_timestamp: str = ""
+    stopped: bool = False
+    audio_start_ms: Optional[int] = None
+    audio_end_ms: Optional[int] = None
+    text: Optional[str] = None
+    transcript_timestamp: str = ""
+    failed: bool = False
+    error: Any = None
+    finalized: bool = False
 
 
 class RealtimeAudioLLMUserAggregator(LLMUserAggregator):
-    """User aggregator variant that mirrors late Realtime transcripts.
+    """User aggregator variant that finalizes Realtime transcripts by item id.
 
-    The logical user turn is stopped by local VAD/S3. OpenAI input
-    transcription arrives after the audio buffer commit, so these frames must
-    not enter the stock aggregation buffer for the next turn.
+    OpenAI's final input transcription can arrive after semantic VAD has closed
+    a local user turn, and even after assistant output has started aggregating.
+    Keep Realtime transcripts out of Pipecat's single stock aggregation buffer
+    and insert each item at its own semantic-VAD anchor instead.
     """
 
     def __init__(
@@ -195,8 +202,22 @@ class RealtimeAudioLLMUserAggregator(LLMUserAggregator):
     ):
         super().__init__(context, params=params, **kwargs)
         self._seen_realtime_transcript_items: set[str] = set()
+        self._realtime_items: dict[str, _RealtimeUserItemState] = {}
+        self._realtime_item_sequence = 0
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
+        if isinstance(frame, UserStartedSpeakingFrame):
+            self._record_user_started(frame)
+            await super().process_frame(frame, direction)
+            return
+
+        if isinstance(frame, UserStoppedSpeakingFrame):
+            item_id = self._record_user_stopped(frame)
+            await super().process_frame(frame, direction)
+            if item_id:
+                await self._try_finalize_realtime_item(item_id)
+            return
+
         if isinstance(frame, InterimTranscriptionFrame):
             await FrameProcessor.process_frame(self, frame, direction)
             await self.push_frame(frame, direction)
@@ -204,33 +225,200 @@ class RealtimeAudioLLMUserAggregator(LLMUserAggregator):
 
         if isinstance(frame, TranscriptionFrame):
             await FrameProcessor.process_frame(self, frame, direction)
-            await self._mirror_realtime_transcription(frame)
+            await self._record_realtime_transcription(frame)
             await self.push_frame(frame, direction)
             return
 
         await super().process_frame(frame, direction)
 
-    async def _mirror_realtime_transcription(self, frame: TranscriptionFrame) -> None:
-        text = frame.text.strip()
-        if not text:
+    async def _maybe_emit_user_turn_stopped(
+        self,
+        strategy: Optional[BaseUserTurnStopStrategy] = None,
+        on_session_end: bool = False,
+    ):
+        aggregation = await self.push_aggregation()
+        if not aggregation:
             return
-        result = frame.result
-        item_id = getattr(result, "item_id", None)
-        if item_id:
-            if item_id in self._seen_realtime_transcript_items:
-                return
-            self._seen_realtime_transcript_items.add(item_id)
-        self._context.add_message(
-            {
-                "role": "user",
-                "content": text,
-                "metadata": {
-                    "source": "openai_realtime_transcription",
-                    "item_id": item_id,
-                    "timestamp": frame.timestamp,
-                },
-            }
+
+        message = UserTurnStoppedMessage(
+            content=aggregation, timestamp=self._user_turn_start_timestamp
         )
+        await self._call_event_handler("on_user_turn_stopped", strategy, message)
+        self._user_turn_start_timestamp = ""
+
+    def _state_for_item(self, item_id: str) -> _RealtimeUserItemState:
+        state = self._realtime_items.get(item_id)
+        if state is None:
+            state = _RealtimeUserItemState(item_id=item_id)
+            self._realtime_items[item_id] = state
+        return state
+
+    def _record_user_started(self, frame: UserStartedSpeakingFrame) -> None:
+        item_id = _frame_realtime_item_id(frame)
+        if not item_id:
+            return
+
+        state = self._state_for_item(item_id)
+        if state.anchor_observed:
+            return
+
+        self._realtime_item_sequence += 1
+        messages = self._context.get_messages()
+        state.start_sequence = self._realtime_item_sequence
+        state.anchor_observed = True
+        state.anchor_index = len(messages)
+        if messages:
+            state.anchor_key = _message_key(messages[-1])
+        state.start_timestamp = time_now_iso8601()
+
+        metadata = getattr(frame, "metadata", None) or {}
+        audio_start_ms = metadata.get("openai_realtime_audio_start_ms")
+        if isinstance(audio_start_ms, int):
+            state.audio_start_ms = audio_start_ms
+
+    def _record_user_stopped(self, frame: UserStoppedSpeakingFrame) -> Optional[str]:
+        item_id = _frame_realtime_item_id(frame)
+        if not item_id:
+            return None
+
+        state = self._state_for_item(item_id)
+        state.stopped = True
+        metadata = getattr(frame, "metadata", None) or {}
+        audio_end_ms = metadata.get("openai_realtime_audio_end_ms")
+        if isinstance(audio_end_ms, int):
+            state.audio_end_ms = audio_end_ms
+        return item_id
+
+    async def _record_realtime_transcription(self, frame: TranscriptionFrame) -> None:
+        item_id = _frame_realtime_item_id(frame)
+        text = frame.text.strip()
+        metadata = getattr(frame, "metadata", None) or {}
+        failed = bool(metadata.get("openai_realtime_transcription_failed"))
+
+        if not item_id:
+            if text:
+                logger.warning(
+                    "Realtime: transcription arrived without OpenAI item id; appending normally"
+                )
+                self._context.add_message({"role": "user", "content": text})
+                await self.push_context_frame()
+            return
+
+        if item_id in self._seen_realtime_transcript_items:
+            return
+
+        state = self._state_for_item(item_id)
+        state.text = text
+        state.transcript_timestamp = frame.timestamp
+        state.failed = failed
+        state.error = metadata.get("openai_realtime_error")
+        await self._try_finalize_realtime_item(item_id)
+
+    async def _try_finalize_realtime_item(self, item_id: str) -> None:
+        state = self._realtime_items.get(item_id)
+        if not state or state.finalized:
+            return
+        if not state.stopped or state.text is None:
+            return
+
+        text = state.text.strip()
+        if not text and not state.failed:
+            state.finalized = True
+            self._seen_realtime_transcript_items.add(item_id)
+            return
+
+        message = self._message_for_realtime_item(state, text)
+        inserted = self._insert_realtime_item_message(state, message)
+        if inserted:
+            await self.push_context_frame()
+            await self._call_event_handler(
+                "on_user_turn_stopped",
+                None,
+                UserTurnStoppedMessage(
+                    content=text,
+                    timestamp=state.start_timestamp or state.transcript_timestamp,
+                ),
+            )
+
+        state.finalized = True
+        self._seen_realtime_transcript_items.add(item_id)
+
+    def _message_for_realtime_item(self, state: _RealtimeUserItemState, text: str) -> dict:
+        metadata: dict[str, Any] = {
+            "source": "openai_realtime_transcription",
+            "item_id": state.item_id,
+            "openai_realtime_item_id": state.item_id,
+            "timestamp": state.transcript_timestamp,
+        }
+        if state.audio_start_ms is not None:
+            metadata["openai_realtime_audio_start_ms"] = state.audio_start_ms
+        if state.audio_end_ms is not None:
+            metadata["openai_realtime_audio_end_ms"] = state.audio_end_ms
+        if state.failed:
+            metadata["openai_realtime_transcription_failed"] = True
+            metadata["synthetic"] = True
+            metadata["openai_realtime_error"] = state.error
+        return {"role": "user", "content": text, "metadata": metadata}
+
+    def _insert_realtime_item_message(self, state: _RealtimeUserItemState, message: dict) -> bool:
+        messages = self._context.get_messages()
+        for existing in messages:
+            if not isinstance(existing, dict):
+                continue
+            if existing.get("role") != "user":
+                continue
+            metadata = existing.get("metadata") or {}
+            if metadata.get("openai_realtime_item_id") == state.item_id:
+                return False
+
+        insert_at = self._realtime_item_insert_index(state, messages)
+        if insert_at is None:
+            logger.warning(
+                "Realtime: transcript item_id={} had no matching semantic-VAD anchor; "
+                "known anchor ids={}; appending normally",
+                state.item_id,
+                sorted(
+                    item_id
+                    for item_id, item_state in self._realtime_items.items()
+                    if item_state.anchor_observed
+                ),
+            )
+            self._context.add_message(message)
+            return True
+
+        messages.insert(insert_at, message)
+        return True
+
+    def _realtime_item_insert_index(
+        self, state: _RealtimeUserItemState, messages: list
+    ) -> Optional[int]:
+        if not state.anchor_observed:
+            return None
+
+        if state.anchor_key is None:
+            boundary = min(state.anchor_index, len(messages))
+        else:
+            boundary = None
+            for index, message in enumerate(messages):
+                if _message_key(message) == state.anchor_key:
+                    boundary = index + 1
+                    break
+            if boundary is None:
+                return None
+
+        for index in range(boundary, len(messages)):
+            message = messages[index]
+            if not isinstance(message, dict):
+                continue
+            if message.get("role") == "assistant":
+                return index
+            if message.get("role") == "user":
+                metadata = message.get("metadata") or {}
+                other_item_id = metadata.get("openai_realtime_item_id")
+                other_state = self._realtime_items.get(other_item_id)
+                if other_state and other_state.start_sequence > state.start_sequence:
+                    return index
+        return len(messages)
 
 
 class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
@@ -253,8 +441,10 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         self._gradient_sent_function_outputs: set[str] = set()
         self._gradient_realtime_call_ids: set[str] = set()
         self._gradient_latest_committed_audio_item_id: Optional[str] = None
+        self._gradient_failed_transcription_items: set[str] = set()
         self._gradient_audio_resamplers: dict[int, AudioResampler] = {}
         self._gradient_output_transcript_buffer = ""
+        self._gradient_shared_context_adopted = False
 
         self._context = LLMContext()
         self._llm_needs_conversation_setup = False
@@ -286,8 +476,6 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             (
                 UserStartedSpeakingFrame,
                 UserSpeakingFrame,
-                VADUserStartedSpeakingFrame,
-                VADUserStoppedSpeakingFrame,
             ),
         ):
             if isinstance(frame, UserStartedSpeakingFrame):
@@ -342,11 +530,24 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         return self._context
 
     async def _handle_context(self, context: LLMContext):
+        if self._context is not context:
+            self._gradient_shared_context_adopted = True
         self._context = context
         self._llm_needs_conversation_setup = False
         for message in context.get_messages():
-            self._gradient_seen_message_keys.add((id(message), _message_digest(message)))
+            self._gradient_seen_message_keys.add(_message_key(message))
         await self._process_completed_function_calls(send_new_results=False)
+
+    def _should_mutate_append_context(self, source: str) -> bool:
+        if not self._gradient_shared_context_adopted:
+            return True
+        return source not in {"main-pipeline", "voice-agent"}
+
+    def _maybe_add_append_context_message(
+        self, context: LLMContext, message: dict, *, source: str
+    ) -> None:
+        if self._should_mutate_append_context(source):
+            context.add_message(dict(message))
 
     async def _handle_user_stopped_speaking(self, frame):
         turn_detection_disabled = (
@@ -357,6 +558,39 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         if turn_detection_disabled:
             await self.send_client_event(events.InputAudioBufferCommitEvent())
             await self.maybe_create_response("user-stopped-speaking", frame, ignore_gate=True)
+
+    async def _broadcast_semantic_speaking_frame(
+        self, frame_cls: type[Frame], metadata: dict[str, Any]
+    ) -> None:
+        downstream_frame = frame_cls()
+        upstream_frame = frame_cls()
+        downstream_frame.metadata = dict(metadata)
+        upstream_frame.metadata = dict(metadata)
+        downstream_frame.broadcast_sibling_id = upstream_frame.id
+        upstream_frame.broadcast_sibling_id = downstream_frame.id
+        await self.push_frame(downstream_frame)
+        await self.push_frame(upstream_frame, FrameDirection.UPSTREAM)
+
+    async def _handle_evt_speech_started(self, evt):
+        await self._truncate_current_audio_response()
+        await self._broadcast_semantic_speaking_frame(
+            UserStartedSpeakingFrame,
+            {
+                "openai_realtime_item_id": evt.item_id,
+                "openai_realtime_audio_start_ms": evt.audio_start_ms,
+            },
+        )
+        await self.broadcast_interruption()
+
+    async def _handle_evt_speech_stopped(self, evt):
+        await self._broadcast_semantic_speaking_frame(
+            UserStoppedSpeakingFrame,
+            {
+                "openai_realtime_item_id": evt.item_id,
+                "openai_realtime_audio_end_ms": evt.audio_end_ms,
+            },
+        )
+        await self.maybe_create_response("speech-stopped", ignore_gate=True)
 
     async def insert_messages_from_append(
         self, frame: LLMMessagesAppendFrame, *, source: str
@@ -376,30 +610,30 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
                 )
                 continue
 
-            self._gradient_seen_message_keys.add((id(message), _message_digest(message)))
+            self._gradient_seen_message_keys.add(_message_key(message))
             role = message.get("role")
             content = _message_text(message.get("content"))
 
             if role in ("system", "developer"):
                 await self._append_instruction(content)
-                context.add_message(dict(message))
+                self._maybe_add_append_context_message(context, message, source=source)
                 continue
 
             if role == "tool" or message.get("tool_call_id"):
                 logger.debug("Realtime: tool message append ignored; tool relay owns outputs")
-                context.add_message(dict(message))
+                self._maybe_add_append_context_message(context, message, source=source)
                 continue
 
             item = self._conversation_item_from_message(role, content)
             if item is None:
                 logger.debug(f"Realtime: unsupported append role={role!r} from {source}")
-                context.add_message(dict(message))
+                self._maybe_add_append_context_message(context, message, source=source)
                 continue
 
             self._messages_added_manually[item.id] = True
             await self.send_client_event(events.ConversationItemCreateEvent(item=item))
             item_ids.append(item.id)
-            context.add_message(dict(message))
+            self._maybe_add_append_context_message(context, message, source=source)
 
         if frame.run_llm:
             await self.maybe_create_response(f"{source}:messages-append", frame)
@@ -591,6 +825,21 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         self._gradient_response_active = False
         self._gradient_response_start_pushed = False
 
+    async def _handle_evt_input_audio_transcription_delta(self, evt):
+        frame = InterimTranscriptionFrame(
+            evt.delta,
+            "",
+            time_now_iso8601(),
+            result=evt,
+        )
+        frame.metadata.update(
+            {
+                "openai_realtime_item_id": evt.item_id,
+                "openai_realtime_content_index": evt.content_index,
+            }
+        )
+        await self.push_frame(frame, FrameDirection.UPSTREAM)
+
     async def handle_evt_input_audio_transcription_completed(self, evt):
         await self._call_event_handler("on_conversation_item_updated", evt.item_id, None)
         frame = TranscriptionFrame(
@@ -600,8 +849,43 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             result=evt,
             finalized=True,
         )
+        frame.metadata.update(
+            {
+                "openai_realtime_item_id": evt.item_id,
+                "openai_realtime_content_index": evt.content_index,
+            }
+        )
         await self.push_frame(frame, FrameDirection.UPSTREAM)
         await self._handle_user_transcription(evt.transcript, True, Language.EN)
+
+    async def handle_evt_input_audio_transcription_failed(self, evt):
+        if evt.item_id in self._gradient_failed_transcription_items:
+            return
+        self._gradient_failed_transcription_items.add(evt.item_id)
+
+        error_payload = _realtime_error_payload(evt.error)
+        logger.debug(
+            "Realtime: input audio transcription failed item_id={} error={}",
+            evt.item_id,
+            error_payload,
+        )
+        frame = TranscriptionFrame(
+            OPENAI_REALTIME_TRANSCRIPTION_FAILED_MARKER,
+            "",
+            time_now_iso8601(),
+            result=evt,
+            finalized=True,
+        )
+        frame.metadata.update(
+            {
+                "openai_realtime_item_id": evt.item_id,
+                "openai_realtime_content_index": evt.content_index,
+                "openai_realtime_transcription_failed": True,
+                "synthetic": True,
+                "openai_realtime_error": error_payload,
+            }
+        )
+        await self.push_frame(frame, FrameDirection.UPSTREAM)
 
     async def _handle_evt_input_audio_buffer_committed(self, evt):
         self._gradient_latest_committed_audio_item_id = evt.item_id
@@ -653,7 +937,7 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             elif evt.type == "conversation.item.input_audio_transcription.completed":
                 await self.handle_evt_input_audio_transcription_completed(evt)
             elif evt.type == "conversation.item.input_audio_transcription.failed":
-                logger.debug(f"Realtime: input audio transcription failed: {evt.error}")
+                await self.handle_evt_input_audio_transcription_failed(evt)
             elif evt.type == "conversation.item.retrieved":
                 await self._handle_conversation_item_retrieved(evt)
             elif evt.type == "response.done":
@@ -756,11 +1040,7 @@ class RealtimeVoiceAgentInferenceGate(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, VADUserStartedSpeakingFrame):
-            await self._state.update_user_audio_active(True)
-        elif isinstance(frame, VADUserStoppedSpeakingFrame):
-            await self._state.update_user_audio_active(False)
-        elif isinstance(frame, UserStartedSpeakingFrame):
+        if isinstance(frame, UserStartedSpeakingFrame):
             await self._state.update_user_turn_active(True)
         elif isinstance(frame, UserStoppedSpeakingFrame):
             await self._state.update_user_turn_active(False, clear_pending=True)
@@ -833,48 +1113,21 @@ class RealtimeFunctionResultRelay(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-class _RealtimeBypassRoute(FrameProcessor):
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        await super().process_frame(frame, direction)
-        if isinstance(frame, (TTSSpeakFrame, TTSUpdateSettingsFrame)):
-            return
-        await self.push_frame(frame, direction)
-
-
-class _LocalTTSRoute(FrameProcessor):
-    _LOCAL_TTS_FRAMES = (
-        StartFrame,
-        EndFrame,
-        CancelFrame,
-        InterruptionFrame,
-        TTSSpeakFrame,
-        TTSUpdateSettingsFrame,
-    )
-
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        await super().process_frame(frame, direction)
-        if isinstance(frame, self._LOCAL_TTS_FRAMES):
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, TextFrame) and not is_realtime_output_frame(frame):
-            await self.push_frame(frame, direction)
-
-
-def build_realtime_output_mux(tts: FrameProcessor) -> ParallelPipeline:
-    """Build an output mux that routes explicit local TTS separately."""
-    return ParallelPipeline([_RealtimeBypassRoute()], [_LocalTTSRoute(), tts])
-
-
 def realtime_voice_agent_echo_exclude_frames() -> tuple[type[Frame], ...]:
     return (
         InputAudioRawFrame,
-        UserStartedSpeakingFrame,
-        UserStoppedSpeakingFrame,
-        UserSpeakingFrame,
-        VADUserStartedSpeakingFrame,
-        VADUserStoppedSpeakingFrame,
-        InterruptionFrame,
     )
+
+
+def _openai_realtime_semantic_vad_eagerness() -> str:
+    eagerness = os.getenv("OPENAI_REALTIME_VAD_EAGERNESS", "medium").strip().lower()
+    if eagerness not in {"low", "medium", "high", "auto"}:
+        logger.warning(
+            "Invalid OPENAI_REALTIME_VAD_EAGERNESS={!r}; using 'medium'",
+            eagerness,
+        )
+        return "medium"
+    return eagerness
 
 
 def build_realtime_session_properties(
@@ -890,7 +1143,12 @@ def build_realtime_session_properties(
             input=events.AudioInput(
                 format=events.PCMAudioFormat(rate=OPENAI_REALTIME_SAMPLE_RATE),
                 transcription=events.InputAudioTranscription(model=transcription_model),
-                turn_detection=False,
+                # Keep response creation under local gate control; OpenAI only decides turn edges.
+                turn_detection=events.SemanticTurnDetection(
+                    eagerness=_openai_realtime_semantic_vad_eagerness(),
+                    create_response=False,
+                    interrupt_response=True,
+                ),
             ),
             output=events.AudioOutput(
                 format=events.PCMAudioFormat(rate=OPENAI_REALTIME_SAMPLE_RATE),

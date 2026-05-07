@@ -1,5 +1,6 @@
 import asyncio
 import base64
+from types import SimpleNamespace
 
 import pytest
 
@@ -7,25 +8,34 @@ from pipecat.frames.frames import (
     AggregationType,
     FunctionCallResultFrame,
     InputAudioRawFrame,
+    InterruptionFrame,
+    LLMContextFrame,
     LLMTextFrame,
     LLMMessagesAppendFrame,
     LLMRunFrame,
+    TranscriptionFrame,
     TTSTextFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
-    VADUserStartedSpeakingFrame,
-    VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregatorParams
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.services.openai.realtime import events
+from pipecat.turns.user_start import ExternalUserTurnStartStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from gradientbang.pipecat_server.inference_gate import InferenceGateState
 from gradientbang.pipecat_server.openai_realtime import (
+    OPENAI_REALTIME_TRANSCRIPTION_FAILED_MARKER,
     GradientOpenAIRealtimeLLMService,
+    RealtimeAudioLLMUserAggregator,
     RealtimeFunctionResultRelay,
     RealtimeMainContextRelay,
+    RealtimeSemanticUserTurnStopStrategy,
     RealtimeVoiceAgentInferenceGate,
     build_realtime_session_properties,
+    realtime_voice_agent_echo_exclude_frames,
 )
 
 
@@ -58,13 +68,35 @@ class RecordingRealtimeService(GradientOpenAIRealtimeLLMService):
     async def start_ttfb_metrics(self, *args, **kwargs):
         pass
 
+    async def stop_all_metrics(self, *args, **kwargs):
+        pass
+
+
+class RecordingRealtimeUserAggregator(RealtimeAudioLLMUserAggregator):
+    def __init__(self, context: LLMContext):
+        super().__init__(
+            context,
+            params=LLMUserAggregatorParams(
+                user_turn_strategies=UserTurnStrategies(
+                    start=[ExternalUserTurnStartStrategy()],
+                    stop=[RealtimeSemanticUserTurnStopStrategy()],
+                ),
+                vad_analyzer=None,
+            ),
+        )
+        self.pushed = []
+
+    async def push_frame(self, frame, direction=FrameDirection.DOWNSTREAM):
+        self.pushed.append((frame, direction))
+
 
 def _event_types(service: RecordingRealtimeService) -> list[str]:
     return [event["type"] for event in service.events]
 
 
 @pytest.mark.asyncio
-async def test_default_realtime_session_uses_gpt_realtime_15_and_24khz():
+async def test_default_realtime_session_uses_gpt_realtime_15_and_24khz(monkeypatch):
+    monkeypatch.delenv("OPENAI_REALTIME_VAD_EAGERNESS", raising=False)
     sp = build_realtime_session_properties(
         model="gpt-realtime-1.5",
         transcription_model="gpt-4o-transcribe",
@@ -74,7 +106,10 @@ async def test_default_realtime_session_uses_gpt_realtime_15_and_24khz():
     assert sp.model == "gpt-realtime-1.5"
     assert sp.audio.input.format.rate == 24000
     assert sp.audio.output.format.rate == 24000
-    assert sp.audio.input.turn_detection is False
+    assert sp.audio.input.turn_detection.type == "semantic_vad"
+    assert sp.audio.input.turn_detection.eagerness == "medium"
+    assert sp.audio.input.turn_detection.create_response is False
+    assert sp.audio.input.turn_detection.interrupt_response is True
 
 
 @pytest.mark.asyncio
@@ -131,6 +166,62 @@ async def test_main_context_relay_inserts_typed_text_before_user_aggregator_cons
     event_types = _event_types(service)
     assert event_types.count("conversation.item.create") == 1
     assert event_types.count("response.create") == 1
+
+
+@pytest.mark.asyncio
+async def test_append_relay_skips_local_mutation_after_shared_context_adoption():
+    service = RecordingRealtimeService()
+    service._api_session_ready = True
+    shared_context = LLMContext([{"role": "system", "content": "base"}])
+    await service._handle_context(shared_context)
+
+    main_message = {"role": "user", "content": "typed order: status report"}
+    await service.insert_messages_from_append(
+        LLMMessagesAppendFrame(messages=[main_message], run_llm=False),
+        source="main-pipeline",
+    )
+
+    assert shared_context.get_messages() == [{"role": "system", "content": "base"}]
+    assert _event_types(service).count("conversation.item.create") == 1
+
+    shared_context.add_message(main_message)
+    voice_message = {"role": "assistant", "content": "acknowledged"}
+    await service.insert_messages_from_append(
+        LLMMessagesAppendFrame(messages=[voice_message], run_llm=False),
+        source="voice-agent",
+    )
+
+    assert shared_context.get_messages() == [
+        {"role": "system", "content": "base"},
+        main_message,
+    ]
+    assert _event_types(service).count("conversation.item.create") == 2
+
+
+@pytest.mark.asyncio
+async def test_semantic_speech_frames_carry_item_metadata_without_aliasing():
+    service = RecordingRealtimeService()
+    evt = events.InputAudioBufferSpeechStarted(
+        event_id="evt-start",
+        type="input_audio_buffer.speech_started",
+        item_id="item-a",
+        audio_start_ms=120,
+    )
+
+    await service._handle_evt_speech_started(evt)
+
+    frames = [frame for frame, _ in service.pushed if isinstance(frame, UserStartedSpeakingFrame)]
+    assert len(frames) == 2
+    assert frames[0].metadata == {
+        "openai_realtime_item_id": "item-a",
+        "openai_realtime_audio_start_ms": 120,
+    }
+    assert frames[1].metadata == frames[0].metadata
+    assert frames[1].metadata is not frames[0].metadata
+
+    frames[0].metadata["mutated"] = True
+    assert "mutated" not in frames[1].metadata
+    assert any(isinstance(frame, InterruptionFrame) for frame, _ in service.pushed)
 
 
 @pytest.mark.asyncio
@@ -193,7 +284,173 @@ async def test_realtime_audio_transcript_deltas_emit_non_final_word_output():
 
 
 @pytest.mark.asyncio
-async def test_realtime_voice_gate_preserves_pending_inference_after_vad_false_start():
+async def test_realtime_user_aggregator_inserts_late_transcript_before_assistant():
+    context = LLMContext([{"role": "system", "content": "base"}])
+    aggregator = RecordingRealtimeUserAggregator(context)
+
+    start = UserStartedSpeakingFrame()
+    start.metadata.update(
+        {
+            "openai_realtime_item_id": "item-a",
+            "openai_realtime_audio_start_ms": 100,
+        }
+    )
+    stop = UserStoppedSpeakingFrame()
+    stop.metadata.update(
+        {
+            "openai_realtime_item_id": "item-a",
+            "openai_realtime_audio_end_ms": 900,
+        }
+    )
+    transcript = TranscriptionFrame(
+        "open the bay doors",
+        "",
+        "2026-05-06T12:00:00Z",
+        result=SimpleNamespace(item_id="item-a"),
+        finalized=True,
+    )
+
+    await aggregator.process_frame(start, FrameDirection.DOWNSTREAM)
+    context.add_message({"role": "assistant", "content": "Working on it."})
+    await aggregator.process_frame(transcript, FrameDirection.DOWNSTREAM)
+    await aggregator.process_frame(stop, FrameDirection.DOWNSTREAM)
+
+    assert context.get_messages() == [
+        {"role": "system", "content": "base"},
+        {
+            "role": "user",
+            "content": "open the bay doors",
+            "metadata": {
+                "source": "openai_realtime_transcription",
+                "item_id": "item-a",
+                "openai_realtime_item_id": "item-a",
+                "timestamp": "2026-05-06T12:00:00Z",
+                "openai_realtime_audio_start_ms": 100,
+                "openai_realtime_audio_end_ms": 900,
+            },
+        },
+        {"role": "assistant", "content": "Working on it."},
+    ]
+    assert sum(isinstance(frame, LLMContextFrame) for frame, _ in aggregator.pushed) == 1
+
+
+@pytest.mark.asyncio
+async def test_realtime_user_aggregator_falls_back_when_item_id_anchor_missing():
+    context = LLMContext([{"role": "system", "content": "base"}])
+    aggregator = RecordingRealtimeUserAggregator(context)
+
+    start = UserStartedSpeakingFrame()
+    start.metadata["openai_realtime_item_id"] = "item-a"
+    stop = UserStoppedSpeakingFrame()
+    stop.metadata["openai_realtime_item_id"] = "item-b"
+    transcript = TranscriptionFrame(
+        "mismatched item",
+        "",
+        "2026-05-06T12:00:00Z",
+        result=SimpleNamespace(item_id="item-b"),
+        finalized=True,
+    )
+
+    await aggregator.process_frame(start, FrameDirection.DOWNSTREAM)
+    await aggregator.process_frame(stop, FrameDirection.DOWNSTREAM)
+    await aggregator.process_frame(transcript, FrameDirection.DOWNSTREAM)
+
+    assert context.get_messages()[-1]["content"] == "mismatched item"
+    assert context.get_messages()[-1]["metadata"]["openai_realtime_item_id"] == "item-b"
+
+
+@pytest.mark.asyncio
+async def test_realtime_user_aggregator_suppresses_empty_semantic_stop_event():
+    context = LLMContext()
+    aggregator = RecordingRealtimeUserAggregator(context)
+    stopped_messages = []
+
+    @aggregator.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped(aggregator, strategy, message):
+        stopped_messages.append(message)
+
+    await aggregator._maybe_emit_user_turn_stopped(RealtimeSemanticUserTurnStopStrategy())
+
+    assert stopped_messages == []
+    assert context.get_messages() == []
+
+
+@pytest.mark.asyncio
+async def test_realtime_user_aggregator_preserves_order_when_transcripts_arrive_out_of_order():
+    context = LLMContext([{"role": "system", "content": "base"}])
+    aggregator = RecordingRealtimeUserAggregator(context)
+
+    start_a = UserStartedSpeakingFrame()
+    start_a.metadata["openai_realtime_item_id"] = "item-a"
+    stop_a = UserStoppedSpeakingFrame()
+    stop_a.metadata["openai_realtime_item_id"] = "item-a"
+    transcript_a = TranscriptionFrame(
+        "first turn",
+        "",
+        "2026-05-06T12:00:00Z",
+        result=SimpleNamespace(item_id="item-a"),
+        finalized=True,
+    )
+
+    start_b = UserStartedSpeakingFrame()
+    start_b.metadata["openai_realtime_item_id"] = "item-b"
+    stop_b = UserStoppedSpeakingFrame()
+    stop_b.metadata["openai_realtime_item_id"] = "item-b"
+    transcript_b = TranscriptionFrame(
+        "second turn",
+        "",
+        "2026-05-06T12:00:01Z",
+        result=SimpleNamespace(item_id="item-b"),
+        finalized=True,
+    )
+
+    await aggregator.process_frame(start_a, FrameDirection.DOWNSTREAM)
+    await aggregator.process_frame(stop_a, FrameDirection.DOWNSTREAM)
+    await aggregator.process_frame(start_b, FrameDirection.DOWNSTREAM)
+    await aggregator.process_frame(stop_b, FrameDirection.DOWNSTREAM)
+    await aggregator.process_frame(transcript_b, FrameDirection.DOWNSTREAM)
+    await aggregator.process_frame(transcript_a, FrameDirection.DOWNSTREAM)
+
+    assert [message["content"] for message in context.get_messages()] == [
+        "base",
+        "first turn",
+        "second turn",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_failed_realtime_transcription_pushes_deduped_synthetic_marker():
+    service = RecordingRealtimeService()
+    evt = events.ConversationItemInputAudioTranscriptionFailed(
+        event_id="evt-failed",
+        type="conversation.item.input_audio_transcription.failed",
+        item_id="item-failed",
+        content_index=0,
+        error=events.RealtimeError(type="server_error", code="failed", message="no transcript"),
+    )
+
+    await service.handle_evt_input_audio_transcription_failed(evt)
+    await service.handle_evt_input_audio_transcription_failed(evt)
+
+    frames = [frame for frame, _ in service.pushed if isinstance(frame, TranscriptionFrame)]
+    assert len(frames) == 1
+    assert frames[0].text == OPENAI_REALTIME_TRANSCRIPTION_FAILED_MARKER
+    assert frames[0].metadata["openai_realtime_item_id"] == "item-failed"
+    assert frames[0].metadata["openai_realtime_transcription_failed"] is True
+    assert frames[0].metadata["synthetic"] is True
+
+
+def test_realtime_voice_agent_echo_exclude_keeps_semantic_frames_forwarded():
+    excluded = realtime_voice_agent_echo_exclude_frames()
+
+    assert InputAudioRawFrame in excluded
+    assert UserStartedSpeakingFrame not in excluded
+    assert UserStoppedSpeakingFrame not in excluded
+    assert InterruptionFrame not in excluded
+
+
+@pytest.mark.asyncio
+async def test_realtime_voice_gate_defers_inference_while_semantic_user_turn_active():
     emitted_runs = 0
     state = InferenceGateState(cooldown_seconds=0)
 
@@ -211,21 +468,17 @@ async def test_realtime_voice_gate_preserves_pending_inference_after_vad_false_s
     state.attach_emitter(emit_run, create_task)
     gate = RealtimeVoiceAgentInferenceGate(state)
 
-    start = VADUserStartedSpeakingFrame(start_secs=0.1)
-    stop = VADUserStoppedSpeakingFrame(stop_secs=0.4)
     append = LLMMessagesAppendFrame(
         messages=[{"role": "user", "content": '<event name="task.completed" />'}],
         run_llm=True,
     )
 
-    await gate.process_frame(start, FrameDirection.DOWNSTREAM)
+    await gate.process_frame(UserStartedSpeakingFrame(), FrameDirection.DOWNSTREAM)
     await gate.process_frame(append, FrameDirection.DOWNSTREAM)
-    assert append.run_llm is False
-
-    await gate.process_frame(stop, FrameDirection.DOWNSTREAM)
     await asyncio.sleep(0)
 
-    assert emitted_runs == 1
+    assert append.run_llm is False
+    assert emitted_runs == 0
 
     for task in tasks:
         if not task.done():

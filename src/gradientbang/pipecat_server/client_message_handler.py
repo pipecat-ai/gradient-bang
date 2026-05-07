@@ -467,6 +467,9 @@ class ClientMessageHandler:
         pipeline_task = self._pipeline_task
         if not pipeline_task:
             return
+        if self._openai_realtime_mode or self._tts is None:
+            logger.info("say-text ignored: local TTS is disabled in OpenAI Realtime mode")
+            return
         # Ignore say-text while user input is muted (e.g. during the join intro).
         if self._user_mute_state.get("muted"):
             logger.info("say-text ignored: user input is muted (intro in progress)")
@@ -600,7 +603,11 @@ class ClientMessageHandler:
         self._active_voice_state["name"] = voice_name
         self._active_voice_state["language"] = new_language
 
-        if self._say_text_restore_voice.get("voice_id"):
+        if self._openai_realtime_mode or self._tts is None:
+            logger.info(
+                "Local TTS voice update skipped: OpenAI Realtime mode does not use Cartesia"
+            )
+        elif self._say_text_restore_voice.get("voice_id"):
             # Dialog in flight — update restore target so it switches after dismiss
             self._say_text_restore_voice["voice_id"] = new_voice_id
             logger.info(f"Voice restore target updated to {voice_name} (dialog in flight)")
