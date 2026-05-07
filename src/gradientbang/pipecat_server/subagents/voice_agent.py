@@ -44,6 +44,8 @@ from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.pipecat_server.inference_gate import InferenceGateState
 from gradientbang.pipecat_server.openai_realtime import (
     GradientOpenAIRealtimeLLMService,
+    OPENAI_REALTIME_DEFAULT_MODEL,
+    OPENAI_REALTIME_DEFAULT_TRANSCRIPTION_MODEL,
     OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE,
     OPENAI_REALTIME_SAMPLE_RATE,
     RealtimeVoiceAgentInferenceGate,
@@ -423,17 +425,19 @@ class VoiceAgent(LLMAgent):
 
     def build_llm(self) -> LLMService:
         if self._openai_realtime_mode:
+            realtime_model = os.getenv("OPENAI_REALTIME_MODEL", OPENAI_REALTIME_DEFAULT_MODEL)
             session_properties = build_realtime_session_properties(
-                model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-1.5"),
+                model=realtime_model,
                 transcription_model=os.getenv(
-                    "OPENAI_REALTIME_TRANSCRIPTION_MODEL", "gpt-4o-transcribe"
+                    "OPENAI_REALTIME_TRANSCRIPTION_MODEL",
+                    OPENAI_REALTIME_DEFAULT_TRANSCRIPTION_MODEL,
                 ),
                 voice=os.getenv("OPENAI_REALTIME_VOICE", "marin"),
             )
             llm = GradientOpenAIRealtimeLLMService(
                 api_key=os.getenv("OPENAI_API_KEY", ""),
                 settings=GradientOpenAIRealtimeLLMService.Settings(
-                    model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-1.5"),
+                    model=realtime_model,
                     session_properties=session_properties,
                 ),
                 inference_gate_state=self._realtime_inference_gate_state,

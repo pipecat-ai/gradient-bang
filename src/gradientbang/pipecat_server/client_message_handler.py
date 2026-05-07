@@ -15,6 +15,7 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
+import pipecat.processors.frameworks.rtvi.models as RTVI
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.transcriptions.language import Language
@@ -538,6 +539,7 @@ class ClientMessageHandler:
         if text.strip():
             logger.info(f"[USER-TEXT-INPUT] Received text: {text}")
             if self._openai_realtime_mode:
+                await self._emit_user_text_input_rtvi(text)
                 frames.append(
                     LLMMessagesAppendFrame(
                         messages=[{"role": "user", "content": text}],
@@ -555,6 +557,25 @@ class ClientMessageHandler:
                     ]
                 )
         await pipeline_task.queue_frames(frames)
+
+    async def _emit_user_text_input_rtvi(self, text: str) -> None:
+        """Mirror typed Realtime input as standard RTVI user transcript events."""
+        timestamp = time_now_iso8601()
+        try:
+            await self._rtvi.push_transport_message(RTVI.UserStartedSpeakingMessage())
+            await self._rtvi.push_transport_message(
+                RTVI.UserTranscriptionMessage(
+                    data=RTVI.UserTranscriptionMessageData(
+                        text=text,
+                        user_id="player",
+                        timestamp=timestamp,
+                        final=True,
+                    )
+                )
+            )
+            await self._rtvi.push_transport_message(RTVI.UserStoppedSpeakingMessage())
+        except Exception:
+            logger.exception("Failed to emit RTVI user transcript for text input")
 
     async def _handle_assign_quest(self, msg_type, msg_data):
         quest_code = msg_data.get("quest_code", "") if isinstance(msg_data, dict) else ""

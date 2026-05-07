@@ -8,6 +8,7 @@ from pipecat.frames.frames import (
     AggregationType,
     FunctionCallResultFrame,
     InputAudioRawFrame,
+    InterimTranscriptionFrame,
     InterruptionFrame,
     LLMContextFrame,
     LLMTextFrame,
@@ -27,6 +28,8 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from gradientbang.pipecat_server.inference_gate import InferenceGateState
 from gradientbang.pipecat_server.openai_realtime import (
+    OPENAI_REALTIME_DEFAULT_MODEL,
+    OPENAI_REALTIME_DEFAULT_TRANSCRIPTION_MODEL,
     OPENAI_REALTIME_TRANSCRIPTION_FAILED_MARKER,
     GradientOpenAIRealtimeLLMService,
     RealtimeAudioLLMUserAggregator,
@@ -44,10 +47,10 @@ class RecordingRealtimeService(GradientOpenAIRealtimeLLMService):
         super().__init__(
             api_key="test",
             settings=GradientOpenAIRealtimeLLMService.Settings(
-                model="gpt-realtime-1.5",
+                model=OPENAI_REALTIME_DEFAULT_MODEL,
                 session_properties=build_realtime_session_properties(
-                    model="gpt-realtime-1.5",
-                    transcription_model="gpt-4o-transcribe",
+                    model=OPENAI_REALTIME_DEFAULT_MODEL,
+                    transcription_model=OPENAI_REALTIME_DEFAULT_TRANSCRIPTION_MODEL,
                     voice="marin",
                 ),
             ),
@@ -95,15 +98,16 @@ def _event_types(service: RecordingRealtimeService) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_default_realtime_session_uses_gpt_realtime_15_and_24khz(monkeypatch):
+async def test_default_realtime_session_uses_default_models_and_24khz(monkeypatch):
     monkeypatch.delenv("OPENAI_REALTIME_VAD_EAGERNESS", raising=False)
     sp = build_realtime_session_properties(
-        model="gpt-realtime-1.5",
-        transcription_model="gpt-4o-transcribe",
+        model=OPENAI_REALTIME_DEFAULT_MODEL,
+        transcription_model=OPENAI_REALTIME_DEFAULT_TRANSCRIPTION_MODEL,
         voice="marin",
     )
 
-    assert sp.model == "gpt-realtime-1.5"
+    assert sp.model == "gpt-realtime-2"
+    assert sp.audio.input.transcription.model == "gpt-transcribe-alpha-walrus-2"
     assert sp.audio.input.format.rate == 24000
     assert sp.audio.output.format.rate == 24000
     assert sp.audio.input.turn_detection.type == "semantic_vad"
@@ -416,6 +420,49 @@ async def test_realtime_user_aggregator_preserves_order_when_transcripts_arrive_
         "first turn",
         "second turn",
     ]
+
+
+@pytest.mark.asyncio
+async def test_realtime_transcription_deltas_emit_cumulative_interim_frames_and_clear_on_final():
+    service = RecordingRealtimeService()
+
+    for index, delta in enumerate([" Streaming", " transcription", "."]):
+        await service._handle_evt_input_audio_transcription_delta(
+            events.ConversationItemInputAudioTranscriptionDelta(
+                event_id=f"evt-delta-{index}",
+                type="conversation.item.input_audio_transcription.delta",
+                item_id="item-audio",
+                content_index=0,
+                delta=delta,
+            )
+        )
+
+    frames = [frame for frame, _ in service.pushed if isinstance(frame, InterimTranscriptionFrame)]
+    assert [frame.text for frame in frames] == [
+        " Streaming",
+        " Streaming transcription",
+        " Streaming transcription.",
+    ]
+    assert all(direction == FrameDirection.UPSTREAM for _, direction in service.pushed)
+    assert frames[-1].metadata["openai_realtime_item_id"] == "item-audio"
+    assert frames[-1].metadata["openai_realtime_content_index"] == 0
+    assert service._gradient_input_transcript_buffers[("item-audio", 0)] == (
+        " Streaming transcription."
+    )
+
+    await service.handle_evt_input_audio_transcription_completed(
+        events.ConversationItemInputAudioTranscriptionCompleted(
+            event_id="evt-completed",
+            type="conversation.item.input_audio_transcription.completed",
+            item_id="item-audio",
+            content_index=0,
+            transcript="Streaming transcription.",
+        )
+    )
+
+    assert ("item-audio", 0) not in service._gradient_input_transcript_buffers
+    final_frames = [frame for frame, _ in service.pushed if isinstance(frame, TranscriptionFrame)]
+    assert final_frames[-1].text == "Streaming transcription."
 
 
 @pytest.mark.asyncio

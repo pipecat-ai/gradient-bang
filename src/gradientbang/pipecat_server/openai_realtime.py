@@ -63,6 +63,8 @@ from gradientbang.pipecat_server.inference_gate import (
 
 OPENAI_REALTIME_SAMPLE_RATE = 24000
 OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE = 16000
+OPENAI_REALTIME_DEFAULT_MODEL = "gpt-realtime-2"
+OPENAI_REALTIME_DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe-alpha-walrus-2"
 
 _REALTIME_OUTPUT_ATTR = "_gradientbang_openai_realtime_output"
 
@@ -443,6 +445,7 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         self._gradient_latest_committed_audio_item_id: Optional[str] = None
         self._gradient_failed_transcription_items: set[str] = set()
         self._gradient_audio_resamplers: dict[int, AudioResampler] = {}
+        self._gradient_input_transcript_buffers: dict[tuple[str, int], str] = {}
         self._gradient_output_transcript_buffer = ""
         self._gradient_shared_context_adopted = False
 
@@ -825,9 +828,23 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         self._gradient_response_active = False
         self._gradient_response_start_pushed = False
 
+    def _input_transcript_buffer_key(self, item_id: str, content_index: int) -> tuple[str, int]:
+        return (item_id, content_index)
+
+    def _append_input_transcription_delta(self, evt) -> str:
+        key = self._input_transcript_buffer_key(evt.item_id, evt.content_index)
+        text = self._gradient_input_transcript_buffers.get(key, "") + evt.delta
+        self._gradient_input_transcript_buffers[key] = text
+        return text
+
+    def _clear_input_transcription_buffer(self, item_id: str, content_index: int) -> None:
+        key = self._input_transcript_buffer_key(item_id, content_index)
+        self._gradient_input_transcript_buffers.pop(key, None)
+
     async def _handle_evt_input_audio_transcription_delta(self, evt):
+        text = self._append_input_transcription_delta(evt)
         frame = InterimTranscriptionFrame(
-            evt.delta,
+            text,
             "",
             time_now_iso8601(),
             result=evt,
@@ -842,6 +859,7 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
 
     async def handle_evt_input_audio_transcription_completed(self, evt):
         await self._call_event_handler("on_conversation_item_updated", evt.item_id, None)
+        self._clear_input_transcription_buffer(evt.item_id, evt.content_index)
         frame = TranscriptionFrame(
             evt.transcript,
             "",
@@ -862,6 +880,7 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         if evt.item_id in self._gradient_failed_transcription_items:
             return
         self._gradient_failed_transcription_items.add(evt.item_id)
+        self._clear_input_transcription_buffer(evt.item_id, evt.content_index)
 
         error_payload = _realtime_error_payload(evt.error)
         logger.debug(
