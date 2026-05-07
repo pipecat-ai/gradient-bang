@@ -21,6 +21,9 @@ from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
+from gradientbang.pipecat_server.openai_realtime import (
+    filter_openai_realtime_failed_marker_messages,
+)
 from gradientbang.pipecat_server.voices import VOICES
 from gradientbang.pipecat_server.frames import UserTextInputFrame
 
@@ -709,7 +712,12 @@ class ClientMessageHandler:
 
         # Voice agent context
         if self._llm_context:
-            voice_messages = [safe_serialize(m) for m in self._llm_context.get_messages()]
+            voice_messages = [
+                safe_serialize(m)
+                for m in filter_openai_realtime_failed_marker_messages(
+                    list(self._llm_context.get_messages())
+                )
+            ]
             voice_json = json.dumps(voice_messages, indent=2, ensure_ascii=False).replace(
                 "\\n", "\n"
             )

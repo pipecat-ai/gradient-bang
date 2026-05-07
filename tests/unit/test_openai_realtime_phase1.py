@@ -11,6 +11,8 @@ from pipecat.frames.frames import (
     InterimTranscriptionFrame,
     InterruptionFrame,
     LLMContextFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     LLMTextFrame,
     LLMMessagesAppendFrame,
     LLMRunFrame,
@@ -20,7 +22,10 @@ from pipecat.frames.frames import (
     UserStoppedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregatorParams
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMAssistantAggregator,
+    LLMUserAggregatorParams,
+)
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.openai.realtime import events
 from pipecat.turns.user_start import ExternalUserTurnStartStrategy
@@ -38,8 +43,26 @@ from gradientbang.pipecat_server.openai_realtime import (
     RealtimeSemanticUserTurnStopStrategy,
     RealtimeVoiceAgentInferenceGate,
     build_realtime_session_properties,
+    filter_openai_realtime_failed_marker_messages,
     realtime_voice_agent_echo_exclude_frames,
 )
+from gradientbang.subagents.agents.base_agent import _BusEdgeProcessor
+from gradientbang.subagents.bus.bridge_processor import BusBridgeProcessor
+
+
+class ImmediateBus:
+    def __init__(self):
+        self.subscribers = []
+
+    async def subscribe(self, subscriber):
+        self.subscribers.append(subscriber)
+
+    async def unsubscribe(self, subscriber):
+        self.subscribers.remove(subscriber)
+
+    async def send(self, message):
+        for subscriber in list(self.subscribers):
+            await subscriber.on_bus_message(message)
 
 
 class RecordingRealtimeService(GradientOpenAIRealtimeLLMService):
@@ -173,6 +196,20 @@ async def test_main_context_relay_inserts_typed_text_before_user_aggregator_cons
 
 
 @pytest.mark.asyncio
+async def test_append_mutates_local_context_before_shared_context_adoption():
+    service = RecordingRealtimeService()
+    message = {"role": "user", "content": "pre-adoption context"}
+
+    await service.insert_messages_from_append(
+        LLMMessagesAppendFrame(messages=[message], run_llm=False),
+        source="main-pipeline",
+    )
+
+    assert service._context.get_messages() == [message]
+    assert _event_types(service).count("conversation.item.create") == 1
+
+
+@pytest.mark.asyncio
 async def test_append_relay_skips_local_mutation_after_shared_context_adoption():
     service = RecordingRealtimeService()
     service._api_session_ready = True
@@ -285,6 +322,42 @@ async def test_realtime_audio_transcript_deltas_emit_non_final_word_output():
     assert llm_texts == ["Azure Ha", "uler, com", "mander"]
     assert [frame.text for frame in tts_frames] == ["Azure", "Hauler,", "commander"]
     assert all(frame.aggregated_by == AggregationType.WORD for frame in tts_frames)
+    assert all(frame.includes_inter_frame_spaces is False for frame in tts_frames)
+
+
+@pytest.mark.asyncio
+async def test_realtime_word_output_preserves_spaces_in_assistant_context():
+    service = RecordingRealtimeService()
+    context = LLMContext()
+    aggregator = LLMAssistantAggregator(context)
+
+    async def record_push_frame(frame, direction=FrameDirection.DOWNSTREAM):
+        pass
+
+    aggregator.push_frame = record_push_frame
+
+    await service._push_output_transcript_text_frames("Azure Ha")
+    await service._push_output_transcript_text_frames("uler, com")
+    await service._push_output_transcript_text_frames("mander")
+    await service._flush_realtime_output_transcript_buffer()
+
+    await aggregator.process_frame(LLMFullResponseStartFrame(), FrameDirection.DOWNSTREAM)
+    for frame, _ in service.pushed:
+        if isinstance(frame, TTSTextFrame):
+            await aggregator.process_frame(frame, FrameDirection.DOWNSTREAM)
+    await aggregator.process_frame(LLMFullResponseEndFrame(), FrameDirection.DOWNSTREAM)
+
+    assert context.get_messages() == [{"role": "assistant", "content": "Azure Hauler, commander"}]
+
+
+@pytest.mark.asyncio
+async def test_semantic_turn_detection_user_stop_does_not_manually_commit_or_create_response():
+    service = RecordingRealtimeService()
+    service._api_session_ready = True
+
+    await service._handle_user_stopped_speaking(UserStoppedSpeakingFrame())
+
+    assert _event_types(service) == []
 
 
 @pytest.mark.asyncio
@@ -468,6 +541,15 @@ async def test_realtime_transcription_deltas_emit_cumulative_interim_frames_and_
 @pytest.mark.asyncio
 async def test_failed_realtime_transcription_pushes_deduped_synthetic_marker():
     service = RecordingRealtimeService()
+    await service._handle_evt_input_audio_transcription_delta(
+        events.ConversationItemInputAudioTranscriptionDelta(
+            event_id="evt-delta",
+            type="conversation.item.input_audio_transcription.delta",
+            item_id="item-failed",
+            content_index=0,
+            delta="partial",
+        )
+    )
     evt = events.ConversationItemInputAudioTranscriptionFailed(
         event_id="evt-failed",
         type="conversation.item.input_audio_transcription.failed",
@@ -480,6 +562,11 @@ async def test_failed_realtime_transcription_pushes_deduped_synthetic_marker():
     await service.handle_evt_input_audio_transcription_failed(evt)
 
     frames = [frame for frame, _ in service.pushed if isinstance(frame, TranscriptionFrame)]
+    interim_frames = [
+        frame for frame, _ in service.pushed if isinstance(frame, InterimTranscriptionFrame)
+    ]
+    assert [frame.text for frame in interim_frames] == ["partial", ""]
+    assert interim_frames[-1].metadata["openai_realtime_item_id"] == "item-failed"
     assert len(frames) == 1
     assert frames[0].text == OPENAI_REALTIME_TRANSCRIPTION_FAILED_MARKER
     assert frames[0].metadata["openai_realtime_item_id"] == "item-failed"
@@ -494,6 +581,62 @@ def test_realtime_voice_agent_echo_exclude_keeps_semantic_frames_forwarded():
     assert UserStartedSpeakingFrame not in excluded
     assert UserStoppedSpeakingFrame not in excluded
     assert InterruptionFrame not in excluded
+
+
+@pytest.mark.asyncio
+async def test_semantic_control_frames_cross_voice_edge_to_main_bridge_once():
+    bus = ImmediateBus()
+    voice_agent = SimpleNamespace(name="voice", active=True)
+    edge = _BusEdgeProcessor(
+        bus=bus,
+        agent=voice_agent,
+        direction=FrameDirection.DOWNSTREAM,
+        exclude_frames=realtime_voice_agent_echo_exclude_frames(),
+    )
+    bridge = BusBridgeProcessor(bus=bus, agent_name="main", target_agent="voice")
+    await bus.subscribe(bridge)
+
+    edge_local_frames = []
+    bridge_frames = []
+
+    async def noop():
+        pass
+
+    async def record_edge_push(frame, direction=FrameDirection.DOWNSTREAM):
+        edge_local_frames.append((frame, direction))
+
+    async def record_bridge_push(frame, direction=FrameDirection.DOWNSTREAM):
+        bridge_frames.append((frame, direction))
+
+    edge.push_frame = record_edge_push
+    edge._start_interruption = noop
+    edge.stop_all_metrics = noop
+    bridge.push_frame = record_bridge_push
+
+    frames = [UserStartedSpeakingFrame(), UserStoppedSpeakingFrame(), InterruptionFrame()]
+    for frame in frames:
+        await edge.process_frame(frame, FrameDirection.DOWNSTREAM)
+
+    assert [frame for frame, _ in edge_local_frames] == frames
+    assert [frame for frame, _ in bridge_frames] == frames
+    assert [direction for _, direction in bridge_frames] == [FrameDirection.DOWNSTREAM] * 3
+
+
+def test_failed_transcription_marker_messages_are_filtered_from_context_exports():
+    messages = [
+        {"role": "system", "content": "base"},
+        {
+            "role": "user",
+            "content": OPENAI_REALTIME_TRANSCRIPTION_FAILED_MARKER,
+            "metadata": {"openai_realtime_transcription_failed": True},
+        },
+        {"role": "user", "content": "real user text"},
+    ]
+
+    assert filter_openai_realtime_failed_marker_messages(messages) == [
+        {"role": "system", "content": "base"},
+        {"role": "user", "content": "real user text"},
+    ]
 
 
 @pytest.mark.asyncio

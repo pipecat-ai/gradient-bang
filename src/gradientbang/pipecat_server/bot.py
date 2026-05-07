@@ -100,6 +100,9 @@ from gradientbang.pipecat_server.openai_realtime import (
     RealtimeFunctionResultRelay,
     RealtimeMainContextRelay,
     RealtimeSemanticUserTurnStopStrategy,
+    filter_openai_realtime_failed_marker_messages,
+    is_openai_realtime_failed_marker_message,
+    is_openai_realtime_failed_marker_metadata,
 )
 from gradientbang.pipecat_server.subagents.ui_agent import (
     UIAgentContext,
@@ -129,10 +132,6 @@ def _env_flag(name: str, default: str = "") -> bool:
     return str(value).strip().lower() not in ("", "0", "false", "no", "off")
 
 
-def _is_openai_realtime_failed_marker_metadata(metadata: dict | None) -> bool:
-    return bool((metadata or {}).get("openai_realtime_transcription_failed"))
-
-
 def _context_frame_latest_message_is_openai_realtime_failed_marker(frame) -> bool:
     context = getattr(frame, "context", None)
     if context is None:
@@ -143,21 +142,29 @@ def _context_frame_latest_message_is_openai_realtime_failed_marker(frame) -> boo
         messages = getattr(context, "messages", None)
     if not messages:
         return False
-    message = messages[-1]
-    if not isinstance(message, dict):
-        return False
-    return _is_openai_realtime_failed_marker_metadata(message.get("metadata"))
+    return is_openai_realtime_failed_marker_message(messages[-1])
 
 
 def _install_openai_realtime_rtvi_marker_filters(observer) -> None:
     if getattr(observer, "_gradient_openai_realtime_marker_filters_installed", False):
         return
 
+    missing = [
+        name
+        for name in ("_handle_user_transcriptions", "_handle_context")
+        if not hasattr(observer, name)
+    ]
+    if missing:
+        raise RuntimeError(
+            "RTVIObserver API changed; missing methods required for OpenAI Realtime "
+            f"marker filtering: {', '.join(missing)}"
+        )
+
     original_user_transcriptions = observer._handle_user_transcriptions
     original_context = observer._handle_context
 
     async def _handle_user_transcriptions(frame):
-        if _is_openai_realtime_failed_marker_metadata(getattr(frame, "metadata", None)):
+        if is_openai_realtime_failed_marker_metadata(getattr(frame, "metadata", None)):
             return
         await original_user_transcriptions(frame)
 
@@ -532,7 +539,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     def _upload_voice_context(reason: str) -> None:
         nonlocal _voice_ctx_seq, _voice_ctx_last_uploaded_count
-        msgs = list(context.get_messages())
+        msgs = filter_openai_realtime_failed_marker_messages(list(context.get_messages()))
         if not msgs:
             return
         if reason == "periodic" and len(msgs) == _voice_ctx_last_uploaded_count:

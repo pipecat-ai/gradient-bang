@@ -23,7 +23,6 @@ from pipecat.frames.frames import (
     InterimTranscriptionFrame,
     InterruptionFrame,
     LLMContextFrame,
-    LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
     LLMRunFrame,
@@ -32,7 +31,6 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
-    TTSStoppedFrame,
     TTSTextFrame,
     UserSpeakingFrame,
     UserStartedSpeakingFrame,
@@ -65,20 +63,6 @@ OPENAI_REALTIME_SAMPLE_RATE = 24000
 OPENAI_REALTIME_LOCAL_INPUT_SAMPLE_RATE = 16000
 OPENAI_REALTIME_DEFAULT_MODEL = "gpt-realtime-2"
 OPENAI_REALTIME_DEFAULT_TRANSCRIPTION_MODEL = "gpt-realtime-translate"
-
-_REALTIME_OUTPUT_ATTR = "_gradientbang_openai_realtime_output"
-
-
-def is_realtime_output_frame(frame: Frame) -> bool:
-    """Return whether a frame was emitted by the Realtime service wrapper."""
-    return bool(getattr(frame, _REALTIME_OUTPUT_ATTR, False))
-
-
-def mark_realtime_output_frame(frame: Frame) -> Frame:
-    """Mark a frame as Realtime-originated for downstream routing."""
-    setattr(frame, _REALTIME_OUTPUT_ATTR, True)
-    return frame
-
 
 def effective_run_llm(frame: FunctionCallResultFrame) -> bool:
     """Return the post-gate run_llm value for a function-call result frame."""
@@ -150,6 +134,20 @@ def _realtime_error_payload(error: Any) -> Any:
 
 
 OPENAI_REALTIME_TRANSCRIPTION_FAILED_MARKER = "[voice input transcription failed]"
+
+
+def is_openai_realtime_failed_marker_metadata(metadata: dict | None) -> bool:
+    return bool((metadata or {}).get("openai_realtime_transcription_failed"))
+
+
+def is_openai_realtime_failed_marker_message(message: Any) -> bool:
+    if not isinstance(message, dict):
+        return False
+    return is_openai_realtime_failed_marker_metadata(message.get("metadata"))
+
+
+def filter_openai_realtime_failed_marker_messages(messages: list[Any]) -> list[Any]:
+    return [message for message in messages if not is_openai_realtime_failed_marker_message(message)]
 
 
 class RealtimeSemanticUserTurnStopStrategy(BaseUserTurnStopStrategy):
@@ -439,10 +437,8 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         self._gradient_response_active = False
         self._gradient_response_start_pushed = False
         self._gradient_sent_append_keys: set[tuple[int, int]] = set()
-        self._gradient_seen_message_keys: set[tuple[int, str]] = set()
         self._gradient_sent_function_outputs: set[str] = set()
         self._gradient_realtime_call_ids: set[str] = set()
-        self._gradient_latest_committed_audio_item_id: Optional[str] = None
         self._gradient_failed_transcription_items: set[str] = set()
         self._gradient_audio_resamplers: dict[int, AudioResampler] = {}
         self._gradient_input_transcript_buffers: dict[tuple[str, int], str] = {}
@@ -511,22 +507,6 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
 
         await self.push_frame(frame, direction)
 
-    async def push_frame(self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM):
-        if isinstance(
-            frame,
-            (
-                LLMFullResponseStartFrame,
-                LLMFullResponseEndFrame,
-                LLMTextFrame,
-                TTSTextFrame,
-                TTSStartedFrame,
-                TTSAudioRawFrame,
-                TTSStoppedFrame,
-            ),
-        ):
-            mark_realtime_output_frame(frame)
-        await super().push_frame(frame, direction)
-
     def _ensure_context(self) -> LLMContext:
         if self._context is None:
             self._context = LLMContext()
@@ -537,19 +517,13 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             self._gradient_shared_context_adopted = True
         self._context = context
         self._llm_needs_conversation_setup = False
-        for message in context.get_messages():
-            self._gradient_seen_message_keys.add(_message_key(message))
         await self._process_completed_function_calls(send_new_results=False)
 
-    def _should_mutate_append_context(self, source: str) -> bool:
-        if not self._gradient_shared_context_adopted:
-            return True
-        return source not in {"main-pipeline", "voice-agent"}
+    def _should_mutate_append_context(self) -> bool:
+        return not self._gradient_shared_context_adopted
 
-    def _maybe_add_append_context_message(
-        self, context: LLMContext, message: dict, *, source: str
-    ) -> None:
-        if self._should_mutate_append_context(source):
+    def _maybe_add_append_context_message(self, context: LLMContext, message: dict) -> None:
+        if self._should_mutate_append_context():
             context.add_message(dict(message))
 
     async def _handle_user_stopped_speaking(self, frame):
@@ -613,30 +587,29 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
                 )
                 continue
 
-            self._gradient_seen_message_keys.add(_message_key(message))
             role = message.get("role")
             content = _message_text(message.get("content"))
 
             if role in ("system", "developer"):
                 await self._append_instruction(content)
-                self._maybe_add_append_context_message(context, message, source=source)
+                self._maybe_add_append_context_message(context, message)
                 continue
 
             if role == "tool" or message.get("tool_call_id"):
                 logger.debug("Realtime: tool message append ignored; tool relay owns outputs")
-                self._maybe_add_append_context_message(context, message, source=source)
+                self._maybe_add_append_context_message(context, message)
                 continue
 
             item = self._conversation_item_from_message(role, content)
             if item is None:
                 logger.debug(f"Realtime: unsupported append role={role!r} from {source}")
-                self._maybe_add_append_context_message(context, message, source=source)
+                self._maybe_add_append_context_message(context, message)
                 continue
 
             self._messages_added_manually[item.id] = True
             await self.send_client_event(events.ConversationItemCreateEvent(item=item))
             item_ids.append(item.id)
-            self._maybe_add_append_context_message(context, message, source=source)
+            self._maybe_add_append_context_message(context, message)
 
         if frame.run_llm:
             await self.maybe_create_response(f"{source}:messages-append", frame)
@@ -888,6 +861,20 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             evt.item_id,
             error_payload,
         )
+        clear_frame = InterimTranscriptionFrame(
+            "",
+            "",
+            time_now_iso8601(),
+            result=evt,
+        )
+        clear_frame.metadata.update(
+            {
+                "openai_realtime_item_id": evt.item_id,
+                "openai_realtime_content_index": evt.content_index,
+            }
+        )
+        await self.push_frame(clear_frame, FrameDirection.UPSTREAM)
+
         frame = TranscriptionFrame(
             OPENAI_REALTIME_TRANSCRIPTION_FAILED_MARKER,
             "",
@@ -907,7 +894,6 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         await self.push_frame(frame, FrameDirection.UPSTREAM)
 
     async def _handle_evt_input_audio_buffer_committed(self, evt):
-        self._gradient_latest_committed_audio_item_id = evt.item_id
         logger.debug(f"Realtime: input audio buffer committed item_id={evt.item_id}")
 
     async def _handle_evt_function_call_arguments_done(self, evt):
@@ -1042,7 +1028,7 @@ class GradientOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
 
         for word in complete_text.split():
             frame = TTSTextFrame(word, aggregated_by=AggregationType.WORD)
-            frame.includes_inter_frame_spaces = True
+            frame.includes_inter_frame_spaces = False
             await self.push_frame(frame)
 
     async def _flush_realtime_output_transcript_buffer(self):
