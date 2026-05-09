@@ -181,7 +181,28 @@ async function publishEventToPgmq(opts: {
         opts.supabase,
         opts.corpId,
       );
+      // Skip corp_ship pseudo-character queues when any corp_member is also a
+      // recipient: the human members already get the event on their own
+      // chr_{character_id} queue, and a bot's set_scope(ship_ids=[…]) extra
+      // subscription on chr_{ship_id} would otherwise compete-consume with
+      // peer corp members' bots and double-dispatch for whichever bot wins
+      // the read race. We drop corp_ship ids from BOTH the corp expansion and
+      // any direct recipients (e.g. when the event subject IS the corp ship
+      // pseudo-character, as with corp-ship movement), since the auth model
+      // requires corp membership to access a corp ship in the first place —
+      // every legitimate consumer of chr_{ship_id} is also receiving via
+      // chr_{member_id}. Mirrors the SQL exclusion in migration 20260414000000
+      // for the polling/events-table path.
+      const hasCorpMembers = Array.from(corpReasonMap.values()).some(
+        (r) => r === "corp_member",
+      );
+      if (hasCorpMembers) {
+        for (const [id, reason] of corpReasonMap) {
+          if (reason === "corp_ship") reasonByRecipient.delete(id);
+        }
+      }
       for (const [id, reason] of corpReasonMap) {
+        if (hasCorpMembers && reason === "corp_ship") continue;
         if (!reasonByRecipient.has(id)) {
           reasonByRecipient.set(id, reason);
         }

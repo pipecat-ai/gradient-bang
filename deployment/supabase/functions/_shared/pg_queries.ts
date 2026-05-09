@@ -2612,7 +2612,21 @@ async function pgPublishEventToPgmq(
         opts.pg,
         opts.corpId,
       );
+      // Skip corp_ship pseudo-character queues when any corp_member is also
+      // a recipient — see publishEventToPgmq in _shared/events.ts for the
+      // full rationale. Drop corp_ship ids from BOTH the corp expansion and
+      // any direct recipients (e.g. when the event subject IS the corp ship
+      // pseudo-character, as with corp-ship movement).
+      const hasCorpMembers = Array.from(corpReasonMap.values()).some(
+        (r) => r === "corp_member",
+      );
+      if (hasCorpMembers) {
+        for (const [id, reason] of corpReasonMap) {
+          if (reason === "corp_ship") reasonByRecipient.delete(id);
+        }
+      }
       for (const [id, reason] of corpReasonMap) {
+        if (hasCorpMembers && reason === "corp_ship") continue;
         if (!reasonByRecipient.has(id)) {
           reasonByRecipient.set(id, reason);
         }
