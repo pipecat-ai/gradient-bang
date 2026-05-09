@@ -910,6 +910,131 @@ Deno.test({
 });
 
 // ============================================================================
+// Group 21a: Sold ship name can be reused (rename + purchase)
+// ============================================================================
+
+Deno.test({
+  name: "ship — sold ship name can be reused for rename",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    const reusedName = "Phoenix";
+
+    await t.step("reset, create corp, buy corp ship with custom name", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 50000);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Name Reuse Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+        ship_name: reusedName,
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+    });
+
+    await t.step("DB: corp ship has the name", async () => {
+      const ship = await queryShip(corpShipId);
+      assertExists(ship);
+      assertEquals(ship.ship_name, reusedName);
+    });
+
+    await t.step("sell the corp ship (soft-delete)", async () => {
+      const result = await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
+      assert(result.success);
+    });
+
+    await t.step("DB: sold ship has destroyed_at set", async () => {
+      const ship = await queryShip(corpShipId);
+      assertExists(ship, "Sold ship row should still exist");
+      assertExists(ship.destroyed_at, "destroyed_at should be set");
+    });
+
+    await t.step("rename player ship to the sold ship's name — should succeed", async () => {
+      const result = await apiOk("ship_rename", {
+        character_id: p1Id,
+        ship_name: reusedName,
+      });
+      assert(result.success);
+      const body = result as Record<string, unknown>;
+      assertEquals(body.ship_name, reusedName);
+      assertEquals(body.changed, true);
+    });
+  },
+});
+
+Deno.test({
+  name: "ship — sold ship name can be reused for purchase",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    const reusedName = "Stardust";
+
+    await t.step("reset, create corp, buy corp ship with custom name", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipSector(p1ShipId, 0);
+      await setShipCredits(p1ShipId, 200000);
+      await setShipFighters(p1ShipId, 300);
+      await apiOk("corporation_create", {
+        character_id: p1Id,
+        name: "Name Reuse Purchase Corp",
+      });
+      await setMegabankBalance(p1Id, 10000);
+      const purchaseResult = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "autonomous_probe",
+        purchase_type: "corporation",
+        ship_name: reusedName,
+      });
+      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      assertExists(corpShipId, "Should get corp ship ID");
+    });
+
+    await t.step("sell the corp ship (soft-delete)", async () => {
+      const result = await apiOk("ship_sell", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        actor_character_id: p1Id,
+      });
+      assert(result.success);
+    });
+
+    await t.step("purchase a new ship with the sold ship's name — should succeed", async () => {
+      const result = await apiOk("ship_purchase", {
+        character_id: p1Id,
+        ship_type: "wayfarer_freighter",
+        ship_name: reusedName,
+      });
+      assert(result.success);
+      const body = result as Record<string, unknown>;
+      assertExists(body.ship_id);
+    });
+
+    await t.step("DB: new ship has the reused name", async () => {
+      const char = await queryCharacter(p1Id);
+      assertExists(char);
+      const ship = await queryShip(char.current_ship_id as string);
+      assertExists(ship);
+      assertEquals(ship.ship_name, reusedName);
+    });
+  },
+});
+
+// ============================================================================
 // Group 21b: Ship sell — succeeds when corp ship character has events
 // ============================================================================
 

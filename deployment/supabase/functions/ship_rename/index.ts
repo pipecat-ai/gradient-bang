@@ -423,6 +423,7 @@ async function ensureShipNameUnique(
     .select("ship_id")
     .eq("ship_name", shipName)
     .neq("ship_id", shipId)
+    .is("destroyed_at", null)
     .maybeSingle();
 
   if (error) {
