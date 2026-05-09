@@ -763,6 +763,7 @@ async function isShipNameAvailable(
     .from("ship_instances")
     .select("ship_id")
     .eq("ship_name", shipName)
+    .is("destroyed_at", null)
     .limit(1)
     .maybeSingle();
   if (error) {
