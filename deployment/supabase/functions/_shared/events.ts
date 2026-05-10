@@ -18,6 +18,29 @@ type EventScope =
   | "system"
   | "admin";
 
+function shouldExpandCorpRecipientsForPgmq(opts: {
+  scope: EventScope;
+  characterId?: string | null;
+  actorCharacterId?: string | null;
+  shipId?: string | null;
+  reasonByRecipient: Map<string, string>;
+  corpReasonMap: Map<string, string>;
+}): boolean {
+  if (opts.scope === "corp") return true;
+  const subjectIds = [
+    opts.characterId ?? null,
+    opts.shipId ?? null,
+    opts.actorCharacterId ?? null,
+  ].filter((id): id is string => typeof id === "string" && id.length > 0);
+  if (subjectIds.some((id) => opts.corpReasonMap.get(id) === "corp_ship")) {
+    return true;
+  }
+  for (const id of opts.reasonByRecipient.keys()) {
+    if (opts.corpReasonMap.get(id) === "corp_ship") return true;
+  }
+  return subjectIds.length === 0;
+}
+
 export interface EventSource {
   type: string;
   method: string;
@@ -181,30 +204,33 @@ async function publishEventToPgmq(opts: {
         opts.supabase,
         opts.corpId,
       );
-      // Skip corp_ship pseudo-character queues when any corp_member is also a
-      // recipient: the human members already get the event on their own
-      // chr_{character_id} queue, and a bot's set_scope(ship_ids=[…]) extra
-      // subscription on chr_{ship_id} would otherwise compete-consume with
-      // peer corp members' bots and double-dispatch for whichever bot wins
-      // the read race. We drop corp_ship ids from BOTH the corp expansion and
-      // any direct recipients (e.g. when the event subject IS the corp ship
-      // pseudo-character, as with corp-ship movement), since the auth model
-      // requires corp membership to access a corp ship in the first place —
-      // every legitimate consumer of chr_{ship_id} is also receiving via
-      // chr_{member_id}. Mirrors the SQL exclusion in migration 20260414000000
-      // for the polling/events-table path.
+      // Expand only corporation-level and corp-ship-related events to active
+      // corp members. Human member events with corp_id stay on their explicit
+      // recipients, so corpmates do not receive each other's personal events.
+      // When expanding a corp ship event, suppress the ship pseudo-character
+      // queue to avoid pgmq competing-consumer duplicate/lost delivery.
       const hasCorpMembers = Array.from(corpReasonMap.values()).some(
         (r) => r === "corp_member",
       );
-      if (hasCorpMembers) {
+      const shouldExpandCorpRecipients = shouldExpandCorpRecipientsForPgmq({
+        scope: opts.scope,
+        characterId: opts.characterId,
+        actorCharacterId: opts.actorCharacterId,
+        shipId: opts.shipId,
+        reasonByRecipient,
+        corpReasonMap,
+      });
+      if (hasCorpMembers && shouldExpandCorpRecipients) {
         for (const [id, reason] of corpReasonMap) {
           if (reason === "corp_ship") reasonByRecipient.delete(id);
         }
       }
-      for (const [id, reason] of corpReasonMap) {
-        if (hasCorpMembers && reason === "corp_ship") continue;
-        if (!reasonByRecipient.has(id)) {
-          reasonByRecipient.set(id, reason);
+      if (shouldExpandCorpRecipients) {
+        for (const [id, reason] of corpReasonMap) {
+          if (hasCorpMembers && reason === "corp_ship") continue;
+          if (!reasonByRecipient.has(id)) {
+            reasonByRecipient.set(id, reason);
+          }
         }
       }
     } catch (err) {
