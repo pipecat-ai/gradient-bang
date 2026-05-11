@@ -333,21 +333,35 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     // enforced synchronously at start_task time by the atomic acquire above
     // — not by fanning out task events to corpmates.
     const sEmit = trace.span("emit_event");
-    await emitCharacterEvent({
-      supabase,
-      characterId,
-      eventType: eventName,
-      payload: eventPayload,
-      senderId: characterId,
-      actorCharacterId: actorCharacterId ?? undefined,
-      requestId,
-      taskId,
-      shipId: shipId ?? undefined,
-      corpId: taskScope === "corp_ship" ? (effectiveCorpId ?? undefined) : undefined,
-      recipientReason: "task_owner",
-      scope: "self",
-    });
-    sEmit.end();
+    try {
+      await emitCharacterEvent({
+        supabase,
+        characterId,
+        eventType: eventName,
+        payload: eventPayload,
+        senderId: characterId,
+        actorCharacterId: actorCharacterId ?? undefined,
+        requestId,
+        taskId,
+        shipId: shipId ?? undefined,
+        corpId: taskScope === "corp_ship" ? (effectiveCorpId ?? undefined) : undefined,
+        recipientReason: "task_owner",
+        scope: "self",
+      });
+    } catch (err) {
+      if (eventType === "start" && shipId) {
+        const { error: rollbackErr } = await supabase.rpc(
+          "release_ship_task_lock",
+          { p_ship_id: shipId, p_task_id: taskId },
+        );
+        if (rollbackErr) {
+          console.warn("task_lifecycle.start_emit_rollback_warn", rollbackErr);
+        }
+      }
+      throw err;
+    } finally {
+      sEmit.end();
+    }
 
     if (eventType === "finish" && shipId) {
       const { error: releaseErr } = await supabase.rpc(
@@ -378,4 +392,3 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     return errorResponse(detail, 500);
   }
 }));
-
