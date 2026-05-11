@@ -111,7 +111,7 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const { data: shipData, error: shipError } = await supabase
       .from("ship_instances")
       .select(
-        "owner_type, owner_corporation_id, current_task_id",
+        "owner_type, owner_corporation_id, current_task_id, byoa_owner_character_id, byoa_mode",
       )
       .eq("ship_id", taskOwnerCharacterId)
       .maybeSingle();
@@ -145,19 +145,50 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
       taskCorpId && requesterCorpId && taskCorpId === requesterCorpId,
     );
 
+    // BYOA private restricts cancel to the owner (or task actor) in normal
+    // mode. force=true is the explicit escape hatch — any corp member can
+    // still yank a stuck lock on a private ship (Layer 4 stale recovery).
+    const byoaOwnerId =
+      typeof shipData?.byoa_owner_character_id === "string"
+        ? (shipData.byoa_owner_character_id as string)
+        : null;
+    const byoaMode =
+      typeof shipData?.byoa_mode === "string"
+        ? (shipData.byoa_mode as string)
+        : null;
+    const isByoaPrivate = Boolean(byoaOwnerId && byoaMode === "private");
+    const isRequesterByoaOwner = Boolean(
+      byoaOwnerId && characterId === byoaOwnerId,
+    );
+
     // Authorization rules:
     // - Task owner or actor can cancel their own tasks (normal mode)
-    // - Any corp member can cancel corp ship tasks (normal mode)
+    // - Any corp member can cancel corp ship tasks (normal mode), UNLESS
+    //   the ship is BYOA-private — then only the BYOA owner (or task
+    //   actor) may cancel
     // - force=true: requester must be a corp member of a corp ship; bypasses
-    //   the owner/actor check entirely so a corpmate can yank a stuck lock
-    //   without waiting for the stale window. Same trust boundary as the
-    //   non-force corp-member path, just an explicit override toggle.
+    //   the owner/actor and BYOA-private checks entirely so a corpmate can
+    //   yank a stuck lock without waiting for the stale window.
     if (forceFlag) {
       if (!(isCorpShipTask && isSameCorp)) {
         sAuthCheck.end();
         return errorResponse(
           "force=true is only allowed for corp members on corp ships",
           403,
+        );
+      }
+    } else if (isByoaPrivate) {
+      if (!(isRequesterByoaOwner || isRequesterActor)) {
+        sAuthCheck.end();
+        return new Response(
+          JSON.stringify({
+            error: "byoa_private_not_owner",
+            ship_id: taskShipId,
+            byoa_owner_character_id_prefix: byoaOwnerId!
+              .replace(/-/g, "")
+              .slice(0, 12),
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
         );
       }
     } else if (

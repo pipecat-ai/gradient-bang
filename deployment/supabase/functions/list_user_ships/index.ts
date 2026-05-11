@@ -25,6 +25,12 @@ import {
 } from "../_shared/request.ts";
 import type { ShipDefinitionRow } from "../_shared/status.ts";
 import { fetchActiveTaskIdsByShip } from "../_shared/tasks.ts";
+import {
+  buildByoaBlock,
+  buildTaskActorBlock,
+  loadShipParticipantNames,
+  type CorporationShipSummary,
+} from "../_shared/corporations.ts";
 import { traced } from "../_shared/weave.ts";
 
 type JsonRecord = Record<string, unknown>;
@@ -49,6 +55,11 @@ export interface ShipSummary {
   max_fighters: number;
   credits: number;
   current_task_id: string | null;
+  // Truncated identity blocks. `byoa` is null for non-BYOA corp ships
+  // (i.e. all ships today, until an operator claims via ship_byoa_configure).
+  // `current_task_actor` is null when the ship is idle.
+  current_task_actor: CorporationShipSummary["current_task_actor"];
+  byoa: CorporationShipSummary["byoa"];
   destroyed_at: string | null;
 }
 
@@ -183,7 +194,7 @@ async function fetchUserShips(
     ? await supabase
         .from("ship_instances")
         .select(
-          "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters",
+          "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters, task_actor_character_id, byoa_owner_character_id, byoa_mode",
         )
         .in("ship_id", shipIds)
     : { data: [], error: null };
@@ -199,6 +210,9 @@ async function fetchUserShips(
   // 5. Build ship summaries
   const corpShipIdSet = new Set(corpShipIds);
   const activeTasks = await fetchActiveTaskIdsByShip(supabase, shipIds);
+  // Batched name lookup for current_task_actor and byoa.owner — both nullable,
+  // both null for normal non-BYOA idle corp ships.
+  const characterNames = await loadShipParticipantNames(supabase, shipRows ?? []);
 
   for (const row of shipRows ?? []) {
     if (!row || typeof row.ship_id !== "string") {
@@ -237,6 +251,8 @@ async function fetchUserShips(
       max_fighters: definition?.fighters ?? 0,
       credits: Number(row.credits ?? 0),
       current_task_id: activeTasks.get(shipId) ?? null,
+      current_task_actor: buildTaskActorBlock(row, characterNames),
+      byoa: buildByoaBlock(row, characterNames),
       destroyed_at: null,
     });
   }
@@ -287,6 +303,8 @@ async function fetchUserShips(
             max_fighters: 0,
             credits: 0,
             current_task_id: null,
+            current_task_actor: null,
+            byoa: null,
             destroyed_at: row.destroyed_at,
           });
         }
