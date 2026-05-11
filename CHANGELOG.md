@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-11
+
+### Changed
+
+- `EVENT_TRANSPORT` now defaults to `pubsub` (was `polling`). The polling adapter is still selectable via `EVENT_TRANSPORT=polling`. Edge-function test runner and CI no longer run both transports in parallel by default — only pubsub runs; pass `TRANSPORT=polling` to `run_tests.sh` for a polling-only regression pass.
+
 ## [0.4.0] - 2026-05-06
 
 ### Added
