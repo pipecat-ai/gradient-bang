@@ -408,9 +408,32 @@ class PubsubEventAdapter:
                 if task is not None:
                     task.cancel()
 
-            for cid in to_add:
-                if self._stop_event.is_set():
-                    break
+            if self._stop_event.is_set():
+                return
+            pending_add = list(to_add)
+
+        # Post-start scope additions (e.g. a corp ship joining mid-session)
+        # bypass start()'s self-test, so the long-poll would be the first
+        # subscribe_my_events call — creating the queue inside the same txn
+        # that then enters read_with_poll, holding the create lock for the
+        # whole poll window. Run a max_seconds=0 subscribe first so the
+        # ensure_character_queue lock is released before the long-poll
+        # starts. Skipped during start() since _run_startup_self_test
+        # already handled it.
+        for cid in pending_add:
+            if self._stop_event.is_set():
+                break
+            if self._started:
+                try:
+                    await self._run_startup_self_test(cid)
+                except Exception:
+                    logger.exception(
+                        f"pubsub.dynamic_add_preflight_failed character={cid}; skipping"
+                    )
+                    continue
+            async with self._scope_lock:
+                if cid in self._char_tasks:
+                    continue
                 self._char_tasks[cid] = asyncio.create_task(
                     self._character_loop(cid),
                     name=f"pubsub-loop-{cid}",
