@@ -1,12 +1,12 @@
 """Factory that picks the right :class:`EventAdapter` for an ``AsyncGameClient``.
 
 Branches on the ``EVENT_TRANSPORT`` env var:
-- ``polling`` (default): :class:`PollingEventAdapter` — HTTP polling against
-  the ``events_since`` edge function. Works without any per-character
-  credential, suitable for any environment.
-- ``pubsub``: :class:`PubsubEventAdapter` — direct Postgres long-poll against
-  per-character pgmq queues. Requires ``PGMQ_URL`` and the client to carry an
-  ``access_token`` for per-character JWT auth.
+- ``pubsub`` (default): :class:`PubsubEventAdapter` — direct Postgres long-poll
+  against per-character pgmq queues. Requires ``PGMQ_URL`` and the client to
+  carry an ``access_token`` for per-character JWT auth.
+- ``polling``: :class:`PollingEventAdapter` — HTTP polling against the
+  ``events_since`` edge function. Works without any per-character credential,
+  suitable for environments where pubsub is unavailable.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ _VALID_TRANSPORTS = {"polling", "pubsub"}
 
 def make_event_adapter(client: "AsyncGameClient") -> EventAdapter:
     """Construct the event adapter for the given client based on env config."""
-    transport = os.getenv("EVENT_TRANSPORT", "polling").strip().lower()
+    transport = os.getenv("EVENT_TRANSPORT", "pubsub").strip().lower()
     if transport not in _VALID_TRANSPORTS:
         raise ValueError(
             f"unknown EVENT_TRANSPORT={transport!r}; "

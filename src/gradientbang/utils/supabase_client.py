@@ -104,11 +104,10 @@ class AsyncGameClient(BaseAsyncGameClient):
         # one. The pubsub adapter raises at start() if it's None.
         self._access_token = access_token
 
-        # Event-delivery adapter. Polling-related state (scope, cursor, dedup
-        # ring, task lifecycle) lives inside the adapter — see
-        # ``gradientbang.adapters.events`` for the Protocol and the polling
-        # implementation. The factory currently always returns the polling
-        # adapter; the upcoming pubsub commit will branch on EVENT_TRANSPORT.
+        # Event-delivery adapter. Transport-specific state (scope, cursor,
+        # dedup ring, task lifecycle) lives inside the adapter — see
+        # ``gradientbang.adapters.events`` for the Protocol and the polling /
+        # pubsub implementations. The factory branches on EVENT_TRANSPORT.
         self._event_adapter = make_event_adapter(self)
 
     def set_event_polling_scope(
