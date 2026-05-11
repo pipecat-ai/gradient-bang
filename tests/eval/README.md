@@ -49,6 +49,7 @@ Each eval character has a deterministic starting state (ship type, credits, map 
 | Phi Trader Eval      | kestrel_courier + corp wayfarer_freighter + corp autonomous_light_hauler | Corp founder with personal + 2 corp ships, credit transfer evals | gb-bot-eval | f0000000-0000-4000-8000-000000000006 | eval2@gradientbang.com |
 | Orion Vale Eval      | kestrel_courier + 2 corp ships     | Voice-agent-full world: peers (Starfall, Drifter NPC, Nova Prime, Moonshadow), 2 corps, mega-port at sector 305 | gb-bot-eval-orion-vale | 1a000000-0000-4000-8000-000000000001 | orion-eval@gradientbang.com |
 | Omega Garrison Eval  | kestrel_courier                    | Garrison/fighter scenarios: Eval0 at mega-port (10k credits, buys fighters); Eval1 at non-Fed sector with 100 fighters on ship; Eval2/4 own a 50-fighter garrison in their current non-Fed sector; Eval3 at sector 0 with a remote 50-fighter toll-mode garrison | gb-bot-eval-2 | 60000000-0000-4000-8000-000000000008 | omega-eval@gradientbang.com |
+| Kappa Combat Eval    | sparrow_scout (100 fighters)       | 1v1 voice-initiated combat world. P1 (Kappa Combat) + P2 peer (Kappa Target) co-located in a non-fedspace sector picked at seed time. No corps. | gb-bot-eval-2 | 1b000000-0000-4000-8000-000000000001 | kappa-eval-base@gradientbang.com |
 
 NPC characters (e.g. Drifter in the Orion Vale world) are not linked to any eval user.
 
@@ -93,6 +94,8 @@ overflow users are created inline by the per-character seed scripts.
 | 1a000000-1a00-4aaa-8000-000000000001 | orion-eval@gradientbang.com          | Orion Vale Eval (slot 001) + clones 001, 003, 004           | [seeds/orion_vale.sql](webhook_server/seeds/orion_vale.sql)                                         |
 | 1a000000-1a00-4aaa-8000-0000000000NN | orion-eval-NN@gradientbang.com       | Orion Vale clones 002..016 (one user per clone, NN = slot)  | [seeds/orion_vale.sql](webhook_server/seeds/orion_vale.sql)                                         |
 | 60000000-0000-4aaa-8000-000000000008 | omega-eval@gradientbang.com          | Omega Garrison Eval0..4                                      | [seeds/omega_garrison.ts](../../deployment/supabase/functions/eval_webhook/seeds/omega_garrison.ts) |
+| 1b000000-1b00-4aaa-8000-000000000001 | kappa-eval-base@gradientbang.com     | Kappa Combat Eval0..4 (P1 commanders)                        | [seeds/kappa_combat.sql](webhook_server/seeds/kappa_combat.sql)                                     |
+| 1b100000-1b00-4aaa-8000-000000000001 | kappa-target-eval-base@gradientbang.com | Kappa Target Eval0..4 (P2 peer targets)                  | [seeds/kappa_combat.sql](webhook_server/seeds/kappa_combat.sql)                                     |
 | 352373e1-aa29-49c7-b929-2cba86ca4a3c | eval@gradientbang.com                | (none after 2026-04-20 — was the old shared eval user)       | pre-existing                                                                                        |
 
 ### Orion Vale — voice-agent-full eval world
