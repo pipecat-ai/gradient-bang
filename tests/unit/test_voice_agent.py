@@ -1275,7 +1275,8 @@ class TestCorpShipRouting:
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        assert task_agent._game_client is agent._game_client
+        # Phase 1: TaskAgent no longer holds a game_client.
+        assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
     @pytest.mark.asyncio
@@ -1300,16 +1301,12 @@ class TestCorpShipRouting:
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "corp_ship"
-        mock_client_cls.assert_called_once_with(
-            base_url="http://localhost",
-            character_id=CORP_SHIP_ID,
-            actor_character_id="char-123",
-            entity_type="corporation_ship",
-            transport="supabase",
-            enable_event_polling=False,
-        )
+        # Phase 1: corp-ship tasks no longer construct a second
+        # AsyncGameClient. The broker uses the player-bound client and
+        # overrides character_id / actor_character_id per call.
+        mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        assert task_agent._game_client is mock_client_cls.return_value
+        assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is True
 
     @pytest.mark.asyncio
@@ -1335,7 +1332,8 @@ class TestCorpShipRouting:
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        assert task_agent._game_client is agent._game_client
+        # Phase 1: TaskAgent no longer holds a game_client.
+        assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
     @pytest.mark.asyncio
@@ -1356,7 +1354,8 @@ class TestCorpShipRouting:
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        assert task_agent._game_client is agent._game_client
+        # Phase 1: TaskAgent no longer holds a game_client.
+        assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
     @pytest.mark.asyncio
@@ -1728,20 +1727,16 @@ class TestServerSideShipLock:
             "task_description": "Trade",
             "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         }
-        with patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient") as mock_cls:
-            mock_corp_client = MagicMock()
-            mock_corp_client.close = AsyncMock()
-            mock_cls.return_value = mock_corp_client
-
-            result = await agent._handle_start_task(params)
+        # Phase 1: corp-ship tasks no longer construct a dedicated
+        # AsyncGameClient. The broker uses the player-bound client and
+        # overrides character_id / actor_character_id per call. So a
+        # 403 acquire failure just bubbles up — nothing to close.
+        result = await agent._handle_start_task(params)
 
         assert result["success"] is False
         assert "private BYOA" in result["error"]
         assert "0123456789ab" in result["error"]
         agent.add_agent.assert_not_called()
-        # The dedicated corp-ship client that was constructed should be closed
-        # so the failed acquire doesn't leak it.
-        mock_corp_client.close.assert_awaited_once()
         assert agent._locked_ships == {}
 
     @pytest.mark.asyncio

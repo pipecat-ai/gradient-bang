@@ -1426,7 +1426,6 @@ def _make_voice_agent_with_tasks(character_id="char-test"):
     player_task = TaskAgent(
         "task_player1",
         bus=bus,
-        game_client=game_client,
         character_id=character_id,
         is_corp_ship=False,
     )
@@ -1436,7 +1435,6 @@ def _make_voice_agent_with_tasks(character_id="char-test"):
     corp_task = TaskAgent(
         "task_corp1",
         bus=bus,
-        game_client=MagicMock(),
         character_id="corp-ship-abc",
         is_corp_ship=True,
     )

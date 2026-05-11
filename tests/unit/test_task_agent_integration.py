@@ -5,6 +5,7 @@ filtering, steering, cancellation, error accumulation, and corp ship
 restrictions. External boundaries (game_client, bus, LLM pipeline) are mocked.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,8 +15,15 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 
 from gradientbang.pipecat_server.subagents.bus_messages import (
+    BusCombatStrategyRequest,
+    BusCombatStrategyResponse,
+    BusCorporationQueryRequest,
+    BusCorporationQueryResponse,
     BusGameEventMessage,
+    BusGameToolCallRequest,
+    BusGameToolCallResponse,
     BusSteerTaskMessage,
+    BusTaskFinishNotification,
 )
 from gradientbang.pipecat_server.subagents.task_agent import (
     ASYNC_TOOL_COMPLETIONS,
@@ -30,16 +38,28 @@ from pipecat_subagents.bus import BusTaskCancelMessage, BusTaskRequestMessage
 
 
 class TaskAgentHarness:
-    """Wire a real TaskAgent with mocked external boundaries."""
+    """Wire a real TaskAgent with mocked external boundaries.
+
+    Phase 1: TaskAgent no longer holds an ``AsyncGameClient``. The harness
+    keeps a ``self.game_client`` mock for assertion convenience, but it's
+    no longer passed to the constructor — instead the harness intercepts
+    outbound bus RPC messages, dispatches them against the mock as a
+    simulated broker would, and routes the response back via the bus. From
+    the test author's POV the mock is still the source of truth for
+    ``game_client.move.assert_called_once_with(...)`` style checks.
+    """
 
     def __init__(self, character_id="char-test", is_corp_ship=False):
         self.character_id = character_id
 
-        # Mock game client
+        # Mock game client (now used by the harness's simulated broker
+        # rather than passed into TaskAgent directly). All game methods are
+        # AsyncMock so the simulated broker's ``await method(...)`` works
+        # the same way the real broker awaits AsyncGameClient methods.
         self.game_client = MagicMock()
-        self.game_client.task_lifecycle = AsyncMock()
+        self.game_client.task_lifecycle = AsyncMock(return_value={"success": True})
         self.game_client.current_task_id = None
-        # Default: game methods return {"status": "Executed."}
+        self.game_client.combat_get_strategy = AsyncMock(return_value={"strategy": None})
         for method in (
             "move", "plot_course", "my_map", "my_status", "trade",
             "list_known_ports", "salvage_collect", "recharge_warp_power",
@@ -48,9 +68,15 @@ class TaskAgentHarness:
             "withdraw_from_bank", "combat_leave_fighters", "combat_collect_fighters",
             "leave_corporation", "kick_corporation_member",
             "purchase_ship", "sell_ship", "event_query", "leaderboard_resources",
-            "dump_cargo",
+            "dump_cargo", "get_ship_definitions",
         ):
-            getattr(self.game_client, method).return_value = {"status": "Executed."}
+            setattr(
+                self.game_client,
+                method,
+                AsyncMock(return_value={"status": "Executed."}),
+            )
+        # _request is used by the corp query broker path.
+        self.game_client._request = AsyncMock(return_value={"status": "Executed."})
 
         bus = MagicMock()
         bus.send_message = AsyncMock()
@@ -58,7 +84,6 @@ class TaskAgentHarness:
         self.agent = TaskAgent(
             "test_task",
             bus=bus,
-            game_client=self.game_client,
             character_id=character_id,
             is_corp_ship=is_corp_ship,
         )
@@ -71,6 +96,131 @@ class TaskAgentHarness:
         self.agent.queue_frame = AsyncMock(side_effect=lambda f: self.queued_frames.append(f))
         self.agent.send_task_update = AsyncMock()
         self.agent.send_task_response = AsyncMock()
+
+        # Simulated broker: intercept outbound Phase 1 bus messages and
+        # dispatch them against the game-client mock. Responses come back
+        # through agent.on_bus_message asynchronously so the awaiting
+        # PendingRequests.issue() future resolves naturally.
+        self.outbound_messages: list = []
+
+        async def _broker_dispatch(message):
+            self.outbound_messages.append(message)
+            await self._simulate_broker(message)
+
+        self.agent.send_message = AsyncMock(side_effect=_broker_dispatch)
+
+    async def _simulate_broker(self, message):
+        # Tool calls + corp queries + combat strategy + task-finish.
+        if isinstance(message, BusGameToolCallRequest):
+            await self._respond_to_tool_call(message)
+        elif isinstance(message, BusCombatStrategyRequest):
+            await self._respond_to_combat_strategy(message)
+        elif isinstance(message, BusCorporationQueryRequest):
+            await self._respond_to_corp_query(message)
+        elif isinstance(message, BusTaskFinishNotification):
+            # Fire-and-forget: just bookkeep against task_lifecycle.
+            await self.game_client.task_lifecycle(
+                event_type="finish",
+                character_id=message.character_id,
+                task_id=message.task_id,
+                task_status=message.status,
+                task_summary=message.summary,
+            )
+
+    async def _respond_to_tool_call(self, message):
+        method = getattr(self.game_client, message.tool_name, None)
+        if method is None or not callable(method):
+            await self._deliver_response(
+                BusGameToolCallResponse(
+                    source="voice_agent",
+                    target=self.agent.name,
+                    correlation_id=message.correlation_id,
+                    error=f"unknown tool: {message.tool_name!r}",
+                )
+            )
+            return
+        kwargs = dict(message.args)
+        if message.character_id:
+            kwargs.setdefault("character_id", message.character_id)
+        if message.actor_character_id:
+            kwargs.setdefault("actor_character_id", message.actor_character_id)
+        try:
+            raw = await method(**kwargs)
+            result = raw if isinstance(raw, dict) else {"result": raw}
+            response = BusGameToolCallResponse(
+                source="voice_agent",
+                target=self.agent.name,
+                correlation_id=message.correlation_id,
+                result=result,
+            )
+        except Exception as exc:
+            response = BusGameToolCallResponse(
+                source="voice_agent",
+                target=self.agent.name,
+                correlation_id=message.correlation_id,
+                error=str(exc),
+            )
+        await self._deliver_response(response)
+
+    async def _respond_to_combat_strategy(self, message):
+        try:
+            kwargs = {"character_id": message.character_id}
+            if message.ship_id:
+                kwargs["ship_id"] = message.ship_id
+            raw = await self.game_client.combat_get_strategy(**kwargs)
+            strategy = raw if isinstance(raw, dict) else {"strategy": raw}
+            response = BusCombatStrategyResponse(
+                source="voice_agent",
+                target=self.agent.name,
+                correlation_id=message.correlation_id,
+                strategy=strategy,
+            )
+        except Exception as exc:
+            response = BusCombatStrategyResponse(
+                source="voice_agent",
+                target=self.agent.name,
+                correlation_id=message.correlation_id,
+                error=str(exc),
+            )
+        await self._deliver_response(response)
+
+    async def _respond_to_corp_query(self, message):
+        try:
+            if message.query_type == "list":
+                raw = await self.game_client._request("corporation.list", {})
+            elif message.query_type == "info":
+                raw = await self.game_client._request(
+                    "corporation.info",
+                    {"character_id": message.character_id, "corp_id": message.corp_id},
+                )
+            else:
+                raw = await self.game_client._request(
+                    "my_corporation",
+                    {"character_id": message.character_id},
+                )
+            result = raw if isinstance(raw, dict) else {"result": raw}
+            response = BusCorporationQueryResponse(
+                source="voice_agent",
+                target=self.agent.name,
+                correlation_id=message.correlation_id,
+                result=result,
+            )
+        except Exception as exc:
+            response = BusCorporationQueryResponse(
+                source="voice_agent",
+                target=self.agent.name,
+                correlation_id=message.correlation_id,
+                error=str(exc),
+            )
+        await self._deliver_response(response)
+
+    async def _deliver_response(self, response):
+        # Schedule on the event loop so the awaiting PendingRequests.issue()
+        # gets its future resolved on the next yield.
+        async def _send():
+            await self.agent.on_bus_message(response)
+
+        asyncio.create_task(_send())
 
     async def start_task(self, task_id="task-001", description="Test task"):
         """Simulate receiving a task request."""
@@ -137,10 +287,16 @@ class TestTaskLifecycle:
         ]
         assert start_calls == []
 
-    async def test_task_request_sets_game_client_task_id(self):
+    async def test_task_request_no_longer_mutates_game_client_task_id(self):
+        """Phase 1: TaskAgent doesn't touch the game client's current_task_id
+        anymore. The broker tags it per-call instead — covered by
+        test_voice_agent_bus_broker.TestGameToolCallBroker.
+        """
         h = TaskAgentHarness()
         await h.start_task(task_id="task-xyz")
-        assert h.game_client.current_task_id == "task-xyz"
+        # The harness's game_client is a stand-in for what the broker uses;
+        # TaskAgent never reaches into it directly anymore.
+        assert h.game_client.current_task_id is None
 
 
 @pytest.mark.unit
