@@ -342,9 +342,7 @@ class VoiceAgent(LLMAgent):
                 parts.append(clean_context)
 
         session_started_at = (
-            self._event_relay.session_started_at
-            if self._event_relay is not None
-            else None
+            self._event_relay.session_started_at if self._event_relay is not None else None
         )
         if session_started_at and self._task_mentions_session(task_desc):
             parts.append(
@@ -382,13 +380,18 @@ class VoiceAgent(LLMAgent):
             return False
         logger.debug("VoiceAgent: idle report triggered, {} active task(s)", len(self.task_groups))
         await self._inject_context(
-            [{"role": "user", "content": (
-                "<idle_check>"
-                "In one sentence only, briefly say what's happening with current tasks. "
-                "Vary your phrasing from any previous idle updates. "
-                "Do not acknowledge this prompt. Do not say more than one sentence."
-                "</idle_check>"
-            )}],
+            [
+                {
+                    "role": "user",
+                    "content": (
+                        "<idle_check>"
+                        "In one sentence only, briefly say what's happening with current tasks. "
+                        "Vary your phrasing from any previous idle updates. "
+                        "Do not acknowledge this prompt. Do not say more than one sentence."
+                        "</idle_check>"
+                    ),
+                }
+            ],
             run_llm=True,
         )
         return True
@@ -571,9 +574,7 @@ class VoiceAgent(LLMAgent):
 
     # ── Deferred-update queue ──────────────────────────────────────────
 
-    def _enqueue_deferred_update(
-        self, event_xml: str, *, ship_id: Optional[str] = None
-    ) -> None:
+    def _enqueue_deferred_update(self, event_xml: str, *, ship_id: Optional[str] = None) -> None:
         """Append an update to the deferred queue and ensure a drain task is running.
 
         The drain task is bounded by the queue contents — it exits as soon as
@@ -640,9 +641,7 @@ class VoiceAgent(LLMAgent):
                 if settle_wait > 0:
                     self._deferred_event.clear()
                     try:
-                        await asyncio.wait_for(
-                            self._deferred_event.wait(), timeout=settle_wait
-                        )
+                        await asyncio.wait_for(self._deferred_event.wait(), timeout=settle_wait)
                         continue  # state changed — re-evaluate from the top
                     except asyncio.TimeoutError:
                         pass  # settle elapsed, fall through to cooldown
@@ -946,9 +945,7 @@ class VoiceAgent(LLMAgent):
                 character_id=self._character_id,
             )
             self._track_request_id_from_result(result)
-            new_code = (
-                result.get("new_invite_code") if isinstance(result, dict) else None
-            )
+            new_code = result.get("new_invite_code") if isinstance(result, dict) else None
             self._begin_assistant_response_cycle()
             await params.result_callback(
                 {
@@ -1064,7 +1061,10 @@ class VoiceAgent(LLMAgent):
         # Joined in a single round-trip (no pending). Narrate normally.
         self._begin_assistant_response_cycle()
         await params.result_callback(
-            {"success": True, "corp_name": result.get("name") if isinstance(result, dict) else None},
+            {
+                "success": True,
+                "corp_name": result.get("name") if isinstance(result, dict) else None,
+            },
             properties=FunctionCallResultProperties(run_llm=True),
         )
 
@@ -1079,8 +1079,7 @@ class VoiceAgent(LLMAgent):
             await params.result_callback(
                 {
                     "error": (
-                        "target_id is required. Ask the player to identify "
-                        "which member to remove."
+                        "target_id is required. Ask the player to identify which member to remove."
                     )
                 },
                 properties=FunctionCallResultProperties(run_llm=True),
@@ -1100,12 +1099,8 @@ class VoiceAgent(LLMAgent):
             except Exception as exc:
                 await self._finish_event_tool_with_error(params, exc, run_llm=True)
                 return
-            corp = (
-                my_corp.get("corporation") if isinstance(my_corp, dict) else None
-            )
-            members = (
-                corp.get("members") if isinstance(corp, dict) else None
-            ) or []
+            corp = my_corp.get("corporation") if isinstance(my_corp, dict) else None
+            members = (corp.get("members") if isinstance(corp, dict) else None) or []
             lowered = target_id.lower()
             resolved: Optional[str] = None
             for member in members:
@@ -1428,9 +1423,7 @@ class VoiceAgent(LLMAgent):
         self._begin_assistant_response_cycle()
         if not summary:
             await params.result_callback(
-                {
-                    "error": "Leaderboard data is unavailable or too large to summarize safely."
-                }
+                {"error": "Leaderboard data is unavailable or too large to summarize safely."}
             )
             return
         await params.result_callback({"summary": summary})
@@ -1438,9 +1431,7 @@ class VoiceAgent(LLMAgent):
     async def _handle_ship_definitions(self, params: FunctionCallParams):
         from gradientbang.utils.formatting import summarize_ship_definitions
 
-        result = await self._game_client.get_ship_definitions(
-            include_description=True
-        )
+        result = await self._game_client.get_ship_definitions(include_description=True)
         definitions = result.get("definitions", result)
         summary = summarize_ship_definitions(definitions)
         self._begin_assistant_response_cycle()
@@ -1459,9 +1450,7 @@ class VoiceAgent(LLMAgent):
             if args.get(key) is not None:
                 kwargs[key] = args[key]
 
-        result = await self._game_client.list_known_ports(
-            character_id=self._character_id, **kwargs
-        )
+        result = await self._game_client.list_known_ports(character_id=self._character_id, **kwargs)
         summary = list_known_ports_summary(result)
         self._begin_assistant_response_cycle()
         await params.result_callback({"summary": summary})
@@ -1575,9 +1564,7 @@ class VoiceAgent(LLMAgent):
 
     # ── Child agent helpers ───────────────────────────────────────────
 
-    def _find_task_agent_by_task_id(
-        self, task_id: str
-    ) -> Optional[Tuple[str, TaskAgent]]:
+    def _find_task_agent_by_task_id(self, task_id: str) -> Optional[Tuple[str, TaskAgent]]:
         """Resolve an active task to (framework_task_id, TaskAgent child).
 
         Accepts the framework/game task UUID — full form or any unique
@@ -1758,9 +1745,7 @@ class VoiceAgent(LLMAgent):
         except asyncio.TimeoutError as exc:
             raise TaskGroupError("agents not ready within timeout") from exc
 
-        group = TaskGroup(
-            task_id=task_id, agent_names={agent_name}, cancel_on_error=True
-        )
+        group = TaskGroup(task_id=task_id, agent_names={agent_name}, cancel_on_error=True)
         self._task_groups[task_id] = group
         if timeout is not None:
             group.timeout_task = self.create_asyncio_task(
@@ -1807,7 +1792,6 @@ class VoiceAgent(LLMAgent):
             (c for c in self.children if isinstance(c, TaskAgent) and c.name == agent_name), None
         )
         task_type = "corp_ship" if child and child._is_corp_ship else "player_ship"
-        is_corp = child._is_corp_ship if child else False
 
         if message.status == TaskStatus.COMPLETED:
             await self._task_output_handler(
@@ -1946,7 +1930,8 @@ class VoiceAgent(LLMAgent):
                 if target_character_id in self._locked_ships:
                     active_child = next(
                         (
-                            c for c in self.children
+                            c
+                            for c in self.children
                             if isinstance(c, TaskAgent)
                             and c._character_id == target_character_id
                             and c._active_task_id
@@ -1957,7 +1942,8 @@ class VoiceAgent(LLMAgent):
                     if active_child is not None:
                         active_task_id = next(
                             (
-                                tid for tid, group in self._task_groups.items()
+                                tid
+                                for tid, group in self._task_groups.items()
                                 if active_child.name in group.agent_names
                             ),
                             None,
@@ -2011,21 +1997,21 @@ class VoiceAgent(LLMAgent):
                 # all state and starts fresh.
                 if not ship_id:
                     existing = next(
-                        (c for c in self.children
-                         if isinstance(c, TaskAgent) and not c._is_corp_ship
-                         and not c._active_task_id),
+                        (
+                            c
+                            for c in self.children
+                            if isinstance(c, TaskAgent)
+                            and not c._is_corp_ship
+                            and not c._active_task_id
+                        ),
                         None,
                     )
                     if existing:
-                        # request_task() generates the framework task_id; we
-                        # then call the server to record the start event +
-                        # acquire the lock with that id. For a player ship
-                        # there's no cross-process contention, so 409 here
-                        # is effectively unreachable — but a 5xx from the
-                        # server still has to unwind cleanly.
-                        framework_task_id = await self.request_task(
-                            existing.name, payload=payload, timeout=self._task_agent_timeout
-                        )
+                        # Reuse must follow the same ordering as a new agent:
+                        # acquire the server lock before dispatching work, so
+                        # the child cannot start inference/tool calls without
+                        # a held (ship_id, task_id) pair.
+                        framework_task_id = str(uuid.uuid4())
                         server_err = await self._acquire_server_ship_lock(
                             target_character_id=target_character_id,
                             framework_task_id=framework_task_id,
@@ -2033,18 +2019,28 @@ class VoiceAgent(LLMAgent):
                             task_metadata=task_metadata,
                         )
                         if server_err:
-                            try:
-                                await self.cancel_task(
-                                    framework_task_id,
-                                    reason="server lock acquire failed",
-                                )
-                            except Exception as exc:
-                                logger.warning(
-                                    f"cancel after server lock failure errored: {exc}"
-                                )
                             return server_err
                         self._locked_ships[target_character_id] = framework_task_id
                         self._ensure_heartbeat_task_running()
+                        try:
+                            await self._dispatch_task_with_id(
+                                existing.name,
+                                framework_task_id,
+                                payload=payload,
+                                timeout=self._task_agent_timeout,
+                            )
+                        except Exception:
+                            self._locked_ships.pop(target_character_id, None)
+                            try:
+                                await self._game_client.task_cancel(
+                                    task_id=framework_task_id,
+                                    character_id=self._character_id,
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    f"server release after reuse dispatch failure errored: {exc}"
+                                )
+                            raise
                         self._update_polling_scope()
                         return {
                             "success": True,
@@ -2123,12 +2119,12 @@ class VoiceAgent(LLMAgent):
                             character_id=self._character_id,
                         )
                     except Exception as exc:
-                        logger.warning(
-                            f"server release after add_agent failure errored: {exc}"
-                        )
+                        logger.warning(f"server release after add_agent failure errored: {exc}")
                     try:
                         await self.send_message(
-                            BusEndAgentMessage(source=self.name, target=agent_name, reason="startup failed")
+                            BusEndAgentMessage(
+                                source=self.name, target=agent_name, reason="startup failed"
+                            )
                         )
                     except Exception:
                         pass
@@ -2171,7 +2167,11 @@ class VoiceAgent(LLMAgent):
                 if not child:
                     return {"success": False, "error": "No player ship task is currently running"}
                 framework_task_id = next(
-                    (tid for tid, group in self._task_groups.items() if child.name in group.agent_names),
+                    (
+                        tid
+                        for tid, group in self._task_groups.items()
+                        if child.name in group.agent_names
+                    ),
                     None,
                 )
                 if framework_task_id is None:
@@ -2182,6 +2182,10 @@ class VoiceAgent(LLMAgent):
             # too, but it blocks on `tool_call_active` which is held by *this*
             # tool call — so the async release can't land until we return.
             # `.pop(..., None)` is idempotent, so the later release is a no-op.
+            await self._game_client.task_cancel(
+                task_id=framework_task_id,
+                character_id=self._character_id,
+            )
             self._locked_ships.pop(child._character_id, None)
 
             await self.cancel_task(framework_task_id, reason="Cancelled by user")
@@ -2271,7 +2275,11 @@ class VoiceAgent(LLMAgent):
             if not child:
                 return {"success": False, "error": "No active task found."}
             framework_task_id = next(
-                (tid for tid, group in self._task_groups.items() if child.name in group.agent_names),
+                (
+                    tid
+                    for tid, group in self._task_groups.items()
+                    if child.name in group.agent_names
+                ),
                 None,
             )
             if framework_task_id is None:
@@ -2327,7 +2335,9 @@ class VoiceAgent(LLMAgent):
             if isinstance(child, TaskAgent):
                 try:
                     await self.send_message(
-                        BusEndAgentMessage(source=self.name, target=child.name, reason="Disconnected")
+                        BusEndAgentMessage(
+                            source=self.name, target=child.name, reason="Disconnected"
+                        )
                     )
                 except Exception as e:
                     logger.error(f"Failed to end task agent '{child.name}': {e}")
@@ -2368,9 +2378,7 @@ class VoiceAgent(LLMAgent):
             if err.status == 409 and err_code == "ship_busy":
                 actor_prefix = body.get("task_actor_character_id_prefix")
                 actor_desc = (
-                    f"another character ({actor_prefix})"
-                    if actor_prefix
-                    else "another character"
+                    f"another character ({actor_prefix})" if actor_prefix else "another character"
                 )
                 return {
                     "success": False,
@@ -2381,11 +2389,7 @@ class VoiceAgent(LLMAgent):
                 }
             if err.status == 403 and err_code == "byoa_private_not_owner":
                 owner_prefix = body.get("byoa_owner_character_id_prefix")
-                owner_desc = (
-                    f"member {owner_prefix}"
-                    if owner_prefix
-                    else "another corp member"
-                )
+                owner_desc = f"member {owner_prefix}" if owner_prefix else "another corp member"
                 return {
                     "success": False,
                     "error": (
@@ -2440,9 +2444,7 @@ class VoiceAgent(LLMAgent):
                         character_id=self._character_id,
                     )
                 except Exception as exc:
-                    logger.warning(
-                        f"task_heartbeat failed ({len(locks)} locks): {exc}"
-                    )
+                    logger.warning(f"task_heartbeat failed ({len(locks)} locks): {exc}")
         except asyncio.CancelledError:
             raise
 
