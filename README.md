@@ -325,11 +325,7 @@ gb start
 
 The bot's `AsyncGameClient` receives game events via one of two transports, picked at construction time based on `EVENT_TRANSPORT`.
 
-### `polling` (default)
-
-HTTP polling against the `events_since` edge function, authenticated by `EDGE_API_TOKEN`. Works in any environment without per-character credentials. This is what every existing deployment uses today.
-
-### `pubsub`
+### `pubsub` (default)
 
 Direct Postgres long-poll against per-character pgmq queues. The bot connects with admin credentials (same URL as the rest of the system, `POSTGRES_POOLER_URL`) and calls SECURITY DEFINER functions (`subscribe_my_events` / `archive_my_events`) that:
 
@@ -354,6 +350,10 @@ The internal token is minted by the `verify_token` edge function in exchange for
 3. Make sure the bot's `/start` body includes a real Supabase Auth `access_token` (or set `BOT_TEST_ACCESS_TOKEN`). The bot's `/start` requires this in **both** transport modes — pubsub uses it to mint internal tokens via `verify_token`, polling uses it as `X-API-Token` so per-character endpoint checks pass.
 
 Migration `20260505000000_pubsub_and_broadcasts.sql` installs the `pgmq` and `pgjwt` extensions, provisions the internal signing secret in `public.app_runtime_config`, defines the auth functions (`subscribe_my_events` / `archive_my_events`), the service-role publish wrappers (`pgmq_publish` / `notify_broadcast`), and adds an `INSERT` trigger on `characters` that auto-creates per-character queues. Existing characters are backfilled at migration time. Production deploys are migration-only — no manual SQL or secret-injection step.
+
+### `polling`
+
+HTTP polling against the `events_since` edge function, authenticated by `EDGE_API_TOKEN`. Works in any environment without per-character credentials. Set `EVENT_TRANSPORT=polling` to opt out of pubsub.
 
 ### Why two modes?
 
@@ -659,7 +659,7 @@ pnpm run dev
 | `EDGE_API_TOKEN`            | Yes      | —         | Trusted-backend credential sent on every edge call as `X-Edge-Auth`. Proves the request came through bot.py rather than from an end user with a bare JWT. Required in production for the voice bot, NPC bots, scripts, and the combat-tick cron job. Tests/local-dev can leave it unset and rely on `ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1` on the server.                                                                                                                                  |
 | `DAILY_API_KEY`             | No       | —         | [Daily](https://www.daily.co/) API key (required for Daily transport)                                                                                                                                                                                             |
 | `LOCAL_API_POSTGRES_URL`    | No       | —         | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead                                                                                                                                                |
-| `EVENT_TRANSPORT`           | No       | `polling` | Event-delivery transport: `polling` (HTTP via `events_since`, default) or `pubsub` (direct Postgres long-poll on per-character pgmq queues). See [Event delivery modes](#event-delivery-modes).                                                                   |
+| `EVENT_TRANSPORT`           | No       | `pubsub`  | Event-delivery transport: `pubsub` (direct Postgres long-poll on per-character pgmq queues, default) or `polling` (HTTP via `events_since`). See [Event delivery modes](#event-delivery-modes).                                                                   |
 | `PGMQ_URL`                  | No       | —         | Direct (NOT pooled) postgres URL with the `pubsub_client` role's credentials. Required when `EVENT_TRANSPORT=pubsub`.                                                                                                                                             |
 
 #### LLM configuration

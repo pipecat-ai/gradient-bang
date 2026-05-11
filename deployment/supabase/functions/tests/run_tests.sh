@@ -161,10 +161,9 @@ export ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1
 # can measure coverage of all edge function code.
 #
 # Edge functions always dual-write to both the events table and per-character
-# pgmq queues. 
-# The matrix split is preserved for CI parallelism: both passes do the same
-# producer work and assert the suite is stable. Pass `TRANSPORT=polling|pubsub`
-# to run only one (e.g. for fast iteration on a non-event change).
+# pgmq queues. The default run only exercises the pubsub path; pass
+# `TRANSPORT=polling` to run the polling pass instead (kept reachable for
+# regression checks on the polling adapter).
 echo ""
 echo "==> Running integration tests (with coverage)..."
 echo ""
@@ -188,7 +187,7 @@ fi
 if [ -n "${TRANSPORT:-}" ]; then
   TRANSPORTS=("$TRANSPORT")
 else
-  TRANSPORTS=("polling" "pubsub")
+  TRANSPORTS=("pubsub")
 fi
 
 OVERALL_EXIT=0

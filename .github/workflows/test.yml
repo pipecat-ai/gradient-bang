@@ -7,13 +7,9 @@ on:
 
 jobs:
   test:
-    name: test (${{ matrix.transport }})
+    name: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        transport: [polling, pubsub]
 
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +27,4 @@ jobs:
           version: latest
 
       - name: Run integration tests
-        env:
-          TRANSPORT: ${{ matrix.transport }}
         run: bash deployment/supabase/functions/tests/run_tests.sh
