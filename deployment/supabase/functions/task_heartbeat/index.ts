@@ -1,3 +1,5 @@
+import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
+
 import {
   authenticate,
   authErrorResponse,
@@ -62,17 +64,26 @@ Deno.serve(traced("task_heartbeat", async (req, trace) => {
 
   const pairs: Array<{ ship_id: string; task_id: string }> = [];
   for (const entry of locksRaw) {
-    if (
-      entry &&
-      typeof entry === "object" &&
-      typeof (entry as Record<string, unknown>).ship_id === "string" &&
-      typeof (entry as Record<string, unknown>).task_id === "string"
-    ) {
-      pairs.push({
-        ship_id: (entry as Record<string, unknown>).ship_id as string,
-        task_id: (entry as Record<string, unknown>).task_id as string,
-      });
+    if (!entry || typeof entry !== "object") {
+      return errorResponse(
+        "each lock must include valid UUID ship_id and task_id",
+        400,
+      );
     }
+    const shipId = (entry as Record<string, unknown>).ship_id;
+    const taskId = (entry as Record<string, unknown>).task_id;
+    if (
+      typeof shipId !== "string" ||
+      typeof taskId !== "string" ||
+      !validateUuid(shipId) ||
+      !validateUuid(taskId)
+    ) {
+      return errorResponse(
+        "each lock must include valid UUID ship_id and task_id",
+        400,
+      );
+    }
+    pairs.push({ ship_id: shipId, task_id: taskId });
   }
 
   trace.setInput({ requestId, pair_count: pairs.length });

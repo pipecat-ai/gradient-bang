@@ -101,7 +101,7 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const taskShipId =
       (taskRow.ship_id as string | null) ?? taskOwnerCharacterId;
 
-    if (!taskOwnerCharacterId || !fullTaskId) {
+    if (!taskOwnerCharacterId || !fullTaskId || !taskShipId) {
       return errorResponse("Invalid task metadata", 500);
     }
 
@@ -110,7 +110,9 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     let taskCorpId: string | null = null;
     const { data: shipData, error: shipError } = await supabase
       .from("ship_instances")
-      .select("owner_type, owner_corporation_id")
+      .select(
+        "owner_type, owner_corporation_id, current_task_id",
+      )
       .eq("ship_id", taskOwnerCharacterId)
       .maybeSingle();
 
@@ -169,39 +171,37 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     }
     sAuthCheck.end();
 
-    // Release the ship-task lock. Normal cancel uses the pair-matched
-    // release (silent no-op if the held task no longer matches). Force
-    // mode clears whatever is held — the displaced task_id from the RPC
-    // is what we actually emit the cancel event for, so racing
-    // re-acquires still surface a coherent event trail.
-    const sRelease = trace.span("release_lock");
     let cancelTaskId = fullTaskId;
+    let cancelOwnerCharacterId = taskOwnerCharacterId;
+
     if (forceFlag) {
-      const { data: forceResult, error: forceErr } = await supabase.rpc(
-        "force_release_ship_task_lock",
-        { p_ship_id: taskShipId },
-      );
-      if (forceErr) {
-        sRelease.end();
-        console.error("task_cancel.force_release_error", forceErr);
-        return errorResponse("Failed to release ship task lock", 500);
-      }
-      const releasedTaskId =
-        typeof (forceResult as Record<string, unknown> | null)
-          ?.released_task_id === "string"
-          ? ((forceResult as Record<string, unknown>).released_task_id as string)
+      const currentTaskId =
+        typeof shipData?.current_task_id === "string"
+          ? shipData.current_task_id
           : null;
-      if (releasedTaskId) cancelTaskId = releasedTaskId;
-    } else {
-      const { error: releaseErr } = await supabase.rpc(
-        "release_ship_task_lock",
-        { p_ship_id: taskShipId, p_task_id: fullTaskId },
-      );
-      if (releaseErr) {
-        console.warn("task_cancel.release_warn", releaseErr);
+      if (currentTaskId) {
+        cancelTaskId = currentTaskId;
+        if (currentTaskId !== fullTaskId) {
+          const { data: currentTaskStart, error: currentTaskErr } =
+            await supabase
+              .from("events")
+              .select("character_id, task_id")
+              .eq("event_type", "task.start")
+              .eq("task_id", currentTaskId)
+              .order("inserted_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+          if (currentTaskErr) {
+            console.error("task_cancel.force_current_task_lookup", currentTaskErr);
+            return errorResponse("Failed to validate current task ownership", 500);
+          }
+          if (!currentTaskStart?.character_id) {
+            return errorResponse("Current ship task metadata not found", 409);
+          }
+          cancelOwnerCharacterId = currentTaskStart.character_id as string;
+        }
       }
     }
-    sRelease.end();
 
     // Task events are actor-private — see task_lifecycle for the full
     // rationale. The cancel event goes to the task owner directly; if a
@@ -210,7 +210,7 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const sEmit = trace.span("emit_event");
     await emitCharacterEvent({
       supabase,
-      characterId: taskOwnerCharacterId,
+      characterId: cancelOwnerCharacterId,
       eventType: "task.cancel",
       payload: {
         source: buildEventSource("task_cancel", requestId),
@@ -227,6 +227,21 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
       corpId: taskCorpId ?? undefined,
     });
     sEmit.end();
+
+    // Release after the cancel event is durably emitted so the running
+    // TaskAgent has a chance to observe cancellation before the lock is
+    // cleared. Use the task_id we emitted, even in force mode. If the lock
+    // moved between the metadata lookup and release, this becomes a no-op
+    // instead of clearing an unrelated newer task.
+    const sRelease = trace.span("release_lock");
+    const { error: releaseErr } = await supabase.rpc(
+      "release_ship_task_lock",
+      { p_ship_id: taskShipId, p_task_id: cancelTaskId },
+    );
+    if (releaseErr) {
+      console.warn("task_cancel.release_warn", releaseErr);
+    }
+    sRelease.end();
 
     trace.setOutput({ request_id: requestId, task_id: cancelTaskId });
     return successResponse({
