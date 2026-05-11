@@ -1924,8 +1924,8 @@ class VoiceAgent(LLMAgent):
     # handler:
     #   - reads character_id / actor_character_id off the inbound message
     #     and passes them per-call (overrides the player-bound client)
-    #   - tags self._game_client.current_task_id for the call duration via
-    #     try/finally so concurrent calls don't trample each other
+    #   - tags task_id for the call duration via a ContextVar so concurrent
+    #     brokered RPCs don't trample each other's event correlation
     #   - catches exceptions → error=str(e) in the response. Never re-raises.
     #
     # See docs/byoa.md "Phase 1 — VoiceAgent broker".
