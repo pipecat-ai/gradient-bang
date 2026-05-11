@@ -22,23 +22,23 @@
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
+  type AuthContext,
   authenticate,
   authErrorResponse,
   canActOnCharacter,
   errorResponse,
   successResponse,
-  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { buildEventSource, emitCharacterEvent } from "../_shared/events.ts";
 import { emitCorporationEvent } from "../_shared/corporations.ts";
 import {
-  parseJsonRequest,
-  requireString,
   optionalString,
+  parseJsonRequest,
+  RequestValidationError,
+  requireString,
   resolveRequestId,
   respondWithError,
-  RequestValidationError,
 } from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
 
@@ -180,10 +180,12 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       );
     }
 
-    const currentOwner =
-      typeof shipRow.byoa_owner_character_id === "string"
-        ? (shipRow.byoa_owner_character_id as string)
-        : null;
+    const currentOwner = typeof shipRow.byoa_owner_character_id === "string"
+      ? (shipRow.byoa_owner_character_id as string)
+      : null;
+    const currentMode: ByoaMode = shipRow.byoa_mode === "shared"
+      ? "shared"
+      : "private";
 
     // Action-specific authorization + state transition.
     let nextOwner: string | null;
@@ -230,20 +232,57 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       nextMode = "private";
     }
 
-    const changed =
-      currentOwner !== nextOwner || (shipRow.byoa_mode as string) !== nextMode;
+    const changed = currentOwner !== nextOwner || currentMode !== nextMode;
 
     if (changed) {
-      const { error: updateErr } = await supabase
+      const updatePayload = {
+        byoa_owner_character_id: nextOwner,
+        byoa_mode: nextMode,
+      };
+      const baseUpdate = supabase
         .from("ship_instances")
-        .update({
-          byoa_owner_character_id: nextOwner,
-          byoa_mode: nextMode,
-        })
-        .eq("ship_id", shipId);
+        .update(updatePayload)
+        .eq("ship_id", shipId)
+        .eq("owner_type", "corporation")
+        .eq("owner_corporation_id", corpId)
+        .is("current_task_id", null)
+        .eq("byoa_mode", currentMode);
+
+      const { data: updatedRow, error: updateErr } = currentOwner
+        ? await baseUpdate
+          .eq("byoa_owner_character_id", currentOwner)
+          .select("ship_id")
+          .maybeSingle()
+        : await baseUpdate
+          .is("byoa_owner_character_id", null)
+          .select("ship_id")
+          .maybeSingle();
+
       if (updateErr) {
         console.error("ship_byoa_configure.update_error", updateErr);
         return errorResponse("Failed to update BYOA configuration", 500);
+      }
+      if (!updatedRow) {
+        const { data: latestRow, error: latestErr } = await supabase
+          .from("ship_instances")
+          .select("current_task_id")
+          .eq("ship_id", shipId)
+          .maybeSingle();
+        if (latestErr) {
+          console.error("ship_byoa_configure.conflict_lookup", latestErr);
+          return errorResponse("Failed to update BYOA configuration", 500);
+        }
+        if (latestRow?.current_task_id) {
+          return new Response(
+            JSON.stringify({
+              error: "ship_busy",
+              ship_id: shipId,
+              current_task_id: latestRow.current_task_id,
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return errorResponse("BYOA configuration changed; retry", 409);
       }
     }
 
