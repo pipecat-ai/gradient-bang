@@ -232,12 +232,106 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       }
     }
 
+    // Server-side ship-task lock: acquire on start, release on finish.
+    // Acquire happens BEFORE event emission so a 409 doesn't leave a phantom
+    // task.start in the events table. Release happens AFTER event emission
+    // so a partial PGMQ publish doesn't leave a held lock; if release fails
+    // the lock auto-clears within the stale window.
+    if (eventType === "start") {
+      if (!shipId) {
+        return errorResponse("Failed to resolve ship for task start", 500);
+      }
+
+      const staleSeconds = Number(
+        Deno.env.get("TASK_LOCK_HEARTBEAT_STALE_SECONDS") ?? "180",
+      );
+      const hardTtlMin = Number(
+        Deno.env.get("TASK_LOCK_HARD_TTL_MINUTES") ?? "30",
+      );
+
+      const sAcquire = trace.span("acquire_lock");
+      const { data: acquireResult, error: acquireErr } = await supabase.rpc(
+        "acquire_ship_task_lock",
+        {
+          p_ship_id: shipId,
+          p_task_id: taskId,
+          p_actor_character_id: actorCharacterId,
+          p_stale_seconds: staleSeconds,
+          p_hard_ttl_minutes: hardTtlMin,
+        },
+      );
+      sAcquire.end();
+
+      if (acquireErr) {
+        console.error("task_lifecycle.acquire_error", acquireErr);
+        return errorResponse("Failed to acquire ship task lock", 500);
+      }
+
+      const ackd = (acquireResult ?? {}) as Record<string, unknown>;
+      if (ackd.acquired !== true) {
+        const holderActor =
+          typeof ackd.current_actor_character_id === "string"
+            ? ackd.current_actor_character_id
+            : null;
+        return new Response(
+          JSON.stringify({
+            error: "ship_busy",
+            ship_id: shipId,
+            current_task_id: ackd.current_task_id ?? null,
+            task_actor_character_id_prefix: holderActor
+              ? holderActor.replace(/-/g, "").slice(0, 12)
+              : null,
+            task_started_at: ackd.current_task_started_at ?? null,
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      // Acquired. If we stole a stale lock, emit task.cancel for the
+      // displaced task so the previous actor's session reflects the loss.
+      // Best-effort: a failure here doesn't unwind the acquire — the new
+      // owner already holds the lock, and the displaced actor will figure
+      // it out on reconnect even without an explicit event.
+      const stolenTaskId =
+        typeof ackd.stolen_task_id === "string" ? ackd.stolen_task_id : null;
+      if (stolenTaskId) {
+        try {
+          const { data: stolenStart } = await supabase
+            .from("events")
+            .select("character_id")
+            .eq("event_type", "task.start")
+            .eq("task_id", stolenTaskId)
+            .order("inserted_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (stolenStart?.character_id) {
+            await emitCharacterEvent({
+              supabase,
+              characterId: stolenStart.character_id as string,
+              eventType: "task.cancel",
+              payload: {
+                source: buildEventSource("task_lifecycle", requestId),
+                task_id: stolenTaskId,
+                cancelled_by: "stale_lock",
+              },
+              senderId: stolenStart.character_id as string,
+              requestId,
+              taskId: stolenTaskId,
+              recipientReason: "task_owner",
+              scope: "self",
+            });
+          }
+        } catch (err) {
+          console.warn("task_lifecycle.stolen_task_cancel_emit_failed", err);
+        }
+      }
+    }
+
     // Task events are actor-private. Whether the ship is personal or
     // corp-owned, only the acting character sees task lifecycle updates in
     // their UI and LLM context. Cross-member awareness of ship busyness is
-    // enforced synchronously at start_task time (the server rejects an
-    // attempt to start a second task on a ship whose current_task_id is
-    // already set) — not by fanning out task events to corpmates.
+    // enforced synchronously at start_task time by the atomic acquire above
+    // — not by fanning out task events to corpmates.
     const sEmit = trace.span("emit_event");
     await emitCharacterEvent({
       supabase,
@@ -254,6 +348,18 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       scope: "self",
     });
     sEmit.end();
+
+    if (eventType === "finish" && shipId) {
+      const { error: releaseErr } = await supabase.rpc(
+        "release_ship_task_lock",
+        { p_ship_id: shipId, p_task_id: taskId },
+      );
+      if (releaseErr) {
+        // Lock will auto-clear within the stale window. Don't fail the
+        // request — the task already finished from the client's POV.
+        console.warn("task_lifecycle.release_warn", releaseErr);
+      }
+    }
 
     trace.setOutput({ request_id: requestId, task_id: taskId, event_type: eventType });
     return successResponse({

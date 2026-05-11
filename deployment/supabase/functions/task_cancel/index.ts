@@ -48,17 +48,20 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
   try {
     const characterId = requireString(payload, "character_id");
     const taskId = requireString(payload, "task_id");
+    const forceFlag = payload.force === true;
 
     if (!(await canActOnCharacter(auth, characterId, supabase))) {
       return errorResponse("forbidden", 403);
     }
 
-    trace.setInput({ characterId, taskId, requestId });
+    trace.setInput({ characterId, taskId, requestId, force: forceFlag });
 
     const sQueryTask = trace.span("query_task");
     let query = supabase
       .from("events")
-      .select("id, character_id, actor_character_id, task_id, task_id_prefix")
+      .select(
+        "id, character_id, actor_character_id, task_id, task_id_prefix, ship_id",
+      )
       .eq("event_type", "task.start")
       .order("timestamp", { ascending: false });
 
@@ -94,6 +97,9 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const taskOwnerCharacterId = taskRow.character_id as string | null;
     const actorCharacterId = taskRow.actor_character_id as string | null;
     const fullTaskId = taskRow.task_id as string | null;
+    // Fall back to character_id for corp ships (where ship_id == pseudo-char).
+    const taskShipId =
+      (taskRow.ship_id as string | null) ?? taskOwnerCharacterId;
 
     if (!taskOwnerCharacterId || !fullTaskId) {
       return errorResponse("Invalid task metadata", 500);
@@ -138,9 +144,21 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     );
 
     // Authorization rules:
-    // - Task owner or actor can cancel their own tasks
-    // - Any corp member can cancel corp ship tasks
-    if (
+    // - Task owner or actor can cancel their own tasks (normal mode)
+    // - Any corp member can cancel corp ship tasks (normal mode)
+    // - force=true: requester must be a corp member of a corp ship; bypasses
+    //   the owner/actor check entirely so a corpmate can yank a stuck lock
+    //   without waiting for the stale window. Same trust boundary as the
+    //   non-force corp-member path, just an explicit override toggle.
+    if (forceFlag) {
+      if (!(isCorpShipTask && isSameCorp)) {
+        sAuthCheck.end();
+        return errorResponse(
+          "force=true is only allowed for corp members on corp ships",
+          403,
+        );
+      }
+    } else if (
       !(isRequesterOwner || isRequesterActor || (isCorpShipTask && isSameCorp))
     ) {
       sAuthCheck.end();
@@ -150,6 +168,40 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
       );
     }
     sAuthCheck.end();
+
+    // Release the ship-task lock. Normal cancel uses the pair-matched
+    // release (silent no-op if the held task no longer matches). Force
+    // mode clears whatever is held — the displaced task_id from the RPC
+    // is what we actually emit the cancel event for, so racing
+    // re-acquires still surface a coherent event trail.
+    const sRelease = trace.span("release_lock");
+    let cancelTaskId = fullTaskId;
+    if (forceFlag) {
+      const { data: forceResult, error: forceErr } = await supabase.rpc(
+        "force_release_ship_task_lock",
+        { p_ship_id: taskShipId },
+      );
+      if (forceErr) {
+        sRelease.end();
+        console.error("task_cancel.force_release_error", forceErr);
+        return errorResponse("Failed to release ship task lock", 500);
+      }
+      const releasedTaskId =
+        typeof (forceResult as Record<string, unknown> | null)
+          ?.released_task_id === "string"
+          ? ((forceResult as Record<string, unknown>).released_task_id as string)
+          : null;
+      if (releasedTaskId) cancelTaskId = releasedTaskId;
+    } else {
+      const { error: releaseErr } = await supabase.rpc(
+        "release_ship_task_lock",
+        { p_ship_id: taskShipId, p_task_id: fullTaskId },
+      );
+      if (releaseErr) {
+        console.warn("task_cancel.release_warn", releaseErr);
+      }
+    }
+    sRelease.end();
 
     // Task events are actor-private — see task_lifecycle for the full
     // rationale. The cancel event goes to the task owner directly; if a
@@ -162,23 +214,24 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
       eventType: "task.cancel",
       payload: {
         source: buildEventSource("task_cancel", requestId),
-        task_id: fullTaskId,
+        task_id: cancelTaskId,
         cancelled_by: characterId,
+        ...(forceFlag ? { force: true } : {}),
       },
       senderId: characterId,
       actorCharacterId: characterId,
       requestId,
-      taskId: fullTaskId,
+      taskId: cancelTaskId,
       recipientReason: "task_owner",
       scope: "self",
       corpId: taskCorpId ?? undefined,
     });
     sEmit.end();
 
-    trace.setOutput({ request_id: requestId, task_id: fullTaskId });
+    trace.setOutput({ request_id: requestId, task_id: cancelTaskId });
     return successResponse({
       request_id: requestId,
-      task_id: fullTaskId,
+      task_id: cancelTaskId,
       message: "Cancel event emitted",
     });
   } catch (err) {
