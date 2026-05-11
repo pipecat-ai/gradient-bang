@@ -1837,8 +1837,9 @@ class VoiceAgent(LLMAgent):
         if ship_character_id:
             self._locked_ships.pop(ship_character_id, None)
 
-        # Corp ship agents: end pipeline, remove from children, close client.
-        # Player agents: keep alive for reuse — pipeline stays running.
+        # Corp ship agents: end pipeline, remove from children. Player agents
+        # stay alive for reuse — pipeline stays running. After Phase 1 there's
+        # no per-task game client to close; the broker owns the single client.
         if child and child._is_corp_ship:
             try:
                 await self.send_message(
@@ -1847,11 +1848,6 @@ class VoiceAgent(LLMAgent):
             except Exception as e:
                 logger.error(f"Failed to end task agent '{agent_name}': {e}")
             self._children = [c for c in self._children if c.name != agent_name]
-            if child._game_client != self._game_client:
-                try:
-                    await child._game_client.close()
-                except Exception as e:
-                    logger.error(f"Failed to close task game client: {e}")
 
         self._update_polling_scope()
 
@@ -1944,9 +1940,10 @@ class VoiceAgent(LLMAgent):
         strategy: Optional[Dict[str, Any]] = None
         error: Optional[str] = None
         try:
-            raw = await self._game_client.combat_get_strategy(
-                character_id=msg.character_id
-            )
+            kwargs: Dict[str, Any] = {"character_id": msg.character_id}
+            if msg.ship_id:
+                kwargs["ship_id"] = msg.ship_id
+            raw = await self._game_client.combat_get_strategy(**kwargs)
             strategy = raw if isinstance(raw, dict) else {"strategy": raw}
         except Exception as exc:
             logger.warning(f"broker combat_strategy failed: {exc}")
@@ -2055,7 +2052,6 @@ class VoiceAgent(LLMAgent):
     @traced
     async def _handle_start_task(self, params: FunctionCallParams) -> dict:
         async with self._start_task_lock:
-            task_game_client = None
             agent_name = None
             target_character_id = None
             try:
@@ -2226,17 +2222,11 @@ class VoiceAgent(LLMAgent):
                             "ship_character_id": target_character_id,
                         }
 
-                if ship_id:
-                    task_game_client = AsyncGameClient(
-                        base_url=self._game_client.base_url,
-                        character_id=target_character_id,
-                        actor_character_id=self._character_id,
-                        entity_type="corporation_ship",
-                        transport="supabase",
-                        enable_event_polling=False,
-                    )
-                else:
-                    task_game_client = self._game_client
+                # Phase 1: corp-ship and player-ship TaskAgents both go over
+                # the bus to VoiceAgent's broker. No separate AsyncGameClient
+                # is constructed per task — the broker uses the player-bound
+                # client and overrides character_id / actor_character_id per
+                # call from each inbound BusGameToolCallRequest.
 
                 # Pre-generate the framework task UUID so we can return it to
                 # the LLM immediately. The bus name `task_xxxxxx` is purely
@@ -2254,19 +2244,17 @@ class VoiceAgent(LLMAgent):
                     task_metadata=task_metadata,
                 )
                 if server_err:
-                    if task_game_client and task_game_client != self._game_client:
-                        await task_game_client.close()
                     return server_err
 
                 agent_name = f"task_{uuid.uuid4().hex[:6]}"
                 task_agent = TaskAgent(
                     agent_name,
                     bus=self._bus,
-                    game_client=task_game_client,
                     character_id=target_character_id,
                     is_corp_ship=bool(ship_id),
                     task_metadata=task_metadata,
                     tag_outbound_rpcs_with_task_id=bool(ship_id),
+                    byoa_config=self._byoa_config,
                 )
 
                 # Lock ship BEFORE add_agent — if add_agent partially fails
@@ -2315,8 +2303,6 @@ class VoiceAgent(LLMAgent):
                 }
             except Exception as e:
                 logger.error(f"start_task failed: {e}")
-                if task_game_client and task_game_client != self._game_client:
-                    await task_game_client.close()
                 if target_character_id:
                     self._locked_ships.pop(target_character_id, None)
                 if agent_name:

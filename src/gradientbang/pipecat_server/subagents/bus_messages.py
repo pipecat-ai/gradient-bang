@@ -128,15 +128,20 @@ class BusCombatStrategyRequest(BusDataMessage):
     """Fetch the combat doctrine for a character before initiating combat.
 
     Replaces the direct ``combat_get_strategy()`` call in TaskAgent's
-    combat preamble path (today: ``task_agent.py:757``).
+    combat preamble path (today: ``task_agent.py:751``).
 
     Parameters:
         correlation_id: Unique id matching the response.
-        character_id: Character whose strategy should be fetched.
+        character_id: Character whose strategy should be fetched (the
+            corp-ship pseudo-char for corp tasks, the player otherwise).
+        ship_id: Ship id (the strategy is keyed on ship, not character —
+            so this is the canonical lookup key). Optional only for
+            backwards-compat with broker handlers that haven't been updated.
     """
 
     correlation_id: str = ""
     character_id: str = ""
+    ship_id: Optional[str] = None
 
 
 @dataclass
