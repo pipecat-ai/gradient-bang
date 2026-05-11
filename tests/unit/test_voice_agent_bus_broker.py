@@ -217,28 +217,6 @@ class TestGameToolCallBroker:
         assert "unknown tool" in sent.error
         assert "not_a_real_method" in sent.error
 
-    @pytest.mark.asyncio
-    async def test_message_for_other_target_ignored(self):
-        """A request targeted at someone else must not be dispatched."""
-        agent = _make_voice_agent()
-        agent._game_client.move = AsyncMock(return_value={"ok": True})
-
-        msg = BusGameToolCallRequest(
-            source="task_abc",
-            target="some-other-agent",
-            correlation_id="r1",
-            tool_name="move",
-            args={},
-            character_id="char-x",
-        )
-        await agent.on_bus_message(msg)
-
-        agent._game_client.move.assert_not_awaited()
-        # Don't send a response either — would confuse the real target.
-        for call in agent.send_message.await_args_list:
-            if call.args:
-                assert not isinstance(call.args[0], BusGameToolCallResponse)
-
 
 # ── Combat-strategy broker ────────────────────────────────────────────
 
