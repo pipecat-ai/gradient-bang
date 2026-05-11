@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import os
 import uuid
 import logging
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Iterator, Mapping, Optional
 from pathlib import Path
 from datetime import datetime, timezone
 import json
@@ -20,6 +22,34 @@ from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 
 logger = logging.getLogger(__name__)
+
+
+# Per-call task_id override. The Phase 1 broker tags the task_id on
+# every brokered RPC. The shared ``self._current_task_id`` instance
+# field would race if two concurrent broker handlers wrote to it
+# between set and read (each ``_request`` ``await``s before
+# ``_inject_character_ids`` runs). A ContextVar is async-safe — each
+# asyncio Task carries its own copy of the context — so handler A and
+# handler B can run concurrently without cross-pollution.
+_per_call_task_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "gb_supabase_per_call_task_id", default=None
+)
+
+
+@contextlib.contextmanager
+def per_call_task_id(task_id: Optional[str]) -> Iterator[None]:
+    """Bind ``task_id`` for the duration of a brokered RPC.
+
+    The Supabase client's ``_inject_character_ids`` reads this and
+    enriches the outbound payload with the override. Outside the
+    block, payloads fall back to the client's ``current_task_id`` (or
+    nothing). Safe under concurrent broker dispatch.
+    """
+    token = _per_call_task_id.set(task_id)
+    try:
+        yield
+    finally:
+        _per_call_task_id.reset(token)
 logger.addHandler(logging.NullHandler())
 _TRUE_VALUES = {"1", "true", "on", "yes"}
 
@@ -378,9 +408,17 @@ class AsyncGameClient(BaseAsyncGameClient):
         if canonical_actor is not None:
             enriched["actor_character_id"] = canonical_actor
 
-        # Auto-inject task_id if set (for TaskAgent task correlation)
-        if self._current_task_id and "task_id" not in enriched:
-            enriched["task_id"] = self._current_task_id
+        # Auto-inject task_id if set (for TaskAgent task correlation).
+        # The Phase 1 broker prefers the ContextVar override so that
+        # concurrent brokered RPCs can't cross-tag each other's events
+        # by racing on the shared client field. Outside a broker
+        # context the ContextVar is unset and the bound field wins.
+        override_task_id = _per_call_task_id.get()
+        effective_task_id = (
+            override_task_id if override_task_id is not None else self._current_task_id
+        )
+        if effective_task_id and "task_id" not in enriched:
+            enriched["task_id"] = effective_task_id
 
         return enriched
 

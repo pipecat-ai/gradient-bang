@@ -273,6 +273,7 @@ class TestTaskFinishMessage:
     @pytest.mark.asyncio
     async def test_sends_fire_and_forget_notification(self):
         agent = _make_agent()
+        agent._task_metadata = {"actor_character_id": "player-1"}
         await agent._send_task_finish_notification(
             status="completed", summary="reached sector 5"
         )
@@ -280,10 +281,26 @@ class TestTaskFinishMessage:
         msg = _captured(agent)[0]
         assert isinstance(msg, BusTaskFinishNotification)
         assert msg.character_id == "char-123"
+        # actor_character_id comes from task_metadata; the broker forwards
+        # it to task_lifecycle(finish) so the server's BYOA-private check
+        # authorises against the player, not the ship pseudo-character.
+        assert msg.actor_character_id == "player-1"
         assert msg.task_id == "active-task-uuid"
         assert msg.status == "completed"
         assert msg.summary == "reached sector 5"
         assert msg.target == "voice_agent"
+
+    @pytest.mark.asyncio
+    async def test_finish_without_actor_carries_empty_string(self):
+        """Player-ship tasks have no separate actor — actor_character_id
+        defaults to empty so the broker can decide to omit it."""
+        agent = _make_agent()
+        agent._task_metadata = {}
+        await agent._send_task_finish_notification(status="completed", summary=None)
+
+        msg = _captured(agent)[0]
+        assert isinstance(msg, BusTaskFinishNotification)
+        assert msg.actor_character_id == ""
 
     @pytest.mark.asyncio
     async def test_skips_when_no_task_or_requester(self):

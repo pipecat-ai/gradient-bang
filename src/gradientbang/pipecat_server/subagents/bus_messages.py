@@ -214,12 +214,19 @@ class BusTaskFinishNotification(BusDataMessage):
     Parameters:
         character_id: Character whose task ended (corp-ship pseudo-char
             or player).
+        actor_character_id: Character that issued the original task (the
+            player). For corp-ship tasks this differs from
+            ``character_id`` and is the BYOA owner / corp member who
+            initiated the work — the edge function's BYOA-private check
+            authorises the finish against this field, not against
+            ``character_id``.
         task_id: The framework task id.
         status: How the task ended.
         summary: Optional human-readable summary for the finish event.
     """
 
     character_id: str = ""
+    actor_character_id: str = ""
     task_id: str = ""
     status: Literal["completed", "failed", "cancelled"] = "completed"
     summary: Optional[str] = None

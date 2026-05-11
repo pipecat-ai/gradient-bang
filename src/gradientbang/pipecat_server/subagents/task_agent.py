@@ -1826,16 +1826,24 @@ class TaskAgent(LLMAgent):
 
         No response is expected. Errors here are logged; the server-side
         lock auto-clears within the stale window if this fails to land.
+
+        actor_character_id mirrors what was passed at start time — for a
+        corp-ship task that's the player who issued the work, not the
+        ship's pseudo-character. The edge function's BYOA-private check
+        authorises the finish against this field, so a missing /
+        defaulted actor would 403 on private BYOA ships.
         """
         target = self._task_requester
         if not target or not self._active_task_id:
             return
+        actor = self._task_metadata.get("actor_character_id") if self._task_metadata else None
         try:
             await self.send_message(
                 BusTaskFinishNotification(
                     source=self.name,
                     target=target,
                     character_id=self._character_id,
+                    actor_character_id=str(actor) if isinstance(actor, str) else "",
                     task_id=self._active_task_id,
                     status=status,
                     summary=summary,
