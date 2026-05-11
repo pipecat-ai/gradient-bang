@@ -160,7 +160,7 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     const { data: accessibleShips, error: shipLookupError } = await supabase
       .from("ship_instances")
       .select(
-        "ship_id, ship_name, ship_type, owner_type, owner_character_id, owner_corporation_id",
+        "ship_id, ship_name, ship_type, owner_type, owner_character_id, owner_corporation_id, byoa_owner_character_id, byoa_mode",
       )
       .or(orClauses.join(","));
 
@@ -240,6 +240,36 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     if (eventType === "start") {
       if (!shipId) {
         return errorResponse("Failed to resolve ship for task start", 500);
+      }
+
+      // BYOA private check — must precede the lock acquire so we fail fast
+      // before touching the lock. A 'private' BYOA ship can only be acted on
+      // by its BYOA owner; corp members are blocked even though they normally
+      // have full corp-ship access. 'shared' BYOA is informational only —
+      // any corp member can still issue tasks.
+      const byoaOwner =
+        typeof shipRow?.byoa_owner_character_id === "string"
+          ? (shipRow.byoa_owner_character_id as string)
+          : null;
+      const byoaMode =
+        typeof shipRow?.byoa_mode === "string"
+          ? (shipRow.byoa_mode as string)
+          : null;
+      if (
+        byoaOwner &&
+        byoaMode === "private" &&
+        actorCharacterId !== byoaOwner
+      ) {
+        return new Response(
+          JSON.stringify({
+            error: "byoa_private_not_owner",
+            ship_id: shipId,
+            byoa_owner_character_id_prefix: byoaOwner
+              .replace(/-/g, "")
+              .slice(0, 12),
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       const staleSeconds = Number(
