@@ -67,6 +67,27 @@ DELETE FROM ship_instances WHERE owner_character_id IN (
   '60000000-4000-4000-8000-000000000008'
 );
 
+-- Clean up corporations founded by these eval characters before deleting
+-- them. corporations.founder_id is ON DELETE RESTRICT (intentional in prod),
+-- so any test that turned a seed character into a corp founder would block
+-- the next reseed without this. Unlink any other character that joined
+-- those corps too, since characters.corporation_id has no cascade.
+UPDATE characters SET corporation_id = NULL WHERE corporation_id IN (
+  SELECT corp_id FROM corporations WHERE founder_id IN (
+    '60000000-0000-4000-8000-000000000008',
+    '60000000-1000-4000-8000-000000000008',
+    '60000000-2000-4000-8000-000000000008',
+    '60000000-3000-4000-8000-000000000008',
+    '60000000-4000-4000-8000-000000000008'
+  )
+);
+DELETE FROM corporations WHERE founder_id IN (
+  '60000000-0000-4000-8000-000000000008',
+  '60000000-1000-4000-8000-000000000008',
+  '60000000-2000-4000-8000-000000000008',
+  '60000000-3000-4000-8000-000000000008',
+  '60000000-4000-4000-8000-000000000008'
+);
 DELETE FROM characters WHERE character_id IN (
   '60000000-0000-4000-8000-000000000008',
   '60000000-1000-4000-8000-000000000008',

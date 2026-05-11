@@ -89,6 +89,21 @@ async function runSeed(sql: string): Promise<void> {
   const client = await acquirePgClient();
   try {
     await client.queryObject(sql);
+  } catch (err) {
+    // The seed SQL wraps its work in BEGIN/COMMIT. If a statement fails after
+    // BEGIN, the connection is left in "transaction aborted" state. Without an
+    // explicit ROLLBACK before returning the client to the pool, the next
+    // seed that picks up this connection sees
+    //   "current transaction is aborted, commands ignored until end of
+    //    transaction block"
+    // for every statement, masking the real failure. Roll back defensively.
+    try {
+      await client.queryObject("ROLLBACK");
+    } catch (_) {
+      // already not in a transaction, or rollback itself failed — either way
+      // we're surfacing the original error below
+    }
+    throw err;
   } finally {
     client.release();
   }

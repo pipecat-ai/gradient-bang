@@ -159,6 +159,27 @@ BEGIN
 END $clone_teardown$;
 
 -- 7b. Characters (the 5 main Orion Vale world characters)
+-- Clean up corporations founded by these eval characters before deleting
+-- them. corporations.founder_id is ON DELETE RESTRICT (intentional in prod),
+-- so any test that turned a seed character into a corp founder would block
+-- the next reseed without this. Unlink any other character that joined
+-- those corps too, since characters.corporation_id has no cascade.
+UPDATE characters SET corporation_id = NULL WHERE corporation_id IN (
+  SELECT corp_id FROM corporations WHERE founder_id IN (
+    '1a000000-0000-4000-8000-000000000001',
+    '1a100000-0000-4000-8000-000000000001',
+    '1a200000-0000-4000-8000-000000000001',
+    '1a300000-0000-4000-8000-000000000001',
+    '1a400000-0000-4000-8000-000000000001'
+  )
+);
+DELETE FROM corporations WHERE founder_id IN (
+  '1a000000-0000-4000-8000-000000000001',
+  '1a100000-0000-4000-8000-000000000001',
+  '1a200000-0000-4000-8000-000000000001',
+  '1a300000-0000-4000-8000-000000000001',
+  '1a400000-0000-4000-8000-000000000001'
+);
 DELETE FROM characters WHERE character_id IN (
   '1a000000-0000-4000-8000-000000000001',
   '1a100000-0000-4000-8000-000000000001',
