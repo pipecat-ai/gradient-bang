@@ -16,6 +16,7 @@ import { cn } from "@/utils/tailwind"
 import { PlayerFightersBadge, PlayerShieldsBadge, PlayerShipFuelBadge } from "../PlayerShipBadges"
 import { PlayerShipCargo } from "../PlayerShipCargo"
 import { PopoverHelper } from "../PopoverHelper"
+import { ShipStatusPopover } from "../ShipStatusPopover"
 import { Badge } from "../primitives/Badge"
 import { Button } from "../primitives/Button"
 import { DotDivider } from "../primitives/DotDivider"
@@ -134,6 +135,9 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
         <ShipCardStat Icon={FighterIcon} value={ship.fighters} />
         <ShipCardStat Icon={ShieldIcon} value={ship.shields} />
       </dl>
+      <div className="relative z-10 self-start mr-1 mt-1">
+        <ShipStatusPopover ship={ship} />
+      </div>
     </div>
   )
 }
