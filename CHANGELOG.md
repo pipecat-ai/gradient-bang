@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **BYOA (Bring-Your-Own-Agent) groundwork** — corp members can claim a corp ship as BYOA via `ship_byoa_configure` with `private` (only the owner can issue tasks) or `shared` (any corp member, with informational badging) modes. See [docs/setup-byoa.md](docs/setup-byoa.md) for the operator-facing guide and [docs/byoa.md](docs/byoa.md) for the multi-phase roadmap
+- Server-enforced ship-task lock on `ship_instances.current_task_id`: a corp ship can run only one task at a time across processes and corp members. Layered stale-lock recovery — clean disconnect release (<1s), heartbeat staleness (3 missed beats, default 180s), hard TTL (default 30min), and corp-member force-cancel (`task_cancel(force=true)`)
+- New `task_heartbeat` edge function: bulk-refreshes `task_last_heartbeat_at` for a list of `{ship_id, task_id}` pairs; mismatched pairs are silent no-ops
+- `current_task_actor` and `byoa` blocks on `list_user_ships` and `corporation_info` ship-list payloads, with all character IDs truncated to 12 hex chars (full UUIDs never sent in these payloads)
+- `ByoaAgentConfig` (Python) + `BYOA_*` env overrides for agent-side heartbeat cadence, RPC timeouts, and concurrency. Two-surface design documented: server-side env (`TASK_LOCK_*`) is operator-only, agent-side `BYOA_*` is BYOA-tunable
+
+### Changed
+
+- `task_lifecycle event_type=start` acquires the lock atomically before emitting the event; returns `409 ship_busy` (with truncated holder identity) on contention or `403 byoa_private_not_owner` on a private BYOA ship when the caller isn't the owner
+- `task_cancel` releases the lock atomically (pair-matched). New `force: true` flag lets any corp member yank a stuck lock immediately, bypassing the owner/actor check
+- `fetchActiveTaskIdsByShip` switched from ~150 lines of event scanning to a direct column read — perf win for `list_user_ships`, `corporation_info`, and `combat_finalization`
+- VoiceAgent acquires the server lock *before* spawning a TaskAgent (or dispatching to an idle reused one), and posts `task_heartbeat` every 60s for held locks; 409/403 surface as user-facing errors with no local child created
+- VoiceAgent shutdown explicitly releases each held lock server-side via `task_cancel` (was: clear local set only — lock would leak until stale window)
+- TaskAgent no longer emits `task.start` — VoiceAgent owns that as part of the pre-spawn acquire, eliminating the double-emit race
+
 ## [0.4.1] - 2026-05-11
 
 ### Changed
