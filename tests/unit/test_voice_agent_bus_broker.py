@@ -95,16 +95,26 @@ class TestGameToolCallBroker:
         assert sent.target == "task_abc"
 
     @pytest.mark.asyncio
-    async def test_task_id_tag_set_and_restored_on_success(self):
+    async def test_task_id_propagated_via_per_call_contextvar(self):
+        """The broker propagates task_id via a ContextVar instead of
+        mutating the shared client's current_task_id. The ContextVar is
+        per-asyncio-Task, so two concurrent brokered RPCs can never
+        cross-tag each other's events.
+        """
+        from gradientbang.utils.supabase_client import _per_call_task_id
+
         agent = _make_voice_agent()
         captured: list = []
 
         async def move_check(**_kwargs):
-            captured.append(agent._game_client.current_task_id)
+            # Read the ContextVar from inside the awaited method body —
+            # this is the value _inject_character_ids would see when
+            # building the outbound payload.
+            captured.append(_per_call_task_id.get())
             return {"ok": True}
 
         agent._game_client.move = AsyncMock(side_effect=move_check)
-        agent._game_client.current_task_id = "prior-task"
+        agent._game_client.current_task_id = "should-not-leak"
 
         msg = BusGameToolCallRequest(
             source="task_abc",
@@ -117,13 +127,18 @@ class TestGameToolCallBroker:
         await agent.on_bus_message(msg)
 
         assert captured == ["active-task"]
-        assert agent._game_client.current_task_id == "prior-task"  # restored
+        # Outside the with-block, the ContextVar resets to its default.
+        assert _per_call_task_id.get() is None
+        # And the shared client field is no longer mutated by the broker.
+        assert agent._game_client.current_task_id == "should-not-leak"
 
     @pytest.mark.asyncio
-    async def test_task_id_tag_restored_on_exception(self):
+    async def test_task_id_contextvar_resets_on_exception(self):
+        from gradientbang.utils.supabase_client import _per_call_task_id
+
         agent = _make_voice_agent()
         agent._game_client.move = AsyncMock(side_effect=RuntimeError("boom"))
-        agent._game_client.current_task_id = "prior-task"
+        agent._game_client.current_task_id = "should-not-leak"
 
         msg = BusGameToolCallRequest(
             source="task_abc",
@@ -135,11 +150,44 @@ class TestGameToolCallBroker:
         )
         await agent.on_bus_message(msg)
 
-        assert agent._game_client.current_task_id == "prior-task"
+        # Even on exception the contextmanager resets the ContextVar.
+        assert _per_call_task_id.get() is None
+        assert agent._game_client.current_task_id == "should-not-leak"
         sent = _last_sent_message(agent)
         assert isinstance(sent, BusGameToolCallResponse)
         assert sent.result is None
         assert sent.error == "boom"
+
+    @pytest.mark.asyncio
+    async def test_envelope_identity_wins_over_args(self):
+        """Envelope ``character_id`` / ``actor_character_id`` are
+        authoritative — a sender can't spoof identity by stuffing those
+        fields into ``args``. The broker uses assignment (not
+        setdefault), so the envelope unconditionally overrides.
+        """
+        agent = _make_voice_agent()
+        agent._game_client.move = AsyncMock(return_value={"ok": True})
+
+        msg = BusGameToolCallRequest(
+            source="task_abc",
+            correlation_id="r1",
+            tool_name="move",
+            args={
+                "to_sector": 5,
+                # Malicious / malformed args trying to shadow envelope identity.
+                "character_id": "spoofed-char",
+                "actor_character_id": "spoofed-actor",
+            },
+            character_id="real-char",
+            actor_character_id="real-actor",
+        )
+        await agent.on_bus_message(msg)
+
+        agent._game_client.move.assert_awaited_once_with(
+            to_sector=5,
+            character_id="real-char",
+            actor_character_id="real-actor",
+        )
 
     @pytest.mark.asyncio
     async def test_unknown_tool_returns_error(self):
@@ -337,18 +385,45 @@ class TestTaskFinishBroker:
         msg = BusTaskFinishNotification(
             source="task_abc",
             character_id="corp-ship-abc",
+            actor_character_id="player-123",
             task_id="task-uuid",
             status="completed",
             summary="reached sector 5",
         )
         await agent.on_bus_message(msg)
 
+        # task_metadata carries the actor so it lands as actor_character_id
+        # on the outbound payload — the server's BYOA-private finish check
+        # is keyed on this field, not on character_id (the pseudo-char).
         agent._game_client.task_lifecycle.assert_awaited_once_with(
             character_id="corp-ship-abc",
             task_id="task-uuid",
             event_type="finish",
             task_status="completed",
             task_summary="reached sector 5",
+            task_metadata={"actor_character_id": "player-123"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_finish_without_actor_omits_metadata(self):
+        """Player-ship tasks don't have a distinct actor — finish carries
+        no actor_character_id, broker passes task_metadata=None."""
+        agent = _make_voice_agent()
+        msg = BusTaskFinishNotification(
+            source="task_abc",
+            character_id="char-123",
+            actor_character_id="",  # default
+            task_id="task-uuid",
+            status="completed",
+        )
+        await agent.on_bus_message(msg)
+        agent._game_client.task_lifecycle.assert_awaited_once_with(
+            character_id="char-123",
+            task_id="task-uuid",
+            event_type="finish",
+            task_status="completed",
+            task_summary=None,
+            task_metadata=None,
         )
 
     @pytest.mark.asyncio

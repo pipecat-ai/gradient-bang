@@ -68,7 +68,7 @@ from gradientbang.tools import VOICE_TOOLS
 from gradientbang.utils.api_client import RPCError
 from gradientbang.utils.formatting import looks_like_uuid
 from gradientbang.utils.llm_factory import create_llm_service, get_voice_llm_config
-from gradientbang.utils.supabase_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient, per_call_task_id
 from gradientbang.utils.weave_tracing import traced
 
 if TYPE_CHECKING:
@@ -1976,37 +1976,39 @@ class VoiceAgent(LLMAgent):
     ) -> None:
         """Dispatch a TaskAgent tool call to the player-bound game client.
 
-        ``character_id`` and ``actor_character_id`` from the message
-        override the client's bound identity for the duration of the call,
-        so a corp-ship TaskAgent's RPC acts on the corp-ship pseudo-char
-        with the player as actor — without constructing a second client.
+        ``character_id`` and ``actor_character_id`` from the envelope
+        unconditionally win over anything in ``msg.args`` — the broker is
+        the trust boundary between TaskAgent / future BYOA senders and the
+        edge functions, so a malicious or malformed sender cannot hijack
+        identity by stuffing those keys into args.
+
+        ``task_id`` propagates via a ContextVar (``per_call_task_id``) for
+        the duration of the call rather than by mutating the shared
+        client's ``current_task_id`` field; that mutation would race when
+        two concurrent brokered RPCs are in flight on the same client.
         """
         result: Optional[Dict[str, Any]] = None
         error: Optional[str] = None
-        prev_task_id = getattr(self._game_client, "current_task_id", None)
-        try:
-            self._game_client.current_task_id = msg.task_id or None
-            method = getattr(self._game_client, msg.tool_name, None)
-            if method is None or not callable(method):
-                error = f"unknown tool: {msg.tool_name!r}"
-            else:
-                kwargs: Dict[str, Any] = dict(msg.args)
-                if msg.character_id:
-                    kwargs.setdefault("character_id", msg.character_id)
-                if msg.actor_character_id:
-                    kwargs.setdefault("actor_character_id", msg.actor_character_id)
-                raw = await method(**kwargs)
-                result = raw if isinstance(raw, dict) else {"result": raw}
-        except Exception as exc:
-            logger.warning(
-                f"broker game_tool_call({msg.tool_name}) failed: {exc}"
-            )
-            error = str(exc)
-        finally:
+        method = getattr(self._game_client, msg.tool_name, None)
+        if method is None or not callable(method):
+            error = f"unknown tool: {msg.tool_name!r}"
+        else:
+            kwargs: Dict[str, Any] = dict(msg.args)
+            # Envelope identity is authoritative — assignment, not
+            # setdefault, so args can't shadow these fields.
+            if msg.character_id:
+                kwargs["character_id"] = msg.character_id
+            if msg.actor_character_id:
+                kwargs["actor_character_id"] = msg.actor_character_id
             try:
-                self._game_client.current_task_id = prev_task_id
-            except Exception:
-                pass
+                with per_call_task_id(msg.task_id or None):
+                    raw = await method(**kwargs)
+                result = raw if isinstance(raw, dict) else {"result": raw}
+            except Exception as exc:
+                logger.warning(
+                    f"broker game_tool_call({msg.tool_name}) failed: {exc}"
+                )
+                error = str(exc)
 
         await self.send_message(
             BusGameToolCallResponse(
@@ -2088,7 +2090,15 @@ class VoiceAgent(LLMAgent):
         Server-side this triggers the pair-matched ship-lock release.
         No response message; the bundled TaskAgent already finishes its
         own bookkeeping before sending this.
+
+        actor_character_id is forwarded explicitly. For a private BYOA
+        corp ship the server's owner-only check is keyed on this field,
+        and defaulting it to character_id (the pseudo-character) would
+        403 the finish and leave the lock until stale recovery.
         """
+        task_metadata: Dict[str, Any] = {}
+        if msg.actor_character_id:
+            task_metadata["actor_character_id"] = msg.actor_character_id
         try:
             await self._game_client.task_lifecycle(
                 character_id=msg.character_id,
@@ -2096,6 +2106,7 @@ class VoiceAgent(LLMAgent):
                 event_type="finish",
                 task_status=msg.status,
                 task_summary=msg.summary,
+                task_metadata=task_metadata or None,
             )
         except Exception as exc:
             # Lock auto-clears within the stale window. Don't fail loudly —
