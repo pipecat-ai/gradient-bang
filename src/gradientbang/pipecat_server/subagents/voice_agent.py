@@ -39,7 +39,10 @@ from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageF
 from pipecat.services.llm_service import FunctionCallParams
 
 from gradientbang.pipecat_server.frames import TaskActivityFrame
+from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequests
 from gradientbang.pipecat_server.subagents.bus_messages import (
+    BusAgentHelloRequest,
+    BusAgentHelloResponse,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -168,6 +171,10 @@ class VoiceAgent(LLMAgent):
         # every (ship_id, task_id) pair in _locked_ships. Lazily started on
         # the first acquire; exits when the map drains.
         self._heartbeat_task: Optional[asyncio.Task] = None
+        # Phase 1: PendingRequests tracks outbound BusAgentHelloRequest
+        # correlation_ids — the broker's hello-response handler resolves
+        # the awaiting future when the targeted agent signals alive.
+        self._hello_pending: PendingRequests = PendingRequests()
 
         # ── Deferred-update queue (task.completed batching, etc.) ──
         # Bounded drain task lifecycle: lazily spawned on first enqueue,
@@ -1718,16 +1725,74 @@ class VoiceAgent(LLMAgent):
     async def on_agent_ready(self, data) -> None:
         await super().on_agent_ready(data)
         pending = self._pending_tasks.pop(data.agent_name, None)
-        if pending:
-            framework_task_id, payload = pending
-            await self._dispatch_task_with_id(
-                data.agent_name,
-                framework_task_id,
-                payload=payload,
-                timeout=self._task_agent_timeout,
+        if not pending:
+            return
+        framework_task_id, payload = pending
+        # Universal liveness handshake — see "Agent lifecycle & wake-up" in
+        # docs/byoa.md. For an in-process TaskAgent this returns ~instantly;
+        # for a future remote BYOA agent it bridges the cold-start window.
+        try:
+            await self._send_hello_and_wait(data.agent_name)
+        except (asyncio.TimeoutError, RuntimeError) as exc:
+            logger.warning(
+                f"VoiceAgent: hello handshake with '{data.agent_name}' failed: {exc}"
             )
-            self._update_polling_scope()
-            logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.agent_name)
+            await self._rollback_failed_spawn(
+                agent_name=data.agent_name,
+                framework_task_id=framework_task_id,
+                reason="agent failed wake-up handshake",
+            )
+            return
+        await self._dispatch_task_with_id(
+            data.agent_name,
+            framework_task_id,
+            payload=payload,
+            timeout=self._task_agent_timeout,
+        )
+        self._update_polling_scope()
+        logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.agent_name)
+
+    async def _rollback_failed_spawn(
+        self,
+        *,
+        agent_name: str,
+        framework_task_id: str,
+        reason: str,
+    ) -> None:
+        """Unwind a TaskAgent spawn after the wake-up handshake fails.
+
+        The server-side ship lock was already acquired in
+        ``_handle_start_task``; releasing it here lets a follow-up task try
+        again immediately rather than waiting for the stale window.
+        Best-effort: every step swallows its own exceptions so the rest
+        of the cleanup still runs.
+        """
+        target_character_id: Optional[str] = None
+        child = next((c for c in self._children if c.name == agent_name), None)
+        if child is not None:
+            target_character_id = getattr(child, "_character_id", None)
+        # Local map first so a concurrent acquire doesn't see a phantom lock.
+        if target_character_id:
+            self._locked_ships.pop(target_character_id, None)
+        # Server-side release.
+        try:
+            await self._game_client.task_cancel(
+                task_id=framework_task_id,
+                character_id=self._character_id,
+            )
+        except Exception as exc:
+            logger.warning(f"rollback: server task_cancel failed: {exc}")
+        # End the child agent's pipeline + remove it from _children.
+        try:
+            await self.send_message(
+                BusEndAgentMessage(
+                    source=self.name, target=agent_name, reason=reason
+                )
+            )
+        except Exception as exc:
+            logger.warning(f"rollback: BusEndAgentMessage send failed: {exc}")
+        self._children = [c for c in self._children if c.name != agent_name]
+        self._update_polling_scope()
 
     async def _dispatch_task_with_id(
         self,
@@ -1884,8 +1949,27 @@ class VoiceAgent(LLMAgent):
             await self._on_corporation_query_request(message)
         elif isinstance(message, BusTaskFinishNotification):
             await self._on_task_finish_notification(message)
+        elif isinstance(message, BusAgentHelloResponse):
+            self._resolve_hello_response(message)
 
         await super().on_bus_message(message)
+
+    def _resolve_hello_response(self, message: BusAgentHelloResponse) -> None:
+        """Resolve the awaiting hello future for ``correlation_id``.
+
+        ``ready=True`` resolves with the response; ``ready=False`` rejects
+        with the agent's error string. Late or unknown correlation_ids are
+        silent no-ops on PendingRequests.
+        """
+        if not message.correlation_id:
+            return
+        if message.ready:
+            self._hello_pending.resolve(message.correlation_id, message)
+        else:
+            self._hello_pending.reject(
+                message.correlation_id,
+                message.error or "agent reported not ready",
+            )
 
     async def _on_game_tool_call_request(
         self, msg: BusGameToolCallRequest
@@ -2194,6 +2278,35 @@ class VoiceAgent(LLMAgent):
                             return server_err
                         self._locked_ships[target_character_id] = framework_task_id
                         self._ensure_heartbeat_task_running()
+                        # Universal hello handshake before dispatching to
+                        # the reused idle TaskAgent. For an in-process child
+                        # this returns ~immediately; for a future remote
+                        # BYOA agent this is where the cold-start wait
+                        # lives. On failure release the lock so a follow-up
+                        # start_task can immediately retry.
+                        try:
+                            await self._send_hello_and_wait(existing.name)
+                        except (asyncio.TimeoutError, RuntimeError) as exc:
+                            logger.warning(
+                                f"reuse-path hello with '{existing.name}' failed: {exc}"
+                            )
+                            self._locked_ships.pop(target_character_id, None)
+                            try:
+                                await self._game_client.task_cancel(
+                                    task_id=framework_task_id,
+                                    character_id=self._character_id,
+                                )
+                            except Exception as release_exc:
+                                logger.warning(
+                                    f"server release after reuse hello failure errored: {release_exc}"
+                                )
+                            return {
+                                "success": False,
+                                "error": (
+                                    "Task agent didn't acknowledge wake-up in time. "
+                                    "Try again in a moment."
+                                ),
+                            }
                         try:
                             await self._dispatch_task_with_id(
                                 existing.name,
@@ -2560,6 +2673,33 @@ class VoiceAgent(LLMAgent):
                     ),
                 }
             raise
+
+    async def _send_hello_and_wait(self, agent_name: str) -> BusAgentHelloResponse:
+        """Send a BusAgentHelloRequest to ``agent_name`` and await the response.
+
+        Universal liveness probe — see "Agent lifecycle & wake-up" in
+        docs/byoa.md. For an in-process TaskAgent the response is essentially
+        instant; for a future remote BYOA agent the round-trip covers the
+        cold-start window. Times out per
+        ``ByoaAgentConfig.agent_wake_timeout_seconds``.
+
+        Raises:
+            asyncio.TimeoutError: Target didn't respond in time.
+            RuntimeError: Target responded ``ready=false`` (treat as a
+                warm-up failure — caller should release the ship lock).
+        """
+        correlation_id = uuid.uuid4().hex
+        await self.send_message(
+            BusAgentHelloRequest(
+                source=self.name,
+                target=agent_name,
+                correlation_id=correlation_id,
+            )
+        )
+        return await self._hello_pending.issue(
+            correlation_id,
+            timeout=self._byoa_config.agent_wake_timeout_seconds,
+        )
 
     def _ensure_heartbeat_task_running(self) -> None:
         """Lazily start the heartbeat loop if it isn't already running."""
