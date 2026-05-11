@@ -68,6 +68,7 @@ from pipecat.utils.context.llm_context_summarization import (
 )
 
 from gradientbang.pipecat_server.s3_smart_turn import S3SmartTurnAnalyzerV3
+from gradientbang.utils.access_token import assert_access_token_valid
 from gradientbang.utils.llm_factory import (
     LLMProvider,
     LLMServiceConfig,
@@ -345,6 +346,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         "access_token source: {}",
         "start payload" if body_access_token else "BOT_TEST_ACCESS_TOKEN env",
     )
+    try:
+        assert_access_token_valid(access_token)
+    except RuntimeError as exc:
+        logger.error("access_token preflight failed: {}", exc)
+        raise
     # Resolve voice: prefer short name lookup, fall back to raw voice_id
     voice_name = body.get("voice")
     if voice_name and voice_name in VOICES:
@@ -783,31 +789,39 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
         async def _join():
             nonlocal is_first_visit
-            await asyncio.sleep(2)
-            await game_client.pause_event_delivery()
-            result = await event_relay.join()
-            # Track join request_id so the resulting status.snapshot triggers LLM inference
-            if isinstance(result, dict):
-                req_id = result.get("request_id")
-                if req_id:
-                    voice_agent.track_request_id(req_id)
-                is_first_visit = bool(result.get("is_first_visit", False))
-            await game_client.resume_event_delivery()
+            try:
+                await asyncio.sleep(2)
+                await game_client.pause_event_delivery()
+                result = await event_relay.join()
+                # Track join request_id so the resulting status.snapshot triggers LLM inference
+                if isinstance(result, dict):
+                    req_id = result.get("request_id")
+                    if req_id:
+                        voice_agent.track_request_id(req_id)
+                    is_first_visit = bool(result.get("is_first_visit", False))
+                await game_client.resume_event_delivery()
 
-            # Activate the correct agent based on first visit status
-            if is_first_visit and not bypass_tutorial:
-                logger.info("First visit detected, activating ScriptedAgent")
-                mute_strategy.force_mute = True
-                await main_agent.activate_agent("scripted")
-            else:
-                if is_first_visit and bypass_tutorial:
-                    logger.info(
-                        "First visit detected but bypass_tutorial=True; skipping ScriptedAgent"
+                # Activate the correct agent based on first visit status
+                if is_first_visit and not bypass_tutorial:
+                    logger.info("First visit detected, activating ScriptedAgent")
+                    mute_strategy.force_mute = True
+                    await main_agent.activate_agent("scripted")
+                else:
+                    if is_first_visit and bypass_tutorial:
+                        logger.info(
+                            "First visit detected but bypass_tutorial=True; skipping ScriptedAgent"
+                        )
+                    await main_agent.activate_agent(
+                        "player",
+                        args=LLMAgentActivationArgs(messages=messages, run_llm=False),
                     )
-                await main_agent.activate_agent(
-                    "player",
-                    args=LLMAgentActivationArgs(messages=messages, run_llm=False),
+            except Exception as exc:
+                # Fire-and-forget task would swallow this otherwise. Tear down
+                # the runner so the session exits instead of hanging half-joined.
+                logger.exception(
+                    "Join failed — access token may be invalid or expired: {}", exc
                 )
+                await main_agent.cancel()
 
         asyncio.create_task(_join())
 
