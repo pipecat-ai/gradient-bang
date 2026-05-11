@@ -1535,6 +1535,9 @@ class TestCorpShipRouting:
         child._active_task_id = None  # Mark as idle
         agent._locked_ships.pop(agent._character_id, None)
         agent._dispatch_task_with_id = AsyncMock()
+        # Phase 1: the reuse path performs the hello handshake before
+        # dispatch. Short-circuit it in the unit test.
+        agent._send_hello_and_wait = AsyncMock()
 
         # Second task — should reuse the existing idle agent.
         # The reuse path now pre-generates/acquires a server-side task id,
@@ -1864,6 +1867,8 @@ class TestServerSideShipLock:
         agent._game_client.task_lifecycle = AsyncMock(side_effect=lifecycle_mock)
         agent._dispatch_task_with_id = AsyncMock(side_effect=dispatch_mock)
         agent.request_task = AsyncMock(return_value="should-not-be-used")
+        # Phase 1: hello handshake sits between acquire and dispatch.
+        agent._send_hello_and_wait = AsyncMock()
 
         params = MagicMock()
         params.arguments = {"task_description": "Trade goods"}
@@ -1871,6 +1876,8 @@ class TestServerSideShipLock:
 
         assert result["success"]
         assert order == ["acquire", "dispatch"]
+        # The hello fires after the acquire and before the dispatch.
+        agent._send_hello_and_wait.assert_awaited_once_with("task_idle")
         assert agent._locked_ships[agent._character_id] == result["task_id"]
         agent.request_task.assert_not_called()
 

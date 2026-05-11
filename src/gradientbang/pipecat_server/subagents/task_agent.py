@@ -53,6 +53,9 @@ from pipecat.services.llm_service import FunctionCallParams
 from gradientbang.byoa import ByoaAgentConfig
 from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequests
 from gradientbang.pipecat_server.subagents.bus_messages import (
+    BUS_PROTOCOL_VERSION,
+    BusAgentHelloRequest,
+    BusAgentHelloResponse,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -66,6 +69,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
 from pipecat_subagents.agents import LLMAgent, TaskStatus
 from pipecat_subagents.bus import (
     AgentBus,
+    BusEndAgentMessage,
     BusMessage,
     BusTaskCancelMessage,
     BusTaskRequestMessage,
@@ -260,6 +264,13 @@ class TaskAgent(LLMAgent):
         # Phase 1: every game RPC goes over the bus. PendingRequests tracks
         # outbound correlation_ids until their matching responses land.
         self._pending: PendingRequests = PendingRequests()
+        # Phase 1: idle teardown timer. Reset on every inbound task / tool
+        # call; fires BusEndAgentMessage to self after
+        # agent_idle_teardown_seconds. In-process player-ship agents are
+        # reused across tasks, so the timer is disabled for them. Corp-ship
+        # agents (one-shot) and future BYOA agents (warm) use it to
+        # eventually free their ship slot.
+        self._idle_teardown_handle: Optional[asyncio.TimerHandle] = None
         self._tool_schemas: Dict[str, Any] = {t.name: t for t in self.build_tools()}
 
         # ── Task state ──
@@ -411,6 +422,9 @@ class TaskAgent(LLMAgent):
         # Any in-flight game RPCs over the bus have to fail fast — the
         # awaiting handler will see CancelledError and unwind.
         self._pending.cancel_all("task cancelled")
+        # Cancelled tasks don't go through _complete_task; arm the idle
+        # teardown directly so corp-ship / BYOA agents still wind down.
+        self._arm_idle_teardown()
         await super().on_task_cancelled(message)
 
     async def on_task_update_requested(self, message: BusTaskUpdateRequestMessage) -> None:
@@ -472,6 +486,10 @@ class TaskAgent(LLMAgent):
             if message.target and message.target != self.name:
                 return
             self._resolve_bus_rpc_response(message)
+        elif isinstance(message, BusAgentHelloRequest):
+            if message.target and message.target != self.name:
+                return
+            await self._respond_to_hello(message)
 
     def _resolve_bus_rpc_response(self, message: BusMessage) -> None:
         """Hand a Phase 1 RPC response off to PendingRequests.
@@ -493,6 +511,88 @@ class TaskAgent(LLMAgent):
         else:
             payload = getattr(message, "result", None)
         self._pending.resolve(correlation_id, payload)
+
+    async def _respond_to_hello(self, request: BusAgentHelloRequest) -> None:
+        """Liveness probe handler — see "Agent lifecycle & wake-up" in
+        docs/byoa.md.
+
+        Responds ``ready=True`` once ``_llm_context`` has been initialised
+        (which happens inside ``build_pipeline``). For an in-process agent
+        this is essentially the moment the pipeline comes up; for a future
+        remote BYOA agent the same handler runs after the cold-start
+        completes, naturally bridging both deployment models.
+        """
+        ready = self._llm_context is not None
+        error = None if ready else "agent still warming up"
+        await self.send_message(
+            BusAgentHelloResponse(
+                source=self.name,
+                target=request.source,
+                correlation_id=request.correlation_id,
+                ready=ready,
+                protocol_version=BUS_PROTOCOL_VERSION,
+                capabilities={},
+                error=error,
+            )
+        )
+
+    # ── Idle teardown timer ──────────────────────────────────────────
+
+    def _idle_teardown_enabled(self) -> bool:
+        """Player-ship agents are reused across tasks (the voice agent
+        owns a single in-process TaskAgent that stays warm). Corp-ship
+        agents are one-shot; BYOA agents stay warm but only until idle.
+        Both of those get the teardown timer; player-ship agents don't.
+        """
+        return self._is_corp_ship
+
+    def _cancel_idle_teardown(self) -> None:
+        if self._idle_teardown_handle is not None:
+            self._idle_teardown_handle.cancel()
+            self._idle_teardown_handle = None
+
+    def _arm_idle_teardown(self) -> None:
+        """Schedule self-teardown after agent_idle_teardown_seconds.
+
+        Called when a task ends. Reset (cancelled + re-armed) on every
+        new inbound activity. For a single-shot corp-ship agent the
+        timer fires before any further task can land, so the agent
+        ends naturally after its task completes. For a Phase 3 BYOA
+        agent that stays warm, this is the only thing that eventually
+        closes the loop.
+        """
+        if not self._idle_teardown_enabled():
+            return
+        self._cancel_idle_teardown()
+        loop = asyncio.get_running_loop()
+        delay = max(0.0, float(self._byoa_config.agent_idle_teardown_seconds))
+        self._idle_teardown_handle = loop.call_later(
+            delay, lambda: asyncio.create_task(self._on_idle_teardown())
+        )
+
+    async def _on_idle_teardown(self) -> None:
+        self._idle_teardown_handle = None
+        if self._active_task_id is not None:
+            # Race: a task arrived between the timer firing and this
+            # coroutine running. Re-arm and bail.
+            self._arm_idle_teardown()
+            return
+        logger.info(
+            f"TaskAgent '{self.name}': idle teardown firing after "
+            f"{self._byoa_config.agent_idle_teardown_seconds}s of no activity"
+        )
+        try:
+            await self.send_message(
+                BusEndAgentMessage(
+                    source=self.name,
+                    target=self.name,
+                    reason="idle teardown",
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                f"TaskAgent '{self.name}': idle teardown emit failed: {exc}"
+            )
 
     async def _handle_bus_game_event(
         self, event: Dict[str, Any], *, voice_agent_originated: bool = False
@@ -572,6 +672,9 @@ class TaskAgent(LLMAgent):
     # ── Task state management ─────────────────────────────────────────
 
     def _reset_task_state(self):
+        # New task arrived — the idle teardown timer must not fire now,
+        # even if it was scheduled. _complete_task will re-arm later.
+        self._cancel_idle_teardown()
         # Snapshot current context for debugging before clearing
         if self._llm_context:
             self._last_context_dump = list(self._llm_context.get_messages())
@@ -1095,6 +1198,10 @@ class TaskAgent(LLMAgent):
             pass  # Already responded
         finally:
             self._task_requester = None
+            # Task ended — start the idle countdown. For player-ship
+            # agents this is a no-op; for corp-ship and BYOA agents it
+            # eventually emits BusEndAgentMessage so the slot frees up.
+            self._arm_idle_teardown()
 
     async def _fail_task_once(self, message: str) -> None:
         """Fail the active task exactly once using the normal task-failure path."""
