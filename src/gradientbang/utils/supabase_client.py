@@ -194,16 +194,26 @@ class AsyncGameClient(BaseAsyncGameClient):
         edge_endpoint = endpoint.replace('.', '_')
 
         url = f"{self._functions_url}/{edge_endpoint}"
-        t0 = time.monotonic()
-        response = await http_client.post(
-            url,
-            headers=self._edge_headers(),
-            json=enriched,
-        )
-        elapsed_ms = (time.monotonic() - t0) * 1000
         from loguru import logger as _loguru
+        t0 = time.monotonic()
         if edge_endpoint != "events_since":
-            _loguru.info(f"API {url} {response.status_code} {elapsed_ms:.0f}ms")
+            _loguru.info(f"API.send {url} req_id={req_id}")
+        try:
+            response = await http_client.post(
+                url,
+                headers=self._edge_headers(),
+                json=enriched,
+            )
+        except Exception as exc:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _loguru.error(
+                f"API.fail {url} req_id={req_id} {elapsed_ms:.0f}ms "
+                f"{type(exc).__name__}: {exc}"
+            )
+            raise
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        if edge_endpoint != "events_since":
+            _loguru.info(f"API.recv {url} {response.status_code} {elapsed_ms:.0f}ms")
 
         try:
             data = response.json()
