@@ -157,6 +157,7 @@ POSTGRES_POOLER_URL="$DB_URL" \
 POSTGRES_URL="$DB_URL" \
 MOVE_DELAY_SCALE=0 \
 LOCAL_API_PORT="$SERVER_PORT" \
+ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1 \
   deno run --allow-all "$FUNCTIONS_DIR/server.ts" \
   > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
@@ -188,7 +189,11 @@ export SUPABASE_ALLOW_LEGACY_IDS=1
 export MOVE_DELAY_SCALE=0
 # Point tests at the edge function server (not Supabase API gateway)
 export EDGE_FUNCTIONS_URL="$EDGE_BASE"
-# No EDGE_API_TOKEN — auth bypassed in local dev mode
+# No EDGE_API_TOKEN — auth bypassed in local dev mode (via
+# ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV exported above for the edge server). The
+# test client supplies no x-api-token, so requests fall into the bypass
+# branch in authenticate() / requireAdminToken(). Production never sets
+# either env var.
 
 # ── 4. Run pytest ─────────────────────────────────────────────────────────
 echo ""

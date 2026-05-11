@@ -6,10 +6,12 @@
  */
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   successResponse,
   errorResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { emitCharacterEvent, buildEventSource, emitErrorEvent } from "../_shared/events.ts";
@@ -48,8 +50,11 @@ class CorporationRenameError extends Error {
 }
 
 Deno.serve(traced("corporation_rename", async (req, trace) => {
-  if (!validateApiToken(req)) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   let payload;
@@ -77,6 +82,15 @@ Deno.serve(traced("corporation_rename", async (req, trace) => {
   const nameInput = requireString(payload, "name");
   const actorCharacterId = optionalString(payload, "actor_character_id");
   ensureActorMatches(actorCharacterId, characterId);
+
+  // Per-character authorization: the caller (JWT) must actually own this
+  // character. Admin callers (NPCs / cron / EDGE_API_TOKEN) bypass.
+  // ensureActorMatches above already guarantees actor==character, so a
+  // single check covers both. The downstream isActiveCorporationMember
+  // check still verifies the character belongs to the corp being renamed.
+  if (!(await canActOnCharacter(auth, characterId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
 
   const sRateLimit = trace.span("rate_limit");
   try {

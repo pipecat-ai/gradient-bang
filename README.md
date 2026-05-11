@@ -24,6 +24,7 @@ Many of the steps described in this README also have corresponding Claude Code s
 
 - [Initial setup](#initial-setup)
 - [Running locally](#running-locally)
+- [Event delivery modes](#event-delivery-modes)
 - [Deployment](#deployment)
 - [Environment variables](#environment-variables)
 - [Auth & secrets quick guide](#auth--secrets-quick-guide)
@@ -95,6 +96,10 @@ From here forward, you'll need the Supabase edge functions process running:
 
 ```bash
 npx supabase functions serve --workdir deployment --no-verify-jwt --env-file .env.supabase
+
+# or shorthand (Python wrapper around the about)
+
+uv run functions
 ```
 
 You'll need to create a user account in your database in order log in. We don't have a UI for that right now, so you can do it one of two ways.
@@ -313,6 +318,46 @@ gb() {
 # Now I can just do this to start:
 gb start
 ```
+
+---
+
+## Event delivery modes
+
+The bot's `AsyncGameClient` receives game events via one of two transports, picked at construction time based on `EVENT_TRANSPORT`.
+
+### `pubsub` (default)
+
+Direct Postgres long-poll against per-character pgmq queues. The bot connects with admin credentials (same URL as the rest of the system, `POSTGRES_POOLER_URL`) and calls SECURITY DEFINER functions (`subscribe_my_events` / `archive_my_events`) that:
+
+1. Verify a short-lived **internal HS256 token** scoped to one character.
+2. Check the user owns the requested `character_id` directly (via `user_characters`) **or** via corp membership for corp ships.
+3. Return up to N pending messages for that character via `pgmq.read_with_poll`.
+
+The internal token is minted by the `verify_token` edge function in exchange for the bot's Supabase Auth `access_token`. The edge function handles the JWT verification (Supabase Auth has moved to ES256 with rotating signing keys, which is awkward to verify inside Postgres); the SQL functions only need to verify the internal token against a stable HS256 secret we control end-to-end. That secret is auto-provisioned by the migration into `public.app_runtime_config` — no manual ALTER step, no env var to wire up. Auth failures (`forbidden` / `token_expired` / `invalid_token`) propagate up and disconnect the bot — there is intentionally no token-refresh path; sessions terminate on expiry (JWTs are 24h).
+
+**Setup for local pubsub:**
+
+1. Edge functions always dual-write events into pgmq queues — no flag to set, just deploy the migration.
+2. In `.env.bot`:
+
+   ```
+   EVENT_TRANSPORT=pubsub
+   PGMQ_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+   ```
+
+   (Same admin URL as `POSTGRES_POOLER_URL` in `.env.supabase` — there is no separate pubsub role.)
+
+3. Make sure the bot's `/start` body includes a real Supabase Auth `access_token` (or set `BOT_TEST_ACCESS_TOKEN`). The bot's `/start` requires this in **both** transport modes — pubsub uses it to mint internal tokens via `verify_token`, polling uses it as `X-API-Token` so per-character endpoint checks pass.
+
+Migration `20260505000000_pubsub_and_broadcasts.sql` installs the `pgmq` and `pgjwt` extensions, provisions the internal signing secret in `public.app_runtime_config`, defines the auth functions (`subscribe_my_events` / `archive_my_events`), the service-role publish wrappers (`pgmq_publish` / `notify_broadcast`), and adds an `INSERT` trigger on `characters` that auto-creates per-character queues. Existing characters are backfilled at migration time. Production deploys are migration-only — no manual SQL or secret-injection step.
+
+### `polling`
+
+HTTP polling against the `events_since` edge function, authenticated by `EDGE_API_TOKEN`. Works in any environment without per-character credentials. Set `EVENT_TRANSPORT=polling` to opt out of pubsub.
+
+### Why two modes?
+
+Polling is the simplest path and works everywhere. Pubsub eliminates the busy-poll loop and the polling lag, and is the foundation for the upcoming distributed-runtime work (where a separate process per task can subscribe to its ship's queue independently). Both modes deliver byte-equivalent events through the same client sinks, so the rest of the bot doesn't care which is in use.
 
 ---
 
@@ -572,112 +617,117 @@ pnpm run dev
 
 ### Edge functions (`.env.supabase` / `.env.cloud`)
 
-| Variable                      | Required | Default                                  | Description                                                                                                              |
-| ----------------------------- | -------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `SUPABASE_URL`                | Yes      | —                                        | Supabase project URL                                                                                                     |
-| `SUPABASE_ANON_KEY`           | Yes      | —                                        | Public Supabase anon JWT key                                                                                             |
-| `SUPABASE_SERVICE_ROLE_KEY`   | Yes      | —                                        | Service role key (bypasses RLS)                                                                                          |
-| `POSTGRES_POOLER_URL`         | Yes      | —                                        | PgBouncer pooled Postgres connection string                                                                              |
-| `EDGE_API_TOKEN`              | Yes      | —                                        | Token for authenticating internal requests via `X-API-Token` header. When unset, token validation is skipped (local dev) |
-| `BOT_START_URL`               | No       | `http://host.docker.internal:7860/start` | URL of the bot's `/start` endpoint for creating voice chat sessions                                                      |
-| `BOT_START_API_KEY`           | No       | —                                        | Bearer token for authenticating requests to the bot start endpoint                                                       |
-| `MOVE_DELAY_SCALE`            | No       | `1.0`                                    | Multiplier to scale movement delays (set to `0.25` for faster local dev)                                                 |
-| `MOVE_DELAY_SECONDS_PER_TURN` | No       | `0.667`                                  | Base movement delay in seconds per warp turn                                                                             |
-| `COMBAT_TICK_BATCH_SIZE`      | No       | `20`                                     | Max combat encounters processed per tick                                                                                 |
-| `COMBAT_ROUND_TIMEOUT`        | No       | `30`                                     | Seconds before a combat round auto-resolves                                                                              |
-| `SHIELD_REGEN_PER_ROUND`      | No       | `10`                                     | Shields regenerated per combat round                                                                                     |
-| `SALVAGE_TTL_SECONDS`         | No       | `900`                                    | TTL for salvage debris (seconds)                                                                                         |
-| `CHARACTER_SPAWN_MP_DISTANCE` | No       | `8`                                      | Graph distance (hops) from nearest mega port for new character spawns (min `2`)                                          |
-| `CHARACTER_STARTING_CREDITS`  | No       | `12000`                                  | Credits granted to a new character's starting ship                                                                       |
-| `CHARACTER_SKIP_AUTO_QUESTS`  | No       | `false`                                  | Set to `true` to skip auto-assigned quests (e.g. tutorial) on new character creation                                     |
-| `EDGE_ADMIN_PASSWORD`         | No       | —                                        | Admin password for admin-only endpoints                                                                                  |
-| `EDGE_ADMIN_PASSWORD_HASH`    | No       | —                                        | SHA-256 hash of admin password (alternative to plaintext)                                                                |
+| Variable                      | Required | Default                                  | Description                                                                                                                                                                                         |
+| ----------------------------- | -------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_URL`                | Yes      | —                                        | Supabase project URL                                                                                                                                                                                |
+| `SUPABASE_ANON_KEY`           | Yes      | —                                        | Public Supabase anon JWT key                                                                                                                                                                        |
+| `SUPABASE_SERVICE_ROLE_KEY`   | Yes      | —                                        | Service role key (bypasses RLS)                                                                                                                                                                     |
+| `POSTGRES_POOLER_URL`         | Yes      | —                                        | PgBouncer pooled Postgres connection string                                                                                                                                                         |
+| `EDGE_API_TOKEN`              | Yes      | —                                        | Token for authenticating internal requests via `X-API-Token` header. When unset, token validation is skipped (local dev)                                                                            |
+| `BOT_START_URL`               | No       | `http://host.docker.internal:7860/start` | URL of the bot's `/start` endpoint for creating voice chat sessions                                                                                                                                 |
+| `BOT_START_API_KEY`           | No       | —                                        | Bearer token for authenticating requests to the bot start endpoint                                                                                                                                  |
+| `MOVE_DELAY_SCALE`            | No       | `1.0`                                    | Multiplier to scale movement delays (set to `0.25` for faster local dev)                                                                                                                            |
+| `MOVE_DELAY_SECONDS_PER_TURN` | No       | `0.667`                                  | Base movement delay in seconds per warp turn                                                                                                                                                        |
+| `COMBAT_TICK_BATCH_SIZE`      | No       | `20`                                     | Max combat encounters processed per tick                                                                                                                                                            |
+| `COMBAT_ROUND_TIMEOUT`        | No       | `30`                                     | Seconds before a combat round auto-resolves                                                                                                                                                         |
+| `SHIELD_REGEN_PER_ROUND`      | No       | `10`                                     | Shields regenerated per combat round                                                                                                                                                                |
+| `SALVAGE_TTL_SECONDS`         | No       | `900`                                    | TTL for salvage debris (seconds)                                                                                                                                                                    |
+| `CHARACTER_SPAWN_MP_DISTANCE` | No       | `8`                                      | Graph distance (hops) from nearest mega port for new character spawns (min `2`)                                                                                                                     |
+| `CHARACTER_STARTING_CREDITS`  | No       | `12000`                                  | Credits granted to a new character's starting ship                                                                                                                                                  |
+| `CHARACTER_SKIP_AUTO_QUESTS`  | No       | `false`                                  | Set to `true` to skip auto-assigned quests (e.g. tutorial) on new character creation                                                                                                                |
+| `EDGE_ADMIN_PASSWORD`         | No       | —                                        | Admin password for admin-only endpoints                                                                                                                                                             |
+| `EDGE_ADMIN_PASSWORD_HASH`    | No       | —                                        | SHA-256 hash of admin password (alternative to plaintext)                                                                                                                                           |
 
 ### Bot (`.env.bot`)
 
 #### API keys
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `DEEPGRAM_API_KEY` | Yes | [Deepgram](https://console.deepgram.com) API key for speech-to-text |
-| `CARTESIA_API_KEY` | Yes | [Cartesia](https://play.cartesia.ai) API key for text-to-speech |
-| `GOOGLE_API_KEY` | Yes | [Google AI Studio](https://aistudio.google.com/apikey) key for Gemini LLM |
-| `ANTHROPIC_API_KEY` | No | [Anthropic](https://console.anthropic.com) key for Claude LLM |
-| `OPENAI_API_KEY` | No | [OpenAI](https://platform.openai.com) key (when using OpenAI as LLM provider) |
+| Variable            | Required | Description                                                                   |
+| ------------------- | -------- | ----------------------------------------------------------------------------- |
+| `DEEPGRAM_API_KEY`  | Yes      | [Deepgram](https://console.deepgram.com) API key for speech-to-text           |
+| `CARTESIA_API_KEY`  | Yes      | [Cartesia](https://play.cartesia.ai) API key for text-to-speech               |
+| `GOOGLE_API_KEY`    | Yes      | [Google AI Studio](https://aistudio.google.com/apikey) key for Gemini LLM     |
+| `ANTHROPIC_API_KEY` | No       | [Anthropic](https://console.anthropic.com) key for Claude LLM                 |
+| `OPENAI_API_KEY`    | No       | [OpenAI](https://platform.openai.com) key (when using OpenAI as LLM provider) |
 
 #### Supabase & connectivity
 
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `SUPABASE_URL` | Yes | — | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Service role key for DB access |
-| `EDGE_API_TOKEN` | Yes | — | Token for authenticating edge function calls |
-| `DAILY_API_KEY` | No | — | [Daily](https://www.daily.co/) API key (required for Daily transport) |
-| `LOCAL_API_POSTGRES_URL` | No | — | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead |
+| Variable                    | Required | Default   | Description                                                                                                                                                                                                                                                       |
+| --------------------------- | -------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_URL`              | Yes      | —         | Supabase project URL                                                                                                                                                                                                                                              |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes      | —         | Service role key for DB access                                                                                                                                                                                                                                    |
+| `EDGE_API_TOKEN`            | Yes      | —         | Trusted-backend credential sent on every edge call as `X-Edge-Auth`. Proves the request came through bot.py rather than from an end user with a bare JWT. Required in production for the voice bot, NPC bots, scripts, and the combat-tick cron job. Tests/local-dev can leave it unset and rely on `ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1` on the server.                                                                                                                                  |
+| `DAILY_API_KEY`             | No       | —         | [Daily](https://www.daily.co/) API key (required for Daily transport)                                                                                                                                                                                             |
+| `LOCAL_API_POSTGRES_URL`    | No       | —         | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead                                                                                                                                                |
+| `EVENT_TRANSPORT`           | No       | `pubsub`  | Event-delivery transport: `pubsub` (direct Postgres long-poll on per-character pgmq queues, default) or `polling` (HTTP via `events_since`). See [Event delivery modes](#event-delivery-modes).                                                                   |
+| `PGMQ_URL`                  | No       | —         | Direct (NOT pooled) postgres URL with the `pubsub_client` role's credentials. Required when `EVENT_TRANSPORT=pubsub`.                                                                                                                                             |
 
 #### LLM configuration
 
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `VOICE_LLM_PROVIDER` | Yes | — | Voice LLM provider (`google`, `anthropic`, `openai`) |
-| `VOICE_LLM_MODEL` | Yes | — | Voice LLM model name |
-| `VOICE_LLM_THINKING_BUDGET` | No | `0` | Token budget for voice agent extended thinking |
-| `VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS` | No | `20` | Voice agent tool call timeout (seconds) |
-| `TASK_LLM_PROVIDER` | Yes | — | Task agent LLM provider |
-| `TASK_LLM_MODEL` | Yes | — | Task agent LLM model name |
-| `TASK_LLM_THINKING_BUDGET` | No | `4096` | Token budget for task agent extended thinking |
-| `TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS` | No | `20` | Task agent tool call timeout (seconds) |
-| `TASK_AGENT_TIMEOUT` | No | — | Max task agent lifetime in seconds; cancelled on expiry (e.g. `1800` for 30 min) |
-| `UI_AGENT_LLM_PROVIDER` | Yes | — | UI agent LLM provider |
-| `UI_AGENT_LLM_MODEL` | Yes | — | UI agent LLM model name |
-| `UI_AGENT_LLM_THINKING_BUDGET` | No | `0` | Token budget for UI agent thinking |
-| `CONTEXT_SUMMARIZATION_MESSAGE_LIMIT` | No | `200` | Max unsummarized messages before context summarization |
+| Variable                               | Required | Default | Description                                                                      |
+| -------------------------------------- | -------- | ------- | -------------------------------------------------------------------------------- |
+| `VOICE_LLM_PROVIDER`                   | Yes      | —       | Voice LLM provider (`google`, `anthropic`, `openai`)                             |
+| `VOICE_LLM_MODEL`                      | Yes      | —       | Voice LLM model name                                                             |
+| `VOICE_LLM_THINKING_BUDGET`            | No       | `0`     | Token budget for voice agent extended thinking                                   |
+| `VOICE_LLM_FUNCTION_CALL_TIMEOUT_SECS` | No       | `20`    | Voice agent tool call timeout (seconds)                                          |
+| `TASK_LLM_PROVIDER`                    | Yes      | —       | Task agent LLM provider                                                          |
+| `TASK_LLM_MODEL`                       | Yes      | —       | Task agent LLM model name                                                        |
+| `TASK_LLM_THINKING_BUDGET`             | No       | `4096`  | Token budget for task agent extended thinking                                    |
+| `TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS`  | No       | `20`    | Task agent tool call timeout (seconds)                                           |
+| `TASK_AGENT_TIMEOUT`                   | No       | —       | Max task agent lifetime in seconds; cancelled on expiry (e.g. `1800` for 30 min) |
+| `UI_AGENT_LLM_PROVIDER`                | Yes      | —       | UI agent LLM provider                                                            |
+| `UI_AGENT_LLM_MODEL`                   | Yes      | —       | UI agent LLM model name                                                          |
+| `UI_AGENT_LLM_THINKING_BUDGET`         | No       | `0`     | Token budget for UI agent thinking                                               |
+| `CONTEXT_SUMMARIZATION_MESSAGE_LIMIT`  | No       | `200`   | Max unsummarized messages before context summarization                           |
 
 #### UI agent tuning
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `UI_AGENT_STATUS_TIMEOUT_SECS` | `10` | Status query timeout (seconds) |
-| `UI_AGENT_PORTS_LIST_TIMEOUT_SECS` | `15` | Ports list timeout (seconds) |
-| `UI_AGENT_SHIPS_LIST_TIMEOUT_SECS` | `15` | Ships list timeout (seconds) |
-| `UI_AGENT_COURSE_PLOT_TIMEOUT_SECS` | `25` | Course plot timeout (seconds) |
-| `UI_AGENT_PORTS_LIST_STALE_SECS` | `60` | Ports list staleness threshold (seconds) |
-| `UI_AGENT_INTENT_REQUEST_DELAY_SECS` | `2.0` | Intent request delay (seconds) |
-| `UI_AGENT_SHIPS_CACHE_TTL_SECS` | `60` | Ships list cache TTL (seconds) |
+| Variable                             | Default | Description                              |
+| ------------------------------------ | ------- | ---------------------------------------- |
+| `UI_AGENT_STATUS_TIMEOUT_SECS`       | `10`    | Status query timeout (seconds)           |
+| `UI_AGENT_PORTS_LIST_TIMEOUT_SECS`   | `15`    | Ports list timeout (seconds)             |
+| `UI_AGENT_SHIPS_LIST_TIMEOUT_SECS`   | `15`    | Ships list timeout (seconds)             |
+| `UI_AGENT_COURSE_PLOT_TIMEOUT_SECS`  | `25`    | Course plot timeout (seconds)            |
+| `UI_AGENT_PORTS_LIST_STALE_SECS`     | `60`    | Ports list staleness threshold (seconds) |
+| `UI_AGENT_INTENT_REQUEST_DELAY_SECS` | `2.0`   | Intent request delay (seconds)           |
+| `UI_AGENT_SHIPS_CACHE_TTL_SECS`      | `60`    | Ships list cache TTL (seconds)           |
 
 #### Testing & debug
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `BOT_IDLE_REPORT_ENABLED` | `1` | Enable idle task status reports (`0` to disable — processor stays in pipeline as a passthrough) |
-| `BOT_IDLE_REPORT_TIME` | `7.5` | Seconds of silence before the bot gives a one-sentence task status update |
-| `BOT_IDLE_REPORT_COOLDOWN` | `30` | Minimum seconds between consecutive idle reports |
-| `BOT_USE_KRISP` | `0` | Enable Krisp noise cancellation (`1` for production, `0` for local dev) |
-| `BOT_TEST_CHARACTER_ID` | — | Hardcoded character ID for testing |
-| `BOT_TEST_CHARACTER_NAME` | — | Hardcoded character name for testing |
-| `BOT_TEST_NPC_CHARACTER_NAME` | — | Hardcoded NPC name for testing |
-| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, etc.) |
-| `TOKEN_USAGE_LOG` | — | Path for token usage metrics CSV |
+| Variable                      | Default | Description                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BOT_IDLE_REPORT_ENABLED`     | `1`     | Enable idle task status reports (`0` to disable — processor stays in pipeline as a passthrough)                                                                                                                                                                                                                                                                            |
+| `BOT_IDLE_REPORT_TIME`        | `7.5`   | Seconds of silence before the bot gives a one-sentence task status update                                                                                                                                                                                                                                                                                                  |
+| `BOT_IDLE_REPORT_COOLDOWN`    | `30`    | Minimum seconds between consecutive idle reports                                                                                                                                                                                                                                                                                                                           |
+| `BOT_USE_KRISP`               | `0`     | Enable Krisp noise cancellation (`1` for production, `0` for local dev)                                                                                                                                                                                                                                                                                                    |
+| `BOT_TEST_CHARACTER_ID`       | —       | Hardcoded character ID for testing. Pair with `BOT_TEST_ACCESS_TOKEN` when invoking `/start` directly (e.g. ladle, curl) — the bot needs both: the character to bind to, and a JWT for that character's owner.                                                                                                                                                             |
+| `BOT_TEST_CHARACTER_NAME`     | —       | Hardcoded character name for testing                                                                                                                                                                                                                                                                                                                                       |
+| `BOT_TEST_NPC_CHARACTER_NAME` | —       | Hardcoded NPC name for testing                                                                                                                                                                                                                                                                                                                                             |
+| `BOT_TEST_ACCESS_TOKEN`       | —       | Dev-only Supabase Auth `access_token` for invoking `/start` directly (ladle, curl, scripts). The bot's `/start` always requires an access_token — production gets it from the proxy edge function; dev sets this env (or passes `access_token` in the body). Use the `/character-create` skill to mint a fresh one alongside `BOT_TEST_CHARACTER_ID`. JWT lifetime is 24h. |
+| `LOG_LEVEL`                   | `INFO`  | Logging level (`DEBUG`, `INFO`, `WARNING`, etc.)                                                                                                                                                                                                                                                                                                                           |
+| `TOKEN_USAGE_LOG`             | —       | Path for token usage metrics CSV                                                                                                                                                                                                                                                                                                                                           |
 
 #### Optional integrations
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `WANDB_API_KEY` | — | [Weights & Biases](https://wandb.ai) API key for Weave tracing |
-| `WEAVE_PROJECT` | `gradientbang` | Weave project name |
-| `SMART_TURN_S3_BUCKET` | — | S3 bucket for smart turn audio |
-| `AWS_ACCESS_KEY_ID` | — | AWS access key (for S3 smart turn) |
-| `AWS_SECRET_ACCESS_KEY` | — | AWS secret key (for S3 smart turn) |
-| `AWS_REGION` | `us-east-1` | AWS region |
+| Variable                | Default        | Description                                                    |
+| ----------------------- | -------------- | -------------------------------------------------------------- |
+| `WANDB_API_KEY`         | —              | [Weights & Biases](https://wandb.ai) API key for Weave tracing |
+| `WEAVE_PROJECT`         | `gradientbang` | Weave project name                                             |
+| `SMART_TURN_S3_BUCKET`  | —              | S3 bucket for smart turn audio                                 |
+| `AWS_ACCESS_KEY_ID`     | —              | AWS access key (for S3 smart turn)                             |
+| `AWS_SECRET_ACCESS_KEY` | —              | AWS secret key (for S3 smart turn)                             |
+| `AWS_REGION`            | `us-east-1`    | AWS region                                                     |
 
 ---
 
 ## Auth & secrets quick guide
 
 - **Gateway check (Supabase)**: default `verify_jwt=true` requires `Authorization: Bearer $SUPABASE_ANON_KEY` (or a user access token). Keep this on in production; optional `--no-verify-jwt` only for local.
-- **App gate (gameplay)**: every gameplay edge function expects `X-API-Token: $EDGE_API_TOKEN` and uses `SUPABASE_SERVICE_ROLE_KEY` internally for DB access.
-- **Bot/client calls**: send both headers. The anon key can be public; the gameplay token must stay secret.
-- **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_POOLER_URL`, `EDGE_API_TOKEN` (+ bot envs if used).
+- **App gate (gameplay)**: every gameplay edge function expects a credential in `X-API-Token`. The shared `_shared/auth.ts` `authenticate()` helper accepts two kinds:
+  - **User auth**: a Supabase Auth `access_token` JWT. The bot threads this from the proxy `start` edge function (verified via `supabase.auth.getUser`) all the way into per-action `canActOnCharacter()` checks, so the caller can only operate on characters they own directly or via corp membership.
+  - **Admin token**: the shared `EDGE_API_TOKEN` env. Used by NPCs, the combat-tick cron job, internal `pg_net` invocations, and dev tooling. Bypasses per-character checks (god mode by design).
+- **Bot/client calls**: send `apikey: $SUPABASE_ANON_KEY`, `Authorization: Bearer $SUPABASE_ANON_KEY` (gateway), `X-Edge-Auth: $EDGE_API_TOKEN` (trusted-backend gate, required), and `X-API-Token: <user-access-token>` (per-character user context). NPCs / scripts send `X-Edge-Auth` alone for admin context.
+- **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_POOLER_URL`, `EDGE_API_TOKEN` (required on every bot, NPC, and cron caller — the trusted-backend gate verifies it on every gameplay edge call).
 - **Combat cron**: ensure `app_runtime_config` has `supabase_url` and `edge_api_token` set to the live values (use `scripts/setup-production-combat-tick.sh --env <env-file>`; prod requires `--allow-production`).
 
 ---
@@ -686,21 +736,21 @@ pnpm run dev
 
 This project includes a set of [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills (slash commands) that automate common development and testing workflows. Run them inside Claude Code with `/skill-name`.
 
-| Skill               | Description                                                                                                                               | Arguments                                                                      |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `/init`             | Full project setup from a fresh clone. Installs deps, starts Supabase, creates env files, generates world data, and prompts for API keys. | None — interactive prompts for API keys                                        |
-| `/migrate`          | Applies pending Supabase database migrations. Reviews SQL before applying, never resets or drops data.                                    | `local`, `dev`, or `prod`                                                      |
-| `/reset-world`      | Resets game database, generates a fresh universe, loads quests, and seeds combat cron config.                                             | Environment (`local`/`cloud`), sector count (default `5000`), seed (optional)  |
-| `/load-quests`      | Loads quest definitions from `quest-data/` JSON files into Supabase.                                                                      | Mode (`upsert`/`force`), dry run (yes/no)                                      |
-| `/character-create` | Creates a new game character via the `user_character_create` edge function.                                                               | Email, password, character name (all prompted)                                 |
-| `/npc <name>`       | Runs an autonomous AI task agent as a game character in the background.                                                                   | Character name (arg or prompted), task description (prompted)                  |
-| `/combat <target>`  | Initiates a combat encounter for testing. Shows sector context before starting.                                                           | Character name or ship UUID                                                    |
-| `/destroy-ship`     | Destroys a ship for testing — soft-delete, event emission, pseudo-character cleanup.                                                      | Ship UUID (prompted)                                                           |
-| `/restore-ship`     | Restores a destroyed ship to full health — clears destroyed flag, restocks stats, recreates pseudo-character.                             | Ship UUID (prompted)                                                           |
-| `/deploy <env>`     | Full deployment: deploys edge functions then bot to Pipecat Cloud.                                                                        | `dev` or `prod`                                                                |
-| `/deploy-functions` | Deploys all Supabase edge functions.                                                                                                      | `dev` or `prod`                                                                |
-| `/deploy-bot`       | Deploys the bot to Pipecat Cloud via cloud build.                                                                                         | `dev` or `prod`                                                                |
-| `/newspaper`        | Generates *Gradient News & Observer* visual assets — banners, full front pages, prompt experiments — by dispatching to the right script.  | Asset type (`banner`, `front-page`, `prompt-experiment`) plus type-specific args |
+| Skill               | Description                                                                                                                               | Arguments                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `/init`             | Full project setup from a fresh clone. Installs deps, starts Supabase, creates env files, generates world data, and prompts for API keys. | None — interactive prompts for API keys                                          |
+| `/migrate`          | Applies pending Supabase database migrations. Reviews SQL before applying, never resets or drops data.                                    | `local`, `dev`, or `prod`                                                        |
+| `/reset-world`      | Resets game database, generates a fresh universe, loads quests, and seeds combat cron config.                                             | Environment (`local`/`cloud`), sector count (default `5000`), seed (optional)    |
+| `/load-quests`      | Loads quest definitions from `quest-data/` JSON files into Supabase.                                                                      | Mode (`upsert`/`force`), dry run (yes/no)                                        |
+| `/character-create` | Creates a new game character via the `user_character_create` edge function.                                                               | Email, password, character name (all prompted)                                   |
+| `/npc <name>`       | Runs an autonomous AI task agent as a game character in the background.                                                                   | Character name (arg or prompted), task description (prompted)                    |
+| `/combat <target>`  | Initiates a combat encounter for testing. Shows sector context before starting.                                                           | Character name or ship UUID                                                      |
+| `/destroy-ship`     | Destroys a ship for testing — soft-delete, event emission, pseudo-character cleanup.                                                      | Ship UUID (prompted)                                                             |
+| `/restore-ship`     | Restores a destroyed ship to full health — clears destroyed flag, restocks stats, recreates pseudo-character.                             | Ship UUID (prompted)                                                             |
+| `/deploy <env>`     | Full deployment: deploys edge functions then bot to Pipecat Cloud.                                                                        | `dev` or `prod`                                                                  |
+| `/deploy-functions` | Deploys all Supabase edge functions.                                                                                                      | `dev` or `prod`                                                                  |
+| `/deploy-bot`       | Deploys the bot to Pipecat Cloud via cloud build.                                                                                         | `dev` or `prod`                                                                  |
+| `/newspaper`        | Generates _Gradient News & Observer_ visual assets — banners, full front pages, prompt experiments — by dispatching to the right script.  | Asset type (`banner`, `front-page`, `prompt-experiment`) plus type-specific args |
 
 ### `/newspaper` — generating newspaper assets
 

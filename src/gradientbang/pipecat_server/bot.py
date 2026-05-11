@@ -56,7 +56,7 @@ from pipecat.processors.frameworks.rtvi import (
 from pipecat.runner.types import RunnerArguments, DailyRunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
+from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.daily.transport import DailyParams
@@ -98,14 +98,11 @@ from gradientbang.pipecat_server.subagents.ui_agent import (
 from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStrategy
 from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
-from gradientbang.utils.cekura_tracing import get_tracer, init_cekura, is_cekura_enabled
 from gradientbang.utils.weave_tracing import init_weave, traced
 
 # Initialize Weave early (before @traced decorators are applied to startup functions).
 # Must come after load_dotenv so WANDB_API_KEY is available.
 init_weave()
-
-init_cekura()
 
 # Default personality/tone used when the start payload doesn't provide one.
 # Substituted into ${personality_tone} in voice_agent.md.
@@ -120,31 +117,53 @@ if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 
-async def _lookup_character_display_name(character_id: str, server_url: str) -> str | None:
+async def _lookup_character_display_name(
+    character_id: str, server_url: str, access_token: str | None
+) -> str:
     """Return the stored display name for a character ID via API lookup.
 
     Args:
         character_id: Character UUID to look up
         server_url: Game server base URL
+        access_token: Per-character Supabase Auth JWT (required by character_info
+            under per-character auth)
 
     Returns:
-        Character display name or None if not found
+        Character display name.
+
+    Raises:
+        RuntimeError: If the lookup fails or the server returns no name. The
+            caller should let this propagate so we don't run with a broken
+            display_name (e.g. the raw UUID).
     """
     try:
         async with AsyncGameClient(
-            base_url=server_url, character_id=character_id, transport="supabase"
+            base_url=server_url,
+            character_id=character_id,
+            transport="supabase",
+            access_token=access_token,
+            enable_event_polling=False,
         ) as client:
             result = await client.character_info(character_id=character_id)
-            return result.get("name")
     except Exception as exc:
-        logger.warning(f"Unable to lookup character {character_id} from server: {exc}")
-        return None
+        raise RuntimeError(
+            f"character_info lookup failed for {character_id}: {exc}"
+        ) from exc
+
+    name = result.get("name") if isinstance(result, dict) else None
+    if not name:
+        raise RuntimeError(
+            f"character_info returned no name for {character_id} "
+            "(token may be invalid or character may not exist)"
+        )
+    return name
 
 
 async def _resolve_character_identity(
     character_id: str | None,
     server_url: str,
     character_name_hint: str | None = None,
+    access_token: str | None = None,
 ) -> tuple[str, str]:
     """Resolve the character UUID and display name for the voice bot.
 
@@ -152,6 +171,7 @@ async def _resolve_character_identity(
         character_id: Optional character ID (will use env vars if not provided)
         server_url: Game server base URL for API lookups
         character_name_hint: Optional display name from the start payload (avoids DB lookup)
+        access_token: Per-character Supabase Auth JWT (used when the lookup runs)
 
     Returns:
         Tuple of (character_id, display_name)
@@ -168,13 +188,19 @@ async def _resolve_character_identity(
         raise RuntimeError(
             "Set BOT_TEST_CHARACTER_ID (or BOT_TEST_NPC_CHARACTER_NAME) in the environment before starting the bot."
         )
+
     display_name = (
         character_name_hint
         or os.getenv("BOT_TEST_CHARACTER_NAME")
         or os.getenv("BOT_TEST_NPC_CHARACTER_NAME")
-        or await _lookup_character_display_name(character_id, server_url)
-        or character_id
     )
+    if not display_name:
+        # No hint or env override — must look up via the authenticated API.
+        # Let exceptions propagate so we bail on auth/lookup failure rather
+        # than fall through to using the raw UUID as the display_name.
+        display_name = await _lookup_character_display_name(
+            character_id, server_url, access_token=access_token
+        )
     return character_id, display_name
 
 
@@ -200,11 +226,17 @@ async def _startup_init_local_api() -> tuple[LocalApiServer, str]:
 
 @traced
 async def _startup_resolve_character(
-    character_id_hint: str | None, character_name_hint: str | None, server_url: str
+    character_id_hint: str | None,
+    character_name_hint: str | None,
+    server_url: str,
+    access_token: str | None = None,
 ):
     """Resolve character identity (traced span)."""
     return await _resolve_character_identity(
-        character_id_hint, server_url, character_name_hint=character_name_hint
+        character_id_hint,
+        server_url,
+        character_name_hint=character_name_hint,
+        access_token=access_token,
     )
 
 
@@ -213,7 +245,7 @@ async def _startup_init_stt(language: Language = Language.EN):
     """Initialize STT service (traced span)."""
     return DeepgramSTTService(
         api_key=os.getenv("DEEPGRAM_API_KEY"),
-        live_options=LiveOptions(language=language),
+        settings=DeepgramSTTService.Settings(language=language),
     )
 
 
@@ -225,8 +257,7 @@ async def _startup_init_tts(voice_id: str = DEFAULT_VOICE_ID, language: Language
         logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
     return CartesiaTTSService(
         api_key=cartesia_key,
-        voice_id=voice_id,
-        params=CartesiaTTSService.InputParams(language=language),
+        settings=CartesiaTTSService.Settings(voice=voice_id, language=language),
     )
 
 
@@ -237,6 +268,7 @@ async def bot_startup(
     server_url: str,
     voice_id: str = DEFAULT_VOICE_ID,
     language: Language = Language.EN,
+    access_token: str | None = None,
 ):
     """Traced startup wrapper — initializes all services for the bot pipeline."""
 
@@ -261,6 +293,7 @@ async def bot_startup(
             character_id_hint,
             character_name_hint,
             server_url,
+            access_token=access_token,
         )
         return local_api_server, character_id, character_display_name
 
@@ -270,11 +303,15 @@ async def bot_startup(
         _startup_init_tts(voice_id, language),
     )
 
-    # Create game client directly
+    # Create game client directly. access_token is threaded through from
+    # /start (proxy injects after Supabase Auth verification, or dev sets
+    # BOT_TEST_ACCESS_TOKEN). Polling adapter ignores it; pubsub adapter
+    # uses it to authenticate against per-character pgmq queues.
     game_client = AsyncGameClient(
         character_id=character_id,
         base_url=server_url,
         transport="supabase",
+        access_token=access_token,
     )
 
     return rtvi, local_api_server, character_id, character_display_name, game_client, stt, tts
@@ -291,6 +328,23 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     body = getattr(runner_args, "body", None) or {}
     character_id_hint = body.get("character_id") or os.getenv("BOT_TEST_CHARACTER_ID")
     character_name_hint = body.get("character_name")
+    # Per-character auth token — required so the bot can prove identity to
+    # downstream auth-gated services (e.g. pgmq pubsub channels, character_info
+    # lookup). The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev/Ladle
+    # fallback for sessions that bypass the login → start proxy flow.
+    body_access_token = body.get("access_token")
+    access_token = body_access_token or os.getenv("BOT_TEST_ACCESS_TOKEN")
+    if not access_token:
+        raise RuntimeError(
+            "access_token required to start a bot session. "
+            "Production: client/app passes it on /start after Supabase Auth login "
+            "(forwarded by the proxy edge function). "
+            "Dev/Ladle: set BOT_TEST_ACCESS_TOKEN in .env.bot."
+        )
+    logger.info(
+        "access_token source: {}",
+        "start payload" if body_access_token else "BOT_TEST_ACCESS_TOKEN env",
+    )
     # Resolve voice: prefer short name lookup, fall back to raw voice_id
     voice_name = body.get("voice")
     if voice_name and voice_name in VOICES:
@@ -312,7 +366,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         stt,
         tts,
     ) = await bot_startup(
-        character_id_hint, character_name_hint, server_url, voice_id, voice_language
+        character_id_hint,
+        character_name_hint,
+        server_url,
+        voice_id,
+        voice_language,
+        access_token=access_token,
     )
 
     token_usage_metrics = TokenUsageMetricsProcessor(source="bot")
@@ -529,7 +588,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     from pipecat.pipeline.task import PipelineParams, PipelineTask
     from pipecat.processors.frameworks.rtvi import (
         RTVIFunctionCallReportLevel,
-        RTVIObserver,
         RTVIObserverParams,
     )
 
@@ -538,10 +596,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     from gradientbang.pipecat_server.subagents.event_relay import EventRelay
     from gradientbang.pipecat_server.subagents.scripted_agent import ScriptedAgent
     from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
-    from gradientbang.subagents.agents import BaseAgent, LLMAgentActivationArgs
-    from gradientbang.subagents.bus import BusBridgeProcessor
-    from gradientbang.subagents.runner import AgentRunner
-    from gradientbang.subagents.types import AgentReadyData
+    from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
+    from pipecat_subagents.bus import BusBridgeProcessor
+    from pipecat_subagents.runner import AgentRunner
+    from pipecat_subagents.types import AgentReadyData
 
     class MainAgent(BaseAgent):
         """Transport agent — bridges voice I/O to VoiceAgent via the bus.
@@ -558,7 +616,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             logger.info(f"MainAgent: {data.agent_name} ready")
 
         def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
-            task = PipelineTask(
+            return PipelineTask(
                 pipeline,
                 params=PipelineParams(
                     enable_metrics=True,
@@ -569,6 +627,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     function_call_report_level={
                         "*": RTVIFunctionCallReportLevel.FULL,
                     },
+                    ignored_sources=list(ui_branch_sources),
                 ),
                 cancel_on_idle_timeout=False,
                 idle_timeout_secs=600,
@@ -578,13 +637,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     TaskActivityFrame,
                 ),
             )
-            for obs in task._observer._observers:
-                if isinstance(obs, RTVIObserver):
-                    obs._ignored_sources = ui_branch_sources
-                    break
-            if is_cekura_enabled():
-                get_tracer().register_task_handlers(task, transport=transport)
-            return task
 
         async def build_pipeline(self) -> Pipeline:
             bridge = BusBridgeProcessor(
@@ -599,7 +651,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 await self.add_agent(voice_agent)
                 await self.add_agent(scripted_agent)
 
-            pipeline = Pipeline(
+            return Pipeline(
                 [
                     transport.input(),
                     stt,
@@ -620,11 +672,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     ),
                 ]
             )
-            if is_cekura_enabled():
-                get_tracer().track_pipeline(
-                    pipeline, context, runner_args=runner_args
-                )
-            return pipeline
 
     agent_runner = AgentRunner(handle_sigint=getattr(runner_args, "handle_sigint", False))
 
@@ -805,7 +852,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
-        _upload_voice_context("disconnect")
         await main_agent.cancel()
 
     # ── Periodic voice context upload (every 10 minutes) ─────────────

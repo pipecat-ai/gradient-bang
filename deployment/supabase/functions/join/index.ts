@@ -2,10 +2,12 @@ import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import type { QueryClient } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { acquirePgClient, warmupAdjacencyCache } from "../_shared/pg.ts";
@@ -56,9 +58,12 @@ warmupAdjacencyCache(fetchAllAdjacencies);
 
 Deno.serve(traced("join", async (req, trace) => {
   const sAuth = trace.span("auth_check");
-  if (!validateApiToken(req)) {
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
     sAuth.end({ error: "unauthorized" });
-    return unauthorizedResponse();
+    return authErrorResponse(err);
   }
   sAuth.end();
 
@@ -100,6 +105,13 @@ Deno.serve(traced("join", async (req, trace) => {
   }
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
 
+  // Supabase client (used by canActOnCharacter and downstream combat ops)
+  const supabase = createServiceRoleClient();
+
+  if (!(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
+
   trace.setInput({
     characterId,
     actorCharacterId,
@@ -108,9 +120,6 @@ Deno.serve(traced("join", async (req, trace) => {
     creditsOverride: creditsOverride ?? null,
     requestId,
   });
-
-  // Supabase client for combat operations (still REST-based)
-  const supabase = createServiceRoleClient();
   const pg = await acquirePgClient();
 
   try {

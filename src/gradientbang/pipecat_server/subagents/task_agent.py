@@ -53,8 +53,8 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusGameEventMessage,
     BusSteerTaskMessage,
 )
-from gradientbang.subagents.agents import LLMAgent, TaskStatus
-from gradientbang.subagents.bus import (
+from pipecat_subagents.agents import LLMAgent, TaskStatus
+from pipecat_subagents.bus import (
     AgentBus,
     BusMessage,
     BusTaskCancelMessage,
@@ -252,6 +252,7 @@ class TaskAgent(LLMAgent):
 
         # ── Task state ──
         self._active_task_id: Optional[str] = None
+        self._task_requester: Optional[str] = None
         self._task_description: Optional[str] = None
         self._task_finished = False
         self._cancelled = False
@@ -341,6 +342,7 @@ class TaskAgent(LLMAgent):
         task_id = message.task_id
         payload = message.payload
         self._active_task_id = task_id
+        self._task_requester = message.source
         self._task_description = (payload or {}).get("task_description", "")
         task_context = (payload or {}).get("context", "")
         self._task_metadata = (payload or {}).get("task_metadata", self._task_metadata)
@@ -418,7 +420,10 @@ class TaskAgent(LLMAgent):
         await super().on_task_update_requested(message)
         log_lines = self.get_task_log()
         if not log_lines:
-            await self.send_task_update({"type": "progress_report", "summary": "No activity yet."})
+            await self.send_task_update(
+                message.task_id,
+                update={"type": "progress_report", "summary": "No activity yet."},
+            )
             return
 
         try:
@@ -434,14 +439,18 @@ class TaskAgent(LLMAgent):
             llm_service = self.build_llm()
             summary = await llm_service.run_inference(context)
             await self.send_task_update(
-                {
+                message.task_id,
+                update={
                     "type": "progress_report",
                     "summary": (summary or "").strip() or "No summary available.",
-                }
+                },
             )
         except Exception as exc:
             logger.warning(f"TaskAgent '{self.name}': progress query failed: {exc}")
-            await self.send_task_update({"type": "progress_report", "summary": f"Error: {exc}"})
+            await self.send_task_update(
+                message.task_id,
+                update={"type": "progress_report", "summary": f"Error: {exc}"},
+            )
 
     async def on_bus_message(self, message: BusMessage) -> None:
         await super().on_bus_message(message)
@@ -1046,12 +1055,18 @@ class TaskAgent(LLMAgent):
             logger.error(f"TaskAgent context upload failed: {exc}")
         await self._drain_pending_task_outputs()
         self._clear_awaited_completion()
-        self._clear_client_task_id(self._active_task_id)
+        # Capture the task_id before clearing so we can still respond.
+        framework_task_id = self._active_task_id
+        self._clear_client_task_id(framework_task_id)
         self._active_task_id = None  # Stop processing events
         _STATUS_MAP = {"completed": TaskStatus.COMPLETED, "cancelled": TaskStatus.CANCELLED}
         status = _STATUS_MAP.get(self._task_finished_status, TaskStatus.FAILED)
+        if framework_task_id is None:
+            self._task_requester = None
+            return
         try:
             await self.send_task_response(
+                framework_task_id,
                 response={
                     "message": self._task_finished_message or "Task complete",
                     "status": self._task_finished_status,
@@ -1060,6 +1075,8 @@ class TaskAgent(LLMAgent):
             )
         except RuntimeError:
             pass  # Already responded
+        finally:
+            self._task_requester = None
 
     async def _fail_task_once(self, message: str) -> None:
         """Fail the active task exactly once using the normal task-failure path."""
@@ -1437,9 +1454,9 @@ class TaskAgent(LLMAgent):
             self._no_tool_watchdog_handle = None
 
     def _snapshot_task_output_route(self) -> Optional[tuple[str, str]]:
-        if not self._task_id or not self._task_requester:
+        if not self._active_task_id or not self._task_requester:
             return None
-        return self._task_id, self._task_requester
+        return self._active_task_id, self._task_requester
 
     async def _deliver_task_output(
         self,

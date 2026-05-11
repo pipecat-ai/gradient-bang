@@ -119,7 +119,7 @@ class TestRequestIdTracking:
 @pytest.mark.unit
 class TestFrameworkTaskQueries:
     def test_is_our_task(self):
-        from gradientbang.subagents.agents.base_agent import TaskGroup
+        from pipecat_subagents.agents.base_agent import TaskGroup
 
         agent = _make_voice_agent()
         agent._task_groups = {"tid-1": TaskGroup(task_id="tid-1", agent_names={"task_abc"})}
@@ -128,7 +128,7 @@ class TestFrameworkTaskQueries:
 
     def test_find_task_agent_by_task_id(self):
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from gradientbang.subagents.agents.base_agent import TaskGroup
+        from pipecat_subagents.agents.base_agent import TaskGroup
 
         agent = _make_voice_agent()
         mock_child = MagicMock(spec=TaskAgent)
@@ -153,7 +153,7 @@ class TestFrameworkTaskQueries:
     def test_find_task_agent_by_task_id_prefers_exact_match(self):
         """When two tasks share a prefix, exact match wins over prefix match."""
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from gradientbang.subagents.agents.base_agent import TaskGroup
+        from pipecat_subagents.agents.base_agent import TaskGroup
 
         agent = _make_voice_agent()
         c1 = MagicMock(spec=TaskAgent)
@@ -469,7 +469,7 @@ class TestInjectContextManagedTask:
 class TestHandleStopTask:
     async def test_stop_specific_task_full_uuid(self):
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from gradientbang.subagents.agents.base_agent import TaskGroup
+        from pipecat_subagents.agents.base_agent import TaskGroup
 
         agent = _make_voice_agent()
         agent.cancel_task = AsyncMock()
@@ -494,7 +494,7 @@ class TestHandleStopTask:
     async def test_stop_specific_task_short_prefix(self):
         """Regression: the LLM passes the 8-char prefix it saw in an event."""
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from gradientbang.subagents.agents.base_agent import TaskGroup
+        from pipecat_subagents.agents.base_agent import TaskGroup
 
         agent = _make_voice_agent()
         agent.cancel_task = AsyncMock()
@@ -516,7 +516,7 @@ class TestHandleStopTask:
 
     async def test_stop_player_ship_default(self):
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from gradientbang.subagents.agents.base_agent import TaskGroup
+        from pipecat_subagents.agents.base_agent import TaskGroup
 
         agent = _make_voice_agent()
         agent.cancel_task = AsyncMock()
@@ -556,7 +556,7 @@ class TestHandleSteerTask:
     async def test_steer_success(self):
         from gradientbang.pipecat_server.subagents.bus_messages import BusSteerTaskMessage
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from gradientbang.subagents.agents.base_agent import TaskGroup
+        from pipecat_subagents.agents.base_agent import TaskGroup
 
         agent = _make_voice_agent()
         agent.send_message = AsyncMock()
@@ -1353,8 +1353,8 @@ class TestCorpShipRouting:
     async def test_ship_lock_released_after_task_completes(self):
         """Ship lock is released; player agent stays in _children for reuse."""
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from gradientbang.subagents.bus.messages import BusTaskResponseMessage
-        from gradientbang.subagents.agents.task_group import TaskStatus
+        from pipecat_subagents.bus.messages import BusTaskResponseMessage
+        from pipecat_subagents.agents.task_context import TaskStatus
 
         agent = _make_voice_agent()
         agent._task_groups = {}
@@ -1424,8 +1424,8 @@ class TestCorpShipRouting:
     async def test_player_agent_reused_across_tasks(self):
         """Second player task reuses the idle agent instead of creating a new one."""
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from gradientbang.subagents.bus.messages import BusTaskResponseMessage
-        from gradientbang.subagents.agents.task_group import TaskStatus
+        from pipecat_subagents.bus.messages import BusTaskResponseMessage
+        from pipecat_subagents.agents.task_context import TaskStatus
 
         agent = _make_voice_agent()
         agent._task_groups = {}
@@ -1476,8 +1476,8 @@ class TestCorpShipRouting:
     async def test_corp_agent_destroyed_after_task(self, mock_client_cls):
         """Corp ship agent is ended and removed from _children after task completes."""
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from gradientbang.subagents.bus.messages import BusTaskResponseMessage
-        from gradientbang.subagents.agents.task_group import TaskStatus
+        from pipecat_subagents.bus.messages import BusTaskResponseMessage
+        from pipecat_subagents.agents.task_context import TaskStatus
 
         agent = _make_voice_agent()
         agent._task_groups = {}

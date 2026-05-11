@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -162,9 +164,12 @@ function getPortPrices(
 
 Deno.serve(traced("list_known_ports", async (req, trace) => {
   const sAuth = trace.span("auth_check");
-  if (!validateApiToken(req)) {
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
     sAuth.end({ error: "unauthorized" });
-    return unauthorizedResponse();
+    return authErrorResponse(err);
   }
   sAuth.end();
 
@@ -202,6 +207,10 @@ Deno.serve(traced("list_known_ports", async (req, trace) => {
     : null;
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
+
+  if (!(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({
     characterId,

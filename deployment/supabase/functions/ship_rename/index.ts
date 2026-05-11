@@ -9,10 +9,12 @@
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -63,8 +65,11 @@ class ShipRenameError extends Error {
 type JsonRecord = Record<string, unknown>;
 
 Deno.serve(traced("ship_rename", async (req, trace) => {
-  if (!validateApiToken(req)) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -94,6 +99,13 @@ Deno.serve(traced("ship_rename", async (req, trace) => {
       ? await canonicalizeCharacterId(actorLabel)
       : null;
     const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+
+    // Per-character authorization: caller (JWT) must own the actor (corp
+    // ship case) or the target character (personal). Admin bypasses.
+    const authTargetId = actorCharacterId ?? characterId;
+    if (!(await canActOnCharacter(auth, authTargetId, supabase))) {
+      return errorResponse("forbidden", 403);
+    }
     const shipId = optionalString(payload, "ship_id");
     const shipName = requireString(payload, "ship_name");
     const taskId = optionalString(payload, "task_id");
@@ -423,6 +435,7 @@ async function ensureShipNameUnique(
     .select("ship_id")
     .eq("ship_name", shipName)
     .neq("ship_id", shipId)
+    .is("destroyed_at", null)
     .maybeSingle();
 
   if (error) {

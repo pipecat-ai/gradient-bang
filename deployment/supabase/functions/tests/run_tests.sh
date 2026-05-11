@@ -151,18 +151,25 @@ export LOCAL_API_PORT="$SERVER_PORT"
 export TEST_BASE_URL="http://localhost:$SERVER_PORT"
 export SUPABASE_ALLOW_LEGACY_IDS=1
 export MOVE_DELAY_SCALE=0
-# No EDGE_API_TOKEN — auth bypassed in local dev mode
+# No EDGE_API_TOKEN — auth bypassed in local dev mode (gated behind
+# ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1 since the per-character auth migration).
+# Production never sets either env var.
+export ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1
 
 # ── 4. Run tests (server starts in-process for coverage) ──────────────
 # server.ts is imported inside the test process so that deno test --coverage
 # can measure coverage of all edge function code.
+#
+# Edge functions always dual-write to both the events table and per-character
+# pgmq queues. The default run only exercises the pubsub path; pass
+# `TRANSPORT=polling` to run the polling pass instead (kept reachable for
+# regression checks on the polling adapter).
 echo ""
 echo "==> Running integration tests (with coverage)..."
 echo ""
 
 rm -rf "$COVERAGE_DIR"
 
-set +e
 # Optional file/dir args after "--" let callers run a targeted subset
 # (e.g. `bash run_tests.sh -- combat_test.ts combat_destruction_test.ts`).
 TEST_TARGETS=("$SCRIPT_DIR/")
@@ -177,28 +184,93 @@ if [ "$#" -gt 0 ]; then
   done
 fi
 
-deno test \
-  --config "$FUNCTIONS_DIR/deno.json" \
-  --allow-all \
-  --coverage="$COVERAGE_DIR" \
-  "${TEST_TARGETS[@]}" \
-  2>&1
-TEST_EXIT=$?
-set -e
+if [ -n "${TRANSPORT:-}" ]; then
+  TRANSPORTS=("$TRANSPORT")
+else
+  TRANSPORTS=("pubsub")
+fi
+
+OVERALL_EXIT=0
+# bash 3.2 compat (stock macOS): no `declare -A`. Logs live at a
+# deterministic path, so look them up by reconstruction below.
+FAILED_TRANSPORTS=()
+
+LOG_DIR=$(mktemp -d /tmp/gb-test-logs.XXXXXX)
+
+for transport in "${TRANSPORTS[@]}"; do
+  case "$transport" in
+    polling|pubsub) ;;
+    *)
+      echo "ERROR: unknown TRANSPORT='$transport' (expected polling|pubsub)"
+      exit 2
+      ;;
+  esac
+
+  echo ""
+  echo "==> Pass: transport=$transport"
+  echo ""
+
+  LOG_FILE="$LOG_DIR/$transport.log"
+
+  set +e
+  deno test \
+    --config "$FUNCTIONS_DIR/deno.json" \
+    --allow-all \
+    --coverage="$COVERAGE_DIR/$transport" \
+    "${TEST_TARGETS[@]}" \
+    2>&1 | tee "$LOG_FILE"
+  PASS_EXIT=${PIPESTATUS[0]}
+  set -e
+
+  if [ "$PASS_EXIT" -eq 0 ]; then
+    echo ""
+    echo "==> Pass $transport: PASSED"
+  else
+    echo ""
+    echo "==> Pass $transport: FAILED (exit $PASS_EXIT)"
+    FAILED_TRANSPORTS+=("$transport")
+    OVERALL_EXIT=$PASS_EXIT
+  fi
+done
+
+TEST_EXIT=$OVERALL_EXIT
 
 echo ""
 if [ "$TEST_EXIT" -eq 0 ]; then
-  echo "==> All tests passed."
+  echo "==> All passes succeeded (${#TRANSPORTS[@]}/${#TRANSPORTS[@]})."
 else
-  echo "==> Tests failed (exit code: $TEST_EXIT)."
+  echo "==> Failed transports: ${FAILED_TRANSPORTS[*]}"
+  echo ""
+  echo "==> Failed tests:"
+  for transport in "${FAILED_TRANSPORTS[@]}"; do
+    log="$LOG_DIR/$transport.log"
+    [ -f "$log" ] || continue
+    # Deno emits a "FAILURES" block before the summary line, with one line
+    # per failed test of the form "name => path:line:col".
+    failures=$(awk '
+      /FAILURES/      { flag=1; next }
+      /^FAILED \|/    { flag=0 }
+      flag && / => / { print }
+    ' "$log")
+    echo ""
+    echo "  [$transport]"
+    if [ -n "$failures" ]; then
+      echo "$failures" | sed 's/^/    /'
+    else
+      echo "    (no FAILURES block parsed; see $log)"
+    fi
+  done
+  echo ""
+  echo "==> Full logs: $LOG_DIR"
 fi
 
 # ── 5. Coverage report ────────────────────────────────────────────────
-# deno test --coverage writes V8 coverage profiles on exit. We use
-# deno coverage to generate a summary filtered to the edge function code.
+# deno test --coverage writes V8 coverage profiles on exit. We point
+# `deno coverage` at the parent dir so it unions the per-transport profiles
+# into a single report (filtered to the edge function code).
 if [ -d "$COVERAGE_DIR" ]; then
   echo ""
-  echo "==> Code coverage report (edge functions)"
+  echo "==> Code coverage report (edge functions, all transports)"
   echo ""
   deno coverage "$COVERAGE_DIR" \
     --include="^file://.*/deployment/supabase/functions/" \

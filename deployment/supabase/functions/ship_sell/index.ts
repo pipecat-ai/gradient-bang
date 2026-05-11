@@ -1,10 +1,12 @@
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -52,8 +54,11 @@ class ShipSellError extends Error {
 }
 
 Deno.serve(traced("ship_sell", async (req, trace) => {
-  if (!validateApiToken(req)) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -85,6 +90,11 @@ Deno.serve(traced("ship_sell", async (req, trace) => {
   const characterId = actorCharacterId ?? rawCharacterId;
   const shipIdRaw = requireString(payload, "ship_id");
   const taskId = optionalString(payload, "task_id");
+
+  // Per-character authorization: caller must own the seller character.
+  if (!(await canActOnCharacter(auth, characterId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({
     characterId,

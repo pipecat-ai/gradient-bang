@@ -172,6 +172,7 @@ Deno.serve(traced("character_create", async (req, trace) => {
         .from("ship_instances")
         .select("ship_id")
         .eq("ship_name", shipName)
+        .is("destroyed_at", null)
         .maybeSingle();
       if (existingShipName.error) {
         sShipNameCheck.end({ error: existingShipName.error.message });

@@ -7,10 +7,12 @@
  */
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -22,8 +24,11 @@ import {
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("quest_claim_reward", async (req, trace) => {
-  if (!validateApiToken(req)) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -49,6 +54,10 @@ Deno.serve(traced("quest_claim_reward", async (req, trace) => {
     const characterId = requireString(payload, "character_id");
     const questId = requireString(payload, "quest_id");
     const stepId = requireString(payload, "step_id");
+
+    if (!(await canActOnCharacter(auth, characterId, supabase))) {
+      return errorResponse("forbidden", 403);
+    }
 
     trace.setInput({ characterId, questId, stepId, requestId });
 

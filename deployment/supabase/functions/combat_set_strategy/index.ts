@@ -2,10 +2,12 @@ import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -39,8 +41,11 @@ import { traced } from "../_shared/weave.ts";
 const MAX_CUSTOM_PROMPT_CHARS = 1000;
 
 Deno.serve(traced("combat_set_strategy", async (req, trace) => {
-  if (!validateApiToken(req)) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -69,6 +74,10 @@ Deno.serve(traced("combat_set_strategy", async (req, trace) => {
   const template = (requireString(payload, "template")).toLowerCase();
   const customPrompt = optionalString(payload, "custom_prompt");
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+
+  if (!(await canActOnCharacter(auth, characterId, supabase))) {
+    return errorResponse("forbidden", 403);
+  }
 
   trace.setInput({ requestId, characterId, shipId, template, adminOverride });
 

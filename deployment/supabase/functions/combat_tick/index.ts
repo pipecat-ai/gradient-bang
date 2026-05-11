@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
-  validateApiToken,
+  requireAdminToken,
   unauthorizedResponse,
   successResponse,
   errorResponse,
@@ -15,7 +15,7 @@ import { traced } from "../_shared/weave.ts";
 const MAX_BATCH = Number(Deno.env.get("COMBAT_TICK_BATCH_SIZE") ?? "20");
 
 Deno.serve(traced("combat_tick", async (req, trace) => {
-  if (!validateApiToken(req)) {
+  if (!(await requireAdminToken(req))) {
     return unauthorizedResponse();
   }
 

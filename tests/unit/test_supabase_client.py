@@ -27,7 +27,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGameClient:
 
     enable_event_polling=False keeps the polling task dormant; polling would
     otherwise kick in on _request / _ensure_event_delivery. Test drives
-    _deliver_polled_event directly with crafted rows.
+    client._event_adapter._deliver_polled_event directly with crafted rows.
     """
     monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
     monkeypatch.setenv("EDGE_API_TOKEN", "test-token")
@@ -63,7 +63,7 @@ class TestOwnershipFilterSector:
             "movement.complete",
             {"player": {"id": CORP_SHIP_ID}, "sector": {"id": 4894}},
         )
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._current_sector is None, (
             "Corp-ship movement.complete must not update the bound player's sector cache"
         )
@@ -73,7 +73,7 @@ class TestOwnershipFilterSector:
             "movement.complete",
             {"player": {"id": PLAYER_ID}, "sector": {"id": 3194}},
         )
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._current_sector == 3194
 
     async def test_corp_ship_map_local_does_not_pollute(self, client: AsyncGameClient) -> None:
@@ -94,7 +94,7 @@ class TestOwnershipFilterSector:
             {"player": {"id": CORP_SHIP_ID}, "center_sector": 4894, "sectors": []},
             event_id=2,
         )
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._current_sector is None
 
     async def test_player_map_local_updates(self, client: AsyncGameClient) -> None:
@@ -104,7 +104,7 @@ class TestOwnershipFilterSector:
             "map.local",
             {"player": {"id": PLAYER_ID}, "center_sector": 3194, "sectors": []},
         )
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._current_sector == 3194
 
     async def test_corp_ship_map_local_with_sector_payload_does_not_pollute(
@@ -120,7 +120,7 @@ class TestOwnershipFilterSector:
             {"player": {"id": CORP_SHIP_ID}, "sector": {"id": 4894}, "sectors": []},
             event_id=3,
         )
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._current_sector is None
 
     async def test_status_snapshot_without_player_block_is_skipped(
@@ -128,7 +128,7 @@ class TestOwnershipFilterSector:
     ) -> None:
         """Defensive: events lacking a player block should not mutate the cache."""
         row = _row("status.snapshot", {"sector": {"id": 9999}})
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._current_sector is None
 
     async def test_non_self_state_event_does_not_update(self, client: AsyncGameClient) -> None:
@@ -144,7 +144,7 @@ class TestOwnershipFilterSector:
             {"player": {"id": PLAYER_ID}, "current_sector": 9999, "sector": {"id": 9999}},
             event_id=4,
         )
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._current_sector is None
 
     async def test_map_region_does_not_update_sector(self, client: AsyncGameClient) -> None:
@@ -156,7 +156,7 @@ class TestOwnershipFilterSector:
             {"player": {"id": PLAYER_ID}, "center_sector": 9999, "sectors": []},
             event_id=5,
         )
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._current_sector is None
 
     async def test_corp_ship_my_status_does_not_pollute(self, client: AsyncGameClient) -> None:
@@ -178,7 +178,7 @@ class TestOwnershipFilterSector:
         # Override context.character_id to simulate the recipient being the
         # player (actor), not the corp ship (subject).
         row["event_context"]["character_id"] = PLAYER_ID
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._current_sector is None
 
 
@@ -198,7 +198,7 @@ class TestOwnershipFilterCorp:
             },
         )
         row["event_context"]["character_id"] = PLAYER_ID
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._corporation_id is None
 
     async def test_player_status_sets_corp_id(self, client: AsyncGameClient) -> None:
@@ -209,7 +209,7 @@ class TestOwnershipFilterCorp:
                 "corporation": {"corp_id": "corp_X"},
             },
         )
-        await client._deliver_polled_event(row)
+        await client._event_adapter._deliver_polled_event(row)
         assert client._corporation_id == "corp_X"
 
     async def test_player_leave_clears_corp_id(self, client: AsyncGameClient) -> None:
@@ -221,7 +221,7 @@ class TestOwnershipFilterCorp:
                 "corporation": {"corp_id": "corp_X"},
             },
         )
-        await client._deliver_polled_event(row_join)
+        await client._event_adapter._deliver_polled_event(row_join)
         assert client._corporation_id == "corp_X"
 
         # Then, a subsequent status with corp_id=None clears the cache
@@ -233,7 +233,7 @@ class TestOwnershipFilterCorp:
             },
             event_id=2,
         )
-        await client._deliver_polled_event(row_leave)
+        await client._event_adapter._deliver_polled_event(row_leave)
         assert client._corporation_id is None
 
 
@@ -249,3 +249,55 @@ class TestDeadFieldRemoval:
             "_current_sector_id was removed; any reintroduction would resurrect "
             "the dead-duplicate cache documented in the pollution fix plan."
         )
+
+
+class TestEdgeHeaders:
+    """``_edge_headers()`` must always send X-Edge-Auth (the trusted-backend
+    secret) and only include X-API-Token (the user JWT) when an access_token
+    is bound. This is the gap closure that keeps a bare user JWT from being
+    sufficient to invoke gameplay edge functions directly.
+    """
+
+    def test_npc_caller_sends_edge_auth_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.setenv("EDGE_API_TOKEN", "test-edge-token")
+        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+        headers = client._edge_headers()
+        assert headers["X-Edge-Auth"] == "test-edge-token"
+        assert "X-API-Token" not in headers
+
+    def test_bot_caller_sends_both_headers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.setenv("EDGE_API_TOKEN", "test-edge-token")
+        client = AsyncGameClient(
+            character_id=PLAYER_ID,
+            access_token="user-jwt-here",
+            enable_event_polling=False,
+        )
+        headers = client._edge_headers()
+        assert headers["X-Edge-Auth"] == "test-edge-token"
+        assert headers["X-API-Token"] == "user-jwt-here"
+
+    def test_unset_edge_api_token_omits_header(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Bypass-mode (test/local-dev) callers don't have EDGE_API_TOKEN set.
+        The client must construct successfully and skip X-Edge-Auth so the
+        server's ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV branch can fire. Production
+        always sets the env var, so the gap-closure still holds there.
+        """
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.delenv("EDGE_API_TOKEN", raising=False)
+        monkeypatch.delenv("SUPABASE_API_TOKEN", raising=False)
+        client = AsyncGameClient(
+            character_id=PLAYER_ID,
+            access_token="user-jwt-here",
+            enable_event_polling=False,
+        )
+        headers = client._edge_headers()
+        assert "X-Edge-Auth" not in headers
+        assert headers["X-API-Token"] == "user-jwt-here"

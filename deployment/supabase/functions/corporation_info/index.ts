@@ -1,8 +1,10 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  AuthError,
+  canActOnCharacter,
   successResponse,
   errorResponse,
 } from "../_shared/auth.ts";
@@ -36,8 +38,14 @@ class CorporationInfoError extends Error {
 }
 
 Deno.serve(traced("corporation_info", async (req, trace) => {
-  if (!validateApiToken(req)) {
-    return unauthorizedResponse();
+  let auth;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return authErrorResponse(err);
+    }
+    throw err;
   }
 
   let payload;
@@ -79,9 +87,31 @@ Deno.serve(traced("corporation_info", async (req, trace) => {
     return errorResponse("rate limit error", 500);
   }
 
+  // Authorize member-mode: caller must actually own the character they're
+  // querying as. Without this gate, any authenticated user could pass a
+  // known member character_id and get the member payload (including credits,
+  // cargo, fighters, founder-only fields). On failure we still return the
+  // public payload, mirroring the previous "non-member" branch.
+  let memberMode = false;
   try {
-    const sHandleInfo = trace.span("handle_info", { characterId, corpId });
-    const result = await handleInfo({ supabase, characterId, corpId });
+    memberMode = await canActOnCharacter(auth, characterId, supabase);
+  } catch (err) {
+    console.error("corporation_info.authorize", err);
+    memberMode = false;
+  }
+
+  try {
+    const sHandleInfo = trace.span("handle_info", {
+      characterId,
+      corpId,
+      memberMode,
+    });
+    const result = await handleInfo({
+      supabase,
+      characterId,
+      corpId,
+      memberMode,
+    });
     sHandleInfo.end(result);
     trace.setOutput({ request_id: requestId, corpId });
     return successResponse({ ...result, request_id: requestId });
@@ -98,13 +128,16 @@ async function handleInfo(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   characterId: string;
   corpId: string;
+  memberMode: boolean;
 }): Promise<Record<string, unknown>> {
-  const { supabase, characterId, corpId } = params;
+  const { supabase, characterId, corpId, memberMode } = params;
   const character = await loadCharacterSafe(supabase, characterId);
   const corporation = await loadCorporationSafe(supabase, corpId);
   const members = await fetchCorporationMembers(supabase, corpId);
   const memberCount = members.length;
-  const isMember = character.corporation_id === corpId;
+  // Two-part gate: caller must be authorized to act on this character AND
+  // the character must actually be a member of this corp.
+  const isMember = memberMode && character.corporation_id === corpId;
 
   if (!isMember) {
     return buildCorporationPublicPayload(corporation, memberCount);

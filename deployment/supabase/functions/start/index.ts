@@ -205,6 +205,15 @@ Deno.serve(traced("start", async (req, trace) => {
       if (charRow?.name && requestData?.body) {
         requestData.body.character_name = charRow.name;
       }
+
+      // Inject the verified access_token into the body so the bot can use it
+      // for per-character auth downstream (e.g. pgmq pubsub channel auth).
+      // The token was already validated by getAuthenticatedUser above; we just
+      // surface its raw form for the bot to forward.
+      const authHeader = req.headers.get("Authorization");
+      if (authHeader?.startsWith("Bearer ") && requestData?.body) {
+        requestData.body.access_token = authHeader.slice(7);
+      }
     } else if (action === "proxy_session") {
       // Proxying to existing session - forward as /sessions/{id} on bot
       // e.g., /functions/v1/start/abc/api/offer -> http://bot/sessions/abc/api/offer

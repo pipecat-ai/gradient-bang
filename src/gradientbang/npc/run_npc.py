@@ -202,9 +202,9 @@ async def run_task(args: argparse.Namespace) -> int:
     target_character_id = args.ship_id or args.actor_id
     actor_character_id = args.actor_id if args.ship_id else None
 
-    from gradientbang.subagents.agents.base_agent import BaseAgent
-    from gradientbang.subagents.runner import AgentRunner
-    from gradientbang.subagents.agents.task_group import TaskStatus
+    from pipecat_subagents.agents.base_agent import BaseAgent
+    from pipecat_subagents.runner import AgentRunner
+    from pipecat_subagents.agents.task_context import TaskStatus
 
     from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
     from gradientbang.tools import (

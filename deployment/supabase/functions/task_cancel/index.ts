@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { buildEventSource, emitCharacterEvent } from "../_shared/events.ts";
@@ -17,8 +19,11 @@ import {
 import { traced } from "../_shared/weave.ts";
 
 Deno.serve(traced("task_cancel", async (req, trace) => {
-  if (!validateApiToken(req)) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -43,6 +48,10 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
   try {
     const characterId = requireString(payload, "character_id");
     const taskId = requireString(payload, "task_id");
+
+    if (!(await canActOnCharacter(auth, characterId, supabase))) {
+      return errorResponse("forbidden", 403);
+    }
 
     trace.setInput({ characterId, taskId, requestId });
 

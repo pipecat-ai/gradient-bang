@@ -23,7 +23,7 @@ from gradientbang.pipecat_server.subagents.task_agent import (
     SYNC_TOOL_EVENTS,
     TaskAgent,
 )
-from gradientbang.subagents.bus import BusTaskCancelMessage, BusTaskRequestMessage
+from pipecat_subagents.bus import BusTaskCancelMessage, BusTaskRequestMessage
 
 
 # ── Harness ───────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ class TaskAgentHarness:
 
     async def start_task(self, task_id="task-001", description="Test task"):
         """Simulate receiving a task request."""
-        self.agent._task_id = task_id
+        self.agent._active_task_id = task_id
         self.agent._task_requester = "voice_agent"
         await self.agent.on_task_request(
             BusTaskRequestMessage(

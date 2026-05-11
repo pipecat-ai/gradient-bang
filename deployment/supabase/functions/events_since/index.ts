@@ -2,10 +2,12 @@ import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -50,8 +52,11 @@ interface EventRow {
 }
 
 Deno.serve(traced("events_since", async (req, trace) => {
-  if (!validateApiToken(req)) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   let payload: JsonRecord;
@@ -77,6 +82,7 @@ Deno.serve(traced("events_since", async (req, trace) => {
   const supabase = createServiceRoleClient();
 
   const characterIds = payload.character_ids ?? (payload.character_id ? [payload.character_id] : []);
+  const shipIds = Array.isArray(payload.ship_ids) ? payload.ship_ids : [];
   const corpId = payload.corp_id ?? null;
   trace.setInput({
     characterIds,
@@ -86,6 +92,19 @@ Deno.serve(traced("events_since", async (req, trace) => {
     initialOnly: payload.initial_only ?? null,
     requestId,
   });
+
+  // Per-character authorization: caller must have access to every requested
+  // character/ship. Polling pulls events for an arbitrary scope set by the
+  // bot — each id must be one the caller can act on (direct or via corp).
+  const allIds: string[] = [
+    ...(Array.isArray(characterIds) ? characterIds.filter((id) => typeof id === "string") : []),
+    ...shipIds.filter((id: unknown) => typeof id === "string"),
+  ];
+  for (const id of allIds) {
+    if (!(await canActOnCharacter(auth, id as string, supabase))) {
+      return errorResponse("forbidden", 403);
+    }
+  }
 
   try {
     const sHandle = trace.span("handle_events_since_request");

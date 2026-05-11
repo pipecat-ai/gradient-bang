@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
-from gradientbang.subagents.bus.messages import BusDataMessage
+from pipecat_subagents.bus.messages import BusDataMessage
 
 
 @dataclass

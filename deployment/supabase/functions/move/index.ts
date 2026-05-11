@@ -2,10 +2,12 @@ import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import type { QueryClient, PoolClient } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 import {
-  validateApiToken,
-  unauthorizedResponse,
+  authenticate,
+  authErrorResponse,
+  canActOnCharacter,
   errorResponse,
   successResponse,
+  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import {
@@ -73,8 +75,11 @@ const MAX_LOCAL_MAP_HOPS = 4;
 const MAX_LOCAL_MAP_NODES = 28;
 
 Deno.serve(traced("move", async (req, wt) => {
-  if (!validateApiToken(req)) {
-    return unauthorizedResponse();
+  let auth: AuthContext;
+  try {
+    auth = await authenticate(req);
+  } catch (err) {
+    return authErrorResponse(err);
   }
 
   const supabase = createServiceRoleClient();
@@ -126,6 +131,10 @@ Deno.serve(traced("move", async (req, wt) => {
       return errorResponse("to_sector must be non-negative", 400);
     }
     const destination = toSector;
+
+    if (!(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))) {
+      return errorResponse("forbidden", 403);
+    }
 
     wt.setInput({
       characterId,
