@@ -1,20 +1,20 @@
 import {
+  type AuthContext,
   authenticate,
   authErrorResponse,
   canActOnCharacter,
   errorResponse,
   successResponse,
-  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { buildEventSource, emitCharacterEvent } from "../_shared/events.ts";
 import {
-  parseJsonRequest,
-  requireString,
   optionalString,
+  parseJsonRequest,
+  RequestValidationError,
+  requireString,
   resolveRequestId,
   respondWithError,
-  RequestValidationError,
 } from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
 
@@ -97,6 +97,12 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     };
 
     const actorCharacterId = actorCharacterIdRaw ?? characterId;
+    if (
+      actorCharacterId !== characterId &&
+      !(await canActOnCharacter(auth, actorCharacterId, supabase))
+    ) {
+      return errorResponse("forbidden", 403);
+    }
     eventPayload.actor_character_id = actorCharacterId;
 
     const sLoadState = trace.span("load_state");
@@ -117,7 +123,8 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     // Parse and validate the raw ship_id input.
     // We strip brackets and lowercase, then treat any hex string ≥6 chars
     // as a prefix to match against ship_id (full UUIDs are just long prefixes).
-    const rawLookup = shipIdRaw?.trim().replace(/[\[\]]/g, "").replace(/-/g, "") || null;
+    const rawLookup =
+      shipIdRaw?.trim().replace(/[\[\]]/g, "").replace(/-/g, "") || null;
     const lookupId = rawLookup?.toLowerCase() || null;
 
     if (lookupId && (lookupId.length < 6 || !/^[0-9a-f]+$/i.test(lookupId))) {
@@ -178,7 +185,8 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       // No ship_id provided: default to the player's personal ship,
       // or the corp ship whose pseudo-character IS the characterId.
       shipRow = ships.find(
-        (s) => s.owner_character_id === characterId || s.ship_id === characterId,
+        (s) =>
+          s.owner_character_id === characterId || s.ship_id === characterId,
       ) ?? null;
     } else {
       // Match by ship_id prefix (full UUIDs are just 32-char prefixes).
@@ -187,7 +195,9 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       const stripDashes = (v: string) => v.replace(/-/g, "").toLowerCase();
       const matches = ships.filter((s) => {
         const sid = stripDashes(s.ship_id as string);
-        const oid = s.owner_character_id ? stripDashes(s.owner_character_id as string) : null;
+        const oid = s.owner_character_id
+          ? stripDashes(s.owner_character_id as string)
+          : null;
         return sid.startsWith(lookupId) || oid?.startsWith(lookupId);
       });
       if (matches.length > 1) {
@@ -203,12 +213,13 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     }
 
     const shipId: string | null = (shipRow?.ship_id as string) ?? null;
-    const shipName: string | null =
-      shipNameRaw ?? (shipRow?.ship_name as string) ?? null;
-    const shipType: string | null =
-      shipTypeRaw ?? (shipRow?.ship_type as string) ?? null;
-    let taskScope: "player_ship" | "corp_ship" =
-      taskScopeRaw === "corp_ship" ? "corp_ship" : "player_ship";
+    const shipName: string | null = shipNameRaw ??
+      (shipRow?.ship_name as string) ?? null;
+    const shipType: string | null = shipTypeRaw ??
+      (shipRow?.ship_type as string) ?? null;
+    let taskScope: "player_ship" | "corp_ship" = taskScopeRaw === "corp_ship"
+      ? "corp_ship"
+      : "player_ship";
 
     if (shipRow?.owner_type === "corporation") {
       taskScope = "corp_ship";
@@ -232,6 +243,35 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       }
     }
 
+    // BYOA private check. The check applies to both start and finish:
+    // - start must not acquire a lock for a non-owner
+    // - finish must not let a corpmate release the owner's private task lock
+    //
+    // actorCharacterId has already been authorized above, so callers cannot
+    // spoof the BYOA owner's UUID to bypass this check.
+    const byoaOwner = typeof shipRow?.byoa_owner_character_id === "string"
+      ? (shipRow.byoa_owner_character_id as string)
+      : null;
+    const byoaMode = typeof shipRow?.byoa_mode === "string"
+      ? (shipRow.byoa_mode as string)
+      : null;
+    if (
+      byoaOwner &&
+      byoaMode === "private" &&
+      actorCharacterId !== byoaOwner
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "byoa_private_not_owner",
+          ship_id: shipId,
+          byoa_owner_character_id_prefix: byoaOwner
+            .replace(/-/g, "")
+            .slice(0, 12),
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
     // Server-side ship-task lock: acquire on start, release on finish.
     // Acquire happens BEFORE event emission so a 409 doesn't leave a phantom
     // task.start in the events table. Release happens AFTER event emission
@@ -240,36 +280,6 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     if (eventType === "start") {
       if (!shipId) {
         return errorResponse("Failed to resolve ship for task start", 500);
-      }
-
-      // BYOA private check — must precede the lock acquire so we fail fast
-      // before touching the lock. A 'private' BYOA ship can only be acted on
-      // by its BYOA owner; corp members are blocked even though they normally
-      // have full corp-ship access. 'shared' BYOA is informational only —
-      // any corp member can still issue tasks.
-      const byoaOwner =
-        typeof shipRow?.byoa_owner_character_id === "string"
-          ? (shipRow.byoa_owner_character_id as string)
-          : null;
-      const byoaMode =
-        typeof shipRow?.byoa_mode === "string"
-          ? (shipRow.byoa_mode as string)
-          : null;
-      if (
-        byoaOwner &&
-        byoaMode === "private" &&
-        actorCharacterId !== byoaOwner
-      ) {
-        return new Response(
-          JSON.stringify({
-            error: "byoa_private_not_owner",
-            ship_id: shipId,
-            byoa_owner_character_id_prefix: byoaOwner
-              .replace(/-/g, "")
-              .slice(0, 12),
-          }),
-          { status: 403, headers: { "Content-Type": "application/json" } },
-        );
       }
 
       const staleSeconds = Number(
@@ -299,10 +309,9 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
 
       const ackd = (acquireResult ?? {}) as Record<string, unknown>;
       if (ackd.acquired !== true) {
-        const holderActor =
-          typeof ackd.current_actor_character_id === "string"
-            ? ackd.current_actor_character_id
-            : null;
+        const holderActor = typeof ackd.current_actor_character_id === "string"
+          ? ackd.current_actor_character_id
+          : null;
         return new Response(
           JSON.stringify({
             error: "ship_busy",
@@ -322,8 +331,9 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       // Best-effort: a failure here doesn't unwind the acquire — the new
       // owner already holds the lock, and the displaced actor will figure
       // it out on reconnect even without an explicit event.
-      const stolenTaskId =
-        typeof ackd.stolen_task_id === "string" ? ackd.stolen_task_id : null;
+      const stolenTaskId = typeof ackd.stolen_task_id === "string"
+        ? ackd.stolen_task_id
+        : null;
       if (stolenTaskId) {
         try {
           const { data: stolenStart } = await supabase
@@ -374,7 +384,9 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
         requestId,
         taskId,
         shipId: shipId ?? undefined,
-        corpId: taskScope === "corp_ship" ? (effectiveCorpId ?? undefined) : undefined,
+        corpId: taskScope === "corp_ship"
+          ? (effectiveCorpId ?? undefined)
+          : undefined,
         recipientReason: "task_owner",
         scope: "self",
       });
@@ -405,7 +417,11 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       }
     }
 
-    trace.setOutput({ request_id: requestId, task_id: taskId, event_type: eventType });
+    trace.setOutput({
+      request_id: requestId,
+      task_id: taskId,
+      event_type: eventType,
+    });
     return successResponse({
       request_id: requestId,
       task_id: taskId,
@@ -417,8 +433,9 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       return validationResponse;
     }
     console.error("task_lifecycle.error", err);
-    const detail =
-      err instanceof Error ? err.message : "task lifecycle event failed";
+    const detail = err instanceof Error
+      ? err.message
+      : "task lifecycle event failed";
     return errorResponse(detail, 500);
   }
 }));
