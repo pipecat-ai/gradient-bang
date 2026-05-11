@@ -51,6 +51,19 @@ class ByoaAgentConfig:
     # Groundwork.
     task_request_timeout_seconds: float = 600.0
 
+    # Phase 1 — how long VoiceAgent waits for a target agent to signal
+    # alive after start_task (via BusAgentHelloRequest/Response). Generous
+    # enough to cover cold starts on Vercel Sandbox / AWS Lambda. In-process
+    # agents respond near-instantly; remote BYOA agents respond after
+    # cold start. See "Agent lifecycle & wake-up" in docs/byoa.md.
+    agent_wake_timeout_seconds: float = 30.0
+
+    # Phase 1 — how long an idle warm agent stays around before tearing
+    # itself down. Each inbound task / tool call resets the timer. In-process
+    # player-ship agents effectively never hit this (reuse keeps them busy);
+    # corp-ship and BYOA agents do — firing releases the ship slot.
+    agent_idle_teardown_seconds: float = 300.0
+
     # Informational: the agent's understanding of the server-side stale
     # window. Used at startup to validate that ``heartbeat_interval_seconds``
     # is small enough to survive one missed beat. Mismatch with the actual
@@ -98,6 +111,12 @@ class ByoaAgentConfig:
             tool_call_timeout_seconds=_float("TOOL_CALL_TIMEOUT_SECONDS", 30.0),
             task_request_timeout_seconds=_float(
                 "TASK_REQUEST_TIMEOUT_SECONDS", 600.0
+            ),
+            agent_wake_timeout_seconds=_float(
+                "AGENT_WAKE_TIMEOUT_SECONDS", 30.0
+            ),
+            agent_idle_teardown_seconds=_float(
+                "AGENT_IDLE_TEARDOWN_SECONDS", 300.0
             ),
             server_lock_stale_seconds_expected=_int(
                 "SERVER_LOCK_STALE_SECONDS", 180
