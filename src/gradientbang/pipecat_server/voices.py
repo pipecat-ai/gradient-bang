@@ -16,3 +16,4 @@ VOICES: dict[str, dict] = {
 }
 
 DEFAULT_VOICE = "ariel"
+DEFAULT_VOICE_ID = VOICES[DEFAULT_VOICE]["voice_id"]

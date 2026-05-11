@@ -34,8 +34,7 @@ logger.warning(
 )
 
 BOT_INSTANCE_ID: str | None = None
-DEFAULT_VOICE_ID = "ec1e269e-9ca0-402f-8a18-58e0e022355a"
-from gradientbang.pipecat_server.voices import DEFAULT_VOICE, VOICES
+from gradientbang.pipecat_server.voices import DEFAULT_VOICE, DEFAULT_VOICE_ID, VOICES
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     InterruptionFrame,
