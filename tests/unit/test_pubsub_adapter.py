@@ -11,6 +11,7 @@ the integration suite.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -471,3 +472,58 @@ class TestStartDrain:
         assert all(
             "archive_my_events" not in sql for sql, _ in cursor.executions
         )
+
+
+@pytest.mark.asyncio
+class TestDynamicScopePreflight:
+    async def test_dynamic_preflight_retries_before_poll_loop(
+        self,
+        adapter: PubsubEventAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A transient preflight failure must not permanently drop an
+        in-scope dynamic subscription."""
+
+        adapter._character_ids = [PLAYER_ID, CORP_SHIP_ID]
+        self_test = AsyncMock(side_effect=[RuntimeError("db hiccup"), None])
+        adapter._run_startup_self_test = self_test  # type: ignore[assignment]
+        entered_loop = asyncio.Event()
+
+        async def fake_character_loop(_character_id: str) -> None:
+            entered_loop.set()
+
+        adapter._character_loop = fake_character_loop  # type: ignore[assignment]
+
+        async def immediate_wait_for(awaitable, *, timeout):
+            awaitable.close()
+            await asyncio.sleep(0)
+
+        monkeypatch.setattr(pubsub_module.asyncio, "wait_for", immediate_wait_for)
+
+        await adapter._dynamic_character_loop(CORP_SHIP_ID)
+
+        assert self_test.await_count == 2
+        assert entered_loop.is_set()
+
+    async def test_dynamic_preflight_removed_scope_does_not_start_stale_loop(
+        self,
+        adapter: PubsubEventAdapter,
+    ) -> None:
+        """If scope changes while preflight is awaiting, recheck membership
+        before starting the long-poll task."""
+
+        adapter._character_ids = [PLAYER_ID, CORP_SHIP_ID]
+        entered_loop = asyncio.Event()
+
+        async def fake_self_test(_character_id: str) -> None:
+            adapter._character_ids = [PLAYER_ID]
+
+        async def fake_character_loop(_character_id: str) -> None:
+            entered_loop.set()
+
+        adapter._run_startup_self_test = fake_self_test  # type: ignore[assignment]
+        adapter._character_loop = fake_character_loop  # type: ignore[assignment]
+
+        await adapter._dynamic_character_loop(CORP_SHIP_ID)
+
+        assert not entered_loop.is_set()

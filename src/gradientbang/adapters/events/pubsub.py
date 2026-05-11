@@ -410,34 +410,52 @@ class PubsubEventAdapter:
 
             if self._stop_event.is_set():
                 return
-            pending_add = list(to_add)
 
-        # Post-start scope additions (e.g. a corp ship joining mid-session)
-        # bypass start()'s self-test, so the long-poll would be the first
-        # subscribe_my_events call — creating the queue inside the same txn
-        # that then enters read_with_poll, holding the create lock for the
-        # whole poll window. Run a max_seconds=0 subscribe first so the
-        # ensure_character_queue lock is released before the long-poll
-        # starts. Skipped during start() since _run_startup_self_test
-        # already handled it.
-        for cid in pending_add:
-            if self._stop_event.is_set():
-                break
-            if self._started:
-                try:
-                    await self._run_startup_self_test(cid)
-                except Exception:
-                    logger.exception(
-                        f"pubsub.dynamic_add_preflight_failed character={cid}; skipping"
-                    )
-                    continue
-            async with self._scope_lock:
-                if cid in self._char_tasks:
-                    continue
+            for cid in to_add:
+                loop_coro = (
+                    self._dynamic_character_loop(cid)
+                    if self._started
+                    else self._character_loop(cid)
+                )
                 self._char_tasks[cid] = asyncio.create_task(
-                    self._character_loop(cid),
+                    loop_coro,
                     name=f"pubsub-loop-{cid}",
                 )
+
+    async def _dynamic_character_loop(self, character_id: str) -> None:
+        """Preflight a post-start scope add, then enter the normal poll loop."""
+        logger.info(f"pubsub.dynamic_preflight_started character={character_id}")
+        backoff = 1.0
+        while not self._stop_event.is_set():
+            async with self._scope_lock:
+                if character_id not in self._character_ids:
+                    return
+            try:
+                await self._run_startup_self_test(character_id)
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if _is_fatal_pubsub_error(exc):
+                    logger.error(
+                        f"pubsub.dynamic_preflight_fatal character={character_id} "
+                        f"error={exc}"
+                    )
+                    self._stop_event.set()
+                    raise
+                logger.warning(
+                    f"pubsub.dynamic_preflight_failed character={character_id}; "
+                    f"retrying after {backoff:.1f}s",
+                    exc_info=True,
+                )
+                with suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
+                backoff = min(backoff * 2, RECONNECT_BACKOFF_MAX)
+
+        async with self._scope_lock:
+            if character_id not in self._character_ids:
+                return
+        await self._character_loop(character_id)
 
     async def _character_loop(self, character_id: str) -> None:
         """Long-poll one character's queue forever (until stop)."""
