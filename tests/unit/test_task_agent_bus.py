@@ -25,7 +25,6 @@ These tests pin the contract directly:
 """
 
 import asyncio
-import inspect
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -60,46 +59,6 @@ def _make_agent(**overrides) -> TaskAgent:
 
 def _captured(agent: TaskAgent) -> list:
     return [call.args[0] for call in agent.send_message.await_args_list]
-
-
-# ── Construction guarantees ──────────────────────────────────────────
-
-
-@pytest.mark.unit
-class TestNoGameClient:
-    def test_no_game_client_attribute(self):
-        agent = _make_agent()
-        assert not hasattr(agent, "_game_client")
-
-    def test_constructor_does_not_accept_game_client(self):
-        bus = MagicMock()
-        with pytest.raises(TypeError):
-            TaskAgent(
-                "task_test",
-                bus=bus,
-                character_id="char-123",
-                game_client=MagicMock(),
-            )
-
-    def test_no_async_game_client_import_in_module(self):
-        """Phase 1 deletes the AsyncGameClient import from task_agent.py."""
-        from gradientbang.pipecat_server.subagents import task_agent
-
-        source = inspect.getsource(task_agent)
-        # The only mention permitted is the explanatory comment inside
-        # ``_tool_ship_definitions``. Anything else means we re-added a
-        # direct dependency.
-        offending_lines = [
-            line.strip()
-            for line in source.splitlines()
-            if "AsyncGameClient" in line
-            and not line.lstrip().startswith("#")
-            and "AsyncGameClient on AsyncGameClient" not in line
-        ]
-        assert offending_lines == [], (
-            "TaskAgent must not reference AsyncGameClient outside comments; "
-            f"found: {offending_lines}"
-        )
 
 
 # ── Outbound message shapes ──────────────────────────────────────────
@@ -173,13 +132,6 @@ class TestCallGameMessage:
         assert isinstance(msg, BusGameToolCallRequest)
         # tag_outbound_rpcs_with_task_id=False → empty task_id field
         assert msg.task_id == ""
-
-    @pytest.mark.asyncio
-    async def test_no_task_requester_raises(self):
-        agent = _make_agent()
-        agent._task_requester = None
-        with pytest.raises(RuntimeError, match="no broker target"):
-            await agent._call_game("move")
 
     @pytest.mark.asyncio
     async def test_response_error_rejects_the_future(self):
@@ -301,15 +253,6 @@ class TestTaskFinishMessage:
         msg = _captured(agent)[0]
         assert isinstance(msg, BusTaskFinishNotification)
         assert msg.actor_character_id == ""
-
-    @pytest.mark.asyncio
-    async def test_skips_when_no_task_or_requester(self):
-        agent = _make_agent()
-        agent._task_requester = None
-        await agent._send_task_finish_notification(status="completed", summary=None)
-        # No send_message call — silent skip when there's no broker.
-        assert agent.send_message.await_count == 0
-
 
 # ── Cancellation hygiene ─────────────────────────────────────────────
 

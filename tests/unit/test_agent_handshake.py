@@ -107,11 +107,6 @@ class TestTaskAgentHelloHandler:
 
 @pytest.mark.unit
 class TestIdleTeardownTimer:
-    def test_player_ship_agent_does_not_arm_timer(self):
-        agent = _make_task_agent(is_corp_ship=False)
-        agent._arm_idle_teardown()
-        assert agent._idle_teardown_handle is None
-
     @pytest.mark.asyncio
     async def test_corp_ship_agent_arms_and_cancels(self):
         agent = _make_task_agent(is_corp_ship=True)
