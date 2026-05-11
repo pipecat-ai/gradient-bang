@@ -54,13 +54,22 @@ class RPCError(RuntimeError):
     """Raised when the server responds with an RPC error frame."""
 
     def __init__(
-        self, endpoint: str, status: int, detail: str, code: Optional[str] = None
+        self,
+        endpoint: str,
+        status: int,
+        detail: str,
+        code: Optional[str] = None,
+        body: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(f"{endpoint} failed with status {status}: {detail}")
         self.endpoint = endpoint
         self.status = status
         self.detail = detail
         self.code = code
+        # Full server response body, retained so callers can read structured
+        # error info beyond ``detail``/``code`` (e.g. the ``task_actor_*``
+        # fields on a 409 ship_busy from task_lifecycle).
+        self.body = body
 
 
 class AsyncGameClient:
@@ -1282,12 +1291,15 @@ class AsyncGameClient:
         *,
         task_id: str,
         character_id: Optional[str] = None,
+        force: bool = False,
     ) -> Dict[str, Any]:
         """Request cancellation of a running task.
 
         Args:
             task_id: Task ID (full UUID or short prefix)
             character_id: Character ID requesting the cancellation
+            force: If True, a corp member can release the lock without being
+                the task owner/actor (Layer 4 stale-lock recovery).
         """
         if character_id is None:
             character_id = self._character_id
@@ -1296,7 +1308,32 @@ class AsyncGameClient:
             "character_id": character_id,
             "task_id": task_id,
         }
+        if force:
+            payload["force"] = True
         return await self._request("task.cancel", payload)
+
+    async def task_heartbeat(
+        self,
+        *,
+        locks: List[Dict[str, str]],
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Bulk-refresh held ship-task lock heartbeats.
+
+        Args:
+            locks: List of ``{"ship_id": ..., "task_id": ...}`` pairs. The
+                server only refreshes rows where the pair matches the current
+                lock; mismatches are silent no-ops.
+            character_id: Optional override; defaults to the bound character.
+        """
+        if character_id is None:
+            character_id = self._character_id
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "locks": locks,
+        }
+        return await self._request("task.heartbeat", payload)
 
     async def create_corporation(
         self,

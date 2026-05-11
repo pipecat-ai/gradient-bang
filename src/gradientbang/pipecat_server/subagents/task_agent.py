@@ -354,16 +354,10 @@ class TaskAgent(LLMAgent):
         # tasks share the voice client's game client, so tagging is opt-in.
         self._set_client_task_id(task_id)
 
-        # Emit task.start game event
-        try:
-            await self._game_client.task_lifecycle(
-                task_id=task_id,
-                event_type="start",
-                task_description=self._task_description,
-                task_metadata=self._task_metadata,
-            )
-        except Exception as exc:
-            logger.warning(f"TaskAgent '{self.name}': failed to emit task.start: {exc}")
+        # task.start was already emitted server-side by VoiceAgent as part of
+        # the pre-spawn acquire (see VoiceAgent._acquire_server_ship_lock).
+        # Emitting it again here would race with the acquire's atomic write
+        # and produce a duplicate event in the events table.
 
         # Build initial context
         messages = [

@@ -15,6 +15,13 @@ def _make_voice_agent(**overrides):
     mock_game_client = MagicMock()
     mock_game_client.corporation_id = "corp-1"
     mock_game_client.set_event_polling_scope = MagicMock()
+    # Server-side lock RPCs surfaced through AsyncGameClient. Default to
+    # no-op success so the broad path of tests that don't care about lock
+    # semantics still work. Tests that want specific behavior override
+    # these attrs after constructing the agent.
+    mock_game_client.task_lifecycle = AsyncMock(return_value={"success": True})
+    mock_game_client.task_cancel = AsyncMock(return_value={"success": True})
+    mock_game_client.task_heartbeat = AsyncMock(return_value={"refreshed": 0})
 
     mock_rtvi = MagicMock()
     mock_rtvi.push_frame = AsyncMock()
@@ -478,7 +485,7 @@ class TestHandleStopTask:
         child._is_corp_ship = False
         child._character_id = "corp-ship-1"
         agent._children = [child]
-        agent._locked_ships.add("corp-ship-1")
+        agent._locked_ships["corp-ship-1"] = "task-uuid"
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
         params = MagicMock()
@@ -503,7 +510,7 @@ class TestHandleStopTask:
         child._is_corp_ship = False
         child._character_id = "corp-ship-1"
         agent._children = [child]
-        agent._locked_ships.add("corp-ship-1")
+        agent._locked_ships["corp-ship-1"] = "task-uuid"
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
         params = MagicMock()
@@ -525,7 +532,7 @@ class TestHandleStopTask:
         child._is_corp_ship = False
         child._character_id = agent._character_id
         agent._children = [child]
-        agent._locked_ships.add(agent._character_id)
+        agent._locked_ships[agent._character_id] = "task-uuid"
         agent._task_groups = {"tid-1": TaskGroup(task_id="tid-1", agent_names={"task_abc123"})}
         params = MagicMock()
         params.arguments = {}
@@ -1061,7 +1068,7 @@ class TestSellShipVoiceTool:
     async def test_sell_ship_blocked_when_task_active(self):
         agent = _make_voice_agent()
         agent._game_client.sell_ship = AsyncMock()
-        agent._locked_ships = {agent._character_id}  # Simulate active player task
+        agent._locked_ships = {agent._character_id: "task-uuid"}  # Simulate active player task
         params = MagicMock()
         params.arguments = {"ship_id": "abc123"}
         params.result_callback = AsyncMock()
@@ -1105,7 +1112,7 @@ class TestEventDrivenToolErrors:
         active_task = MagicMock(spec=TaskAgent)
         active_task._is_corp_ship = False
         agent._children = [active_task]
-        agent._locked_ships = {agent._character_id}  # Player task is active
+        agent._locked_ships = {agent._character_id: "task-uuid"}  # Player task is active
         params = MagicMock()
         params.arguments = {}
         params.result_callback = AsyncMock()
@@ -1416,7 +1423,7 @@ class TestCorpShipRouting:
         result = await agent._handle_start_task(params)
 
         assert not result["success"]
-        assert agent._locked_ships == set()
+        assert agent._locked_ships == {}
         assert len(agent._children) == 0
         assert len(agent._pending_tasks) == 0
 
@@ -1454,7 +1461,7 @@ class TestCorpShipRouting:
         child = next(c for c in agent._children if isinstance(c, TaskAgent))
         first_agent_name = child.name
         child._active_task_id = None  # Mark as idle
-        agent._locked_ships.discard(agent._character_id)
+        agent._locked_ships.pop(agent._character_id, None)
 
         # Second task — should reuse the existing idle agent.
         # The reuse path returns request_task's return value as task_id.
@@ -1529,7 +1536,7 @@ class TestCorpShipRouting:
         agent = _make_voice_agent()
         agent._task_groups = {}
         agent._children = []
-        agent._locked_ships = {"ship-1"}
+        agent._locked_ships = {"ship-1": "task-uuid"}
         agent.send_message = AsyncMock()
 
         # Add an idle player task agent to children
@@ -1540,6 +1547,257 @@ class TestCorpShipRouting:
 
         await agent.close_tasks()
 
-        assert agent._locked_ships == set()
+        assert agent._locked_ships == {}
         assert len(agent._children) == 0
         agent.send_message.assert_called_once()  # BusEndAgentMessage sent
+
+
+# ── BYOA / server-side ship lock wiring ────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestServerSideShipLock:
+    """VoiceAgent's pre-spawn server acquire + heartbeat + disconnect release."""
+
+    @pytest.mark.asyncio
+    async def test_player_task_acquire_called_with_framework_task_id(self):
+        """The new-agent path emits task_lifecycle(start) before spawning."""
+        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent._inject_context = AsyncMock()
+
+        async def add_agent(task_agent):
+            await asyncio.sleep(0)
+            agent._children.append(task_agent)
+
+        agent.add_agent = AsyncMock(side_effect=add_agent)
+
+        params = MagicMock()
+        params.arguments = {"task_description": "Mine resources"}
+        result = await agent._handle_start_task(params)
+        assert result["success"]
+
+        agent._game_client.task_lifecycle.assert_called_once()
+        kwargs = agent._game_client.task_lifecycle.call_args.kwargs
+        assert kwargs["event_type"] == "start"
+        assert kwargs["task_id"] == result["task_id"]
+        assert kwargs["character_id"] == agent._character_id
+        assert kwargs["task_description"] == "Mine resources"
+        # The local lock map now carries the framework task_id.
+        assert agent._locked_ships.get(agent._character_id) == result["task_id"]
+
+    @pytest.mark.asyncio
+    async def test_start_task_returns_ship_busy_on_409(self):
+        """A 409 ship_busy from task_lifecycle surfaces a structured error
+        without ever creating a TaskAgent child."""
+        from gradientbang.utils.api_client import RPCError
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent._inject_context = AsyncMock()
+        agent.add_agent = AsyncMock()
+
+        body = {
+            "error": "ship_busy",
+            "ship_id": "abc",
+            "current_task_id": "other-task",
+            "task_actor_character_id_prefix": "abcdef012345",
+            "task_started_at": "2026-05-11T00:00:00Z",
+        }
+        agent._game_client.task_lifecycle = AsyncMock(
+            side_effect=RPCError("task_lifecycle", 409, "ship_busy", body=body)
+        )
+
+        params = MagicMock()
+        params.arguments = {"task_description": "Mine"}
+        result = await agent._handle_start_task(params)
+
+        assert result["success"] is False
+        assert "Ship is busy" in result["error"]
+        assert "abcdef012345" in result["error"]
+        agent.add_agent.assert_not_called()
+        # Local map stays empty — no lock to track on a rejected acquire.
+        assert agent._locked_ships == {}
+
+    @pytest.mark.asyncio
+    async def test_start_task_returns_byoa_private_on_403(self):
+        from gradientbang.utils.api_client import RPCError
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent._inject_context = AsyncMock()
+        agent.add_agent = AsyncMock()
+        agent._is_corp_ship_id = AsyncMock(return_value=(True, "Bob's Probe"))
+        agent._VoiceAgent__game_client.base_url = "http://localhost"
+
+        body = {
+            "error": "byoa_private_not_owner",
+            "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "byoa_owner_character_id_prefix": "0123456789ab",
+        }
+        agent._game_client.task_lifecycle = AsyncMock(
+            side_effect=RPCError(
+                "task_lifecycle", 403, "byoa_private_not_owner", body=body
+            )
+        )
+
+        params = MagicMock()
+        params.arguments = {
+            "task_description": "Trade",
+            "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        }
+        with patch(
+            "gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient"
+        ) as mock_cls:
+            mock_corp_client = MagicMock()
+            mock_corp_client.close = AsyncMock()
+            mock_cls.return_value = mock_corp_client
+
+            result = await agent._handle_start_task(params)
+
+        assert result["success"] is False
+        assert "private BYOA" in result["error"]
+        assert "0123456789ab" in result["error"]
+        agent.add_agent.assert_not_called()
+        # The dedicated corp-ship client that was constructed should be closed
+        # so the failed acquire doesn't leak it.
+        mock_corp_client.close.assert_awaited_once()
+        assert agent._locked_ships == {}
+
+    @pytest.mark.asyncio
+    async def test_close_tasks_releases_server_side_locks(self):
+        """Disconnect path explicitly releases each held lock server-side."""
+        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent.send_message = AsyncMock()
+        agent.cancel_task = AsyncMock()
+
+        # Two locks held: a player ship and a corp ship.
+        agent._locked_ships = {
+            agent._character_id: "task-player",
+            "corp-ship-1": "task-corp",
+        }
+        mock_player_agent = MagicMock(spec=TaskAgent)
+        mock_player_agent.name = "task_player"
+        mock_player_agent._is_corp_ship = False
+        agent._children.append(mock_player_agent)
+
+        await agent.close_tasks()
+
+        # task_cancel called once per held lock, with the framework task_id.
+        assert agent._game_client.task_cancel.await_count == 2
+        called_task_ids = {
+            call.kwargs["task_id"]
+            for call in agent._game_client.task_cancel.await_args_list
+        }
+        assert called_task_ids == {"task-player", "task-corp"}
+        # Every call is from the player as requester.
+        for call in agent._game_client.task_cancel.await_args_list:
+            assert call.kwargs["character_id"] == agent._character_id
+
+        # Local state cleared after.
+        assert agent._locked_ships == {}
+
+    @pytest.mark.asyncio
+    async def test_close_tasks_cancels_heartbeat_before_release(self):
+        """Heartbeat task must be cancelled before the release loop runs."""
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent.send_message = AsyncMock()
+        agent.cancel_task = AsyncMock()
+        agent._locked_ships = {"ship-1": "task-1"}
+
+        order: list[str] = []
+
+        async def hb_loop():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                order.append("heartbeat_cancelled")
+                raise
+
+        async def task_cancel_mock(**_kwargs):
+            order.append("server_release")
+            return {"success": True}
+
+        agent._heartbeat_task = asyncio.create_task(hb_loop())
+        agent._game_client.task_cancel = AsyncMock(side_effect=task_cancel_mock)
+
+        # Let the heartbeat task start.
+        await asyncio.sleep(0)
+
+        await agent.close_tasks()
+
+        assert order[0] == "heartbeat_cancelled"
+        assert order[1] == "server_release"
+        assert agent._heartbeat_task is None
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_task_started_on_first_acquire(self):
+        """The heartbeat background task is lazily created on first acquire."""
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent._inject_context = AsyncMock()
+
+        async def add_agent(task_agent):
+            await asyncio.sleep(0)
+            agent._children.append(task_agent)
+
+        agent.add_agent = AsyncMock(side_effect=add_agent)
+
+        assert agent._heartbeat_task is None
+
+        params = MagicMock()
+        params.arguments = {"task_description": "Mine"}
+        result = await agent._handle_start_task(params)
+        assert result["success"]
+
+        assert agent._heartbeat_task is not None
+        # Clean up so the test doesn't leak the task.
+        agent._heartbeat_task.cancel()
+        try:
+            await agent._heartbeat_task
+        except asyncio.CancelledError:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_loop_posts_held_locks(self):
+        """The heartbeat loop posts the current (ship_id, task_id) pairs."""
+        agent = _make_voice_agent()
+        agent._byoa_config = type(agent._byoa_config)(
+            heartbeat_interval_seconds=0,  # fire on every loop iteration
+            max_concurrent_tasks=agent._byoa_config.max_concurrent_tasks,
+            tool_call_timeout_seconds=agent._byoa_config.tool_call_timeout_seconds,
+            task_request_timeout_seconds=agent._byoa_config.task_request_timeout_seconds,
+            server_lock_stale_seconds_expected=agent._byoa_config.server_lock_stale_seconds_expected,
+            server_lock_hard_ttl_minutes_expected=agent._byoa_config.server_lock_hard_ttl_minutes_expected,
+        )
+
+        agent._locked_ships = {"ship-1": "task-1", "ship-2": "task-2"}
+        hb_calls: list[list[dict]] = []
+
+        async def heartbeat_mock(*, locks, **_kwargs):
+            hb_calls.append(locks)
+            # Drain the map after the first call so the loop exits.
+            agent._locked_ships.clear()
+            return {"refreshed": len(locks)}
+
+        agent._game_client.task_heartbeat = AsyncMock(side_effect=heartbeat_mock)
+
+        agent._ensure_heartbeat_task_running()
+        await agent._heartbeat_task  # runs until _locked_ships empties
+
+        assert len(hb_calls) == 1
+        locks = hb_calls[0]
+        pairs = {(lock["ship_id"], lock["task_id"]) for lock in locks}
+        assert pairs == {("ship-1", "task-1"), ("ship-2", "task-2")}

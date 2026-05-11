@@ -35,6 +35,10 @@ class RelayVoiceHarness:
         self.game_client.quest_status = AsyncMock()
         self.game_client.list_known_ports = AsyncMock(return_value={"request_id": "mega-req"})
         self.game_client.set_event_polling_scope = MagicMock()
+        # Server-side ship-task lock RPCs (Groundwork): default to success.
+        self.game_client.task_lifecycle = AsyncMock(return_value={"success": True})
+        self.game_client.task_cancel = AsyncMock(return_value={"success": True})
+        self.game_client.task_heartbeat = AsyncMock(return_value={"refreshed": 0})
 
         self.rtvi = MagicMock()
         self.rtvi.push_frame = AsyncMock()

@@ -193,7 +193,15 @@ class AsyncGameClient(BaseAsyncGameClient):
                 request_id=req_id,
                 error_payload=error_payload,
             )
-            raise RPCError(endpoint, status, detail, code)
+            # Pass the full body so callers can read structured 409/403 fields
+            # (e.g. ship_busy holder info) without needing to bypass _request.
+            raise RPCError(
+                endpoint,
+                status,
+                detail,
+                code,
+                body=data if isinstance(data, dict) else None,
+            )
 
         result = {k: v for k, v in data.items() if k != "success"}
         result.setdefault("success", True)

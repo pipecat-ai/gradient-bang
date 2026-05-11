@@ -127,11 +127,15 @@ class TestTaskLifecycle:
         # First inference triggered
         assert len(h.queued_frames) > 0
 
-        # Game client notified of task start
-        h.game_client.task_lifecycle.assert_called_once()
-        call_kwargs = h.game_client.task_lifecycle.call_args[1]
-        assert call_kwargs["task_id"] == "task-abc"
-        assert call_kwargs["event_type"] == "start"
+        # task.start emission is owned by VoiceAgent (pre-spawn acquire);
+        # TaskAgent no longer re-emits it. task.finish still goes through
+        # TaskAgent's game_client and is exercised by other tests.
+        start_calls = [
+            call
+            for call in h.game_client.task_lifecycle.call_args_list
+            if call.kwargs.get("event_type") == "start"
+        ]
+        assert start_calls == []
 
     async def test_task_request_sets_game_client_task_id(self):
         h = TaskAgentHarness()

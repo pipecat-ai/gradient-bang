@@ -52,7 +52,9 @@ from pipecat_subagents.bus import (
     BusTaskResponseMessage,
     BusTaskUpdateMessage,
 )
+from gradientbang.byoa import ByoaAgentConfig
 from gradientbang.tools import VOICE_TOOLS
+from gradientbang.utils.api_client import RPCError
 from gradientbang.utils.formatting import looks_like_uuid
 from gradientbang.utils.llm_factory import create_llm_service, get_voice_llm_config
 from gradientbang.utils.supabase_client import AsyncGameClient
@@ -105,12 +107,17 @@ class VoiceAgent(LLMAgent):
         character_id: str,
         rtvi_processor: RTVIProcessor,
         event_relay: Optional[EventRelay] = None,
+        byoa_config: Optional[ByoaAgentConfig] = None,
     ):
         super().__init__(name, bus=bus, bridged=(), active=False)
         self.__game_client = game_client
         self.__character_id = character_id
         self._rtvi = rtvi_processor
         self._event_relay = event_relay
+        self._byoa_config = byoa_config or ByoaAgentConfig.from_env()
+        warning = self._byoa_config.validate_heartbeat_against_server()
+        if warning:
+            logger.warning(f"byoa_config: {warning}")
 
         # ── Task timeout ──
         _timeout = float(os.getenv("TASK_AGENT_TIMEOUT", 0))
@@ -143,7 +150,16 @@ class VoiceAgent(LLMAgent):
         self._assistant_cycle_active: bool = False
         self._speech_start_grace_task: Optional[asyncio.Task] = None
         self._start_task_lock: asyncio.Lock = asyncio.Lock()
-        self._locked_ships: set[str] = set()  # character_ids with an active task
+        # Maps ship/character_id of the held lock → framework_task_id. The
+        # server-side mutex on ship_instances.current_task_id is authoritative
+        # for cross-process contention; this map exists so we can heartbeat
+        # the right (ship_id, task_id) pair and release server-side on
+        # disconnect without re-querying.
+        self._locked_ships: Dict[str, str] = {}
+        # Background asyncio task that periodically posts task_heartbeat for
+        # every (ship_id, task_id) pair in _locked_ships. Lazily started on
+        # the first acquire; exits when the map drains.
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
         # ── Deferred-update queue (task.completed batching, etc.) ──
         # Bounded drain task lifecycle: lazily spawned on first enqueue,
@@ -1823,9 +1839,11 @@ class VoiceAgent(LLMAgent):
         # and silently folds in entries once the topic has clearly moved on.
         self._enqueue_deferred_update(event_xml, ship_id=ship_character_id)
 
-        # Release ship lock (both player and corp)
+        # Release ship lock (both player and corp). The server-side release
+        # happens inside TaskAgent (it calls task_lifecycle finish before
+        # exiting), so we only clear the local map here.
         if ship_character_id:
-            self._locked_ships.discard(ship_character_id)
+            self._locked_ships.pop(ship_character_id, None)
 
         # Corp ship agents: end pipeline, remove from children, close client.
         # Player agents: keep alive for reuse — pipeline stays running.
@@ -1999,10 +2017,34 @@ class VoiceAgent(LLMAgent):
                         None,
                     )
                     if existing:
-                        self._locked_ships.add(target_character_id)
+                        # request_task() generates the framework task_id; we
+                        # then call the server to record the start event +
+                        # acquire the lock with that id. For a player ship
+                        # there's no cross-process contention, so 409 here
+                        # is effectively unreachable — but a 5xx from the
+                        # server still has to unwind cleanly.
                         framework_task_id = await self.request_task(
                             existing.name, payload=payload, timeout=self._task_agent_timeout
                         )
+                        server_err = await self._acquire_server_ship_lock(
+                            target_character_id=target_character_id,
+                            framework_task_id=framework_task_id,
+                            task_desc=task_desc,
+                            task_metadata=task_metadata,
+                        )
+                        if server_err:
+                            try:
+                                await self.cancel_task(
+                                    framework_task_id,
+                                    reason="server lock acquire failed",
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    f"cancel after server lock failure errored: {exc}"
+                                )
+                            return server_err
+                        self._locked_ships[target_character_id] = framework_task_id
+                        self._ensure_heartbeat_task_running()
                         self._update_polling_scope()
                         return {
                             "success": True,
@@ -2029,6 +2071,21 @@ class VoiceAgent(LLMAgent):
                 # internal routing; the framework UUID is the only identifier
                 # the LLM (and event_relay) ever sees.
                 framework_task_id = str(uuid.uuid4())
+
+                # Server-side acquire BEFORE spawning the TaskAgent. A 409
+                # ship_busy or 403 byoa_private_not_owner here surfaces as a
+                # user-facing error without ever creating the local child.
+                server_err = await self._acquire_server_ship_lock(
+                    target_character_id=target_character_id,
+                    framework_task_id=framework_task_id,
+                    task_desc=task_desc,
+                    task_metadata=task_metadata,
+                )
+                if server_err:
+                    if task_game_client and task_game_client != self._game_client:
+                        await task_game_client.close()
+                    return server_err
+
                 agent_name = f"task_{uuid.uuid4().hex[:6]}"
                 task_agent = TaskAgent(
                     agent_name,
@@ -2042,9 +2099,12 @@ class VoiceAgent(LLMAgent):
 
                 # Lock ship BEFORE add_agent — if add_agent partially fails
                 # (child in _children but pipeline not started), the ship stays
-                # locked so no second agent can be added for it.
+                # locked so no second agent can be added for it. The
+                # server-side lock is already held; the local map and the
+                # heartbeat task are the only things still to wire up.
                 self._pending_tasks[agent_name] = (framework_task_id, payload)
-                self._locked_ships.add(target_character_id)
+                self._locked_ships[target_character_id] = framework_task_id
+                self._ensure_heartbeat_task_running()
                 try:
                     await self.add_agent(task_agent)
                     # pipecat-subagents 0.4 requires explicit watch_agent for
@@ -2052,9 +2112,20 @@ class VoiceAgent(LLMAgent):
                     # Without it, _pending_tasks is never drained.
                     await self.watch_agent(agent_name)
                 except Exception:
-                    self._locked_ships.discard(target_character_id)
+                    self._locked_ships.pop(target_character_id, None)
                     self._pending_tasks.pop(agent_name, None)
                     self._children = [c for c in self._children if c.name != agent_name]
+                    # Best-effort server release so the lock we just acquired
+                    # doesn't leak waiting for the stale window.
+                    try:
+                        await self._game_client.task_cancel(
+                            task_id=framework_task_id,
+                            character_id=self._character_id,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            f"server release after add_agent failure errored: {exc}"
+                        )
                     try:
                         await self.send_message(
                             BusEndAgentMessage(source=self.name, target=agent_name, reason="startup failed")
@@ -2075,7 +2146,7 @@ class VoiceAgent(LLMAgent):
                 if task_game_client and task_game_client != self._game_client:
                     await task_game_client.close()
                 if target_character_id:
-                    self._locked_ships.discard(target_character_id)
+                    self._locked_ships.pop(target_character_id, None)
                 if agent_name:
                     self._pending_tasks.pop(agent_name, None)
                     self._children = [c for c in self._children if c.name != agent_name]
@@ -2110,8 +2181,8 @@ class VoiceAgent(LLMAgent):
             # the same turn can proceed. on_task_response releases the lock
             # too, but it blocks on `tool_call_active` which is held by *this*
             # tool call — so the async release can't land until we return.
-            # `.discard()` is idempotent, so the later release is a no-op.
-            self._locked_ships.discard(child._character_id)
+            # `.pop(..., None)` is idempotent, so the later release is a no-op.
+            self._locked_ships.pop(child._character_id, None)
 
             await self.cancel_task(framework_task_id, reason="Cancelled by user")
             return {"success": True, "message": "Task cancelled", "task_id": framework_task_id}
@@ -2217,13 +2288,41 @@ class VoiceAgent(LLMAgent):
     # ── Task cleanup ───────────────────────────────────────────────────
 
     async def close_tasks(self) -> None:
-        """Cancel all active tasks and end all task agent pipelines."""
+        """Cancel all active tasks and end all task agent pipelines.
+
+        Order is load-bearing: stop the heartbeat task FIRST (don't refresh
+        locks we're about to release), then release the server-side lock
+        for each held pair, then cancel framework tasks, then end pipelines,
+        then clear local state.
+        """
+        # 1. Stop the heartbeat task so it can't reach the server with a
+        # refresh after we've started releasing locks.
+        await self._stop_heartbeat_task()
+
+        # 2. Server-side release for each held lock. TaskAgent will also
+        # emit task_lifecycle(finish) on cancel — that's idempotent against
+        # the pair-matched release here; whichever lands first wins.
+        for ship_character_id, framework_task_id in list(self._locked_ships.items()):
+            try:
+                await self._game_client.task_cancel(
+                    task_id=framework_task_id,
+                    character_id=self._character_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"close_tasks: server release failed for ship "
+                    f"{ship_character_id[:8]} task {framework_task_id[:8]}: {exc}"
+                )
+
+        # 3. Framework-level cancellation. Sends BusTaskCancel; TaskAgents
+        # run their own cancel flow.
         for task_id in list(self._task_groups.keys()):
             try:
                 await self.cancel_task(task_id, reason="Disconnected")
             except Exception as e:
                 logger.error(f"Failed to cancel task: {e}")
-        # End any remaining task agent pipelines (including idle player agent)
+
+        # 4. End any remaining task agent pipelines (including idle player agent)
         for child in list(self._children):
             if isinstance(child, TaskAgent):
                 try:
@@ -2234,6 +2333,118 @@ class VoiceAgent(LLMAgent):
                     logger.error(f"Failed to end task agent '{child.name}': {e}")
         self._children = [c for c in self._children if not isinstance(c, TaskAgent)]
         self._locked_ships.clear()
+
+    # ── Server-side ship-task lock helpers ─────────────────────────────
+
+    async def _acquire_server_ship_lock(
+        self,
+        *,
+        target_character_id: str,
+        framework_task_id: str,
+        task_desc: str,
+        task_metadata: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Call task_lifecycle(start) server-side; translate 409/403 into a
+        user-facing error dict.
+
+        Returns:
+            ``None`` on success, or a ``{"success": False, "error": ...}``
+            dict ready to surface to the LLM on 409 ship_busy / 403
+            byoa_private_not_owner. Other RPC failures re-raise so the outer
+            handler can log + format them.
+        """
+        try:
+            await self._game_client.task_lifecycle(
+                character_id=target_character_id,
+                task_id=framework_task_id,
+                event_type="start",
+                task_description=task_desc,
+                task_metadata=task_metadata,
+            )
+            return None
+        except RPCError as err:
+            body = err.body if isinstance(err.body, dict) else {}
+            err_code = body.get("error") if isinstance(body, dict) else None
+            if err.status == 409 and err_code == "ship_busy":
+                actor_prefix = body.get("task_actor_character_id_prefix")
+                actor_desc = (
+                    f"another character ({actor_prefix})"
+                    if actor_prefix
+                    else "another character"
+                )
+                return {
+                    "success": False,
+                    "error": (
+                        f"Ship is busy: {actor_desc} is already running a task. "
+                        "Stop that task first or wait for it to finish."
+                    ),
+                }
+            if err.status == 403 and err_code == "byoa_private_not_owner":
+                owner_prefix = body.get("byoa_owner_character_id_prefix")
+                owner_desc = (
+                    f"member {owner_prefix}"
+                    if owner_prefix
+                    else "another corp member"
+                )
+                return {
+                    "success": False,
+                    "error": (
+                        f"This is {owner_desc}'s private BYOA ship — only they "
+                        "can issue tasks to it."
+                    ),
+                }
+            raise
+
+    def _ensure_heartbeat_task_running(self) -> None:
+        """Lazily start the heartbeat loop if it isn't already running."""
+        if self._heartbeat_task is None or self._heartbeat_task.done():
+            self._heartbeat_task = asyncio.create_task(
+                self._heartbeat_loop(), name="voice_agent_heartbeat"
+            )
+
+    async def _stop_heartbeat_task(self) -> None:
+        task = self._heartbeat_task
+        if task is None:
+            return
+        self._heartbeat_task = None
+        if task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            # CancelledError is expected; other exceptions are logged inside
+            # the loop and don't need to propagate out of cleanup.
+            pass
+
+    async def _heartbeat_loop(self) -> None:
+        """Periodically refresh held ship-task locks server-side.
+
+        Runs while ``_locked_ships`` is non-empty; exits when it drains.
+        Errors are warning-logged and don't terminate the loop — transient
+        network issues are expected and the next tick can recover.
+        """
+        interval = float(self._byoa_config.heartbeat_interval_seconds)
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                if not self._locked_ships:
+                    return
+                locks = [
+                    {"ship_id": ship_id, "task_id": task_id}
+                    for ship_id, task_id in self._locked_ships.items()
+                ]
+                try:
+                    await self._game_client.task_heartbeat(
+                        locks=locks,
+                        character_id=self._character_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"task_heartbeat failed ({len(locks)} locks): {exc}"
+                    )
+        except asyncio.CancelledError:
+            raise
 
     # ── Task management tool wrappers ─────────────────────────────────
 
