@@ -217,7 +217,6 @@ for transport in "${TRANSPORTS[@]}"; do
   deno test \
     --config "$FUNCTIONS_DIR/deno.json" \
     --allow-all \
-    --reporter=dot \
     --coverage="$COVERAGE_DIR/$transport" \
     "${TEST_TARGETS[@]}" \
     2>&1 | tee "$LOG_FILE"
@@ -247,8 +246,8 @@ else
   for transport in "${FAILED_TRANSPORTS[@]}"; do
     log="$LOG_DIR/$transport.log"
     [ -f "$log" ] || continue
-    # With --reporter=dot, deno emits a "FAILURES" block before the summary
-    # line, with one line per failed test of the form "name => path:line:col".
+    # Deno emits a "FAILURES" block before the summary line, with one line
+    # per failed test of the form "name => path:line:col".
     failures=$(awk '
       /FAILURES/      { flag=1; next }
       /^FAILED \|/    { flag=0 }
