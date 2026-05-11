@@ -40,8 +40,15 @@ from pipecat.services.llm_service import FunctionCallParams
 
 from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.pipecat_server.subagents.bus_messages import (
+    BusCombatStrategyRequest,
+    BusCombatStrategyResponse,
+    BusCorporationQueryRequest,
+    BusCorporationQueryResponse,
     BusGameEventMessage,
+    BusGameToolCallRequest,
+    BusGameToolCallResponse,
     BusSteerTaskMessage,
+    BusTaskFinishNotification,
 )
 from gradientbang.pipecat_server.subagents.event_relay import EventRelay
 from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
@@ -49,6 +56,7 @@ from pipecat_subagents.agents import LLMAgent, TaskStatus
 from pipecat_subagents.bus import (
     AgentBus,
     BusEndAgentMessage,
+    BusMessage,
     BusTaskResponseMessage,
     BusTaskUpdateMessage,
 )
@@ -1846,6 +1854,174 @@ class VoiceAgent(LLMAgent):
                     logger.error(f"Failed to close task game client: {e}")
 
         self._update_polling_scope()
+
+    # ── BYOA broker (Phase 1) ──────────────────────────────────────────
+    #
+    # TaskAgents (in-process today, remote BYOA in Phase 3) speak typed bus
+    # messages instead of holding their own AsyncGameClient. This broker is
+    # the only edge-function ingress for the whole agent ecosystem. Each
+    # handler:
+    #   - reads character_id / actor_character_id off the inbound message
+    #     and passes them per-call (overrides the player-bound client)
+    #   - tags self._game_client.current_task_id for the call duration via
+    #     try/finally so concurrent calls don't trample each other
+    #   - catches exceptions → error=str(e) in the response. Never re-raises.
+    #
+    # See docs/byoa.md "Phase 1 — VoiceAgent broker".
+
+    async def on_bus_message(self, message: BusMessage) -> None:
+        """Dispatch Phase 1 typed messages; delegate everything else upstream."""
+        # Targeted messages for other agents are ignored upstream; mirror
+        # that here so we don't broker requests addressed to siblings.
+        if (
+            getattr(message, "target", None)
+            and message.target != self.name
+        ):
+            await super().on_bus_message(message)
+            return
+
+        if isinstance(message, BusGameToolCallRequest):
+            await self._on_game_tool_call_request(message)
+        elif isinstance(message, BusCombatStrategyRequest):
+            await self._on_combat_strategy_request(message)
+        elif isinstance(message, BusCorporationQueryRequest):
+            await self._on_corporation_query_request(message)
+        elif isinstance(message, BusTaskFinishNotification):
+            await self._on_task_finish_notification(message)
+
+        await super().on_bus_message(message)
+
+    async def _on_game_tool_call_request(
+        self, msg: BusGameToolCallRequest
+    ) -> None:
+        """Dispatch a TaskAgent tool call to the player-bound game client.
+
+        ``character_id`` and ``actor_character_id`` from the message
+        override the client's bound identity for the duration of the call,
+        so a corp-ship TaskAgent's RPC acts on the corp-ship pseudo-char
+        with the player as actor — without constructing a second client.
+        """
+        result: Optional[Dict[str, Any]] = None
+        error: Optional[str] = None
+        prev_task_id = getattr(self._game_client, "current_task_id", None)
+        try:
+            self._game_client.current_task_id = msg.task_id or None
+            method = getattr(self._game_client, msg.tool_name, None)
+            if method is None or not callable(method):
+                error = f"unknown tool: {msg.tool_name!r}"
+            else:
+                kwargs: Dict[str, Any] = dict(msg.args)
+                if msg.character_id:
+                    kwargs.setdefault("character_id", msg.character_id)
+                if msg.actor_character_id:
+                    kwargs.setdefault("actor_character_id", msg.actor_character_id)
+                raw = await method(**kwargs)
+                result = raw if isinstance(raw, dict) else {"result": raw}
+        except Exception as exc:
+            logger.warning(
+                f"broker game_tool_call({msg.tool_name}) failed: {exc}"
+            )
+            error = str(exc)
+        finally:
+            try:
+                self._game_client.current_task_id = prev_task_id
+            except Exception:
+                pass
+
+        await self.send_message(
+            BusGameToolCallResponse(
+                source=self.name,
+                target=msg.source,
+                correlation_id=msg.correlation_id,
+                result=result,
+                error=error,
+            )
+        )
+
+    async def _on_combat_strategy_request(
+        self, msg: BusCombatStrategyRequest
+    ) -> None:
+        strategy: Optional[Dict[str, Any]] = None
+        error: Optional[str] = None
+        try:
+            raw = await self._game_client.combat_get_strategy(
+                character_id=msg.character_id
+            )
+            strategy = raw if isinstance(raw, dict) else {"strategy": raw}
+        except Exception as exc:
+            logger.warning(f"broker combat_strategy failed: {exc}")
+            error = str(exc)
+
+        await self.send_message(
+            BusCombatStrategyResponse(
+                source=self.name,
+                target=msg.source,
+                correlation_id=msg.correlation_id,
+                strategy=strategy,
+                error=error,
+            )
+        )
+
+    async def _on_corporation_query_request(
+        self, msg: BusCorporationQueryRequest
+    ) -> None:
+        result: Optional[Dict[str, Any]] = None
+        error: Optional[str] = None
+        try:
+            if msg.query_type == "list":
+                raw = await self._game_client._request("corporation.list", {})
+            elif msg.query_type == "info":
+                if not msg.corp_id:
+                    raise ValueError("corp_id required for query_type='info'")
+                raw = await self._game_client._request(
+                    "corporation.info",
+                    {"character_id": msg.character_id, "corp_id": msg.corp_id},
+                )
+            elif msg.query_type == "my":
+                raw = await self._game_client._request(
+                    "my_corporation",
+                    {"character_id": msg.character_id},
+                )
+            else:
+                raise ValueError(f"unknown query_type: {msg.query_type!r}")
+            result = raw if isinstance(raw, dict) else {"result": raw}
+        except Exception as exc:
+            logger.warning(f"broker corp_query({msg.query_type}) failed: {exc}")
+            error = str(exc)
+
+        await self.send_message(
+            BusCorporationQueryResponse(
+                source=self.name,
+                target=msg.source,
+                correlation_id=msg.correlation_id,
+                result=result,
+                error=error,
+            )
+        )
+
+    async def _on_task_finish_notification(
+        self, msg: BusTaskFinishNotification
+    ) -> None:
+        """Fire-and-forget — call task_lifecycle(finish) and log on failure.
+
+        Server-side this triggers the pair-matched ship-lock release.
+        No response message; the bundled TaskAgent already finishes its
+        own bookkeeping before sending this.
+        """
+        try:
+            await self._game_client.task_lifecycle(
+                character_id=msg.character_id,
+                task_id=msg.task_id,
+                event_type="finish",
+                task_status=msg.status,
+                task_summary=msg.summary,
+            )
+        except Exception as exc:
+            # Lock auto-clears within the stale window. Don't fail loudly —
+            # the task itself has already completed from the agent's POV.
+            logger.warning(
+                f"broker task_finish failed for {msg.task_id[:8]}: {exc}"
+            )
 
     # ── Task output handling ───────────────────────────────────────────
 
