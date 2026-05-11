@@ -12,13 +12,17 @@ on:
           - dev
           - eval
   push:
-    branches: [dev]
+    branches: [dev, main]
     paths:
       - "deployment/supabase/functions/**"
 
+concurrency:
+  group: deploy-functions-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
-    name: Deploy to Supabase (${{ inputs.environment || 'dev' }})
+    name: Deploy to Supabase (${{ inputs.environment || (github.ref == 'refs/heads/main' && 'eval' || 'dev') }})
     runs-on: ubuntu-latest
 
     steps:
@@ -34,4 +38,4 @@ jobs:
         run: supabase functions deploy --project-ref $SUPABASE_PROJECT_REF --workdir deployment --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ (inputs.environment == 'eval') && secrets.SUPABASE_PROJECT_REF_EVAL || secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_PROJECT_REF: ${{ (inputs.environment == 'eval' || github.ref == 'refs/heads/main') && secrets.SUPABASE_PROJECT_REF_EVAL || secrets.SUPABASE_PROJECT_REF }}

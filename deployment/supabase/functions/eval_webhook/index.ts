@@ -1,6 +1,5 @@
 import {
   errorResponse,
-  requireAdminToken,
   successResponse,
 } from "../_shared/auth.ts";
 import {
@@ -16,6 +15,11 @@ import { SEED_BY_SLUG, ALL_SEEDS } from "./seeds/registry.ts";
 // EVAL_ENABLED
 const EVAL_ENABLED = Deno.env.get("EVAL_WEBHOOK_ENABLED") === "true";
 const EDGE_API_TOKEN = Deno.env.get("EDGE_API_TOKEN") ?? "";
+// Legacy secret name — Cekura webhooks configured before the env var rename
+// still send the value previously stored under CEKURA_WEBHOOK_SECRET. Accept
+// both during the transition so auto-reseed keeps working without requiring
+// an out-of-band Cekura config change.
+const LEGACY_CEKURA_SECRET = Deno.env.get("CEKURA_WEBHOOK_SECRET") ?? "";
 
 // Supabase's edge-runtime log viewer is inconsistent across console.* calls
 // (console.log sometimes buffered, console.error sometimes suppressed by the
@@ -58,13 +62,23 @@ function logError(msg: string, err?: unknown): void {
 log("boot", {
   eval_enabled: EVAL_ENABLED,
   has_edge_api_token: Boolean(EDGE_API_TOKEN),
+  has_legacy_cekura_secret: Boolean(LEGACY_CEKURA_SECRET),
 });
 
-// Cekura sends the shared secret in X-CEKURA-SECRET, not the standard
-// X-API-Token header — requireAdminToken's headerName option lets us reuse
-// the same admin gate (incl. fail-closed when EDGE_API_TOKEN is unset).
-function validateCekuraSecret(req: Request): Promise<boolean> {
-  return requireAdminToken(req, { headerName: "X-CEKURA-SECRET" });
+// the value we are looking for is EDGE_API_TOKEN
+// the _key_ is X-CEKURA-SECRET, because this is coming from
+// Cekura's webhook event service
+//
+// Backward compat: also accept CEKURA_WEBHOOK_SECRET (the previous env var
+// name) so existing Cekura webhook configurations keep auth-ing after the
+// rename. New deployments should set EDGE_API_TOKEN; legacy installs that
+// still have CEKURA_WEBHOOK_SECRET configured continue to work.
+function validateCekuraSecret(req: Request): boolean {
+  const provided = req.headers.get("X-CEKURA-SECRET") ?? "";
+  if (!provided) return false;
+  if (EDGE_API_TOKEN && provided === EDGE_API_TOKEN) return true;
+  if (LEGACY_CEKURA_SECRET && provided === LEGACY_CEKURA_SECRET) return true;
+  return false;
 }
 
 function getCharacterSlug(name: string): string {
@@ -98,7 +112,7 @@ Deno.serve(
     }
 
     // All requests require X-CEKURA-SECRET
-    if (!(await validateCekuraSecret(req))) {
+    if (!validateCekuraSecret(req)) {
       logError("reject auth");
       return errorResponse("invalid or missing X-CEKURA-SECRET", 401);
     }
