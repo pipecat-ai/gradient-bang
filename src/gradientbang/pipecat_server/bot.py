@@ -681,7 +681,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             )
 
     agent_runner = AgentRunner(
-        bus=make_subagent_bus(),
+        bus=await make_subagent_bus(),
         handle_sigint=getattr(runner_args, "handle_sigint", False),
     )
 

@@ -1,32 +1,100 @@
 """Tests for ``make_subagent_bus`` env-driven transport selection."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from gradientbang.adapters.bus import AsyncQueueBus, make_subagent_bus
+from gradientbang.adapters.bus.pgmq import parse_database_url
 
 
 @pytest.mark.unit
 class TestMakeSubagentBus:
-    def test_unset_env_returns_local_bus(self, monkeypatch):
+    async def test_unset_env_returns_local_bus(self, monkeypatch):
         monkeypatch.delenv("SUBAGENT_BUS_TRANSPORT", raising=False)
-        assert isinstance(make_subagent_bus(), AsyncQueueBus)
+        assert isinstance(await make_subagent_bus(), AsyncQueueBus)
 
-    def test_explicit_local_returns_local_bus(self, monkeypatch):
+    async def test_explicit_local_returns_local_bus(self, monkeypatch):
         monkeypatch.setenv("SUBAGENT_BUS_TRANSPORT", "local")
-        assert isinstance(make_subagent_bus(), AsyncQueueBus)
+        assert isinstance(await make_subagent_bus(), AsyncQueueBus)
 
-    def test_transport_value_is_case_insensitive_and_trimmed(self, monkeypatch):
+    async def test_transport_value_is_case_insensitive_and_trimmed(self, monkeypatch):
         monkeypatch.setenv("SUBAGENT_BUS_TRANSPORT", "  LOCAL  ")
-        assert isinstance(make_subagent_bus(), AsyncQueueBus)
+        assert isinstance(await make_subagent_bus(), AsyncQueueBus)
 
-    def test_invalid_transport_raises_with_helpful_message(self, monkeypatch):
+    async def test_invalid_transport_raises_with_helpful_message(self, monkeypatch):
         monkeypatch.setenv("SUBAGENT_BUS_TRANSPORT", "carrier-pigeon")
         with pytest.raises(ValueError, match="carrier-pigeon"):
-            make_subagent_bus()
+            await make_subagent_bus()
 
-    def test_pgmq_branch_not_yet_implemented(self, monkeypatch):
-        # Wired in Phase 2 (4/N). Until then, fail loudly so accidental
-        # deployments don't silently fall back to the local bus.
+    async def test_pgmq_branch_requires_database_url(self, monkeypatch):
         monkeypatch.setenv("SUBAGENT_BUS_TRANSPORT", "pgmq")
-        with pytest.raises(NotImplementedError):
-            make_subagent_bus()
+        monkeypatch.delenv("SUBAGENT_BUS_DATABASE_URL", raising=False)
+        with pytest.raises(RuntimeError, match="SUBAGENT_BUS_DATABASE_URL"):
+            await make_subagent_bus()
+
+    async def test_pgmq_branch_builds_pgmq_bus(self, monkeypatch):
+        # Mock the PGMQueue + PgmqBus so we don't need a real database.
+        # We just want to prove the factory wires the env-driven config
+        # (DSN + channel) into ``build_pgmq_bus``.
+        monkeypatch.setenv("SUBAGENT_BUS_TRANSPORT", "pgmq")
+        monkeypatch.setenv(
+            "SUBAGENT_BUS_DATABASE_URL",
+            "postgres://user:pass@db.example:5432/postgres",
+        )
+        monkeypatch.setenv("SUBAGENT_BUS_CHANNEL", "test_channel")
+
+        fake_queue = AsyncMock()
+        fake_bus_instance = object()
+        with (
+            patch(
+                "gradientbang.adapters.bus.pgmq.PGMQueue",
+                return_value=fake_queue,
+            ) as queue_ctor,
+            patch(
+                "gradientbang.adapters.bus.pgmq._OwnedPgmqBus",
+                return_value=fake_bus_instance,
+            ) as bus_ctor,
+        ):
+            bus = await make_subagent_bus()
+
+        assert bus is fake_bus_instance
+        # Verify the DSN was parsed and forwarded correctly.
+        queue_ctor.assert_called_once_with(
+            host="db.example",
+            port="5432",
+            database="postgres",
+            username="user",
+            password="pass",
+        )
+        fake_queue.init.assert_awaited_once()
+        # Channel from env propagated.
+        bus_ctor.assert_called_once_with(pgmq=fake_queue, channel="test_channel")
+
+
+@pytest.mark.unit
+class TestParseDatabaseUrl:
+    def test_full_dsn(self):
+        assert parse_database_url(
+            "postgresql://alice:s3cret@db.example:6543/gamedb"
+        ) == {
+            "host": "db.example",
+            "port": "6543",
+            "database": "gamedb",
+            "username": "alice",
+            "password": "s3cret",
+        }
+
+    def test_url_encoded_credentials_are_decoded(self):
+        # Passwords with `@` or `:` must be url-encoded in the DSN.
+        parsed = parse_database_url("postgres://u%40e:p%3Aw@host/db")
+        assert parsed["username"] == "u@e"
+        assert parsed["password"] == "p:w"
+
+    def test_missing_port_defaults_to_5432(self):
+        parsed = parse_database_url("postgres://u:p@host/db")
+        assert parsed["port"] == "5432"
+
+    def test_invalid_scheme_rejected(self):
+        with pytest.raises(ValueError, match="scheme"):
+            parse_database_url("mysql://u:p@host/db")
