@@ -971,12 +971,16 @@ async def _configure_recording_bucket(room_url: str):
         logger.error(f"Failed to configure recording bucket: {exc}")
 
 
-def _log_startup_config(version: str) -> None:
+def _log_startup_config() -> None:
     """Pretty-print the core bot config so transport choices are obvious at a glance.
 
-    Reads env directly rather than instantiating the LLM configs (those have
-    side effects we don't want at boot, like warning on unknown providers).
+    Called once per process at module import (before the HTTP server starts
+    listening), not per-session — the config is fixed for the lifetime of
+    the process. Reads env directly to avoid the LLM-factory side effects
+    (warnings on unknown providers, etc.).
     """
+    from gradientbang import __version__
+
     bus_transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
     bus_channel = os.getenv("SUBAGENT_BUS_CHANNEL", "").strip()
     event_transport = os.getenv("EVENT_TRANSPORT", "polling").strip().lower()
@@ -996,8 +1000,7 @@ def _log_startup_config(version: str) -> None:
 
     lines = [
         "─" * 64,
-        f"Gradient Bang Bot v{version}",
-        f"  instance_id        {BOT_INSTANCE_ID}",
+        f"Gradient Bang Bot v{__version__}",
         f"  event_transport    {event_transport}",
         f"  subagent_bus       {bus_line}",
         f"  byoa_wake          {'enabled' if byoa_wake else 'disabled'}",
@@ -1018,9 +1021,7 @@ async def bot(runner_args: RunnerArguments):
 
     configure_logging(instance_id=BOT_INSTANCE_ID)
 
-    from gradientbang import __version__
-
-    _log_startup_config(__version__)
+    logger.info(f"Bot session started instance_id={BOT_INSTANCE_ID}")
     logger.info(f"Bot started with runner_args: {runner_args}")
 
     transport_params = {
@@ -1046,4 +1047,5 @@ async def bot(runner_args: RunnerArguments):
 if __name__ == "__main__":
     from pipecat.runner.run import main
 
+    _log_startup_config()
     main()
