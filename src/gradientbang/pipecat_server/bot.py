@@ -971,6 +971,16 @@ async def _configure_recording_bucket(room_url: str):
         logger.error(f"Failed to configure recording bucket: {exc}")
 
 
+_BANNER = r"""
+   ____               _ _            _     ____
+  / ___|_ __ __ _  __| (_) ___ _ __ | |_  | __ )  __ _ _ __   __ _
+ | |  _| '__/ _` |/ _` | |/ _ \ '_ \| __| |  _ \ / _` | '_ \ / _` |
+ | |_| | | | (_| | (_| | |  __/ | | | |_  | |_) | (_| | | | | (_| |
+  \____|_|  \__,_|\__,_|_|\___|_| |_|\__| |____/ \__,_|_| |_|\__, |
+                                                             |___/
+"""
+
+
 def _log_startup_config() -> None:
     """Pretty-print the core bot config so transport choices are obvious at a glance.
 
@@ -998,16 +1008,19 @@ def _log_startup_config() -> None:
     if bus_transport != "local":
         bus_line += f"  channel={bus_channel or '(unset!)'}"
 
+    divider = "─" * 70
     lines = [
-        "─" * 64,
-        f"Gradient Bang Bot v{__version__}",
+        divider,
+        _BANNER.strip("\n"),
+        "",
+        f"  version            {__version__}",
         f"  event_transport    {event_transport}",
         f"  subagent_bus       {bus_line}",
         f"  byoa_wake          {'enabled' if byoa_wake else 'disabled'}",
         f"  local_pooler       {'on' if local_pooler else 'off (HTTP edge functions)'}",
         f"  voice_llm          {voice_provider}/{voice_model}",
         f"  task_llm           {task_provider}/{task_model}  thinking={task_thinking}",
-        "─" * 64,
+        divider,
     ]
     logger.info("\n" + "\n".join(lines))
 
