@@ -386,6 +386,10 @@ The DSN follows the standard `postgres://user:pass@host:port/db` shape; on manag
 
 While the PGMQ adapter is still pre-release in `pipecat-ai-subagents`, it's vendored as a git submodule at `vendor/pipecat-subagents`. Clone with `--recurse-submodules` or run `git submodule update --init --recursive` after pulling.
 
+### `BYOA_WAKE_ENABLED`
+
+Default `false`. When `true`, the bot calls the server-side `wake_agent` endpoint before each BYOA-ship task dispatch so a sleep-on-idle sandbox can cold-start in time. Leave `false` for always-on BYOA deploys (and all local dev). Today `wake_agent` is a stub; future versions will route to a configured sandbox.
+
 ---
 
 ## Running tests

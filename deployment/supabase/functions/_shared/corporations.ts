@@ -57,10 +57,6 @@ export interface CorporationShipSummary {
     owner_character_id_prefix: string;
     owner_character_name: string | null;
     mode: "private" | "shared";
-    // Operator's HTTPS wake hook; null when no wake is required (typical
-    // for always-warm BYOA agents). The bot POSTs here before publishing
-    // the task on the bus so a sleeping sandbox can cold-start in time.
-    wake_hook: string | null;
   } | null;
 }
 
@@ -317,7 +313,7 @@ export async function fetchCorporationShipSummaries(
   const { data: shipRows, error: shipError } = await supabase
     .from("ship_instances")
     .select(
-      "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters, task_actor_character_id, byoa_owner_character_id, byoa_mode, byoa_wake_hook",
+      "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters, task_actor_character_id, byoa_owner_character_id, byoa_mode",
     )
     .in("ship_id", shipIds)
     .neq("owner_type", "unowned")
@@ -414,15 +410,10 @@ export function buildByoaBlock(
   if (!ownerId) return null;
   const mode =
     row.byoa_mode === "shared" ? "shared" : "private";
-  const wakeHook =
-    typeof row.byoa_wake_hook === "string" && row.byoa_wake_hook.length > 0
-      ? (row.byoa_wake_hook as string)
-      : null;
   return {
     owner_character_id_prefix: truncateUuid(ownerId),
     owner_character_name: characterNames.get(ownerId) ?? null,
     mode,
-    wake_hook: wakeHook,
   };
 }
 

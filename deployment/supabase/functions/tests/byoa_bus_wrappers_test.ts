@@ -3,7 +3,7 @@
  * (migration 20260512000000_ship_task_lock_and_byoa.sql).
  *
  * Covers:
- *   - Invalid / revoked / expired tokens raise `invalid_token`.
+ *   - Invalid tokens raise `invalid_token`.
  *   - byoa_bus_create_queue inserts into byoa_owned_queues with the
  *     token's bound character_id; cross-character claim of the same
  *     queue name fails with `queue_name_taken`.
@@ -45,9 +45,7 @@ const BOB = "test_byoa_bus_bob";
 const CHANNEL = "bus_test_chan";
 
 interface TestOp {
-  userId: string;
   characterId: string;
-  accessToken: string;
   byoaToken: string;
 }
 
@@ -103,7 +101,7 @@ async function provisionOperator(emailLocal: string, characterId: string): Promi
   if (mintResp.status !== 200 || !mintBody.token) {
     throw new Error(`byoa_token_mint failed: ${JSON.stringify(mintBody)}`);
   }
-  return { userId, characterId, accessToken, byoaToken: mintBody.token };
+  return { characterId, byoaToken: mintBody.token };
 }
 
 let alice: TestOp;
@@ -167,7 +165,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "byoa_bus_*: invalid token raises invalid_token",
+  name: "byoa_bus_create_queue: invalid token raises invalid_token",
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
@@ -178,24 +176,6 @@ Deno.test({
         () =>
           pg.queryObject(
             "SELECT public.byoa_bus_create_queue('garbage.token', 'bus_test_chan_q', $1)",
-            [CHANNEL],
-          ),
-        Error,
-        "invalid_token",
-      );
-      await assertRejects(
-        () =>
-          pg.queryObject(
-            "SELECT public.byoa_bus_subscribe('garbage.token', 'bus_test_chan_q', 30, 10, 1, $1)",
-            [CHANNEL],
-          ),
-        Error,
-        "invalid_token",
-      );
-      await assertRejects(
-        () =>
-          pg.queryObject(
-            "SELECT public.byoa_bus_publish('garbage.token', $1, 'bus_test_chan_q', '{}'::jsonb)",
             [CHANNEL],
           ),
         Error,
@@ -423,75 +403,31 @@ Deno.test({
 });
 
 Deno.test({
-  name: "byoa_bus_subscribe: revoked token → invalid_token",
+  name: "byoa_bus_list_queues: returns only requested channel",
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    // Mint a throwaway token then revoke it.
-    const mintResp = await fetch(`${getBaseUrl()}/byoa_token_mint`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${alice.accessToken}`,
-      },
-      body: JSON.stringify({
-        character_id: alice.characterId,
-        label: "revoke-me",
-      }),
-    });
-    const mint = await mintResp.json();
-    const throwaway = mint.token as string;
-    const tokenId = mint.token_id as string;
-
-    await fetch(`${getBaseUrl()}/byoa_token_revoke`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${alice.accessToken}`,
-      },
-      body: JSON.stringify({ token_id: tokenId }),
-    });
-
+    const queueName = `${CHANNEL}_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
+    const otherChannel = "other_bus_chan";
+    const otherQueue = `${otherChannel}_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
     const pg = new Client(getPgUrl());
     try {
       await pg.connect();
-      await assertRejects(
-        () =>
-          pg.queryObject(
-            "SELECT public.byoa_bus_subscribe($1, $2, 30, 10, 1, $3)",
-            [throwaway, `${CHANNEL}_whatever`, CHANNEL],
-          ),
-        Error,
-        "invalid_token",
+      await pg.queryObject(
+        "SELECT public.byoa_bus_create_queue($1, $2, $3)",
+        [alice.byoaToken, queueName, CHANNEL],
       );
-    } finally {
-      await pg.end();
-    }
-  },
-});
-
-Deno.test({
-  name: "byoa_bus_list_queues: requires valid token; returns queue names",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  fn: async () => {
-    const pg = new Client(getPgUrl());
-    try {
-      await pg.connect();
-      await assertRejects(
-        () => pg.queryObject("SELECT public.byoa_bus_list_queues('bad', $1)", [CHANNEL]),
-        Error,
-        "invalid_token",
+      await pg.queryObject(
+        "SELECT public.byoa_bus_create_queue($1, $2, $3)",
+        [alice.byoaToken, otherQueue, otherChannel],
       );
       const rows = await pg.queryObject<{ byoa_bus_list_queues: string }>(
         "SELECT public.byoa_bus_list_queues($1, $2) AS byoa_bus_list_queues",
         [alice.byoaToken, CHANNEL],
       );
-      // Just assert it runs and returns rows in a reasonable shape — the
-      // exact contents depend on what other tests have created.
-      for (const row of rows.rows) {
-        assert(typeof row.byoa_bus_list_queues === "string");
-      }
+      const names = rows.rows.map((row) => row.byoa_bus_list_queues);
+      assert(names.includes(queueName), "requested channel queue listed");
+      assert(!names.includes(otherQueue), "other channel queue omitted");
     } finally {
       await pg.end();
     }

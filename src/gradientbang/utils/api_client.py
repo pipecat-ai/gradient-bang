@@ -1335,6 +1335,30 @@ class AsyncGameClient:
         }
         return await self._request("task.heartbeat", payload)
 
+    async def wake_agent(
+        self,
+        *,
+        ship_id: str,
+        character_id: str,
+        task_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Call the server-side ``wake_agent`` stub for a BYOA ship.
+
+        VoiceAgent invokes this when ``BYOA_WAKE_ENABLED=true`` before
+        publishing a task on the bus, so a sleeping BYOA agent can cold-start
+        in time. ``character_id`` is the BYOA owner (passed for future
+        per-operator routing); ``ship_id`` is the corp ship being woken.
+
+        Phase 3.1: server returns ``{success: True, status: "stub"}``.
+        """
+        payload: Dict[str, Any] = {
+            "ship_id": ship_id,
+            "character_id": character_id,
+        }
+        if task_id is not None:
+            payload["task_id"] = task_id
+        return await self._request("wake.agent", payload)
+
     async def create_corporation(
         self,
         *,

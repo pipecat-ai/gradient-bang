@@ -10,7 +10,7 @@ Walks an operator through everything they need to run `uv run byoa` against a Gr
 ## Parameters
 
 ```
-/byoa-setup [env] [--force] [--ship-id <uuid>] [--wake-hook <https://…>] [--out <path>]
+/byoa-setup [env] [--force] [--ship-id <uuid>] [--out <path>]
 ```
 
 - **env**: `local` (default), `dev`, or `prod`
@@ -19,14 +19,13 @@ Walks an operator through everything they need to run `uv run byoa` against a Gr
   - `prod` → `.env.cloud`
 - **--force**: overwrite an existing `.env.byoa` without prompting
 - **--ship-id**: skip the ship picker; use this corp ship directly
-- **--wake-hook**: optional HTTPS webhook URL to register on the ship for cold-start wake-up (operators deploying to Vercel Sandbox / Lambda)
 - **--out**: write the env file somewhere other than `./.env.byoa`
 
 ## Pre-flight
 
 Refuse to proceed if any of these is true. Surface a clean error and stop:
 
-- `${SUBAGENT_BUS_DATABASE_URL}` is unset in the resolved env file (BYOA can't run without a DSN — the operator's bus connection depends on it).
+- `${SUBAGENT_BUS_DATABASE_URL}` is unset in the resolved env file.
 - `${SUBAGENT_BUS_CHANNEL}` is unset (operator's channel must match the bot's value).
 - The operator already has a `.env.byoa` and `--force` was not passed.
 
@@ -42,7 +41,7 @@ Read `${SUPABASE_URL}`, `${SUBAGENT_BUS_DATABASE_URL}`, `${SUBAGENT_BUS_CHANNEL}
 
 ### 2. Authenticate the operator
 
-Prompt the operator for their game-account email + password (unless already supplied as positional args).
+Prompt for email + password (unless supplied as positional args):
 
 ```bash
 curl -s -X POST "${SUPABASE_URL}/functions/v1/login" \
@@ -50,11 +49,11 @@ curl -s -X POST "${SUPABASE_URL}/functions/v1/login" \
   -d '{"email": "<email>", "password": "<password>"}'
 ```
 
-Extract `session.access_token` and the character list (`characters`). On any non-success response (4xx, `success: false`), surface the error and stop — don't proceed to ship claim if auth failed.
+Extract `session.access_token` and the character list (`characters`). On any non-success response (4xx, `success: false`), surface the error and stop.
 
 ### 3. Pick the operator's character
 
-If the operator has exactly one character → use it. If multiple → list them by `name + character_id` (short prefix only) and ask the operator to pick. Cache the chosen `character_id`; it's what the BYOA token will be bound to.
+If exactly one character → use it. If multiple → list by `name + character_id` (short prefix) and ask the operator to pick. Cache the chosen `character_id`; the BYOA token will be bound to it.
 
 ### 4. List corp ships
 
@@ -65,13 +64,11 @@ curl -s -X POST "${SUPABASE_URL}/functions/v1/my_corporation" \
   -d '{"character_id": "<character_id>"}'
 ```
 
-From `corporation.ships`, filter to ships where:
-- The operator is a corp member (`my_corporation` already enforces this).
-- The ship is NOT already claimed as BYOA by someone else (`byoa` is `null` OR `byoa.owner_character_id_prefix` matches the operator's character_id_prefix).
+From `corporation.ships`, filter to ships where `byoa` is `null` OR `byoa.owner_character_id_prefix` matches the operator's prefix (i.e. claimable by them).
 
-If `--ship-id` was passed, validate it appears in this filtered list. Otherwise present the list and ask the operator to pick (show ship name + 8-char id prefix + current sector).
+If `--ship-id` was passed, validate it appears in this filtered list. Otherwise present the list (ship name + 8-char id prefix + sector) and ask the operator to pick.
 
-If the chosen ship is ALREADY claimed by the same operator, skip the claim step (step 5) and go straight to token mint — `ship_byoa_configure` is idempotent for same-owner re-claims, but skipping avoids the redundant 200.
+If the chosen ship is already claimed by the same operator, skip the claim step and go straight to token mint.
 
 ### 5. Claim the ship as BYOA
 
@@ -87,9 +84,7 @@ curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
   }'
 ```
 
-If `--wake-hook` was passed, include `"wake_hook": "<url>"` in the body. HTTPS-only — the edge function rejects non-HTTPS values with 400.
-
-Confirm the response has `byoa_owner_character_id` matching the operator's character_id. A `409 ship_busy` here means the ship has an active task — ask the operator to wait or stop it first; do not retry automatically.
+Confirm the response has `byoa_owner_character_id` matching the operator's character_id. A `409 ship_busy` means the ship has an active task — ask the operator to wait or stop it; do not auto-retry.
 
 ### 6. Mint the BYOA token
 
@@ -104,13 +99,13 @@ curl -s -X POST "${SUPABASE_URL}/functions/v1/byoa_token_mint" \
   }'
 ```
 
-The response contains `token` (the plaintext HS256 JWT) — **shown exactly once, never re-fetchable**. Capture it in memory only for the next step (writing the env file); never log it or echo it to the terminal.
+The response contains `token` (the plaintext HS256 JWT) — **shown exactly once, never re-fetchable**. Capture in memory only for step 7; never log or echo it to the terminal.
 
-If the operator is rotating tokens (re-running this skill on a machine that already has a `.env.byoa`), surface the existing token_id (if discoverable) and remind them to revoke it via `byoa_token_revoke` after they confirm the new one works.
+If rotating tokens, remind the operator to revoke the old one via `byoa_token_revoke` after the new one works.
 
 ### 7. Write `.env.byoa`
 
-Path: `--out` value, or `./.env.byoa` if not provided. File mode **0600** so the token + DSN don't leak via lax permissions.
+Path: `--out` value, or `./.env.byoa` if not provided. File mode **0600**.
 
 ```bash
 umask 077
@@ -126,33 +121,32 @@ EOF
 chmod 600 "<out_path>"
 ```
 
-After writing, verify the file's permissions are `0600` (read+write for owner only). If not, surface a warning.
+Verify the file is `0600` after writing; surface a warning if not.
 
 ### 8. Print next steps
 
-Echo a copy-pasteable summary the operator can act on. Include:
+Echo a copy-pasteable summary the operator can act on:
 
 - Where the env file was written.
 - The exact `uv run byoa` invocation:
   ```bash
   uv run byoa --prompt-file ./prompt.md
   ```
-- A note that they need to author `./prompt.md` (operator-supplied system prompt, ≤8 KB). Point at `docs/setup-byoa.md` for the prompt-writing guide.
-- If they passed `--wake-hook`: confirm it's registered. If not: tell them how to add one later via `/byoa-setup --ship-id <id> --wake-hook <url>` or directly via `ship_byoa_configure action=set_mode wake_hook=…`.
-- Token rotation reminder: 90-day TTL by default; re-run this skill before expiry, then revoke the old token via `byoa_token_revoke`.
+- They need to author `./prompt.md` (≤ 8 KB, appended to the base task-agent prompt). Point at `docs/setup-byoa.md`.
+- Token rotation: 90-day TTL by default; re-run this skill before expiry, then revoke the old token via `byoa_token_revoke`.
 
-## Failure modes to handle cleanly
+## Failure modes
 
-- **401 from /login**: bad credentials. Don't retry; ask the operator to double-check.
-- **No characters in login response**: the user has no game characters yet — direct them to `/character-create` first.
-- **No corp ships in `my_corporation`**: the operator isn't in a corporation or their corp has no ships. Direct them to join a corp.
-- **409 ship_busy on claim**: ship is mid-task. Ask the operator to wait or `task_cancel` first; don't auto-retry.
-- **403 on claim**: the operator isn't a member of the ship's corp. Direct them to join, or ask whether they meant a different ship.
-- **byoa_token_mint returns non-200**: surface the body and stop. Don't pretend the env file is valid.
+- **401 from /login**: bad credentials. Don't retry.
+- **No characters**: direct to `/character-create` first.
+- **No corp ships**: operator isn't in a corp or their corp has no ships.
+- **409 ship_busy on claim**: ship is mid-task. Don't auto-retry.
+- **403 on claim**: not a member of the ship's corp.
+- **byoa_token_mint non-200**: surface the body and stop. Don't pretend the env file is valid.
 
 ## What this skill does NOT do
 
-- It doesn't write the operator's custom prompt — that's their authored content, deliberately not in scope.
-- It doesn't deploy the operator's BYOA agent (Vercel function, etc.).
-- It doesn't manage token rotation automatically; operators re-run this skill and revoke the old token themselves.
-- It doesn't touch the bot's `.env.bot` or `.env.supabase` — only writes `.env.byoa`.
+- Write the operator's custom prompt — that's their authored content, deliberately not in scope.
+- Deploy the operator's BYOA agent.
+- Manage token rotation automatically.
+- Touch the bot's `.env.bot` or `.env.supabase`.

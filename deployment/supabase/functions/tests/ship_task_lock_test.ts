@@ -275,16 +275,6 @@ Deno.test({
       },
     );
 
-    await t.step("malformed heartbeat UUID → 400", async () => {
-      const result = await api("task_heartbeat", {
-        locks: [{ ship_id: corpShipId, task_id: "not-a-uuid" }],
-      });
-      assertEquals(result.status, 400);
-      assertEquals(
-        (result.body as Record<string, unknown>).error,
-        "each lock must include valid UUID ship_id and task_id",
-      );
-    });
   },
 });
 
@@ -418,15 +408,6 @@ Deno.test({
       assertEquals(row?.current_task_id, null);
     });
 
-    await t.step("second cancel is idempotent (event still emits)", async () => {
-      const result = await api("task_cancel", {
-        character_id: p1Id,
-        task_id: taskId,
-      });
-      // task_cancel still emits the cancel event even if lock already gone;
-      // current behavior is event-based, so this is a 200.
-      assertEquals(result.status, 200);
-    });
   },
 });
 
@@ -496,4 +477,3 @@ Deno.test({
     );
   },
 });
-

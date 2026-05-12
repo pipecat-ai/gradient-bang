@@ -80,28 +80,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     const shipId = requireString(payload, "ship_id");
     const actionRaw = requireString(payload, "action");
     const modeRaw = optionalString(payload, "mode");
-    const wakeHookRaw = optionalString(payload, "wake_hook");
-    // `wake_hook: null` (explicit null in JSON) clears the hook on
-    // `claim` / `set_mode`. `wake_hook` absent leaves the existing value
-    // untouched. `clear` always nulls regardless.
-    const wakeHookProvided = Object.prototype.hasOwnProperty.call(
-      payload,
-      "wake_hook",
-    );
-    let wakeHook: string | null = null;
-    if (wakeHookRaw !== null && wakeHookRaw !== undefined) {
-      const trimmed = wakeHookRaw.trim();
-      if (trimmed.length === 0) {
-        wakeHook = null;
-      } else if (!trimmed.startsWith("https://")) {
-        throw new RequestValidationError(
-          "wake_hook must be an https:// URL",
-          400,
-        );
-      } else {
-        wakeHook = trimmed;
-      }
-    }
 
     if (!(await canActOnCharacter(auth, characterId, supabase))) {
       return errorResponse("forbidden", 403);
@@ -146,7 +124,7 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     const { data: shipRow, error: shipErr } = await supabase
       .from("ship_instances")
       .select(
-        "ship_id, ship_name, owner_type, owner_corporation_id, byoa_owner_character_id, byoa_mode, byoa_wake_hook, current_task_id",
+        "ship_id, ship_name, owner_type, owner_corporation_id, byoa_owner_character_id, byoa_mode, current_task_id",
       )
       .eq("ship_id", shipId)
       .maybeSingle();
@@ -208,14 +186,10 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     const currentMode: ByoaMode = shipRow.byoa_mode === "shared"
       ? "shared"
       : "private";
-    const currentWakeHook = typeof shipRow.byoa_wake_hook === "string"
-      ? (shipRow.byoa_wake_hook as string)
-      : null;
 
     // Action-specific authorization + state transition.
     let nextOwner: string | null;
     let nextMode: ByoaMode;
-    let nextWakeHook: string | null = currentWakeHook;
 
     if (action === "claim") {
       // Self-only claim: you can only claim for yourself.
@@ -227,9 +201,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       }
       nextOwner = characterId;
       nextMode = mode ?? "private";
-      if (wakeHookProvided) {
-        nextWakeHook = wakeHook;
-      }
     } else if (action === "set_mode") {
       if (!currentOwner || currentOwner !== characterId) {
         return errorResponse(
@@ -239,9 +210,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       }
       nextOwner = currentOwner;
       nextMode = mode!;
-      if (wakeHookProvided) {
-        nextWakeHook = wakeHook;
-      }
     } else {
       // clear
       if (!currentOwner) {
@@ -251,7 +219,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
           ship_id: shipId,
           byoa_owner_character_id: null,
           byoa_mode: "private",
-          byoa_wake_hook: null,
           changed: false,
         });
       }
@@ -263,21 +230,15 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       }
       nextOwner = null;
       nextMode = "private";
-      // Clearing always nulls the wake hook — it's meaningless without an
-      // owner and could leak stale URLs to a future claimant.
-      nextWakeHook = null;
     }
 
     const changed =
-      currentOwner !== nextOwner ||
-      currentMode !== nextMode ||
-      currentWakeHook !== nextWakeHook;
+      currentOwner !== nextOwner || currentMode !== nextMode;
 
     if (changed) {
       const updatePayload = {
         byoa_owner_character_id: nextOwner,
         byoa_mode: nextMode,
-        byoa_wake_hook: nextWakeHook,
       };
       const baseUpdate = supabase
         .from("ship_instances")
@@ -335,7 +296,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       action,
       byoa_owner_character_id: nextOwner,
       byoa_mode: nextMode,
-      byoa_wake_hook: nextWakeHook,
       changed,
       actor_character_id: characterId,
     };
@@ -371,7 +331,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       ship_id: shipId,
       byoa_owner_character_id: nextOwner,
       byoa_mode: nextMode,
-      byoa_wake_hook: nextWakeHook,
       changed,
     });
   } catch (err) {

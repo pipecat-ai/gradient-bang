@@ -96,6 +96,10 @@ _UUID_PATTERN = re.compile(
 )
 
 
+def _env_truthy(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass
 class _DeferredUpdate:
     xml: str
@@ -181,7 +185,7 @@ class VoiceAgent(LLMAgent):
         # the awaiting future when the targeted agent signals alive.
         self._hello_pending: PendingRequests = PendingRequests()
 
-        # Phase 3: per-ship watchdogs for the wake-hook flow. Keyed by
+        # Per-ship watchdogs for the BYOA wake flow. Keyed by
         # target_character_id (the ship's pseudo-character_id for corp
         # ships). Each entry is an asyncio.Task that sleeps for
         # agent_wake_timeout_seconds; on expiry it releases the server
@@ -189,6 +193,14 @@ class VoiceAgent(LLMAgent):
         # agent advertises ready (on_agent_ready) or the task otherwise
         # completes/cancels.
         self._pending_wakes: Dict[str, asyncio.Task] = {}
+        # When true, the bot calls the server-side `wake_agent` endpoint
+        # before dispatching a task on a BYOA ship — needed if the
+        # operator's agent runs in a sleep-on-idle sandbox (Vercel /
+        # Lambda). False (the default) skips the call entirely and
+        # assumes the BYOA agent is always-warm on the bus, which is the
+        # right setting for local dev and any "uv run byoa" always-on
+        # deploy.
+        self._byoa_wake_enabled = _env_truthy("BYOA_WAKE_ENABLED")
         # Remote BYOA agents are not children in this process, so the broker
         # keeps its own active-task table for authorization and cleanup.
         # agent_name -> {task_id, character_id, actor_character_id, task_metadata}
@@ -2578,17 +2590,19 @@ class VoiceAgent(LLMAgent):
                 if server_err:
                     return server_err
 
-                # Phase 3: BYOA wake-hook flow. If the corp ship has an
-                # operator-set wake hook, the work runs in an external
-                # process the operator owns. We don't spawn a local
-                # TaskAgent — instead, we wake the operator's sandbox via
-                # HTTPS and wait for its bus advertisement (via the
-                # existing on_agent_ready path). The watchdog releases the
-                # lock if the operator never responds.
-                byoa_wake_hook: Optional[str] = None
+                # BYOA dispatch. When the corp ship is BYOA-claimed the
+                # task runs in an operator-owned process subscribed to the
+                # bus. We don't spawn a local TaskAgent — we just publish
+                # to the operator's queue and wait for the bus
+                # advertisement (via the existing on_agent_ready path).
+                # The watchdog releases the lock if no agent ever responds.
+                # If BYOA_WAKE_ENABLED is true we additionally call the
+                # server-side wake_agent endpoint, which (in future) will
+                # cold-start a sleeping sandbox.
+                byoa_owner_id: Optional[str] = None
                 if ship_id:
-                    byoa_wake_hook = await self._lookup_byoa_wake_hook(ship_id)
-                if byoa_wake_hook:
+                    byoa_owner_id = await self._lookup_byoa_owner(ship_id)
+                if byoa_owner_id:
                     byoa_agent_name = self.byoa_agent_name(target_character_id)
                     # task_metadata.task_id is the stale-task guard the
                     # operator's agent checks against ship.current_task_id
@@ -2604,16 +2618,19 @@ class VoiceAgent(LLMAgent):
                     self._pending_tasks[byoa_agent_name] = (framework_task_id, payload)
                     self._locked_ships[target_character_id] = framework_task_id
                     self._ensure_heartbeat_task_running()
-                    # Fire wake POST async — never blocks the LLM tool call.
-                    asyncio.create_task(
-                        self._post_wake_hook(
-                            byoa_wake_hook,
-                            task_id=framework_task_id,
-                            ship_id=target_character_id,
-                            character_id=target_character_id,
-                        ),
-                        name=f"byoa_wake_post_{framework_task_id[:8]}",
-                    )
+                    # Fire wake_agent async — never blocks the LLM tool call.
+                    # Skipped entirely when BYOA_WAKE_ENABLED=false (the
+                    # default), which is correct for always-warm BYOA
+                    # deploys and local dev.
+                    if self._byoa_wake_enabled:
+                        asyncio.create_task(
+                            self._call_wake_agent(
+                                task_id=framework_task_id,
+                                ship_id=target_character_id,
+                                character_id=byoa_owner_id,
+                            ),
+                            name=f"byoa_wake_agent_{framework_task_id[:8]}",
+                        )
                     # Register watchdog before watch_agent so a same-tick
                     # ready event can cancel it cleanly.
                     self._pending_wakes[target_character_id] = asyncio.create_task(
@@ -3016,14 +3033,12 @@ class VoiceAgent(LLMAgent):
         """
         return f"byoa_{target_character_id}"
 
-    async def _lookup_byoa_wake_hook(self, ship_id: str) -> Optional[str]:
-        """Return the operator's HTTPS wake hook for ``ship_id``, or None.
+    async def _lookup_byoa_owner(self, ship_id: str) -> Optional[str]:
+        """Return the BYOA owner character_id for ``ship_id``, or None.
 
-        Hits ``my_corporation`` (already cached locally per-call in callers
-        of this method) to read the ``byoa`` block surfaced by
-        ``_shared/corporations.ts``. Returns None when the ship is not BYOA,
-        the BYOA owner didn't set a wake hook, or the lookup fails — all of
-        which mean the bot should fall through to the in-process spawn.
+        Hits ``my_corporation`` to read the ``byoa`` block surfaced by
+        ``_shared/corporations.ts``. Truthy return means the ship is
+        BYOA-claimed (route via wake_agent); None means in-process spawn.
         """
         try:
             corp_result = await self._game_client._request(
@@ -3031,7 +3046,7 @@ class VoiceAgent(LLMAgent):
                 {"character_id": self._character_id},
             )
         except Exception as exc:
-            logger.warning(f"_lookup_byoa_wake_hook failed: {exc}")
+            logger.warning(f"_lookup_byoa_owner failed: {exc}")
             return None
         corp = corp_result.get("corporation") if isinstance(corp_result, dict) else None
         if not isinstance(corp, dict):
@@ -3047,54 +3062,37 @@ class VoiceAgent(LLMAgent):
             byoa = ship.get("byoa")
             if not isinstance(byoa, dict):
                 return None
-            hook = byoa.get("wake_hook")
-            return hook if isinstance(hook, str) and hook else None
+            # The corp payload exposes a truncated 12-char prefix, not the
+            # full UUID. That's enough as a routing hint for the wake_agent
+            # call (the server re-resolves the owner from the row).
+            owner_prefix = byoa.get("owner_character_id_prefix")
+            return owner_prefix if isinstance(owner_prefix, str) and owner_prefix else None
         return None
 
-    async def _post_wake_hook(
+    async def _call_wake_agent(
         self,
-        wake_hook: str,
         *,
         task_id: str,
         ship_id: str,
         character_id: str,
     ) -> None:
-        """Fire-and-forget POST to the operator's wake webhook.
+        """Fire-and-forget call to the server-side ``wake_agent`` endpoint.
 
-        Logged on failure but never re-raised — the watchdog timer is the
-        source of truth for whether the operator's agent actually woke up.
-        A misconfigured webhook URL (DNS fail, 5xx, slow) eventually
-        surfaces as a wake-timeout, which is the right failure mode.
-
-        TODO(Phase 3 (3/N)): include a server-signed JWT in the
-        Authorization header so the operator's webhook can prove the
-        request came from the legitimate Gradient Bang server. Verification
-        will live in a new edge function once the gateway primitives land.
+        Logged on failure but never re-raised — the wake-timeout watchdog
+        is the source of truth for whether the BYOA agent actually came
+        online. A stub/sandbox cold-start that takes longer than the
+        watchdog surfaces as a wake-timeout, the right failure mode.
         """
         try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.post(
-                    wake_hook,
-                    json={
-                        "task_id": task_id,
-                        "ship_id": ship_id,
-                        "character_id": character_id,
-                    },
-                )
-                if resp.status_code >= 400:
-                    logger.warning(
-                        f"byoa.wake_hook.non_2xx ship={ship_id[:8]} "
-                        f"status={resp.status_code} body={resp.text[:200]!r}"
-                    )
-                else:
-                    logger.info(
-                        f"byoa.wake_hook.posted ship={ship_id[:8]} status={resp.status_code}"
-                    )
+            await self._game_client.wake_agent(
+                ship_id=ship_id,
+                character_id=character_id,
+                task_id=task_id,
+            )
+            logger.info(f"byoa.wake_agent.called ship={ship_id[:8]}")
         except Exception as exc:
             logger.warning(
-                f"byoa.wake_hook.post_failed ship={ship_id[:8]} error={exc!r}"
+                f"byoa.wake_agent.call_failed ship={ship_id[:8]} error={exc!r}"
             )
 
     async def _watch_wake_timeout(

@@ -309,29 +309,20 @@ COMMENT ON FUNCTION refresh_ship_task_heartbeats(JSONB) IS
 GRANT EXECUTE ON FUNCTION refresh_ship_task_heartbeats(JSONB) TO service_role;
 
 -- =============================================================================
--- BYOA tokens + wake hook
+-- BYOA tokens
 --
--- Two additions for the external-operator path:
---
---   1. `byoa_tokens` — long-lived HS256 token records bound to a
---      character_id. An operator mints one via the `byoa_token_mint` edge
---      function (Supabase-JWT-authed), receives the plaintext JWT exactly
---      once, and stores it on their machine. The DB stores only a SHA-256
---      hash so the plaintext is never recoverable. Revocation flips
---      `revoked_at`; the gateway checks both signature validity AND the
---      stored row's revocation/expiry on every request.
---
---   2. `ship_instances.byoa_wake_hook` — optional HTTPS webhook the operator
---      records on their ship. VoiceAgent POSTs (fire-and-forget, signed) to
---      this URL before publishing the task on the bus, so a sandboxed agent
---      cold-starts in time to drain the queue. NULL on non-BYOA ships and
---      on BYOA ships whose agent is always warm (no wake required).
+-- `byoa_tokens` — long-lived HS256 token records bound to a character_id.
+-- An operator mints one via the `byoa_token_mint` edge function
+-- (Supabase-JWT-authed), receives the plaintext JWT exactly once, and stores
+-- it on their machine. The DB stores only a SHA-256 hash so the plaintext is
+-- never recoverable. Revocation flips `revoked_at`; the bus wrappers check
+-- both signature validity AND the stored row's revocation/expiry on every
+-- call.
 --
 -- Reuses the HS256 signing primitive provisioned by the 0.4.1 pubsub
--- migration (`pubsub_internal_secret`). The signing-secret rotation story
--- is unchanged: UPDATE the app_runtime_config row, restart any sessions.
--- BYOA tokens issued under the old secret stop verifying on rotation,
--- which is exactly the desired post-rotation behaviour.
+-- migration (`pubsub_internal_secret`). Rotation: UPDATE the app_runtime_config
+-- row, restart any sessions. BYOA tokens issued under the old secret stop
+-- verifying on rotation — the desired post-rotation behaviour.
 -- =============================================================================
 
 -- pgcrypto provides `digest()` used by verify_byoa_token to hash the
@@ -364,17 +355,6 @@ CREATE INDEX byoa_tokens_character_idx
 
 COMMENT ON TABLE public.byoa_tokens IS
   'Long-lived HS256 BYOA tokens bound to a character_id. The plaintext JWT is returned once at mint time and never stored; only SHA-256 hash persists. Revocation flips revoked_at; gateway rejects on hash miss, revoked_at NOT NULL, or expires_at < NOW().';
-
--- -----------------------------------------------------------------------------
--- ship_instances.byoa_wake_hook
--- -----------------------------------------------------------------------------
-
-ALTER TABLE public.ship_instances
-  ADD COLUMN byoa_wake_hook text NULL
-    CHECK (byoa_wake_hook IS NULL OR byoa_wake_hook LIKE 'https://%');
-
-COMMENT ON COLUMN public.ship_instances.byoa_wake_hook IS
-  'Optional HTTPS webhook the bot POSTs to wake a sleeping BYOA agent before publishing the task on the bus. NULL when no wake is needed. HTTPS enforced via CHECK.';
 
 -- -----------------------------------------------------------------------------
 -- verify_byoa_token: signature + revocation + last-used touch

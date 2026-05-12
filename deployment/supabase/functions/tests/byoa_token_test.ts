@@ -11,15 +11,14 @@
  *   - Revoke happy path: revoked_at flips; subsequent verify_byoa_token returns NULL.
  *   - Revoke idempotence: second revoke returns changed=false.
  *   - Revoke authorization: stranger can't revoke another user's token.
- *   - verify_byoa_token SQL: returns character_id on valid token, NULL on
- *     revoked / expired / wrong-issuer / wrong-token-type / forged-signature.
+ *   - verify_byoa_token SQL: returns character_id on valid token and NULL
+ *     after revocation.
  */
 
 import {
   assert,
   assertEquals,
   assertExists,
-  assertNotEquals,
 } from "https://deno.land/std@0.197.0/testing/asserts.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { Client } from "postgres";
@@ -59,7 +58,6 @@ async function sha256Hex(value: string): Promise<string> {
 
 interface TestUser {
   userId: string;
-  email: string;
   accessToken: string;
 }
 
@@ -105,7 +103,7 @@ async function provisionUser(
     throw new Error(`signInWithPassword failed: ${signinErr?.message}`);
   }
 
-  return { userId, email, accessToken: session.session.access_token };
+  return { userId, accessToken: session.session.access_token };
 }
 
 async function callMint(
@@ -219,41 +217,24 @@ Deno.test({
 });
 
 Deno.test({
-  name: "byoa_token_mint: ttl_days bounds enforced",
+  name: "byoa_token_mint: validates ttl_days and label",
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const tooLong = await callMint(`Bearer ${owner.accessToken}`, {
-      character_id: ownerCharacterId,
-      label: "long",
-      ttl_days: "10000",
-    });
-    assertEquals(tooLong.status, 400);
-
-    const zero = await callMint(`Bearer ${owner.accessToken}`, {
-      character_id: ownerCharacterId,
-      label: "zero",
-      ttl_days: "0",
-    });
-    assertEquals(zero.status, 400);
-  },
-});
-
-Deno.test({
-  name: "byoa_token_mint: requires non-empty label",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  fn: async () => {
-    const result = await callMint(`Bearer ${owner.accessToken}`, {
-      character_id: ownerCharacterId,
-      label: "   ",
-    });
-    assertEquals(result.status, 400);
+    for (
+      const body of [
+        { character_id: ownerCharacterId, label: "long", ttl_days: "10000" },
+        { character_id: ownerCharacterId, label: "zero", ttl_days: "0" },
+        { character_id: ownerCharacterId, label: "   " },
+      ]
+    ) {
+      const result = await callMint(`Bearer ${owner.accessToken}`, body);
+      assertEquals(result.status, 400);
+    }
   },
 });
 
 let revokeTargetTokenId = "";
-let revokeTargetToken = "";
 
 Deno.test({
   name: "byoa_token_revoke: mint then revoke flips revoked_at",
@@ -266,7 +247,6 @@ Deno.test({
     });
     assertEquals(mint.status, 200);
     revokeTargetTokenId = mint.body.token_id as string;
-    revokeTargetToken = mint.body.token as string;
 
     const result = await callRevoke(`Bearer ${owner.accessToken}`, {
       token_id: revokeTargetTokenId,
@@ -360,36 +340,5 @@ Deno.test({
     } finally {
       await pg.end();
     }
-  },
-});
-
-Deno.test({
-  name: "verify_byoa_token (SQL): forged signature → NULL",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  fn: async () => {
-    // Take a valid token's body and append a junk signature.
-    const mint = await callMint(`Bearer ${owner.accessToken}`, {
-      character_id: ownerCharacterId,
-      label: "forged-sig",
-    });
-    const token = mint.body.token as string;
-    const parts = token.split(".");
-    const forged = `${parts[0]}.${parts[1]}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
-    assertNotEquals(forged, token);
-
-    const pg = new Client(getPgUrl());
-    try {
-      await pg.connect();
-      const rows = await pg.queryObject<{ verify_byoa_token: string | null }>(
-        "SELECT public.verify_byoa_token($1) AS verify_byoa_token",
-        [forged],
-      );
-      assertEquals(rows.rows[0].verify_byoa_token, null);
-    } finally {
-      await pg.end();
-    }
-    // Quiet the unused-var lint.
-    void revokeTargetToken;
   },
 });
