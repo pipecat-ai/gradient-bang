@@ -87,6 +87,12 @@ export type CorporationLeftToastData = {
   corp_name: string
 }
 
+export type QuestStepCompletedToastData = {
+  quest_name: string
+  step_name: string
+  reward_credits?: number
+}
+
 export type ToastInput = Omit<Toast, "id" | "timestamp">
 
 type ToastBase = {
@@ -142,4 +148,8 @@ export type Toast =
   | (ToastBase & {
       type: "ship.destroyed"
       meta?: ShipDestroyedToastData
+    })
+  | (ToastBase & {
+      type: "quest.step_completed"
+      meta?: QuestStepCompletedToastData
     })
