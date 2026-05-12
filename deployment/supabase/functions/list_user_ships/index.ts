@@ -194,7 +194,7 @@ async function fetchUserShips(
     ? await supabase
         .from("ship_instances")
         .select(
-          "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters, task_actor_character_id, byoa_owner_character_id, byoa_mode",
+          "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters, task_actor_character_id, byoa_owner_character_id, byoa_mode, byoa_wake_hook",
         )
         .in("ship_id", shipIds)
     : { data: [], error: null };
