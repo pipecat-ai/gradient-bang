@@ -15,6 +15,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BUS_PROTOCOL_VERSION,
     BusAgentHelloRequest,
     BusAgentHelloResponse,
+    BusByoaPresenceMessage,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -116,6 +117,14 @@ def _samples():
         ready=True,
         protocol_version=BUS_PROTOCOL_VERSION,
         capabilities={"tools": ["move", "trade"]},
+    )
+    yield BusByoaPresenceMessage(
+        source="byoa_ship-1",
+        ship_id="ship-1",
+        online=True,
+        status="online",
+        last_seen_at="2026-05-12T12:00:00+00:00",
+        protocol_version=BUS_PROTOCOL_VERSION,
     )
 
 

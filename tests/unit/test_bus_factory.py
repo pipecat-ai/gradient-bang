@@ -102,8 +102,13 @@ class TestMakeSubagentBus:
             password="pass",
         )
         fake_queue.init.assert_awaited_once()
-        # Channel from env propagated.
-        bus_ctor.assert_called_once_with(pgmq=fake_queue, channel="test_channel")
+        # Channel from env propagated, plus the NotGiven-aware serializer.
+        bus_ctor.assert_called_once()
+        kwargs = bus_ctor.call_args.kwargs
+        assert kwargs["pgmq"] is fake_queue
+        assert kwargs["channel"] == "test_channel"
+        from gradientbang.adapters.bus.serializer import BusJSONSerializer
+        assert isinstance(kwargs["serializer"], BusJSONSerializer)
 
 
 @pytest.mark.unit

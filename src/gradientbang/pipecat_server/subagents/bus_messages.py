@@ -283,3 +283,19 @@ class BusAgentHelloResponse(BusDataMessage):
     protocol_version: int = BUS_PROTOCOL_VERSION
     capabilities: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
+
+
+@dataclass
+class BusByoaPresenceMessage(BusDataMessage):
+    """BYOA runner process presence heartbeat.
+
+    Sent by an external BYOA agent while its process is connected to the
+    subagent bus. The bot uses this for UI/process liveness only; task
+    dispatch still uses the registry + hello handshake.
+    """
+
+    ship_id: str = ""
+    online: bool = False
+    status: Literal["online", "offline"] = "offline"
+    last_seen_at: Optional[str] = None
+    protocol_version: int = BUS_PROTOCOL_VERSION

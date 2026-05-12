@@ -135,9 +135,11 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
         <ShipCardStat Icon={FighterIcon} value={ship.fighters} />
         <ShipCardStat Icon={ShieldIcon} value={ship.shields} />
       </dl>
-      <div className="relative z-10 self-start mr-1 mt-1">
-        <ShipStatusPopover ship={ship} />
-      </div>
+      {ship.byoa && (
+        <div className="relative z-10 self-start mr-1 mt-1">
+          <ShipStatusPopover ship={ship} />
+        </div>
+      )}
     </div>
   )
 }
@@ -331,7 +333,7 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
                         >
                           <ShipCard ship={ship} />
                           <motion.div
-                            className="absolute inset-0 cross-lines-destructive cross-lines-offset-5 flex items-center justify-center bg-card/50"
+                            className="absolute inset-0 cross-lines-destructive cross-lines-offset-5 flex items-center justify-center bg-card/50 pointer-events-none"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: isDestroying ? 1 : 0 }}
                             transition={{ duration: 0.3 }}

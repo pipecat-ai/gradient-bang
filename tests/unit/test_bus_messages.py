@@ -18,6 +18,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BUS_PROTOCOL_VERSION,
     BusAgentHelloRequest,
     BusAgentHelloResponse,
+    BusByoaPresenceMessage,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -245,5 +246,18 @@ class TestAgentHello:
                 protocol_version=BUS_PROTOCOL_VERSION,
                 capabilities={},
                 error="still warming up",
+            )
+        )
+
+    def test_byoa_presence_round_trip(self):
+        _round_trip(
+            BusByoaPresenceMessage(
+                source="byoa_ship-1",
+                target=None,
+                ship_id="ship-1",
+                online=True,
+                status="online",
+                last_seen_at="2026-05-12T12:00:00+00:00",
+                protocol_version=BUS_PROTOCOL_VERSION,
             )
         )

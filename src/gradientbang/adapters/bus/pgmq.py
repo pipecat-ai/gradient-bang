@@ -28,6 +28,8 @@ from loguru import logger
 from pgmq.async_queue import PGMQueue
 from pipecat_subagents.bus.network.pgmq import PgmqBus
 
+from gradientbang.adapters.bus.serializer import BusJSONSerializer
+
 
 def parse_database_url(dsn: str) -> dict[str, str]:
     """Parse a Postgres DSN into ``PGMQueue`` kwargs.
@@ -114,7 +116,7 @@ async def build_pgmq_bus(
     pgmq = PGMQueue(**parse_database_url(dsn))
     await pgmq.init()
 
-    bus = _OwnedPgmqBus(pgmq=pgmq, channel=chan)
+    bus = _OwnedPgmqBus(pgmq=pgmq, channel=chan, serializer=BusJSONSerializer())
     logger.info(f"bus.pgmq_initialized channel={chan!r}")
     return bus
 

@@ -1340,20 +1340,32 @@ class AsyncGameClient:
         *,
         ship_id: str,
         character_id: str,
+        channel: str,
         task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Call the server-side ``wake_agent`` stub for a BYOA ship.
+        """Call the server-side ``wake_agent`` endpoint for a BYOA ship.
 
-        VoiceAgent invokes this when ``BYOA_WAKE_ENABLED=true`` before
-        publishing a task on the bus, so a sleeping BYOA agent can cold-start
-        in time. ``character_id`` is the BYOA owner (passed for future
-        per-operator routing); ``ship_id`` is the corp ship being woken.
+        Allocates a session channel for the BYOA's task: writes ``channel``
+        onto ``ship_instances.byoa_session_channel`` (atomically gated by
+        ``current_task_id == task_id``) and dispatches the configured
+        ``WAKE_TARGET`` spawn. The operator's process polls
+        ``byoa_session_claim`` to discover the channel and join.
 
-        Phase 3.1: server returns ``{success: True, status: "stub"}``.
+        Args:
+            ship_id: Corp ship pseudo-character_id being delegated to.
+            character_id: BYOA-owner character (informational/logging).
+            channel: Bot's subagent-bus channel — the BYOA joins this.
+                Must match the bot's ``SUBAGENT_BUS_CHANNEL``.
+            task_id: Active task UUID (atomic guard for the allocation).
+
+        Returns:
+            ``{request_id, ship_id, channel, spawn_target, spawn_status,
+            lifecycle_hint}``.
         """
         payload: Dict[str, Any] = {
             "ship_id": ship_id,
             "character_id": character_id,
+            "channel": channel,
         }
         if task_id is not None:
             payload["task_id"] = task_id

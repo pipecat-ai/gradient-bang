@@ -18,13 +18,15 @@
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE ship_instances
-  ADD COLUMN current_task_id          UUID NULL,
-  ADD COLUMN task_started_at          TIMESTAMPTZ NULL,
-  ADD COLUMN task_actor_character_id  UUID NULL,
-  ADD COLUMN task_last_heartbeat_at   TIMESTAMPTZ NULL,
-  ADD COLUMN byoa_owner_character_id  UUID NULL,
-  ADD COLUMN byoa_mode                TEXT NOT NULL DEFAULT 'private'
-    CHECK (byoa_mode IN ('private', 'shared'));
+  ADD COLUMN current_task_id            UUID NULL,
+  ADD COLUMN task_started_at            TIMESTAMPTZ NULL,
+  ADD COLUMN task_actor_character_id    UUID NULL,
+  ADD COLUMN task_last_heartbeat_at     TIMESTAMPTZ NULL,
+  ADD COLUMN byoa_owner_character_id    UUID NULL,
+  ADD COLUMN byoa_mode                  TEXT NOT NULL DEFAULT 'private'
+    CHECK (byoa_mode IN ('private', 'shared')),
+  ADD COLUMN byoa_session_channel       TEXT NULL,
+  ADD COLUMN byoa_session_allocated_at  TIMESTAMPTZ NULL;
 
 COMMENT ON COLUMN ship_instances.current_task_id IS
   'Active task UUID. NULL = ship is idle. Atomic mutex for task starts.';
@@ -38,6 +40,10 @@ COMMENT ON COLUMN ship_instances.byoa_owner_character_id IS
   'For BYOA corp ships: the player whose external agent controls this ship. NULL = not a BYOA ship.';
 COMMENT ON COLUMN ship_instances.byoa_mode IS
   'BYOA-only: ''private'' (only owner can issue tasks) or ''shared'' (any corp member can). Inert when byoa_owner_character_id IS NULL.';
+COMMENT ON COLUMN ship_instances.byoa_session_channel IS
+  'Per-session PGMQ channel for the active BYOA task. Set by wake_agent at allocation; cleared on lock release. NULL outside an active BYOA task.';
+COMMENT ON COLUMN ship_instances.byoa_session_allocated_at IS
+  'When byoa_session_channel was allocated. Used for diagnostics and stale-session detection.';
 
 -- ---------------------------------------------------------------------------
 -- Indexes
@@ -53,6 +59,13 @@ CREATE UNIQUE INDEX ship_instances_current_task_id_uniq
 CREATE INDEX ship_instances_task_last_heartbeat_idx
   ON ship_instances(task_last_heartbeat_at)
   WHERE task_last_heartbeat_at IS NOT NULL;
+
+-- Used by byoa_bus_authorize to resolve a channel back to the BYOA ship it
+-- was allocated for. Partial because only BYOA ships in an active session
+-- have a non-NULL value.
+CREATE UNIQUE INDEX ship_instances_byoa_session_channel_uniq
+  ON ship_instances(byoa_session_channel)
+  WHERE byoa_session_channel IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- Backfill from recent task.start events.
@@ -165,10 +178,12 @@ BEGIN
     v_stolen_actor   := v_current_actor;
 
     UPDATE ship_instances
-    SET current_task_id        = p_task_id,
-        task_started_at        = NOW(),
-        task_last_heartbeat_at = NOW(),
-        task_actor_character_id = p_actor_character_id
+    SET current_task_id            = p_task_id,
+        task_started_at            = NOW(),
+        task_last_heartbeat_at     = NOW(),
+        task_actor_character_id    = p_actor_character_id,
+        byoa_session_channel       = NULL,
+        byoa_session_allocated_at  = NULL
     WHERE ship_id = p_ship_id;
 
     RETURN jsonb_build_object(
@@ -211,10 +226,12 @@ DECLARE
   v_count INTEGER;
 BEGIN
   UPDATE ship_instances
-  SET current_task_id        = NULL,
-      task_started_at        = NULL,
-      task_actor_character_id = NULL,
-      task_last_heartbeat_at = NULL
+  SET current_task_id            = NULL,
+      task_started_at            = NULL,
+      task_actor_character_id    = NULL,
+      task_last_heartbeat_at     = NULL,
+      byoa_session_channel       = NULL,
+      byoa_session_allocated_at  = NULL
   WHERE ship_id = p_ship_id AND current_task_id = p_task_id;
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count > 0;
@@ -222,7 +239,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION release_ship_task_lock(UUID, UUID) IS
-  'Atomic ship-task lock release keyed on the (ship_id, task_id) pair. Returns true if a row was updated.';
+  'Atomic ship-task lock release keyed on the (ship_id, task_id) pair. Clears any BYOA session channel allocated for the task. Returns true if a row was updated.';
 
 GRANT EXECUTE ON FUNCTION release_ship_task_lock(UUID, UUID) TO service_role;
 
@@ -255,10 +272,12 @@ BEGIN
   END IF;
 
   UPDATE ship_instances
-  SET current_task_id        = NULL,
-      task_started_at        = NULL,
-      task_actor_character_id = NULL,
-      task_last_heartbeat_at = NULL
+  SET current_task_id            = NULL,
+      task_started_at            = NULL,
+      task_actor_character_id    = NULL,
+      task_last_heartbeat_at     = NULL,
+      byoa_session_channel       = NULL,
+      byoa_session_allocated_at  = NULL
   WHERE ship_id = p_ship_id;
 
   RETURN jsonb_build_object(
@@ -270,7 +289,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION force_release_ship_task_lock(UUID) IS
-  'Unconditional lock release; returns the displaced task/actor so the caller can emit task.cancel. Trusts caller for authorization.';
+  'Unconditional lock release; returns the displaced task/actor so the caller can emit task.cancel. Clears any BYOA session channel allocated for the task. Trusts caller for authorization.';
 
 GRANT EXECUTE ON FUNCTION force_release_ship_task_lock(UUID) TO service_role;
 
@@ -445,445 +464,92 @@ REVOKE ALL ON FUNCTION public.verify_byoa_token(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.verify_byoa_token(text) TO service_role;
 
 -- =============================================================================
--- BYOA bus wrappers: token-gated SECURITY DEFINER pgmq access
+-- BYOA bus authorization: per-session channel binding check
 --
--- The BYOA agent's only interface to the game is the subagent bus. The bot
--- already uses a per-character HS256 token + SECURITY DEFINER pattern for
--- pgmq game-event subscription (see `subscribe_my_events` in the 0.4.1
--- pubsub migration). This migration extends the same pattern to BYOA: the
--- operator's CLI calls these wrappers instead of raw `pgmq.*`, every call
--- carries an HS256 BYOA token, and the wrapper:
+-- Operator isolation is now done at the channel layer. wake_agent mints a
+-- fresh `byoa_session_channel` onto the ship's task-lock row when delegating
+-- a task to a BYOA. The operator's process discovers that channel via the
+-- byoa_session_claim edge function and connects to it. Within the channel
+-- there are only two parties (VoiceAgent + the one BYOA), so per-call
+-- ownership ledgers and payload-source inspection aren't needed.
 --
---   1. Calls `verify_byoa_token` to extract and authorize the bound
---      `character_id`.
---   2. For owned-queue operations (subscribe/archive/drop), checks the queue
---      is registered in `byoa_owned_queues` under the token's character.
---   3. For publish, verifies the bus envelope's `source` belongs to a
---      BYOA ship currently claimed by the token character. The wrapper
---      does not rewrite `source` because the bus uses it for response
---      routing.
---
--- Defense-in-depth note: while operators run our `uv run byoa` CLI in the
--- common case, until we create a restricted Postgres role (hardening,
--- deferred), an admin DSN can still bypass these wrappers by calling raw
--- `pgmq.*`. The wrappers are the policy layer; the restricted role is the
--- enforcement layer. The combination matches the bot's existing model.
+-- byoa_bus_authorize is the one-shot gate the operator calls when their
+-- subagent bus comes up: verify the HS256 token, look up the channel
+-- currently allocated for the token's BYOA ship, and confirm the operator
+-- is asking for that exact channel. After this succeeds, the operator uses
+-- raw pgmq calls (via service_role) bounded to the bound channel prefix.
+-- The bus shim no longer round-trips SQL on every message.
 -- =============================================================================
 
--- -----------------------------------------------------------------------------
--- byoa_owned_queues: per-character ownership ledger
--- -----------------------------------------------------------------------------
---
--- The BYOA agent's CLI creates a uuid-suffixed queue at startup (matching
--- upstream PgmqBus's `{channel}_{uuid}` shape, with a `byoa_` infix so
--- the bot's standard peer-discovery filter still picks it up). The ledger
--- row binds the queue to the token's character_id at creation time so the
--- read/archive wrappers can refuse cross-character access cheaply.
-
-CREATE TABLE public.byoa_owned_queues (
-  queue_name   text PRIMARY KEY,
-  character_id uuid NOT NULL REFERENCES public.characters(character_id) ON DELETE CASCADE,
-  created_at   timestamptz NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX byoa_owned_queues_character_idx
-  ON public.byoa_owned_queues(character_id);
-
-COMMENT ON TABLE public.byoa_owned_queues IS
-  'Per-character ownership ledger for BYOA-managed pgmq queues. byoa_bus_create_queue inserts; byoa_bus_drop_queue deletes; byoa_bus_subscribe / byoa_bus_archive use it to enforce ownership.';
-
--- -----------------------------------------------------------------------------
--- Helper: verify token or raise. Used by every wrapper below.
--- -----------------------------------------------------------------------------
-
-CREATE FUNCTION public._byoa_verify_or_raise(p_token text)
-RETURNS uuid
+CREATE FUNCTION public.byoa_bus_authorize(
+  p_token   text,
+  p_channel text
+) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
   v_character uuid;
+  v_ship      record;
 BEGIN
   v_character := public.verify_byoa_token(p_token);
   IF v_character IS NULL THEN
     RAISE EXCEPTION 'invalid_token' USING ERRCODE = '42501';
   END IF;
-  RETURN v_character;
-END;
-$$;
 
-REVOKE ALL ON FUNCTION public._byoa_verify_or_raise(text) FROM PUBLIC;
-
--- -----------------------------------------------------------------------------
--- Helpers: channel and source authorization
--- -----------------------------------------------------------------------------
-
-CREATE FUNCTION public._byoa_channel_prefix(p_channel text)
-RETURNS text
-LANGUAGE plpgsql
-IMMUTABLE
-SET search_path = public
-AS $$
-DECLARE
-  v_channel text := COALESCE(NULLIF(trim(p_channel), ''), 'pipecat_bus');
-BEGIN
-  IF v_channel !~ '^[A-Za-z_][A-Za-z0-9_]{0,29}$' THEN
-    RAISE EXCEPTION 'invalid_channel' USING ERRCODE = '22023';
-  END IF;
-  RETURN v_channel || '_';
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public._byoa_channel_prefix(text) FROM PUBLIC;
-
-CREATE FUNCTION public._byoa_queue_in_channel(
-  p_queue_name text,
-  p_channel    text
-) RETURNS boolean
-LANGUAGE plpgsql
-IMMUTABLE
-SET search_path = public
-AS $$
-BEGIN
-  RETURN left(COALESCE(p_queue_name, ''), length(public._byoa_channel_prefix(p_channel)))
-    = public._byoa_channel_prefix(p_channel);
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public._byoa_queue_in_channel(text, text) FROM PUBLIC;
-
-CREATE FUNCTION public._byoa_source_authorized(
-  p_character_id uuid,
-  p_source       text,
-  p_message      jsonb
-) RETURNS boolean
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_ship_id_text text;
-  v_ship_id      uuid;
-  v_is_runner    boolean := false;
-BEGIN
-  IF p_source IS NULL OR p_source = '' THEN
-    RETURN false;
+  IF p_channel IS NULL OR length(trim(p_channel)) = 0 THEN
+    RAISE EXCEPTION 'channel_required' USING ERRCODE = '22023';
   END IF;
 
-  IF left(p_source, length('byoa_runner_')) = 'byoa_runner_' THEN
-    v_ship_id_text := substring(p_source from length('byoa_runner_') + 1);
-    v_is_runner := true;
-  ELSIF left(p_source, length('byoa_')) = 'byoa_' THEN
-    v_ship_id_text := substring(p_source from length('byoa_') + 1);
+  -- Locate the BYOA ship the token's character is allowed to act on which
+  -- has the requested channel currently allocated. Authorization rules
+  -- mirror byoa_session_claim:
+  --   - byoa_mode='private': only the BYOA owner character can claim.
+  --   - byoa_mode='shared': any active corp member of the ship's owner corp.
+  SELECT s.ship_id,
+         s.current_task_id,
+         s.byoa_owner_character_id,
+         s.byoa_mode,
+         s.owner_corporation_id
+    INTO v_ship
+    FROM public.ship_instances s
+   WHERE s.owner_type = 'corporation'
+     AND s.byoa_session_channel = p_channel
+     AND s.byoa_owner_character_id IS NOT NULL
+   LIMIT 1;
+
+  IF v_ship.ship_id IS NULL THEN
+    RAISE EXCEPTION 'channel_not_allocated' USING ERRCODE = '42501';
+  END IF;
+
+  IF v_ship.byoa_mode = 'private' THEN
+    IF v_ship.byoa_owner_character_id <> v_character THEN
+      RAISE EXCEPTION 'channel_not_authorized' USING ERRCODE = '42501';
+    END IF;
   ELSE
-    RETURN false;
-  END IF;
-
-  BEGIN
-    v_ship_id := v_ship_id_text::uuid;
-  EXCEPTION WHEN OTHERS THEN
-    RETURN false;
-  END;
-
-  IF NOT EXISTS (
-    SELECT 1
-      FROM public.ship_instances s
-     WHERE s.ship_id = v_ship_id
-       AND s.owner_type = 'corporation'
-       AND s.byoa_owner_character_id = p_character_id
-  ) THEN
-    RETURN false;
-  END IF;
-
-  IF v_is_runner THEN
-    IF p_message->>'__type__' IS DISTINCT FROM 'pipecat_subagents.bus.messages.BusAgentRegistryMessage' THEN
-      RETURN false;
-    END IF;
-    IF p_message #>> '{__data__,runner}' IS DISTINCT FROM p_source THEN
-      RETURN false;
-    END IF;
-    IF jsonb_typeof(p_message #> '{__data__,agents}') IS DISTINCT FROM 'array' THEN
-      RETURN false;
-    END IF;
-    IF jsonb_array_length(p_message #> '{__data__,agents}') = 0 THEN
-      RETURN false;
-    END IF;
-    IF EXISTS (
+    IF NOT EXISTS (
       SELECT 1
-        FROM jsonb_array_elements(p_message #> '{__data__,agents}') AS agent
-       WHERE COALESCE(agent #>> '{__data__,name}', agent->>'name')
-         IS DISTINCT FROM ('byoa_' || v_ship_id_text)
+        FROM public.corporation_members cm
+       WHERE cm.corp_id = v_ship.owner_corporation_id
+         AND cm.character_id = v_character
+         AND cm.left_at IS NULL
     ) THEN
-      RETURN false;
+      RAISE EXCEPTION 'channel_not_authorized' USING ERRCODE = '42501';
     END IF;
   END IF;
 
-  RETURN true;
+  RETURN jsonb_build_object(
+    'character_id',     v_character,
+    'ship_id',          v_ship.ship_id,
+    'current_task_id',  v_ship.current_task_id,
+    'channel',          p_channel
+  );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public._byoa_source_authorized(uuid, text, jsonb) FROM PUBLIC;
+COMMENT ON FUNCTION public.byoa_bus_authorize(text, text) IS
+  'One-shot gate called when an operator''s subagent bus initializes. Verifies the HS256 BYOA token and confirms a session is currently allocated on the requested channel for an authorized ship. Returns the resolved {character_id, ship_id, current_task_id, channel}. Raises on any failure.';
 
--- -----------------------------------------------------------------------------
--- byoa_bus_create_queue: register + create a per-character pgmq queue
--- -----------------------------------------------------------------------------
-
-CREATE FUNCTION public.byoa_bus_create_queue(
-  p_token      text,
-  p_queue_name text,
-  p_channel    text DEFAULT 'pipecat_bus'
-) RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pgmq, extensions
-AS $$
-DECLARE
-  v_character uuid;
-  v_existing  uuid;
-BEGIN
-  v_character := public._byoa_verify_or_raise(p_token);
-  IF NOT public._byoa_queue_in_channel(p_queue_name, p_channel) THEN
-    RAISE EXCEPTION 'queue_outside_channel' USING ERRCODE = '42501';
-  END IF;
-
-  -- Reserve the queue name. If another character already owns it, fail
-  -- visibly so a misconfigured CLI doesn't silently piggyback on someone
-  -- else's queue. Idempotent for the same owner.
-  SELECT character_id INTO v_existing
-    FROM public.byoa_owned_queues
-    WHERE queue_name = p_queue_name;
-
-  IF v_existing IS NOT NULL THEN
-    IF v_existing <> v_character THEN
-      RAISE EXCEPTION 'queue_name_taken' USING ERRCODE = '42501';
-    END IF;
-  ELSE
-    INSERT INTO public.byoa_owned_queues (queue_name, character_id)
-      VALUES (p_queue_name, v_character);
-  END IF;
-
-  -- Idempotent at the pgmq layer too — re-running the agent on the same
-  -- queue should be safe.
-  BEGIN
-    PERFORM pgmq.create(p_queue_name);
-  EXCEPTION
-    WHEN duplicate_table THEN NULL;
-  END;
-END;
-$$;
-
-COMMENT ON FUNCTION public.byoa_bus_create_queue IS
-  'Token-gated pgmq.create. Reserves the queue name in byoa_owned_queues under the token bound character_id. Raises queue_name_taken if another character already owns it.';
-
-REVOKE ALL ON FUNCTION public.byoa_bus_create_queue(text, text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.byoa_bus_create_queue(text, text, text) TO service_role;
-
--- -----------------------------------------------------------------------------
--- byoa_bus_drop_queue: drop + unregister
--- -----------------------------------------------------------------------------
-
-CREATE FUNCTION public.byoa_bus_drop_queue(
-  p_token      text,
-  p_queue_name text,
-  p_channel    text DEFAULT 'pipecat_bus'
-) RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pgmq, extensions
-AS $$
-DECLARE
-  v_character uuid;
-  v_owner     uuid;
-BEGIN
-  v_character := public._byoa_verify_or_raise(p_token);
-  IF NOT public._byoa_queue_in_channel(p_queue_name, p_channel) THEN
-    RAISE EXCEPTION 'queue_outside_channel' USING ERRCODE = '42501';
-  END IF;
-
-  SELECT character_id INTO v_owner
-    FROM public.byoa_owned_queues
-    WHERE queue_name = p_queue_name;
-
-  -- Silent success on unknown queue so a double-stop is idempotent.
-  IF v_owner IS NULL THEN
-    RETURN;
-  END IF;
-
-  IF v_owner <> v_character THEN
-    RAISE EXCEPTION 'queue_not_owned' USING ERRCODE = '42501';
-  END IF;
-
-  BEGIN
-    PERFORM pgmq.drop_queue(p_queue_name);
-  EXCEPTION
-    WHEN undefined_table THEN NULL;
-  END;
-
-  DELETE FROM public.byoa_owned_queues WHERE queue_name = p_queue_name;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.byoa_bus_drop_queue(text, text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.byoa_bus_drop_queue(text, text, text) TO service_role;
-
--- -----------------------------------------------------------------------------
--- byoa_bus_subscribe: token-gated read_with_poll on an owned queue
--- -----------------------------------------------------------------------------
-
-CREATE FUNCTION public.byoa_bus_subscribe(
-  p_token       text,
-  p_queue_name  text,
-  p_vt          integer DEFAULT 30,
-  p_qty         integer DEFAULT 10,
-  p_max_seconds integer DEFAULT 5,
-  p_channel     text DEFAULT 'pipecat_bus'
-) RETURNS SETOF pgmq.message_record
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pgmq, extensions
-AS $$
-DECLARE
-  v_character uuid;
-  v_owner     uuid;
-BEGIN
-  v_character := public._byoa_verify_or_raise(p_token);
-  IF NOT public._byoa_queue_in_channel(p_queue_name, p_channel) THEN
-    RETURN;
-  END IF;
-
-  SELECT character_id INTO v_owner
-    FROM public.byoa_owned_queues
-    WHERE queue_name = p_queue_name;
-
-  -- Unknown / unowned queue: return zero rows. Don't leak existence to
-  -- a probing operator; the cross-character read attempt looks the same
-  -- as an empty queue.
-  IF v_owner IS NULL OR v_owner <> v_character THEN
-    RETURN;
-  END IF;
-
-  RETURN QUERY
-    SELECT * FROM pgmq.read_with_poll(
-      queue_name      => p_queue_name,
-      vt              => p_vt,
-      qty             => p_qty,
-      max_poll_seconds=> p_max_seconds
-    );
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.byoa_bus_subscribe(text, text, integer, integer, integer, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.byoa_bus_subscribe(text, text, integer, integer, integer, text) TO service_role;
-
--- -----------------------------------------------------------------------------
--- byoa_bus_archive: token-gated delete on an owned queue
--- -----------------------------------------------------------------------------
-
-CREATE FUNCTION public.byoa_bus_archive(
-  p_token      text,
-  p_queue_name text,
-  p_msg_id     bigint,
-  p_channel    text DEFAULT 'pipecat_bus'
-) RETURNS boolean
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pgmq, extensions
-AS $$
-DECLARE
-  v_character uuid;
-  v_owner     uuid;
-BEGIN
-  v_character := public._byoa_verify_or_raise(p_token);
-  IF NOT public._byoa_queue_in_channel(p_queue_name, p_channel) THEN
-    RETURN false;
-  END IF;
-
-  SELECT character_id INTO v_owner
-    FROM public.byoa_owned_queues
-    WHERE queue_name = p_queue_name;
-
-  IF v_owner IS NULL OR v_owner <> v_character THEN
-    RETURN false;
-  END IF;
-
-  RETURN pgmq.delete(p_queue_name, p_msg_id);
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.byoa_bus_archive(text, text, bigint, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.byoa_bus_archive(text, text, bigint, text) TO service_role;
-
--- -----------------------------------------------------------------------------
--- byoa_bus_publish: token-gated send with source authorization
--- -----------------------------------------------------------------------------
---
--- The upstream JSONMessageSerializer wraps dataclass bus messages as
--- {"__type__": "<fqn>", "__data__": {"source": "...", ...}}. We do not
--- rewrite `__data__.source`: the bus uses it as the reply target. Instead,
--- source must be `byoa_<ship_id>` or `byoa_runner_<ship_id>` for a BYOA ship
--- currently claimed by the token character.
-
-CREATE FUNCTION public.byoa_bus_publish(
-  p_token        text,
-  p_channel      text,
-  p_target_queue text,
-  p_message      jsonb
-) RETURNS bigint
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pgmq, extensions
-AS $$
-DECLARE
-  v_character     uuid;
-  v_source        text;
-BEGIN
-  v_character := public._byoa_verify_or_raise(p_token);
-  IF NOT public._byoa_queue_in_channel(p_target_queue, p_channel) THEN
-    RAISE EXCEPTION 'queue_outside_channel' USING ERRCODE = '42501';
-  END IF;
-
-  v_source := p_message #>> '{__data__,source}';
-  IF NOT public._byoa_source_authorized(v_character, v_source, p_message) THEN
-    RAISE EXCEPTION 'unauthorized_source' USING ERRCODE = '42501';
-  END IF;
-
-  RETURN pgmq.send(p_target_queue, p_message);
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.byoa_bus_publish(text, text, text, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.byoa_bus_publish(text, text, text, jsonb) TO service_role;
-
--- -----------------------------------------------------------------------------
--- byoa_bus_list_queues: token-gated list, used for peer discovery
--- -----------------------------------------------------------------------------
---
--- Returns queue names visible under the pgmq schema for the requested channel.
--- The caller still applies the normal upstream peer-discovery filter. The list
--- itself doesn't expose message contents, so we don't restrict to the caller's
--- owned queues here.
-
-CREATE FUNCTION public.byoa_bus_list_queues(
-  p_token   text,
-  p_channel text
-)
-RETURNS SETOF text
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pgmq, extensions
-AS $$
-BEGIN
-  PERFORM public._byoa_verify_or_raise(p_token);
-  -- pgmq.list_queues() returns SETOF pgmq.queue_record; pull the
-  -- queue_name column and cast to text so the return type matches.
-  RETURN QUERY
-    SELECT (q.queue_name)::text
-     FROM pgmq.list_queues() AS q
-     WHERE left((q.queue_name)::text, length(public._byoa_channel_prefix(p_channel)))
-       = public._byoa_channel_prefix(p_channel);
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.byoa_bus_list_queues(text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.byoa_bus_list_queues(text, text) TO service_role;
+REVOKE ALL ON FUNCTION public.byoa_bus_authorize(text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.byoa_bus_authorize(text, text) TO service_role;

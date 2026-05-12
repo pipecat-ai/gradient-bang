@@ -451,6 +451,13 @@ export interface ShipsListMessage extends ServerMessagePayload {
   ships: ShipSelf[]
 }
 
+export interface ByoaPresenceMessage extends ServerMessagePayload {
+  ship_id: string
+  online: boolean
+  status: "online" | "offline"
+  last_seen_at?: string | null
+}
+
 // --- Event Query Messages (for task events)
 
 export interface EventQueryEntry {

@@ -1425,6 +1425,29 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "byoa.presence": {
+              console.debug("[GAME EVENT] BYOA presence", e.payload)
+              const data = e.payload as Msg.ByoaPresenceMessage
+              const ship = (useGameStore.getState().ships.data ?? []).find(
+                (candidate) => candidate.ship_id === data.ship_id
+              )
+              if (!ship?.byoa) {
+                break
+              }
+              useGameStore.getState().updateShip({
+                ship_id: data.ship_id,
+                byoa: {
+                  ...ship.byoa,
+                  presence: {
+                    online: data.online,
+                    status: data.status,
+                    last_seen_at: data.last_seen_at ?? null,
+                  },
+                },
+              })
+              break
+            }
+
             // ----- TASKS
 
             case "task.start": {

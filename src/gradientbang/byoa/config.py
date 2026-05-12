@@ -75,6 +75,18 @@ class ByoaAgentConfig:
     # Mirrors ``TASK_LOCK_HARD_TTL_MINUTES``.
     server_lock_hard_ttl_minutes_expected: int = 30
 
+    # BYOA-CLI only: cadence for `byoa_session_claim` polling between
+    # tasks. 5s gives dev operators a sub-poll task-start latency without
+    # hammering the edge function. Production single-task processes call
+    # claim once at startup and exit on task completion, so this is
+    # irrelevant there.
+    poll_interval_seconds: float = 5.0
+
+    # BYOA-CLI only: URL of the byoa_session_claim edge function. Required
+    # at runtime; no default because the deployment-specific Supabase URL
+    # is part of the operator's identity bundle (set via byoa-setup).
+    claim_endpoint_url: str = ""
+
     @classmethod
     def from_env(
         cls,
@@ -105,6 +117,12 @@ class ByoaAgentConfig:
                 return default
             return float(raw)
 
+        def _str(name: str, default: str) -> str:
+            raw = source.get(f"{prefix}{name}")
+            if raw is None:
+                return default
+            return raw.strip()
+
         return cls(
             heartbeat_interval_seconds=_int("HEARTBEAT_INTERVAL_SECONDS", 60),
             max_concurrent_tasks=_int("MAX_CONCURRENT_TASKS", 4),
@@ -124,6 +142,8 @@ class ByoaAgentConfig:
             server_lock_hard_ttl_minutes_expected=_int(
                 "SERVER_LOCK_HARD_TTL_MINUTES", 30
             ),
+            poll_interval_seconds=_float("POLL_INTERVAL_SECONDS", 5.0),
+            claim_endpoint_url=_str("CLAIM_ENDPOINT_URL", ""),
         )
 
     def validate_heartbeat_against_server(self) -> str | None:

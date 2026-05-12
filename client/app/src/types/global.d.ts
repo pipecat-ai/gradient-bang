@@ -68,6 +68,7 @@ declare global {
       fighters: number
       max_fighters: number
       current_task_id: string | null
+      byoa?: Ship["byoa"] | null
     }>
     destroyed_ships?: DestroyedCorporationShip[]
   }
@@ -102,6 +103,11 @@ declare global {
       owner_character_id_prefix: string
       owner_character_name: string | null
       mode: "private" | "shared"
+      presence?: {
+        online: boolean
+        status: "online" | "offline"
+        last_seen_at?: string | null
+      }
     } | null
     sector?: number
     destroyed_at?: string | null

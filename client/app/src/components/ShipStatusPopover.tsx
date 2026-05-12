@@ -2,13 +2,10 @@
  * BYOA status popover for a corp ship card.
  *
  * Surfaces:
- *   - Online / offline state — placeholder; today this is derived from
- *     whether a task is actively running on the ship. Phase 3 will add
- *     a real presence signal for external BYOA operators.
+ *   - Online / offline state from BYOA process presence.
  *   - BYOA mode — Private / Shared / Not BYOA (from `ship.byoa`).
  *   - Owner — BYOA owner name (when set).
- *   - Heartbeat — placeholder; today the server has
- *     `task_last_heartbeat_at` but it's not yet in the ship-list payload.
+ *   - Heartbeat — last process heartbeat timestamp if one has arrived.
  *
  * Trigger is a small icon button on the ship card; mirrors PopoverHelper.
  */
@@ -52,10 +49,8 @@ function StatusRow({
 
 export const ShipStatusPopover = ({ ship }: { ship: Ship }) => {
   const isBusy = !!ship.current_task_id
-  // Placeholder: treat "task in flight" as "online" until Phase 3 adds a
-  // real presence signal from the BYOA operator.
-  const isOnline = isBusy
   const byoa = ship.byoa ?? null
+  const isOnline = byoa?.presence?.online === true
   const actor = ship.current_task_actor ?? null
 
   return (
@@ -120,11 +115,10 @@ export const ShipStatusPopover = ({ ship }: { ship: Ship }) => {
           <StatusRow
             label="Heartbeat"
             value={
-              // Placeholder. task_last_heartbeat_at lives server-side but
-              // is not yet in the ship-list payload. Phase 1/2 may surface
-              // it; for now show a fixed dash so the layout is final.
-              isBusy ?
-                <span className="text-muted-foreground">just now</span>
+              byoa?.presence?.last_seen_at ?
+                <span className="text-muted-foreground">
+                  {new Date(byoa.presence.last_seen_at).toLocaleTimeString()}
+                </span>
               : <span className="text-subtle-foreground">—</span>
             }
           />

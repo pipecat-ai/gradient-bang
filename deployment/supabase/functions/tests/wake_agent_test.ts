@@ -1,10 +1,10 @@
 /**
  * wake_agent edge-function tests.
  *
- * Covers the Phase 3.1 stub: standard authenticate + canActOnCharacter,
- * BYOA-ship guard, and the {success:true, status:"stub"} response shape.
- * The wake mechanism itself is intentionally not exercised — there isn't
- * one yet, the endpoint just logs.
+ * Covers the per-session channel allocation flow: standard authenticate +
+ * canActOnCharacter, BYOA-ship guard, atomic write of byoa_session_channel
+ * gated by the active task lock, and the {channel, spawn_target,
+ * lifecycle_hint} response shape.
  */
 
 import {
@@ -53,6 +53,15 @@ async function seedCorpWithMembers(
   return { corpId, corpShipId: ship.pseudoCharacterId };
 }
 
+async function acquireLockOn(shipId: string, taskId: string, actorId: string) {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `SELECT acquire_ship_task_lock($1::uuid, $2::uuid, $3::uuid, 180, 30)`,
+      [shipId, taskId, actorId],
+    );
+  });
+}
+
 Deno.test({
   name: "wake_agent — start server",
   sanitizeOps: false,
@@ -63,7 +72,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "wake_agent — stub returns success for a claimed BYOA ship",
+  name: "wake_agent — allocates session channel on lock row",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -72,13 +81,15 @@ Deno.test({
     p1ShipId = await shipIdFor(P1);
 
     let corpShipId: string;
+    const taskId = crypto.randomUUID();
+    const channel = "bot_session_abc";
 
-    await t.step("seed corp + claim BYOA", async () => {
+    await t.step("seed corp + claim BYOA + acquire lock", async () => {
       await resetDatabase([P1, P2]);
       await apiOk("join", { character_id: p1Id });
       await apiOk("join", { character_id: p2Id });
       await setShipCredits(p1ShipId, 50_000);
-      const seeded = await seedCorpWithMembers(p1Id, [p2Id], "Wake Stub Corp");
+      const seeded = await seedCorpWithMembers(p1Id, [p2Id], "Wake Alloc Corp");
       corpShipId = seeded.corpShipId;
       await apiOk("ship_byoa_configure", {
         character_id: p1Id,
@@ -86,24 +97,65 @@ Deno.test({
         action: "claim",
         mode: "private",
       });
+      await acquireLockOn(corpShipId, taskId, p1Id);
     });
 
-    await t.step("happy path → 200 with status:'stub'", async () => {
+    await t.step("happy path → 200, channel recorded on row", async () => {
       const result = await apiOk("wake_agent", {
         ship_id: corpShipId,
         character_id: p1Id,
-        task_id: crypto.randomUUID(),
+        task_id: taskId,
+        channel,
       });
       const body = result as Record<string, unknown>;
-      assertEquals(body.status, "stub");
       assertEquals(body.ship_id, corpShipId);
-      assert(typeof body.request_id === "string");
+      assertEquals(body.channel, channel);
+      // lifecycle_hint reflects WAKE_TARGET (default noop in tests).
+      assert(["single_task", "idle_loop"].includes(body.lifecycle_hint as string));
+      assertEquals(body.spawn_target, "noop");
+      assertEquals(body.spawn_status, "noop");
+
+      // The session channel was actually written.
+      await withPg(async (pg) => {
+        const rows = await pg.queryObject<
+          { byoa_session_channel: string | null }
+        >(
+          `SELECT byoa_session_channel FROM ship_instances WHERE ship_id = $1::uuid`,
+          [corpShipId],
+        );
+        assertEquals(rows.rows[0].byoa_session_channel, channel);
+      });
+    });
+
+    await t.step("invalid channel format → 400", async () => {
+      const result = await api("wake_agent", {
+        ship_id: corpShipId,
+        character_id: p1Id,
+        task_id: taskId,
+        channel: "has spaces",
+      });
+      assertEquals(result.status, 400);
+    });
+
+    await t.step("stale task_id (lock not held) → 409 lock_not_held", async () => {
+      const result = await api("wake_agent", {
+        ship_id: corpShipId,
+        character_id: p1Id,
+        task_id: crypto.randomUUID(),
+        channel,
+      });
+      assertEquals(result.status, 409);
+      assertEquals(
+        (result.body as Record<string, unknown>).error,
+        "lock_not_held",
+      );
     });
 
     await t.step("non-BYOA ship → 400 not_a_byoa_ship", async () => {
       const result = await api("wake_agent", {
         ship_id: p1ShipId,
         character_id: p1Id,
+        channel,
       });
       assertEquals(result.status, 400);
       assertEquals(
@@ -116,6 +168,7 @@ Deno.test({
       const result = await api("wake_agent", {
         ship_id: crypto.randomUUID(),
         character_id: p1Id,
+        channel,
       });
       assertEquals(result.status, 404);
     });
@@ -124,6 +177,7 @@ Deno.test({
       const result = await api("wake_agent", {
         ship_id: "not-a-uuid",
         character_id: p1Id,
+        channel,
       });
       assertEquals(result.status, 400);
     });

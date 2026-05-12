@@ -11,8 +11,8 @@ from gradientbang.pipecat_server.subagents.task_agent import (
     ASYNC_TOOL_COMPLETIONS,
     PLAYER_ONLY_TOOLS,
     TaskAgent,
-    _SPECIAL_HANDLERS,
 )
+from gradientbang.pipecat_server.subagents.bus_messages import BusByoaPresenceMessage
 from pipecat_subagents.agents import TaskStatus
 from pipecat_subagents.bus import (
     BusTaskCancelMessage,
@@ -51,12 +51,13 @@ def _make_task_agent(**overrides):
     bus.send = AsyncMock()
     bus.send_message = AsyncMock()
     legacy_game_client = overrides.pop("game_client", None)
+    name = overrides.pop("name", "test_task")
     kwargs = {
         "bus": bus,
         "character_id": "char-123",
     }
     kwargs.update(overrides)
-    agent = TaskAgent("test_task", **kwargs)
+    agent = TaskAgent(name, **kwargs)
     if legacy_game_client is None:
         legacy_game_client = MagicMock()
         legacy_game_client.current_task_id = None
@@ -171,6 +172,54 @@ def _make_function_call_params(function_name: str, arguments: dict | None = None
 
 
 EXPECTED_TASK_TOOL_NAMES = {t.name for t in TASK_TOOLS.standard_tools}
+
+
+@pytest.mark.unit
+class TestByoaPresence:
+    async def test_on_ready_sends_online_presence_and_starts_heartbeat(self):
+        agent = _make_task_agent(name="byoa_ship-123", character_id="ship-123")
+        agent.send_message = AsyncMock()
+        created_task = MagicMock()
+
+        def _capture_task(coro, name):
+            coro.close()
+            return created_task
+
+        agent.create_asyncio_task = MagicMock(side_effect=_capture_task)
+
+        await agent.on_ready()
+
+        sent = agent.send_message.await_args.args[0]
+        assert isinstance(sent, BusByoaPresenceMessage)
+        assert sent.source == "byoa_ship-123"
+        assert sent.ship_id == "ship-123"
+        assert sent.online is True
+        assert sent.status == "online"
+        agent.create_asyncio_task.assert_called_once()
+
+    async def test_on_finished_sends_offline_presence(self):
+        agent = _make_task_agent(name="byoa_ship-123", character_id="ship-123")
+        agent.send_message = AsyncMock()
+        agent.cancel_asyncio_task = AsyncMock()
+        agent._byoa_presence_task = MagicMock(done=MagicMock(return_value=False))
+
+        await agent.on_finished()
+
+        sent = agent.send_message.await_args.args[0]
+        assert isinstance(sent, BusByoaPresenceMessage)
+        assert sent.online is False
+        assert sent.status == "offline"
+        agent.cancel_asyncio_task.assert_awaited_once()
+
+    async def test_non_byoa_agent_does_not_emit_presence(self):
+        agent = _make_task_agent(name="task_abc", character_id="ship-123")
+        agent.send_message = AsyncMock()
+        agent.create_asyncio_task = MagicMock()
+
+        await agent.on_ready()
+
+        agent.send_message.assert_not_awaited()
+        agent.create_asyncio_task.assert_not_called()
 
 
 @pytest.mark.unit

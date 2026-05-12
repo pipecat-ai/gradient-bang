@@ -1,231 +1,142 @@
-"""BYOA-flavored PGMQ bus adapter.
+"""BYOA-flavored PGMQ bus builder.
 
-Wraps upstream :class:`pipecat_subagents.bus.network.pgmq.PgmqBus` with a
-``PGMQueue``-shaped shim that routes every pgmq call through the
-BYOA bus wrapper section of the
-``20260512000000_ship_task_lock_and_byoa.sql`` migration.
-Every wrapped call carries the operator's HS256 BYOA token,
-which the SQL side validates via ``verify_byoa_token`` before doing
-anything. The result:
+Phase 3 (2/N) used a per-call SQL wrapper (`byoa_bus_*`) so every pgmq
+operation was token-gated. That layer is gone now: operator isolation is
+enforced at the channel layer by `wake_agent` allocating a per-VoiceAgent
+channel and `byoa_session_claim` handing it to the operator's process.
+The Python side becomes a thin factory:
 
-- A BYOA agent can only subscribe to / archive from queues it created
-  (queues bound to its token's character_id in ``byoa_owned_queues``).
-- Cross-character read attempts return zero rows (silent on the wire so
-  we don't leak queue existence to a probing operator).
-- Publish authorizes the bus envelope's ``source`` against the token-bound
-  operator's claimed BYOA ship and keeps it intact for response routing.
+  1. Call the SQL `byoa_bus_authorize(token, channel)` once at startup.
+     This is the single authorization round-trip — it verifies the HS256
+     BYOA token AND confirms a session is allocated on the requested
+     channel for an authorized ship. Raises on any failure.
+  2. Construct an unwrapped upstream :class:`PgmqBus` on that channel.
+     Subsequent pgmq operations are raw service-role calls scoped to the
+     channel's queue-name prefix — no per-call SQL wrapper hops.
 
-The DSN authenticates a Postgres role and gets us a connection; the
-HS256 token is the per-character authorization layer on top. Mirrors
-the 0.4.1 bot pattern (admin DSN + per-character internal token +
-SECURITY DEFINER ``subscribe_my_events`` / ``archive_my_events``).
+This keeps the security boundary tight (the operator's reach is bounded
+by the per-call channel they were authorized for) without paying the
+wrapper tax on every message.
 """
 
 from __future__ import annotations
 
 import os
-from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 import asyncpg
 from loguru import logger
-from orjson import dumps, loads
-from pgmq.messages import Message
-from pipecat_subagents.bus.network.pgmq import _sanitize_channel
+from pgmq.async_queue import PGMQueue
 
 from gradientbang.adapters.bus.pgmq import _OwnedPgmqBus, parse_database_url
+from gradientbang.adapters.bus.serializer import BusJSONSerializer
 
 
-class _ByoaPgmqShim:
-    """``PGMQueue``-shaped shim that routes every operation through
-    the token-gated ``byoa_bus_*`` SECURITY DEFINER wrappers.
+class ByoaBusAuthorizationError(RuntimeError):
+    """Raised when ``byoa_bus_authorize`` rejects the (token, channel) pair.
 
-    Surface matches the subset of ``pgmq.async_queue.PGMQueue`` that
-    upstream ``PgmqBus`` actually calls (create_queue, drop_queue,
-    list_queues, send, read_with_poll, delete). The HS256 token is
-    threaded through every call from this class; the BYOA agent never
-    touches it directly.
-
-    Owns its asyncpg pool; ``_OwnedPgmqBus.stop()`` closes it via the
-    same ``self._pgmq.pool`` attribute that the unwrapped path uses.
+    Distinct from a transport-level RuntimeError so the CLI can render
+    operator-actionable messages: ``invalid_token`` means rotate;
+    ``channel_not_allocated`` means the bot hasn't woken the session yet
+    (retry); ``channel_not_authorized`` means the operator's character is
+    not allowed on the bound ship (fix `.env.byoa` BYOA_SHIP_ID).
     """
 
-    def __init__(
-        self,
-        *,
-        dsn: str,
-        byoa_token: str,
-        channel: str,
-        pool_size: int = 4,
-    ) -> None:
-        self._dsn = dsn
-        self._token = byoa_token
-        self._channel = _sanitize_channel(channel)
-        self._pool_size = pool_size
-        self.pool: Optional[asyncpg.pool.Pool] = None
 
-    async def init(self) -> None:
-        """Create the asyncpg pool. Idempotent."""
-        if self.pool is not None:
-            return
-        kwargs = parse_database_url(self._dsn)
-        self.pool = await asyncpg.create_pool(
-            user=kwargs["username"],
-            password=kwargs["password"],
-            database=kwargs["database"],
-            host=kwargs["host"],
-            port=int(kwargs["port"]),
-            min_size=1,
-            max_size=self._pool_size,
-        )
+async def _authorize(
+    dsn: str,
+    byoa_token: str,
+    channel: str,
+) -> None:
+    """Single round-trip to ``byoa_bus_authorize``.
 
-    async def create_queue(
-        self, queue: str, unlogged: bool = False, conn=None
-    ) -> None:
-        async with self.pool.acquire() as c:
-            await c.execute(
-                "SELECT public.byoa_bus_create_queue($1, $2, $3)",
-                self._token,
-                queue,
-                self._channel,
+    Opens a transient asyncpg connection (not via the bus pool) so the
+    authorize check is independent of the long-lived pgmq pool's lifetime.
+    Raises :class:`ByoaBusAuthorizationError` on any auth failure with the
+    SQL error name attached for log triage.
+    """
+    kwargs = parse_database_url(dsn)
+    conn = await asyncpg.connect(
+        user=kwargs["username"],
+        password=kwargs["password"],
+        database=kwargs["database"],
+        host=kwargs["host"],
+        port=int(kwargs["port"]),
+    )
+    try:
+        try:
+            await conn.fetchval(
+                "SELECT public.byoa_bus_authorize($1, $2)",
+                byoa_token,
+                channel,
             )
-
-    async def drop_queue(
-        self, queue: str, partitioned: bool = False, conn=None
-    ) -> bool:
-        async with self.pool.acquire() as c:
-            await c.execute(
-                "SELECT public.byoa_bus_drop_queue($1, $2, $3)",
-                self._token,
-                queue,
-                self._channel,
-            )
-        return True
-
-    async def list_queues(self, conn=None) -> List[str]:
-        async with self.pool.acquire() as c:
-            rows = await c.fetch(
-                "SELECT public.byoa_bus_list_queues($1, $2)",
-                self._token,
-                self._channel,
-            )
-        return [row[0] for row in rows]
-
-    async def send(
-        self,
-        queue: str,
-        message: dict,
-        delay: int = 0,
-        tz: Optional[datetime] = None,
-        conn=None,
-    ) -> int:
-        # delay/tz aren't supported through the wrapper today; upstream
-        # PgmqBus.publish doesn't use them either. Keep the kwargs in the
-        # signature so a future upstream change doesn't break ours.
-        async with self.pool.acquire() as c:
-            row = await c.fetchrow(
-                "SELECT public.byoa_bus_publish($1, $2, $3, $4::jsonb)",
-                self._token,
-                self._channel,
-                queue,
-                dumps(message).decode("utf-8"),
-            )
-        return int(row[0]) if row and row[0] is not None else 0
-
-    async def read_with_poll(
-        self,
-        queue: str,
-        vt: Optional[int] = None,
-        qty: int = 1,
-        max_poll_seconds: int = 5,
-        poll_interval_ms: int = 100,
-        conn=None,
-    ) -> List[Message]:
-        # poll_interval_ms isn't piped through to the wrapper; pgmq's
-        # default of 100ms is fine and we don't expect to tune it
-        # per-operator. The wrapper hard-codes it to pgmq's default.
-        async with self.pool.acquire() as c:
-            rows = await c.fetch(
-                "SELECT msg_id, read_ct, enqueued_at, vt, message "
-                "FROM public.byoa_bus_subscribe($1, $2, $3, $4, $5, $6)",
-                self._token,
-                queue,
-                vt if vt is not None else 30,
-                qty,
-                max_poll_seconds,
-                self._channel,
-            )
-        return [
-            Message(
-                msg_id=row[0],
-                read_ct=row[1],
-                enqueued_at=row[2],
-                vt=row[3],
-                message=loads(row[4]) if isinstance(row[4], (bytes, str)) else row[4],
-            )
-            for row in rows
-        ]
-
-    async def delete(self, queue: str, msg_id: int, conn=None) -> bool:
-        async with self.pool.acquire() as c:
-            row = await c.fetchrow(
-                "SELECT public.byoa_bus_archive($1, $2, $3, $4)",
-                self._token,
-                queue,
-                msg_id,
-                self._channel,
-            )
-        return bool(row[0]) if row else False
+        except asyncpg.PostgresError as exc:
+            # The wrapper raises with `USING ERRCODE = '42501'` (or 22023
+            # for malformed channel). asyncpg surfaces those as message
+            # text; we just forward the message so the CLI can render it.
+            msg = (getattr(exc, "message", None) or str(exc)).strip()
+            raise ByoaBusAuthorizationError(
+                f"byoa_bus_authorize rejected (channel={channel!r}): {msg}"
+            ) from exc
+    finally:
+        await conn.close()
 
 
 async def build_byoa_pgmq_bus(
     *,
     database_url: Optional[str] = None,
-    channel: Optional[str] = None,
+    channel: str,
     byoa_token: Optional[str] = None,
 ) -> _OwnedPgmqBus:
-    """Build a BYOA-flavored PGMQ subagent bus.
+    """Build a BYOA subagent bus on the given session channel.
 
     Args:
         database_url: Postgres DSN. Defaults to ``SUBAGENT_BUS_DATABASE_URL``.
-        channel: PGMQ channel prefix. Defaults to ``SUBAGENT_BUS_CHANNEL``.
-        byoa_token: HS256 BYOA token bound to a character_id (minted via
-            ``byoa_token_mint``). Defaults to ``BYOA_TOKEN``.
+        channel: Per-VoiceAgent session channel, obtained from the
+            ``byoa_session_claim`` edge function. Required; no env-var
+            fallback — the BYOA CLI plumbs it through explicitly from the
+            claim response so a stale env value can never silently win.
+        byoa_token: HS256 BYOA token. Defaults to ``BYOA_TOKEN``.
 
     Returns:
-        ``_OwnedPgmqBus`` wired to the BYOA shim. ``stop()`` closes the
-        underlying asyncpg pool.
+        ``_OwnedPgmqBus`` running on the authorized channel. ``stop()``
+        closes the underlying asyncpg pool.
 
     Raises:
-        RuntimeError: When any required input is missing or whitespace-only.
+        RuntimeError: When DSN, channel, or token is missing.
         ValueError: When the DSN scheme is invalid.
+        ByoaBusAuthorizationError: When the SQL authorize check rejects
+            the (token, channel) pair.
     """
     dsn = (database_url or os.getenv("SUBAGENT_BUS_DATABASE_URL") or "").strip()
     if not dsn:
-        raise RuntimeError(
-            "SUBAGENT_BUS_TRANSPORT=byoa_pgmq requires SUBAGENT_BUS_DATABASE_URL"
-        )
+        raise RuntimeError("BYOA bus requires SUBAGENT_BUS_DATABASE_URL")
 
-    chan = (channel or os.getenv("SUBAGENT_BUS_CHANNEL") or "").strip()
+    chan = (channel or "").strip()
     if not chan:
         raise RuntimeError(
-            "SUBAGENT_BUS_TRANSPORT=byoa_pgmq requires SUBAGENT_BUS_CHANNEL "
-            "(must match the bot's channel value)"
+            "BYOA bus requires an explicit session channel "
+            "(obtained from byoa_session_claim)"
         )
 
     token = (byoa_token or os.getenv("BYOA_TOKEN") or "").strip()
     if not token:
         raise RuntimeError(
-            "SUBAGENT_BUS_TRANSPORT=byoa_pgmq requires BYOA_TOKEN "
-            "(mint via byoa_token_mint; see the byoa-setup Claude skill)"
+            "BYOA bus requires BYOA_TOKEN (mint via byoa_token_mint; "
+            "see the byoa-setup Claude skill)"
         )
 
-    shim = _ByoaPgmqShim(dsn=dsn, byoa_token=token, channel=chan)
-    await shim.init()
+    # One-shot authorization: server-side check that the token is bound
+    # to a session for this channel. Cheap relative to the per-call wrapper
+    # path it replaces (one connection + one fetchval).
+    await _authorize(dsn, token, chan)
 
-    bus = _OwnedPgmqBus(pgmq=shim, channel=chan)
+    pgmq = PGMQueue(**parse_database_url(dsn))
+    await pgmq.init()
+
+    bus = _OwnedPgmqBus(pgmq=pgmq, channel=chan, serializer=BusJSONSerializer())
     logger.info(f"bus.byoa_pgmq_initialized channel={chan!r}")
     return bus
 
 
-__all__ = ["build_byoa_pgmq_bus", "_ByoaPgmqShim"]
+__all__ = ["build_byoa_pgmq_bus", "ByoaBusAuthorizationError"]

@@ -56,6 +56,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BUS_PROTOCOL_VERSION,
     BusAgentHelloRequest,
     BusAgentHelloResponse,
+    BusByoaPresenceMessage,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -97,6 +98,7 @@ ASYNC_COMPLETION_TIMEOUT = 5.0
 MAX_NO_TOOL_NUDGES = 3
 MAX_CONSECUTIVE_ERRORS = 3
 NO_TOOL_WATCHDOG_DELAY = 5.0
+BYOA_PRESENCE_HEARTBEAT_SECONDS = 10.0
 
 # Tools restricted to player ships only (corp ships cannot use these).
 PLAYER_ONLY_TOOLS = frozenset(
@@ -271,6 +273,7 @@ class TaskAgent(LLMAgent):
         # Phase 1: every game RPC goes over the bus. PendingRequests tracks
         # outbound correlation_ids until their matching responses land.
         self._pending: PendingRequests = PendingRequests()
+        self._byoa_presence_task: Optional[asyncio.Task] = None
         # Phase 1: idle teardown timer. Reset on every inbound task / tool
         # call; fires BusEndAgentMessage to self after
         # agent_idle_teardown_seconds. In-process player-ship agents are
@@ -360,6 +363,53 @@ class TaskAgent(LLMAgent):
                 state_tracker,
                 aggregators.assistant(),
             ]
+        )
+
+    # ── BYOA process presence ────────────────────────────────────────
+
+    def _is_byoa_process_agent(self) -> bool:
+        return self.name.startswith("byoa_") and not self.name.startswith("byoa_runner_")
+
+    def _presence_timestamp(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    async def on_ready(self) -> None:
+        await super().on_ready()
+        if not self._is_byoa_process_agent():
+            return
+        await self._send_byoa_presence(online=True)
+        self._byoa_presence_task = self.create_asyncio_task(
+            self._byoa_presence_loop(),
+            f"byoa_presence_{self.name}",
+        )
+
+    async def on_finished(self) -> None:
+        if self._byoa_presence_task and not self._byoa_presence_task.done():
+            await self.cancel_asyncio_task(self._byoa_presence_task)
+        self._byoa_presence_task = None
+        if self._is_byoa_process_agent():
+            await self._send_byoa_presence(online=False)
+        await super().on_finished()
+
+    async def _byoa_presence_loop(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(BYOA_PRESENCE_HEARTBEAT_SECONDS)
+                await self._send_byoa_presence(online=True)
+        except asyncio.CancelledError:
+            return
+
+    async def _send_byoa_presence(self, *, online: bool) -> None:
+        ship_id = self._character_id
+        await self.send_message(
+            BusByoaPresenceMessage(
+                source=self.name,
+                ship_id=ship_id,
+                online=online,
+                status="online" if online else "offline",
+                last_seen_at=self._presence_timestamp(),
+                protocol_version=BUS_PROTOCOL_VERSION,
+            )
         )
 
     # ── Bus protocol ──────────────────────────────────────────────────

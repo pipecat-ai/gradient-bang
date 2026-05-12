@@ -466,8 +466,9 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
             existingShips.map((s: ShipSelf) => [s.ship_id, s] as [string, ShipSelf])
           )
           for (const ship of corporation.ships) {
+            const existingShip = existingById.get(ship.ship_id)
             existingById.set(ship.ship_id, {
-              ...existingById.get(ship.ship_id),
+              ...existingShip,
               ship_id: ship.ship_id,
               ship_name: ship.name,
               ship_type: ship.ship_type,
@@ -483,6 +484,14 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
               fighters: ship.fighters,
               max_fighters: ship.max_fighters,
               current_task_id: ship.current_task_id,
+              byoa:
+                ship.byoa === undefined ? existingShip?.byoa
+                : ship.byoa ?
+                  {
+                    ...ship.byoa,
+                    presence: existingShip?.byoa?.presence,
+                  }
+                : null,
             } as ShipSelf)
           }
           state.ships = {

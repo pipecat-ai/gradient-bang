@@ -7,12 +7,11 @@ Branches on the ``SUBAGENT_BUS_TRANSPORT`` env var:
 - ``pgmq``: distributed bus over PGMQ with raw pgmq calls. Used by the bot
   when running against a remote bus. Requires ``SUBAGENT_BUS_DATABASE_URL``
   + ``SUBAGENT_BUS_CHANNEL``.
-- ``byoa_pgmq``: distributed bus over PGMQ for BYOA operators. Same DSN +
-  channel as ``pgmq``, plus an HS256 ``BYOA_TOKEN`` that every pgmq call
-  passes through the SECURITY DEFINER ``byoa_bus_*`` wrappers. The
-      wrappers enforce per-character queue ownership and authorize the bus
-      envelope's ``source`` on publish so a malicious / buggy operator can't
-      impersonate the bot.
+
+The BYOA CLI does not use this factory — it has a single transport (PGMQ
+on a per-session channel obtained from ``byoa_session_claim``) and calls
+:func:`gradientbang.adapters.bus.byoa_pgmq.build_byoa_pgmq_bus` directly
+with the discovered channel.
 
 Mirrors :func:`gradientbang.adapters.events.factory.make_event_adapter`. Async
 because both PGMQ branches must ``await pgmq.init()`` before the bus can
@@ -26,7 +25,7 @@ import os
 from gradientbang.adapters.bus.base import AgentBus
 from gradientbang.adapters.bus.local import AsyncQueueBus
 
-_VALID_TRANSPORTS = {"local", "pgmq", "byoa_pgmq"}
+_VALID_TRANSPORTS = {"local", "pgmq"}
 
 
 async def make_subagent_bus() -> AgentBus:
@@ -43,10 +42,6 @@ async def make_subagent_bus() -> AgentBus:
         from gradientbang.adapters.bus.pgmq import build_pgmq_bus
 
         return await build_pgmq_bus()
-    if transport == "byoa_pgmq":
-        from gradientbang.adapters.bus.byoa_pgmq import build_byoa_pgmq_bus
-
-        return await build_byoa_pgmq_bus()
     return AsyncQueueBus()
 
 

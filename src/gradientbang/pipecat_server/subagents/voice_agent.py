@@ -44,6 +44,7 @@ from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequest
 from gradientbang.pipecat_server.subagents.bus_messages import (
     BusAgentHelloRequest,
     BusAgentHelloResponse,
+    BusByoaPresenceMessage,
     BusCombatStrategyRequest,
     BusCombatStrategyResponse,
     BusCorporationQueryRequest,
@@ -90,6 +91,8 @@ TASK_RESPONSE_SPEECH_START_GRACE_SECONDS = 0.75
 DEFERRED_UPDATE_STALE_TURNS = 5
 DEFERRED_UPDATE_SETTLE_SECONDS = 2.0
 DEFERRED_UPDATE_MAX_SETTLE_SECONDS = 8.0
+BYOA_PRESENCE_STALE_SECONDS = 25.0
+BYOA_PRESENCE_SWEEP_SECONDS = 5.0
 
 _UUID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
@@ -104,6 +107,15 @@ def _env_truthy(name: str) -> bool:
 class _DeferredUpdate:
     xml: str
     ship_id: Optional[str] = None
+
+
+@dataclass
+class _ByoaPresence:
+    ship_id: str
+    online: bool
+    status: str
+    last_seen_at: Optional[str]
+    last_seen_monotonic: float
 
 
 # ── VoiceAgent ────────────────────────────────────────────────────────────
@@ -193,18 +205,21 @@ class VoiceAgent(LLMAgent):
         # agent advertises ready (on_agent_ready) or the task otherwise
         # completes/cancels.
         self._pending_wakes: Dict[str, asyncio.Task] = {}
-        # When true, the bot calls the server-side `wake_agent` endpoint
-        # before dispatching a task on a BYOA ship — needed if the
-        # operator's agent runs in a sleep-on-idle sandbox (Vercel /
-        # Lambda). False (the default) skips the call entirely and
-        # assumes the BYOA agent is always-warm on the bus, which is the
-        # right setting for local dev and any "uv run byoa" always-on
-        # deploy.
-        self._byoa_wake_enabled = _env_truthy("BYOA_WAKE_ENABLED")
+        # The bot's subagent-bus channel — passed to wake_agent so the
+        # server can record it on the ship's task-lock row, and the BYOA's
+        # claim endpoint can return it. Required when running BYOA over a
+        # pgmq bus; harmless to capture when running local-bus (the env
+        # var is unset).
+        self._byoa_bus_channel = os.getenv("SUBAGENT_BUS_CHANNEL", "").strip()
         # Remote BYOA agents are not children in this process, so the broker
         # keeps its own active-task table for authorization and cleanup.
         # agent_name -> {task_id, character_id, actor_character_id, task_metadata}
         self._byoa_active_agents: Dict[str, Dict[str, Any]] = {}
+        # Process presence for external BYOA runners. This is UI/task-start
+        # liveness only; registry + hello remains authoritative for dispatch.
+        self._byoa_presence: Dict[str, _ByoaPresence] = {}
+        self._byoa_presence_sweep_task: Optional[asyncio.Task] = None
+        self._byoa_known_ships: set[str] = set()
 
         # ── Deferred-update queue (task.completed batching, etc.) ──
         # Bounded drain task lifecycle: lazily spawned on first enqueue,
@@ -2099,10 +2114,118 @@ class VoiceAgent(LLMAgent):
             await self._on_corporation_query_request(message)
         elif isinstance(message, BusTaskFinishNotification):
             await self._on_task_finish_notification(message)
+        elif isinstance(message, BusByoaPresenceMessage):
+            await self._on_byoa_presence(message)
         elif isinstance(message, BusAgentHelloResponse):
             self._resolve_hello_response(message)
 
         await super().on_bus_message(message)
+
+    async def _on_byoa_presence(self, message: BusByoaPresenceMessage) -> None:
+        """Track external BYOA runner process liveness and push it to RTVI."""
+        ship_id = (message.ship_id or "").strip()
+        source = getattr(message, "source", "") or ""
+        if not ship_id or source != self.byoa_agent_name(ship_id):
+            logger.warning(
+                f"byoa.presence_ignored source={source!r} ship={ship_id[:8]!r}"
+            )
+            return
+
+        if ship_id not in self._byoa_known_ships:
+            owner = await self._lookup_byoa_owner(ship_id)
+            if not owner:
+                logger.warning(
+                    f"byoa.presence_ignored_not_claimed source={source!r} ship={ship_id[:8]}"
+                )
+                return
+            self._byoa_known_ships.add(ship_id)
+
+        online = bool(message.online)
+        status = "online" if online else "offline"
+        last_seen_at = message.last_seen_at
+        now = time.monotonic()
+        previous = self._byoa_presence.get(ship_id)
+        self._byoa_presence[ship_id] = _ByoaPresence(
+            ship_id=ship_id,
+            online=online,
+            status=status,
+            last_seen_at=last_seen_at,
+            last_seen_monotonic=now,
+        )
+
+        if online:
+            self._ensure_byoa_presence_sweeper()
+
+        changed = previous is None or previous.online != online or previous.status != status
+        if changed:
+            await self._push_byoa_presence(
+                ship_id=ship_id,
+                online=online,
+                status=status,
+                last_seen_at=last_seen_at,
+            )
+
+    async def _push_byoa_presence(
+        self,
+        *,
+        ship_id: str,
+        online: bool,
+        status: str,
+        last_seen_at: Optional[str],
+    ) -> None:
+        await self._rtvi.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": "byoa.presence",
+                    "payload": {
+                        "ship_id": ship_id,
+                        "online": online,
+                        "status": status,
+                        "last_seen_at": last_seen_at,
+                    },
+                }
+            )
+        )
+
+    def _ensure_byoa_presence_sweeper(self) -> None:
+        if self._byoa_presence_sweep_task is None or self._byoa_presence_sweep_task.done():
+            self._byoa_presence_sweep_task = asyncio.create_task(
+                self._byoa_presence_sweep_loop(),
+                name="byoa_presence_sweeper",
+            )
+
+    async def _byoa_presence_sweep_loop(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(BYOA_PRESENCE_SWEEP_SECONDS)
+                if not self._byoa_presence:
+                    return
+                await self._mark_stale_byoa_presence_offline()
+        except asyncio.CancelledError:
+            return
+        finally:
+            if asyncio.current_task() is self._byoa_presence_sweep_task:
+                self._byoa_presence_sweep_task = None
+
+    async def _mark_stale_byoa_presence_offline(self) -> None:
+        now = time.monotonic()
+        for ship_id, presence in list(self._byoa_presence.items()):
+            if (
+                presence.online
+                and now - presence.last_seen_monotonic > BYOA_PRESENCE_STALE_SECONDS
+            ):
+                self._byoa_presence[ship_id] = replace(
+                    presence,
+                    online=False,
+                    status="offline",
+                )
+                await self._push_byoa_presence(
+                    ship_id=ship_id,
+                    online=False,
+                    status="offline",
+                    last_seen_at=presence.last_seen_at,
+                )
 
     def _resolve_hello_response(self, message: BusAgentHelloResponse) -> None:
         """Resolve the awaiting hello future for ``correlation_id``.
@@ -2578,6 +2701,21 @@ class VoiceAgent(LLMAgent):
                 # the LLM (and event_relay) ever sees.
                 framework_task_id = str(uuid.uuid4())
 
+                byoa_owner_id: Optional[str] = None
+                if ship_id:
+                    byoa_owner_id = await self._lookup_byoa_owner(ship_id)
+                    if byoa_owner_id:
+                        self._byoa_known_ships.add(ship_id)
+                        # Presence broadcasts now happen WITHIN a session
+                        # channel (allocated by wake_agent), so a pre-wake
+                        # online check would always be false. The
+                        # wake-timeout watchdog handles missing BYOA
+                        # processes: if the operator's `uv run byoa`
+                        # isn't running, wake succeeds (the channel is
+                        # allocated server-side) but no agent ever joins,
+                        # and the watchdog releases the lock after
+                        # agent_wake_timeout_seconds.
+
                 # Server-side acquire BEFORE spawning the TaskAgent. A 409
                 # ship_busy or 403 byoa_private_not_owner here surfaces as a
                 # user-facing error without ever creating the local child.
@@ -2596,12 +2734,11 @@ class VoiceAgent(LLMAgent):
                 # to the operator's queue and wait for the bus
                 # advertisement (via the existing on_agent_ready path).
                 # The watchdog releases the lock if no agent ever responds.
-                # If BYOA_WAKE_ENABLED is true we additionally call the
-                # server-side wake_agent endpoint, which (in future) will
-                # cold-start a sleeping sandbox.
-                byoa_owner_id: Optional[str] = None
-                if ship_id:
-                    byoa_owner_id = await self._lookup_byoa_owner(ship_id)
+                # wake_agent always fires for BYOA dispatch: it allocates
+                # the per-session channel on the lock row and dispatches
+                # the configured spawn target (Vercel Sandbox / Lambda /
+                # noop in dev). The BYOA's claim endpoint reads the
+                # channel back and joins it.
                 if byoa_owner_id:
                     byoa_agent_name = self.byoa_agent_name(target_character_id)
                     # task_metadata.task_id is the stale-task guard the
@@ -2618,19 +2755,20 @@ class VoiceAgent(LLMAgent):
                     self._pending_tasks[byoa_agent_name] = (framework_task_id, payload)
                     self._locked_ships[target_character_id] = framework_task_id
                     self._ensure_heartbeat_task_running()
-                    # Fire wake_agent async — never blocks the LLM tool call.
-                    # Skipped entirely when BYOA_WAKE_ENABLED=false (the
-                    # default), which is correct for always-warm BYOA
-                    # deploys and local dev.
-                    if self._byoa_wake_enabled:
-                        asyncio.create_task(
-                            self._call_wake_agent(
-                                task_id=framework_task_id,
-                                ship_id=target_character_id,
-                                character_id=byoa_owner_id,
-                            ),
-                            name=f"byoa_wake_agent_{framework_task_id[:8]}",
-                        )
+                    # Always call wake_agent for BYOA dispatch: it both
+                    # allocates the per-session channel on the lock row
+                    # (the BYOA's claim endpoint hands it back) and
+                    # dispatches the server-side spawn target. Idempotent
+                    # against this task_id, so a re-dispatch can't get a
+                    # different channel for the same task.
+                    asyncio.create_task(
+                        self._call_wake_agent(
+                            task_id=framework_task_id,
+                            ship_id=target_character_id,
+                            character_id=byoa_owner_id,
+                        ),
+                        name=f"byoa_wake_agent_{framework_task_id[:8]}",
+                    )
                     # Register watchdog before watch_agent so a same-tick
                     # ready event can cancel it cleanly.
                     self._pending_wakes[target_character_id] = asyncio.create_task(
@@ -2666,6 +2804,15 @@ class VoiceAgent(LLMAgent):
                                 f"byoa.watch_agent_failed.release error={release_exc!r}"
                             )
                         return {"success": False, "error": str(exc)}
+                    if byoa_agent_name not in self._pending_tasks:
+                        return {
+                            "success": True,
+                            "message": "Task started",
+                            "status": "active",
+                            "task_id": framework_task_id,
+                            "task_type": task_type,
+                            "ship_character_id": target_character_id,
+                        }
                     return {
                         "success": True,
                         "message": "Waking BYOA agent",
@@ -2897,6 +3044,9 @@ class VoiceAgent(LLMAgent):
         # 1. Stop the heartbeat task so it can't reach the server with a
         # refresh after we've started releasing locks.
         await self._stop_heartbeat_task()
+        if self._byoa_presence_sweep_task and not self._byoa_presence_sweep_task.done():
+            self._byoa_presence_sweep_task.cancel()
+        self._byoa_presence_sweep_task = None
 
         # 1a. Cancel any BYOA wake watchdogs so they don't fire mid-shutdown
         # and double-release a lock we're about to drop in step 2.
@@ -3078,18 +3228,30 @@ class VoiceAgent(LLMAgent):
     ) -> None:
         """Fire-and-forget call to the server-side ``wake_agent`` endpoint.
 
+        Passes the bot's subagent-bus channel so wake_agent can record it
+        on the ship's task-lock row. The BYOA's claim endpoint reads it
+        back to tell the operator's process which channel to join.
+
         Logged on failure but never re-raised — the wake-timeout watchdog
         is the source of truth for whether the BYOA agent actually came
         online. A stub/sandbox cold-start that takes longer than the
         watchdog surfaces as a wake-timeout, the right failure mode.
         """
+        if not self._byoa_bus_channel:
+            logger.warning(
+                f"byoa.wake_agent.skipped ship={ship_id[:8]} reason=no_bus_channel"
+            )
+            return
         try:
             await self._game_client.wake_agent(
                 ship_id=ship_id,
                 character_id=character_id,
+                channel=self._byoa_bus_channel,
                 task_id=task_id,
             )
-            logger.info(f"byoa.wake_agent.called ship={ship_id[:8]}")
+            logger.info(
+                f"byoa.wake_agent.called ship={ship_id[:8]} channel={self._byoa_bus_channel!r}"
+            )
         except Exception as exc:
             logger.warning(
                 f"byoa.wake_agent.call_failed ship={ship_id[:8]} error={exc!r}"
