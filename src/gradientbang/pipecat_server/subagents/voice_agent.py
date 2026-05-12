@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, replace
 import functools
+import inspect
 import os
 import re
 import time
@@ -68,7 +69,11 @@ from gradientbang.tools import VOICE_TOOLS
 from gradientbang.utils.api_client import RPCError
 from gradientbang.utils.formatting import looks_like_uuid
 from gradientbang.utils.llm_factory import create_llm_service, get_voice_llm_config
-from gradientbang.utils.supabase_client import AsyncGameClient, per_call_task_id
+from gradientbang.utils.supabase_client import (
+    AsyncGameClient,
+    per_call_identity,
+    per_call_task_id,
+)
 from gradientbang.utils.weave_tracing import traced
 
 if TYPE_CHECKING:
@@ -1971,16 +1976,53 @@ class VoiceAgent(LLMAgent):
                 message.error or "agent reported not ready",
             )
 
+    def _broker_tool_kwargs(
+        self, method: Callable[..., Any], args: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Return user/tool args only, with identity kept out of method kwargs.
+
+        The broker applies authoritative identity through ContextVars at the
+        Supabase transport boundary. Some legacy client methods still require
+        a ``character_id`` argument and validate it against the bound player
+        client before calling ``_request``; pass the bound player id only to
+        satisfy that local signature. ``_inject_character_ids`` overwrites the
+        outbound payload with the broker envelope identity later.
+        """
+        kwargs = {
+            key: value
+            for key, value in dict(args).items()
+            if key not in {"character_id", "actor_character_id"}
+        }
+        try:
+            signature = inspect.signature(method)
+        except (TypeError, ValueError):
+            return kwargs
+
+        character_param = signature.parameters.get("character_id")
+        if (
+            character_param is not None
+            and character_param.default is inspect.Parameter.empty
+            and character_param.kind
+            in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            )
+            and "character_id" not in kwargs
+        ):
+            kwargs["character_id"] = self._character_id
+        return kwargs
+
     async def _on_game_tool_call_request(
         self, msg: BusGameToolCallRequest
     ) -> None:
         """Dispatch a TaskAgent tool call to the player-bound game client.
 
         ``character_id`` and ``actor_character_id`` from the envelope
-        unconditionally win over anything in ``msg.args`` — the broker is
-        the trust boundary between TaskAgent / future BYOA senders and the
-        edge functions, so a malicious or malformed sender cannot hijack
-        identity by stuffing those keys into args.
+        are applied through per-call ContextVars at the Supabase transport
+        boundary, not passed through heterogeneous Python method signatures.
+        The broker is the trust boundary between TaskAgent / future BYOA
+        senders and the edge functions, so identity keys in ``msg.args`` are
+        stripped before dispatch and cannot hijack the envelope identity.
 
         ``task_id`` propagates via a ContextVar (``per_call_task_id``) for
         the duration of the call rather than by mutating the shared
@@ -1993,15 +2035,12 @@ class VoiceAgent(LLMAgent):
         if method is None or not callable(method):
             error = f"unknown tool: {msg.tool_name!r}"
         else:
-            kwargs: Dict[str, Any] = dict(msg.args)
-            # Envelope identity is authoritative — assignment, not
-            # setdefault, so args can't shadow these fields.
-            if msg.character_id:
-                kwargs["character_id"] = msg.character_id
-            if msg.actor_character_id:
-                kwargs["actor_character_id"] = msg.actor_character_id
+            kwargs = self._broker_tool_kwargs(method, msg.args)
             try:
-                with per_call_task_id(msg.task_id or None):
+                with per_call_identity(
+                    msg.character_id or None,
+                    msg.actor_character_id or None,
+                ), per_call_task_id(msg.task_id or None):
                     raw = await method(**kwargs)
                 result = raw if isinstance(raw, dict) else {"result": raw}
             except Exception as exc:

@@ -34,6 +34,12 @@ logger = logging.getLogger(__name__)
 _per_call_task_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "gb_supabase_per_call_task_id", default=None
 )
+_per_call_character_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "gb_supabase_per_call_character_id", default=None
+)
+_per_call_actor_character_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "gb_supabase_per_call_actor_character_id", default=None
+)
 
 
 @contextlib.contextmanager
@@ -50,6 +56,29 @@ def per_call_task_id(task_id: Optional[str]) -> Iterator[None]:
         yield
     finally:
         _per_call_task_id.reset(token)
+
+
+@contextlib.contextmanager
+def per_call_identity(
+    character_id: Optional[str],
+    actor_character_id: Optional[str] = None,
+) -> Iterator[None]:
+    """Bind authoritative per-call identity for brokered RPC payloads.
+
+    The broker should not pass identity through heterogeneous method
+    signatures. Instead, ``_inject_character_ids`` reads these ContextVars at
+    the transport boundary and overwrites any payload identity fields with the
+    envelope values for the current asyncio Task.
+    """
+    character_token = _per_call_character_id.set(character_id)
+    actor_token = _per_call_actor_character_id.set(actor_character_id)
+    try:
+        yield
+    finally:
+        _per_call_actor_character_id.reset(actor_token)
+        _per_call_character_id.reset(character_token)
+
+
 logger.addHandler(logging.NullHandler())
 _TRUE_VALUES = {"1", "true", "on", "yes"}
 
@@ -400,15 +429,15 @@ class AsyncGameClient(BaseAsyncGameClient):
 
     def _inject_character_ids(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         enriched = dict(payload)
-        requested_character_id = enriched.get("character_id")
+        override_character_id = _per_call_character_id.get()
+        requested_character_id = override_character_id or enriched.get("character_id")
         if requested_character_id:
-            enriched["character_id"] = canonicalize_character_id(
-                str(requested_character_id)
-            )
+            enriched["character_id"] = canonicalize_character_id(str(requested_character_id))
         else:
             enriched["character_id"] = self._canonical_character_id
 
-        requested_actor = enriched.get("actor_character_id")
+        override_actor = _per_call_actor_character_id.get()
+        requested_actor = override_actor or enriched.get("actor_character_id")
         canonical_actor: Optional[str]
         if requested_actor:
             canonical_actor = canonicalize_character_id(str(requested_actor))
