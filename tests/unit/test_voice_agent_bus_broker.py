@@ -4,10 +4,9 @@ Each test sends an inbound bus message through the broker's
 ``on_bus_message`` (via the typed dispatcher), mocks ``AsyncGameClient``,
 and asserts:
 
-  - the right method is invoked with the right kwargs (per-call
-    character_id / actor_character_id override),
-  - ``current_task_id`` is set on the client for the call duration and
-    restored after (even on exception),
+  - the right method is invoked with tool kwargs only; per-call
+    character_id / actor_character_id live in ContextVars,
+  - per-call ContextVars reset after the call, even on exception,
   - the matching response message is sent back with the original
     correlation_id,
   - exceptions are translated into ``error=str(e)`` on the response,
@@ -80,12 +79,9 @@ class TestGameToolCallBroker:
         )
         await agent.on_bus_message(msg)
 
-        # Method called with per-call identity override + folded args.
-        agent._game_client.move.assert_awaited_once_with(
-            to_sector=5,
-            character_id="corp-ship-abc",
-            actor_character_id="char-123",
-        )
+        # Method called with tool args only; broker identity is carried by
+        # ContextVars and applied later by Supabase payload injection.
+        agent._game_client.move.assert_awaited_once_with(to_sector=5)
         # Response carries result + correlation_id.
         sent = _last_sent_message(agent)
         assert isinstance(sent, BusGameToolCallResponse)
@@ -133,8 +129,50 @@ class TestGameToolCallBroker:
         assert agent._game_client.current_task_id == "should-not-leak"
 
     @pytest.mark.asyncio
+    async def test_identity_propagated_via_per_call_contextvars(self):
+        from gradientbang.utils.supabase_client import (
+            _per_call_actor_character_id,
+            _per_call_character_id,
+        )
+
+        agent = _make_voice_agent()
+        captured: list[tuple[str | None, str | None]] = []
+
+        async def get_ship_definitions_check(**_kwargs):
+            captured.append(
+                (
+                    _per_call_character_id.get(),
+                    _per_call_actor_character_id.get(),
+                )
+            )
+            return {"definitions": []}
+
+        agent._game_client.get_ship_definitions = AsyncMock(
+            side_effect=get_ship_definitions_check
+        )
+
+        msg = BusGameToolCallRequest(
+            source="task_abc",
+            correlation_id="r1",
+            tool_name="get_ship_definitions",
+            args={},
+            character_id="corp-ship-abc",
+            actor_character_id="char-123",
+        )
+        await agent.on_bus_message(msg)
+
+        agent._game_client.get_ship_definitions.assert_awaited_once_with()
+        assert captured == [("corp-ship-abc", "char-123")]
+        assert _per_call_character_id.get() is None
+        assert _per_call_actor_character_id.get() is None
+
+    @pytest.mark.asyncio
     async def test_task_id_contextvar_resets_on_exception(self):
-        from gradientbang.utils.supabase_client import _per_call_task_id
+        from gradientbang.utils.supabase_client import (
+            _per_call_actor_character_id,
+            _per_call_character_id,
+            _per_call_task_id,
+        )
 
         agent = _make_voice_agent()
         agent._game_client.move = AsyncMock(side_effect=RuntimeError("boom"))
@@ -152,6 +190,8 @@ class TestGameToolCallBroker:
 
         # Even on exception the contextmanager resets the ContextVar.
         assert _per_call_task_id.get() is None
+        assert _per_call_character_id.get() is None
+        assert _per_call_actor_character_id.get() is None
         assert agent._game_client.current_task_id == "should-not-leak"
         sent = _last_sent_message(agent)
         assert isinstance(sent, BusGameToolCallResponse)
@@ -162,11 +202,27 @@ class TestGameToolCallBroker:
     async def test_envelope_identity_wins_over_args(self):
         """Envelope ``character_id`` / ``actor_character_id`` are
         authoritative — a sender can't spoof identity by stuffing those
-        fields into ``args``. The broker uses assignment (not
-        setdefault), so the envelope unconditionally overrides.
+        fields into ``args``. The broker strips identity args and carries
+        the envelope identity through ContextVars.
         """
+        from gradientbang.utils.supabase_client import (
+            _per_call_actor_character_id,
+            _per_call_character_id,
+        )
+
         agent = _make_voice_agent()
-        agent._game_client.move = AsyncMock(return_value={"ok": True})
+        captured: list[tuple[str | None, str | None]] = []
+
+        async def move_check(**_kwargs):
+            captured.append(
+                (
+                    _per_call_character_id.get(),
+                    _per_call_actor_character_id.get(),
+                )
+            )
+            return {"ok": True}
+
+        agent._game_client.move = AsyncMock(side_effect=move_check)
 
         msg = BusGameToolCallRequest(
             source="task_abc",
@@ -183,11 +239,39 @@ class TestGameToolCallBroker:
         )
         await agent.on_bus_message(msg)
 
-        agent._game_client.move.assert_awaited_once_with(
-            to_sector=5,
-            character_id="real-char",
-            actor_character_id="real-actor",
+        agent._game_client.move.assert_awaited_once_with(to_sector=5)
+        assert captured == [("real-char", "real-actor")]
+
+    @pytest.mark.asyncio
+    async def test_required_character_id_methods_receive_bound_client_id(self):
+        """Legacy client methods such as ``my_status`` still require a local
+        ``character_id`` kwarg and validate it against the bound voice client.
+        The broker supplies that local id only; the corp-ship envelope id is
+        applied later at payload injection.
+        """
+        agent = _make_voice_agent()
+        captured: list[str] = []
+
+        async def my_status_check(character_id: str):
+            captured.append(character_id)
+            return {"ok": True}
+
+        agent._game_client.my_status = my_status_check
+
+        msg = BusGameToolCallRequest(
+            source="task_abc",
+            correlation_id="r1",
+            tool_name="my_status",
+            args={},
+            character_id="corp-ship-abc",
+            actor_character_id="char-123",
         )
+        await agent.on_bus_message(msg)
+
+        assert captured == ["char-123"]
+        sent = _last_sent_message(agent)
+        assert isinstance(sent, BusGameToolCallResponse)
+        assert sent.error is None
 
     @pytest.mark.asyncio
     async def test_unknown_tool_returns_error(self):

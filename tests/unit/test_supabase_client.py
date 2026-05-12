@@ -14,7 +14,7 @@ from typing import Any, Dict
 
 import pytest
 
-from gradientbang.utils.supabase_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient, per_call_identity
 
 
 PLAYER_ID = "11111111-1111-1111-1111-111111111111"
@@ -301,3 +301,83 @@ class TestEdgeHeaders:
         headers = client._edge_headers()
         assert "X-Edge-Auth" not in headers
         assert headers["X-API-Token"] == "user-jwt-here"
+
+
+class TestPerCallIdentityInjection:
+    def test_context_identity_overrides_payload_identity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        client = AsyncGameClient(
+            character_id=PLAYER_ID,
+            actor_character_id=PLAYER_ID,
+            enable_event_polling=False,
+        )
+
+        with per_call_identity(CORP_SHIP_ID, PLAYER_ID):
+            enriched = client._inject_character_ids(
+                {
+                    "character_id": "spoofed-character",
+                    "actor_character_id": "spoofed-actor",
+                    "other": "value",
+                }
+            )
+
+        assert enriched["character_id"] == CORP_SHIP_ID
+        assert enriched["actor_character_id"] == PLAYER_ID
+        assert enriched["other"] == "value"
+
+    def test_context_identity_resets_after_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        client = AsyncGameClient(
+            character_id=PLAYER_ID,
+            actor_character_id=PLAYER_ID,
+            enable_event_polling=False,
+        )
+
+        with per_call_identity(CORP_SHIP_ID, CORP_SHIP_ID):
+            assert client._inject_character_ids({})["character_id"] == CORP_SHIP_ID
+
+        enriched = client._inject_character_ids({})
+        assert enriched["character_id"] == PLAYER_ID
+        assert enriched["actor_character_id"] == PLAYER_ID
+
+    @pytest.mark.asyncio
+    async def test_required_character_method_payload_uses_context_identity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Legacy methods can receive the bound id locally while the outbound
+        edge payload still uses the broker's per-call identity."""
+
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        posted: list[dict] = []
+
+        class FakeResponse:
+            status_code = 200
+            is_success = True
+            text = '{"success": true}'
+
+            @staticmethod
+            def json() -> dict:
+                return {"success": True}
+
+        class FakeHttp:
+            async def post(self, _url: str, *, headers: dict, json: dict) -> FakeResponse:
+                posted.append(dict(json))
+                return FakeResponse()
+
+        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+        client._http = FakeHttp()  # type: ignore[assignment]
+
+        with per_call_identity(CORP_SHIP_ID, PLAYER_ID):
+            await client.my_status(PLAYER_ID)
+
+        assert posted == [
+            {
+                "character_id": CORP_SHIP_ID,
+                "request_id": posted[0]["request_id"],
+                "actor_character_id": PLAYER_ID,
+            }
+        ]
