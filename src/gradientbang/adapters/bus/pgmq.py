@@ -9,6 +9,13 @@ The DSN comes from ``SUBAGENT_BUS_DATABASE_URL`` and is parsed into the
 discrete kwargs upstream :class:`PGMQueue` expects. Prefer the session-mode
 pooler (port 5432 in Supabase) per the upstream docstring; transaction-mode
 pooling works but logs benign reset warnings.
+
+``SUBAGENT_BUS_CHANNEL`` is required (no default). PgmqBus broadcasts on
+publish to every peer queue sharing the channel prefix, so two bot processes
+that fell through to a default channel against the same database would
+silently receive each other's bus traffic — most dangerously the broadcast
+``BusGameEventMessage`` and any message targeting a common name like
+``player``. The factory refuses to start without an explicit value.
 """
 
 from __future__ import annotations
@@ -20,8 +27,6 @@ from urllib.parse import unquote, urlsplit
 from loguru import logger
 from pgmq.async_queue import PGMQueue
 from pipecat_subagents.bus.network.pgmq import PgmqBus
-
-DEFAULT_CHANNEL = "pipecat_bus"
 
 
 def parse_database_url(dsn: str) -> dict[str, str]:
@@ -78,14 +83,14 @@ async def build_pgmq_bus(
 
     Args:
         database_url: Postgres DSN. Defaults to ``SUBAGENT_BUS_DATABASE_URL``.
-        channel: PGMQ channel prefix. Defaults to ``SUBAGENT_BUS_CHANNEL`` or
-            :data:`DEFAULT_CHANNEL`.
+        channel: PGMQ channel prefix. Defaults to ``SUBAGENT_BUS_CHANNEL``.
+            Required — see module docstring for why there is no default.
 
     Returns:
         An initialized bus ready to be passed to ``AgentRunner(bus=...)``.
 
     Raises:
-        RuntimeError: When the DSN is missing.
+        RuntimeError: When the DSN or channel is missing.
         ValueError: When the DSN scheme is invalid.
     """
     dsn = database_url or os.getenv("SUBAGENT_BUS_DATABASE_URL")
@@ -94,13 +99,20 @@ async def build_pgmq_bus(
             "SUBAGENT_BUS_TRANSPORT=pgmq requires SUBAGENT_BUS_DATABASE_URL"
         )
 
+    chan = channel or os.getenv("SUBAGENT_BUS_CHANNEL")
+    if not chan:
+        raise RuntimeError(
+            "SUBAGENT_BUS_TRANSPORT=pgmq requires SUBAGENT_BUS_CHANNEL "
+            "(no default — set a per-deployment value so concurrent bots "
+            "sharing the same database don't cross-talk through the bus)"
+        )
+
     pgmq = PGMQueue(**parse_database_url(dsn))
     await pgmq.init()
 
-    chan = channel or os.getenv("SUBAGENT_BUS_CHANNEL") or DEFAULT_CHANNEL
     bus = _OwnedPgmqBus(pgmq=pgmq, channel=chan)
     logger.info(f"bus.pgmq_initialized channel={chan!r}")
     return bus
 
 
-__all__ = ["build_pgmq_bus", "parse_database_url", "DEFAULT_CHANNEL"]
+__all__ = ["build_pgmq_bus", "parse_database_url"]
