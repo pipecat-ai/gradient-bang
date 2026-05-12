@@ -254,6 +254,7 @@ class TaskAgent(LLMAgent):
         task_metadata: Optional[Dict[str, Any]] = None,
         tag_outbound_rpcs_with_task_id: bool = True,
         byoa_config: Optional[ByoaAgentConfig] = None,
+        custom_prompt: Optional[str] = None,
     ):
         super().__init__(name, bus=bus, active=False)
         self._character_id = character_id
@@ -261,6 +262,12 @@ class TaskAgent(LLMAgent):
         self._task_metadata = task_metadata or {}
         self._tag_outbound_rpcs_with_task_id = tag_outbound_rpcs_with_task_id
         self._byoa_config = byoa_config or ByoaAgentConfig.from_env()
+        # BYOA-operator-supplied additional system-prompt text. Threaded
+        # into on_task_start ONLY — progress queries are operational, not
+        # gameplay, and should not pick up operator persona. In-process
+        # TaskAgent construction always leaves this as None, so non-BYOA
+        # paths are bit-for-bit identical.
+        self._custom_prompt: Optional[str] = custom_prompt
         # Phase 1: every game RPC goes over the bus. PendingRequests tracks
         # outbound correlation_ids until their matching responses land.
         self._pending: PendingRequests = PendingRequests()
@@ -381,7 +388,10 @@ class TaskAgent(LLMAgent):
 
         # Build initial context
         messages = [
-            {"role": "system", "content": build_task_agent_prompt()},
+            {
+                "role": "system",
+                "content": build_task_agent_prompt(custom_prompt=self._custom_prompt),
+            },
             {
                 "role": "user",
                 "content": create_task_instruction_user_message(
