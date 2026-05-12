@@ -604,6 +604,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
     from pipecat_subagents.bus import BusBridgeProcessor
     from pipecat_subagents.runner import AgentRunner
+
+    from gradientbang.adapters.bus import make_subagent_bus
     from pipecat_subagents.types import AgentReadyData
 
     class MainAgent(BaseAgent):
@@ -678,7 +680,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 ]
             )
 
-    agent_runner = AgentRunner(handle_sigint=getattr(runner_args, "handle_sigint", False))
+    agent_runner = AgentRunner(
+        bus=make_subagent_bus(),
+        handle_sigint=getattr(runner_args, "handle_sigint", False),
+    )
 
     voice_agent = VoiceAgent(
         "player",
