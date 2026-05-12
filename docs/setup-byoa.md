@@ -2,24 +2,65 @@
 
 > Bring-Your-Own-Agent — operate a corporation ship with an external agent of your choosing. This guide tracks what's possible *today*; new capabilities land per phase. See [byoa.md](byoa.md) for the architecture roadmap.
 
+## Quickstart: run a BYOA locally
+
+Five minutes from cold start to a BYOA agent processing tasks on a corp ship.
+
+**Prerequisites.** Working local Gradient Bang dev stack: Supabase running (`npx supabase start --workdir deployment`), the bot startable via `uv run bot`, and a game account with at least one character that's a member of a corporation with at least one corp ship. If you don't have those, set them up first via the `/init` skill and `/character-create`.
+
+**Step 1 — onboard the operator.** From the repo root, run the [byoa-setup skill](../.claude/skills/byoa-setup/SKILL.md):
+
+```
+/byoa-setup local
+```
+
+It will log in with your email/password, let you pick a corp ship to claim as BYOA (`private` mode by default), mint an HS256 BYOA token bound to your character, and write `./.env.byoa` mode `0600`. The token is shown once and never re-fetchable — the file is its only persisted copy.
+
+**Step 2 — author a prompt.** Write a `./prompt.md` with operator-specific guidance. It's appended to the base task-agent prompt under "Operator guidance", capped at 8 KB. Example:
+
+```markdown
+# Operator persona
+
+You are a cautious trader. Prefer profitable trade routes over combat. If
+attacked, prioritize survival — flee rather than engage unless the enemy is
+already at <30% shields.
+```
+
+**Step 3 — run the BYOA agent.**
+
+```bash
+uv run byoa --prompt-file ./prompt.md
+```
+
+The CLI auto-loads `./.env.byoa`. You should see `bus.byoa_pgmq_initialized` in the logs, followed by the agent advertising itself on the bus as `byoa_<ship_id>`.
+
+**Step 4 — task it.** Start the bot in another terminal (`set -a && source .env.supabase && set +a && uv run bot --host 0.0.0.0`), then issue a task on the BYOA ship from the voice client. The bot publishes the `BusTaskRequest` over PGMQ; your BYOA agent picks it up and runs it with your custom prompt layered on the base.
+
+**Rotating tokens.** Re-run `/byoa-setup local --force` to mint a fresh token and rewrite `.env.byoa`. Then revoke the old token via `byoa_token_revoke` once you've confirmed the new one works.
+
+**Vercel Sandbox / cold-start operators.** Pass `--wake-hook https://your-vercel-fn.example.com/byoa` to `/byoa-setup`. The bot will POST to that URL before publishing each task so your sandbox cold-starts in time to drain the queue.
+
+---
+
 ## What's available today
 
 A corp ship has a server-enforced single-task lock, can be claimed as a BYOA ship by any member of its corporation, and the bundled in-process TaskAgent speaks the **finalised bus protocol** an external BYOA agent will implement. The contract is locked: every game RPC, lifecycle event, and tool call goes through typed bus messages. The bus itself is **transport-pluggable** — the same messages travel over an in-process `asyncio.Queue` by default, or over a Postgres-backed `PgmqBus` when opted in via env.
 
 What you can do right now:
 
-- **Claim a corp ship as your BYOA**. The ship still belongs to the corp; only the task-issuance rules change.
+- **Claim a corp ship as your BYOA** via `ship_byoa_configure` or the `/byoa-setup` Claude skill. The ship still belongs to the corp; only the task-issuance rules change.
 - **Pick a mode**: `private` (only you can issue tasks) or `shared` (any corp member can).
+- **Run your own agent process out-of-tree** via `uv run byoa --prompt-file ./prompt.md` — auto-loads `.env.byoa` (DSN + channel + BYOA token + identity), authenticates to the bus through the token-gated SECURITY DEFINER wrappers, layers your custom system prompt on top of the bundled task-agent base.
+- **Set a wake hook** so a sleeping Vercel Sandbox cold-starts on first task dispatch. The bot POSTs to `byoa_wake_hook` and parks the task on the bus until your agent comes online (30s watchdog by default).
 - **Trust the lock**: only one task can run on a ship at a time, even across processes and corp members.
 - **Recover gracefully**: heartbeats keep your lock alive; a crashed or disconnected agent loses its lock within ~3 minutes (configurable). Corp members can force-cancel a stuck lock immediately.
 - **Read the bus protocol contract**: every TaskAgent — bundled or BYOA — speaks the same typed bus messages. The bundled `TaskAgent` in [src/gradientbang/pipecat_server/subagents/task_agent.py](../src/gradientbang/pipecat_server/subagents/task_agent.py) is the **reference implementation** of what a remote BYOA agent will need to do.
 
 What's *not* available yet:
 
-- Running your own agent process out-of-tree (operator quickstart + BYOA tokens — coming).
-- The wake URL trigger for cold-start BYOA hosts (HTTPS webhook before the bus handshake — coming).
-
-Today, every BYOA ship is still controlled by the same Python TaskAgent that ships in the bot. Claiming a ship as BYOA changes *who* can issue tasks to it, not *what* runs the task. The operator-quickstart milestone closes that loop.
+- Game-client UI for BYOA management (claim/revoke/edit-prompt/telemetry) — coming in Phase 4. Today the onboarding lives in the `/byoa-setup` Claude skill.
+- Server-stored custom prompts as an overlay on file-stored defaults — currently the operator's prompt lives in their filesystem only.
+- Restricted Postgres role for operators (hardening: locks the DSN's grants to just the `byoa_bus_*` wrappers). Until shipped, the auth boundary is "the BYOA token gates per-character access AT THE WRAPPER LEVEL"; a hostile operator could still bypass our wrappers if they have raw `pgmq.*` grants. Trust assumption is the same as the bot's today.
 
 ## Configuring a corp ship as BYOA
 
