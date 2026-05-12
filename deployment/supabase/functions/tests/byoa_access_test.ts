@@ -121,7 +121,6 @@ Deno.test({
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
-        mode: "private",
       });
       const body = result as Record<string, unknown>;
       assertEquals(body.byoa_owner_character_id, p1Id);
@@ -208,7 +207,6 @@ Deno.test({
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
-        mode: "private",
       });
       await apiOk("task_lifecycle", {
         character_id: corpShipId,
@@ -293,7 +291,6 @@ Deno.test({
         character_id: p3Id,
         ship_id: corpShipId,
         action: "claim",
-        mode: "private",
       });
       assertEquals(result.status, 403);
     });
@@ -303,7 +300,6 @@ Deno.test({
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
-        mode: "private",
       });
     });
 
@@ -312,16 +308,15 @@ Deno.test({
         character_id: p2Id,
         ship_id: corpShipId,
         action: "claim",
-        mode: "private",
       });
       assertEquals(result.status, 409);
     });
 
-    await t.step("set_mode is rejected", async () => {
+    await t.step("shared mode is rejected", async () => {
       const result = await api("ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
-        action: "set_mode",
+        action: "claim",
         mode: "shared",
       });
       assertEquals(result.status, 400);
@@ -371,7 +366,6 @@ Deno.test({
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
-        mode: "private",
       });
       assertEquals(result.status, 409);
       assertEquals(
@@ -405,7 +399,6 @@ Deno.test({
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
-        mode: "private",
       });
       await apiOk("task_lifecycle", {
         character_id: corpShipId,
@@ -443,14 +436,14 @@ Deno.test({
           p1Id.replace(/-/g, "").slice(0, 12),
         );
 
-        // byoa: truncated owner + mode
+        // byoa: truncated owner only; mode is intentionally not surfaced.
         const byoa = corpShip.byoa as Record<string, unknown> | null;
         assert(byoa, "byoa block populated for BYOA ship");
         assertEquals(
           byoa!.owner_character_id_prefix,
           p1Id.replace(/-/g, "").slice(0, 12),
         );
-        assertEquals(byoa!.mode, "private");
+        assertEquals("mode" in byoa!, false);
 
         // Personal ship has no BYOA, no active task — both blocks null.
         const personalShip = ships.find((s) => s.ship_id === p1ShipId);

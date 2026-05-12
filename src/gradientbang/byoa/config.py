@@ -14,8 +14,7 @@ Mismatches between agent-side server-window expectations and the actual
 server config are logged at startup; the agent doesn't error out — it just
 observes. The server is always the source of truth for staleness windows.
 
-See docs/byoa.md ("Configuration") for the full table of env vars and
-their interaction.
+See docs/setup-byoa.md for the operator-facing env table.
 """
 
 from __future__ import annotations
@@ -43,23 +42,20 @@ class ByoaAgentConfig:
     # operator can't fan out arbitrarily many concurrent task children.
     max_concurrent_tasks: int = 4
 
-    # Phase 1 (bus RPC) — reply timeout for an outbound BusGameToolCallRequest.
-    # Inert during Groundwork because TaskAgent still holds its game client.
+    # Reply timeout for an outbound BusGameToolCallRequest.
     tool_call_timeout_seconds: float = 30.0
 
-    # Phase 1 (bus RPC) — reply timeout for a BusTaskRequest. Inert during
-    # Groundwork.
+    # Reply timeout for a BusTaskRequest.
     task_request_timeout_seconds: float = 600.0
 
-    # Phase 1 — how long VoiceAgent waits for a target agent to signal
-    # alive after start_task (via BusAgentHelloRequest/Response). Generous
-    # enough to cover cold starts on Vercel Sandbox / AWS Lambda. In-process
-    # agents respond near-instantly; remote BYOA agents respond after
-    # cold start. See "Agent lifecycle & wake-up" in docs/byoa.md.
+    # How long VoiceAgent waits for a target agent to signal alive after
+    # start_task (via BusAgentHelloRequest/Response). Generous enough to
+    # cover sandbox cold starts. In-process agents respond near-instantly;
+    # remote BYOA agents respond after cold start.
     agent_wake_timeout_seconds: float = 30.0
 
-    # Phase 1 — how long an idle warm agent stays around before tearing
-    # itself down. Each inbound task / tool call resets the timer. In-process
+    # How long an idle warm agent stays around before tearing itself down.
+    # Each inbound task / tool call resets the timer. In-process
     # player-ship agents effectively never hit this (reuse keeps them busy);
     # corp-ship and BYOA agents do — firing releases the ship slot.
     agent_idle_teardown_seconds: float = 300.0
@@ -74,13 +70,6 @@ class ByoaAgentConfig:
     # Informational: the agent's understanding of the hard-TTL safety floor.
     # Mirrors ``TASK_LOCK_HARD_TTL_MINUTES``.
     server_lock_hard_ttl_minutes_expected: int = 30
-
-    # Deprecated BYOA-CLI setting kept for env compatibility. The CLI now
-    # receives the channel from wake / --channel and waits for tasks over PGMQ.
-    poll_interval_seconds: float = 5.0
-
-    # Deprecated BYOA-CLI setting kept for env compatibility.
-    claim_endpoint_url: str = ""
 
     @classmethod
     def from_env(
@@ -112,12 +101,6 @@ class ByoaAgentConfig:
                 return default
             return float(raw)
 
-        def _str(name: str, default: str) -> str:
-            raw = source.get(f"{prefix}{name}")
-            if raw is None:
-                return default
-            return raw.strip()
-
         return cls(
             heartbeat_interval_seconds=_int("HEARTBEAT_INTERVAL_SECONDS", 60),
             max_concurrent_tasks=_int("MAX_CONCURRENT_TASKS", 4),
@@ -137,8 +120,6 @@ class ByoaAgentConfig:
             server_lock_hard_ttl_minutes_expected=_int(
                 "SERVER_LOCK_HARD_TTL_MINUTES", 30
             ),
-            poll_interval_seconds=_float("POLL_INTERVAL_SECONDS", 5.0),
-            claim_endpoint_url=_str("CLAIM_ENDPOINT_URL", ""),
         )
 
     def validate_heartbeat_against_server(self) -> str | None:

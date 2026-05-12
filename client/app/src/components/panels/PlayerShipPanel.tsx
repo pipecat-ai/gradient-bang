@@ -54,6 +54,7 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
     Object.values(state.activeTasks).find((task) => task.ship_id === ship.ship_id)
   )
   const isBusy = !!(activeTask || ship.current_task_id)
+  const isWaking = activeTask?.task_status === "waking"
   const actorName = activeTask?.actor_character_name ?? ship.current_task_actor_name
   const isInCombat = useGameStore((state) => isShipInCombat(state, ship.ship_id))
 
@@ -106,14 +107,20 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
             </Badge>
           : <>
               <Badge
-                variant={isBusy ? "success" : "secondary"}
+                variant={
+                  isWaking ? "highlight"
+                  : isBusy ?
+                    "success"
+                  : "secondary"
+                }
                 border="bracket"
                 size="sm"
                 className="font-semibold w-20 "
               >
                 {isBusy ?
                   <>
-                    <CircleNotchIcon weight="duotone" size={16} className="animate-spin" /> Active
+                    <CircleNotchIcon weight="duotone" size={16} className="animate-spin" />{" "}
+                    {isWaking ? "Waking" : "Active"}
                   </>
                 : <span className="text-muted-foreground">Inactive</span>}
               </Badge>

@@ -55,6 +55,13 @@ type SpawnResult = {
   status: string;
 };
 
+function spawnFailureStatusCode(spawn: SpawnResult): number {
+  if (spawn.target === "http" && spawn.status === "timeout") return 504;
+  if (spawn.status.startsWith("missing_")) return 500;
+  if (spawn.status === "unimplemented") return 501;
+  return 502;
+}
+
 function byoaRuntimeEnv(
   shipId: string,
   channel: string,
@@ -362,6 +369,31 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
       status: spawn.status,
       target: spawn.target,
     });
+
+    if (
+      taskId !== null && spawn.target === "http" && spawn.status !== "accepted"
+    ) {
+      console.error(
+        "wake_agent.spawn.rejected",
+        JSON.stringify({
+          request_id: requestId,
+          ship_id: shipId,
+          task_id: taskId,
+          channel,
+          spawn_target: spawn.target,
+          spawn_status: spawn.status,
+        }),
+      );
+      return errorResponse("wake_spawn_failed", spawnFailureStatusCode(spawn), {
+        request_id: requestId,
+        ship_id: shipId,
+        channel,
+        spawn_target: spawn.target,
+        spawn_status: spawn.status,
+        lifecycle_hint: lifecycleHint(),
+      });
+    }
+
     console.log(
       "wake_agent.allocated",
       JSON.stringify({

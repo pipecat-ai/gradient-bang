@@ -49,9 +49,9 @@ class TestFromEnv:
         cfg = ByoaAgentConfig.from_env(env=env, prefix="OPS_")
         assert cfg.heartbeat_interval_seconds == 90
 
-    def test_phase1_lifecycle_fields_defaults(self):
+    def test_lifecycle_fields_defaults(self):
         """agent_wake_timeout_seconds and agent_idle_teardown_seconds
-        ship with sensible Phase 1 defaults."""
+        ship with sensible defaults."""
         cfg = ByoaAgentConfig()
         # Generous enough to cover Vercel-Sandbox-class cold starts.
         assert cfg.agent_wake_timeout_seconds == 30.0
@@ -59,7 +59,7 @@ class TestFromEnv:
         # squat the ship slot indefinitely.
         assert cfg.agent_idle_teardown_seconds == 300.0
 
-    def test_phase1_lifecycle_env_overrides(self):
+    def test_lifecycle_env_overrides(self):
         env = {
             "BYOA_AGENT_WAKE_TIMEOUT_SECONDS": "45.5",
             "BYOA_AGENT_IDLE_TEARDOWN_SECONDS": "120",

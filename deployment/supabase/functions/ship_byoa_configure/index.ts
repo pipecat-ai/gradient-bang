@@ -10,8 +10,8 @@
  * Rules:
  *   - Caller must be a corp member of the ship's corp
  *   - Self-only claim: a member can only claim BYOA for themselves
- *   - clear is allowed by the current owner; non-owners cannot clear in
- *     Groundwork (a future stale-owner recovery path may relax this)
+ *   - clear is allowed by the current owner; non-owners cannot clear
+ *     (a future stale-owner recovery path may relax this)
  *   - Refuses to claim/clear while current_task_id IS NOT NULL —
  *     can't yank BYOA state out from under a running task
  *   - Only corporation-owned ships can have BYOA configured
@@ -41,7 +41,7 @@ import {
 import { traced } from "../_shared/weave.ts";
 
 type ByoaAction = "claim" | "clear";
-type ByoaMode = "private" | "shared";
+type ByoaMode = "private";
 
 const VALID_ACTIONS: readonly ByoaAction[] = ["claim", "clear"];
 const VALID_MODES: readonly ByoaMode[] = ["private"];
@@ -174,9 +174,7 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     const currentOwner = typeof shipRow.byoa_owner_character_id === "string"
       ? (shipRow.byoa_owner_character_id as string)
       : null;
-    const currentMode: ByoaMode = shipRow.byoa_mode === "shared"
-      ? "shared"
-      : "private";
+    const currentMode: ByoaMode = "private";
 
     // Action-specific authorization + state transition.
     let nextOwner: string | null;

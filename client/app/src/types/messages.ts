@@ -44,7 +44,7 @@ export interface TaskCompleteMessage extends ServerMessagePayload {
 export interface TaskStartMessage extends ServerMessagePayload {
   task_id: string
   task_description?: string
-  task_status?: string
+  task_status?: "waking" | "active"
   actor_character_id?: string
   actor_character_name?: string
   task_scope?: "player_ship" | "corp_ship"
@@ -65,28 +65,12 @@ export interface TaskFinishMessage extends ServerMessagePayload {
   ship_type?: string | null
 }
 
-export interface TaskStartMessage extends ServerMessagePayload {
+export interface TaskCancelMessage extends ServerMessagePayload {
   task_id: string
-  task_description?: string
-  task_status?: string
-  actor_character_id?: string
-  actor_character_name?: string
-  task_scope?: "player_ship" | "corp_ship"
+  cancelled_by?: string
   ship_id?: string
-  ship_name?: string | null
-  ship_type?: string | null
-}
-
-export interface TaskFinishMessage extends ServerMessagePayload {
-  task_id: string
-  task_summary?: string
-  task_status?: string
-  actor_character_id?: string
-  actor_character_name?: string
   task_scope?: "player_ship" | "corp_ship"
-  ship_id?: string
-  ship_name?: string | null
-  ship_type?: string | null
+  force?: boolean
 }
 export interface IncomingChatMessage extends ServerMessagePayload, ChatMessage {}
 

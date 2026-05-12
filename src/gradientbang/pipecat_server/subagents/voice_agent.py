@@ -192,9 +192,9 @@ class VoiceAgent(LLMAgent):
         # every (ship_id, task_id) pair in _locked_ships. Lazily started on
         # the first acquire; exits when the map drains.
         self._heartbeat_task: Optional[asyncio.Task] = None
-        # Phase 1: PendingRequests tracks outbound BusAgentHelloRequest
-        # correlation_ids — the broker's hello-response handler resolves
-        # the awaiting future when the targeted agent signals alive.
+        # PendingRequests tracks outbound BusAgentHelloRequest correlation_ids;
+        # the broker's hello-response handler resolves the awaiting future
+        # when the targeted agent signals alive.
         self._hello_pending: PendingRequests = PendingRequests()
 
         # Per-ship watchdogs for the BYOA wake flow. Keyed by
@@ -1604,6 +1604,20 @@ class VoiceAgent(LLMAgent):
 
     async def _cancel_task_by_game_id(self, game_task_id: str) -> None:
         """Cancel a task identified by its game-level task_id."""
+        if game_task_id in self._task_groups:
+            try:
+                await self.cancel_task(game_task_id, reason="Cancelled by client")
+                logger.info(f"Cancelled task {game_task_id[:8]} via client cancel")
+            except Exception as e:
+                logger.error(f"Failed to cancel task {game_task_id[:8]} via client cancel: {e}")
+            return
+
+        if self._cancel_pending_byoa_wake(
+            game_task_id,
+            summary="Task was cancelled before the BYOA agent came online.",
+        ):
+            return
+
         child = next(
             (
                 c
@@ -1624,6 +1638,45 @@ class VoiceAgent(LLMAgent):
                 except Exception as e:
                     logger.error(f"Failed to cancel task {tid} via client cancel: {e}")
                 return
+
+    def _cancel_pending_byoa_wake(self, game_task_id: str, *, summary: str) -> bool:
+        """Clear a BYOA task that was cancelled before the runner became ready."""
+        target_character_id = next(
+            (
+                ship_id
+                for ship_id, task_id in self._locked_ships.items()
+                if task_id == game_task_id
+            ),
+            None,
+        )
+        if not target_character_id:
+            return False
+
+        agent_name = self.byoa_agent_name(target_character_id)
+        had_pending_task = agent_name in self._pending_tasks
+        watchdog = self._pending_wakes.pop(target_character_id, None)
+        had_watchdog = watchdog is not None
+        if not had_pending_task and not had_watchdog:
+            return False
+
+        if watchdog is not None and not watchdog.done():
+            watchdog.cancel()
+        self._pending_tasks.pop(agent_name, None)
+        self._locked_ships.pop(target_character_id, None)
+        self._update_polling_scope()
+
+        event_xml = (
+            f'<event name="task.cancelled" task_id="{game_task_id[:8]}" '
+            'task_type="corp_ship">\n'
+            f"{summary}\n"
+            "</event>"
+        )
+        self._enqueue_deferred_update(event_xml, ship_id=target_character_id)
+        logger.info(
+            f"byoa.pending_wake_cancelled ship={target_character_id[:8]} "
+            f"task={game_task_id[:8]}"
+        )
+        return True
 
     def is_our_task(self, task_id: str) -> bool:
         """Check if a task_id belongs to one of our active task groups."""
@@ -1793,9 +1846,8 @@ class VoiceAgent(LLMAgent):
                     f"byoa.wake_ready ship={target_character_id[:8]} "
                     f"task={framework_task_id[:8]}"
                 )
-        # Universal liveness handshake — see "Agent lifecycle & wake-up" in
-        # docs/byoa.md. For an in-process TaskAgent this returns ~instantly;
-        # for a future remote BYOA agent it bridges the cold-start window.
+        # Universal liveness handshake. For an in-process TaskAgent this
+        # returns ~instantly; for a BYOA agent it bridges the cold-start window.
         try:
             await self._send_hello_and_wait(data.agent_name)
         except (asyncio.TimeoutError, RuntimeError) as exc:
@@ -2013,8 +2065,8 @@ class VoiceAgent(LLMAgent):
             self._locked_ships.pop(ship_character_id, None)
 
         # Corp ship agents: end pipeline, remove from children. Player agents
-        # stay alive for reuse — pipeline stays running. After Phase 1 there's
-        # no per-task game client to close; the broker owns the single client.
+        # stay alive for reuse — pipeline stays running. There is no per-task
+        # game client to close; the broker owns the single client.
         if child and child._is_corp_ship:
             try:
                 await self.send_message(
@@ -2028,12 +2080,11 @@ class VoiceAgent(LLMAgent):
 
         self._update_polling_scope()
 
-    # ── BYOA broker (Phase 1) ──────────────────────────────────────────
+    # ── BYOA broker ────────────────────────────────────────────────────
     #
-    # TaskAgents (in-process today, remote BYOA in Phase 3) speak typed bus
-    # messages instead of holding their own AsyncGameClient. This broker is
-    # the only edge-function ingress for the whole agent ecosystem. Each
-    # handler:
+    # TaskAgents, including external BYOA runners, speak typed bus messages
+    # instead of holding their own AsyncGameClient. This broker is the only
+    # edge-function ingress for the whole agent ecosystem. Each handler:
     #   - derives character_id / actor_character_id from local broker state
     #     for remote BYOA messages, falling back to local TaskAgent metadata
     #     or legacy message fields for in-process callers
@@ -2041,8 +2092,6 @@ class VoiceAgent(LLMAgent):
     #     brokered RPCs don't trample each other's event correlation
     #   - catches exceptions → error=str(e) in the response. Never re-raises.
     #
-    # See docs/byoa.md "Phase 1 — VoiceAgent broker".
-
     @staticmethod
     def _is_byoa_agent_name(agent_name: str) -> bool:
         return agent_name.startswith("byoa_") and not agent_name.startswith("byoa_runner_")
@@ -2103,7 +2152,7 @@ class VoiceAgent(LLMAgent):
         )
 
     async def on_bus_message(self, message: BusMessage) -> None:
-        """Dispatch Phase 1 typed messages; delegate everything else upstream."""
+        """Dispatch typed messages; delegate everything else upstream."""
         # Targeted messages for other agents are ignored upstream; mirror
         # that here so we don't broker requests addressed to siblings.
         if (
@@ -2248,9 +2297,9 @@ class VoiceAgent(LLMAgent):
 
         Two cases:
 
-        - ``correlation_id`` set + matches a pending request: the in-process
-          Phase 1 handshake path. ``ready=True`` resolves the awaiting
-          future; ``ready=False`` rejects with the agent's error string.
+        - ``correlation_id`` set + matches a pending request: the hello
+          handshake path. ``ready=True`` resolves the awaiting future;
+          ``ready=False`` rejects with the agent's error string.
         - ``correlation_id`` empty/missing: an unsolicited "I'm online"
           broadcast from a BYOA agent that just cold-started. The actual
           dispatch is driven by ``on_agent_ready`` (registry-level signal);
@@ -2643,6 +2692,7 @@ class VoiceAgent(LLMAgent):
                             framework_task_id=framework_task_id,
                             task_desc=task_desc,
                             task_metadata=task_metadata,
+                            task_status=None,
                         )
                         if server_err:
                             return server_err
@@ -2705,9 +2755,9 @@ class VoiceAgent(LLMAgent):
                             "ship_character_id": target_character_id,
                         }
 
-                # Phase 1: corp-ship and player-ship TaskAgents both go over
-                # the bus to VoiceAgent's broker. No separate AsyncGameClient
-                # is constructed per task — the broker uses the player-bound
+                # Corp-ship and player-ship TaskAgents both go over the bus
+                # to VoiceAgent's broker. No separate AsyncGameClient is
+                # constructed per task — the broker uses the player-bound
                 # client and overrides character_id / actor_character_id per
                 # call from each inbound BusGameToolCallRequest.
 
@@ -2744,11 +2794,17 @@ class VoiceAgent(LLMAgent):
                 # Server-side acquire BEFORE spawning the TaskAgent. A 409
                 # ship_busy or 403 byoa_private_not_owner here surfaces as a
                 # user-facing error without ever creating the local child.
+                byoa_has_fresh_presence = (
+                    bool(byoa_owner_id) and self._has_fresh_byoa_presence(target_character_id)
+                )
                 server_err = await self._acquire_server_ship_lock(
                     target_character_id=target_character_id,
                     framework_task_id=framework_task_id,
                     task_desc=task_desc,
                     task_metadata=task_metadata,
+                    task_status="waking"
+                    if byoa_owner_id and not byoa_has_fresh_presence
+                    else None,
                 )
                 if server_err:
                     return server_err
@@ -2766,10 +2822,9 @@ class VoiceAgent(LLMAgent):
                     byoa_agent_name = self.byoa_agent_name(target_character_id)
                     # task_metadata.task_id is the stale-task guard the
                     # operator's agent checks against ship.current_task_id
-                    # before doing real work (see docs/byoa.md "stale-task
-                    # guard"). Include the framework id explicitly so a
-                    # delayed wake reading a queued task knows what to
-                    # validate against.
+                    # before doing real work. Include the framework id
+                    # explicitly so a delayed wake reading a queued task
+                    # knows what to validate against.
                     task_metadata["task_id"] = framework_task_id
                     payload = dict(payload)
                     payload["task_metadata"] = task_metadata
@@ -2778,7 +2833,7 @@ class VoiceAgent(LLMAgent):
                     self._pending_tasks[byoa_agent_name] = (framework_task_id, payload)
                     self._locked_ships[target_character_id] = framework_task_id
                     self._ensure_heartbeat_task_running()
-                    if self._has_fresh_byoa_presence(target_character_id):
+                    if byoa_has_fresh_presence:
                         logger.info(
                             f"byoa.wake_agent.skipped ship={target_character_id[:8]} "
                             "reason=fresh_presence"
@@ -3142,6 +3197,7 @@ class VoiceAgent(LLMAgent):
         framework_task_id: str,
         task_desc: str,
         task_metadata: Dict[str, Any],
+        task_status: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Call task_lifecycle(start) server-side; translate 409/403 into a
         user-facing error dict.
@@ -3159,6 +3215,7 @@ class VoiceAgent(LLMAgent):
                 event_type="start",
                 task_description=task_desc,
                 task_metadata=task_metadata,
+                task_status=task_status,
             )
             return None
         except RPCError as err:
@@ -3191,9 +3248,8 @@ class VoiceAgent(LLMAgent):
     async def _send_hello_and_wait(self, agent_name: str) -> BusAgentHelloResponse:
         """Send a BusAgentHelloRequest to ``agent_name`` and await the response.
 
-        Universal liveness probe — see "Agent lifecycle & wake-up" in
-        docs/byoa.md. For an in-process TaskAgent the response is essentially
-        instant; for a future remote BYOA agent the round-trip covers the
+        Universal liveness probe. For an in-process TaskAgent the response is
+        essentially instant; for a BYOA agent the round-trip covers the
         cold-start window. Times out per
         ``ByoaAgentConfig.agent_wake_timeout_seconds``.
 
@@ -3286,6 +3342,20 @@ class VoiceAgent(LLMAgent):
                 f"spawn_target={spawn_target!r} spawn_status={spawn_status!r}"
             )
             return result
+        except RPCError as exc:
+            body = exc.body if isinstance(exc.body, dict) else {}
+            spawn_target = str(body.get("spawn_target") or "error")
+            spawn_status = str(body.get("spawn_status") or "call_failed")
+            logger.warning(
+                f"byoa.wake_agent.call_failed ship={ship_id[:8]} "
+                f"spawn_target={spawn_target!r} spawn_status={spawn_status!r} "
+                f"error={exc!r}"
+            )
+            return {
+                "spawn_target": spawn_target,
+                "spawn_status": spawn_status,
+                "error": str(body.get("error") or exc.detail),
+            }
         except Exception as exc:
             logger.warning(
                 f"byoa.wake_agent.call_failed ship={ship_id[:8]} error={exc!r}"
@@ -3360,6 +3430,15 @@ class VoiceAgent(LLMAgent):
             logger.warning(
                 f"byoa.wake_timeout.release_failed task={framework_task_id[:8]} error={exc!r}"
             )
+        self._enqueue_deferred_update(
+            (
+                f'<event name="task.cancelled" task_id="{framework_task_id[:8]}" '
+                'task_type="corp_ship">\n'
+                "Task was cancelled because the BYOA agent did not come online in time.\n"
+                "</event>"
+            ),
+            ship_id=target_character_id,
+        )
 
     def _ensure_heartbeat_task_running(self) -> None:
         """Lazily start the heartbeat loop if it isn't already running."""

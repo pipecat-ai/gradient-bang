@@ -19,6 +19,7 @@ import useGameStore from "@/stores/game"
 const stateLabels: Record<TaskEngineState, string> = {
   idle: "Idle",
   active: "Working",
+  waking: "Waking",
   steering: "Steering",
   completed: "Completed",
   cancelling: "Cancelling",
@@ -92,6 +93,7 @@ const MiniEngine = ({
         state:
           isCancelling ? "cancelling"
           : isSteering ? ("steering" as TaskEngineState)
+          : task.task_status === "waking" ? ("waking" as TaskEngineState)
           : ("active" as TaskEngineState),
         displayTask: task,
       }
@@ -107,11 +109,18 @@ const MiniEngine = ({
     return { state: "idle" as TaskEngineState, displayTask: null }
   }, [task, summary, isCancelling, isSteering])
 
-  if (state !== "active" && state !== "cancelling" && state !== "steering" && isCancelling) {
+  if (
+    state !== "active" &&
+    state !== "waking" &&
+    state !== "cancelling" &&
+    state !== "steering" &&
+    isCancelling
+  ) {
     setIsCancelling(false)
   }
 
-  const isRunning = state === "active" || state === "cancelling" || state === "steering"
+  const isRunning =
+    state === "active" || state === "waking" || state === "cancelling" || state === "steering"
   const taskEngineLabel =
     isLocal ? "local task engine"
     : displayTask?.ship_name ? `${displayTask.ship_name} task engine`
@@ -149,7 +158,7 @@ const MiniEngine = ({
           active={isRunning}
         />
         <div className="relative pt-px">
-          {(state === "active" || state === "steering") && (
+          {(state === "active" || state === "steering" || state === "waking") && (
             <Button
               size="icon-sm"
               variant="ghost"

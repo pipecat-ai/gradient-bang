@@ -102,7 +102,6 @@ declare global {
     byoa?: {
       owner_character_id_prefix: string
       owner_character_name: string | null
-      mode: "private"
       presence?: {
         online: boolean
         status: "online" | "offline"
@@ -504,6 +503,7 @@ declare global {
     ship_id?: string
     ship_name?: string | null
     ship_type?: string | null
+    task_status?: "waking" | "active" | "completed" | "cancelled" | "failed"
   }
 
   interface TaskSummary extends ActiveTask {

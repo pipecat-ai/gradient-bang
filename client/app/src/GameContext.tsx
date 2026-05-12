@@ -1472,6 +1472,7 @@ export function GameProvider({ children }: GameProviderProps) {
                   ship_id: data.ship_id,
                   ship_name: data.ship_name,
                   ship_type: data.ship_type,
+                  task_status: data.task_status === "waking" ? "waking" : "active",
                 })
               }
 
@@ -1528,6 +1529,36 @@ export function GameProvider({ children }: GameProviderProps) {
               break
             }
 
+            case "task.cancel": {
+              console.debug("[GAME EVENT] Task cancel", e.payload)
+              const data = e.payload as Msg.TaskCancelMessage
+              const taskId = normalizeTaskId(data.task_id)
+              if (!taskId) break
+
+              const activeTasks = useGameStore.getState().activeTasks
+              const selectedTaskId =
+                activeTasks[taskId] ? taskId : (
+                  Object.keys(activeTasks).find((activeTaskId) => activeTaskId.startsWith(taskId))
+                )
+              const activeTask = selectedTaskId ? activeTasks[selectedTaskId] : undefined
+              const shipId = data.ship_id ?? activeTask?.ship_id
+
+              if (shipId && isKnownFleetShip(shipId)) {
+                upsertCorporationShip(shipId, {
+                  current_task_id: null,
+                  current_task_actor_name: null,
+                })
+              }
+
+              if (selectedTaskId) {
+                useGameStore.getState().removeActiveTask(selectedTaskId)
+                if (selectedTaskId.length > 6) {
+                  useGameStore.getState().removeActiveTask(selectedTaskId.slice(0, 6))
+                }
+              }
+              break
+            }
+
             case "task_output": {
               console.debug("[GAME EVENT] Task output", e, e.payload)
               const data = e.payload as Msg.TaskOutputMessage
@@ -1553,6 +1584,10 @@ export function GameProvider({ children }: GameProviderProps) {
               // Only process output for tasks we're tracking (our own tasks).
               const selectedTaskId = activeTaskId ?? prefixedActiveTaskId
               if (!selectedTaskId) break
+
+              if (activeTasks[selectedTaskId]?.task_status === "waking") {
+                useGameStore.getState().markTaskActive(selectedTaskId)
+              }
 
               useGameStore.getState().addTaskOutput({
                 task_id: selectedTaskId,

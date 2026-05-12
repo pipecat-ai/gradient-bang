@@ -111,7 +111,7 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const { data: shipData, error: shipError } = await supabase
       .from("ship_instances")
       .select(
-        "owner_type, owner_corporation_id, current_task_id, byoa_owner_character_id, byoa_mode",
+        "owner_type, owner_corporation_id, current_task_id, byoa_owner_character_id",
       )
       .eq("ship_id", taskOwnerCharacterId)
       .maybeSingle();
@@ -246,6 +246,8 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
         source: buildEventSource("task_cancel", requestId),
         task_id: cancelTaskId,
         cancelled_by: characterId,
+        ship_id: taskShipId,
+        task_scope: isCorpShipTask ? "corp_ship" : "player_ship",
         ...(forceFlag ? { force: true } : {}),
       },
       senderId: characterId,

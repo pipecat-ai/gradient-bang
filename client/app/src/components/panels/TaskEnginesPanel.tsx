@@ -17,6 +17,7 @@ import { TaskOutputStream } from "../TaskOutputStream"
 export type TaskEngineState =
   | "idle"
   | "active"
+  | "waking"
   | "steering"
   | "completed"
   | "cancelling"
@@ -26,6 +27,7 @@ export type TaskEngineState =
 const stateLabels: Record<TaskEngineState, string> = {
   idle: "Idle",
   active: "Working",
+  waking: "Waking",
   steering: "Steering",
   completed: "Completed",
   cancelling: "Cancelling",
@@ -44,6 +46,7 @@ const cx = cva(
         cancelled: "",
         failed: "",
         active: "elbow-foreground",
+        waking: "elbow-foreground",
         steering: "elbow-foreground",
       },
       subtle: {
@@ -163,6 +166,7 @@ export const TaskEngine = ({
         state:
           isCancelling ? "cancelling"
           : isSteering ? ("steering" as TaskEngineState)
+          : task.task_status === "waking" ? ("waking" as TaskEngineState)
           : ("active" as TaskEngineState),
         displayTask: task,
       }
@@ -178,11 +182,18 @@ export const TaskEngine = ({
     return { state: "idle" as TaskEngineState, displayTask: null }
   }, [task, summary, isCancelling, isSteering])
 
-  if (state !== "active" && state !== "cancelling" && state !== "steering" && isCancelling) {
+  if (
+    state !== "active" &&
+    state !== "waking" &&
+    state !== "cancelling" &&
+    state !== "steering" &&
+    isCancelling
+  ) {
     setIsCancelling(false)
   }
 
-  const isRunning = state === "active" || state === "cancelling" || state === "steering"
+  const isRunning =
+    state === "active" || state === "waking" || state === "cancelling" || state === "steering"
   const taskEngineLabel =
     isLocal ? "local task engine"
     : displayTask?.ship_name ? `${displayTask.ship_name} task engine`
@@ -239,7 +250,7 @@ export const TaskEngine = ({
 
           <div className="relative">
             <TaskStatusBadge state={state} label={stateLabels[state]} />
-            {state === "active" && (
+            {(state === "active" || state === "waking") && (
               <Button
                 size="icon-sm"
                 variant="ghost"

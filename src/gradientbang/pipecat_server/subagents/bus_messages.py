@@ -1,11 +1,10 @@
 """Custom bus messages for the gradient-bang agent system.
 
-The Phase 1 BYOA migration introduces typed request/response pairs so a
-TaskAgent (in-process or, eventually, a remote BYOA agent) can perform
-every game operation over the bus instead of calling ``AsyncGameClient``
-directly. All payload fields are plain JSON-serializable so the same
-messages travel over the in-process ``AsyncQueueBus`` today and the
-remote ``PgmqBus`` in Phase 2.
+TaskAgents, including external BYOA runners, perform game operations over
+typed request/response messages on the subagent bus instead of calling
+``AsyncGameClient`` directly. All payload fields are plain JSON-serializable
+so the same messages travel over the in-process ``AsyncQueueBus`` and the
+remote ``PgmqBus``.
 
 Correlation pattern: caller generates a unique ``correlation_id`` per
 request, sends the message, and awaits the matching response via
@@ -63,7 +62,7 @@ class BusSteerTaskMessage(BusDataMessage):
 
 
 # ---------------------------------------------------------------------------
-# Phase 1: typed game RPCs over the bus
+# Typed game RPCs over the bus
 # ---------------------------------------------------------------------------
 #
 # Naming convention:
@@ -239,7 +238,7 @@ class BusTaskFinishNotification(BusDataMessage):
 
 
 # ---------------------------------------------------------------------------
-# Agent lifecycle handshake — see "Agent lifecycle & wake-up" in docs/byoa.md
+# Agent lifecycle handshake — see docs/setup-byoa.md.
 # ---------------------------------------------------------------------------
 
 

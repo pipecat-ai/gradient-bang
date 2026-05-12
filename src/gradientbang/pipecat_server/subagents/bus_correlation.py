@@ -1,10 +1,10 @@
 """Correlation helper for one-way bus messages.
 
 Bus messages are one-way (the underlying ``AgentBus`` doesn't model
-request/response pairs natively). Phase 1 of the BYOA migration moves all
-TaskAgent game RPCs onto typed request/response pairs that share a
-``correlation_id`` — the helper here tracks the in-flight ``Future`` for
-each id so callers can ``await`` the matching response.
+request/response pairs natively). TaskAgent game RPCs use typed
+request/response pairs that share a ``correlation_id``; the helper here
+tracks the in-flight ``Future`` for each id so callers can ``await`` the
+matching response.
 
 The helper is intentionally small. There's no RPC abstraction, no client/
 server framework — each call site builds its specific typed request,

@@ -104,8 +104,7 @@ curl -X POST "$SUPABASE_URL/functions/v1/ship_byoa_configure" \
   -d '{
     "character_id": "<your character UUID>",
     "ship_id": "<corp ship UUID>",
-    "action": "claim",
-    "mode": "private"
+    "action": "claim"
   }'
 ```
 

@@ -5,7 +5,7 @@
 -- two corp members on different processes from starting concurrent tasks
 -- on the same corp ship. This migration adds the columns + atomic RPCs
 -- that make the lock real, plus the BYOA ownership columns that unlock the
--- broader BYOA roadmap (see docs/byoa.md).
+-- broader BYOA work (see docs/setup-byoa.md).
 --
 -- Stale-lock recovery is layered: a lock with no heartbeat for
 -- TASK_LOCK_HEARTBEAT_STALE_SECONDS (default 180s) is steal-eligible, as is
@@ -466,19 +466,10 @@ GRANT EXECUTE ON FUNCTION public.verify_byoa_token(text) TO service_role;
 -- =============================================================================
 -- BYOA bus authorization: per-session channel binding check
 --
--- Operator isolation is now done at the channel layer. wake_agent mints a
--- fresh `byoa_session_channel` onto the ship's task-lock row when delegating
--- a task to a BYOA. The operator's process discovers that channel via the
--- byoa_session_claim edge function and connects to it. Within the channel
--- there are only two parties (VoiceAgent + the one BYOA), so per-call
--- ownership ledgers and payload-source inspection aren't needed.
---
--- byoa_bus_authorize is the one-shot gate the operator calls when their
--- subagent bus comes up: verify the HS256 token, look up the channel
--- currently allocated for the token's BYOA ship, and confirm the operator
--- is asking for that exact channel. After this succeeds, the operator uses
--- raw pgmq calls (via service_role) bounded to the bound channel prefix.
--- The bus shim no longer round-trips SQL on every message.
+-- Legacy one-shot channel binding check. This is superseded by the
+-- restricted wrapper migration, which authorizes every PGMQ operation with
+-- token + channel + ship_id. It remains here only for migration ordering in
+-- environments that applied this migration before the wrapper migration.
 -- =============================================================================
 
 CREATE FUNCTION public.byoa_bus_authorize(

@@ -788,17 +788,19 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             nonlocal is_first_visit
             try:
                 await asyncio.sleep(2)
+                # Startup is a strict three-phase contract:
+                #   1. system prompt is already seeded into LLMContext
+                #   2. EventRelay gathers initial state (events buffer while paused)
+                #   3. activate the right agent BEFORE resume so start_of_session
+                #      lands ahead of the buffered events, and the only inference
+                #      trigger is EventRelay._maybe_inject_onboarding once
+                #      status.snapshot + ports.list have resolved.
                 await game_client.pause_event_delivery()
-                result = await event_relay.join()
-                # Track join request_id so the resulting status.snapshot triggers LLM inference
-                if isinstance(result, dict):
-                    req_id = result.get("request_id")
-                    if req_id:
-                        voice_agent.track_request_id(req_id)
-                    is_first_visit = bool(result.get("is_first_visit", False))
-                await game_client.resume_event_delivery()
 
-                # Activate the correct agent based on first visit status
+                result = await event_relay.join()
+                if isinstance(result, dict):
+                    is_first_visit = bool(result.get("is_first_visit", False))
+
                 if is_first_visit and not bypass_tutorial:
                     logger.info("First visit detected, activating ScriptedAgent")
                     mute_strategy.force_mute = True
@@ -812,6 +814,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                         "player",
                         args=LLMAgentActivationArgs(messages=messages, run_llm=False),
                     )
+
+                await game_client.resume_event_delivery()
             except Exception as exc:
                 # Fire-and-forget task would swallow this otherwise. Tear down
                 # the runner so the session exits instead of hanging half-joined.

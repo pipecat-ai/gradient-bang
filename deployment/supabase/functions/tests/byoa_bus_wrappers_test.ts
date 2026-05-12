@@ -168,7 +168,6 @@ Deno.test({
       character_id: ownerCharId,
       ship_id: corpShipId,
       action: "claim",
-      mode: "private",
     });
 
     const ownerUser = await provisionUser("bus-owner", ownerCharId);

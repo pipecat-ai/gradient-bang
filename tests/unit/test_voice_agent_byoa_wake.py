@@ -32,6 +32,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusByoaPresenceMessage,
 )
 from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
+from gradientbang.utils.api_client import RPCError
 
 
 def _make_voice_agent(**overrides) -> VoiceAgent:
@@ -220,6 +221,7 @@ class TestWatchWakeTimeout:
     async def test_expiry_releases_lock_and_cleans_state(self):
         agent = _make_voice_agent()
         agent._byoa_config = MagicMock(agent_wake_timeout_seconds=0.05)
+        agent._enqueue_deferred_update = MagicMock()
         agent._locked_ships["ship-1"] = "task-1"
         agent._pending_tasks["byoa_ship-1"] = ("task-1", {})
         agent._pending_wakes["ship-1"] = MagicMock()
@@ -238,6 +240,36 @@ class TestWatchWakeTimeout:
         assert "ship-1" not in agent._locked_ships
         assert "byoa_ship-1" not in agent._pending_tasks
         assert "ship-1" not in agent._pending_wakes
+        event_xml = agent._enqueue_deferred_update.call_args.args[0]
+        assert 'event name="task.cancelled"' in event_xml
+        assert "did not come online" in event_xml
+        assert agent._enqueue_deferred_update.call_args.kwargs["ship_id"] == "ship-1"
+
+
+@pytest.mark.unit
+class TestCancelPendingByoaWake:
+    async def test_client_cancel_clears_pending_wake_without_bus_dispatch(self):
+        agent = _make_voice_agent()
+        agent._enqueue_deferred_update = MagicMock()
+        agent._update_polling_scope = MagicMock()
+        watchdog = asyncio.create_task(asyncio.sleep(30))
+        await asyncio.sleep(0)
+        agent._locked_ships["ship-uuid-123"] = "task-1"
+        agent._pending_tasks["byoa_ship-uuid-123"] = ("task-1", {"task": "payload"})
+        agent._pending_wakes["ship-uuid-123"] = watchdog
+
+        await agent._cancel_task_by_game_id("task-1")
+        await asyncio.sleep(0)
+
+        assert "ship-uuid-123" not in agent._locked_ships
+        assert "byoa_ship-uuid-123" not in agent._pending_tasks
+        assert "ship-uuid-123" not in agent._pending_wakes
+        assert watchdog.cancelled()
+        agent._update_polling_scope.assert_called_once()
+        event_xml = agent._enqueue_deferred_update.call_args.args[0]
+        assert 'event name="task.cancelled"' in event_xml
+        assert "before the BYOA agent came online" in event_xml
+        assert agent._enqueue_deferred_update.call_args.kwargs["ship_id"] == "ship-uuid-123"
 
 
 @pytest.mark.unit
@@ -288,6 +320,7 @@ class TestStartTaskWakeBranch:
         assert "byoa_ship-uuid-123" in agent._pending_tasks
         framework_task_id, payload = agent._pending_tasks["byoa_ship-uuid-123"]
         assert framework_task_id == result["task_id"]
+        assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
         # Stale-task guard: framework task_id propagated into task_metadata.
         assert payload["task_metadata"]["task_id"] == framework_task_id
         agent.watch_agent.assert_awaited_once_with("byoa_ship-uuid-123")
@@ -312,6 +345,7 @@ class TestStartTaskWakeBranch:
 
         assert result["success"] is False
         assert "missing_bus_channel" in result["error"]
+        assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
         agent._game_client.wake_agent.assert_not_awaited()
         assert agent._pending_wakes == {}
         assert agent._pending_tasks == {}
@@ -334,6 +368,37 @@ class TestStartTaskWakeBranch:
 
         assert result["success"] is False
         assert "WAKE_TARGET=http" in result["error"]
+        assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
+        assert agent._pending_wakes == {}
+        assert agent._pending_tasks == {}
+        agent._game_client.task_cancel.assert_awaited_once()
+
+    async def test_byoa_dispatch_preserves_structured_wake_failure(self):
+        agent = _make_voice_agent()
+        self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
+        agent._byoa_bus_channel = "bot_session_abc"
+        agent._game_client.wake_agent = AsyncMock(
+            side_effect=RPCError(
+                "wake.agent",
+                502,
+                "wake_spawn_failed",
+                body={
+                    "error": "wake_spawn_failed",
+                    "spawn_target": "http",
+                    "spawn_status": "http_503",
+                },
+            )
+        )
+
+        params = MagicMock()
+        params.arguments = {
+            "task_description": "haul ore to mp",
+            "ship_id": "ship-uuid-123",
+        }
+        result = await agent._handle_start_task(params)
+
+        assert result["success"] is False
+        assert "(http/http_503)" in result["error"]
         assert agent._pending_wakes == {}
         assert agent._pending_tasks == {}
         agent._game_client.task_cancel.assert_awaited_once()
@@ -355,6 +420,7 @@ class TestStartTaskWakeBranch:
         result = await agent._handle_start_task(params)
 
         assert result["success"] is True
+        assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] is None
         agent._game_client.wake_agent.assert_not_awaited()
         agent.watch_agent.assert_awaited_once_with("byoa_ship-uuid-123")
         watchdog = agent._pending_wakes.get("ship-uuid-123")
@@ -393,6 +459,7 @@ class TestStartTaskWakeBranch:
 
         assert result["success"] is True
         assert result.get("status") != "waking"
+        assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] is None
         agent.add_agent.assert_awaited_once()
         assert agent._pending_wakes == {}
         agent._game_client.wake_agent.assert_not_awaited()

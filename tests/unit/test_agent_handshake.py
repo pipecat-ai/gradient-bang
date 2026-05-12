@@ -1,7 +1,4 @@
-"""Phase 1 BYOA wake-up handshake regression tests.
-
-Covers the cross-phase concern described under "Agent lifecycle & wake-up"
-in docs/byoa.md:
+"""BYOA wake-up handshake regression tests.
 
   - TaskAgent only responds ``ready=True`` after its LLM context is up.
   - VoiceAgent's hello-response correlator hands the awaiting future the

@@ -84,6 +84,7 @@ Deno.test({
         task_id: taskId,
         event_type: "start",
         task_description: "Test task for coverage",
+        task_status: "waking",
       });
       const body = result as Record<string, unknown>;
       assertEquals(body.task_id, taskId);
@@ -95,6 +96,7 @@ Deno.test({
       assert(events.length >= 1, `Expected >= 1 task.start, got ${events.length}`);
       const payload = events[0].payload;
       assertEquals(payload.task_id, taskId);
+      assertEquals(payload.task_status, "waking");
     });
   },
 });
@@ -218,7 +220,14 @@ Deno.test({
 
     await t.step("P1 receives task.cancel event", async () => {
       const events = await eventsOfType(p1Id, "task.cancel", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 task.cancel, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 task.cancel, got ${events.length}`,
+      );
+      const payload = events[events.length - 1].payload;
+      assertEquals(payload.task_id, taskId);
+      assertEquals(payload.ship_id, p1Id);
+      assertEquals(payload.task_scope, "player_ship");
     });
   },
 });

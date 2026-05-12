@@ -167,7 +167,7 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     const { data: accessibleShips, error: shipLookupError } = await supabase
       .from("ship_instances")
       .select(
-        "ship_id, ship_name, ship_type, owner_type, owner_character_id, owner_corporation_id, byoa_owner_character_id, byoa_mode",
+        "ship_id, ship_name, ship_type, owner_type, owner_character_id, owner_corporation_id, byoa_owner_character_id",
       )
       .or(orClauses.join(","));
 
@@ -233,6 +233,10 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
 
     if (eventType === "start" && taskDescription) {
       eventPayload.task_description = taskDescription;
+    }
+
+    if (eventType === "start" && taskStatusRaw) {
+      eventPayload.task_status = taskStatusRaw;
     }
 
     if (eventType === "finish") {

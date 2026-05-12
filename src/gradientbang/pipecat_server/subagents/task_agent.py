@@ -270,16 +270,15 @@ class TaskAgent(LLMAgent):
         # TaskAgent construction always leaves this as None, so non-BYOA
         # paths are bit-for-bit identical.
         self._custom_prompt: Optional[str] = custom_prompt
-        # Phase 1: every game RPC goes over the bus. PendingRequests tracks
-        # outbound correlation_ids until their matching responses land.
+        # Every game RPC goes over the bus. PendingRequests tracks outbound
+        # correlation_ids until their matching responses land.
         self._pending: PendingRequests = PendingRequests()
         self._byoa_presence_task: Optional[asyncio.Task] = None
-        # Phase 1: idle teardown timer. Reset on every inbound task / tool
-        # call; fires BusEndAgentMessage to self after
+        # Idle teardown timer. Reset on every inbound task / tool call;
+        # fires BusEndAgentMessage to self after
         # agent_idle_teardown_seconds. In-process player-ship agents are
         # reused across tasks, so the timer is disabled for them. Corp-ship
-        # agents (one-shot) and future BYOA agents (warm) use it to
-        # eventually free their ship slot.
+        # agents and BYOA agents use it to eventually free their ship slot.
         self._idle_teardown_handle: Optional[asyncio.TimerHandle] = None
         self._tool_schemas: Dict[str, Any] = {t.name: t for t in self.build_tools()}
 
@@ -433,8 +432,8 @@ class TaskAgent(LLMAgent):
         # task.start was already emitted server-side by VoiceAgent as part of
         # the pre-spawn acquire (see VoiceAgent._acquire_server_ship_lock).
         # Per-call task_id tagging on the broker's game client happens inside
-        # the broker handler now (Phase 1), so TaskAgent no longer mutates
-        # a client's current_task_id directly.
+        # the broker handler, so TaskAgent no longer mutates a client's
+        # current_task_id directly.
 
         # Build initial context
         messages = [
@@ -552,7 +551,7 @@ class TaskAgent(LLMAgent):
             await self._respond_to_hello(message)
 
     def _resolve_bus_rpc_response(self, message: BusMessage) -> None:
-        """Hand a Phase 1 RPC response off to PendingRequests.
+        """Hand an RPC response off to PendingRequests.
 
         Each response type carries one of (result | strategy) plus an
         optional error. ``error`` rejects with a RuntimeError; otherwise
@@ -573,8 +572,7 @@ class TaskAgent(LLMAgent):
         self._pending.resolve(correlation_id, payload)
 
     async def _respond_to_hello(self, request: BusAgentHelloRequest) -> None:
-        """Liveness probe handler — see "Agent lifecycle & wake-up" in
-        docs/byoa.md.
+        """Liveness probe handler for in-process and BYOA agents.
 
         Responds ``ready=True`` once ``_llm_context`` has been initialised
         (which happens inside ``build_pipeline``). For an in-process agent
@@ -1787,10 +1785,9 @@ class TaskAgent(LLMAgent):
     # Most tools are dispatched via _TOOL_DISPATCH below.
     # Special-case handlers that need custom logic are defined as methods.
     #
-    # Phase 1: every game RPC goes over the bus. _call_game builds a
+    # Every task-agent game RPC goes over the bus. _call_game builds a
     # BusGameToolCallRequest, sends it to the broker (VoiceAgent), and
     # awaits the matching BusGameToolCallResponse via PendingRequests.
-    # See docs/byoa.md "Phase 1 — TaskAgent edits".
 
     async def _call_game(self, method: str, **kwargs) -> Any:
         """Invoke a game method on the broker over the bus.

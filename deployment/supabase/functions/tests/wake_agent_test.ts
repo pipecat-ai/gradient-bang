@@ -109,7 +109,6 @@ Deno.test({
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
-        mode: "private",
       });
       await acquireLockOn(corpShipId, taskId, p1Id);
     });
@@ -254,7 +253,6 @@ Deno.test({
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
-        mode: "private",
       });
       await acquireLockOn(corpShipId, taskId, p1Id);
     });
@@ -278,13 +276,15 @@ Deno.test({
             "postgresql://byoa_login:test@db/postgres",
           );
 
-          const result = await apiOk("wake_agent", {
+          const result = await api("wake_agent", {
             ship_id: corpShipId,
             character_id: p1Id,
             task_id: taskId,
             channel,
           });
-          const body = result as Record<string, unknown>;
+          assertEquals(result.status, 500);
+          const body = result.body as Record<string, unknown>;
+          assertEquals(body.error, "wake_spawn_failed");
           assertEquals(body.spawn_target, "http");
           assertEquals(body.spawn_status, "missing_byoa_wake_url");
         } finally {
@@ -376,13 +376,15 @@ Deno.test({
           "postgresql://byoa_login:test@db/postgres",
         );
 
-        const result = await apiOk("wake_agent", {
+        const result = await api("wake_agent", {
           ship_id: corpShipId,
           character_id: p1Id,
           task_id: taskId,
           channel,
         });
-        const body = result as Record<string, unknown>;
+        assertEquals(result.status, 502);
+        const body = result.body as Record<string, unknown>;
+        assertEquals(body.error, "wake_spawn_failed");
         assertEquals(body.spawn_target, "http");
         assertEquals(body.spawn_status, "http_503");
       } finally {

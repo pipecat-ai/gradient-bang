@@ -16,6 +16,8 @@ const stateStyles = cva("w-full duration-1000 text-xs -bracket-offset-1 bracket 
         "bracket-success/0 bg-success-background text-success border-success stripe-bar stripe-bar-success/20 stripe-bar-8 stripe-bar-animate-1",
       steering:
         "bracket-fuel bg-fuel-background text-fuel border-fuel stripe-bar stripe-bar-fuel/20 stripe-bar-8 stripe-bar-animate-1",
+      waking:
+        "bracket-fuel bg-fuel-background text-fuel border-fuel stripe-bar stripe-bar-fuel/20 stripe-bar-8 stripe-bar-animate-1",
       completed: "bg-success-background/50 bracket-success border-success/60 text-success",
       cancelling:
         "bracket-destructive bg-destructive-background text-destructive border-destructive stripe-bar stripe-bar-destructive/20 stripe-bar-8 stripe-bar-animate-1",
@@ -35,6 +37,7 @@ const labelStyles = cva("font-extrabold uppercase", {
     state: {
       active: "text-success-foreground animate-pulse",
       steering: "text-fuel-foreground animate-pulse",
+      waking: "text-fuel-foreground animate-pulse",
       idle: "text-foreground",
       completed: "text-success-foreground",
       cancelling: "text-destructive-foreground animate-pulse ",
@@ -77,7 +80,7 @@ export const TaskStatusBadge = ({ state, label }: { state: TaskEngineState; labe
         animationKey && state !== "active" && state !== "cancelling" && "animate-blink repeat-3"
       )}
     >
-      <TracingBorder active={state === "active" || state === "steering"}>
+      <TracingBorder active={state === "active" || state === "steering" || state === "waking"}>
         <div className="flex flex-col gap-2">
           <Badge className={stateStyles({ state })}>
             <span>Engine status:</span>

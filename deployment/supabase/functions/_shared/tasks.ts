@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * source of truth for "this ship is currently running a task" and is
  * maintained atomically by the lock RPCs (acquire/release in
  * task_lifecycle, release_ship_task_lock / force_release_ship_task_lock
- * in task_cancel). Replaces the pre-Groundwork event-scanning path that
+ * in task_cancel). Replaces the older event-scanning path that
  * inferred active tasks from task.start without a matching task.finish.
  */
 export async function fetchActiveTaskIdsByShip(

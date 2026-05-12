@@ -3,7 +3,6 @@
  *
  * Surfaces:
  *   - Online / offline state from BYOA process presence.
- *   - BYOA mode.
  *   - Owner — BYOA owner name (when set).
  *   - Heartbeat — last process heartbeat timestamp if one has arrived.
  *
@@ -23,11 +22,6 @@ import { cn } from "@/utils/tailwind"
 
 import { Badge } from "./primitives/Badge"
 import { Button } from "./primitives/Button"
-
-function modeLabel(mode: "private" | null): string {
-  if (mode === "private") return "BYOA"
-  return "Not BYOA"
-}
 
 function StatusRow({
   label,
@@ -82,11 +76,6 @@ export const ShipStatusPopover = ({ ship }: { ship: Ship }) => {
           </PopoverTitle>
         </PopoverHeader>
         <div className="flex flex-col gap-1.5">
-          <StatusRow
-            label="Mode"
-            value={modeLabel(byoa?.mode ?? null)}
-            valueClassName={byoa ? "text-terminal" : "text-subtle-foreground"}
-          />
           <StatusRow
             label="Owner"
             value={
