@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react"
 
 import { BankTransactionToast } from "@/components/toasts/BankTransactionToast"
 import { FuelPurchasedToast } from "@/components/toasts/FuelPurchasedToast"
+import { QuestStepCompletedToast } from "@/components/toasts/QuestStepCompletedToast"
 import { SalvageCollectedToast } from "@/components/toasts/SalvageCollectedToast"
 import { SalvageCreatedToast } from "@/components/toasts/SalvageCreatedToast"
 import { ShipDestroyedToast } from "@/components/toasts/ShipDestroyedToast"
@@ -92,6 +93,8 @@ export const ToastContainer = () => {
         return <SalvageCollectedToast toast={toast} {...baseProps} />
       case "salvage.created":
         return <SalvageCreatedToast toast={toast} {...baseProps} />
+      case "quest.step_completed":
+        return <QuestStepCompletedToast toast={toast} {...baseProps} />
       default:
         return null
     }
