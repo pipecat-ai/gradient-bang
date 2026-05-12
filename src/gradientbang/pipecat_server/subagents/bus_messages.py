@@ -223,7 +223,7 @@ class BusTaskFinishNotification(BusDataMessage):
         actor_character_id: Character that issued the original task (the
             player). For corp-ship tasks this differs from
             ``character_id`` and is the BYOA owner / corp member who
-            initiated the work — the edge function's BYOA-private check
+            initiated the work — the edge function's BYOA owner check
             authorises the finish against this field, not against
             ``character_id``.
         task_id: The framework task id.

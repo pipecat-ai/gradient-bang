@@ -3,12 +3,12 @@
  *
  * Covers the access checks added in PR 2:
  *   - task_lifecycle blocks non-owners from starting a task on a
- *     BYOA-private corp ship (403 byoa_private_not_owner).
+ *     BYOA corp ship (403 byoa_private_not_owner).
  *   - task_lifecycle blocks non-owners from finishing a task on a
- *     BYOA-private corp ship, preventing lock-release bypasses.
- *   - task_cancel blocks non-owners from cancelling a BYOA-private task,
+ *     BYOA corp ship, preventing lock-release bypasses.
+ *   - task_cancel blocks non-owners from cancelling a BYOA task,
  *     but force=true is still allowed for corp members.
- *   - ship_byoa_configure claim/set_mode/clear happy paths and rejections.
+ *   - ship_byoa_configure claim/clear happy paths and rejections.
  *
  * Setup:
  *   - P1 (BYOA owner candidate), P2 (other corp member), P3 (non-corp)
@@ -93,11 +93,11 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 1: task_lifecycle BYOA private check
+// Group 1: task_lifecycle BYOA owner check
 // ============================================================================
 
 Deno.test({
-  name: "byoa_access — private ship blocks non-owner; owner succeeds",
+  name: "byoa_access — BYOA ship blocks non-owner; owner succeeds",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -116,7 +116,7 @@ Deno.test({
       corpShipId = seeded.corpShipId;
     });
 
-    await t.step("P1 claims BYOA private on the corp ship", async () => {
+    await t.step("P1 claims BYOA on the corp ship", async () => {
       const result = await apiOk("ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
@@ -181,57 +181,12 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 2: BYOA shared allows any corp member
-// ============================================================================
-
-Deno.test({
-  name: "byoa_access — shared mode allows corp members",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    let corpShipId: string;
-
-    await t.step("seed corp + claim shared", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipCredits(p1ShipId, 50_000);
-      const seeded = await seedCorpWithMembers(
-        p1Id,
-        [p2Id],
-        "Shared Test Corp",
-      );
-      corpShipId = seeded.corpShipId;
-      await apiOk("ship_byoa_configure", {
-        character_id: p1Id,
-        ship_id: corpShipId,
-        action: "claim",
-        mode: "shared",
-      });
-    });
-
-    await t.step("P2 (non-owner corp member) task.start succeeds", async () => {
-      const taskId = crypto.randomUUID();
-      await apiOk("task_lifecycle", {
-        character_id: corpShipId,
-        actor_character_id: p2Id,
-        task_id: taskId,
-        event_type: "start",
-        task_description: "shared mode task",
-      });
-      const row = await readShipByoa(corpShipId);
-      assertEquals(row?.current_task_id, taskId);
-    });
-  },
-});
-
-// ============================================================================
-// Group 3: task_cancel respects BYOA-private; force=true escapes
+// Group 2: task_cancel respects BYOA ownership; force=true escapes
 // ============================================================================
 
 Deno.test({
   name:
-    "byoa_access — task_cancel blocks non-owner on private; force=true bypasses",
+    "byoa_access — task_cancel blocks non-owner on BYOA; force=true bypasses",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -286,7 +241,7 @@ Deno.test({
         actor_character_id: p2Id,
         task_id: taskId,
         event_type: "finish",
-        task_summary: "should not release private BYOA task",
+        task_summary: "should not release BYOA task",
       });
       assertEquals(result.status, 403);
       assertEquals(
@@ -312,7 +267,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 4: ship_byoa_configure happy paths + rejections
+// Group 3: ship_byoa_configure happy paths + rejections
 // ============================================================================
 
 Deno.test({
@@ -362,14 +317,14 @@ Deno.test({
       assertEquals(result.status, 409);
     });
 
-    await t.step("P1 can toggle mode", async () => {
-      const result = await apiOk("ship_byoa_configure", {
+    await t.step("set_mode is rejected", async () => {
+      const result = await api("ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "set_mode",
         mode: "shared",
       });
-      assertEquals((result as Record<string, unknown>).byoa_mode, "shared");
+      assertEquals(result.status, 400);
     });
 
     await t.step("P1 clears; row is back to defaults", async () => {

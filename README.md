@@ -232,6 +232,8 @@ scripts/reset-world.sh --env .env.supabase 1000 42
 scripts/reset-world.sh --env .env.cloud 1000 42
 ```
 
+Local resets also create/update the restricted BYOA bus login used by `uv run byoa`: `postgresql://byoa_login:byoa_dev_password@127.0.0.1:54322/postgres`.
+
 ### Generate universe map visualization
 
 ```bash
@@ -371,7 +373,7 @@ In-process `AsyncQueueBus` from `pipecat-ai-subagents`. Pre-Phase-2 behavior bit
 
 ### `pgmq`
 
-Distributed bus over Postgres via upstream `PgmqBus`. Each bot process gets its own PGMQ channel; the bot's channel is recorded on the BYOA ship's lock row at wake time, and the operator's process discovers it via `byoa_session_claim`. Setup:
+Distributed bus over Postgres via upstream `PgmqBus`. Each voice-agent session gets its own PGMQ channel derived from `SUBAGENT_BUS_CHANNEL` plus the bot session id. In-process task agents share that channel automatically; BYOA processes join the same channel when wake passes it to them, or when you pass it manually in dev. Setup:
 
 ```bash
 # .env.bot
@@ -380,17 +382,23 @@ SUBAGENT_BUS_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgre
 SUBAGENT_BUS_CHANNEL=gb_dev_local
 ```
 
-These are bot-process settings, not Supabase settings — neither the Supabase CLI nor any edge function reads them. Keep them in `.env.bot` (loaded by `bot.py` at startup) and out of `.env.supabase`; an out-of-process BYOA agent that thought the bot was on `pgmq` because of `.env.supabase` will silently miss every dispatch if the bot was started without sourcing that file first.
+These are bot-process settings, not Supabase settings. Keep them in `.env.bot` (loaded by `bot.py` at startup) and out of `.env.supabase`; an out-of-process BYOA agent that thought the bot was on `pgmq` because of `.env.supabase` will silently miss every dispatch if the bot was started without sourcing that file first.
 
-`SUBAGENT_BUS_CHANNEL` is **required** — there is no default. The bot's channel becomes the per-VoiceAgent session namespace its BYOAs join, so two bots sharing a channel would cross-talk on the bus. Pick a per-deployment value (e.g. `gb_prod`, `gb_dev_jon`); BYOA operators do not configure it themselves — they receive it from `byoa_session_claim` at task time.
+`SUBAGENT_BUS_CHANNEL` is **required** — there is no default. Treat it as a namespace prefix, not the final channel. The bot derives the final per-session channel and passes it through `wake_agent` when a BYOA ship is tasked.
 
-The DSN follows the standard `postgres://user:pass@host:port/db` shape; on managed Postgres prefer the session-mode pooler (port 5432 on Supabase). On startup the bot logs `bus.pgmq_initialized channel='...'`; teardown drops the per-instance queue and closes the asyncpg pool.
+The bot DSN follows the standard `postgres://user:pass@host:port/db` shape; on managed Postgres prefer the session-mode pooler (port 5432 on Supabase). On startup the bot logs `bus.pgmq_initialized channel='...'`; teardown drops the per-instance queue and closes the asyncpg pool.
 
-While the PGMQ adapter is still pre-release in `pipecat-ai-subagents`, it's vendored as a git submodule at `vendor/pipecat-subagents`. Clone with `--recurse-submodules` or run `git submodule update --init --recursive` after pulling.
+BYOA takes its bus DSN explicitly instead of reading `SUBAGENT_BUS_DATABASE_URL`. In local dev, `scripts/reset-world.sh` provisions a restricted `byoa_login` database user, so the BYOA process uses the same wrapper-only path production uses:
+
+```bash
+uv run byoa serve --prompt-file ./prompt.md
+```
+
+The wrapper adapter validates `BYOA_TOKEN`, `BYOA_SHIP_ID`, and channel on every PGMQ operation. The restricted login is granted only the `byoa_bus_client` role, which can call those SQL wrappers but cannot use raw `pgmq` directly.
 
 ### BYOA wake target
 
-The server-side `WAKE_TARGET` env (on the edge functions, not the bot) controls what `wake_agent` does after allocating a session channel. `noop` (default) just writes the channel and logs — operators must keep `uv run byoa` running and polling. `vercel` / `lambda` (future) will trigger a sandbox spawn. The same env value is mirrored back to operators as `lifecycle_hint` on the claim response, so dev deployments (`noop`) tell BYOAs to idle-loop between tasks and prod deployments tell them to single-task-exit.
+The server-side `WAKE_TARGET` env (on the edge functions, not the bot) controls what `wake_agent` does for task wakes. `http` posts the wake payload to `BYOA_WAKE_URL` with `Authorization: Bearer $EDGE_API_TOKEN`; this is the local-dev path via `uv run byoa serve` and is also usable for webhook-style providers. `noop` remains a manual fallback. `vercel_sandbox` is reserved for the future sandbox provider. Every spawn target receives the same runtime env payload: `BYOA_CHANNEL`, `BYOA_SHIP_ID`, and `BYOA_BUS_DATABASE_URL`.
 
 ---
 

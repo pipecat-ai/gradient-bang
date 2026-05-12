@@ -1891,9 +1891,9 @@ class TaskAgent(LLMAgent):
 
         actor_character_id mirrors what was passed at start time — for a
         corp-ship task that's the player who issued the work, not the
-        ship's pseudo-character. The edge function's BYOA-private check
+        ship's pseudo-character. The edge function's BYOA owner check
         authorises the finish against this field, so a missing /
-        defaulted actor would 403 on private BYOA ships.
+        defaulted actor would 403 on BYOA ships.
         """
         target = self._task_requester
         if not target or not self._active_task_id:

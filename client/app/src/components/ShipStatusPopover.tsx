@@ -3,7 +3,7 @@
  *
  * Surfaces:
  *   - Online / offline state from BYOA process presence.
- *   - BYOA mode — Private / Shared / Not BYOA (from `ship.byoa`).
+ *   - BYOA mode.
  *   - Owner — BYOA owner name (when set).
  *   - Heartbeat — last process heartbeat timestamp if one has arrived.
  *
@@ -24,9 +24,8 @@ import { cn } from "@/utils/tailwind"
 import { Badge } from "./primitives/Badge"
 import { Button } from "./primitives/Button"
 
-function modeLabel(mode: "private" | "shared" | null): string {
-  if (mode === "private") return "BYOA · Private"
-  if (mode === "shared") return "BYOA · Shared"
+function modeLabel(mode: "private" | null): string {
+  if (mode === "private") return "BYOA"
   return "Not BYOA"
 }
 

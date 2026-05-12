@@ -1737,7 +1737,7 @@ class TestServerSideShipLock:
         result = await agent._handle_start_task(params)
 
         assert result["success"] is False
-        assert "private BYOA" in result["error"]
+        assert "BYOA ship" in result["error"]
         assert "0123456789ab" in result["error"]
         agent.add_agent.assert_not_called()
         assert agent._locked_ships == {}

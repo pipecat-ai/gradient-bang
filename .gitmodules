@@ -1,3 +1,0 @@
-[submodule "vendor/pipecat-subagents"]
-	path = vendor/pipecat-subagents
-	url = https://github.com/pipecat-ai/pipecat-subagents.git

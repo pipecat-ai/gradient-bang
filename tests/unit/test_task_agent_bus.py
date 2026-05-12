@@ -236,7 +236,7 @@ class TestTaskFinishMessage:
         assert isinstance(msg, BusTaskFinishNotification)
         assert msg.character_id == "char-123"
         # actor_character_id comes from task_metadata; the broker forwards
-        # it to task_lifecycle(finish) so the server's BYOA-private check
+        # it to task_lifecycle(finish) so the server's BYOA-owner check
         # authorises against the player, not the ship pseudo-character.
         assert msg.actor_character_id == "player-1"
         assert msg.task_id == "active-task-uuid"

@@ -1,12 +1,12 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
+  type AuthContext,
   authenticate,
   authErrorResponse,
   canActOnCharacter,
   errorResponse,
   successResponse,
-  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { buildEventSource, emitCharacterEvent } from "../_shared/events.ts";
@@ -98,8 +98,8 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const actorCharacterId = taskRow.actor_character_id as string | null;
     const fullTaskId = taskRow.task_id as string | null;
     // Fall back to character_id for corp ships (where ship_id == pseudo-char).
-    const taskShipId =
-      (taskRow.ship_id as string | null) ?? taskOwnerCharacterId;
+    const taskShipId = (taskRow.ship_id as string | null) ??
+      taskOwnerCharacterId;
 
     if (!taskOwnerCharacterId || !fullTaskId || !taskShipId) {
       return errorResponse("Invalid task metadata", 500);
@@ -145,18 +145,13 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
       taskCorpId && requesterCorpId && taskCorpId === requesterCorpId,
     );
 
-    // BYOA private restricts cancel to the owner (or task actor) in normal
-    // mode. force=true is the explicit escape hatch — any corp member can
-    // still yank a stuck lock on a private ship (Layer 4 stale recovery).
-    const byoaOwnerId =
-      typeof shipData?.byoa_owner_character_id === "string"
-        ? (shipData.byoa_owner_character_id as string)
-        : null;
-    const byoaMode =
-      typeof shipData?.byoa_mode === "string"
-        ? (shipData.byoa_mode as string)
-        : null;
-    const isByoaPrivate = Boolean(byoaOwnerId && byoaMode === "private");
+    // BYOA restricts cancel to the owner (or task actor) in normal mode.
+    // force=true is the explicit escape hatch — any corp member can still
+    // yank a stuck lock on a BYOA ship (Layer 4 stale recovery).
+    const byoaOwnerId = typeof shipData?.byoa_owner_character_id === "string"
+      ? (shipData.byoa_owner_character_id as string)
+      : null;
+    const isByoaShip = Boolean(byoaOwnerId);
     const isRequesterByoaOwner = Boolean(
       byoaOwnerId && characterId === byoaOwnerId,
     );
@@ -164,10 +159,9 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     // Authorization rules:
     // - Task owner or actor can cancel their own tasks (normal mode)
     // - Any corp member can cancel corp ship tasks (normal mode), UNLESS
-    //   the ship is BYOA-private — then only the BYOA owner (or task
-    //   actor) may cancel
+    //   the ship is BYOA — then only the BYOA owner (or task actor) may cancel
     // - force=true: requester must be a corp member of a corp ship; bypasses
-    //   the owner/actor and BYOA-private checks entirely so a corpmate can
+    //   the owner/actor and BYOA checks entirely so a corpmate can
     //   yank a stuck lock without waiting for the stale window.
     if (forceFlag) {
       if (!(isCorpShipTask && isSameCorp)) {
@@ -177,7 +171,7 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
           403,
         );
       }
-    } else if (isByoaPrivate) {
+    } else if (isByoaShip) {
       if (!(isRequesterByoaOwner || isRequesterActor)) {
         sAuthCheck.end();
         return new Response(
@@ -206,10 +200,9 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     let cancelOwnerCharacterId = taskOwnerCharacterId;
 
     if (forceFlag) {
-      const currentTaskId =
-        typeof shipData?.current_task_id === "string"
-          ? shipData.current_task_id
-          : null;
+      const currentTaskId = typeof shipData?.current_task_id === "string"
+        ? shipData.current_task_id
+        : null;
       if (currentTaskId) {
         cancelTaskId = currentTaskId;
         if (currentTaskId !== fullTaskId) {
@@ -223,8 +216,14 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
               .limit(1)
               .maybeSingle();
           if (currentTaskErr) {
-            console.error("task_cancel.force_current_task_lookup", currentTaskErr);
-            return errorResponse("Failed to validate current task ownership", 500);
+            console.error(
+              "task_cancel.force_current_task_lookup",
+              currentTaskErr,
+            );
+            return errorResponse(
+              "Failed to validate current task ownership",
+              500,
+            );
           }
           if (!currentTaskStart?.character_id) {
             return errorResponse("Current ship task metadata not found", 409);

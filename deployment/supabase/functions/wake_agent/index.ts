@@ -1,18 +1,16 @@
 /**
  * Edge Function: wake_agent
  *
- * Called by the bot's VoiceAgent when delegating a task to a BYOA ship.
- * Two things happen here, both server-side:
+ * Called by the bot's VoiceAgent for BYOA task wake.
  *
- *   1. Allocation: record the bot's subagent-bus channel on the ship's
- *      task-lock row (`ship_instances.byoa_session_channel`). The BYOA's
- *      claim endpoint reads this back to tell the operator's process which
- *      channel to join — that's the discovery rendezvous.
+ *   1. Channel handoff: the voice agent owns the per-session subagent-bus
+ *      channel and includes it in this request.
  *
  *   2. Spawn dispatch: based on `WAKE_TARGET` env, optionally trigger a
- *      remote process spawn (Vercel Sandbox, Lambda, etc.) so a sleeping
- *      operator process boots in time to claim. `noop` is the dev default —
- *      the operator already has `uv run byoa` running and polling.
+ *      process spawn with BYOA_CHANNEL, BYOA_SHIP_ID, and
+ *      BYOA_BUS_DATABASE_URL. Local dev uses the generic `http` target against
+ *      `uv run byoa serve`; future production sandbox targets use the same
+ *      runtime env payload.
  *
  * Authorization: same `authenticate(req)` + `canActOnCharacter(auth, ship_id)`
  * as every other bot-side endpoint. Channel format is validated server-side
@@ -52,11 +50,129 @@ function lifecycleHint(): "single_task" | "idle_loop" {
     : "single_task";
 }
 
+type SpawnResult = {
+  target: string;
+  status: string;
+};
+
+function byoaRuntimeEnv(
+  shipId: string,
+  channel: string,
+  taskId: string,
+  requestId: string,
+  byoaBusDatabaseUrl: string,
+): Record<string, string> {
+  return {
+    BYOA_CHANNEL: channel,
+    BYOA_SHIP_ID: shipId,
+    BYOA_BUS_DATABASE_URL: byoaBusDatabaseUrl,
+    BYOA_TASK_ID: taskId,
+    BYOA_WAKE_REQUEST_ID: requestId,
+  };
+}
+
+async function dispatchHttpSpawn(
+  shipId: string,
+  channel: string,
+  taskId: string,
+  requestId: string,
+  byoaBusDatabaseUrl: string,
+): Promise<SpawnResult> {
+  const target = "http";
+  const wakeUrl = (Deno.env.get("BYOA_WAKE_URL") ?? "").trim();
+  const edgeApiToken = (Deno.env.get("EDGE_API_TOKEN") ?? "").trim();
+
+  if (!wakeUrl) {
+    console.error(
+      "wake_agent.spawn.http.missing_byoa_wake_url",
+      JSON.stringify({ request_id: requestId, ship_id: shipId, channel }),
+    );
+    return { target, status: "missing_byoa_wake_url" };
+  }
+  if (!edgeApiToken) {
+    console.error(
+      "wake_agent.spawn.http.missing_edge_api_token",
+      JSON.stringify({ request_id: requestId, ship_id: shipId, channel }),
+    );
+    return { target, status: "missing_edge_api_token" };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(wakeUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${edgeApiToken}`,
+      },
+      body: JSON.stringify({
+        request_id: requestId,
+        ship_id: shipId,
+        channel,
+        task_id: taskId,
+        env: byoaRuntimeEnv(
+          shipId,
+          channel,
+          taskId,
+          requestId,
+          byoaBusDatabaseUrl,
+        ),
+      }),
+      signal: controller.signal,
+    });
+
+    if (response.ok) {
+      console.log(
+        "wake_agent.spawn.http.accepted",
+        JSON.stringify({
+          request_id: requestId,
+          ship_id: shipId,
+          channel,
+          status: response.status,
+        }),
+      );
+      return { target, status: "accepted" };
+    }
+
+    const body = await response.text().catch(() => "");
+    console.error(
+      "wake_agent.spawn.http.failed",
+      JSON.stringify({
+        request_id: requestId,
+        ship_id: shipId,
+        channel,
+        status: response.status,
+        body: body.slice(0, 500),
+      }),
+    );
+    return { target, status: `http_${response.status}` };
+  } catch (err) {
+    const status = err instanceof DOMException && err.name === "AbortError"
+      ? "timeout"
+      : "request_failed";
+    console.error(
+      "wake_agent.spawn.http.error",
+      JSON.stringify({
+        request_id: requestId,
+        ship_id: shipId,
+        channel,
+        status,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return { target, status };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function dispatchSpawn(
   shipId: string,
   channel: string,
+  taskId: string,
   requestId: string,
-): Promise<{ target: string; status: string }> {
+): Promise<SpawnResult> {
   const target = (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase();
   if (target === "noop") {
     console.log(
@@ -65,10 +181,41 @@ async function dispatchSpawn(
     );
     return { target, status: "noop" };
   }
-  // Spawn implementations for `vercel` / `lambda` land in follow-up work.
+  const byoaBusDatabaseUrl = (Deno.env.get("BYOA_BUS_DATABASE_URL") ?? "")
+    .trim();
+  if (!byoaBusDatabaseUrl) {
+    console.error(
+      "wake_agent.spawn.missing_byoa_bus_database_url",
+      JSON.stringify({ request_id: requestId, ship_id: shipId, channel }),
+    );
+    return { target, status: "missing_byoa_bus_database_url" };
+  }
+  if (target === "http") {
+    return await dispatchHttpSpawn(
+      shipId,
+      channel,
+      taskId,
+      requestId,
+      byoaBusDatabaseUrl,
+    );
+  }
+
+  if (target !== "vercel_sandbox") {
+    console.warn(
+      "wake_agent.spawn.unknown_target",
+      JSON.stringify({
+        request_id: requestId,
+        ship_id: shipId,
+        channel,
+        target,
+      }),
+    );
+    return { target, status: "unknown_target" };
+  }
+
+  // Spawn implementation for `vercel_sandbox` lands in follow-up work.
   // For now they fall through to a logged no-op so an operator misreading
-  // the env var doesn't get a 500 — they get a visible warning in logs and
-  // the dev claim flow still works for them.
+  // the env var doesn't get a 500 — they get a visible warning in logs.
   console.warn(
     "wake_agent.spawn.unimplemented",
     JSON.stringify({
@@ -76,6 +223,13 @@ async function dispatchSpawn(
       ship_id: shipId,
       channel,
       target,
+      env: byoaRuntimeEnv(
+        shipId,
+        channel,
+        taskId,
+        requestId,
+        "<set>",
+      ),
     }),
   );
   return { target, status: "unimplemented" };
@@ -104,6 +258,12 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
       status: "ok",
       token_present: Boolean(Deno.env.get("EDGE_API_TOKEN")),
       wake_target: (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase(),
+      byoa_bus_database_url_present: Boolean(
+        (Deno.env.get("BYOA_BUS_DATABASE_URL") ?? "").trim(),
+      ),
+      byoa_wake_url_present: Boolean(
+        (Deno.env.get("BYOA_WAKE_URL") ?? "").trim(),
+      ),
     });
   }
 
@@ -111,7 +271,13 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
 
   try {
     const shipId = requireString(payload, "ship_id");
-    const characterId = requireString(payload, "character_id");
+    // character_id is optional and informational only. canActOnCharacter()
+    // resolves authz against shipId; the BYOA owner is read from the
+    // ship row server-side. We accept it for logging but never require it
+    // — the bot's supabase client canonicalizes character_id to a full
+    // UUID and the truncated BYOA-owner prefix the bot might be tempted
+    // to send would fail that canonicalization.
+    const characterId = optionalString(payload, "character_id");
     const channel = requireString(payload, "channel");
     const taskId = optionalString(payload, "task_id");
 
@@ -124,7 +290,7 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
         400,
       );
     }
-    if (taskId !== undefined && !validateUuid(taskId)) {
+    if (taskId !== null && !validateUuid(taskId)) {
       return errorResponse("task_id must be a UUID", 400);
     }
 
@@ -150,11 +316,11 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
       return errorResponse("not_a_byoa_ship", 400);
     }
 
-    // Allocate the session channel. The atomic guard is `current_task_id`:
-    // we only stamp the channel when the task-lock row still names the
-    // task the bot claims to be running. If the lock was stolen between
-    // acquire and wake, ROWCOUNT is 0 and we refuse to allocate — the bot
-    // surfaces the wake timeout and another caller can try.
+    // Register the session channel. With a task_id this is guarded by the
+    // active ship-task lock so a stale wake cannot re-point the ship after
+    // the lock moved. Without a task_id this is idle registration: the bot
+    // is advertising the channel a local/long-running BYOA process should
+    // join before any task exists.
     let updateQuery = supabase
       .from("ship_instances")
       .update({
@@ -162,10 +328,8 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
         byoa_session_allocated_at: new Date().toISOString(),
       })
       .eq("ship_id", shipId);
-    if (taskId !== undefined) {
+    if (taskId !== null) {
       updateQuery = updateQuery.eq("current_task_id", taskId);
-    } else {
-      updateQuery = updateQuery.not("current_task_id", "is", null);
     }
     const { data: updated, error: updateErr } = await updateQuery.select(
       "ship_id, current_task_id, byoa_session_channel",
@@ -175,17 +339,20 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
       return errorResponse("Failed to allocate session channel", 500);
     }
     if (!updated || updated.length === 0) {
-      // Either the lock isn't held by this task, or the row vanished.
-      // Returning 409 lets the bot distinguish this from auth/validation
-      // failures and trigger its existing wake-timeout watchdog cleanly.
+      // Either the task lock isn't held by this task, or the row vanished.
       return errorResponse("lock_not_held", 409);
     }
 
-    const spawn = await dispatchSpawn(shipId, channel, requestId);
+    const spawn = taskId !== null
+      ? await dispatchSpawn(shipId, channel, taskId, requestId)
+      : {
+        target: (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase(),
+        status: "registered",
+      };
 
     trace.setInput({
       shipId,
-      characterId,
+      characterId: characterId ?? null,
       taskId: taskId ?? null,
       channel,
       requestId,

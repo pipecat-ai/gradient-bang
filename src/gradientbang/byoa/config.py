@@ -75,16 +75,11 @@ class ByoaAgentConfig:
     # Mirrors ``TASK_LOCK_HARD_TTL_MINUTES``.
     server_lock_hard_ttl_minutes_expected: int = 30
 
-    # BYOA-CLI only: cadence for `byoa_session_claim` polling between
-    # tasks. 5s gives dev operators a sub-poll task-start latency without
-    # hammering the edge function. Production single-task processes call
-    # claim once at startup and exit on task completion, so this is
-    # irrelevant there.
+    # Deprecated BYOA-CLI setting kept for env compatibility. The CLI now
+    # receives the channel from wake / --channel and waits for tasks over PGMQ.
     poll_interval_seconds: float = 5.0
 
-    # BYOA-CLI only: URL of the byoa_session_claim edge function. Required
-    # at runtime; no default because the deployment-specific Supabase URL
-    # is part of the operator's identity bundle (set via byoa-setup).
+    # Deprecated BYOA-CLI setting kept for env compatibility.
     claim_endpoint_url: str = ""
 
     @classmethod

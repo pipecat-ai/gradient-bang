@@ -56,10 +56,24 @@ async function seedCorpWithMembers(
 async function acquireLockOn(shipId: string, taskId: string, actorId: string) {
   await withPg(async (pg) => {
     await pg.queryObject(
+      `SELECT force_release_ship_task_lock($1::uuid)`,
+      [shipId],
+    );
+    await pg.queryObject(
       `SELECT acquire_ship_task_lock($1::uuid, $2::uuid, $3::uuid, 180, 30)`,
       [shipId, taskId, actorId],
     );
   });
+}
+
+function restoreEnv(snapshot: Record<string, string | undefined>) {
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value === undefined) {
+      Deno.env.delete(key);
+    } else {
+      Deno.env.set(key, value);
+    }
+  }
 }
 
 Deno.test({
@@ -100,7 +114,33 @@ Deno.test({
       await acquireLockOn(corpShipId, taskId, p1Id);
     });
 
-    await t.step("happy path → 200, channel recorded on row", async () => {
+    await t.step(
+      "idle registration without task_id → 200, channel recorded on row",
+      async () => {
+        const result = await apiOk("wake_agent", {
+          ship_id: corpShipId,
+          character_id: p1Id,
+          channel,
+        });
+        const body = result as Record<string, unknown>;
+        assertEquals(body.ship_id, corpShipId);
+        assertEquals(body.channel, channel);
+        assertEquals(body.spawn_target, "noop");
+        assertEquals(body.spawn_status, "registered");
+
+        await withPg(async (pg) => {
+          const rows = await pg.queryObject<
+            { byoa_session_channel: string | null }
+          >(
+            `SELECT byoa_session_channel FROM ship_instances WHERE ship_id = $1::uuid`,
+            [corpShipId],
+          );
+          assertEquals(rows.rows[0].byoa_session_channel, channel);
+        });
+      },
+    );
+
+    await t.step("task wake → 200, channel refreshed on row", async () => {
       const result = await apiOk("wake_agent", {
         ship_id: corpShipId,
         character_id: p1Id,
@@ -111,7 +151,9 @@ Deno.test({
       assertEquals(body.ship_id, corpShipId);
       assertEquals(body.channel, channel);
       // lifecycle_hint reflects WAKE_TARGET (default noop in tests).
-      assert(["single_task", "idle_loop"].includes(body.lifecycle_hint as string));
+      assert(
+        ["single_task", "idle_loop"].includes(body.lifecycle_hint as string),
+      );
       assertEquals(body.spawn_target, "noop");
       assertEquals(body.spawn_status, "noop");
 
@@ -137,19 +179,22 @@ Deno.test({
       assertEquals(result.status, 400);
     });
 
-    await t.step("stale task_id (lock not held) → 409 lock_not_held", async () => {
-      const result = await api("wake_agent", {
-        ship_id: corpShipId,
-        character_id: p1Id,
-        task_id: crypto.randomUUID(),
-        channel,
-      });
-      assertEquals(result.status, 409);
-      assertEquals(
-        (result.body as Record<string, unknown>).error,
-        "lock_not_held",
-      );
-    });
+    await t.step(
+      "stale task_id (lock not held) → 409 lock_not_held",
+      async () => {
+        const result = await api("wake_agent", {
+          ship_id: corpShipId,
+          character_id: p1Id,
+          task_id: crypto.randomUUID(),
+          channel,
+        });
+        assertEquals(result.status, 409);
+        assertEquals(
+          (result.body as Record<string, unknown>).error,
+          "lock_not_held",
+        );
+      },
+    );
 
     await t.step("non-BYOA ship → 400 not_a_byoa_ship", async () => {
       const result = await api("wake_agent", {
@@ -180,6 +225,170 @@ Deno.test({
         channel,
       });
       assertEquals(result.status, 400);
+    });
+  },
+});
+
+Deno.test({
+  name: "wake_agent — http wake provider",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await startServerInProcess();
+    p1Id = await characterIdFor(P1);
+    p2Id = await characterIdFor(P2);
+    p1ShipId = await shipIdFor(P1);
+
+    let corpShipId: string;
+    let taskId = crypto.randomUUID();
+    const channel = "bot_http_abc";
+
+    await t.step("seed corp + claim BYOA + acquire lock", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50_000);
+      const seeded = await seedCorpWithMembers(p1Id, [p2Id], "Wake HTTP Corp");
+      corpShipId = seeded.corpShipId;
+      await apiOk("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "claim",
+        mode: "private",
+      });
+      await acquireLockOn(corpShipId, taskId, p1Id);
+    });
+
+    const envSnapshot = {
+      WAKE_TARGET: Deno.env.get("WAKE_TARGET"),
+      BYOA_WAKE_URL: Deno.env.get("BYOA_WAKE_URL"),
+      EDGE_API_TOKEN: Deno.env.get("EDGE_API_TOKEN"),
+      BYOA_BUS_DATABASE_URL: Deno.env.get("BYOA_BUS_DATABASE_URL"),
+    };
+
+    await t.step(
+      "missing http provider env → visible spawn failure",
+      async () => {
+        try {
+          Deno.env.set("WAKE_TARGET", "http");
+          Deno.env.delete("BYOA_WAKE_URL");
+          Deno.env.set("EDGE_API_TOKEN", "test-secret");
+          Deno.env.set(
+            "BYOA_BUS_DATABASE_URL",
+            "postgresql://byoa_login:test@db/postgres",
+          );
+
+          const result = await apiOk("wake_agent", {
+            ship_id: corpShipId,
+            character_id: p1Id,
+            task_id: taskId,
+            channel,
+          });
+          const body = result as Record<string, unknown>;
+          assertEquals(body.spawn_target, "http");
+          assertEquals(body.spawn_status, "missing_byoa_wake_url");
+        } finally {
+          restoreEnv(envSnapshot);
+        }
+      },
+    );
+
+    await t.step(
+      "http provider receives wake payload + bearer auth",
+      async () => {
+        taskId = crypto.randomUUID();
+        await acquireLockOn(corpShipId, taskId, p1Id);
+
+        let received = false;
+        let receivedAuth = "";
+        let receivedPayload: Record<string, unknown> = {};
+        const provider = Deno.serve(
+          { hostname: "127.0.0.1", port: 0 },
+          async (req) => {
+            received = true;
+            receivedAuth = req.headers.get("Authorization") ?? "";
+            receivedPayload = await req.json();
+            return new Response(JSON.stringify({ success: true }), {
+              status: 202,
+              headers: { "Content-Type": "application/json" },
+            });
+          },
+        );
+
+        try {
+          Deno.env.set("WAKE_TARGET", "http");
+          Deno.env.set(
+            "BYOA_WAKE_URL",
+            `http://127.0.0.1:${provider.addr.port}/wake`,
+          );
+          Deno.env.set("EDGE_API_TOKEN", "test-secret");
+          Deno.env.set(
+            "BYOA_BUS_DATABASE_URL",
+            "postgresql://byoa_login:test@db/postgres",
+          );
+
+          const result = await apiOk("wake_agent", {
+            ship_id: corpShipId,
+            character_id: p1Id,
+            task_id: taskId,
+            channel,
+          });
+          const body = result as Record<string, unknown>;
+          assertEquals(body.spawn_target, "http");
+          assertEquals(body.spawn_status, "accepted");
+          assertEquals(receivedAuth, "Bearer test-secret");
+          assert(received, "provider should receive wake payload");
+          assertEquals(receivedPayload.ship_id, corpShipId);
+          assertEquals(receivedPayload.channel, channel);
+          assertEquals(receivedPayload.task_id, taskId);
+          const env = receivedPayload.env as Record<string, unknown>;
+          assertEquals(env.BYOA_CHANNEL, channel);
+          assertEquals(env.BYOA_SHIP_ID, corpShipId);
+          assertEquals(
+            env.BYOA_BUS_DATABASE_URL,
+            "postgresql://byoa_login:test@db/postgres",
+          );
+        } finally {
+          await provider.shutdown();
+          restoreEnv(envSnapshot);
+        }
+      },
+    );
+
+    await t.step("http provider non-2xx → visible spawn failure", async () => {
+      taskId = crypto.randomUUID();
+      await acquireLockOn(corpShipId, taskId, p1Id);
+
+      const provider = Deno.serve(
+        { hostname: "127.0.0.1", port: 0 },
+        () => new Response("nope", { status: 503 }),
+      );
+
+      try {
+        Deno.env.set("WAKE_TARGET", "http");
+        Deno.env.set(
+          "BYOA_WAKE_URL",
+          `http://127.0.0.1:${provider.addr.port}/wake`,
+        );
+        Deno.env.set("EDGE_API_TOKEN", "test-secret");
+        Deno.env.set(
+          "BYOA_BUS_DATABASE_URL",
+          "postgresql://byoa_login:test@db/postgres",
+        );
+
+        const result = await apiOk("wake_agent", {
+          ship_id: corpShipId,
+          character_id: p1Id,
+          task_id: taskId,
+          channel,
+        });
+        const body = result as Record<string, unknown>;
+        assertEquals(body.spawn_target, "http");
+        assertEquals(body.spawn_status, "http_503");
+      } finally {
+        await provider.shutdown();
+        restoreEnv(envSnapshot);
+      }
     });
   },
 });

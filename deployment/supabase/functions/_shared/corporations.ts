@@ -56,7 +56,7 @@ export interface CorporationShipSummary {
   byoa: {
     owner_character_id_prefix: string;
     owner_character_name: string | null;
-    mode: "private" | "shared";
+    mode: "private";
   } | null;
 }
 
@@ -73,35 +73,224 @@ export interface DestroyedCorporationShip {
 // round-trips tend to fail (e.g. "knight"/"night", "flour"/"flower",
 // "sun"/"son"). Words kept short and unambiguous so humans can speak them.
 const INVITE_WORDS: readonly string[] = [
-  "alpha", "amber", "anchor", "arc", "arrow", "ash", "aster", "atlas", "atom",
-  "aurora", "azure", "beacon", "beta", "binary", "blaze", "blue", "bolt",
-  "boson", "brass", "bronze", "canopy", "canyon", "carbon", "cargo", "cedar",
-  "cinder", "cipher", "citadel", "cliff", "cluster", "cobalt", "comet",
-  "compass", "copper", "coral", "cortex", "cosmic", "crater", "crest",
-  "crimson", "crown", "crystal", "cypher", "delta", "dock", "domain", "dune",
-  "dusk", "eagle", "echo", "eclipse", "ember", "emerald", "engine", "ether",
-  "falcon", "flare", "flint", "forge", "fox", "fractal", "frost", "galaxy",
-  "gamma", "garnet", "glacier", "glint", "granite", "gravity", "grove",
-  "harbor", "hawk", "haven", "helios", "helix", "herald", "horizon", "hydro",
-  "ice", "indigo", "iris", "iron", "ivory", "jade", "jasper", "jolt", "keel",
-  "kelp", "kestrel", "keystone", "kodiak", "krypton", "lantern", "ledger",
-  "lithium", "lumen", "lunar", "lynx", "magma", "magnet", "mantle", "marble",
-  "marsh", "meadow", "mercury", "meridian", "mesa", "meteor", "mist", "mongoose",
-  "moon", "mosaic", "nebula", "neon", "nimbus", "nomad", "north", "nova",
-  "nucleus", "oak", "obsidian", "omega", "onyx", "opal", "orbit", "orchid",
-  "osprey", "oxygen", "panther", "patrol", "peak", "pebble", "phantom",
-  "phoenix", "photon", "pilot", "pine", "pioneer", "pixel", "plasma",
-  "platinum", "prism", "proton", "pulse", "python", "quartz", "quasar",
-  "quest", "radar", "radon", "raven", "redwood", "rift", "ripple", "river",
-  "rocket", "ruby", "rune", "saber", "saffron", "sage", "sapphire", "scout",
-  "sentry", "shadow", "shield", "sierra", "signal", "silver", "solar",
-  "solstice", "sonar", "sphere", "spire", "spruce", "stellar", "stone",
-  "storm", "stratus", "summit", "surge", "talon", "tangent", "tempest",
-  "terra", "thunder", "tiger", "titan", "tonic", "topaz", "torch", "totem",
-  "tower", "tundra", "turbo", "ultra", "umbra", "valor", "vanguard", "vector",
-  "velvet", "vertex", "vesper", "violet", "vortex", "voyager", "waft",
-  "warden", "watch", "wave", "whisper", "wolf", "xenon", "yonder", "zenith",
-  "zephyr", "zeta", "zinc",
+  "alpha",
+  "amber",
+  "anchor",
+  "arc",
+  "arrow",
+  "ash",
+  "aster",
+  "atlas",
+  "atom",
+  "aurora",
+  "azure",
+  "beacon",
+  "beta",
+  "binary",
+  "blaze",
+  "blue",
+  "bolt",
+  "boson",
+  "brass",
+  "bronze",
+  "canopy",
+  "canyon",
+  "carbon",
+  "cargo",
+  "cedar",
+  "cinder",
+  "cipher",
+  "citadel",
+  "cliff",
+  "cluster",
+  "cobalt",
+  "comet",
+  "compass",
+  "copper",
+  "coral",
+  "cortex",
+  "cosmic",
+  "crater",
+  "crest",
+  "crimson",
+  "crown",
+  "crystal",
+  "cypher",
+  "delta",
+  "dock",
+  "domain",
+  "dune",
+  "dusk",
+  "eagle",
+  "echo",
+  "eclipse",
+  "ember",
+  "emerald",
+  "engine",
+  "ether",
+  "falcon",
+  "flare",
+  "flint",
+  "forge",
+  "fox",
+  "fractal",
+  "frost",
+  "galaxy",
+  "gamma",
+  "garnet",
+  "glacier",
+  "glint",
+  "granite",
+  "gravity",
+  "grove",
+  "harbor",
+  "hawk",
+  "haven",
+  "helios",
+  "helix",
+  "herald",
+  "horizon",
+  "hydro",
+  "ice",
+  "indigo",
+  "iris",
+  "iron",
+  "ivory",
+  "jade",
+  "jasper",
+  "jolt",
+  "keel",
+  "kelp",
+  "kestrel",
+  "keystone",
+  "kodiak",
+  "krypton",
+  "lantern",
+  "ledger",
+  "lithium",
+  "lumen",
+  "lunar",
+  "lynx",
+  "magma",
+  "magnet",
+  "mantle",
+  "marble",
+  "marsh",
+  "meadow",
+  "mercury",
+  "meridian",
+  "mesa",
+  "meteor",
+  "mist",
+  "mongoose",
+  "moon",
+  "mosaic",
+  "nebula",
+  "neon",
+  "nimbus",
+  "nomad",
+  "north",
+  "nova",
+  "nucleus",
+  "oak",
+  "obsidian",
+  "omega",
+  "onyx",
+  "opal",
+  "orbit",
+  "orchid",
+  "osprey",
+  "oxygen",
+  "panther",
+  "patrol",
+  "peak",
+  "pebble",
+  "phantom",
+  "phoenix",
+  "photon",
+  "pilot",
+  "pine",
+  "pioneer",
+  "pixel",
+  "plasma",
+  "platinum",
+  "prism",
+  "proton",
+  "pulse",
+  "python",
+  "quartz",
+  "quasar",
+  "quest",
+  "radar",
+  "radon",
+  "raven",
+  "redwood",
+  "rift",
+  "ripple",
+  "river",
+  "rocket",
+  "ruby",
+  "rune",
+  "saber",
+  "saffron",
+  "sage",
+  "sapphire",
+  "scout",
+  "sentry",
+  "shadow",
+  "shield",
+  "sierra",
+  "signal",
+  "silver",
+  "solar",
+  "solstice",
+  "sonar",
+  "sphere",
+  "spire",
+  "spruce",
+  "stellar",
+  "stone",
+  "storm",
+  "stratus",
+  "summit",
+  "surge",
+  "talon",
+  "tangent",
+  "tempest",
+  "terra",
+  "thunder",
+  "tiger",
+  "titan",
+  "tonic",
+  "topaz",
+  "torch",
+  "totem",
+  "tower",
+  "tundra",
+  "turbo",
+  "ultra",
+  "umbra",
+  "valor",
+  "vanguard",
+  "vector",
+  "velvet",
+  "vertex",
+  "vesper",
+  "violet",
+  "vortex",
+  "voyager",
+  "waft",
+  "warden",
+  "watch",
+  "wave",
+  "whisper",
+  "wolf",
+  "xenon",
+  "yonder",
+  "zenith",
+  "zephyr",
+  "zeta",
+  "zinc",
 ];
 
 function pickWord(): string {
@@ -328,7 +517,10 @@ export async function fetchCorporationShipSummaries(
   const activeTasks = await fetchActiveTaskIdsByShip(supabase, shipIds);
   // One batched lookup for all character names referenced by the new
   // current_task_actor / byoa blocks. Non-BYOA ships contribute nothing.
-  const characterNames = await loadShipParticipantNames(supabase, shipRows ?? []);
+  const characterNames = await loadShipParticipantNames(
+    supabase,
+    shipRows ?? [],
+  );
   const summaries: CorporationShipSummary[] = [];
 
   for (const row of shipRows ?? []) {
@@ -346,12 +538,12 @@ export async function fetchCorporationShipSummaries(
     summaries.push({
       ship_id: shipId,
       ship_type: row.ship_type ?? "unknown",
-      name:
-        typeof row.ship_name === "string" && row.ship_name.trim().length > 0
-          ? row.ship_name
-          : (definition?.display_name ?? row.ship_type ?? shipId),
-      sector:
-        typeof row.current_sector === "number" ? row.current_sector : null,
+      name: typeof row.ship_name === "string" && row.ship_name.trim().length > 0
+        ? row.ship_name
+        : (definition?.display_name ?? row.ship_type ?? shipId),
+      sector: typeof row.current_sector === "number"
+        ? row.current_sector
+        : null,
       owner_type: row.owner_type ?? "unowned",
       control_ready: controlReady.has(shipId),
       credits: Number(row.credits ?? 0),
@@ -382,10 +574,9 @@ export function buildTaskActorBlock(
   row: Record<string, unknown>,
   characterNames: Map<string, string>,
 ): CorporationShipSummary["current_task_actor"] {
-  const actorId =
-    typeof row.task_actor_character_id === "string"
-      ? (row.task_actor_character_id as string)
-      : null;
+  const actorId = typeof row.task_actor_character_id === "string"
+    ? (row.task_actor_character_id as string)
+    : null;
   if (!actorId) return null;
   return {
     character_id_prefix: truncateUuid(actorId),
@@ -403,17 +594,14 @@ export function buildByoaBlock(
   row: Record<string, unknown>,
   characterNames: Map<string, string>,
 ): CorporationShipSummary["byoa"] {
-  const ownerId =
-    typeof row.byoa_owner_character_id === "string"
-      ? (row.byoa_owner_character_id as string)
-      : null;
+  const ownerId = typeof row.byoa_owner_character_id === "string"
+    ? (row.byoa_owner_character_id as string)
+    : null;
   if (!ownerId) return null;
-  const mode =
-    row.byoa_mode === "shared" ? "shared" : "private";
   return {
     owner_character_id_prefix: truncateUuid(ownerId),
     owner_character_name: characterNames.get(ownerId) ?? null,
-    mode,
+    mode: "private",
   };
 }
 
@@ -490,8 +678,9 @@ export async function fetchDestroyedCorporationShips(
           typeof row.ship_name === "string" && row.ship_name.trim().length > 0
             ? row.ship_name
             : (definition?.display_name ?? row.ship_type ?? row.ship_id),
-        sector:
-          typeof row.current_sector === "number" ? row.current_sector : null,
+        sector: typeof row.current_sector === "number"
+          ? row.current_sector
+          : null,
         destroyed_at: row.destroyed_at,
       };
     });
@@ -516,8 +705,8 @@ export function buildCorporationMemberPayload(
   destroyedShips: DestroyedCorporationShip[] = [],
   requesterCharacterId: string | null = null,
 ): Record<string, unknown> {
-  const isFounder =
-    requesterCharacterId !== null && corp.founder_id === requesterCharacterId;
+  const isFounder = requesterCharacterId !== null &&
+    corp.founder_id === requesterCharacterId;
   const payload: Record<string, unknown> = {
     ...buildCorporationPublicPayload(corp, members.length),
     founder_id: corp.founder_id,
@@ -727,9 +916,7 @@ async function loadShipDefinitions(
   const shipTypes = Array.from(
     new Set(
       shipRows
-        .map((row) =>
-          typeof row.ship_type === "string" ? row.ship_type : null,
-        )
+        .map((row) => typeof row.ship_type === "string" ? row.ship_type : null)
         .filter((value): value is string => Boolean(value)),
     ),
   );

@@ -1339,24 +1339,29 @@ class AsyncGameClient:
         self,
         *,
         ship_id: str,
-        character_id: str,
         channel: str,
         task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Call the server-side ``wake_agent`` endpoint for a BYOA ship.
 
-        Allocates a session channel for the BYOA's task: writes ``channel``
-        onto ``ship_instances.byoa_session_channel`` (atomically gated by
-        ``current_task_id == task_id``) and dispatches the configured
-        ``WAKE_TARGET`` spawn. The operator's process polls
-        ``byoa_session_claim`` to discover the channel and join.
+        Passes the bot's per-session PGMQ channel to the server-side wake
+        dispatcher for a BYOA ship. Local dev uses ``WAKE_TARGET=http``
+        pointed at ``uv run byoa serve``; future remote wake targets spawn
+        the process with ``BYOA_CHANNEL``, ``BYOA_SHIP_ID``, and the
+        restricted ``BYOA_BUS_DATABASE_URL``.
+
+        The bot's own ``character_id`` is auto-injected by ``_request``
+        for auth (``canActOnCharacter`` resolves the BYOA owner from the
+        row server-side), so callers do NOT pass the BYOA owner's
+        truncated identifier here — that prefix would fail UUID
+        canonicalization in the supabase client.
 
         Args:
             ship_id: Corp ship pseudo-character_id being delegated to.
-            character_id: BYOA-owner character (informational/logging).
             channel: Bot's subagent-bus channel — the BYOA joins this.
-                Must match the bot's ``SUBAGENT_BUS_CHANNEL``.
-            task_id: Active task UUID (atomic guard for the allocation).
+                This is the derived per-session channel, not the static
+                ``SUBAGENT_BUS_CHANNEL`` prefix.
+            task_id: Optional active task UUID for the wake/spawn path.
 
         Returns:
             ``{request_id, ship_id, channel, spawn_target, spawn_status,
@@ -1364,7 +1369,6 @@ class AsyncGameClient:
         """
         payload: Dict[str, Any] = {
             "ship_id": ship_id,
-            "character_id": character_id,
             "channel": channel,
         }
         if task_id is not None:

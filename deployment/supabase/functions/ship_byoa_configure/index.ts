@@ -2,19 +2,17 @@
  * Edge Function: ship_byoa_configure
  *
  * Configures BYOA (Bring-Your-Own-Agent) state on a corporation ship.
- * Three actions:
+ * Two actions:
  *
- *   - claim: set byoa_owner_character_id = self, byoa_mode = private|shared
- *   - set_mode: change byoa_mode (only the current owner can)
+ *   - claim: set byoa_owner_character_id = self, byoa_mode = private
  *   - clear: set byoa_owner_character_id = NULL, byoa_mode = 'private' (default)
  *
  * Rules:
  *   - Caller must be a corp member of the ship's corp
  *   - Self-only claim: a member can only claim BYOA for themselves
- *   - set_mode requires being the current byoa_owner_character_id
  *   - clear is allowed by the current owner; non-owners cannot clear in
  *     Groundwork (a future stale-owner recovery path may relax this)
- *   - Refuses to claim/clear/set_mode while current_task_id IS NOT NULL —
+ *   - Refuses to claim/clear while current_task_id IS NOT NULL —
  *     can't yank BYOA state out from under a running task
  *   - Only corporation-owned ships can have BYOA configured
  */
@@ -42,11 +40,11 @@ import {
 } from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
 
-type ByoaAction = "claim" | "set_mode" | "clear";
+type ByoaAction = "claim" | "clear";
 type ByoaMode = "private" | "shared";
 
-const VALID_ACTIONS: readonly ByoaAction[] = ["claim", "set_mode", "clear"];
-const VALID_MODES: readonly ByoaMode[] = ["private", "shared"];
+const VALID_ACTIONS: readonly ByoaAction[] = ["claim", "clear"];
+const VALID_MODES: readonly ByoaMode[] = ["private"];
 
 Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
   let auth: AuthContext;
@@ -111,13 +109,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       // Default new BYOA claims to private — the more conservative choice.
       mode = "private";
     }
-    if (action === "set_mode" && mode === null) {
-      throw new RequestValidationError(
-        "mode is required for set_mode",
-        400,
-      );
-    }
-
     trace.setInput({ characterId, shipId, action, mode, requestId });
 
     // Load ship + current BYOA state.
@@ -167,7 +158,7 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     }
 
     // Locked-task guard — no BYOA changes while a task is in flight on this
-    // ship. Toggling owner/mode mid-task would create ambiguity about who's
+    // ship. Toggling ownership mid-task would create ambiguity about who's
     // running the active task.
     if (shipRow.current_task_id !== null) {
       return new Response(
@@ -201,15 +192,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       }
       nextOwner = characterId;
       nextMode = mode ?? "private";
-    } else if (action === "set_mode") {
-      if (!currentOwner || currentOwner !== characterId) {
-        return errorResponse(
-          "Only the current BYOA owner can change the mode",
-          403,
-        );
-      }
-      nextOwner = currentOwner;
-      nextMode = mode!;
     } else {
       // clear
       if (!currentOwner) {
@@ -232,8 +214,7 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       nextMode = "private";
     }
 
-    const changed =
-      currentOwner !== nextOwner || currentMode !== nextMode;
+    const changed = currentOwner !== nextOwner || currentMode !== nextMode;
 
     if (changed) {
       const updatePayload = {
@@ -308,7 +289,7 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
         actorCharacterId: characterId,
       });
     } else {
-      // No-op claim/set_mode — still tell the caller things are consistent
+      // No-op claim/clear — still tell the caller things are consistent
       // but don't fan out a corp-wide event for nothing.
       await emitCharacterEvent({
         supabase,

@@ -2,9 +2,6 @@ import asyncio
 import os
 import uuid
 
-from dotenv import load_dotenv
-from loguru import logger
-
 # Clamp aiortc's SCTP DATA-chunk payload size so the on-wire UDP packet fits
 # inside the smallest-MTU path we're likely to see in the wild (IPv6 minimum
 # 1280; Tailscale overlays default to 1280; some consumer VPNs are lower).
@@ -25,6 +22,8 @@ from loguru import logger
 # Remove once aiortc ships DPLPMTUD (RFC 8899) or once we wrap this in a
 # proper Pipecat-level transport option.
 import aiortc.rtcsctptransport as _sctp_transport
+from dotenv import load_dotenv
+from loguru import logger
 
 _SCTP_USERDATA_CLAMP = 1100
 _sctp_transport.USERDATA_MAX_LENGTH = _SCTP_USERDATA_CLAMP
@@ -34,7 +33,6 @@ logger.warning(
 )
 
 BOT_INSTANCE_ID: str | None = None
-from gradientbang.pipecat_server.voices import DEFAULT_VOICE, DEFAULT_VOICE_ID, VOICES
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     InterruptionFrame,
@@ -52,7 +50,7 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
-from pipecat.runner.types import RunnerArguments, DailyRunnerArguments
+from pipecat.runner.types import DailyRunnerArguments, RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
@@ -66,7 +64,9 @@ from pipecat.utils.context.llm_context_summarization import (
     LLMContextSummaryConfig,
 )
 
+from gradientbang.pipecat_server import STARTUP_BANNER
 from gradientbang.pipecat_server.s3_smart_turn import S3SmartTurnAnalyzerV3
+from gradientbang.pipecat_server.voices import DEFAULT_VOICE, DEFAULT_VOICE_ID, VOICES
 from gradientbang.utils.access_token import assert_access_token_valid
 from gradientbang.utils.llm_factory import (
     LLMProvider,
@@ -100,6 +100,9 @@ from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 from gradientbang.utils.weave_tracing import init_weave, traced
 
+if os.getenv("BOT_USE_KRISP"):
+    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
+
 # Initialize Weave early (before @traced decorators are applied to startup functions).
 # Must come after load_dotenv so WANDB_API_KEY is available.
 init_weave()
@@ -112,9 +115,6 @@ DEFAULT_PERSONALITY_TONE = (
     "Wistful about the old days when the Federation meant something, but too disciplined to dwell. "
     "Addresses the player as 'commander'."
 )
-
-if os.getenv("BOT_USE_KRISP"):
-    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 
 async def _lookup_character_display_name(
@@ -146,9 +146,7 @@ async def _lookup_character_display_name(
         ) as client:
             result = await client.character_info(character_id=character_id)
     except Exception as exc:
-        raise RuntimeError(
-            f"character_info lookup failed for {character_id}: {exc}"
-        ) from exc
+        raise RuntimeError(f"character_info lookup failed for {character_id}: {exc}") from exc
 
     name = result.get("name") if isinstance(result, dict) else None
     if not name:
@@ -330,17 +328,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     character_name_hint = body.get("character_name")
     # Per-character auth token — required so the bot can prove identity to
     # downstream auth-gated services (e.g. pgmq pubsub channels, character_info
-    # lookup). The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev/Ladle
+    # lookup). The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev
     # fallback for sessions that bypass the login → start proxy flow.
     body_access_token = body.get("access_token")
     access_token = body_access_token or os.getenv("BOT_TEST_ACCESS_TOKEN")
     if not access_token:
-        raise RuntimeError(
-            "access_token required to start a bot session. "
-            "Production: client/app passes it on /start after Supabase Auth login "
-            "(forwarded by the proxy edge function). "
-            "Dev/Ladle: set BOT_TEST_ACCESS_TOKEN in .env.bot."
-        )
+        raise RuntimeError("access_token required to start a bot session.")
     logger.info(
         "access_token source: {}",
         "start payload" if body_access_token else "BOT_TEST_ACCESS_TOKEN env",
@@ -400,11 +393,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             else f"IMPORTANT: Always respond in {voice_language.name.title()}. All your spoken output must be in {voice_language.name.title()}."
         ),
     )
+    system_message = {
+        "role": "system",
+        "content": build_voice_agent_prompt(),
+    }
     messages = [
-        {
-            "role": "system",
-            "content": build_voice_agent_prompt(),
-        },
         {
             "role": "user",
             "content": f"<start_of_session>Character Name: {character_display_name}</start_of_session>",
@@ -429,9 +422,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         ),
     )
 
-    # Context starts empty — messages and tools are injected into the
-    # VoiceAgent via LLMAgentActivationArgs on the bus.
-    context = LLMContext()
+    # Seed the shared context with the system prompt so it always sits at
+    # position 0, ahead of any events that arrive during event_relay.join()
+    # (which runs before activate_agent). Activation messages — the
+    # start_of_session marker — are appended after, via LLMAgentActivationArgs.
+    # Tools are still injected via the VoiceAgent's activation path.
+    context = LLMContext(messages=[system_message])
     mute_strategy = TextInputBypassFirstBotMuteStrategy()
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
@@ -595,18 +591,17 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         RTVIFunctionCallReportLevel,
         RTVIObserverParams,
     )
+    from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
+    from pipecat_subagents.bus import BusBridgeProcessor
+    from pipecat_subagents.runner import AgentRunner
+    from pipecat_subagents.types import AgentReadyData
 
+    from gradientbang.adapters.bus import make_subagent_bus
     from gradientbang.pipecat_server.frames import TaskActivityFrame
     from gradientbang.pipecat_server.idle_report import IdleReportProcessor
     from gradientbang.pipecat_server.subagents.event_relay import EventRelay
     from gradientbang.pipecat_server.subagents.scripted_agent import ScriptedAgent
     from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
-    from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
-    from pipecat_subagents.bus import BusBridgeProcessor
-    from pipecat_subagents.runner import AgentRunner
-
-    from gradientbang.adapters.bus import make_subagent_bus
-    from pipecat_subagents.types import AgentReadyData
 
     class MainAgent(BaseAgent):
         """Transport agent — bridges voice I/O to VoiceAgent via the bus.
@@ -695,11 +690,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # ── Universe info substitution ────────────────────────────────────
     # Register a one-shot handler for the first status.snapshot so we can
-    # substitute ${universe_size} / ${fedspace_sector_count} in the system
-    # prompt before the voice agent is activated. The local `messages` list
-    # is what gets handed to VoiceAgent via LLMAgentActivationArgs later, so
-    # we mutate it directly (the empty LLMContext at this point has no
-    # system message yet).
+    # substitute ${universe_size} / ${fedspace_sector_count} in the seeded
+    # system message. The system message lives at context.messages[0] (seeded
+    # at construction time, ahead of any pre-activation events).
     def _on_first_status_snapshot(event: dict) -> None:
         payload = event.get("payload", event)
         player = payload.get("player") if isinstance(payload, dict) else None
@@ -715,7 +708,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         if fedspace_sector_count is not None:
             subs["fedspace_sector_count"] = fedspace_sector_count
         set_prompt_substitutions(**subs)
-        for msg in messages:
+        for msg in context.messages:
             if msg.get("role") == "system":
                 msg["content"] = apply_prompt_substitutions(msg["content"])
                 break
@@ -822,9 +815,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             except Exception as exc:
                 # Fire-and-forget task would swallow this otherwise. Tear down
                 # the runner so the session exits instead of hanging half-joined.
-                logger.exception(
-                    "Join failed — access token may be invalid or expired: {}", exc
-                )
+                logger.exception("Join failed — access token may be invalid or expired: {}", exc)
                 await main_agent.cancel()
 
         asyncio.create_task(_join())
@@ -971,16 +962,6 @@ async def _configure_recording_bucket(room_url: str):
         logger.error(f"Failed to configure recording bucket: {exc}")
 
 
-_BANNER = """
- ██████╗ ██████╗  █████╗ ██████╗ ██╗███████╗███╗   ██╗████████╗    ██████╗  █████╗ ███╗   ██╗ ██████╗
-██╔════╝ ██╔══██╗██╔══██╗██╔══██╗██║██╔════╝████╗  ██║╚══██╔══╝    ██╔══██╗██╔══██╗████╗  ██║██╔════╝
-██║  ███╗██████╔╝███████║██║  ██║██║█████╗  ██╔██╗ ██║   ██║       ██████╔╝███████║██╔██╗ ██║██║  ███╗
-██║   ██║██╔══██╗██╔══██║██║  ██║██║██╔══╝  ██║╚██╗██║   ██║       ██╔══██╗██╔══██║██║╚██╗██║██║   ██║
-╚██████╔╝██║  ██║██║  ██║██████╔╝██║███████╗██║ ╚████║   ██║       ██████╔╝██║  ██║██║ ╚████║╚██████╔╝
- ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝╚══════╝╚═╝  ╚═══╝   ╚═╝       ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
-"""
-
-
 def _log_startup_config() -> None:
     """Pretty-print the core bot config so transport choices are obvious at a glance.
 
@@ -1008,7 +989,7 @@ def _log_startup_config() -> None:
     divider = "─" * 103
     lines = [
         divider,
-        _BANNER.strip("\n"),
+        STARTUP_BANNER.strip("\n"),
         "",
         f"  version            {__version__}",
         f"  event_transport    {event_transport}",

@@ -24,7 +24,7 @@ ALTER TABLE ship_instances
   ADD COLUMN task_last_heartbeat_at     TIMESTAMPTZ NULL,
   ADD COLUMN byoa_owner_character_id    UUID NULL,
   ADD COLUMN byoa_mode                  TEXT NOT NULL DEFAULT 'private'
-    CHECK (byoa_mode IN ('private', 'shared')),
+    CHECK (byoa_mode = 'private'),
   ADD COLUMN byoa_session_channel       TEXT NULL,
   ADD COLUMN byoa_session_allocated_at  TIMESTAMPTZ NULL;
 
@@ -39,7 +39,7 @@ COMMENT ON COLUMN ship_instances.task_last_heartbeat_at IS
 COMMENT ON COLUMN ship_instances.byoa_owner_character_id IS
   'For BYOA corp ships: the player whose external agent controls this ship. NULL = not a BYOA ship.';
 COMMENT ON COLUMN ship_instances.byoa_mode IS
-  'BYOA-only: ''private'' (only owner can issue tasks) or ''shared'' (any corp member can). Inert when byoa_owner_character_id IS NULL.';
+  'BYOA-only: currently always ''private''. BYOA ships are owner-only in this phase; the column is retained for forward-compatible UI/API shape.';
 COMMENT ON COLUMN ship_instances.byoa_session_channel IS
   'Per-session PGMQ channel for the active BYOA task. Set by wake_agent at allocation; cleared on lock release. NULL outside an active BYOA task.';
 COMMENT ON COLUMN ship_instances.byoa_session_allocated_at IS
@@ -502,11 +502,8 @@ BEGIN
     RAISE EXCEPTION 'channel_required' USING ERRCODE = '22023';
   END IF;
 
-  -- Locate the BYOA ship the token's character is allowed to act on which
-  -- has the requested channel currently allocated. Authorization rules
-  -- mirror byoa_session_claim:
-  --   - byoa_mode='private': only the BYOA owner character can claim.
-  --   - byoa_mode='shared': any active corp member of the ship's owner corp.
+  -- Locate the BYOA ship the token's character owns which has the requested
+  -- channel currently allocated. BYOA ships are owner-only in this phase.
   SELECT s.ship_id,
          s.current_task_id,
          s.byoa_owner_character_id,
@@ -523,20 +520,8 @@ BEGIN
     RAISE EXCEPTION 'channel_not_allocated' USING ERRCODE = '42501';
   END IF;
 
-  IF v_ship.byoa_mode = 'private' THEN
-    IF v_ship.byoa_owner_character_id <> v_character THEN
-      RAISE EXCEPTION 'channel_not_authorized' USING ERRCODE = '42501';
-    END IF;
-  ELSE
-    IF NOT EXISTS (
-      SELECT 1
-        FROM public.corporation_members cm
-       WHERE cm.corp_id = v_ship.owner_corporation_id
-         AND cm.character_id = v_character
-         AND cm.left_at IS NULL
-    ) THEN
-      RAISE EXCEPTION 'channel_not_authorized' USING ERRCODE = '42501';
-    END IF;
+  IF v_ship.byoa_owner_character_id <> v_character THEN
+    RAISE EXCEPTION 'channel_not_authorized' USING ERRCODE = '42501';
   END IF;
 
   RETURN jsonb_build_object(

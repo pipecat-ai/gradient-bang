@@ -102,7 +102,7 @@ declare global {
     byoa?: {
       owner_character_id_prefix: string
       owner_character_name: string | null
-      mode: "private" | "shared"
+      mode: "private"
       presence?: {
         online: boolean
         status: "online" | "offline"

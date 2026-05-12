@@ -243,21 +243,18 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       }
     }
 
-    // BYOA private check. The check applies to both start and finish:
-    // - start must not acquire a lock for a non-owner
-    // - finish must not let a corpmate release the owner's private task lock
+    // BYOA owner check. Local BYOA processes listen on the owner's active
+    // voice-session channel; routing another corp member's task to that
+    // process would require cross-session wake/fanout. Keep BYOA private-only
+    // until that routing exists.
     //
     // actorCharacterId has already been authorized above, so callers cannot
     // spoof the BYOA owner's UUID to bypass this check.
     const byoaOwner = typeof shipRow?.byoa_owner_character_id === "string"
       ? (shipRow.byoa_owner_character_id as string)
       : null;
-    const byoaMode = typeof shipRow?.byoa_mode === "string"
-      ? (shipRow.byoa_mode as string)
-      : null;
     if (
       byoaOwner &&
-      byoaMode === "private" &&
       actorCharacterId !== byoaOwner
     ) {
       return new Response(

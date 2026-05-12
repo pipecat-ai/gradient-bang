@@ -7,7 +7,7 @@
 
 The only fully-supported flow today. Run the bot and your BYOA agent side-by-side on the same machine; both speak to a local Supabase.
 
-**Prereqs.** Working dev stack: `npx supabase start --workdir deployment`, a game account with a character in a corporation that owns at least one ship.
+**Prereqs.** Working dev stack: `npx supabase start --workdir deployment`, `scripts/reset-world.sh` run at least once after migrations, and a game account with a character in a corporation that owns at least one ship.
 
 **1. Onboard.** From the repo root, run the [byoa-setup skill](../.claude/skills/byoa-setup/SKILL.md):
 
@@ -31,33 +31,32 @@ set -a && source .env.supabase && set +a
 uv run bot --host 0.0.0.0
 ```
 
-**4. Run the BYOA agent** (separate terminal, auto-loads `./.env.byoa`):
+**4. Start the BYOA wake daemon** (separate terminal, auto-loads `./.env.byoa`):
 
 ```bash
-uv run byoa --prompt-file ./prompt.md
+uv run byoa serve --prompt-file ./prompt.md
 ```
 
-You should see `byoa.cli.claim.polling` — the agent is polling `byoa_session_claim` waiting for the bot to delegate a task. Issue a task from the voice client; the bot calls `wake_agent` server-side (allocates a per-session channel), your agent's next claim discovers the channel, joins, and runs the task. Log line on join: `byoa.cli.claim.allocated channel=...`.
+Configure the local edge-function env with `WAKE_TARGET=http`, `BYOA_WAKE_URL`, `EDGE_API_TOKEN`, and `BYOA_BUS_DATABASE_URL`. When a task starts, `wake_agent` calls the daemon with `Authorization: Bearer $EDGE_API_TOKEN`, the daemon spawns `uv run byoa run` with the session channel, and the spawned BYOA process joins the same PGMQ bus as the player session through the SQL wrappers.
 
 **Rotate tokens.** Re-run `/byoa-setup local --force` to mint a fresh token, then revoke the old one via `byoa_token_revoke`.
 
 ## How the discovery flow works
 
 ```
-voice client    bot               edge fn              BYOA process
+voice client    bot / wake                             BYOA process
      │           │                   │                       │
-     │ start_task─►                  │                       │  (polling claim)
-     │           │ acquire_lock──────►                       │
-     │           │ wake_agent────────► writes session_channel│
-     │           │                   │                       │
-     │           │                   │◄──claim───────────────│  channel: bot_dev
-     │           │                   │──{channel}───────────►│  joins bus
-     │           │◄──BYOA peer joins channel                 │
-     │           │ BusTaskRequest────►                       │  runs task
+     │ connect──►│ creates session channel                   │
+     │           │                                           │
+     │           │                                           │
+     │           │◄──presence/ready over PGMQ                │
+     │ start_task─► acquire_lock─────►                       │
+     │           │ wake_agent────────► HTTP wake provider────►│ spawns + joins bus
+     │           │ BusTaskRequest───────────────────────────►│ runs task
      │           │                   │                       │
 ```
 
-`wake_agent` only does process-spawn dispatch when `WAKE_TARGET` is set to `vercel` / `lambda` (server-side). In local dev (`WAKE_TARGET=noop`, the default), the operator's `uv run byoa` is already running and polling — wake just allocates the channel and the agent's next claim picks it up. The claim response carries `lifecycle_hint=idle_loop` (dev) or `single_task` (prod) so the agent knows whether to exit or keep polling after a task completes.
+When a BYOA task starts, the bot calls `wake_agent` with `task_id` and the voice-session channel. `WAKE_TARGET=http` posts the wake payload to the configured provider URL. Local dev points that at `uv run byoa serve`; future `vercel_sandbox` support will use the same runtime env payload.
 
 ## Configuration
 
@@ -70,24 +69,27 @@ Read by `ByoaAgentConfig.from_env()` ([src/gradientbang/byoa/config.py](../src/g
 | `BYOA_TOKEN` | yes | — | HS256 token minted by `byoa_token_mint` |
 | `BYOA_CHARACTER_ID` | yes | — | Operator's character (matches the token) |
 | `BYOA_SHIP_ID` | yes | — | Corp ship pseudo-character_id |
-| `BYOA_CLAIM_ENDPOINT_URL` | yes | — | URL of `byoa_session_claim` (e.g. `https://<project>.supabase.co/functions/v1/byoa_session_claim`) |
-| `SUBAGENT_BUS_DATABASE_URL` | yes | — | Postgres DSN. Prefer session-mode pooler (port 5432 on Supabase) |
+| `EDGE_API_TOKEN` | local dev | — | Bearer token expected by `uv run byoa serve`; must match the edge-function `EDGE_API_TOKEN` |
+| `BYOA_CHANNEL` | run only | — | Voice-session PGMQ channel. Set by wake for spawned processes; only pass manually when using `uv run byoa run` fallback |
+| `--bus-database-url` | run only | — | Restricted Postgres DSN. Wake injects `BYOA_BUS_DATABASE_URL`; only pass manually when using `uv run byoa run` fallback |
 | `BYOA_PROMPT_FILE` | — | — | Path to custom prompt markdown (≤ 8 KB). `--prompt-file` wins |
-| `BYOA_POLL_INTERVAL_SECONDS` | — | `5` | Claim polling cadence (dev / idle-loop mode) |
 | `BYOA_HEARTBEAT_INTERVAL_SECONDS` | — | `60` | Task-lock heartbeat (must be `< TASK_LOCK_HEARTBEAT_STALE_SECONDS / 2`) |
 | `BYOA_AGENT_WAKE_TIMEOUT_SECONDS` | — | `30` | Wake handshake timeout |
 | `BYOA_AGENT_IDLE_TEARDOWN_SECONDS` | — | `300` | How long a warm agent stays idle before exiting |
 
-There is no client-side bus transport / channel env var — the BYOA discovers its channel from the claim response.
+Do not use the static `SUBAGENT_BUS_CHANNEL` prefix here. BYOA needs the derived per-session channel.
 
 ### Game-operator-side (set on the bot + edge functions)
 
 | Env var | Where | Default | What it controls |
 |---|---|---|---|
 | `SUBAGENT_BUS_TRANSPORT` | bot | `local` | `pgmq` to enable BYOA |
-| `SUBAGENT_BUS_DATABASE_URL` | bot | — | Required when `transport=pgmq` |
-| `SUBAGENT_BUS_CHANNEL` | bot | — | Required when `transport=pgmq`; per-deployment value (e.g. `gb_prod`). The bot passes this to `wake_agent` so the BYOA's claim returns it |
-| `WAKE_TARGET` | edge fn | `noop` | `noop` (dev / always-on operators), `vercel` / `lambda` (server-spawned single-task). Mirrored to BYOA as `lifecycle_hint` |
+| `SUBAGENT_BUS_DATABASE_URL` | bot | — | Bot bus DSN. BYOA must not receive this DSN |
+| `SUBAGENT_BUS_CHANNEL` | bot | — | Required when `transport=pgmq`; per-deployment prefix (e.g. `gb_prod`). The bot derives a per-session channel from this prefix |
+| `BYOA_BUS_DATABASE_URL` | edge fn | — | Restricted BYOA bus DSN injected into spawned BYOA runners by wake_agent |
+| `BYOA_WAKE_URL` | edge fn | — | HTTP wake provider URL when `WAKE_TARGET=http`; local dev uses `http://host.docker.internal:8765/wake` |
+| `EDGE_API_TOKEN` | edge fn + BYOA daemon | — | Trusted edge token; also used as the bearer token between `wake_agent` and the HTTP wake provider |
+| `WAKE_TARGET` | edge fn | `noop` | `http` for local/webhook wake, `noop` manual fallback, `vercel_sandbox` reserved |
 | `TASK_LOCK_HEARTBEAT_STALE_SECONDS` | edge fn | `180` | Lock is steal-eligible after this many seconds without a heartbeat |
 | `TASK_LOCK_HARD_TTL_MINUTES` | edge fn | `30` | Safety floor regardless of heartbeats |
 
@@ -107,13 +109,12 @@ curl -X POST "$SUPABASE_URL/functions/v1/ship_byoa_configure" \
   }'
 ```
 
-Other actions: `set_mode` (mode toggle), `clear` (release). Only the current owner can call these.
+Other action: `clear` (release). Only the current owner can call it.
 
 | Ship state | Who can issue tasks |
 |---|---|
 | Not BYOA | Any corp member |
-| BYOA `shared` | Any corp member |
-| BYOA `private` | Only the BYOA owner. Others get `403 byoa_private_not_owner` |
+| BYOA | Only the BYOA owner. Others get a BYOA-owner-required failure |
 
 A corp member can always force-cancel via `task_cancel { force: true }`.
 

@@ -635,7 +635,7 @@ class TestTaskFinishBroker:
         await agent.on_bus_message(msg)
 
         # task_metadata carries the actor so it lands as actor_character_id
-        # on the outbound payload — the server's BYOA-private finish check
+        # on the outbound payload — the server's BYOA-owner finish check
         # is keyed on this field, not on character_id (the pseudo-char).
         agent._game_client.task_lifecycle.assert_awaited_once_with(
             character_id="corp-ship-abc",
