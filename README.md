@@ -337,7 +337,7 @@ The internal token is minted by the `verify_token` edge function in exchange for
 
 **Setup for local pubsub:**
 
-1. Edge functions always dual-write events into pgmq queues — no flag to set, just deploy the migration.
+1. `record_event_with_recipients` writes events into pgmq queues from SQL — no flag to set, just deploy the migration.
 2. In `.env.bot`:
 
    ```

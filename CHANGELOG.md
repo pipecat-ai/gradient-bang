@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `record_event_with_recipients` now owns pubsub delivery from SQL, so SQL-only quest events reach pgmq without JS dual-writes
 - `task_lifecycle event_type=start` acquires the lock atomically before emitting the event; returns `409 ship_busy` (with truncated holder identity) on contention or `403 byoa_private_not_owner` on a private BYOA ship when the caller isn't the owner
 - `task_cancel` releases the lock atomically (pair-matched). New `force: true` flag lets any corp member yank a stuck lock immediately, bypassing the owner/actor check
 - `fetchActiveTaskIdsByShip` switched from ~150 lines of event scanning to a direct column read — perf win for `list_user_ships`, `corporation_info`, and `combat_finalization`

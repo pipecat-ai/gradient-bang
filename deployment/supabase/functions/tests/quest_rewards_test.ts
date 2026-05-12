@@ -45,6 +45,33 @@ async function resetWithQuests(characterIds: string[]): Promise<void> {
   await seedQuestDefinitions();
 }
 
+function normalizePgmqMessage(message: unknown): Record<string, unknown> {
+  if (typeof message === "string") {
+    return JSON.parse(message) as Record<string, unknown>;
+  }
+  return message as Record<string, unknown>;
+}
+
+async function readAndArchivePgmqMessages(characterId: string): Promise<Record<string, unknown>[]> {
+  const queueName = `chr_${characterId}`;
+  return await withPg(async (pg) => {
+    await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [characterId]);
+    const result = await pg.queryObject<{ msg_id: bigint; message: unknown }>(
+      `SELECT msg_id, message FROM pgmq.read_with_poll($1, 10, 100, 0)`,
+      [queueName],
+    );
+    const msgIds = result.rows.map((row) => row.msg_id);
+    if (msgIds.length > 0) {
+      await pg.queryObject(`SELECT pgmq.archive($1, $2::bigint[])`, [queueName, msgIds]);
+    }
+    return result.rows.map((row) => normalizePgmqMessage(row.message));
+  });
+}
+
+async function drainPgmqMessages(characterId: string): Promise<void> {
+  await readAndArchivePgmqMessages(characterId);
+}
+
 // ============================================================================
 // Group 0: Start server
 // ============================================================================
@@ -115,6 +142,10 @@ Deno.test({
       assertEquals(reward.credits, 50, "Reward should be 50 credits");
     });
 
+    await t.step("drain pgmq before reward claim", async () => {
+      await drainPgmqMessages(p1Id);
+    });
+
     await t.step("claim reward grants credits", async () => {
       await apiOk("quest_claim_reward", {
         character_id: p1Id,
@@ -124,6 +155,19 @@ Deno.test({
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
       assertEquals(ship.credits, 1050, `Expected 1050 credits after claim, got ${ship.credits}`);
+    });
+
+    await t.step("quest.reward_claimed is published to pgmq", async () => {
+      const messages = await readAndArchivePgmqMessages(p1Id);
+      const rewardClaimed = messages.find((msg) => msg.event_type === "quest.reward_claimed");
+      assertExists(
+        rewardClaimed,
+        `Expected quest.reward_claimed in pgmq messages, got ${messages.map((msg) => String(msg.event_type)).join(", ")}`,
+      );
+      assertEquals(
+        (rewardClaimed.payload as Record<string, unknown>).credits_granted,
+        50,
+      );
     });
   },
 });

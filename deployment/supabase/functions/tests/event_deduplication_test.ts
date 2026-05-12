@@ -1602,7 +1602,7 @@ Deno.test({
 // when multiple member bots subscribe to it via set_scope(ship_ids=[…]),
 // pgmq's competing-consumer semantics cause one bot to dispatch the event
 // twice (once via chr_{member_id}, once via chr_{ship_id}). The fix in
-// publishEventToPgmq filters corp_ship reasons out of the recipient map
+// record_event_with_recipients filters corp_ship reasons out of the recipient map
 // when any corp_member entry is present. This test pins that behavior.
 // ============================================================================
 
