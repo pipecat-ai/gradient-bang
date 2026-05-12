@@ -2,8 +2,9 @@
 
 Wraps upstream :class:`pipecat_subagents.bus.network.pgmq.PgmqBus` with a
 ``PGMQueue``-shaped shim that routes every pgmq call through the
-SECURITY DEFINER wrappers in the ``20260515000000_byoa_bus_wrappers.sql``
-migration. Every wrapped call carries the operator's HS256 BYOA token,
+BYOA bus wrapper section of the
+``20260512000000_ship_task_lock_and_byoa.sql`` migration.
+Every wrapped call carries the operator's HS256 BYOA token,
 which the SQL side validates via ``verify_byoa_token`` before doing
 anything. The result:
 
@@ -11,9 +12,8 @@ anything. The result:
   (queues bound to its token's character_id in ``byoa_owned_queues``).
 - Cross-character read attempts return zero rows (silent on the wire so
   we don't leak queue existence to a probing operator).
-- Publish always rewrites the bus envelope's ``source`` to
-  ``byoa_<character_id>`` regardless of caller input, so a buggy or
-  malicious CLI can't impersonate the bot or another character.
+- Publish authorizes the bus envelope's ``source`` against the token-bound
+  operator's claimed BYOA ship and keeps it intact for response routing.
 
 The DSN authenticates a Postgres role and gets us a connection; the
 HS256 token is the per-character authorization layer on top. Mirrors
@@ -31,6 +31,7 @@ import asyncpg
 from loguru import logger
 from orjson import dumps, loads
 from pgmq.messages import Message
+from pipecat_subagents.bus.network.pgmq import _sanitize_channel
 
 from gradientbang.adapters.bus.pgmq import _OwnedPgmqBus, parse_database_url
 
@@ -54,10 +55,12 @@ class _ByoaPgmqShim:
         *,
         dsn: str,
         byoa_token: str,
+        channel: str,
         pool_size: int = 4,
     ) -> None:
         self._dsn = dsn
         self._token = byoa_token
+        self._channel = _sanitize_channel(channel)
         self._pool_size = pool_size
         self.pool: Optional[asyncpg.pool.Pool] = None
 
@@ -81,9 +84,10 @@ class _ByoaPgmqShim:
     ) -> None:
         async with self.pool.acquire() as c:
             await c.execute(
-                "SELECT public.byoa_bus_create_queue($1, $2)",
+                "SELECT public.byoa_bus_create_queue($1, $2, $3)",
                 self._token,
                 queue,
+                self._channel,
             )
 
     async def drop_queue(
@@ -91,17 +95,19 @@ class _ByoaPgmqShim:
     ) -> bool:
         async with self.pool.acquire() as c:
             await c.execute(
-                "SELECT public.byoa_bus_drop_queue($1, $2)",
+                "SELECT public.byoa_bus_drop_queue($1, $2, $3)",
                 self._token,
                 queue,
+                self._channel,
             )
         return True
 
     async def list_queues(self, conn=None) -> List[str]:
         async with self.pool.acquire() as c:
             rows = await c.fetch(
-                "SELECT public.byoa_bus_list_queues($1)",
+                "SELECT public.byoa_bus_list_queues($1, $2)",
                 self._token,
+                self._channel,
             )
         return [row[0] for row in rows]
 
@@ -118,8 +124,9 @@ class _ByoaPgmqShim:
         # signature so a future upstream change doesn't break ours.
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
-                "SELECT public.byoa_bus_publish($1, $2, $3::jsonb)",
+                "SELECT public.byoa_bus_publish($1, $2, $3, $4::jsonb)",
                 self._token,
+                self._channel,
                 queue,
                 dumps(message).decode("utf-8"),
             )
@@ -140,12 +147,13 @@ class _ByoaPgmqShim:
         async with self.pool.acquire() as c:
             rows = await c.fetch(
                 "SELECT msg_id, read_ct, enqueued_at, vt, message "
-                "FROM public.byoa_bus_subscribe($1, $2, $3, $4, $5)",
+                "FROM public.byoa_bus_subscribe($1, $2, $3, $4, $5, $6)",
                 self._token,
                 queue,
                 vt if vt is not None else 30,
                 qty,
                 max_poll_seconds,
+                self._channel,
             )
         return [
             Message(
@@ -161,10 +169,11 @@ class _ByoaPgmqShim:
     async def delete(self, queue: str, msg_id: int, conn=None) -> bool:
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
-                "SELECT public.byoa_bus_archive($1, $2, $3)",
+                "SELECT public.byoa_bus_archive($1, $2, $3, $4)",
                 self._token,
                 queue,
                 msg_id,
+                self._channel,
             )
         return bool(row[0]) if row else False
 
@@ -211,7 +220,7 @@ async def build_byoa_pgmq_bus(
             "(mint via byoa_token_mint; see the byoa-setup Claude skill)"
         )
 
-    shim = _ByoaPgmqShim(dsn=dsn, byoa_token=token)
+    shim = _ByoaPgmqShim(dsn=dsn, byoa_token=token, channel=chan)
     await shim.init()
 
     bus = _OwnedPgmqBus(pgmq=shim, channel=chan)

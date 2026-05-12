@@ -72,6 +72,7 @@ def _samples():
         correlation_id="c-3",
         character_id="char-1",
         ship_id="ship-1",
+        task_id="t-1",
     )
     yield BusCombatStrategyResponse(
         source=SOURCE,
@@ -86,6 +87,7 @@ def _samples():
         query_type="info",
         character_id="char-1",
         corp_id="corp-9",
+        task_id="t-1",
     )
     yield BusCorporationQueryResponse(
         source=SOURCE,

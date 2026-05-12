@@ -114,13 +114,17 @@ async def run(args: argparse.Namespace) -> int:
     if warn:
         logger.warning(warn)
 
-    bus = await make_subagent_bus()
-    runner = AgentRunner(bus=bus, handle_sigint=True)
-
     # Bus identity convention — must match VoiceAgent.byoa_agent_name().
     # The bot publishes BusTaskRequest to this exact name; the operator's
     # agent registers under it on the bus.
     agent_name = f"byoa_{ship_id}"
+    # The runner also publishes registry messages. Keep that source
+    # deterministic so the SQL BYOA wrapper can authorize it without
+    # rewriting bus identity.
+    runner_name = f"byoa_runner_{ship_id}"
+
+    bus = await make_subagent_bus()
+    runner = AgentRunner(name=runner_name, bus=bus, handle_sigint=True)
 
     task_agent = TaskAgent(
         agent_name,

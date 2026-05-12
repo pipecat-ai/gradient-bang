@@ -16,6 +16,8 @@ and asserts:
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pipecat_subagents.agents.task_context import TaskStatus
+from pipecat_subagents.bus.messages import BusTaskResponseMessage, BusTaskUpdateMessage
 
 from gradientbang.pipecat_server.subagents.bus_messages import (
     BusCombatStrategyRequest,
@@ -300,6 +302,184 @@ class TestGameToolCallBroker:
         assert sent.result is None
         assert "unknown tool" in sent.error
         assert "not_a_real_method" in sent.error
+
+    @pytest.mark.asyncio
+    async def test_byoa_source_requires_active_task(self):
+        agent = _make_voice_agent()
+        agent._game_client.get_ship_definitions = AsyncMock(return_value={"definitions": []})
+
+        msg = BusGameToolCallRequest(
+            source="byoa_ship-123",
+            target="player",
+            correlation_id="r-byoa",
+            tool_name="get_ship_definitions",
+            args={},
+            character_id="spoofed-ship",
+            actor_character_id="spoofed-actor",
+            task_id="task-1",
+        )
+        await agent.on_bus_message(msg)
+
+        agent._game_client.get_ship_definitions.assert_not_awaited()
+        sent = _last_sent_message(agent)
+        assert isinstance(sent, BusGameToolCallResponse)
+        assert sent.result is None
+        assert sent.error == "unauthorized_byoa_source"
+
+    @pytest.mark.asyncio
+    async def test_byoa_runner_source_cannot_broker_tools(self):
+        agent = _make_voice_agent()
+        agent._game_client.get_ship_definitions = AsyncMock(return_value={"definitions": []})
+
+        msg = BusGameToolCallRequest(
+            source="byoa_runner_ship-123",
+            target="player",
+            correlation_id="r-byoa-runner",
+            tool_name="get_ship_definitions",
+            args={},
+            character_id="spoofed-ship",
+            actor_character_id="spoofed-actor",
+            task_id="task-1",
+        )
+        await agent.on_bus_message(msg)
+
+        agent._game_client.get_ship_definitions.assert_not_awaited()
+        sent = _last_sent_message(agent)
+        assert isinstance(sent, BusGameToolCallResponse)
+        assert sent.error == "unauthorized_byoa_source"
+
+    @pytest.mark.asyncio
+    async def test_byoa_active_task_identity_comes_from_broker_state(self):
+        from gradientbang.utils.supabase_client import (
+            _per_call_actor_character_id,
+            _per_call_character_id,
+            _per_call_task_id,
+        )
+
+        agent = _make_voice_agent()
+        agent._byoa_active_agents["byoa_ship-123"] = {
+            "task_id": "task-real",
+            "character_id": "ship-real",
+            "actor_character_id": "actor-real",
+            "task_metadata": {"ship_name": "Auditor"},
+        }
+        captured: list[tuple[str | None, str | None, str | None]] = []
+
+        async def get_defs_check(**_kwargs):
+            captured.append(
+                (
+                    _per_call_character_id.get(),
+                    _per_call_actor_character_id.get(),
+                    _per_call_task_id.get(),
+                )
+            )
+            return {"definitions": []}
+
+        agent._game_client.get_ship_definitions = AsyncMock(side_effect=get_defs_check)
+
+        msg = BusGameToolCallRequest(
+            source="byoa_ship-123",
+            target="player",
+            correlation_id="r-byoa",
+            tool_name="get_ship_definitions",
+            args={
+                "character_id": "spoofed-ship",
+                "actor_character_id": "spoofed-actor",
+            },
+            character_id="spoofed-envelope-ship",
+            actor_character_id="spoofed-envelope-actor",
+            task_id="task-real",
+        )
+        await agent.on_bus_message(msg)
+
+        agent._game_client.get_ship_definitions.assert_awaited_once_with()
+        assert captured == [("ship-real", "actor-real", "task-real")]
+        sent = _last_sent_message(agent)
+        assert isinstance(sent, BusGameToolCallResponse)
+        assert sent.error is None
+
+    @pytest.mark.asyncio
+    async def test_byoa_wrong_task_id_rejected(self):
+        agent = _make_voice_agent()
+        agent._byoa_active_agents["byoa_ship-123"] = {
+            "task_id": "task-real",
+            "character_id": "ship-real",
+            "actor_character_id": "actor-real",
+            "task_metadata": {},
+        }
+        agent._game_client.get_ship_definitions = AsyncMock(return_value={"definitions": []})
+
+        msg = BusGameToolCallRequest(
+            source="byoa_ship-123",
+            target="player",
+            correlation_id="r-byoa",
+            tool_name="get_ship_definitions",
+            args={},
+            character_id="ship-real",
+            actor_character_id="actor-real",
+            task_id="task-other",
+        )
+        await agent.on_bus_message(msg)
+
+        agent._game_client.get_ship_definitions.assert_not_awaited()
+        sent = _last_sent_message(agent)
+        assert isinstance(sent, BusGameToolCallResponse)
+        assert sent.error == "unauthorized_byoa_task"
+
+
+# ── BYOA task lifecycle authorization ─────────────────────────────────
+
+
+@pytest.mark.unit
+class TestByoaTaskLifecycleAuthorization:
+    @pytest.mark.asyncio
+    async def test_byoa_task_response_wrong_task_id_is_ignored(self):
+        agent = _make_voice_agent()
+        agent._byoa_active_agents["byoa_ship-123"] = {
+            "task_id": "task-real",
+            "character_id": "ship-real",
+            "actor_character_id": "actor-real",
+            "task_metadata": {},
+        }
+        agent._locked_ships["ship-real"] = "task-real"
+        agent._task_output_handler = AsyncMock()
+        agent._enqueue_deferred_update = MagicMock()
+        agent._update_polling_scope = MagicMock()
+
+        msg = BusTaskResponseMessage(
+            source="byoa_ship-123",
+            target="player",
+            task_id="task-other",
+            status=TaskStatus.COMPLETED,
+            response={"message": "spoofed completion"},
+        )
+        await agent.on_task_response(msg)
+
+        agent._task_output_handler.assert_not_awaited()
+        agent._enqueue_deferred_update.assert_not_called()
+        assert agent._locked_ships["ship-real"] == "task-real"
+        assert "byoa_ship-123" in agent._byoa_active_agents
+
+    @pytest.mark.asyncio
+    async def test_byoa_task_update_wrong_task_id_is_ignored(self):
+        agent = _make_voice_agent()
+        agent._byoa_active_agents["byoa_ship-123"] = {
+            "task_id": "task-real",
+            "character_id": "ship-real",
+            "actor_character_id": "actor-real",
+            "task_metadata": {},
+        }
+        agent._task_output_handler = AsyncMock()
+
+        msg = BusTaskUpdateMessage(
+            source="byoa_ship-123",
+            target="player",
+            task_id="task-other",
+            update={"type": "output", "text": "spoofed progress"},
+        )
+        await agent.on_task_update(msg)
+
+        agent._task_output_handler.assert_not_awaited()
 
 
 # ── Combat-strategy broker ────────────────────────────────────────────

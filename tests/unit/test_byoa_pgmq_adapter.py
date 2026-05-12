@@ -53,7 +53,7 @@ class _FakePool:
 
 def _shim_with_fake_pool(token: str = "tkn") -> tuple[_ByoaPgmqShim, _FakePool]:
     """Construct a shim with init() bypassed; injects a fake pool."""
-    shim = _ByoaPgmqShim(dsn="postgres://u:p@h/db", byoa_token=token)
+    shim = _ByoaPgmqShim(dsn="postgres://u:p@h/db", byoa_token=token, channel="gb-test")
     fake = _FakePool()
     shim.pool = fake  # type: ignore[assignment]
     return shim, fake
@@ -67,14 +67,14 @@ class TestShimRoutesThroughWrappers:
         pool.conn.execute.assert_awaited_once()
         sql, *args = pool.conn.execute.await_args.args
         assert "byoa_bus_create_queue" in sql
-        assert args == ["alice-token", "test_q"]
+        assert args == ["alice-token", "test_q", "gb_test"]
 
     async def test_drop_queue_calls_wrapper_with_token(self):
         shim, pool = _shim_with_fake_pool("alice-token")
         await shim.drop_queue("test_q")
         sql, *args = pool.conn.execute.await_args.args
         assert "byoa_bus_drop_queue" in sql
-        assert args == ["alice-token", "test_q"]
+        assert args == ["alice-token", "test_q", "gb_test"]
 
     async def test_list_queues_calls_wrapper_and_returns_strings(self):
         shim, pool = _shim_with_fake_pool("alice-token")
@@ -83,7 +83,7 @@ class TestShimRoutesThroughWrappers:
         assert result == ["ch_1", "ch_2"]
         sql, *args = pool.conn.fetch.await_args.args
         assert "byoa_bus_list_queues" in sql
-        assert args == ["alice-token"]
+        assert args == ["alice-token", "gb_test"]
 
     async def test_send_calls_publish_with_serialized_jsonb(self):
         shim, pool = _shim_with_fake_pool("alice-token")
@@ -92,11 +92,12 @@ class TestShimRoutesThroughWrappers:
         assert msg_id == 42
         sql, *args = pool.conn.fetchrow.await_args.args
         assert "byoa_bus_publish" in sql
-        # Args: (token, target_queue, json_str)
+        # Args: (token, channel, target_queue, json_str)
         assert args[0] == "alice-token"
-        assert args[1] == "peer_queue"
-        # Third arg is a JSON string of the message.
-        assert '"hello":"world"' in args[2]
+        assert args[1] == "gb_test"
+        assert args[2] == "peer_queue"
+        # Fourth arg is a JSON string of the message.
+        assert '"hello":"world"' in args[3]
 
     async def test_read_with_poll_builds_Message_objects(self):
         from pgmq.messages import Message
@@ -113,8 +114,8 @@ class TestShimRoutesThroughWrappers:
         result = await shim.read_with_poll("my_q", vt=20, qty=5, max_poll_seconds=3)
         sql, *args = pool.conn.fetch.await_args.args
         assert "byoa_bus_subscribe" in sql
-        # Args: (token, queue, vt, qty, max_seconds)
-        assert args == ["alice-token", "my_q", 20, 5, 3]
+        # Args: (token, queue, vt, qty, max_seconds, channel)
+        assert args == ["alice-token", "my_q", 20, 5, 3, "gb_test"]
 
         assert len(result) == 2
         assert isinstance(result[0], Message)
@@ -130,7 +131,7 @@ class TestShimRoutesThroughWrappers:
         assert ok is True
         sql, *args = pool.conn.fetchrow.await_args.args
         assert "byoa_bus_archive" in sql
-        assert args == ["alice-token", "my_q", 7]
+        assert args == ["alice-token", "my_q", 7, "gb_test"]
 
 
 @pytest.mark.unit
@@ -185,6 +186,7 @@ class TestBuildByoaPgmqBus:
         shim_ctor.assert_called_once_with(
             dsn="postgres://u:p@h/db",
             byoa_token="real-token",
+            channel="gb_test",
         )
         fake_shim.init.assert_awaited_once()
         bus_ctor.assert_called_once_with(pgmq=fake_shim, channel="gb_test")

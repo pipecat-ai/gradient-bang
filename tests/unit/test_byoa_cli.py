@@ -142,6 +142,11 @@ class TestRunHappyPath:
 
         assert exit_code == 0
         mock_make_bus.assert_awaited_once()
+        mock_runner_cls.assert_called_once_with(
+            name="byoa_runner_ship-pseudo-1",
+            bus="fake-bus",
+            handle_sigint=True,
+        )
         # TaskAgent was constructed with the documented bus identity +
         # custom prompt thread + corp-ship flag set + actor identity in
         # task_metadata.

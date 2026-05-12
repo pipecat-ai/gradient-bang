@@ -1,6 +1,6 @@
 /**
  * Integration tests for the byoa_bus_* SECURITY DEFINER wrappers
- * (migration 20260515000000_byoa_bus_wrappers.sql).
+ * (migration 20260512000000_ship_task_lock_and_byoa.sql).
  *
  * Covers:
  *   - Invalid / revoked / expired tokens raise `invalid_token`.
@@ -10,9 +10,8 @@
  *   - byoa_bus_subscribe returns rows for the owner; cross-character
  *     read returns zero rows (silent on the wire).
  *   - byoa_bus_archive returns true for the owner, false for foreign.
- *   - byoa_bus_publish writes to the target queue with the envelope's
- *     `__data__.source` rewritten to `byoa_<character_id>`, regardless
- *     of caller input.
+ *   - byoa_bus_publish writes only to the configured channel and preserves
+ *     an authorized BYOA envelope source for bus routing.
  *   - byoa_bus_drop_queue removes the row + drops the pgmq queue;
  *     foreign drop attempts raise `queue_not_owned`.
  *
@@ -34,7 +33,7 @@ import {
   resetDatabase,
   startServerInProcess,
 } from "./harness.ts";
-import { characterIdFor } from "./helpers.ts";
+import { characterIdFor, createCorpShip } from "./helpers.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -43,6 +42,7 @@ const SUPABASE_SERVICE_ROLE_KEY =
 
 const ALICE = "test_byoa_bus_alice";
 const BOB = "test_byoa_bus_bob";
+const CHANNEL = "bus_test_chan";
 
 interface TestOp {
   userId: string;
@@ -108,6 +108,47 @@ async function provisionOperator(emailLocal: string, characterId: string): Promi
 
 let alice: TestOp;
 let bob: TestOp;
+let aliceShipId: string;
+let bobShipId: string;
+
+async function createClaimedByoaShip(ownerCharacterId: string, label: string): Promise<string> {
+  const pg = new Client(getPgUrl());
+  let corpId: string;
+  try {
+    await pg.connect();
+    const corp = await pg.queryObject<{ corp_id: string }>(
+      `INSERT INTO public.corporations (name, founder_id, invite_code)
+       VALUES ($1, $2, $3)
+       RETURNING corp_id::text`,
+      [`BYOA Bus ${label} ${crypto.randomUUID().slice(0, 8)}`, ownerCharacterId, crypto.randomUUID()],
+    );
+    corpId = corp.rows[0].corp_id;
+    await pg.queryObject(
+      `INSERT INTO public.corporation_members (corp_id, character_id)
+       VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [corpId, ownerCharacterId],
+    );
+  } finally {
+    await pg.end();
+  }
+
+  const ship = await createCorpShip(corpId, 0, `${label} BYOA Ship`);
+  const pg2 = new Client(getPgUrl());
+  try {
+    await pg2.connect();
+    await pg2.queryObject(
+      `UPDATE public.ship_instances
+          SET byoa_owner_character_id = $1,
+              byoa_mode = 'private'
+        WHERE ship_id = $2`,
+      [ownerCharacterId, ship.pseudoCharacterId],
+    );
+  } finally {
+    await pg2.end();
+  }
+  return ship.pseudoCharacterId;
+}
 
 Deno.test({
   name: "byoa_bus_wrappers: setup",
@@ -120,6 +161,8 @@ Deno.test({
     const bobCid = await characterIdFor(BOB);
     alice = await provisionOperator("byoa-bus-alice", aliceCid);
     bob = await provisionOperator("byoa-bus-bob", bobCid);
+    aliceShipId = await createClaimedByoaShip(alice.characterId, "Alice");
+    bobShipId = await createClaimedByoaShip(bob.characterId, "Bob");
   },
 });
 
@@ -134,7 +177,8 @@ Deno.test({
       await assertRejects(
         () =>
           pg.queryObject(
-            "SELECT public.byoa_bus_create_queue('garbage.token', 'q')",
+            "SELECT public.byoa_bus_create_queue('garbage.token', 'bus_test_chan_q', $1)",
+            [CHANNEL],
           ),
         Error,
         "invalid_token",
@@ -142,7 +186,8 @@ Deno.test({
       await assertRejects(
         () =>
           pg.queryObject(
-            "SELECT public.byoa_bus_subscribe('garbage.token', 'q')",
+            "SELECT public.byoa_bus_subscribe('garbage.token', 'bus_test_chan_q', 30, 10, 1, $1)",
+            [CHANNEL],
           ),
         Error,
         "invalid_token",
@@ -150,7 +195,8 @@ Deno.test({
       await assertRejects(
         () =>
           pg.queryObject(
-            "SELECT public.byoa_bus_publish('garbage.token', 'q', '{}'::jsonb)",
+            "SELECT public.byoa_bus_publish('garbage.token', $1, 'bus_test_chan_q', '{}'::jsonb)",
+            [CHANNEL],
           ),
         Error,
         "invalid_token",
@@ -166,14 +212,14 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const queueName = `bus_test_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
+    const queueName = `${CHANNEL}_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
     const pg = new Client(getPgUrl());
     try {
       await pg.connect();
       // Alice claims.
       await pg.queryObject(
-        "SELECT public.byoa_bus_create_queue($1, $2)",
-        [alice.byoaToken, queueName],
+        "SELECT public.byoa_bus_create_queue($1, $2, $3)",
+        [alice.byoaToken, queueName, CHANNEL],
       );
       const rows = await pg.queryObject<{ character_id: string }>(
         "SELECT character_id FROM public.byoa_owned_queues WHERE queue_name = $1",
@@ -184,16 +230,16 @@ Deno.test({
 
       // Alice re-creates (idempotent).
       await pg.queryObject(
-        "SELECT public.byoa_bus_create_queue($1, $2)",
-        [alice.byoaToken, queueName],
+        "SELECT public.byoa_bus_create_queue($1, $2, $3)",
+        [alice.byoaToken, queueName, CHANNEL],
       );
 
       // Bob attempts the same name — should fail with queue_name_taken.
       await assertRejects(
         () =>
           pg.queryObject(
-            "SELECT public.byoa_bus_create_queue($1, $2)",
-            [bob.byoaToken, queueName],
+            "SELECT public.byoa_bus_create_queue($1, $2, $3)",
+            [bob.byoaToken, queueName, CHANNEL],
           ),
         Error,
         "queue_name_taken",
@@ -209,24 +255,25 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const queueName = `bus_test_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
+    const queueName = `${CHANNEL}_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
     const pg = new Client(getPgUrl());
     try {
       await pg.connect();
       await pg.queryObject(
-        "SELECT public.byoa_bus_create_queue($1, $2)",
-        [alice.byoaToken, queueName],
+        "SELECT public.byoa_bus_create_queue($1, $2, $3)",
+        [alice.byoaToken, queueName, CHANNEL],
       );
       // Seed a message via Alice's publish (publish is allowed against any
       // target queue, so we use it here to put data in Alice's own queue).
       const pubRow = await pg.queryObject<{ byoa_bus_publish: number }>(
-        "SELECT public.byoa_bus_publish($1, $2, $3::jsonb) AS byoa_bus_publish",
+        "SELECT public.byoa_bus_publish($1, $2, $3, $4::jsonb) AS byoa_bus_publish",
         [
           alice.byoaToken,
+          CHANNEL,
           queueName,
           JSON.stringify({
             __type__: "test.Message",
-            __data__: { source: "WHATEVER_CALLER_SAID" },
+            __data__: { source: `byoa_${aliceShipId}` },
           }),
         ],
       );
@@ -234,36 +281,36 @@ Deno.test({
 
       // Alice can read her own queue.
       const aliceRead = await pg.queryObject<{ msg_id: number; message: unknown }>(
-        "SELECT msg_id, message FROM public.byoa_bus_subscribe($1, $2, 10, 10, 2)",
-        [alice.byoaToken, queueName],
+        "SELECT msg_id, message FROM public.byoa_bus_subscribe($1, $2, 10, 10, 2, $3)",
+        [alice.byoaToken, queueName, CHANNEL],
       );
       assertEquals(aliceRead.rows.length, 1);
       const aliceMsgId = aliceRead.rows[0].msg_id;
-      // Envelope source was rewritten to byoa_<character_id>, ignoring the
-      // caller's "WHATEVER_CALLER_SAID" input.
+      // Envelope source is preserved for bus response routing once SQL has
+      // verified it belongs to Alice's claimed BYOA ship.
       const msg = aliceRead.rows[0].message as Record<string, unknown>;
       const data = msg.__data__ as Record<string, unknown>;
-      assertEquals(data.source, `byoa_${alice.characterId}`);
+      assertEquals(data.source, `byoa_${aliceShipId}`);
 
       // Bob tries to read Alice's queue — returns zero rows, no error
       // (silent on the wire so probing doesn't leak existence).
       const bobRead = await pg.queryObject(
-        "SELECT * FROM public.byoa_bus_subscribe($1, $2, 10, 10, 2)",
-        [bob.byoaToken, queueName],
+        "SELECT * FROM public.byoa_bus_subscribe($1, $2, 10, 10, 2, $3)",
+        [bob.byoaToken, queueName, CHANNEL],
       );
       assertEquals(bobRead.rows.length, 0);
 
       // Bob can't archive Alice's message either.
       const bobArchive = await pg.queryObject<{ byoa_bus_archive: boolean }>(
-        "SELECT public.byoa_bus_archive($1, $2, $3) AS byoa_bus_archive",
-        [bob.byoaToken, queueName, aliceMsgId],
+        "SELECT public.byoa_bus_archive($1, $2, $3, $4) AS byoa_bus_archive",
+        [bob.byoaToken, queueName, aliceMsgId, CHANNEL],
       );
       assertEquals(bobArchive.rows[0].byoa_bus_archive, false);
 
       // Alice can.
       const aliceArchive = await pg.queryObject<{ byoa_bus_archive: boolean }>(
-        "SELECT public.byoa_bus_archive($1, $2, $3) AS byoa_bus_archive",
-        [alice.byoaToken, queueName, aliceMsgId],
+        "SELECT public.byoa_bus_archive($1, $2, $3, $4) AS byoa_bus_archive",
+        [alice.byoaToken, queueName, aliceMsgId, CHANNEL],
       );
       assertEquals(aliceArchive.rows[0].byoa_bus_archive, true);
     } finally {
@@ -273,40 +320,58 @@ Deno.test({
 });
 
 Deno.test({
-  name: "byoa_bus_publish: rewrites envelope source regardless of caller input",
+  name: "byoa_bus_publish: preserves authorized source and rejects impersonation",
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const queueName = `bus_test_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
+    const queueName = `${CHANNEL}_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
     const pg = new Client(getPgUrl());
     try {
       await pg.connect();
       // Bob owns the queue, Alice publishes to it (cross-character publish
       // is allowed; that's how peer fan-out works).
       await pg.queryObject(
-        "SELECT public.byoa_bus_create_queue($1, $2)",
-        [bob.byoaToken, queueName],
+        "SELECT public.byoa_bus_create_queue($1, $2, $3)",
+        [bob.byoaToken, queueName, CHANNEL],
+      );
+      await assertRejects(
+        () =>
+          pg.queryObject(
+            "SELECT public.byoa_bus_publish($1, $2, $3, $4::jsonb)",
+            [
+              alice.byoaToken,
+              CHANNEL,
+              queueName,
+              JSON.stringify({
+                __type__: "test.Message",
+                __data__: { source: "voice_agent" },
+              }),
+            ],
+          ),
+        Error,
+        "unauthorized_source",
       );
       await pg.queryObject(
-        "SELECT public.byoa_bus_publish($1, $2, $3::jsonb)",
+        "SELECT public.byoa_bus_publish($1, $2, $3, $4::jsonb)",
         [
           alice.byoaToken,
+          CHANNEL,
           queueName,
           JSON.stringify({
             __type__: "test.Message",
-            __data__: { source: "voice_agent" }, // impersonation attempt
+            __data__: { source: `byoa_${aliceShipId}` },
           }),
         ],
       );
-      // Bob reads the message — source MUST be alice's identity, not what
-      // alice passed in.
+      // Bob reads the message — source remains Alice's BYOA agent name so
+      // responses target the correct remote TaskAgent.
       const read = await pg.queryObject<{ message: Record<string, unknown> }>(
-        "SELECT message FROM public.byoa_bus_subscribe($1, $2, 10, 10, 2)",
-        [bob.byoaToken, queueName],
+        "SELECT message FROM public.byoa_bus_subscribe($1, $2, 10, 10, 2, $3)",
+        [bob.byoaToken, queueName, CHANNEL],
       );
       assertEquals(read.rows.length, 1);
       const data = read.rows[0].message.__data__ as Record<string, unknown>;
-      assertEquals(data.source, `byoa_${alice.characterId}`);
+      assertEquals(data.source, `byoa_${aliceShipId}`);
     } finally {
       await pg.end();
     }
@@ -318,28 +383,28 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const queueName = `bus_test_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
+    const queueName = `${CHANNEL}_${crypto.randomUUID().slice(0, 8).replace(/-/g, "")}`;
     const pg = new Client(getPgUrl());
     try {
       await pg.connect();
       await pg.queryObject(
-        "SELECT public.byoa_bus_create_queue($1, $2)",
-        [alice.byoaToken, queueName],
+        "SELECT public.byoa_bus_create_queue($1, $2, $3)",
+        [alice.byoaToken, queueName, CHANNEL],
       );
       // Bob tries to drop Alice's queue → queue_not_owned.
       await assertRejects(
         () =>
           pg.queryObject(
-            "SELECT public.byoa_bus_drop_queue($1, $2)",
-            [bob.byoaToken, queueName],
+            "SELECT public.byoa_bus_drop_queue($1, $2, $3)",
+            [bob.byoaToken, queueName, CHANNEL],
           ),
         Error,
         "queue_not_owned",
       );
       // Alice's drop succeeds.
       await pg.queryObject(
-        "SELECT public.byoa_bus_drop_queue($1, $2)",
-        [alice.byoaToken, queueName],
+        "SELECT public.byoa_bus_drop_queue($1, $2, $3)",
+        [alice.byoaToken, queueName, CHANNEL],
       );
       const after = await pg.queryObject(
         "SELECT 1 FROM public.byoa_owned_queues WHERE queue_name = $1",
@@ -348,8 +413,8 @@ Deno.test({
       assertEquals(after.rows.length, 0);
       // Double-drop is idempotent (silent success).
       await pg.queryObject(
-        "SELECT public.byoa_bus_drop_queue($1, $2)",
-        [alice.byoaToken, queueName],
+        "SELECT public.byoa_bus_drop_queue($1, $2, $3)",
+        [alice.byoaToken, queueName, CHANNEL],
       );
     } finally {
       await pg.end();
@@ -393,8 +458,8 @@ Deno.test({
       await assertRejects(
         () =>
           pg.queryObject(
-            "SELECT public.byoa_bus_subscribe($1, 'whatever')",
-            [throwaway],
+            "SELECT public.byoa_bus_subscribe($1, $2, 30, 10, 1, $3)",
+            [throwaway, `${CHANNEL}_whatever`, CHANNEL],
           ),
         Error,
         "invalid_token",
@@ -414,13 +479,13 @@ Deno.test({
     try {
       await pg.connect();
       await assertRejects(
-        () => pg.queryObject("SELECT public.byoa_bus_list_queues('bad')"),
+        () => pg.queryObject("SELECT public.byoa_bus_list_queues('bad', $1)", [CHANNEL]),
         Error,
         "invalid_token",
       );
       const rows = await pg.queryObject<{ byoa_bus_list_queues: string }>(
-        "SELECT public.byoa_bus_list_queues($1) AS byoa_bus_list_queues",
-        [alice.byoaToken],
+        "SELECT public.byoa_bus_list_queues($1, $2) AS byoa_bus_list_queues",
+        [alice.byoaToken, CHANNEL],
       );
       // Just assert it runs and returns rows in a reasonable shape — the
       // exact contents depend on what other tests have created.

@@ -1798,6 +1798,7 @@ class TaskAgent(LLMAgent):
                 correlation_id=correlation_id,
                 character_id=self._character_id,
                 ship_id=ship_id,
+                task_id=self._active_task_id or "",
             )
         )
         return await self._pending.issue(
@@ -1822,6 +1823,7 @@ class TaskAgent(LLMAgent):
                 query_type=query_type,
                 character_id=self._character_id,
                 corp_id=corp_id,
+                task_id=self._active_task_id or "",
             )
         )
         return await self._pending.issue(

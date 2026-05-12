@@ -189,6 +189,10 @@ class VoiceAgent(LLMAgent):
         # agent advertises ready (on_agent_ready) or the task otherwise
         # completes/cancels.
         self._pending_wakes: Dict[str, asyncio.Task] = {}
+        # Remote BYOA agents are not children in this process, so the broker
+        # keeps its own active-task table for authorization and cleanup.
+        # agent_name -> {task_id, character_id, actor_character_id, task_metadata}
+        self._byoa_active_agents: Dict[str, Dict[str, Any]] = {}
 
         # ── Deferred-update queue (task.completed batching, etc.) ──
         # Bounded drain task lifecycle: lazily spawned on first enqueue,
@@ -1743,7 +1747,7 @@ class VoiceAgent(LLMAgent):
             return
         framework_task_id, payload = pending
         # Cancel the BYOA wake-hook watchdog if this is a remote BYOA agent
-        # that just came online. The agent_name format is `byoa_<char_id>`
+        # that just came online. The agent_name format is `byoa_<ship_id>`
         # for the wake-flow path; in-process spawns use `task_<6hex>` and
         # never register a watchdog.
         if data.agent_name.startswith("byoa_"):
@@ -1770,12 +1774,27 @@ class VoiceAgent(LLMAgent):
                 reason="agent failed wake-up handshake",
             )
             return
-        await self._dispatch_task_with_id(
-            data.agent_name,
-            framework_task_id,
-            payload=payload,
-            timeout=self._task_agent_timeout,
-        )
+        if self._is_byoa_agent_name(data.agent_name):
+            target_character_id = data.agent_name[len("byoa_") :]
+            task_metadata = payload.get("task_metadata") if isinstance(payload, dict) else None
+            task_metadata = task_metadata if isinstance(task_metadata, dict) else {}
+            actor = task_metadata.get("actor_character_id")
+            self._byoa_active_agents[data.agent_name] = {
+                "task_id": framework_task_id,
+                "character_id": target_character_id,
+                "actor_character_id": actor if isinstance(actor, str) else "",
+                "task_metadata": task_metadata,
+            }
+        try:
+            await self._dispatch_task_with_id(
+                data.agent_name,
+                framework_task_id,
+                payload=payload,
+                timeout=self._task_agent_timeout,
+            )
+        except Exception:
+            self._byoa_active_agents.pop(data.agent_name, None)
+            raise
         self._update_polling_scope()
         logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.agent_name)
 
@@ -1801,6 +1820,7 @@ class VoiceAgent(LLMAgent):
         # Local map first so a concurrent acquire doesn't see a phantom lock.
         if target_character_id:
             self._locked_ships.pop(target_character_id, None)
+        self._byoa_active_agents.pop(agent_name, None)
         # Server-side release.
         try:
             await self._game_client.task_cancel(
@@ -1857,6 +1877,14 @@ class VoiceAgent(LLMAgent):
     # ── Bus task protocol ─────────────────────────────────────────────
 
     async def on_task_update(self, message: BusTaskUpdateMessage) -> None:
+        byoa_ctx = self._byoa_active_agents.get(message.source)
+        if byoa_ctx is not None and message.task_id != str(byoa_ctx.get("task_id") or ""):
+            logger.warning(
+                f"ignoring BYOA task update from {message.source!r} "
+                f"for unexpected task_id={message.task_id[:8]!r}"
+            )
+            return
+
         await super().on_task_update(message)
         update = message.update
         if not update:
@@ -1885,13 +1913,25 @@ class VoiceAgent(LLMAgent):
             await self._task_output_handler(text, message_type, message.task_id, task_type)
 
     async def on_task_response(self, message: BusTaskResponseMessage) -> None:
-        await super().on_task_response(message)
-
         agent_name = message.source
         child = next(
             (c for c in self.children if isinstance(c, TaskAgent) and c.name == agent_name), None
         )
-        task_type = "corp_ship" if child and child._is_corp_ship else "player_ship"
+        byoa_ctx = self._byoa_active_agents.get(agent_name)
+        if byoa_ctx is not None and message.task_id != str(byoa_ctx.get("task_id") or ""):
+            logger.warning(
+                f"ignoring BYOA task response from {agent_name!r} "
+                f"for unexpected task_id={message.task_id[:8]!r}"
+            )
+            return
+
+        await super().on_task_response(message)
+
+        task_type = (
+            "corp_ship"
+            if (child and child._is_corp_ship) or byoa_ctx is not None
+            else "player_ship"
+        )
 
         if message.status == TaskStatus.COMPLETED:
             await self._task_output_handler(
@@ -1910,14 +1950,23 @@ class VoiceAgent(LLMAgent):
 
         # Notify the LLM so it can inform the user (use response.message for detail)
         llm_msg = (message.response or {}).get("message", f"Task {status_label}")
-        ship_name = child._task_metadata.get("ship_name") if child else None
+        task_metadata = (
+            child._task_metadata
+            if child
+            else byoa_ctx.get("task_metadata", {}) if byoa_ctx else {}
+        )
+        ship_name = task_metadata.get("ship_name") if isinstance(task_metadata, dict) else None
         ship_attr = f' ship_name="{ship_name}"' if ship_name else ""
         event_xml = (
             f'<event name="task.{status_label}" task_id="{message.task_id[:8]}" '
             f'task_type="{task_type}"{ship_attr}>\n{llm_msg}\n</event>'
         )
 
-        ship_character_id = child._character_id if child else None
+        ship_character_id = (
+            child._character_id
+            if child
+            else str(byoa_ctx.get("character_id") or "") if byoa_ctx else None
+        )
         # Hand off to the deferred-update queue. The drain coordinator
         # batches close-together completions, gates on bot/user speech state,
         # and silently folds in entries once the topic has clearly moved on.
@@ -1940,6 +1989,8 @@ class VoiceAgent(LLMAgent):
             except Exception as e:
                 logger.error(f"Failed to end task agent '{agent_name}': {e}")
             self._children = [c for c in self._children if c.name != agent_name]
+        if byoa_ctx is not None:
+            self._byoa_active_agents.pop(agent_name, None)
 
         self._update_polling_scope()
 
@@ -1949,13 +2000,73 @@ class VoiceAgent(LLMAgent):
     # messages instead of holding their own AsyncGameClient. This broker is
     # the only edge-function ingress for the whole agent ecosystem. Each
     # handler:
-    #   - reads character_id / actor_character_id off the inbound message
-    #     and passes them per-call (overrides the player-bound client)
+    #   - derives character_id / actor_character_id from local broker state
+    #     for remote BYOA messages, falling back to local TaskAgent metadata
+    #     or legacy message fields for in-process callers
     #   - tags task_id for the call duration via a ContextVar so concurrent
     #     brokered RPCs don't trample each other's event correlation
     #   - catches exceptions → error=str(e) in the response. Never re-raises.
     #
     # See docs/byoa.md "Phase 1 — VoiceAgent broker".
+
+    @staticmethod
+    def _is_byoa_agent_name(agent_name: str) -> bool:
+        return agent_name.startswith("byoa_") and not agent_name.startswith("byoa_runner_")
+
+    @staticmethod
+    def _is_byoa_runner_name(agent_name: str) -> bool:
+        return agent_name.startswith("byoa_runner_")
+
+    def _broker_identity_for_message(
+        self,
+        message: BusMessage,
+        *,
+        task_id: Optional[str] = None,
+    ) -> tuple[str, Optional[str], Optional[str]]:
+        """Resolve authoritative identity for a brokered request.
+
+        Remote BYOA messages are untrusted even after the SQL wrapper verifies
+        their source name. The broker only accepts them while there is a
+        matching active task and derives character/actor identity from the
+        pending task payload it created, not from fields supplied by the
+        remote process.
+        """
+        source = getattr(message, "source", "") or ""
+        incoming_task_id = task_id if task_id is not None else getattr(message, "task_id", "")
+
+        if self._is_byoa_runner_name(source):
+            raise PermissionError("unauthorized_byoa_source")
+
+        if self._is_byoa_agent_name(source):
+            ctx = self._byoa_active_agents.get(source)
+            if not ctx:
+                raise PermissionError("unauthorized_byoa_source")
+            expected_task_id = str(ctx.get("task_id") or "")
+            if not incoming_task_id or str(incoming_task_id) != expected_task_id:
+                raise PermissionError("unauthorized_byoa_task")
+            return (
+                str(ctx.get("character_id") or ""),
+                str(ctx.get("actor_character_id") or "") or None,
+                expected_task_id,
+            )
+
+        child = next(
+            (c for c in self.children if isinstance(c, TaskAgent) and c.name == source),
+            None,
+        )
+        if child is not None:
+            actor = child._task_metadata.get("actor_character_id") if child._task_metadata else None
+            return (
+                child._character_id,
+                actor if isinstance(actor, str) else None,
+                child._active_task_id or (str(incoming_task_id) if incoming_task_id else None),
+            )
+
+        return (
+            str(getattr(message, "character_id", "") or ""),
+            str(getattr(message, "actor_character_id", "") or "") or None,
+            str(incoming_task_id) if incoming_task_id else None,
+        )
 
     async def on_bus_message(self, message: BusMessage) -> None:
         """Dispatch Phase 1 typed messages; delegate everything else upstream."""
@@ -2072,22 +2183,26 @@ class VoiceAgent(LLMAgent):
         result: Optional[Dict[str, Any]] = None
         error: Optional[str] = None
         method = getattr(self._game_client, msg.tool_name, None)
-        if method is None or not callable(method):
-            error = f"unknown tool: {msg.tool_name!r}"
-        else:
-            kwargs = self._broker_tool_kwargs(method, msg.args)
-            try:
+        try:
+            character_id, actor_character_id, task_id = self._broker_identity_for_message(
+                msg,
+                task_id=msg.task_id or None,
+            )
+            if method is None or not callable(method):
+                error = f"unknown tool: {msg.tool_name!r}"
+            else:
+                kwargs = self._broker_tool_kwargs(method, msg.args)
                 with per_call_identity(
-                    msg.character_id or None,
-                    msg.actor_character_id or None,
-                ), per_call_task_id(msg.task_id or None):
+                    character_id or None,
+                    actor_character_id or None,
+                ), per_call_task_id(task_id or None):
                     raw = await method(**kwargs)
                 result = raw if isinstance(raw, dict) else {"result": raw}
-            except Exception as exc:
-                logger.warning(
-                    f"broker game_tool_call({msg.tool_name}) failed: {exc}"
-                )
-                error = str(exc)
+        except Exception as exc:
+            logger.warning(
+                f"broker game_tool_call({msg.tool_name}) failed: {exc}"
+            )
+            error = str(exc)
 
         await self.send_message(
             BusGameToolCallResponse(
@@ -2105,7 +2220,13 @@ class VoiceAgent(LLMAgent):
         strategy: Optional[Dict[str, Any]] = None
         error: Optional[str] = None
         try:
-            kwargs: Dict[str, Any] = {"character_id": msg.character_id}
+            character_id, _actor_character_id, _task_id = self._broker_identity_for_message(
+                msg,
+                task_id=msg.task_id or None,
+            )
+            if self._is_byoa_agent_name(msg.source) and msg.ship_id and msg.ship_id != character_id:
+                raise PermissionError("unauthorized_byoa_ship")
+            kwargs: Dict[str, Any] = {"character_id": character_id}
             if msg.ship_id:
                 kwargs["ship_id"] = msg.ship_id
             raw = await self._game_client.combat_get_strategy(**kwargs)
@@ -2130,6 +2251,10 @@ class VoiceAgent(LLMAgent):
         result: Optional[Dict[str, Any]] = None
         error: Optional[str] = None
         try:
+            character_id, _actor_character_id, _task_id = self._broker_identity_for_message(
+                msg,
+                task_id=msg.task_id or None,
+            )
             if msg.query_type == "list":
                 raw = await self._game_client._request("corporation.list", {})
             elif msg.query_type == "info":
@@ -2137,12 +2262,12 @@ class VoiceAgent(LLMAgent):
                     raise ValueError("corp_id required for query_type='info'")
                 raw = await self._game_client._request(
                     "corporation.info",
-                    {"character_id": msg.character_id, "corp_id": msg.corp_id},
+                    {"character_id": character_id, "corp_id": msg.corp_id},
                 )
             elif msg.query_type == "my":
                 raw = await self._game_client._request(
                     "my_corporation",
-                    {"character_id": msg.character_id},
+                    {"character_id": character_id},
                 )
             else:
                 raise ValueError(f"unknown query_type: {msg.query_type!r}")
@@ -2176,11 +2301,15 @@ class VoiceAgent(LLMAgent):
         403 the finish and leave the lock until stale recovery.
         """
         task_metadata: Dict[str, Any] = {}
-        if msg.actor_character_id:
-            task_metadata["actor_character_id"] = msg.actor_character_id
         try:
+            character_id, actor_character_id, _task_id = self._broker_identity_for_message(
+                msg,
+                task_id=msg.task_id,
+            )
+            if actor_character_id:
+                task_metadata["actor_character_id"] = actor_character_id
             await self._game_client.task_lifecycle(
-                character_id=msg.character_id,
+                character_id=character_id,
                 task_id=msg.task_id,
                 event_type="finish",
                 task_status=msg.status,
@@ -2883,7 +3012,7 @@ class VoiceAgent(LLMAgent):
 
         The operator's ``uv run byoa`` CLI advertises itself with this exact
         name so the bot can target it via ``watch_agent`` / ``request_task``.
-        Format: ``byoa_<character_id>`` with the full UUID (dashes kept).
+        Format: ``byoa_<ship_id>`` with the full UUID (dashes kept).
         """
         return f"byoa_{target_character_id}"
 

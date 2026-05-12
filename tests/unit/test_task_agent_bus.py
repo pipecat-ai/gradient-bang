@@ -190,6 +190,7 @@ class TestCorporationQueryMessage:
         assert msg.query_type == expected_query_type
         assert msg.corp_id == expected_corp_id
         assert msg.character_id == "char-123"
+        assert msg.task_id == "active-task-uuid"
 
 
 @pytest.mark.unit
@@ -217,6 +218,7 @@ class TestCombatStrategyMessage:
         assert isinstance(msg, BusCombatStrategyRequest)
         assert msg.ship_id == "ship-probe"
         assert msg.character_id == "char-123"
+        assert msg.task_id == "active-task-uuid"
         assert result == {"strategy": {"template": "balanced"}}
 
 

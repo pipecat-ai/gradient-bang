@@ -140,6 +140,7 @@ class TestCombatStrategy:
                 target="player",
                 correlation_id="r2",
                 character_id="char-corp-ship",
+                task_id="task-uuid",
             )
         )
 
@@ -166,6 +167,7 @@ class TestCorporationQuery:
                 query_type=qtype,
                 character_id="char-123",
                 corp_id="corp-1" if qtype == "info" else None,
+                task_id="task-uuid",
             )
         )
 
@@ -245,4 +247,3 @@ class TestAgentHello:
                 error="still warming up",
             )
         )
-

@@ -10,9 +10,9 @@ Branches on the ``SUBAGENT_BUS_TRANSPORT`` env var:
 - ``byoa_pgmq``: distributed bus over PGMQ for BYOA operators. Same DSN +
   channel as ``pgmq``, plus an HS256 ``BYOA_TOKEN`` that every pgmq call
   passes through the SECURITY DEFINER ``byoa_bus_*`` wrappers. The
-  wrappers enforce per-character queue ownership and rewrite the bus
-  envelope's ``source`` on publish so a malicious / buggy operator can't
-  impersonate the bot.
+      wrappers enforce per-character queue ownership and authorize the bus
+      envelope's ``source`` on publish so a malicious / buggy operator can't
+      impersonate the bot.
 
 Mirrors :func:`gradientbang.adapters.events.factory.make_event_adapter`. Async
 because both PGMQ branches must ``await pgmq.init()`` before the bus can

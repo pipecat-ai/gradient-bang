@@ -137,11 +137,14 @@ class BusCombatStrategyRequest(BusDataMessage):
         ship_id: Ship id (the strategy is keyed on ship, not character —
             so this is the canonical lookup key). Optional only for
             backwards-compat with broker handlers that haven't been updated.
+        task_id: Active task id. Required for remote BYOA broker
+            authorization; optional for older in-process callers.
     """
 
     correlation_id: str = ""
     character_id: str = ""
     ship_id: Optional[str] = None
+    task_id: str = ""
 
 
 @dataclass
@@ -180,12 +183,15 @@ class BusCorporationQueryRequest(BusDataMessage):
             on ``my`` and to log the actor on the others).
         corp_id: Corporation id for ``query_type="info"``; ignored for
             ``list`` and ``my``.
+        task_id: Active task id. Required for remote BYOA broker
+            authorization; optional for older in-process callers.
     """
 
     correlation_id: str = ""
     query_type: CorpQueryType = "my"
     character_id: str = ""
     corp_id: Optional[str] = None
+    task_id: str = ""
 
 
 @dataclass
