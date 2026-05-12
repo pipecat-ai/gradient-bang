@@ -92,14 +92,20 @@ DECLARE
   v_token_hash  text;
   v_token_row   public.byoa_tokens%ROWTYPE;
 BEGIN
-  -- Verify HS256 signature + standard exp claim via pgjwt.
-  SELECT payload, valid
-    INTO v_payload, v_valid
-    FROM extensions.verify(
-      p_token,
-      public.pubsub_internal_secret(),
-      'HS256'
-    );
+  -- Verify HS256 signature + standard exp claim via pgjwt. pgjwt's verify
+  -- can raise on malformed JWTs (e.g. missing dots, non-base64 payload),
+  -- so any exception is treated as "invalid token" rather than propagating.
+  BEGIN
+    SELECT payload, valid
+      INTO v_payload, v_valid
+      FROM extensions.verify(
+        p_token,
+        public.pubsub_internal_secret(),
+        'HS256'
+      );
+  EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+  END;
 
   IF v_valid IS NOT TRUE THEN
     RETURN NULL;
