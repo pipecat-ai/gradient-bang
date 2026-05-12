@@ -2,9 +2,9 @@
 
 > Bring-Your-Own-Agent — operate a corporation ship with an external agent of your choosing. This guide tracks what's possible *today*; new capabilities land per phase. See [byoa.md](byoa.md) for the architecture roadmap.
 
-## What's available today (Groundwork + Phase 1 + Phase 2)
+## What's available today
 
-A corp ship has a server-enforced single-task lock, can be claimed as a BYOA ship by any member of its corporation, and the bundled in-process TaskAgent speaks the **finalised bus protocol** that an external BYOA agent will implement in Phase 3. The contract is locked: every game RPC, lifecycle event, and tool call goes through typed bus messages. As of Phase 2 that bus is **transport-pluggable** — the same messages travel over an in-process `asyncio.Queue` by default, or over a Postgres-backed `PgmqBus` when opted in via env.
+A corp ship has a server-enforced single-task lock, can be claimed as a BYOA ship by any member of its corporation, and the bundled in-process TaskAgent speaks the **finalised bus protocol** an external BYOA agent will implement. The contract is locked: every game RPC, lifecycle event, and tool call goes through typed bus messages. The bus itself is **transport-pluggable** — the same messages travel over an in-process `asyncio.Queue` by default, or over a Postgres-backed `PgmqBus` when opted in via env.
 
 What you can do right now:
 
@@ -12,14 +12,14 @@ What you can do right now:
 - **Pick a mode**: `private` (only you can issue tasks) or `shared` (any corp member can).
 - **Trust the lock**: only one task can run on a ship at a time, even across processes and corp members.
 - **Recover gracefully**: heartbeats keep your lock alive; a crashed or disconnected agent loses its lock within ~3 minutes (configurable). Corp members can force-cancel a stuck lock immediately.
-- **Read the bus protocol contract**: every TaskAgent — bundled or BYOA — speaks the same typed bus messages. The bundled `TaskAgent` in [src/gradientbang/pipecat_server/subagents/task_agent.py](../src/gradientbang/pipecat_server/subagents/task_agent.py) is the **reference implementation** of what a Phase 3 BYOA agent will need to do.
+- **Read the bus protocol contract**: every TaskAgent — bundled or BYOA — speaks the same typed bus messages. The bundled `TaskAgent` in [src/gradientbang/pipecat_server/subagents/task_agent.py](../src/gradientbang/pipecat_server/subagents/task_agent.py) is the **reference implementation** of what a remote BYOA agent will need to do.
 
-What's *not* available yet (lands in later phases):
+What's *not* available yet:
 
-- Running your own agent process out-of-tree (Phase 3 — operator quickstart + BYOA tokens).
-- The wake URL trigger for cold-start BYOA hosts (Phase 3 — adds an HTTPS webhook before the bus handshake).
+- Running your own agent process out-of-tree (operator quickstart + BYOA tokens — coming).
+- The wake URL trigger for cold-start BYOA hosts (HTTPS webhook before the bus handshake — coming).
 
-Today, every BYOA ship is still controlled by the same Python TaskAgent that ships in the bot. Claiming a ship as BYOA changes *who* can issue tasks to it, not *what* runs the task. Phase 3 closes that loop.
+Today, every BYOA ship is still controlled by the same Python TaskAgent that ships in the bot. Claiming a ship as BYOA changes *who* can issue tasks to it, not *what* runs the task. The operator-quickstart milestone closes that loop.
 
 ## Configuring a corp ship as BYOA
 
@@ -69,9 +69,9 @@ A successful change emits a `ship.byoa_configured` event to the whole corporatio
 
 A corp member can always *force-cancel* a task on a corp ship via `task_cancel { force: true }`, even on a BYOA-private ship. This is the escape hatch for stuck locks; it bypasses the owner check and emits a `task.cancel` event for the displaced actor.
 
-## The bus protocol (Phase 1)
+## The bus protocol
 
-TaskAgent no longer holds an `AsyncGameClient`. Every game RPC — tool calls, lifecycle events, corp queries, combat doctrine — flows through typed bus messages to VoiceAgent's broker. **This is the contract a Phase 3 external BYOA agent will implement.**
+TaskAgent no longer holds an `AsyncGameClient`. Every game RPC — tool calls, lifecycle events, corp queries, combat doctrine — flows through typed bus messages to VoiceAgent's broker. **This is the contract every BYOA agent implements.**
 
 Messages a BYOA agent will need to handle (defined in [src/gradientbang/pipecat_server/subagents/bus_messages.py](../src/gradientbang/pipecat_server/subagents/bus_messages.py)):
 
@@ -91,7 +91,7 @@ Messages a BYOA agent will need to handle (defined in [src/gradientbang/pipecat_
 | Outbound | `BusTaskFinishNotification` | Tell the broker the task is done — triggers server-side lock release. |
 | Outbound | `BusTaskUpdate` | Optional progress reports back to the human. |
 
-All payload fields are plain JSON-serializable. The same messages will travel over the in-process bus today and the upstream `PgmqBus` in Phase 2.
+All payload fields are plain JSON-serializable, so the same messages travel cleanly over the in-process `AsyncQueueBus` and the Postgres-backed `PgmqBus`.
 
 ### The wake-up handshake
 
@@ -141,7 +141,7 @@ Set these on the edge function deploy. BYOA operators cannot override them; only
 
 ### Bus transport (game operator)
 
-Per-process, set on the bot. Default keeps Phase 1 behavior bit-for-bit — only the `pgmq` value changes the wire.
+Per-process, set on the bot. Default keeps the bus in-process — only the `pgmq` value changes the wire.
 
 | Env var | Default | What it controls |
 |---|---|---|
@@ -213,9 +213,9 @@ These are the edge functions a *VoiceAgent broker* uses. A BYOA agent itself nev
 
 ## Roadmap
 
-| Phase | Status | What ships |
+| Capability | Status | Notes |
 |---|---|---|
-| **Groundwork** | ✅ Shipped | Server-side lock, BYOA columns + modes, heartbeat, `ship_byoa_configure`, ship-list payload extension. The bundled TaskAgent claims the BYOA lock semantics |
-| **Phase 1** | ✅ Shipped | Typed bus messages for tool calls / lifecycle / corp queries / wake-up handshake. TaskAgent drops `AsyncGameClient` — every game RPC goes via VoiceAgent's broker over the bus. Idle teardown timer for warm agents. **The bundled TaskAgent is the BYOA contract reference implementation** |
-| **Phase 2** | ✅ Shipped | Transport-pluggable subagent bus. `SUBAGENT_BUS_TRANSPORT=local` (default) keeps the in-process `AsyncQueueBus` behavior bit-for-bit; `=pgmq` swaps in upstream `PgmqBus` over a Postgres DSN. An agent can now run in a separate process or on a different host with no code changes |
-| Phase 3 | 🔜 Planned | Operator onboarding: BYOA tokens, wake URL trigger, reference SDK, example agent, quickstart docs. The "run your own agent" deliverable |
+| Server-side ship lock + BYOA modes | ✅ Shipped | Server-enforced single-task lock, `ship_byoa_configure`, ship-list payload extension. The bundled TaskAgent claims the BYOA lock semantics |
+| Typed bus protocol + wake-up handshake | ✅ Shipped | Typed bus messages for tool calls / lifecycle / corp queries / hello. TaskAgent drops `AsyncGameClient`; every game RPC goes via VoiceAgent's broker over the bus. Idle teardown timer for warm agents. **The bundled TaskAgent is the BYOA contract reference implementation** |
+| Transport-pluggable bus (in-process or PGMQ) | ✅ Shipped | `SUBAGENT_BUS_TRANSPORT=local` (default) keeps the in-process `AsyncQueueBus` behavior bit-for-bit; `=pgmq` swaps in upstream `PgmqBus` over a Postgres DSN. An agent can run in a separate process or on a different host with no code changes |
+| Operator onboarding | 🔜 Planned | BYOA tokens, wake URL trigger, reference SDK, example agent, quickstart docs. The "run your own agent" deliverable |
