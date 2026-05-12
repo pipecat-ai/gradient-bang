@@ -70,7 +70,7 @@ async function readShipByoa(
 ): Promise<Record<string, unknown> | null> {
   return await withPg(async (pg) => {
     const result = await pg.queryObject<Record<string, unknown>>(
-      `SELECT byoa_owner_character_id, byoa_mode, current_task_id
+      `SELECT byoa_owner_character_id, byoa_mode, byoa_wake_hook, current_task_id
          FROM ship_instances
         WHERE ship_id = $1`,
       [shipId],
@@ -580,5 +580,103 @@ Deno.test({
         );
       },
     );
+  },
+});
+
+// ============================================================================
+// Group 7: ship_byoa_configure — byoa_wake_hook field
+// ============================================================================
+
+Deno.test({
+  name: "byoa_access — ship_byoa_configure wake_hook lifecycle",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+
+    await t.step("seed corp", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50_000);
+      const seeded = await seedCorpWithMembers(p1Id, [p2Id], "Wake Hook Corp");
+      corpShipId = seeded.corpShipId;
+    });
+
+    await t.step("claim with wake_hook persists it", async () => {
+      const result = await apiOk("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "claim",
+        mode: "private",
+        wake_hook: "https://wake.example.test/byoa",
+      });
+      assertEquals(
+        (result as Record<string, unknown>).byoa_wake_hook,
+        "https://wake.example.test/byoa",
+      );
+      const row = await readShipByoa(corpShipId);
+      assertEquals(row?.byoa_wake_hook, "https://wake.example.test/byoa");
+    });
+
+    await t.step("set_mode can update wake_hook", async () => {
+      const result = await apiOk("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "set_mode",
+        mode: "shared",
+        wake_hook: "https://wake.example.test/byoa-v2",
+      });
+      assertEquals(
+        (result as Record<string, unknown>).byoa_wake_hook,
+        "https://wake.example.test/byoa-v2",
+      );
+    });
+
+    await t.step("non-HTTPS wake_hook rejected", async () => {
+      const result = await api("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "set_mode",
+        mode: "shared",
+        wake_hook: "http://insecure.example.test/byoa",
+      });
+      assertEquals(result.status, 400);
+      // The bad URL must not have been persisted.
+      const row = await readShipByoa(corpShipId);
+      assertEquals(row?.byoa_wake_hook, "https://wake.example.test/byoa-v2");
+    });
+
+    await t.step("explicit null clears wake_hook without clearing BYOA", async () => {
+      await apiOk("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "set_mode",
+        mode: "shared",
+        wake_hook: null,
+      });
+      const row = await readShipByoa(corpShipId);
+      assertEquals(row?.byoa_wake_hook, null);
+      assertEquals(row?.byoa_owner_character_id, p1Id);
+    });
+
+    await t.step("clear action nulls wake_hook implicitly", async () => {
+      // First, re-set a wake_hook so we can prove `clear` removes it.
+      await apiOk("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "set_mode",
+        mode: "shared",
+        wake_hook: "https://wake.example.test/about-to-clear",
+      });
+      await apiOk("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "clear",
+      });
+      const row = await readShipByoa(corpShipId);
+      assertEquals(row?.byoa_owner_character_id, null);
+      assertEquals(row?.byoa_wake_hook, null);
+    });
   },
 });
