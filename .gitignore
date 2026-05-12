@@ -64,4 +64,7 @@ artifacts/
 .claude/scheduled_tasks.lock
 .claude/launch.json
 
+# Private working plan for the BYOA effort — not for the repo.
+docs/byoa.md
+
 *.log
