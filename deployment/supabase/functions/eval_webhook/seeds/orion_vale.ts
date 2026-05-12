@@ -131,6 +131,16 @@ DELETE FROM ship_instances WHERE owner_corporation_id IN (
   '1a000000-0000-4000-8000-c00000000002'
 );
 
+-- Step 4 (line 111) only nulls corporation_id for the 5 main characters, but
+-- clones (cleaned later at step 7a) and any other character that joined these
+-- corps still point at them. characters.corporation_id has no ON DELETE
+-- behavior, so the corporations DELETE below would fail. Null corporation_id
+-- on ANY character referencing these corps before deleting them.
+UPDATE characters SET corporation_id = NULL WHERE corporation_id IN (
+  '1a000000-0000-4000-8000-c00000000001',
+  '1a000000-0000-4000-8000-c00000000002'
+);
+
 -- 6. Corporations (founder FK means characters must stay until after this)
 DELETE FROM corporations WHERE corp_id IN (
   '1a000000-0000-4000-8000-c00000000001',
@@ -154,6 +164,17 @@ BEGIN
     DELETE FROM corporation_members WHERE character_id = v_char_id;
     UPDATE characters SET current_ship_id = NULL, corporation_id = NULL WHERE character_id = v_char_id;
     DELETE FROM ship_instances WHERE ship_id = v_ship_id;
+    -- A clone may have founded a corp during a prior test. The founder FK is
+    -- ON DELETE RESTRICT, so we must clean up corps before deleting the
+    -- clone. Clear events.corp_id and anyone pointing at the corp first
+    -- (corp_members / corp_ships cascade on corp delete).
+    DELETE FROM events WHERE corp_id IN (
+      SELECT corp_id FROM corporations WHERE founder_id = v_char_id
+    );
+    UPDATE characters SET corporation_id = NULL WHERE corporation_id IN (
+      SELECT corp_id FROM corporations WHERE founder_id = v_char_id
+    );
+    DELETE FROM corporations WHERE founder_id = v_char_id;
     DELETE FROM characters WHERE character_id = v_char_id;
   END LOOP;
 END $clone_teardown$;
