@@ -971,6 +971,44 @@ async def _configure_recording_bucket(room_url: str):
         logger.error(f"Failed to configure recording bucket: {exc}")
 
 
+def _log_startup_config(version: str) -> None:
+    """Pretty-print the core bot config so transport choices are obvious at a glance.
+
+    Reads env directly rather than instantiating the LLM configs (those have
+    side effects we don't want at boot, like warning on unknown providers).
+    """
+    bus_transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
+    bus_channel = os.getenv("SUBAGENT_BUS_CHANNEL", "").strip()
+    event_transport = os.getenv("EVENT_TRANSPORT", "polling").strip().lower()
+    voice_provider = os.getenv("VOICE_LLM_PROVIDER", "google").strip().lower()
+    voice_model = os.getenv("VOICE_LLM_MODEL", "(provider default)").strip()
+    task_provider = os.getenv("TASK_LLM_PROVIDER", "google").strip().lower()
+    task_model = os.getenv("TASK_LLM_MODEL", "(provider default)").strip()
+    task_thinking = os.getenv("TASK_LLM_THINKING_BUDGET", "4096").strip()
+    byoa_wake = os.getenv("BYOA_WAKE_ENABLED", "false").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    local_pooler = bool(os.getenv("LOCAL_API_POSTGRES_URL", "").strip())
+
+    bus_line = f"{bus_transport}"
+    if bus_transport != "local":
+        bus_line += f"  channel={bus_channel or '(unset!)'}"
+
+    lines = [
+        "─" * 64,
+        f"Gradient Bang Bot v{version}",
+        f"  instance_id        {BOT_INSTANCE_ID}",
+        f"  event_transport    {event_transport}",
+        f"  subagent_bus       {bus_line}",
+        f"  byoa_wake          {'enabled' if byoa_wake else 'disabled'}",
+        f"  local_pooler       {'on' if local_pooler else 'off (HTTP edge functions)'}",
+        f"  voice_llm          {voice_provider}/{voice_model}",
+        f"  task_llm           {task_provider}/{task_model}  thinking={task_thinking}",
+        "─" * 64,
+    ]
+    logger.info("\n" + "\n".join(lines))
+
+
 async def bot(runner_args: RunnerArguments):
     """Main bot entry point"""
     global BOT_INSTANCE_ID
@@ -982,7 +1020,7 @@ async def bot(runner_args: RunnerArguments):
 
     from gradientbang import __version__
 
-    logger.info(f"Gradient Bang v{__version__}")
+    _log_startup_config(__version__)
     logger.info(f"Bot started with runner_args: {runner_args}")
 
     transport_params = {
