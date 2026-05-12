@@ -123,6 +123,19 @@ UPDATE characters SET corporation_id = NULL WHERE character_id IN (
   'e0000000-6000-4000-8000-000000000005',
   'e0000000-8000-4000-8000-000000000005'
 );
+-- Events FK on corp_id with no cascade (prod uses corp soft-delete to avoid
+-- this; eval reset must clean up explicitly). Clear any event row pointing
+-- at these corps so the corporations DELETE below doesn't violate the FK.
+DELETE FROM events WHERE corp_id IN (
+  'e0000000-0000-4000-8000-c00b00000001',
+  'e0000000-1000-4000-8000-c00b00000001',
+  'e0000000-2000-4000-8000-c00b00000001',
+  'e0000000-3000-4000-8000-c00b00000001',
+  'e0000000-4000-4000-8000-c00b00000001',
+  'e0000000-5000-4000-8000-c00b00000001',
+  'e0000000-6000-4000-8000-c00b00000001',
+  'e0000000-8000-4000-8000-c00b00000001'
+);
 -- Corporations must be deleted BEFORE the characters they reference as founder.
 DELETE FROM corporations WHERE corp_id IN (
   'e0000000-0000-4000-8000-c00b00000001',
