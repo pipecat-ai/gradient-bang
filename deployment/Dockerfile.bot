@@ -19,6 +19,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 
+# Vendored pipecat-subagents (editable submodule). pyproject.toml's
+# [tool.uv.sources] points pipecat-ai-subagents at vendor/pipecat-subagents,
+# so the source tree must be present on the build filesystem before uv sync.
+# Bind-mounting won't work here because uv writes an editable .pth file
+# pointing at the absolute path — that path must persist into the image.
+COPY vendor/pipecat-subagents/ vendor/pipecat-subagents/
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
@@ -38,6 +45,8 @@ COPY src/gradientbang/scripts/ gradientbang/scripts/
 COPY src/gradientbang/prompts/ gradientbang/prompts/
 COPY src/gradientbang/tools/ gradientbang/tools/
 COPY src/gradientbang/subagents/ gradientbang/subagents/
+COPY src/gradientbang/adapters/ gradientbang/adapters/
+COPY src/gradientbang/byoa/ gradientbang/byoa/
 COPY src/gradientbang/pipecat_server/ gradientbang/pipecat_server/
 
 COPY src/gradientbang/pipecat_server/bot.py bot.py
