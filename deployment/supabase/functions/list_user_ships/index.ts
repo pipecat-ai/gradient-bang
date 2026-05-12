@@ -121,7 +121,9 @@ Deno.serve(traced("list_user_ships", async (req, trace) => {
     sEmit.end();
 
     trace.setOutput({ request_id: requestId, ship_count: result.ships.length });
-    return successResponse({ request_id: requestId });
+    // Include data inline so callers can consume synchronously without waiting
+    // for the ships.list event. Event still emitted above for async subscribers.
+    return successResponse({ request_id: requestId, ...result });
   } catch (err) {
     const validationResponse = respondWithError(err);
     if (validationResponse) {

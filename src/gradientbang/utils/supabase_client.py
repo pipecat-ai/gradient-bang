@@ -17,6 +17,7 @@ import time
 import httpx
 
 from gradientbang.adapters.events import make_event_adapter
+from gradientbang.adapters.events.base import EventAdapter
 from gradientbang.utils.api_client import AsyncGameClient as BaseAsyncGameClient, RPCError
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
@@ -163,11 +164,13 @@ class AsyncGameClient(BaseAsyncGameClient):
         # one. The pubsub adapter raises at start() if it's None.
         self._access_token = access_token
 
-        # Event-delivery adapter. Transport-specific state (scope, cursor,
-        # dedup ring, task lifecycle) lives inside the adapter — see
-        # ``gradientbang.adapters.events`` for the Protocol and the polling /
-        # pubsub implementations. The factory branches on EVENT_TRANSPORT.
-        self._event_adapter = make_event_adapter(self)
+        # Event-delivery adapter. Constructed and started only by an
+        # explicit ``start_event_delivery()`` call once the caller is
+        # ready to consume events. Callers that build their LLM context
+        # inline from RPC responses call ``purge_event_backlog`` first to
+        # guarantee no events the server queued during bootstrap reach
+        # the LLM context.
+        self._event_adapter: Optional[EventAdapter] = None
 
     def set_event_polling_scope(
         self,
@@ -179,8 +182,14 @@ class AsyncGameClient(BaseAsyncGameClient):
         """Update the event subscription scope (delegates to the adapter).
 
         Public name preserved for backward compatibility with VoiceAgent /
-        EventRelay callers; the underlying transport is the adapter.
+        EventRelay callers; the underlying transport is the adapter. No-op
+        if the adapter hasn't been constructed yet — scope changes before
+        ``start_event_delivery`` are not currently supported (the bot
+        doesn't need it).
         """
+        if self._event_adapter is None:
+            logger.debug("set_event_polling_scope: adapter not started; ignoring")
+            return
         self._event_adapter.set_scope(
             character_ids=character_ids,
             corp_id=corp_id,
@@ -189,7 +198,8 @@ class AsyncGameClient(BaseAsyncGameClient):
 
     async def close(self):
         await super().close()
-        await self._event_adapter.stop()
+        if self._event_adapter is not None:
+            await self._event_adapter.stop()
         if self._http:
             await self._http.aclose()
             self._http = None
@@ -205,13 +215,7 @@ class AsyncGameClient(BaseAsyncGameClient):
         self,
         endpoint: str,
         payload: Dict[str, Any],
-        *,
-        skip_event_delivery: bool = False,
     ) -> Dict[str, Any]:  # type: ignore[override]
-        # Skip polling setup only for get_character_jwt (to avoid recursion)
-        # For join, we establish polling BEFORE the RPC so join events are received
-        if not skip_event_delivery:
-            await self._ensure_event_delivery()
         http_client = self._ensure_http_client()
 
         req_id = str(uuid.uuid4())
@@ -609,9 +613,34 @@ class AsyncGameClient(BaseAsyncGameClient):
     async def _emit_frame(self, direction: str, frame: Mapping[str, Any]) -> None:  # type: ignore[override]
         return  # No legacy websocket frames
 
-    async def _ensure_event_delivery(self) -> None:
+    async def purge_event_backlog(self) -> None:
+        """Reset the per-character delivery backlog before bootstrap RPCs.
+
+        Sessions that build their LLM context inline from RPC responses
+        call this before issuing those RPCs. The pubsub adapter drops
+        the per-character pgmq queue (so subsequent server publishes
+        silently no-op until ``start_event_delivery`` recreates it); the
+        polling adapter fast-forwards its cursor to current head. Either
+        way, ``start_event_delivery`` starts on a clean baseline and the
+        bootstrap RPCs' events never reach the LLM context.
+        """
         if not self._enable_event_polling:
             return
+        if self._event_adapter is None:
+            self._event_adapter = make_event_adapter(self)
+        await self._event_adapter.purge_backlog()
+
+    async def start_event_delivery(self) -> None:
+        """Construct the event adapter and start consuming events.
+
+        Call this once the caller is ready for events to flow.
+        Idempotent. Callers building context from RPC responses should
+        call ``purge_event_backlog`` first.
+        """
+        if not self._enable_event_polling:
+            return
+        if self._event_adapter is None:
+            self._event_adapter = make_event_adapter(self)
         await self._event_adapter.start()
 
     def _append_event_log(self, event_name: str, payload: Dict[str, Any]) -> None:

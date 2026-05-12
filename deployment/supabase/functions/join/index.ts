@@ -449,9 +449,14 @@ Deno.serve(traced("join", async (req, trace) => {
 
     console.log(`[join] Total time: ${(performance.now() - t0).toFixed(1)}ms`);
     trace.setOutput({ request_id: requestId, characterId, targetSector, isFirstVisit, "map.local": mapPayload });
+    // Include status snapshot and map.local data inline so callers can build
+    // their initial context synchronously without waiting for the matching
+    // events. Events are still emitted above for async subscribers.
     const responseBody: Record<string, unknown> = {
       request_id: requestId,
       is_first_visit: isFirstVisit,
+      status: statusPayload,
+      map_local: mapPayload,
     };
     if (onboardingRoute) {
       responseBody.onboarding_route = onboardingRoute;

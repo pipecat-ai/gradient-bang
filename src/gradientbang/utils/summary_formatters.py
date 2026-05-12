@@ -9,6 +9,8 @@ from typing import Callable, Dict, Any, List, Optional, Tuple
 from collections import defaultdict
 import re
 
+from gradientbang.utils.formatting import format_ship_summary_line
+
 _ID_PREFIX_LEN = 6
 _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-"
@@ -500,6 +502,34 @@ def move_summary(result: Dict[str, Any]) -> str:
         first_line += " First visit!"
 
     return _status_summary(result, first_line)
+
+
+def quest_status_summary(result: Dict[str, Any]) -> str:
+    """Summarize ``quest.status`` (contracts) payloads.
+
+    In-game contracts are exposed to the LLM as 'contracts' (player-facing
+    name); internally they live under the ``quests`` array.
+    """
+    if not isinstance(result, dict):
+        return "No active contracts."
+    quests = result.get("quests")
+    if not isinstance(quests, list) or not quests:
+        return "No active contracts."
+    lines = [f"{len(quests)} active contract{'s' if len(quests) != 1 else ''}:"]
+    for quest in quests:
+        if not isinstance(quest, dict):
+            continue
+        name = quest.get("name") or quest.get("quest_code") or "unnamed"
+        status = quest.get("status", "active")
+        progress = quest.get("progress")
+        line = f"- {name} ({status})"
+        if isinstance(progress, dict):
+            current = progress.get("current")
+            total = progress.get("total")
+            if current is not None and total is not None:
+                line += f" — {current}/{total}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def join_summary(result: Dict[str, Any]) -> str:
@@ -1351,44 +1381,50 @@ def transfer_summary(event: Dict[str, Any]) -> str:
 
 
 def ships_list_summary(event: Dict[str, Any]) -> str:
-    """Summarize ships.list events with short identifiers."""
+    """Summarize ships.list payloads with personal/corp categorization.
+
+    Reads either the raw HTTP response (``{ships: [...]}``) or an event
+    envelope wrapping the same data. Field name is ``ship_name`` (matching
+    the ship row schema); the older ``name`` fallback handles legacy
+    payloads.
+    """
     if not isinstance(event, dict):
         return "Ships list received."
 
     ships = event.get("ships")
     if not isinstance(ships, list) or not ships:
-        return "Ships: none."
+        return "No ships available."
 
     active = [s for s in ships if isinstance(s, dict) and not s.get("destroyed_at")]
     destroyed = [s for s in ships if isinstance(s, dict) and s.get("destroyed_at")]
+    personal = [s for s in active if s.get("owner_type") == "personal"]
+    corp = [s for s in active if s.get("owner_type") == "corporation"]
 
-    lines = [f"Ships: {len(active)} active{f', {len(destroyed)} destroyed' if destroyed else ''}."]
-    for ship in active:
-        name = _shorten_embedded_ids(str(ship.get("name") or "Unnamed Vessel"))
-        ship_type = _friendly_ship_type(ship.get("ship_type"))
-        ship_id_prefix = _short_id(ship.get("ship_id"))
-        id_suffix = f" [{ship_id_prefix}]" if ship_id_prefix else ""
-        sector = ship.get("sector")
-        sector_display = sector if isinstance(sector, int) else "unknown"
-        holds = _format_holds(ship)
-        task_id = ship.get("current_task_id")
-        if isinstance(task_id, str) and task_id:
-            task_display = _short_id(task_id) or task_id
-        else:
-            task_display = "none"
-        details = [
-            f"{name}{id_suffix} ({ship_type}) in sector {sector_display}",
-            holds,
-            f"task {task_display}",
-        ]
-        lines.append("- " + "; ".join(details))
+    header = f"Fleet: {len(active)} active"
+    if destroyed:
+        header += f", {len(destroyed)} destroyed"
+    lines = [header]
 
-    for ship in destroyed:
-        name = _shorten_embedded_ids(str(ship.get("name") or ship.get("ship_name") or "Unnamed Vessel"))
-        ship_type = _friendly_ship_type(ship.get("ship_type"))
-        sector = ship.get("sector")
-        sector_display = sector if isinstance(sector, int) else "unknown"
-        lines.append(f"- [DESTROYED] {name} ({ship_type}) last seen sector {sector_display}")
+    if personal:
+        lines.append("Your ship:")
+        for ship in personal:
+            lines.append(format_ship_summary_line(ship, include_id=True))
+    if corp:
+        lines.append(f"Corporation ships ({len(corp)}):")
+        for ship in corp:
+            lines.append(format_ship_summary_line(ship, include_id=True))
+    if destroyed:
+        lines.append(f"Destroyed ships ({len(destroyed)}):")
+        for ship in destroyed:
+            name = _shorten_embedded_ids(
+                str(ship.get("ship_name") or ship.get("name") or "Unnamed Vessel")
+            )
+            ship_type = _friendly_ship_type(ship.get("ship_type"))
+            sector = ship.get("sector")
+            sector_display = sector if isinstance(sector, int) else "unknown"
+            lines.append(
+                f"- [DESTROYED] {name} ({ship_type}) last seen sector {sector_display}"
+            )
 
     return "\n".join(lines)
 

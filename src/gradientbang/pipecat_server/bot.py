@@ -66,6 +66,7 @@ from pipecat.utils.context.llm_context_summarization import (
 
 from gradientbang.pipecat_server import STARTUP_BANNER
 from gradientbang.pipecat_server.s3_smart_turn import S3SmartTurnAnalyzerV3
+from gradientbang.pipecat_server.session_init import gather_initial_state
 from gradientbang.pipecat_server.voices import DEFAULT_VOICE, DEFAULT_VOICE_ID, VOICES
 from gradientbang.utils.access_token import assert_access_token_valid
 from gradientbang.utils.llm_factory import (
@@ -305,6 +306,10 @@ async def bot_startup(
     # /start (proxy injects after Supabase Auth verification, or dev sets
     # BOT_TEST_ACCESS_TOKEN). Polling adapter ignores it; pubsub adapter
     # uses it to authenticate against per-character pgmq queues.
+    # Event delivery is started explicitly by ``_join`` after session_init
+    # has built the LLM context and the agent is activated. Until then no
+    # subscriber exists; events the server queues during the bootstrap
+    # window are drained and discarded when the adapter starts.
     game_client = AsyncGameClient(
         character_id=character_id,
         base_url=server_url,
@@ -353,7 +358,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         voice_id = body.get("voice_id") or DEFAULT_VOICE_ID
         voice_language = Language.EN
     personality_tone = body.get("personality_tone", "").strip()
-    bypass_tutorial = bool(body.get("bypass_tutorial", False))
+    # ScriptedAgent / tutorial path is WIP and currently bypassed for all sessions.
+    # Revisit when the scripted onboarding work resumes.
+    bypass_tutorial = True
 
     (
         rtvi,
@@ -393,16 +400,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             else f"IMPORTANT: Always respond in {voice_language.name.title()}. All your spoken output must be in {voice_language.name.title()}."
         ),
     )
+    # System prompt still contains ${universe_size} / ${fedspace_sector_count}
+    # placeholders at this point — those are resolved synchronously by
+    # session_init.gather_initial_state() and patched into the context before
+    # the VoiceAgent activates. Personality and language are already baked in.
     system_message = {
         "role": "system",
         "content": build_voice_agent_prompt(),
     }
-    messages = [
-        {
-            "role": "user",
-            "content": f"<start_of_session>Character Name: {character_display_name}</start_of_session>",
-        },
-    ]
 
     # Create dedicated Gemini Flash LLM for context summarization
     summarization_llm = create_llm_service(
@@ -422,11 +427,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         ),
     )
 
-    # Seed the shared context with the system prompt so it always sits at
-    # position 0, ahead of any events that arrive during event_relay.join()
-    # (which runs before activate_agent). Activation messages — the
-    # start_of_session marker — are appended after, via LLMAgentActivationArgs.
-    # Tools are still injected via the VoiceAgent's activation path.
+    # Seed the shared context with the system prompt. session_init resolves
+    # the ${universe_size} / ${fedspace_sector_count} placeholders inline once
+    # the join RPC returns, and activation appends the initial user messages
+    # behind the system message in one batch.
     context = LLMContext(messages=[system_message])
     mute_strategy = TextInputBypassFirstBotMuteStrategy()
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
@@ -688,36 +692,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         rtvi_processor=rtvi,
     )
 
-    # ── Universe info substitution ────────────────────────────────────
-    # Register a one-shot handler for the first status.snapshot so we can
-    # substitute ${universe_size} / ${fedspace_sector_count} in the seeded
-    # system message. The system message lives at context.messages[0] (seeded
-    # at construction time, ahead of any pre-activation events).
-    def _on_first_status_snapshot(event: dict) -> None:
-        payload = event.get("payload", event)
-        player = payload.get("player") if isinstance(payload, dict) else None
-        if not isinstance(player, dict):
-            return
-        universe_size = player.get("universe_size")
-        fedspace_sector_count = player.get("fedspace_sector_count")
-        if universe_size is None and fedspace_sector_count is None:
-            return
-        subs: dict[str, str | int] = {}
-        if universe_size is not None:
-            subs["universe_size"] = universe_size
-        if fedspace_sector_count is not None:
-            subs["fedspace_sector_count"] = fedspace_sector_count
-        set_prompt_substitutions(**subs)
-        for msg in context.messages:
-            if msg.get("role") == "system":
-                msg["content"] = apply_prompt_substitutions(msg["content"])
-                break
-        game_client.remove_event_handler(_universe_info_token)
-
-    _universe_info_token = game_client.add_event_handler(
-        "status.snapshot", _on_first_status_snapshot
-    )
-
     event_relay = EventRelay(
         game_client=game_client,
         rtvi_processor=rtvi,
@@ -750,14 +724,13 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         # in-flight BotStoppedSpeakingFrame from the tutorial triggering unmute.
         await mute_strategy.reset()
         mute_strategy.force_mute = False
-        # run_llm=False — VoiceAgent.on_activated will call
-        # event_relay._maybe_inject_onboarding(), which queues the
-        # onboarding/session.start event with run_llm=True. Letting activation
-        # also run the LLM would cause a double inference.
-        await main_agent.activate_agent(
-            "player",
-            args=LLMAgentActivationArgs(messages=messages, run_llm=False),
-        )
+        # ScriptedAgent path is currently bypassed (bypass_tutorial=True);
+        # this branch only fires if tutorial gets re-enabled. When it does,
+        # initial_state needs to be threaded through to here so we can
+        # activate with the same initial_messages the veteran path uses.
+        # For now, activate with no messages — left as a TODO when tutorial
+        # work resumes.
+        await main_agent.activate_agent("player")
 
     scripted_agent = ScriptedAgent(
         "scripted",
@@ -788,18 +761,42 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             nonlocal is_first_visit
             try:
                 await asyncio.sleep(2)
-                # Startup is a strict three-phase contract:
-                #   1. system prompt is already seeded into LLMContext
-                #   2. EventRelay gathers initial state (events buffer while paused)
-                #   3. activate the right agent BEFORE resume so start_of_session
-                #      lands ahead of the buffered events, and the only inference
-                #      trigger is EventRelay._maybe_inject_onboarding once
-                #      status.snapshot + ports.list have resolved.
-                await game_client.pause_event_delivery()
+                # Strict startup contract:
+                #   0. purge any leftover pubsub queue — server pgmq_publish
+                #      becomes a silent no-op until step 4 recreates it, so
+                #      init-RPC events can't accumulate
+                #   1. fetch initial state via blocking RPCs (data inline)
+                #   2. patch substitutions into the seeded system message
+                #   3. activate VoiceAgent with the initial messages
+                #   4. start the event adapter — fresh queue, steady-state
+                #      events begin flowing
+                # If any step fails, the bot bails rather than half-joining.
+                await game_client.purge_event_backlog()
 
-                result = await event_relay.join()
-                if isinstance(result, dict):
-                    is_first_visit = bool(result.get("is_first_visit", False))
+                initial_state = await gather_initial_state(
+                    game_client=game_client,
+                    character_id=character_id,
+                    character_display_name=character_display_name,
+                )
+                is_first_visit = initial_state.is_first_visit
+
+                subs: dict[str, str | int] = {}
+                if initial_state.universe_size is not None:
+                    subs["universe_size"] = initial_state.universe_size
+                if initial_state.fedspace_sector_count is not None:
+                    subs["fedspace_sector_count"] = initial_state.fedspace_sector_count
+                if subs:
+                    set_prompt_substitutions(**subs)
+                    for msg in context.messages:
+                        if msg.get("role") == "system":
+                            msg["content"] = apply_prompt_substitutions(msg["content"])
+                            break
+
+                await event_relay.attach_session_state(
+                    session_started_at=initial_state.session_started_at,
+                    display_name=initial_state.display_name,
+                    is_new_player=initial_state.is_new_player,
+                )
 
                 if is_first_visit and not bypass_tutorial:
                     logger.info("First visit detected, activating ScriptedAgent")
@@ -812,10 +809,13 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                         )
                     await main_agent.activate_agent(
                         "player",
-                        args=LLMAgentActivationArgs(messages=messages, run_llm=False),
+                        args=LLMAgentActivationArgs(
+                            messages=initial_state.initial_messages,
+                            run_llm=True,
+                        ),
                     )
 
-                await game_client.resume_event_delivery()
+                await game_client.start_event_delivery()
             except Exception as exc:
                 # Fire-and-forget task would swallow this otherwise. Tear down
                 # the runner so the session exits instead of hanging half-joined.

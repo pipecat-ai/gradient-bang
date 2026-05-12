@@ -272,6 +272,10 @@ async def run_task(args: argparse.Namespace) -> int:
             actor=actor_character_id or target_character_id,
         )
 
+        # NPCs need live events; start the adapter before joining so the
+        # join response's events flow back through the normal channel.
+        await game_client.start_event_delivery()
+
         try:
             await game_client.join(target_character_id)
         except RPCError as exc:

@@ -25,9 +25,9 @@ CORP_SHIP_ID = "22222222-2222-2222-2222-222222222222"
 def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGameClient:
     """Construct a real AsyncGameClient without starting the poller.
 
-    enable_event_polling=False keeps the polling task dormant; polling would
-    otherwise kick in on _request / _ensure_event_delivery. Test drives
-    client._event_adapter._deliver_polled_event directly with crafted rows.
+    ``enable_event_polling=False`` makes ``start_event_delivery`` a no-op,
+    so the polling task never spins up. Test drives event ingestion via
+    ``client._event_adapter._deliver_polled_event`` with crafted rows.
     """
     monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
     monkeypatch.setenv("EDGE_API_TOKEN", "test-token")

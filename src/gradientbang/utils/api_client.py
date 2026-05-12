@@ -28,6 +28,7 @@ from gradientbang.utils.summary_formatters import (
     path_region_summary,
     plot_course_summary,
     port_update_summary,
+    quest_status_summary,
     salvage_collected_summary,
     salvage_created_summary,
     garrison_combat_alert_summary,
@@ -270,6 +271,7 @@ class AsyncGameClient:
             "task.cancel": task_cancel_summary,
             "task.finish": task_finish_summary,
             "event.query": event_query_wrapper,
+            "quest.status": quest_status_summary,
         }
 
     def _set_current_sector(self, candidate: Any) -> None:

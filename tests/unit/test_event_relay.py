@@ -113,13 +113,19 @@ def _make_event(event_name: str, payload: dict = None, request_id: str = None) -
 @pytest.mark.unit
 class TestSessionLifecycle:
     @pytest.mark.asyncio
-    async def test_join_records_session_start_time(self):
+    async def test_attach_session_state_records_session_start_time(self):
         relay, _, _, _ = _make_relay()
         assert relay.session_started_at is None
 
-        await relay.join()
+        await relay.attach_session_state(
+            session_started_at="2026-05-12T18:00:00+00:00",
+            display_name="Alice",
+            is_new_player=False,
+        )
 
-        assert relay.session_started_at is not None
+        assert relay.session_started_at == "2026-05-12T18:00:00+00:00"
+        assert relay.display_name == "Alice"
+        assert relay.is_new_player is False
 
 
 @pytest.mark.unit
@@ -1359,145 +1365,8 @@ class TestCombatPOVRouting:
         assert relay.display_name == "Captain Kirk"
 
 
-@pytest.mark.unit
-class TestOnboarding:
-    """Passive onboarding: observe ports.list for mega-ports, expose is_new_player flag."""
-
-    def test_initial_state(self):
-        relay, _, _, _ = _make_relay()
-        assert relay.is_new_player is None
-        assert relay._first_status_delivered is False
-        assert relay._onboarding_complete is False
-
-    async def test_new_player_detected_from_empty_ports(self):
-        """Initial megaport check with empty ports → is_new_player=True."""
-        relay, task_state, _, _ = _make_relay()
-        relay._megaport_check_request_id = "mega-req"
-        relay._first_status_delivered = True  # status already delivered
-        event = _make_event(
-            "ports.list",
-            {"ports": [], "__event_context": {"scope": "direct", "reason": "direct"}},
-            request_id="mega-req",
-        )
-        await relay._relay_event(event)
-        assert relay.is_new_player is True
-        assert relay._onboarding_complete is True
-        # Should inject onboarding message
-        onboarding_events = [e for e in task_state.deferred_events if "onboarding" in e[0]]
-        assert len(onboarding_events) == 1
-
-    async def test_onboarding_fragment_content_loaded(self):
-        """New player onboarding injects the actual onboarding.md fragment content."""
-        relay, task_state, _, _ = _make_relay()
-        relay._megaport_check_request_id = "mega-req"
-        relay._first_status_delivered = True
-        relay.display_name = "TestPlayer"
-        event = _make_event(
-            "ports.list",
-            {"ports": [], "__event_context": {"scope": "direct", "reason": "direct"}},
-            request_id="mega-req",
-        )
-        await relay._relay_event(event)
-        onboarding_events = [e for e in task_state.deferred_events if "onboarding" in e[0]]
-        assert len(onboarding_events) == 1
-        content, run_llm = onboarding_events[0]
-        # Verify fragment was loaded (not empty/stub) and display_name was interpolated
-        assert '<event name="onboarding">' in content
-        assert "TestPlayer" in content
-        # Key phrases from the onboarding.md fragment
-        assert "Federation Space" in content
-        assert "mega-port" in content
-        assert run_llm is True
-
-    async def test_veteran_detected_from_ports_with_mega(self):
-        """Initial megaport check with ports → is_new_player=False."""
-        relay, task_state, _, _ = _make_relay()
-        relay._megaport_check_request_id = "mega-req"
-        relay._first_status_delivered = True
-        event = _make_event(
-            "ports.list",
-            {"ports": [{"id": "port-1"}], "__event_context": {"scope": "direct", "reason": "direct"}},
-            request_id="mega-req",
-        )
-        await relay._relay_event(event)
-        assert relay.is_new_player is False
-        assert relay._onboarding_complete is True
-        session_events = [e for e in task_state.deferred_events if "session.start" in e[0]]
-        assert len(session_events) == 1
-
-    async def test_waits_for_both_signals(self):
-        """Onboarding injection waits for both status delivery and megaport check."""
-        relay, task_state, _, _ = _make_relay()
-        relay._megaport_check_request_id = "mega-req"
-        # Megaport check resolves but status not delivered yet
-        event = _make_event(
-            "ports.list",
-            {"ports": [], "__event_context": {"scope": "direct", "reason": "direct"}},
-            request_id="mega-req",
-        )
-        await relay._relay_event(event)
-        assert relay.is_new_player is True
-        assert relay._onboarding_complete is False  # Waiting for status
-
-    async def test_ongoing_observation_flips_flag(self):
-        """Subsequent ports.list with mega-ports flips is_new_player True→False and injects onboarding.complete."""
-        relay, task_state, _, _ = _make_relay()
-        relay.is_new_player = True
-        relay._onboarding_complete = True
-        event = _make_event(
-            "ports.list",
-            {"ports": [{"id": "mega-1"}], "__event_context": {"scope": "direct", "reason": "direct"}},
-            request_id="other-req",
-        )
-        await relay._relay_event(event)
-        assert relay.is_new_player is False
-        complete_events = [e for e in task_state.deferred_events if "onboarding.complete" in e[0]]
-        assert len(complete_events) == 1
-        content, run_llm = complete_events[0]
-        assert "disregard" in content.lower()
-        assert run_llm is False
-
-    async def test_veteran_never_receives_onboarding_fragment(self):
-        """Veteran player gets session.start only, never the onboarding fragment."""
-        relay, task_state, _, _ = _make_relay()
-        relay._megaport_check_request_id = "mega-req"
-        relay._first_status_delivered = True
-        event = _make_event(
-            "ports.list",
-            {"ports": [{"id": "port-1"}], "__event_context": {"scope": "direct", "reason": "direct"}},
-            request_id="mega-req",
-        )
-        await relay._relay_event(event)
-        assert relay.is_new_player is False
-        # No onboarding fragment, no onboarding.complete — only session.start
-        all_content = [e[0] for e in task_state.deferred_events]
-        assert any("session.start" in c for c in all_content)
-        assert not any("onboarding" in c and "session.start" not in c for c in all_content)
-
-    async def test_ports_list_not_dropped(self):
-        """ports.list events always flow through to RTVI (not dropped)."""
-        relay, task_state, _, mock_rtvi = _make_relay()
-        relay._megaport_check_request_id = "mega-req"
-        event = _make_event(
-            "ports.list",
-            {"ports": [], "__event_context": {"scope": "direct", "reason": "direct"}},
-            request_id="mega-req",
-        )
-        await relay._relay_event(event)
-        assert mock_rtvi.push_frame.call_count == 1  # RTVI push happens
-
-    async def test_status_snapshot_sets_first_delivered(self):
-        relay, task_state, _, _ = _make_relay()
-        event = _make_event(
-            "status.snapshot",
-            {
-                "player": {"id": "char-123"},
-                "sector": {"id": 1},
-                "__event_context": {"scope": "direct", "reason": "direct"},
-            },
-        )
-        await relay._relay_event(event)
-        assert relay._first_status_delivered is True
+# Bootstrap/onboarding logic (was TestOnboarding) moved to session_init.
+# EventRelay no longer owns is_new_player resolution or onboarding injection.
 
 
 @pytest.mark.unit
@@ -1693,9 +1562,8 @@ class TestInferenceTriggeringLogic:
             assert llm_calls[0][0][0].run_llm is False
 
     async def test_voice_agent_inference_triggers_with_request_id(self):
-        """VOICE_AGENT rule triggers inference when request_id matches and onboarding complete."""
+        """VOICE_AGENT rule triggers inference when request_id matches."""
         relay, task_state, _, mock_rtvi = _make_relay()
-        relay._onboarding_complete = True  # onboarding done, inference allowed
         task_state.recent_request_ids.add("req-1")
 
         event = _make_event(

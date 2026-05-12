@@ -23,7 +23,6 @@ import {
   apiOk,
   characterIdFor,
   shipIdFor,
-  queryShip,
   setShipCredits,
   setShipHyperspace,
   setShipSector,
@@ -81,18 +80,12 @@ Deno.test({
       const result = await apiOk("list_user_ships", {
         character_id: p1Id,
       });
-      // list_user_ships returns { request_id } — data emitted via event
-      assertExists(
-        (result as Record<string, unknown>).request_id,
-        "Should return request_id",
-      );
-    });
-
-    await t.step("verify ship data via events", async () => {
-      // The ship data is emitted as a ships.list event — verify via DB query
-      const ship = await queryShip(p1ShipId);
-      assertExists(ship);
-      assertEquals(ship.ship_type, "kestrel_courier");
+      const body = result as Record<string, unknown>;
+      assertExists(body.request_id, "Should return request_id");
+      assertExists(body.ships, "Should return ships inline");
+      const ships = body.ships as Array<Record<string, unknown>>;
+      assertEquals(ships.length, 1);
+      assertEquals(ships[0].ship_type, "kestrel_courier");
     });
   },
 });
@@ -132,10 +125,10 @@ Deno.test({
       const result = await apiOk("list_user_ships", {
         character_id: p1Id,
       });
-      assertExists(
-        (result as Record<string, unknown>).request_id,
-        "Should return request_id",
-      );
+      const body = result as Record<string, unknown>;
+      assertExists(body.request_id, "Should return request_id");
+      const ships = body.ships as Array<Record<string, unknown>>;
+      assertEquals(ships.length, 2, "Should return both personal and corp ship");
     });
   },
 });

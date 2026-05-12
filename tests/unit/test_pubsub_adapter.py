@@ -234,8 +234,14 @@ class _FakeCursor:
     of fetchall() results. Tests inspect ``executions`` to verify which
     msg_ids were passed to archive_my_events."""
 
-    def __init__(self, fetch_results: list[list[tuple]]) -> None:
+    def __init__(
+        self,
+        fetch_results: list[list[tuple]],
+        *,
+        raise_on_execute: Exception | None = None,
+    ) -> None:
         self._fetch_results = fetch_results
+        self._raise_on_execute = raise_on_execute
         self.executions: list[tuple[str, tuple]] = []
 
     async def __aenter__(self) -> "_FakeCursor":
@@ -246,6 +252,8 @@ class _FakeCursor:
 
     async def execute(self, sql: str, params: tuple) -> None:
         self.executions.append((sql, params))
+        if self._raise_on_execute is not None:
+            raise self._raise_on_execute
 
     async def fetchall(self) -> list[tuple]:
         return self._fetch_results.pop(0) if self._fetch_results else []
@@ -424,54 +432,41 @@ class TestPollOnceArchival:
 
 
 @pytest.mark.asyncio
-class TestStartDrain:
-    """`_drain_backlog` archives every queued message without dispatching.
-    A new pubsub session must not replay history left over from a previous
-    one — the protocol guarantees session-scoped delivery."""
+class TestPurgeBacklog:
+    """`purge_backlog` drops the per-character queue so subsequent server
+    publishes silently no-op until ``start`` recreates it. Replaces the
+    older drain-on-start mechanism, which had a commit-to-visibility race
+    when bootstrap RPCs' events landed in the queue mid-drain."""
 
-    async def test_drain_archives_pending_then_returns_empty(
+    async def test_purge_drops_each_character_queue(
         self,
         adapter: PubsubEventAdapter,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("PGMQ_URL", "postgresql://fake")
-        # Drain queries with msg_id only, so single-column rows.
-        cursor = _FakeCursor(
-            fetch_results=[
-                [(101,), (102,)],
-                [],
-            ]
-        )
+        cursor = _FakeCursor(fetch_results=[])
         _install_fake_psycopg(monkeypatch, cursor)
-        _stub_internal_token(adapter)
 
-        async def _explode(_message):
-            raise AssertionError("drain must not dispatch")
+        await adapter.purge_backlog()
 
-        adapter._dispatch = _explode  # type: ignore[assignment]
+        drop_calls = [
+            params for sql, params in cursor.executions if "drop_queue" in sql
+        ]
+        assert drop_calls == [(f"chr_{PLAYER_ID}",)]
 
-        drained = await adapter._drain_backlog(PLAYER_ID)
-
-        assert drained == 2
-        assert _archived_msg_ids(cursor) == [101, 102]
-
-    async def test_drain_no_backlog_is_silent(
+    async def test_purge_swallows_drop_errors(
         self,
         adapter: PubsubEventAdapter,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """A missing queue (or any pgmq error) must not bubble up — the
+        whole point of purge is to leave a clean slate, and ``start`` will
+        surface real problems if any."""
         monkeypatch.setenv("PGMQ_URL", "postgresql://fake")
-        cursor = _FakeCursor(fetch_results=[[]])
+        cursor = _FakeCursor(fetch_results=[], raise_on_execute=RuntimeError("queue not found"))
         _install_fake_psycopg(monkeypatch, cursor)
-        _stub_internal_token(adapter)
-        adapter._dispatch = AsyncMock()  # type: ignore[assignment]
 
-        drained = await adapter._drain_backlog(PLAYER_ID)
-
-        assert drained == 0
-        assert all(
-            "archive_my_events" not in sql for sql, _ in cursor.executions
-        )
+        await adapter.purge_backlog()  # must not raise
 
 
 @pytest.mark.asyncio

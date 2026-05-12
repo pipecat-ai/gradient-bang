@@ -247,12 +247,11 @@ class VoiceAgent(LLMAgent):
     # ── Lifecycle ───────────────────────────────────────────────────────
 
     async def on_activated(self, args: Optional[dict]) -> None:
-        """Activate the LLM agent, then poke EventRelay to deliver any
-        onboarding/session.start event that was deferred while we were inactive
-        (e.g. during the scripted tutorial)."""
+        """Activate the LLM agent. Initial messages (start_of_session,
+        gathered state, onboarding/session.start trigger) are passed in
+        via activation args by ``bot.py._join`` after ``session_init``
+        finishes — no in-relay onboarding injection here."""
         await super().on_activated(args)
-        if self._event_relay is not None:
-            await self._event_relay._maybe_inject_onboarding()
 
     async def on_ready(self) -> None:
         """Register frame watchers for LLM response and bot speaking lifecycle."""
