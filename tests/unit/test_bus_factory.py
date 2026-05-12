@@ -47,6 +47,26 @@ class TestMakeSubagentBus:
         with pytest.raises(RuntimeError, match="SUBAGENT_BUS_CHANNEL"):
             await make_subagent_bus()
 
+    async def test_pgmq_branch_rejects_whitespace_only_channel(self, monkeypatch):
+        # Whitespace-only would slip past `not chan` and PgmqBus's
+        # _sanitize_channel would map it to "_____" — exactly the shared
+        # default the required-channel rule is supposed to prevent.
+        monkeypatch.setenv("SUBAGENT_BUS_TRANSPORT", "pgmq")
+        monkeypatch.setenv(
+            "SUBAGENT_BUS_DATABASE_URL",
+            "postgres://u:p@host:5432/postgres",
+        )
+        monkeypatch.setenv("SUBAGENT_BUS_CHANNEL", "   ")
+        with pytest.raises(RuntimeError, match="SUBAGENT_BUS_CHANNEL"):
+            await make_subagent_bus()
+
+    async def test_pgmq_branch_rejects_whitespace_only_dsn(self, monkeypatch):
+        monkeypatch.setenv("SUBAGENT_BUS_TRANSPORT", "pgmq")
+        monkeypatch.setenv("SUBAGENT_BUS_DATABASE_URL", "   ")
+        monkeypatch.setenv("SUBAGENT_BUS_CHANNEL", "gb_test")
+        with pytest.raises(RuntimeError, match="SUBAGENT_BUS_DATABASE_URL"):
+            await make_subagent_bus()
+
     async def test_pgmq_branch_builds_pgmq_bus(self, monkeypatch):
         # Mock the PGMQueue + PgmqBus so we don't need a real database.
         # We just want to prove the factory wires the env-driven config

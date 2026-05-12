@@ -93,13 +93,17 @@ async def build_pgmq_bus(
         RuntimeError: When the DSN or channel is missing.
         ValueError: When the DSN scheme is invalid.
     """
-    dsn = database_url or os.getenv("SUBAGENT_BUS_DATABASE_URL")
+    dsn = (database_url or os.getenv("SUBAGENT_BUS_DATABASE_URL") or "").strip()
     if not dsn:
         raise RuntimeError(
             "SUBAGENT_BUS_TRANSPORT=pgmq requires SUBAGENT_BUS_DATABASE_URL"
         )
 
-    chan = channel or os.getenv("SUBAGENT_BUS_CHANNEL")
+    # Strip before validating: a whitespace-only value would slip past a
+    # truthiness check and PgmqBus's _sanitize_channel would convert it
+    # into a shared "_____" channel — exactly the cross-talk failure mode
+    # the required-channel rule exists to prevent.
+    chan = (channel or os.getenv("SUBAGENT_BUS_CHANNEL") or "").strip()
     if not chan:
         raise RuntimeError(
             "SUBAGENT_BUS_TRANSPORT=pgmq requires SUBAGENT_BUS_CHANNEL "
