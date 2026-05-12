@@ -361,6 +361,33 @@ Polling is the simplest path and works everywhere. Pubsub eliminates the busy-po
 
 ---
 
+## Subagent bus transport
+
+Independent of `EVENT_TRANSPORT`: the bot's internal subagent bus (how MainAgent / VoiceAgent / TaskAgent talk to each other) is also transport-pluggable, chosen at startup by `SUBAGENT_BUS_TRANSPORT`. This is the wire that BYOA agents will eventually ride on; see [docs/setup-byoa.md](docs/setup-byoa.md) for the operator-facing contract.
+
+### `local` (default)
+
+In-process `AsyncQueueBus` from `pipecat-ai-subagents`. Pre-Phase-2 behavior bit-for-bit. No env changes needed.
+
+### `pgmq`
+
+Distributed bus over Postgres via upstream `PgmqBus`. Each bot process gets its own PGMQ queue under a shared channel; publishes fan-out to every peer queue. Setup:
+
+```bash
+# .env.supabase (or .env.bot)
+SUBAGENT_BUS_TRANSPORT=pgmq
+SUBAGENT_BUS_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+SUBAGENT_BUS_CHANNEL=gb_dev_local
+```
+
+`SUBAGENT_BUS_CHANNEL` is **required** — there is no default. PgmqBus broadcasts on publish to every peer queue sharing the channel prefix, so two bots that fell through to a default channel against the same database would silently receive each other's bus traffic. Pick a per-deployment value (e.g. `gb_prod`, `gb_dev_jon`); external BYOA agents in Phase 3 must use the same value as the bot they're talking to.
+
+The DSN follows the standard `postgres://user:pass@host:port/db` shape; on managed Postgres prefer the session-mode pooler (port 5432 on Supabase). On startup the bot logs `bus.pgmq_initialized channel='...'`; teardown drops the per-instance queue and closes the asyncpg pool.
+
+While the PGMQ adapter is still pre-release in `pipecat-ai-subagents`, it's vendored as a git submodule at `vendor/pipecat-subagents`. Clone with `--recurse-submodules` or run `git submodule update --init --recursive` after pulling.
+
+---
+
 ## Running tests
 
 ### Edge function tests (Deno)

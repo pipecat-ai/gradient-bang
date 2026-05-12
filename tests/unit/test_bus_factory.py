@@ -33,6 +33,20 @@ class TestMakeSubagentBus:
         with pytest.raises(RuntimeError, match="SUBAGENT_BUS_DATABASE_URL"):
             await make_subagent_bus()
 
+    async def test_pgmq_branch_requires_channel(self, monkeypatch):
+        # A missing channel must fail loud — falling through to a shared
+        # default in production would cross-talk bus traffic between
+        # bots sharing a database (worst case: broadcast game events
+        # bleeding into the wrong session).
+        monkeypatch.setenv("SUBAGENT_BUS_TRANSPORT", "pgmq")
+        monkeypatch.setenv(
+            "SUBAGENT_BUS_DATABASE_URL",
+            "postgres://u:p@host:5432/postgres",
+        )
+        monkeypatch.delenv("SUBAGENT_BUS_CHANNEL", raising=False)
+        with pytest.raises(RuntimeError, match="SUBAGENT_BUS_CHANNEL"):
+            await make_subagent_bus()
+
     async def test_pgmq_branch_builds_pgmq_bus(self, monkeypatch):
         # Mock the PGMQueue + PgmqBus so we don't need a real database.
         # We just want to prove the factory wires the env-driven config

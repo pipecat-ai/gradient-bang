@@ -146,8 +146,18 @@ Per-process, set on the bot. Default keeps Phase 1 behavior bit-for-bit — only
 | Env var | Default | What it controls |
 |---|---|---|
 | `SUBAGENT_BUS_TRANSPORT` | `local` | `local` uses the in-process `AsyncQueueBus`; `pgmq` swaps in upstream `PgmqBus` over Postgres |
-| `SUBAGENT_BUS_DATABASE_URL` | — | Required when `SUBAGENT_BUS_TRANSPORT=pgmq`. Postgres DSN (`postgres://user:pass@host:port/db`). Prefer the session-mode pooler (port 5432) on managed Postgres |
-| `SUBAGENT_BUS_CHANNEL` | `pipecat_bus` | Queue-name prefix for PGMQ isolation. Set to a per-deployment / per-session value when multiple bots share a database |
+| `SUBAGENT_BUS_DATABASE_URL` | — | **Required** when `SUBAGENT_BUS_TRANSPORT=pgmq`. Postgres DSN (`postgres://user:pass@host:port/db`). Prefer the session-mode pooler (port 5432) on managed Postgres |
+| `SUBAGENT_BUS_CHANNEL` | — | **Required** when `SUBAGENT_BUS_TRANSPORT=pgmq` — no default. PgmqBus broadcasts on publish to every peer queue sharing the channel prefix, so two bots that fell through to a default channel against the same database would silently receive each other's bus traffic. Set a per-deployment value (e.g. `gb_prod`, `gb_dev_jon`); external BYOA agents must use the same value as the bot they're talking to |
+
+**Local development with PGMQ.** Drop these into your `.env.supabase` (or `.env.bot`) to flip the bundled bot off the in-process bus and onto PGMQ against the local Supabase Postgres:
+
+```bash
+SUBAGENT_BUS_TRANSPORT=pgmq
+SUBAGENT_BUS_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+SUBAGENT_BUS_CHANNEL=gb_dev_local
+```
+
+Unset `SUBAGENT_BUS_TRANSPORT` (or set it to `local`) to fall back to the in-process `AsyncQueueBus`. On startup with `pgmq` you should see `bus.pgmq_initialized channel='gb_dev_local'` in the bot logs.
 
 ### Agent-side (you, the BYOA operator)
 
