@@ -2,9 +2,9 @@
 
 > Bring-Your-Own-Agent — operate a corporation ship with an external agent of your choosing. This guide tracks what's possible *today*; new capabilities land per phase. See [byoa.md](byoa.md) for the architecture roadmap.
 
-## What's available today (Groundwork + Phase 1)
+## What's available today (Groundwork + Phase 1 + Phase 2)
 
-A corp ship has a server-enforced single-task lock, can be claimed as a BYOA ship by any member of its corporation, and the bundled in-process TaskAgent now speaks the **finalised bus protocol** that an external BYOA agent will implement in Phase 3. The contract is locked: every game RPC, lifecycle event, and tool call goes through typed bus messages.
+A corp ship has a server-enforced single-task lock, can be claimed as a BYOA ship by any member of its corporation, and the bundled in-process TaskAgent speaks the **finalised bus protocol** that an external BYOA agent will implement in Phase 3. The contract is locked: every game RPC, lifecycle event, and tool call goes through typed bus messages. As of Phase 2 that bus is **transport-pluggable** — the same messages travel over an in-process `asyncio.Queue` by default, or over a Postgres-backed `PgmqBus` when opted in via env.
 
 What you can do right now:
 
@@ -17,7 +17,6 @@ What you can do right now:
 What's *not* available yet (lands in later phases):
 
 - Running your own agent process out-of-tree (Phase 3 — operator quickstart + BYOA tokens).
-- Remote-bus transport so the agent can run on a different host (Phase 2 — PGMQ).
 - The wake URL trigger for cold-start BYOA hosts (Phase 3 — adds an HTTPS webhook before the bus handshake).
 
 Today, every BYOA ship is still controlled by the same Python TaskAgent that ships in the bot. Claiming a ship as BYOA changes *who* can issue tasks to it, not *what* runs the task. Phase 3 closes that loop.
@@ -140,6 +139,16 @@ Set these on the edge function deploy. BYOA operators cannot override them; only
 | `TASK_LOCK_HARD_TTL_MINUTES` | `30` | Safety floor: lock is steal-eligible regardless of heartbeats after this long |
 | `TASK_LOCK_BACKFILL_WINDOW_MINUTES` | `60` | One-time migration backfill window for in-flight tasks |
 
+### Bus transport (game operator)
+
+Per-process, set on the bot. Default keeps Phase 1 behavior bit-for-bit — only the `pgmq` value changes the wire.
+
+| Env var | Default | What it controls |
+|---|---|---|
+| `SUBAGENT_BUS_TRANSPORT` | `local` | `local` uses the in-process `AsyncQueueBus`; `pgmq` swaps in upstream `PgmqBus` over Postgres |
+| `SUBAGENT_BUS_DATABASE_URL` | — | Required when `SUBAGENT_BUS_TRANSPORT=pgmq`. Postgres DSN (`postgres://user:pass@host:port/db`). Prefer the session-mode pooler (port 5432) on managed Postgres |
+| `SUBAGENT_BUS_CHANNEL` | `pipecat_bus` | Queue-name prefix for PGMQ isolation. Set to a per-deployment / per-session value when multiple bots share a database |
+
 ### Agent-side (you, the BYOA operator)
 
 The bundled bot reads `ByoaAgentConfig.from_env()` at startup; an external BYOA agent can construct the dataclass directly. See [src/gradientbang/byoa/config.py](../src/gradientbang/byoa/config.py).
@@ -198,5 +207,5 @@ These are the edge functions a *VoiceAgent broker* uses. A BYOA agent itself nev
 |---|---|---|
 | **Groundwork** | ✅ Shipped | Server-side lock, BYOA columns + modes, heartbeat, `ship_byoa_configure`, ship-list payload extension. The bundled TaskAgent claims the BYOA lock semantics |
 | **Phase 1** | ✅ Shipped | Typed bus messages for tool calls / lifecycle / corp queries / wake-up handshake. TaskAgent drops `AsyncGameClient` — every game RPC goes via VoiceAgent's broker over the bus. Idle teardown timer for warm agents. **The bundled TaskAgent is the BYOA contract reference implementation** |
-| Phase 2 | 🔜 Planned | Optional remote bus transport (PGMQ). An agent can run in a separate process or on a different host with no code changes |
+| **Phase 2** | ✅ Shipped | Transport-pluggable subagent bus. `SUBAGENT_BUS_TRANSPORT=local` (default) keeps the in-process `AsyncQueueBus` behavior bit-for-bit; `=pgmq` swaps in upstream `PgmqBus` over a Postgres DSN. An agent can now run in a separate process or on a different host with no code changes |
 | Phase 3 | 🔜 Planned | Operator onboarding: BYOA tokens, wake URL trigger, reference SDK, example agent, quickstart docs. The "run your own agent" deliverable |

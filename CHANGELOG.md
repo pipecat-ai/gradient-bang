@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BYOA Phase 1** — TaskAgent speaks the finalised bus protocol an external BYOA agent will implement; every game RPC, lifecycle event, corp query, and combat doctrine fetch flows through typed bus messages to VoiceAgent's broker. The bundled in-process TaskAgent is now the reference implementation
 - Universal `BusAgentHelloRequest` / `BusAgentHelloResponse` wake-up handshake before any task dispatch. Times out per `BYOA_AGENT_WAKE_TIMEOUT_SECONDS` (default 30s); generous enough to absorb Vercel-Sandbox-class cold starts in Phase 3
 - Idle teardown timer for warm corp-ship / BYOA agents — fires `BusEndAgentMessage` to self after `BYOA_AGENT_IDLE_TEARDOWN_SECONDS` (default 300s) of no activity. Player-ship agents are reused across tasks, so excluded
+- **BYOA Phase 2** — subagent bus is now transport-pluggable via `SUBAGENT_BUS_TRANSPORT` (`local` default, `pgmq` opt-in). PGMQ branch builds upstream `PgmqBus` over a Postgres DSN (`SUBAGENT_BUS_DATABASE_URL`) with optional `SUBAGENT_BUS_CHANNEL` isolation; the local branch remains the in-process `AsyncQueueBus` and existing deployments behave bit-for-bit identically without setting any env
+- `pipecat-ai-subagents` is now vendored as a git submodule at `vendor/pipecat-subagents` while the PGMQ adapter is still pre-release. `pyproject.toml` pulls it in editable via `[tool.uv.sources]` and enables the `[pgmq]` extra (`pgmq` + `asyncpg`)
 
 ### Changed
 
