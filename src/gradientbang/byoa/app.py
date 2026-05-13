@@ -56,7 +56,6 @@ class ByoaContext:
     Hooks receive this object. Fields are documented in ``docs/byoa.md``.
     """
 
-    token: str
     ship_id: str
     character_id: str
     channel: str
@@ -65,11 +64,11 @@ class ByoaContext:
     config: ByoaAgentConfig
     task_id: Optional[str]
     wake_request_id: Optional[str]
+    token: Optional[str] = None
 
     @classmethod
     def from_env(cls) -> "ByoaContext":
         return cls(
-            token=_require("BYOA_TOKEN"),
             ship_id=_require("BYOA_SHIP_ID"),
             character_id=_require("BYOA_CHARACTER_ID"),
             channel=_require("BYOA_CHANNEL"),
@@ -78,6 +77,7 @@ class ByoaContext:
             config=ByoaAgentConfig.from_env(),
             task_id=os.environ.get("BYOA_TASK_ID") or None,
             wake_request_id=os.environ.get("BYOA_WAKE_REQUEST_ID") or None,
+            token=(os.environ.get("BYOA_TOKEN") or "").strip() or None,
         )
 
 
@@ -207,7 +207,7 @@ class ByoaApp:
             fields=[
                 ("ship_id", _short(ctx.ship_id)),
                 ("character_id", _short(ctx.character_id)),
-                ("channel", ctx.channel),
+                ("channel_prefix", ctx.channel[:11]),
                 ("task_id", _short(ctx.task_id) if ctx.task_id else "(none)"),
                 ("task_llm", f"{provider}/{model}  thinking={thinking}"),
                 ("prompt", _prompt_summary(ctx.prompt)),
@@ -220,16 +220,15 @@ class ByoaApp:
         # at install time).
         from pipecat_subagents.runner import AgentRunner
 
-        from gradientbang.adapters.bus.byoa_pgmq import build_byoa_pgmq_bus
+        from gradientbang.adapters.bus.pgmq import build_pgmq_bus
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 
         prompt = await _maybe_await(self._prompt_hook, ctx) if self._prompt_hook else ctx.prompt
         llm_override = await _maybe_await(self._llm_hook, ctx) if self._llm_hook else None
 
-        bus = await build_byoa_pgmq_bus(
+        bus = await build_pgmq_bus(
             database_url=ctx.bus_dsn,
             channel=ctx.channel,
-            ship_id=ctx.ship_id,
         )
 
         agent_name = f"byoa_{ctx.ship_id}"
@@ -261,7 +260,7 @@ class ByoaApp:
 
         logger.info(
             f"byoa.app.session.starting agent={agent_name} "
-            f"channel={ctx.channel!r} task={ctx.task_id!s}"
+            f"channel_prefix={ctx.channel[:11]} task={ctx.task_id!s}"
         )
         try:
             await runner.add_agent(agent)

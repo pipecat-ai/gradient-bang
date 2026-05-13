@@ -394,7 +394,7 @@ BYOA takes its bus DSN explicitly instead of reading `SUBAGENT_BUS_DATABASE_URL`
 uv run byoa serve --prompt-file ./prompt.md
 ```
 
-The wrapper adapter validates `BYOA_TOKEN`, `BYOA_SHIP_ID`, and channel on every PGMQ operation. The restricted login is granted only the `byoa_bus_client` role, which can call those SQL wrappers but cannot use raw `pgmq` directly.
+The BYOA login role can only call `public.bus_*` SECURITY DEFINER wrappers, which require the caller to be a registered peer of the target channel (one PK lookup on `bus_peers`). Channels are unguessable UUIDs generated server-side and transported only over HTTPS; knowledge of the channel name is the bus capability.
 
 ### BYOA wake target
 

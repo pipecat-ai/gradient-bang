@@ -112,7 +112,7 @@ Deno.test({
 
     let corpShipId: string;
     const taskId = crypto.randomUUID();
-    const channel = "bot_session_abc";
+    const channel = "gb_" + "00112233445566778899aabbccddeeff";
 
     await t.step("seed corp + claim BYOA", async () => {
       await resetDatabase([P1, P2]);
@@ -166,9 +166,15 @@ Deno.test({
         ship_id: corpShipId,
         character_id: p1Id,
         task_id: taskId,
-        channel: "has spaces",
+        channel: "bot_session_abc",
       });
       assertEquals(result.status, 400);
+      const body = result.body as Record<string, unknown>;
+      const errMsg = String(body.error ?? "");
+      assert(
+        errMsg.includes("/^gb_[0-9a-f]{32}$/"),
+        `error should mention new channel pattern, got: ${errMsg}`,
+      );
     });
 
     await t.step("non-BYOA ship → 400 not_a_byoa_ship", async () => {
@@ -216,7 +222,7 @@ Deno.test({
 
     let corpShipId: string;
     let taskId = crypto.randomUUID();
-    const channel = "bot_http_abc";
+    const channel = "gb_" + "ffeeddccbbaa99887766554433221100";
 
     await t.step("seed corp + claim BYOA", async () => {
       await resetDatabase([P1, P2]);

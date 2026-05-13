@@ -172,7 +172,7 @@ class _WakeDaemon:
 
         logger.info(
             f"byoa.serve.spawned task={task_id[:8]} ship={self.ship_id[:8]} "
-            f"channel={channel!r} pid={proc.pid}"
+            f"channel_prefix={channel[:11]} pid={proc.pid}"
         )
         return 202, {
             "success": True,
@@ -267,7 +267,6 @@ def run_wake_daemon(*, host: str, port: int) -> None:
         _load_env_files()
         ship_id = _require("BYOA_SHIP_ID")
         character_id = _require("BYOA_CHARACTER_ID")
-        _require("BYOA_TOKEN")
         wake_secret = _require("BYOA_WAKE_SECRET")
     except ServeError as exc:
         print(f"byoa: {exc}", file=sys.stderr)

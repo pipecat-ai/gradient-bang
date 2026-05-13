@@ -116,16 +116,16 @@ COMMENT ON TABLE public.byoa_tokens IS
   'Long-lived HS256 BYOA tokens bound to a character_id. The plaintext JWT is returned once at mint time and never stored; only SHA-256 hash persists. Revocation flips revoked_at; gateway rejects on hash miss, revoked_at NOT NULL, or expires_at < NOW().';
 
 -- -----------------------------------------------------------------------------
--- verify_byoa_token: signature + revocation + last-used touch
+-- verify_byoa_token: signature + revocation check
 --
--- Called by the BYOA gateway (Phase 3 (3/N) edge functions). Returns the
--- token's bound character_id on success, NULL on any auth failure (invalid
--- sig, wrong token_type claim, missing/revoked/expired row). On success,
--- updates last_used_at lazily so operators can see token activity from the
--- Phase 4 management UI.
+-- Currently unused — no runtime call site since the bus moved off token auth
+-- to channel-as-capability. Retained as scaffolding for a future HTTP-side
+-- BYOA gateway. Returns the token's bound character_id on success, NULL on
+-- any auth failure (invalid sig, wrong token_type claim, missing/revoked/
+-- expired row).
 --
--- SECURITY DEFINER + REVOKE FROM PUBLIC keeps the underlying table writes
--- privileged; only the gateway edge functions (service_role) can call this.
+-- SECURITY DEFINER + REVOKE FROM PUBLIC keeps the underlying table reads
+-- privileged; only service_role can call this.
 -- -----------------------------------------------------------------------------
 
 CREATE FUNCTION public.verify_byoa_token(p_token text)
@@ -189,16 +189,12 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  UPDATE public.byoa_tokens
-     SET last_used_at = NOW()
-   WHERE token_id = v_token_row.token_id;
-
   RETURN v_character;
 END;
 $$;
 
 COMMENT ON FUNCTION public.verify_byoa_token IS
-  'Verifies an HS256 BYOA token: pgjwt signature check, token_type/iss claim guards, byoa_tokens row lookup (hash, not revoked, not expired, matching character). Updates last_used_at on success. Returns bound character_id on success or NULL on any failure.';
+  'Verifies an HS256 BYOA token: pgjwt signature check, token_type/iss claim guards, byoa_tokens row lookup (hash, not revoked, not expired, matching character). Returns bound character_id on success or NULL on any failure. Currently unused at runtime; retained for a future HTTP-side BYOA gateway.';
 
 REVOKE ALL ON FUNCTION public.verify_byoa_token(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.verify_byoa_token(text) TO service_role;

@@ -1010,7 +1010,6 @@ def _log_startup_config() -> None:
     from gradientbang import __version__
 
     bus_transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
-    bus_channel = os.getenv("SUBAGENT_BUS_CHANNEL", "").strip()
     event_transport = os.getenv("EVENT_TRANSPORT", "polling").strip().lower()
     voice_provider = os.getenv("VOICE_LLM_PROVIDER", "google").strip().lower()
     voice_model = os.getenv("VOICE_LLM_MODEL", "(provider default)").strip()
@@ -1021,7 +1020,7 @@ def _log_startup_config() -> None:
 
     bus_line = f"{bus_transport}"
     if bus_transport != "local":
-        bus_line += f"  channel={bus_channel or '(unset!)'}"
+        bus_line += "  channel=(per-session UUID)"
 
     divider = "─" * 103
     lines = [

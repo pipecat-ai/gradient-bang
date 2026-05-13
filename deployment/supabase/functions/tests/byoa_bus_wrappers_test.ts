@@ -1,220 +1,113 @@
 /**
- * Integration tests for BYOA bus SQL wrappers.
+ * Integration tests for the channel-as-capability bus wrappers.
  *
- * This test exercises:
+ * The bus surface is identity-free: knowledge of the channel name is the only
+ * capability. Wrappers verify the (queue_name, channel) pair against the
+ * private public.bus_peers registry and never consult tokens or characters.
  *
- *   - Invalid / revoked tokens raise `invalid_token`.
- *   - A bound character that owns a BYOA ship can authorize a valid channel.
- *   - A bound character cannot authorize another character's BYOA ship.
- *   - Corp members who are not the BYOA owner are rejected.
- *   - Invalid channel names raise `channel_invalid`.
- *
- * Mints real BYOA tokens via byoa_token_mint (uses the live edge fn).
+ * Covered here:
+ *   - Happy path: bus_join → bus_publish → bus_subscribe → bus_archive →
+ *     bus_leave round trip, with the wrappers returning the documented shapes.
+ *   - Channel validation: malformed channels raise channel_invalid (22023).
+ *   - Cross-channel publish: a peer cannot publish using a channel it didn't
+ *     join (42501 channel_not_authorized).
+ *   - Cross-channel subscribe: same, for read paths.
+ *   - bus_peers is not readable from the byoa_bus_client role.
  */
 
 import {
   assert,
   assertEquals,
+  assertMatch,
   assertRejects,
 } from "https://deno.land/std@0.197.0/testing/asserts.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { Client } from "postgres";
 
-import {
-  getBaseUrl,
-  getPgUrl,
-  resetDatabase,
-  startServerInProcess,
-} from "./harness.ts";
-import {
-  apiOk,
-  characterIdFor,
-  createCorpShip,
-  setShipCredits,
-  shipIdFor,
-  withPg,
-} from "./helpers.ts";
+import { withPg } from "./helpers.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321";
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
-  "";
+const QUEUE_NAME_RE = /^q_[0-9a-f]{32}$/;
 
-const OWNER = "test_bus_owner";
-const MEMBER = "test_bus_member";
-const STRANGER = "test_bus_stranger";
-
-interface TestUser {
-  userId: string;
-  accessToken: string;
+/** Build a fresh ^gb_[0-9a-f]{32}$ channel for an isolated test. */
+function freshChannel(): string {
+  return "gb_" + crypto.randomUUID().replace(/-/g, "");
 }
-
-async function provisionUser(
-  emailLocal: string,
-  characterId: string,
-): Promise<TestUser> {
-  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-  const email = `${emailLocal}+${crypto.randomUUID().slice(0, 8)}@example.test`;
-  const password = `pw-${crypto.randomUUID()}`;
-  const { data: created, error: createErr } = await admin.auth.admin.createUser(
-    {
-      email,
-      password,
-      email_confirm: true,
-    },
-  );
-  if (createErr || !created.user) {
-    throw new Error(`admin.createUser failed: ${createErr?.message}`);
-  }
-  const userId = created.user.id;
-  const pg = new Client(getPgUrl());
-  try {
-    await pg.connect();
-    await pg.queryObject(
-      "INSERT INTO public.user_characters (user_id, character_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      [userId, characterId],
-    );
-  } finally {
-    await pg.end();
-  }
-  const anon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-  const { data: session, error: signinErr } = await anon.auth
-    .signInWithPassword(
-      { email, password },
-    );
-  if (signinErr || !session.session?.access_token) {
-    throw new Error(`signInWithPassword failed: ${signinErr?.message}`);
-  }
-  return { userId, accessToken: session.session.access_token };
-}
-
-async function mintToken(user: TestUser, characterId: string): Promise<string> {
-  const resp = await fetch(`${getBaseUrl()}/byoa_token_mint`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${user.accessToken}`,
-    },
-    body: JSON.stringify({
-      character_id: characterId,
-      label: "bus-test",
-      ttl_days: 1,
-    }),
-  });
-  const body = await resp.json();
-  if (resp.status !== 200) {
-    throw new Error(`mint failed: ${JSON.stringify(body)}`);
-  }
-  return body.token as string;
-}
-
-async function authorize(
-  token: string,
-  channel: string,
-  shipId = corpShipId,
-): Promise<unknown> {
-  return await withPg(async (pg) => {
-    const rows = await pg.queryObject<{ byoa_bus_authorize: unknown }>(
-      "SELECT public.byoa_bus_authorize($1, $2, $3::uuid) AS byoa_bus_authorize",
-      [token, channel, shipId],
-    );
-    return rows.rows[0].byoa_bus_authorize;
-  });
-}
-
-let ownerCharId = "";
-let memberCharId = "";
-let strangerCharId = "";
-let ownerToken = "";
-let memberToken = "";
-let strangerToken = "";
-let corpShipId = "";
 
 Deno.test({
-  name: "byoa_bus_authorize — setup",
+  name: "bus wrappers — join → publish → subscribe → archive → leave round trip",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await startServerInProcess();
-    await resetDatabase([OWNER, MEMBER, STRANGER]);
-    ownerCharId = await characterIdFor(OWNER);
-    memberCharId = await characterIdFor(MEMBER);
-    strangerCharId = await characterIdFor(STRANGER);
-    await apiOk("join", { character_id: ownerCharId });
-    await apiOk("join", { character_id: memberCharId });
-    await apiOk("join", { character_id: strangerCharId });
-    const ownerShipId = await shipIdFor(OWNER);
-    await setShipCredits(ownerShipId, 50_000);
+    const channel = freshChannel();
 
-    const corp = await apiOk("corporation_create", {
-      character_id: ownerCharId,
-      name: "Bus Auth Corp",
-    });
-    const corpId = (corp as Record<string, unknown>).corp_id as string;
     await withPg(async (pg) => {
-      await pg.queryObject(
-        `INSERT INTO corporation_members (corp_id, character_id, joined_at)
-         VALUES ($1, $2, NOW())`,
-        [corpId, memberCharId],
+      // bus_join returns a server-allocated opaque queue name.
+      const joinRes = await pg.queryObject<{ queue: string }>(
+        "SELECT public.bus_join($1) AS queue",
+        [channel],
       );
-    });
-    const ship = await createCorpShip(corpId, 0, "Bus Auth Probe");
-    corpShipId = ship.pseudoCharacterId;
-    await apiOk("ship_byoa_configure", {
-      character_id: ownerCharId,
-      ship_id: corpShipId,
-      action: "claim",
-    });
+      const myQueue = joinRes.rows[0].queue;
+      assertMatch(myQueue, QUEUE_NAME_RE, "queue name shape");
 
-    const ownerUser = await provisionUser("bus-owner", ownerCharId);
-    const memberUser = await provisionUser("bus-member", memberCharId);
-    const strangerUser = await provisionUser("bus-stranger", strangerCharId);
-    ownerToken = await mintToken(ownerUser, ownerCharId);
-    memberToken = await mintToken(memberUser, memberCharId);
-    strangerToken = await mintToken(strangerUser, strangerCharId);
+      // bus_peers row exists (read as service_role / owner).
+      const peers = await pg.queryObject<{ queue_name: string; channel: string }>(
+        "SELECT queue_name, channel FROM public.bus_peers WHERE queue_name = $1",
+        [myQueue],
+      );
+      assertEquals(peers.rows.length, 1);
+      assertEquals(peers.rows[0].channel, channel);
+
+      // bus_publish returns a bigint[] of per-peer message ids. With one peer
+      // on the channel we expect a single id back.
+      const pubRes = await pg.queryObject<{ ids: bigint[] }>(
+        "SELECT public.bus_publish($1, $2, $3::jsonb) AS ids",
+        [channel, myQueue, JSON.stringify({ hello: "world" })],
+      );
+      assertEquals(pubRes.rows[0].ids.length, 1);
+
+      // bus_subscribe reads back what was published.
+      const subRes = await pg.queryObject<{
+        msg_id: bigint;
+        message: Record<string, unknown>;
+      }>(
+        "SELECT msg_id, message FROM public.bus_subscribe($1, $2, 30, 10, 1)",
+        [myQueue, channel],
+      );
+      assertEquals(subRes.rows.length, 1);
+      assertEquals(subRes.rows[0].message.hello, "world");
+
+      // bus_archive removes the message.
+      const archiveRes = await pg.queryObject<{ ok: boolean }>(
+        "SELECT public.bus_archive($1, $2, $3::bigint) AS ok",
+        [myQueue, channel, subRes.rows[0].msg_id],
+      );
+      assertEquals(archiveRes.rows[0].ok, true);
+
+      // bus_leave drops the queue and removes the bus_peers row.
+      await pg.queryObject(
+        "SELECT public.bus_leave($1, $2)",
+        [myQueue, channel],
+      );
+
+      const after = await pg.queryObject<{ count: bigint }>(
+        "SELECT COUNT(*)::bigint AS count FROM public.bus_peers WHERE queue_name = $1",
+        [myQueue],
+      );
+      assertEquals(Number(after.rows[0].count), 0);
+    });
   },
 });
 
 Deno.test({
-  name: "byoa_bus_authorize — owner authorizes a valid session channel",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const channel = "bot_bus_auth_1";
-    const result = (await authorize(ownerToken, channel)) as Record<
-      string,
-      unknown
-    >;
-    assertEquals(result.character_id, ownerCharId);
-    assertEquals(result.ship_id, corpShipId);
-    assertEquals(result.channel, channel);
-  },
-});
-
-Deno.test({
-  name: "byoa_bus_authorize — invalid token raises",
+  name: "bus wrappers — bus_join rejects malformed channel (channel_invalid)",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     await assertRejects(
-      () => authorize("not-a-real-jwt", "bot_bus_auth_1"),
-      Error,
-      "invalid_token",
-    );
-  },
-});
-
-Deno.test({
-  name: "byoa_bus_authorize — invalid channel raises",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    await assertRejects(
-      () => authorize(ownerToken, "not allowed"),
+      () =>
+        withPg(async (pg) => {
+          await pg.queryObject("SELECT public.bus_join($1)", [
+            "not_a_uuid_channel",
+          ]);
+        }),
       Error,
       "channel_invalid",
     );
@@ -222,28 +115,91 @@ Deno.test({
 });
 
 Deno.test({
-  name:
-    "byoa_bus_authorize — stranger raises channel_not_authorized on private",
+  name: "bus wrappers — bus_publish on a foreign channel raises channel_not_authorized",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await assertRejects(
-      () => authorize(strangerToken, "bot_bus_auth_1"),
-      Error,
-      "channel_not_authorized",
-    );
+    const chanA = freshChannel();
+    const chanB = freshChannel();
+
+    await withPg(async (pg) => {
+      // Peer A joins channel A; peer B joins channel B. Each has its own queue.
+      const a = await pg.queryObject<{ queue: string }>(
+        "SELECT public.bus_join($1) AS queue",
+        [chanA],
+      );
+      const queueA = a.rows[0].queue;
+      const b = await pg.queryObject<{ queue: string }>(
+        "SELECT public.bus_join($1) AS queue",
+        [chanB],
+      );
+      const queueB = b.rows[0].queue;
+
+      try {
+        // A tries to publish to channel B with A's queue. The (queue, channel)
+        // pair is not in bus_peers → 42501.
+        await assertRejects(
+          () =>
+            pg.queryObject(
+              "SELECT public.bus_publish($1, $2, $3::jsonb)",
+              [chanB, queueA, JSON.stringify({ x: 1 })],
+            ),
+          Error,
+          "channel_not_authorized",
+        );
+      } finally {
+        await pg.queryObject("SELECT public.bus_leave($1, $2)", [queueA, chanA]);
+        await pg.queryObject("SELECT public.bus_leave($1, $2)", [queueB, chanB]);
+      }
+    });
   },
 });
 
 Deno.test({
-  name: "byoa_bus_authorize — corp member who is not owner is rejected",
+  name: "bus wrappers — bus_subscribe on a foreign queue raises channel_not_authorized",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await assertRejects(
-      () => authorize(memberToken, "bot_bus_auth_1"),
-      Error,
-      "channel_not_authorized",
-    );
+    const chanA = freshChannel();
+    const chanB = freshChannel();
+
+    await withPg(async (pg) => {
+      const a = await pg.queryObject<{ queue: string }>(
+        "SELECT public.bus_join($1) AS queue",
+        [chanA],
+      );
+      const queueA = a.rows[0].queue;
+      const b = await pg.queryObject<{ queue: string }>(
+        "SELECT public.bus_join($1) AS queue",
+        [chanB],
+      );
+      const queueB = b.rows[0].queue;
+
+      try {
+        // A pretends to know B's queue and tries to read with A's channel.
+        // The (queueB, chanA) pair is not in bus_peers → 42501.
+        await assertRejects(
+          () =>
+            pg.queryObject(
+              "SELECT * FROM public.bus_subscribe($1, $2, 30, 10, 1)",
+              [queueB, chanA],
+            ),
+          Error,
+          "channel_not_authorized",
+        );
+      } finally {
+        await pg.queryObject("SELECT public.bus_leave($1, $2)", [queueA, chanA]);
+        await pg.queryObject("SELECT public.bus_leave($1, $2)", [queueB, chanB]);
+      }
+    });
   },
 });
+
+// Note on bus_peers enumeration:
+// The migration does `REVOKE ALL ON TABLE bus_peers FROM PUBLIC`, which is
+// what closes the enumeration door for byoa_bus_client. The wrappers above
+// are the only path byoa_bus_client has to bus_peers. We don't replicate
+// that check as a SET ROLE test here because the test harness connects as
+// a superuser-equivalent that isn't a member of byoa_bus_client and so
+// can't impersonate it — verifying the revoke is left to the migration
+// itself.

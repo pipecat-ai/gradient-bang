@@ -58,7 +58,7 @@ uv run byoa --serve
 
 Set the local edge-function env with `BYOA_BUS_DATABASE_URL` and `WAKE_TARGET=http`. Optionally set `DEFAULT_BYOA_SOURCE_URL=http://host.docker.internal:8765/wake` so a freshly-claimed ship without a per-ship URL still routes somewhere sensible.
 
-The per-ship wake bearer is set via `ship_byoa_configure set { source_url, wake_secret }` (the `byoa-setup` skill writes this for you in step 1; it generates the value, stores it in `.env.byoa` for the daemon, and sends the same value to us via the configure endpoint). When a task starts, `wake_agent` looks up the ship's URL + decrypted bearer, POSTs the wake to the URL with `Authorization: Bearer <ship's wake secret>`; the daemon validates the bearer against its own `.env.byoa` copy and spawns `uv run byoa` (no flag — single session) with the merged env. The spawned process joins the per-session PGMQ channel via the SECURITY DEFINER `byoa_bus_*` wrappers.
+The per-ship wake bearer is set via `ship_byoa_configure set { source_url, wake_secret }` (the `byoa-setup` skill writes this for you in step 1; it generates the value, stores it in `.env.byoa` for the daemon, and sends the same value to us via the configure endpoint). When a task starts, `wake_agent` looks up the ship's URL + decrypted bearer, POSTs the wake to the URL with `Authorization: Bearer <ship's wake secret>`; the daemon validates the bearer against its own `.env.byoa` copy and spawns `uv run byoa` (no flag — single session) with the merged env. The spawned process joins the per-session PGMQ channel via the SECURITY DEFINER `public.bus_*` wrappers; knowledge of the channel name (transported wake → BYOA over HTTPS) is the bus capability.
 
 **Rotate tokens.** Re-run `/byoa-setup local --force` to mint a fresh token, then revoke the old one via `byoa_token_revoke`.
 
@@ -153,10 +153,10 @@ The harness reads only `os.environ`. Population is the receiver's responsibility
 
 | Env var | Source | What it controls |
 |---|---|---|
-| `BYOA_TOKEN` | wake POST (freshly minted per wake) | HS256 token for bus auth |
 | `BYOA_SHIP_ID` | wake POST | Corp ship UUID (used as TaskAgent's `character_id`) |
-| `BYOA_CHARACTER_ID` | wake POST | Operator's character (token-bound) |
-| `BYOA_CHANNEL` | wake POST | Per-voice-session PGMQ channel |
+| `BYOA_CHARACTER_ID` | wake POST | Operator's character |
+| `BYOA_CHANNEL` | wake POST | Per-voice-session bus channel; capability for `public.bus_*` wrappers |
+| `BYOA_TOKEN` | optional, operator-supplied | Reserved for a future HTTP-side BYOA gateway; not used by the bus today |
 | `BYOA_BUS_DATABASE_URL` | wake POST | Restricted Postgres DSN |
 | `BYOA_TASK_ID` | wake POST | Log correlation |
 | `BYOA_WAKE_REQUEST_ID` | wake POST | Log correlation |

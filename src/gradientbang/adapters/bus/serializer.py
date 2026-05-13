@@ -30,9 +30,8 @@ class BusJSONSerializer(JSONMessageSerializer):
     """Drop-in :class:`JSONMessageSerializer` that silently elides
     OpenAI ``NOT_GIVEN`` sentinels.
 
-    Used by :func:`build_pgmq_bus` and :func:`build_byoa_pgmq_bus`.
-    Behavior is identical to the upstream serializer for every other
-    type.
+    Used by :func:`build_pgmq_bus` for both bot and BYOA buses. Behavior
+    is identical to the upstream serializer for every other type.
     """
 
     def _serialize_value(self, value: Any) -> Any:

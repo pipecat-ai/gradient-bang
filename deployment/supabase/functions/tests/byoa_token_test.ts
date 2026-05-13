@@ -323,12 +323,9 @@ Deno.test({
       );
       assertEquals(okRows.rows[0].verify_byoa_token, ownerCharacterId);
 
-      // The previous call should have updated last_used_at.
-      const lastUsedRows = await pg.queryObject<{ last_used_at: Date | null }>(
-        "SELECT last_used_at FROM public.byoa_tokens WHERE token_id = $1",
-        [tokenId],
-      );
-      assertExists(lastUsedRows.rows[0].last_used_at);
+      // verify_byoa_token does NOT write last_used_at — the function is
+      // read-only and currently unused at runtime (kept for a future HTTP
+      // gateway). Just confirm it returns the bound character.
 
       // Now revoke and re-verify — should return NULL.
       await callRevoke(`Bearer ${owner.accessToken}`, { token_id: tokenId });

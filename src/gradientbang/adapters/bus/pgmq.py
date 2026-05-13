@@ -1,123 +1,97 @@
 """PGMQ-backed :class:`AgentBus` builder.
 
-Wraps upstream :class:`pipecat_subagents.bus.network.pgmq.PgmqBus`. We own
-the :class:`PGMQueue` lifetime — upstream is explicit that ``PgmqBus.stop()``
-does NOT close the queue's asyncpg pool — so the bus returned here is a thin
-subclass that closes the pool on stop. This keeps bot shutdown clean.
+Wraps upstream :class:`pipecat_subagents.bus.network.pgmq.PgmqBus` with
+:class:`IsolatedPgmqBackend` over an asyncpg pool. Every bus op goes through
+the ``public.bus_*`` SECURITY DEFINER wrappers defined in
+``20260512020000_byoa_explicit_channel_authorize.sql``. Both the bot
+(``service_role``) and BYOA operators (``byoa_bus_client``) connect through
+the same wrapper surface and see each other's queues via the ``bus_peers``
+registry.
 
-The DSN comes from ``SUBAGENT_BUS_DATABASE_URL`` and is parsed into the
-discrete kwargs upstream :class:`PGMQueue` expects. Prefer the session-mode
-pooler (port 5432 in Supabase) per the upstream docstring; transaction-mode
-pooling works but logs benign reset warnings.
-
-``SUBAGENT_BUS_CHANNEL`` is required (no default). PgmqBus broadcasts on
-publish to every peer queue sharing the channel prefix, so two bot processes
-that fell through to a default channel against the same database would
-silently receive each other's bus traffic — most dangerously the broadcast
-``BusGameEventMessage`` and any message targeting a common name like
-``player``. The factory refuses to start without an explicit value.
+The asyncpg pool is owned by this builder and closed on ``bus.stop()``.
 """
 
 from __future__ import annotations
 
-import os
-from typing import Optional
 from urllib.parse import unquote, urlsplit
 
+import asyncpg
 from loguru import logger
-from pgmq.async_queue import PGMQueue
 from pipecat_subagents.bus.network.pgmq import PgmqBus
+from pipecat_subagents.bus.network.pgmq_backends import IsolatedPgmqBackend
 
 from gradientbang.adapters.bus.serializer import BusJSONSerializer
 
 
 def parse_database_url(dsn: str) -> dict[str, str]:
-    """Parse a Postgres DSN into ``PGMQueue`` kwargs.
-
-    Args:
-        dsn: ``postgres://user:pass@host:port/database``.
-
-    Returns:
-        Dict with ``host`` / ``port`` / ``database`` / ``username`` / ``password``
-        keys, suitable for ``PGMQueue(**parsed)``.
-
-    Raises:
-        ValueError: When the scheme is not ``postgres`` / ``postgresql``.
-    """
+    """Parse a Postgres DSN into asyncpg pool kwargs."""
     parts = urlsplit(dsn)
     if parts.scheme not in {"postgres", "postgresql"}:
         raise ValueError(
-            f"SUBAGENT_BUS_DATABASE_URL scheme must be postgres/postgresql, "
-            f"got {parts.scheme!r}"
+            f"PGMQ bus DSN scheme must be postgres/postgresql, got {parts.scheme!r}"
         )
     return {
         "host": parts.hostname or "localhost",
-        "port": str(parts.port or 5432),
+        "port": int(parts.port or 5432),
         "database": (parts.path or "/").lstrip("/") or "postgres",
-        "username": unquote(parts.username) if parts.username else "postgres",
+        "user": unquote(parts.username) if parts.username else "postgres",
         "password": unquote(parts.password) if parts.password else "postgres",
     }
 
 
 class _OwnedPgmqBus(PgmqBus):
-    """PgmqBus subclass that closes its asyncpg pool on stop.
+    """PgmqBus that owns and closes its asyncpg pool on stop."""
 
-    Upstream's docstring states the caller owns the ``PGMQueue`` client's
-    lifetime. The factory constructs the queue, so it owns the cleanup.
-    """
+    def __init__(self, *, pool: asyncpg.pool.Pool, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._owned_pool = pool
 
-    async def stop(self) -> None:  # pragma: no cover - exercised via integration test
+    async def stop(self) -> None:  # pragma: no cover - exercised via integration
         await super().stop()
-        pool = getattr(self._pgmq, "pool", None)
-        if pool is not None:
-            try:
-                await pool.close()
-            except Exception:
-                logger.exception("pgmq.pool_close_failed")
+        try:
+            await self._owned_pool.close()
+        except Exception:
+            logger.exception("pgmq.pool_close_failed")
 
 
 async def build_pgmq_bus(
     *,
-    database_url: Optional[str] = None,
-    channel: Optional[str] = None,
+    database_url: str,
+    channel: str,
+    pool_size: int = 4,
 ) -> _OwnedPgmqBus:
-    """Build a PGMQ-backed subagent bus.
+    """Build a PGMQ-backed subagent bus on ``channel``.
 
     Args:
-        database_url: Postgres DSN. Defaults to ``SUBAGENT_BUS_DATABASE_URL``.
-        channel: PGMQ channel prefix. Defaults to ``SUBAGENT_BUS_CHANNEL``.
-            Required — see module docstring for why there is no default.
+        database_url: Postgres DSN. The role must have EXECUTE on the
+            ``public.bus_*`` wrappers.
+        channel: Bus channel name. Treated as a capability — anyone holding
+            the channel name on the same DB can join.
+        pool_size: Max asyncpg pool size. Default 4.
 
     Returns:
-        An initialized bus ready to be passed to ``AgentRunner(bus=...)``.
-
-    Raises:
-        RuntimeError: When the DSN or channel is missing.
-        ValueError: When the DSN scheme is invalid.
+        An initialized bus ready to pass to ``AgentRunner(bus=...)``.
     """
-    dsn = (database_url or os.getenv("SUBAGENT_BUS_DATABASE_URL") or "").strip()
+    dsn = (database_url or "").strip()
     if not dsn:
-        raise RuntimeError(
-            "SUBAGENT_BUS_TRANSPORT=pgmq requires SUBAGENT_BUS_DATABASE_URL"
-        )
-
-    # Strip before validating: a whitespace-only value would slip past a
-    # truthiness check and PgmqBus's _sanitize_channel would convert it
-    # into a shared "_____" channel — exactly the cross-talk failure mode
-    # the required-channel rule exists to prevent.
-    chan = (channel or os.getenv("SUBAGENT_BUS_CHANNEL") or "").strip()
+        raise RuntimeError("build_pgmq_bus requires database_url")
+    chan = (channel or "").strip()
     if not chan:
-        raise RuntimeError(
-            "SUBAGENT_BUS_TRANSPORT=pgmq requires SUBAGENT_BUS_CHANNEL "
-            "(no default — set a per-deployment value so concurrent bots "
-            "sharing the same database don't cross-talk through the bus)"
-        )
+        raise RuntimeError("build_pgmq_bus requires channel")
 
-    pgmq = PGMQueue(**parse_database_url(dsn))
-    await pgmq.init()
-
-    bus = _OwnedPgmqBus(pgmq=pgmq, channel=chan, serializer=BusJSONSerializer())
-    logger.info(f"bus.pgmq_initialized channel={chan!r}")
+    pool = await asyncpg.create_pool(
+        **parse_database_url(dsn),
+        min_size=1,
+        max_size=pool_size,
+    )
+    backend = IsolatedPgmqBackend(pool=pool)
+    bus = _OwnedPgmqBus(
+        pool=pool,
+        backend=backend,
+        channel=chan,
+        serializer=BusJSONSerializer(),
+    )
+    logger.info(f"bus.pgmq_initialized channel_prefix={chan[:11]}")
     return bus
 
 

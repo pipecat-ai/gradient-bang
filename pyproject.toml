@@ -80,6 +80,10 @@ override-dependencies = [
 ]
 package = true
 
+[tool.uv.sources]
+# Pinned to PR #24 (PgmqBus pluggable backends) until merged + released.
+pipecat-ai-subagents = { git = "https://github.com/pipecat-ai/pipecat-subagents", rev = "87b25eaab0d546f35490719c6bc3cd967feedc4b" }
+
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

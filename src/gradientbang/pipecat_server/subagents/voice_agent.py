@@ -204,18 +204,17 @@ class VoiceAgent(LLMAgent):
         # agent advertises ready (on_agent_ready) or the task otherwise
         # completes/cancels.
         self._pending_wakes: Dict[str, asyncio.Task] = {}
-        # The actual per-session subagent-bus channel. The factory derives
-        # this from SUBAGENT_BUS_CHANNEL + BOT_INSTANCE_ID and stores it in
-        # SUBAGENT_BUS_SESSION_CHANNEL. Future remote wake passes this value
-        # to the spawned BYOA process; local dev does the same through the
+        # The actual per-session subagent-bus channel. The factory generates
+        # a fresh UUID-128 channel per session and stores it in
+        # SUBAGENT_BUS_SESSION_CHANNEL. Wake passes this value to the spawned
+        # BYOA process over HTTPS; local dev does the same through the
         # generic HTTP wake provider (`uv run byoa serve`).
-        self._byoa_bus_channel = (
-            os.getenv("SUBAGENT_BUS_SESSION_CHANNEL", "").strip()
-            or os.getenv("SUBAGENT_BUS_CHANNEL", "").strip()
-        )
+        self._byoa_bus_channel = os.getenv(
+            "SUBAGENT_BUS_SESSION_CHANNEL", ""
+        ).strip()
         if self._byoa_bus_channel:
             logger.info(
-                f"byoa.session_channel channel={self._byoa_bus_channel!r}"
+                f"byoa.session_channel channel_prefix={self._byoa_bus_channel[:11]}"
             )
         # Remote BYOA agents are not children in this process, so the broker
         # keeps its own active-task table for authorization and cleanup.
@@ -3398,7 +3397,7 @@ class VoiceAgent(LLMAgent):
             spawn_status = str(result.get("spawn_status") or "unknown")
             logger.info(
                 f"byoa.wake_agent.called ship={ship_id[:8]} "
-                f"task={task_id[:8]} channel={self._byoa_bus_channel!r} "
+                f"task={task_id[:8]} channel_prefix={self._byoa_bus_channel[:11]} "
                 f"spawn_target={spawn_target!r} spawn_status={spawn_status!r}"
             )
             return result

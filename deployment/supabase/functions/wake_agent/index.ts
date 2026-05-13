@@ -38,11 +38,19 @@ import {
 } from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
 
-// Mirrors the upstream PgmqBus channel sanitizer: identifier-shaped, max 30
-// chars. Pre-validating server-side keeps a buggy bot from poisoning the
-// row with whitespace, dots, or an oversize value that pgmq queue names
-// can't host.
-const CHANNEL_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,29}$/;
+// Channel format: 'gb_' + 32 hex chars (UUID-128). The bot allocates this
+// per session and forwards it here. The public.bus_* SQL wrappers enforce
+// the same shape server-side; this regex catches malformed values before
+// they reach the spawn path.
+const CHANNEL_PATTERN = /^gb_[0-9a-f]{32}$/;
+
+// Channels are bus capabilities — log a short prefix as a correlation id
+// and keep the rest out of logs. Leaks the first 32 random bits of the
+// UUID and keeps the remaining ~90 bits of entropy private.
+function channelHash(channel: string): string {
+  const m = /^gb_([0-9a-f]{8})/.exec(channel);
+  return m ? m[1] : "anon";
+}
 
 function lifecycleHint(): "single_task" | "idle_loop" {
   return (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase() === "noop"
@@ -101,14 +109,22 @@ async function dispatchHttpSpawn(
   if (!wakeUrl) {
     console.error(
       "wake_agent.spawn.http.missing_wake_url",
-      JSON.stringify({ request_id: requestId, ship_id: shipId, channel }),
+      JSON.stringify({
+        request_id: requestId,
+        ship_id: shipId,
+        channel_hash: channelHash(channel),
+      }),
     );
     return { target, status: "missing_wake_url" };
   }
   if (!wakeSecret) {
     console.error(
       "wake_agent.spawn.http.missing_wake_secret",
-      JSON.stringify({ request_id: requestId, ship_id: shipId, channel }),
+      JSON.stringify({
+        request_id: requestId,
+        ship_id: shipId,
+        channel_hash: channelHash(channel),
+      }),
     );
     return { target, status: "missing_wake_secret" };
   }
@@ -144,7 +160,7 @@ async function dispatchHttpSpawn(
         JSON.stringify({
           request_id: requestId,
           ship_id: shipId,
-          channel,
+          channel_hash: channelHash(channel),
           status: response.status,
         }),
       );
@@ -157,7 +173,7 @@ async function dispatchHttpSpawn(
       JSON.stringify({
         request_id: requestId,
         ship_id: shipId,
-        channel,
+        channel_hash: channelHash(channel),
         status: response.status,
         body: body.slice(0, 500),
       }),
@@ -172,7 +188,7 @@ async function dispatchHttpSpawn(
       JSON.stringify({
         request_id: requestId,
         ship_id: shipId,
-        channel,
+        channel_hash: channelHash(channel),
         status,
         error: err instanceof Error ? err.message : String(err),
       }),
@@ -195,7 +211,11 @@ async function dispatchSpawn(
   if (target === "noop") {
     console.log(
       "wake_agent.spawn.noop",
-      JSON.stringify({ request_id: requestId, ship_id: shipId, channel }),
+      JSON.stringify({
+        request_id: requestId,
+        ship_id: shipId,
+        channel_hash: channelHash(channel),
+      }),
     );
     return { target, status: "noop" };
   }
@@ -204,7 +224,11 @@ async function dispatchSpawn(
   if (!byoaBusDatabaseUrl) {
     console.error(
       "wake_agent.spawn.missing_byoa_bus_database_url",
-      JSON.stringify({ request_id: requestId, ship_id: shipId, channel }),
+      JSON.stringify({
+        request_id: requestId,
+        ship_id: shipId,
+        channel_hash: channelHash(channel),
+      }),
     );
     return { target, status: "missing_byoa_bus_database_url" };
   }
@@ -225,7 +249,7 @@ async function dispatchSpawn(
     JSON.stringify({
       request_id: requestId,
       ship_id: shipId,
-      channel,
+      channel_hash: channelHash(channel),
       target,
     }),
   );
@@ -282,7 +306,7 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
     }
     if (!CHANNEL_PATTERN.test(channel)) {
       return errorResponse(
-        "channel must match /^[A-Za-z_][A-Za-z0-9_]{0,29}$/",
+        "channel must match /^gb_[0-9a-f]{32}$/",
         400,
       );
     }
@@ -330,10 +354,10 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
         : null;
     }
 
-    // No DB-side channel allocation needed: byoa_bus_authorize verifies the
-    // caller's BYOA token against the ship's byoa_owner_character_id directly,
-    // not against a stored channel binding. The channel is passed straight to
-    // the spawn dispatcher.
+    // Channel is supplied by the bot per session and validated against the
+    // CHANNEL_PATTERN above; the public.bus_* SQL wrappers re-verify it on
+    // every bus op via the bus_peers registry, so no DB-side pre-auth is
+    // needed here.
     const spawn = taskId !== null
       ? await dispatchSpawn(
         shipId,
@@ -348,11 +372,12 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
         status: "registered",
       };
 
+    const channelH = channelHash(channel);
     trace.setInput({
       shipId,
       characterId: characterId ?? null,
       taskId: taskId ?? null,
-      channel,
+      channel_hash: channelH,
       requestId,
     });
     trace.setOutput({
@@ -370,7 +395,7 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
           request_id: requestId,
           ship_id: shipId,
           task_id: taskId,
-          channel,
+          channel_hash: channelH,
           spawn_target: spawn.target,
           spawn_status: spawn.status,
         }),
@@ -378,7 +403,7 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
       return errorResponse("wake_spawn_failed", spawnFailureStatusCode(spawn), {
         request_id: requestId,
         ship_id: shipId,
-        channel,
+        channel_hash: channelH,
         spawn_target: spawn.target,
         spawn_status: spawn.status,
         lifecycle_hint: lifecycleHint(),
@@ -391,7 +416,7 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
         request_id: requestId,
         ship_id: shipId,
         task_id: taskId ?? null,
-        channel,
+        channel_hash: channelH,
         spawn_target: spawn.target,
         spawn_status: spawn.status,
         lifecycle_hint: lifecycleHint(),

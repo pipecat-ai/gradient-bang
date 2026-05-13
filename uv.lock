@@ -1267,7 +1267,7 @@ bot = [
     { name = "cekura", extras = ["pipecat"], specifier = "==1.2.0rc3" },
     { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "google", "anthropic", "runner"], specifier = ">=1.0" },
     { name = "pipecat-ai-cli" },
-    { name = "pipecat-ai-subagents", extras = ["pgmq"], specifier = ">=0.5.0" },
+    { name = "pipecat-ai-subagents", extras = ["pgmq"], git = "https://github.com/pipecat-ai/pipecat-subagents?rev=87b25eaab0d546f35490719c6bc3cd967feedc4b" },
     { name = "pipecatcloud", specifier = ">=0.6.0" },
     { name = "soundfile", specifier = ">=0.12.0" },
 ]
@@ -2398,14 +2398,10 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai-subagents"
-version = "0.5.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.5.1.dev2"
+source = { git = "https://github.com/pipecat-ai/pipecat-subagents?rev=87b25eaab0d546f35490719c6bc3cd967feedc4b#87b25eaab0d546f35490719c6bc3cd967feedc4b" }
 dependencies = [
     { name = "pipecat-ai" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/aa/f5d5008e430dc3ca4c8d14ae8f9aad4d7211140c210cccbfb59b852a5d15/pipecat_ai_subagents-0.5.0.tar.gz", hash = "sha256:cd54fcbdb9d6222c27bf329852a896c511cf97596d49de7a516aaaaff248f426", size = 750256, upload-time = "2026-05-12T20:49:01.008Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/0a/9af5208ae38ea31991b1f2a9bd2de1662af73f1ed4562687a19c4dc22698/pipecat_ai_subagents-0.5.0-py3-none-any.whl", hash = "sha256:d518b419604c1a79f234ed17ff74eeb14fe0a50255aaee56e872500ebcf23dae", size = 72543, upload-time = "2026-05-12T20:48:59.549Z" },
 ]
 
 [package.optional-dependencies]
