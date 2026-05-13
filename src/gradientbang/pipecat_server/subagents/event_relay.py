@@ -904,6 +904,34 @@ def _summarize_ship_destroyed(relay: EventRelay, event: dict) -> Optional[str]:
     return f"Ship {ship_label} was destroyed in {sector_text}.{suffix}"
 
 
+def _xml_attrs_quest_reward_claimed(
+    _relay: EventRelay, payload: Mapping[str, Any]
+) -> list[tuple[str, str]]:
+    """Surface quest/step/reward metadata as envelope attrs so the body can
+    stay a short human-written instruction rather than a raw payload dump."""
+    attrs: list[tuple[str, str]] = []
+    for key in ("quest_code", "quest_name", "step_name"):
+        val = payload.get(key)
+        if isinstance(val, str) and val.strip():
+            attrs.append((key, val.strip()))
+    reward = payload.get("reward")
+    if isinstance(reward, Mapping):
+        credits = reward.get("credits")
+        if isinstance(credits, (int, float)):
+            attrs.append(("credits", str(credits)))
+    return attrs
+
+
+def _summarize_quest_reward_claimed(_relay: EventRelay, _event: dict) -> Optional[str]:
+    """Frame the event as a reward payout for an already-completed step, not
+    new contract progress. Quest/step/credit values are on envelope attrs."""
+    return (
+        "Reward credits paid out for a previously completed contract step. "
+        "Briefly acknowledge the payout — this is NOT new contract progress, "
+        "the step was completed earlier."
+    )
+
+
 # ── Event config registry ─────────────────────────────────────────────────
 
 EVENT_CONFIGS: dict[str, EventConfig] = {
@@ -1015,7 +1043,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # Using ALWAYS here would double-fire (same pattern as task.finish).
     "quest.step_completed": EventConfig(inference=InferenceRule.VOICE_AGENT),
     "quest.completed": EventConfig(inference=InferenceRule.VOICE_AGENT),
-    "quest.reward_claimed": EventConfig(inference=InferenceRule.ALWAYS, debounce_seconds=2.0),
+    "quest.reward_claimed": EventConfig(
+        inference=InferenceRule.ALWAYS,
+        debounce_seconds=2.0,
+        xml_attrs_fn=_xml_attrs_quest_reward_claimed,
+        voice_summary=_summarize_quest_reward_claimed,
+    ),
     # Task-scoped allowlisted (direct events pass through when task-scoped)
     "trade.executed": EventConfig(task_scoped_allowlisted=True),
     "port.update": EventConfig(append=AppendRule.LOCAL),
