@@ -397,7 +397,7 @@ The BYOA login role can only call `public.bus_*` SECURITY DEFINER wrappers, whic
 
 ### BYOA wake target
 
-The server-side `WAKE_TARGET` env (on the edge functions, not the bot) controls what `wake_agent` does for task wakes. `http` posts the wake payload to `BYOA_WAKE_URL` with `Authorization: Bearer $EDGE_API_TOKEN`; this is the local-dev path via `uv run byoa serve` and is also usable for webhook-style providers. `noop` remains a manual fallback. `vercel_sandbox` is reserved for the future sandbox provider. Every spawn target receives the same runtime env payload: `BYOA_CHANNEL`, `BYOA_SHIP_ID`, and `BYOA_BUS_DATABASE_URL`.
+The server-side `WAKE_TARGET` env (on the edge functions, not the bot) controls what `wake_agent` does for task wakes. `http` POSTs the wake payload to the ship's `byoa_runtime_source_url` (configured via `ship_byoa_configure`), falling back to `DEFAULT_BYOA_SOURCE_URL`, and finally to `http://host.docker.internal:8765/wake` (the default port for `uv run byoa --serve`). The bearer on every POST is the per-ship `byoa_wake_secret_enc`, set via `ship_byoa_configure { action: 'set', wake_secret }` — there is no shared env-var bearer. `noop` remains a manual fallback. `vercel_sandbox` is reserved for the future sandbox provider. Every spawn target receives the same runtime env payload: `BYOA_CHANNEL`, `BYOA_SHIP_ID`, and `BYOA_BUS_DATABASE_URL`.
 
 ---
 

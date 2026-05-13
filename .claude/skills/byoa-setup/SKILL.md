@@ -119,7 +119,12 @@ curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
   }'
 ```
 
-For production also set `BYOA_WAKE_SECRET=<same hex>` as project env on the operator's Vercel project (where their wake receiver runs), plus pass `source_url` on the same `set` call (or a follow-up) so wake_agent knows where to POST.
+Ask the operator whether they want a custom **wake URL** (the URL wake_agent POSTs to):
+
+- **Leave unset** (recommended for local dev): `wake_agent` falls back to `http://host.docker.internal:8765/wake` — the default port for `uv run byoa --serve` running on the host. No further config needed.
+- **Set explicitly**: pass `source_url` on the same `set` call (or a follow-up). Required for Vercel/prod deploys (`https://<your-project>.vercel.app/api/wake`) and for local daemons listening on a non-default port.
+
+For production also set `BYOA_WAKE_SECRET=<same hex>` as project env on the operator's Vercel project (where their wake receiver runs).
 
 ### 7. Write `.env.byoa`
 
@@ -150,7 +155,7 @@ Echo a copy-pasteable summary the operator can act on:
   ```bash
   uv run byoa --serve
   ```
-  The daemon reads `.env.byoa` and waits for wakes from `wake_agent`. The bot's edge functions need `DEFAULT_BYOA_SOURCE_URL=http://host.docker.internal:8765/wake` set; the wake POST is then routed to the daemon automatically using the per-ship `BYOA_WAKE_SECRET`.
+  The daemon reads `.env.byoa` and waits for wakes from `wake_agent`. As long as the ship has no per-ship `source_url` set, `wake_agent` defaults to `http://host.docker.internal:8765/wake` and routes to the daemon automatically using the per-ship `BYOA_WAKE_SECRET`. Only set `DEFAULT_BYOA_SOURCE_URL` on the edge env to override the default for *all* unconfigured ships.
 - **Production** (env = `prod`): deploy our hosted template (`gradient-bang-byoa-template`) to your own Vercel project. Set `BYOA_WAKE_SECRET`, `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, and the matching `*_API_KEY` as project env. Then point this ship at the deployed function URL via `ship_byoa_configure set { source_url: "https://<your-project>.vercel.app/api/wake" }`.
 - Point at `docs/byoa.md` for full env / config reference.
 - Rotate the wake secret by re-running `/byoa-setup <env> --force --ship-id <ship>` — this writes a fresh value and updates `ship_byoa_configure` in one shot.

@@ -2920,38 +2920,6 @@ class VoiceAgent(LLMAgent):
                     # dispatches as usual when the operator's agent advertises.
                     self._pending_tasks[byoa_agent_name] = (framework_task_id, payload)
                     self._locked_ships[target_character_id] = framework_task_id
-                    if byoa_has_fresh_presence:
-                        logger.info(
-                            f"byoa.wake_agent.skipped ship={target_character_id[:8]} "
-                            "reason=fresh_presence"
-                        )
-                    else:
-                        wake_result = await self._call_wake_agent(
-                            task_id=framework_task_id,
-                            ship_id=target_character_id,
-                        )
-                        wake_error = self._byoa_wake_failure_message(
-                            wake_result,
-                            ship_id=target_character_id,
-                        )
-                        if wake_error:
-                            logger.warning(
-                                f"byoa.wake_agent.rejected ship={target_character_id[:8]} "
-                                f"task={framework_task_id[:8]} error={wake_error!r}"
-                            )
-                            self._pending_tasks.pop(byoa_agent_name, None)
-                            self._locked_ships.pop(target_character_id, None)
-                            try:
-                                await self._game_client.task_cancel(
-                                    task_id=framework_task_id,
-                                    character_id=self._character_id,
-                                    force=True,
-                                )
-                            except Exception as release_exc:
-                                logger.warning(
-                                    f"byoa.wake_agent.rejected.release error={release_exc!r}"
-                                )
-                            return {"success": False, "error": wake_error}
                     # Register watchdog before watch_agent so a same-tick
                     # ready event can cancel it cleanly.
                     self._pending_wakes[target_character_id] = asyncio.create_task(
@@ -2987,6 +2955,27 @@ class VoiceAgent(LLMAgent):
                                 f"byoa.watch_agent_failed.release error={release_exc!r}"
                             )
                         return {"success": False, "error": str(exc)}
+                    if byoa_has_fresh_presence:
+                        logger.info(
+                            f"byoa.wake_agent.skipped ship={target_character_id[:8]} "
+                            "reason=fresh_presence"
+                        )
+                    else:
+                        # Fire wake_agent asynchronously. The tool returns
+                        # immediately with status="waking" so the LLM keeps
+                        # talking instead of blocking on the HTTP round-trip.
+                        # On failure the dispatcher cancels the watchdog,
+                        # tears down local state, releases the server lock,
+                        # and surfaces a task.cancelled event via the
+                        # deferred-update queue (same path the watchdog uses).
+                        asyncio.create_task(
+                            self._dispatch_byoa_wake(
+                                target_character_id=target_character_id,
+                                framework_task_id=framework_task_id,
+                                agent_name=byoa_agent_name,
+                            ),
+                            name=f"byoa_wake_dispatch_{framework_task_id[:8]}",
+                        )
                     if byoa_agent_name not in self._pending_tasks:
                         return {
                             "success": True,
@@ -3460,6 +3449,68 @@ class VoiceAgent(LLMAgent):
                 "manual BYOA runner before assigning the task."
             )
         return f"BYOA wake failed before the runner came online ({target}/{status})."
+
+    async def _dispatch_byoa_wake(
+        self,
+        *,
+        target_character_id: str,
+        framework_task_id: str,
+        agent_name: str,
+    ) -> None:
+        """Fire ``wake_agent`` off the start_task hot path.
+
+        Returning the tool result immediately is the goal — the LLM keeps
+        talking and the player UI shows ``waking`` while wake_agent does
+        its HTTP round-trip. On failure we mirror ``_watch_wake_timeout``'s
+        cleanup so the task doesn't get stuck waking.
+        """
+        wake_result = await self._call_wake_agent(
+            task_id=framework_task_id,
+            ship_id=target_character_id,
+        )
+        wake_error = self._byoa_wake_failure_message(
+            wake_result,
+            ship_id=target_character_id,
+        )
+        if not wake_error:
+            return
+        # A `task.started` event for this task has already been consumed by
+        # on_agent_ready — bail out so we don't double-cancel a live task.
+        if agent_name not in self._pending_tasks:
+            logger.info(
+                f"byoa.wake_agent.rejected.no_pending ship={target_character_id[:8]} "
+                f"task={framework_task_id[:8]} (agent already ready)"
+            )
+            return
+        logger.warning(
+            f"byoa.wake_agent.rejected ship={target_character_id[:8]} "
+            f"task={framework_task_id[:8]} error={wake_error!r}"
+        )
+        watchdog = self._pending_wakes.pop(target_character_id, None)
+        if watchdog is not None and not watchdog.done():
+            watchdog.cancel()
+        self._pending_tasks.pop(agent_name, None)
+        if self._locked_ships.get(target_character_id) == framework_task_id:
+            self._locked_ships.pop(target_character_id, None)
+        try:
+            await self._game_client.task_cancel(
+                task_id=framework_task_id,
+                character_id=self._character_id,
+                force=True,
+            )
+        except Exception as release_exc:
+            logger.warning(
+                f"byoa.wake_agent.rejected.release error={release_exc!r}"
+            )
+        self._enqueue_deferred_update(
+            (
+                f'<event name="task.cancelled" task_id="{framework_task_id[:8]}" '
+                'task_type="corp_ship">\n'
+                f"{wake_error}\n"
+                "</event>"
+            ),
+            ship_id=target_character_id,
+        )
 
     async def _watch_wake_timeout(
         self,
