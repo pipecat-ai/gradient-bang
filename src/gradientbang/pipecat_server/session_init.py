@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from loguru import logger
 
@@ -38,6 +38,10 @@ class InitialState:
     onboarding_route: Optional[List[int]]
     session_started_at: str
     display_name: str
+    status_payload: Dict[str, Any]
+    ships_payload: Dict[str, Any]
+    map_local_payload: Dict[str, Any]
+    quest_payload: Dict[str, Any]
 
 
 def _wrap_event_xml(event_name: str, summary: str) -> str:
@@ -175,4 +179,8 @@ async def gather_initial_state(
         onboarding_route=onboarding_route,
         session_started_at=session_started_at,
         display_name=display_name,
+        status_payload=status_payload if isinstance(status_payload, dict) else {},
+        ships_payload=ships_result if isinstance(ships_result, dict) else {},
+        map_local_payload=map_local_payload if isinstance(map_local_payload, dict) else {},
+        quest_payload=quest_result if isinstance(quest_result, dict) else {},
     )

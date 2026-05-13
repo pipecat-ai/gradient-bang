@@ -70,11 +70,11 @@ def format_ship_summary_line(ship: Dict[str, Any], include_id: bool = True) -> s
     """Format a single ship dict into a concise one-line summary.
 
     Produces a markdown list item with ship name, type, sector, cargo holds,
-    warp power, and current task. Used by voice summaries to present fleet
-    information to the LLM.
+    warp power, shields, fighters, and current task. Used by voice summaries
+    to present fleet information to the LLM.
 
     Example output:
-        - Voyager [abc123] (Frigate) in sector 5; holds 100 (empty 50); warp 3/10; task abc123
+        - Voyager [abc123] (Frigate) in sector 5; holds 100 (empty 50); warp 3/10; shields 100/100; fighters 200; task abc123
     """
     ship_name = shorten_embedded_ids(str(ship.get("ship_name") or "Unnamed"))
     ship_type = friendly_ship_type(ship.get("ship_type"))
@@ -91,6 +91,13 @@ def format_ship_summary_line(ship: Dict[str, Any], include_id: bool = True) -> s
     warp_max = ship.get("warp_power_capacity")
     if isinstance(warp, (int, float)) and isinstance(warp_max, (int, float)):
         details.append(f"warp {int(warp)}/{int(warp_max)}")
+    shields = ship.get("shields")
+    shields_max = ship.get("max_shields")
+    if isinstance(shields, (int, float)) and isinstance(shields_max, (int, float)):
+        details.append(f"shields {int(shields)}/{int(shields_max)}")
+    fighters = ship.get("fighters")
+    if isinstance(fighters, (int, float)):
+        details.append(f"fighters {int(fighters)}")
     current_task_id = ship.get("current_task_id")
     if isinstance(current_task_id, str) and current_task_id:
         details.append(f"task {short_id(current_task_id) or current_task_id}")

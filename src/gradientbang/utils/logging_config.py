@@ -10,6 +10,10 @@ import sys
 
 from loguru import logger
 
+# Library modules whose DEBUG output is per-poll/per-message housekeeping —
+# noisy enough to drown out our own debug lines. Suppressed below INFO.
+_NOISY_DEBUG_MODULE_PREFIXES = ("pgmq.",)
+
 _AGENT_COLORS: dict[str, tuple[str, str]] = {
     # module leaf name → (color, short label)
     "voice_agent": ("cyan", "VOICE"),
@@ -34,6 +38,10 @@ def _loguru_filter(record):
     """Keep INFO+ messages, suppress noisy DEBUG messages."""
     if "System instruction changed:" in record["message"]:
         return False
+    if record["level"].no < 20:  # DEBUG
+        name = record["name"] or ""
+        if name.startswith(_NOISY_DEBUG_MODULE_PREFIXES):
+            return False
     return True
 
 

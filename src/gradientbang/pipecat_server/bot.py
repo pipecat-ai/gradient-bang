@@ -596,7 +596,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         RTVIObserverParams,
     )
     from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
-    from pipecat_subagents.bus import BusBridgeProcessor
     from pipecat_subagents.runner import AgentRunner
     from pipecat_subagents.types import AgentReadyData
 
@@ -645,11 +644,13 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             )
 
         async def build_pipeline(self) -> Pipeline:
-            bridge = BusBridgeProcessor(
-                bus=self.bus,
-                agent_name=self.name,
-                name=f"{self.name}::BusBridge",
-            )
+            # Voice LLM lives inline in branch 0 (no bus hop). VoiceAgent
+            # keeps a no-op pipeline so its bus-subscription / activation /
+            # task-supervision lifecycle still works.
+            # TODO(tutorial): ScriptedAgent's bus-bridged TTSSpeakFrame path
+            # no longer reaches TTS now that the main BusBridge is gone.
+            voice_llm = voice_agent.build_llm()
+            voice_agent._llm = voice_llm
 
             @transport.event_handler("on_client_connected")
             async def on_client_connected(transport, client):
@@ -666,7 +667,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     user_aggregator,
                     ParallelPipeline(
                         [
-                            bridge,
+                            voice_llm,
                             post_llm_gate,
                             token_usage_metrics,
                             say_text_voice_guard,
@@ -749,6 +750,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     main_agent = MainAgent("main", bus=agent_runner.bus)
     await agent_runner.add_agent(main_agent)
 
+    @main_agent.event_handler("on_ready")
+    async def _wire_voice_agent_to_main(_agent):
+        # Main pipeline task is built; route VoiceAgent through it.
+        voice_agent.attach_main_pipeline_task(main_agent.pipeline_task)
+        voice_agent.install_main_pipeline_lifecycle_watchers(main_agent.pipeline_task)
+
     # ── Event handlers ─────────────────────────────────────────────────
 
     is_first_visit = False
@@ -796,6 +803,32 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     session_started_at=initial_state.session_started_at,
                     display_name=initial_state.display_name,
                     is_new_player=initial_state.is_new_player,
+                )
+
+                # Hydrate the web client with the same bootstrap data we just
+                # fed into the LLM context. Matches the RTVIServerMessageFrame
+                # envelope EventRelay forwards in steady state so the client's
+                # existing handlers consume these unchanged.
+                async def _emit_client_event(event_name: str, payload: dict) -> None:
+                    await rtvi.push_frame(
+                        RTVIServerMessageFrame(
+                            {
+                                "frame_type": "event",
+                                "event": event_name,
+                                "payload": payload,
+                            }
+                        )
+                    )
+
+                await _emit_client_event("status.snapshot", initial_state.status_payload)
+                await _emit_client_event("map.local", initial_state.map_local_payload)
+                await _emit_client_event(
+                    "ships.list",
+                    {"ships": initial_state.ships_payload.get("ships", [])},
+                )
+                await _emit_client_event(
+                    "quest.status",
+                    {"quests": initial_state.quest_payload.get("quests", [])},
                 )
 
                 if is_first_visit and not bypass_tutorial:

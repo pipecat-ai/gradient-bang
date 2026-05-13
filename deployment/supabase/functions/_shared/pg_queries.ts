@@ -1306,6 +1306,10 @@ export async function pgBuildSectorSnapshot(
       if (definition) {
         shipPayload.current_warp_power = ship.current_warp_power ?? 0;
         shipPayload.warp_power_capacity = definition.warp_power_capacity;
+        shipPayload.current_shields = ship.current_shields ?? 0;
+        shipPayload.max_shields = definition.shields;
+        shipPayload.current_fighters = ship.current_fighters ?? 0;
+        shipPayload.max_fighters = definition.fighters;
       }
     }
 

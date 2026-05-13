@@ -289,11 +289,17 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
         corp_suffix = f" [{corp_name}]" if corp_name else ""
         warp_current = ship.get("current_warp_power")
         warp_capacity = ship.get("warp_power_capacity")
-        warp_suffix = (
-            f" (warp {warp_current}/{warp_capacity})"
-            if isinstance(warp_current, int) and isinstance(warp_capacity, int)
-            else ""
-        )
+        shields_current = ship.get("current_shields")
+        shields_max = ship.get("max_shields")
+        fighters_current = ship.get("current_fighters")
+        combat_parts: List[str] = []
+        if isinstance(warp_current, int) and isinstance(warp_capacity, int):
+            combat_parts.append(f"warp {warp_current}/{warp_capacity}")
+        if isinstance(shields_current, int) and isinstance(shields_max, int):
+            combat_parts.append(f"shields {shields_current}/{shields_max}")
+        if isinstance(fighters_current, int):
+            combat_parts.append(f"fighters {fighters_current}")
+        warp_suffix = f" ({', '.join(combat_parts)})" if combat_parts else ""
         player_type = player.get("player_type")
         if player_type == "corporation_ship":
             # Use ship name (not character name) so ship-targeting tools can match.
@@ -315,14 +321,14 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
 def _format_garrison(garrison: Dict[str, Any]) -> str:
     """Format garrison information."""
     if not garrison:
-        return "Garrison: None"
+        return "Garrisons: None"
 
     owner = _shorten_embedded_ids(garrison.get("owner_name", "unknown"))
     fighters = garrison.get("fighters", 0)
     mode = garrison.get("mode", "unknown")
     toll = garrison.get("toll_amount", 0)
 
-    info = f"Garrison: {fighters} fighters ({mode})"
+    info = f"Garrisons: {fighters} fighters ({mode})"
     if mode == "toll":
         info += f" toll={toll}"
     info += f" - owner: {owner}"

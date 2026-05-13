@@ -35,6 +35,9 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.task import PipelineTask
+from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 from pipecat.services.llm_service import FunctionCallParams
@@ -244,6 +247,35 @@ class VoiceAgent(LLMAgent):
         # ── Pending confirmation for confirm_action tool ──
         self._pending_confirmation: Optional[Dict[str, Any]] = None
 
+        # Set by bot.py once the main pipeline task is built.
+        self._main_pipeline_task: Optional[PipelineTask] = None
+
+    def attach_main_pipeline_task(self, task: PipelineTask) -> None:
+        self._main_pipeline_task = task
+
+    async def build_pipeline(self) -> Pipeline:
+        # The voice LLM lives inline in the main pipeline; this agent owns a
+        # no-op pipeline so its lifecycle (bus subscription, activation,
+        # child supervision) still works.
+        return Pipeline([IdentityFilter()])
+
+    async def queue_frame(
+        self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM
+    ) -> None:
+        # Mirrors LLMAgent.queue_frame's deferral, then routes to the main
+        # pipeline task instead of this agent's no-op pipeline.
+        if (
+            self._defer_tool_frames
+            and self._tool_call_inflight > 0
+            and not self._closing
+        ):
+            self._deferred_frames.append((frame, direction))
+            return
+        if self._main_pipeline_task is not None:
+            await self._main_pipeline_task.queue_frame(frame, direction)
+            return
+        await super().queue_frame(frame, direction)
+
     # ── Lifecycle ───────────────────────────────────────────────────────
 
     async def on_activated(self, args: Optional[dict]) -> None:
@@ -254,12 +286,15 @@ class VoiceAgent(LLMAgent):
         await super().on_activated(args)
 
     async def on_ready(self) -> None:
-        """Register frame watchers for LLM response and bot speaking lifecycle."""
         await super().on_ready()
-        self.pipeline_task.add_reached_downstream_filter(
+
+    def install_main_pipeline_lifecycle_watchers(self, task: PipelineTask) -> None:
+        # LLM and speaking frames flow through the main pipeline; install the
+        # watchers that drive assistant-cycle / speaking state there.
+        task.add_reached_downstream_filter(
             (LLMFullResponseStartFrame, LLMFullResponseEndFrame)
         )
-        self.pipeline_task.add_reached_upstream_filter(
+        task.add_reached_upstream_filter(
             (
                 BotStartedSpeakingFrame,
                 BotStoppedSpeakingFrame,
@@ -268,14 +303,14 @@ class VoiceAgent(LLMAgent):
             )
         )
 
-        @self.pipeline_task.event_handler("on_frame_reached_downstream")
+        @task.event_handler("on_frame_reached_downstream")
         async def _on_llm_response_lifecycle(task, frame):
             if isinstance(frame, LLMFullResponseStartFrame):
                 self._handle_llm_response_started()
             elif isinstance(frame, LLMFullResponseEndFrame):
                 self._handle_llm_response_ended()
 
-        @self.pipeline_task.event_handler("on_frame_reached_upstream")
+        @task.event_handler("on_frame_reached_upstream")
         async def _on_speaking_lifecycle(task, frame):
             if isinstance(frame, BotStartedSpeakingFrame):
                 self._handle_bot_started_speaking()
@@ -564,7 +599,7 @@ class VoiceAgent(LLMAgent):
 
         if run_llm:
             frame.run_llm = False
-            await super().queue_frame(frame)
+            await self.queue_frame(frame)
             if not self._inject_run_pending:
                 self._inject_run_pending = True
                 self._inject_run_task = self.create_asyncio_task(
@@ -572,13 +607,13 @@ class VoiceAgent(LLMAgent):
                 )
             return
 
-        await super().queue_frame(frame)
+        await self.queue_frame(frame)
 
     async def _emit_coalesced_run(self) -> None:
         """Send a single LLMRunFrame after yielding to accumulate same-tick injections."""
         try:
             await asyncio.sleep(0)
-            await super().queue_frame(LLMRunFrame())
+            await self.queue_frame(LLMRunFrame())
         except asyncio.CancelledError:
             return
         finally:
@@ -634,9 +669,13 @@ class VoiceAgent(LLMAgent):
 
     async def _queue_deferred_update_frame(self, event_xml: str) -> None:
         """Queue a deferred-update batch for inference, bypassing tool-call defer."""
-        await super().queue_frame(
-            LLMMessagesAppendFrame(messages=[{"role": "user", "content": event_xml}], run_llm=True)
+        frame = LLMMessagesAppendFrame(
+            messages=[{"role": "user", "content": event_xml}], run_llm=True
         )
+        if self._main_pipeline_task is not None:
+            await self._main_pipeline_task.queue_frame(frame, FrameDirection.DOWNSTREAM)
+        else:
+            await super().queue_frame(frame)
 
     # ── Deferred-update queue ──────────────────────────────────────────
 
