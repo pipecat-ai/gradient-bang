@@ -109,6 +109,14 @@ $$;
 COMMENT ON FUNCTION public.ensure_character_queue IS
   'Idempotent queue ensure for a character_id. Fast path checks pg_class to avoid the AccessExclusiveLock that CREATE TABLE IF NOT EXISTS takes on existing tables — required because the caller (subscribe_my_events) holds its txn open for a 30s read_with_poll.';
 
+-- Drop the implicit PUBLIC EXECUTE grant so byoa_bus_client / other
+-- authenticated PG roles can't spam pgmq queue creation for arbitrary
+-- character_ids. subscribe_my_events calls this from inside its own
+-- SECURITY DEFINER body, which runs as the function owner and is
+-- unaffected by these grants.
+REVOKE ALL ON FUNCTION public.ensure_character_queue(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.ensure_character_queue(uuid) TO service_role;
+
 -- -----------------------------------------------------------------------------
 -- Ownership predicate: can user U access character/ship C?
 -- Direct ownership OR corp ship in user's corp.

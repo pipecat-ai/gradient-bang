@@ -395,6 +395,13 @@ COMMENT ON FUNCTION public.record_event_with_recipients(
   TEXT, TEXT, TEXT, UUID, UUID, INTEGER, UUID, UUID, UUID, JSONB, JSONB, TEXT, UUID[], TEXT[], BOOLEAN, UUID
 ) IS 'Inserts denormalized event rows and publishes the same event to SQL-owned pubsub delivery (per-character pgmq or broadcast NOTIFY). Recipients in the corp-delivery set (active corp members + corp-owned ship pseudo-chars) are excluded from individual rows when corp_id is set; pgmq delivery mirrors the existing corp expansion rules.';
 
+-- Drop the implicit PUBLIC EXECUTE grant. Without this, byoa_bus_client
+-- (and any other authenticated PG role) could call this SECURITY DEFINER
+-- function and insert arbitrary events spoofing any character, ship, or
+-- sector — bypassing the channel-as-capability bus auth model.
+REVOKE ALL ON FUNCTION public.record_event_with_recipients(
+  TEXT, TEXT, TEXT, UUID, UUID, INTEGER, UUID, UUID, UUID, JSONB, JSONB, TEXT, UUID[], TEXT[], BOOLEAN, UUID
+) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.record_event_with_recipients(
   TEXT, TEXT, TEXT, UUID, UUID, INTEGER, UUID, UUID, UUID, JSONB, JSONB, TEXT, UUID[], TEXT[], BOOLEAN, UUID
 ) TO service_role;
