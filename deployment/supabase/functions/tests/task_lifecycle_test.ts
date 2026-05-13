@@ -226,7 +226,7 @@ Deno.test({
       );
       const payload = events[events.length - 1].payload;
       assertEquals(payload.task_id, taskId);
-      assertEquals(payload.ship_id, p1Id);
+      assertEquals(payload.ship_id, p1ShipId);
       assertEquals(payload.task_scope, "player_ship");
     });
   },

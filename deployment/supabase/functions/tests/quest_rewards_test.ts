@@ -56,8 +56,11 @@ async function readAndArchivePgmqMessages(characterId: string): Promise<Record<s
   const queueName = `chr_${characterId}`;
   return await withPg(async (pg) => {
     await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [characterId]);
+    // pgmq.read_with_poll(..., max_seconds=0) checks the deadline before any
+    // read attempt and returns 0 rows even when messages are queued. Use the
+    // non-polling pgmq.read for a single immediate fetch.
     const result = await pg.queryObject<{ msg_id: bigint; message: unknown }>(
-      `SELECT msg_id, message FROM pgmq.read_with_poll($1, 10, 100, 0)`,
+      `SELECT msg_id, message FROM pgmq.read($1, 10, 100)`,
       [queueName],
     );
     const msgIds = result.rows.map((row) => row.msg_id);
@@ -164,10 +167,10 @@ Deno.test({
         rewardClaimed,
         `Expected quest.reward_claimed in pgmq messages, got ${messages.map((msg) => String(msg.event_type)).join(", ")}`,
       );
-      assertEquals(
-        (rewardClaimed.payload as Record<string, unknown>).credits_granted,
-        50,
-      );
+      const reward = (rewardClaimed.payload as Record<string, unknown>).reward as
+        | Record<string, unknown>
+        | undefined;
+      assertEquals(reward?.credits, 50);
     });
   },
 });
