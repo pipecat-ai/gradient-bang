@@ -1148,11 +1148,13 @@ class EventRelay:
         rtvi_processor: RTVIProcessor,
         character_id: str,
         task_state: TaskStateProvider,
+        bypass_tutorial: bool = False,
     ):
         self._game_client = game_client
         self._rtvi = rtvi_processor
         self._character_id = character_id
         self._task_state = task_state
+        self._bypass_tutorial = bypass_tutorial
 
         self.display_name: str = character_id
         self.actor_ship_id: Optional[str] = None
