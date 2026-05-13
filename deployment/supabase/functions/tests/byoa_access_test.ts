@@ -362,6 +362,109 @@ Deno.test({
   },
 });
 
+async function readShipWakeConfig(
+  shipId: string,
+): Promise<{ source_url: string | null; wake_secret: string | null }> {
+  return await withPg(async (pg) => {
+    const result = await pg.queryObject<{
+      source_url: string | null;
+      wake_secret: string | null;
+    }>(
+      `SELECT source_url, wake_secret
+         FROM public.get_ship_byoa_wake_config($1::uuid)`,
+      [shipId],
+    );
+    return result.rows[0] ?? { source_url: null, wake_secret: null };
+  });
+}
+
+Deno.test({
+  name: "byoa_access — ship_byoa_configure set writes wake config",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    let corpShipId: string;
+    const wakeSecret = "deadbeef".repeat(8);
+    const sourceUrl = "https://example.test/api/wake";
+
+    await t.step("seed corp + P1 claims", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipCredits(p1ShipId, 50_000);
+      const seeded = await seedCorpWithMembers(p1Id, [p2Id], "Set Corp");
+      corpShipId = seeded.corpShipId;
+      await apiOk("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "claim",
+      });
+    });
+
+    await t.step("P2 (non-owner) set → 403", async () => {
+      const result = await api("ship_byoa_configure", {
+        character_id: p2Id,
+        ship_id: corpShipId,
+        action: "set",
+        wake_secret: wakeSecret,
+      });
+      assertEquals(result.status, 403);
+    });
+
+    await t.step("set with neither field → 400", async () => {
+      const result = await api("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "set",
+      });
+      assertEquals(result.status, 400);
+    });
+
+    await t.step("set with bad source_url → 400", async () => {
+      const result = await api("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "set",
+        source_url: "ftp://nope",
+      });
+      assertEquals(result.status, 400);
+    });
+
+    await t.step(
+      "P1 set wake_secret + source_url; round-trip via getter",
+      async () => {
+        const result = await apiOk("ship_byoa_configure", {
+          character_id: p1Id,
+          ship_id: corpShipId,
+          action: "set",
+          wake_secret: wakeSecret,
+          source_url: sourceUrl,
+        });
+        const body = result as Record<string, unknown>;
+        assertEquals(body.wake_secret_updated, true);
+        assertEquals(body.source_url_updated, true);
+
+        const cfg = await readShipWakeConfig(corpShipId);
+        assertEquals(cfg.wake_secret, wakeSecret);
+        assertEquals(cfg.source_url, sourceUrl);
+      },
+    );
+
+    await t.step("set source_url only leaves wake_secret intact", async () => {
+      const newUrl = "https://example.test/v2/wake";
+      await apiOk("ship_byoa_configure", {
+        character_id: p1Id,
+        ship_id: corpShipId,
+        action: "set",
+        source_url: newUrl,
+      });
+      const cfg = await readShipWakeConfig(corpShipId);
+      assertEquals(cfg.wake_secret, wakeSecret);
+      assertEquals(cfg.source_url, newUrl);
+    });
+  },
+});
+
 Deno.test({
   name: "byoa_access — ship_byoa_configure refuses while a task is running",
   sanitizeOps: false,

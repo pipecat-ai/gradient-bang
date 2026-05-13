@@ -2,19 +2,23 @@
  * Edge Function: ship_byoa_configure
  *
  * Configures BYOA (Bring-Your-Own-Agent) state on a corporation ship.
- * Two actions:
+ * Three actions:
  *
  *   - claim: set byoa_owner_character_id = self, byoa_mode = private
  *   - clear: set byoa_owner_character_id = NULL, byoa_mode = 'private' (default)
+ *   - set:   write per-ship wake config (encrypted wake_secret + source_url).
+ *           Owner-only; ship_instances columns are encrypted server-side via
+ *           set_ship_byoa_wake_config() SECURITY DEFINER. Neither value is
+ *           returned to clients afterwards.
  *
  * Rules:
  *   - Caller must be a corp member of the ship's corp
  *   - Self-only claim: a member can only claim BYOA for themselves
- *   - clear is allowed by the current owner; non-owners cannot clear
- *     (a future stale-owner recovery path may relax this)
+ *   - clear / set are owner-only
  *   - Refuses to claim/clear while the ship appears to have an active task
  *     (derived from recent task.start events without a matching task.finish/
- *     task.cancel). Best-effort UX guard, not an atomic mutex.
+ *     task.cancel). Best-effort UX guard, not an atomic mutex. set is
+ *     wake-config only and is allowed during a task.
  *   - Only corporation-owned ships can have BYOA configured
  */
 
@@ -42,11 +46,15 @@ import {
 import { fetchActiveTaskIdsByShip } from "../_shared/tasks.ts";
 import { traced } from "../_shared/weave.ts";
 
-type ByoaAction = "claim" | "clear";
+type ByoaAction = "claim" | "clear" | "set";
 type ByoaMode = "private";
 
-const VALID_ACTIONS: readonly ByoaAction[] = ["claim", "clear"];
+const VALID_ACTIONS: readonly ByoaAction[] = ["claim", "clear", "set"];
 const VALID_MODES: readonly ByoaMode[] = ["private"];
+
+const SOURCE_URL_PATTERN = /^https?:\/\//;
+const SOURCE_URL_MAX_LENGTH = 4096;
+const WAKE_SECRET_MAX_LENGTH = 256;
 
 Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
   let auth: AuthContext;
@@ -80,6 +88,16 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     const shipId = requireString(payload, "ship_id");
     const actionRaw = requireString(payload, "action");
     const modeRaw = optionalString(payload, "mode");
+    const wakeSecretProvided = Object.prototype.hasOwnProperty.call(
+      payload,
+      "wake_secret",
+    );
+    const sourceUrlProvided = Object.prototype.hasOwnProperty.call(
+      payload,
+      "source_url",
+    );
+    const wakeSecretRaw = wakeSecretProvided ? payload.wake_secret : undefined;
+    const sourceUrlRaw = sourceUrlProvided ? payload.source_url : undefined;
 
     if (!(await canActOnCharacter(auth, characterId, supabase))) {
       return errorResponse("forbidden", 403);
@@ -157,6 +175,123 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
         "Only corp members can configure BYOA on this ship",
         403,
       );
+    }
+
+    // ----- set -----
+    // Owner-only wake config write. Doesn't touch ownership/mode, so the
+    // active-task guard below is skipped — rotating a wake secret mid-task
+    // is the supported recovery path when a daemon's secret leaks.
+    if (action === "set") {
+      const currentOwner =
+        typeof shipRow.byoa_owner_character_id === "string"
+          ? (shipRow.byoa_owner_character_id as string)
+          : null;
+      if (currentOwner !== characterId) {
+        return errorResponse(
+          "Only the current BYOA owner can set wake config",
+          403,
+        );
+      }
+      if (!wakeSecretProvided && !sourceUrlProvided) {
+        throw new RequestValidationError(
+          "set requires at least one of wake_secret or source_url",
+          400,
+        );
+      }
+      let wakeSecret: string | null = null;
+      if (wakeSecretProvided) {
+        if (wakeSecretRaw !== null && typeof wakeSecretRaw !== "string") {
+          throw new RequestValidationError(
+            "wake_secret must be a string or null",
+            400,
+          );
+        }
+        if (typeof wakeSecretRaw === "string") {
+          if (
+            wakeSecretRaw.length === 0 ||
+            wakeSecretRaw.length > WAKE_SECRET_MAX_LENGTH
+          ) {
+            throw new RequestValidationError(
+              `wake_secret length must be 1..${WAKE_SECRET_MAX_LENGTH}`,
+              400,
+            );
+          }
+          wakeSecret = wakeSecretRaw;
+        }
+      }
+      let sourceUrl: string | null = null;
+      if (sourceUrlProvided) {
+        if (sourceUrlRaw !== null && typeof sourceUrlRaw !== "string") {
+          throw new RequestValidationError(
+            "source_url must be a string or null",
+            400,
+          );
+        }
+        if (typeof sourceUrlRaw === "string") {
+          if (
+            !SOURCE_URL_PATTERN.test(sourceUrlRaw) ||
+            sourceUrlRaw.length > SOURCE_URL_MAX_LENGTH
+          ) {
+            throw new RequestValidationError(
+              "source_url must be http(s):// and ≤ 4096 chars",
+              400,
+            );
+          }
+          sourceUrl = sourceUrlRaw;
+        }
+      }
+
+      const { error: setErr } = await supabase.rpc(
+        "set_ship_byoa_wake_config",
+        {
+          p_ship_id: shipId,
+          p_wake_secret: wakeSecret,
+          p_source_url: sourceUrl,
+          p_update_wake_secret: wakeSecretProvided,
+          p_update_source_url: sourceUrlProvided,
+        },
+      );
+      if (setErr) {
+        console.error("ship_byoa_configure.set_error", setErr);
+        return errorResponse("Failed to update wake config", 500);
+      }
+
+      // Operator-private confirmation — corp-wide fan-out would leak the
+      // operator's source_url to every corp member. Wake_secret stays
+      // server-side; surface only its presence and a truncated source_url.
+      const setEventPayload: Record<string, unknown> = {
+        source: buildEventSource("ship_byoa_configure", requestId),
+        ship_id: shipId,
+        ship_name: shipRow.ship_name ?? null,
+        corp_id: corpId,
+        action,
+        wake_secret_updated: wakeSecretProvided,
+        source_url_updated: sourceUrlProvided,
+        actor_character_id: characterId,
+      };
+      await emitCharacterEvent({
+        supabase,
+        characterId,
+        eventType: "ship.byoa_configured",
+        payload: setEventPayload,
+        requestId,
+        actorCharacterId: characterId,
+      });
+
+      trace.setOutput({
+        request_id: requestId,
+        ship_id: shipId,
+        action,
+        wake_secret_updated: wakeSecretProvided,
+        source_url_updated: sourceUrlProvided,
+      });
+      return successResponse({
+        request_id: requestId,
+        ship_id: shipId,
+        action,
+        wake_secret_updated: wakeSecretProvided,
+        source_url_updated: sourceUrlProvided,
+      });
     }
 
     // Best-effort active-task guard — no BYOA changes while a task appears
