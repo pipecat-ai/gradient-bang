@@ -3,7 +3,7 @@
 Wraps upstream :class:`pipecat_subagents.bus.network.pgmq.PgmqBus` with
 :class:`IsolatedPgmqBackend` over an asyncpg pool. Every bus op goes through
 the ``public.bus_*`` SECURITY DEFINER wrappers defined in
-``20260512020000_byoa_explicit_channel_authorize.sql``. Both the bot
+``20260512000000_byoa_infrastructure.sql``. Both the bot
 (``service_role``) and BYOA operators (``byoa_bus_client``) connect through
 the same wrapper surface and see each other's queues via the ``bus_peers``
 registry.
