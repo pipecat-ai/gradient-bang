@@ -584,6 +584,23 @@ class VoiceAgent(LLMAgent):
             frames.append((LLMRunFrame(), FrameDirection.DOWNSTREAM))
         return frames
 
+    async def _flush_deferred_frames(self) -> None:
+        # LLMAgent's flush queues frames via super().queue_frame(), which
+        # targets this agent's no-op pipeline. The LLM lives in the main
+        # pipeline (see attach_main_pipeline_task), so route the flushed
+        # frames there — otherwise tool-deferred LLMMessagesAppendFrame /
+        # LLMRunFrame pairs (e.g. start_task's task.started follow-up) are
+        # dropped and the model never speaks the post-tool ack.
+        if self._main_pipeline_task is None:
+            await super()._flush_deferred_frames()
+            return
+
+        await self._flush_pipeline()
+        frames = list(self._deferred_frames)
+        self._deferred_frames.clear()
+        for frame, direction in await self.process_deferred_tool_frames(frames):
+            await self._main_pipeline_task.queue_frame(frame, direction)
+
     async def _inject_context(self, messages: list[dict], *, run_llm: bool = True) -> None:
         """Append context and coalesce a single follow-up LLM run when needed."""
         frame = LLMMessagesAppendFrame(messages=messages, run_llm=run_llm)
