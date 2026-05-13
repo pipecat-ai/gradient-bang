@@ -76,10 +76,12 @@ function byoaRuntimeEnv(
   taskId: string,
   requestId: string,
   byoaBusDatabaseUrl: string,
+  byoaOwnerCharacterId: string,
 ): Record<string, string> {
   return {
     BYOA_CHANNEL: channel,
     BYOA_SHIP_ID: shipId,
+    BYOA_CHARACTER_ID: byoaOwnerCharacterId,
     BYOA_BUS_DATABASE_URL: byoaBusDatabaseUrl,
     BYOA_TASK_ID: taskId,
     BYOA_WAKE_REQUEST_ID: requestId,
@@ -92,6 +94,7 @@ async function dispatchHttpSpawn(
   taskId: string,
   requestId: string,
   byoaBusDatabaseUrl: string,
+  byoaOwnerCharacterId: string,
   shipWakeUrl: string | null,
   shipWakeSecret: string | null,
 ): Promise<SpawnResult> {
@@ -149,6 +152,7 @@ async function dispatchHttpSpawn(
           taskId,
           requestId,
           byoaBusDatabaseUrl,
+          byoaOwnerCharacterId,
         ),
       }),
       signal: controller.signal,
@@ -204,6 +208,7 @@ async function dispatchSpawn(
   channel: string,
   taskId: string,
   requestId: string,
+  byoaOwnerCharacterId: string,
   shipWakeUrl: string | null,
   shipWakeSecret: string | null,
 ): Promise<SpawnResult> {
@@ -239,6 +244,7 @@ async function dispatchSpawn(
       taskId,
       requestId,
       byoaBusDatabaseUrl,
+      byoaOwnerCharacterId,
       shipWakeUrl,
       shipWakeSecret,
     );
@@ -364,6 +370,7 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
         channel,
         taskId,
         requestId,
+        shipRow.byoa_owner_character_id,
         shipWakeUrl,
         shipWakeSecret,
       )

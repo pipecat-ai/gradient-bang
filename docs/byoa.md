@@ -140,7 +140,7 @@ byoa = "my_bot:main"
 
 Your function points at your forked tarball URL (`source: { type: 'tarball', url: 'https://your-fork/...' }`); we still POST to your function URL the same way as Mode A.
 
-For a fully-custom runner that skips `ByoaApp` entirely, import `TaskAgent` and `build_byoa_pgmq_bus` directly. See [src/gradientbang/byoa/app.py](../src/gradientbang/byoa/app.py) for the reference wiring.
+For a fully-custom runner that skips `ByoaApp` entirely, import `TaskAgent` and `build_pgmq_bus` directly (`from gradientbang.adapters.bus.pgmq import build_pgmq_bus`). See [src/gradientbang/byoa/app.py](../src/gradientbang/byoa/app.py) for the reference wiring.
 
 ## Config reference
 

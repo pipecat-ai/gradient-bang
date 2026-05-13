@@ -32,7 +32,6 @@ src/gradientbang/tools/schemas.py
 src/gradientbang/adapters/__init__.py
 src/gradientbang/adapters/bus/__init__.py
 src/gradientbang/adapters/bus/base.py
-src/gradientbang/adapters/bus/byoa_pgmq.py
 src/gradientbang/adapters/bus/pgmq.py
 src/gradientbang/adapters/bus/serializer.py
 

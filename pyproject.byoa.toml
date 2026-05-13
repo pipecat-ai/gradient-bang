@@ -30,3 +30,8 @@ where = ["src"]
 # Mirror the openai pin from the bot's pyproject so the LLM-factory paths
 # behave identically across the bot and BYOA runtimes.
 override-dependencies = ["openai==1.99.5"]
+
+[tool.uv.sources]
+# Pinned to PR #24 (PgmqBus pluggable backends) until merged + released.
+# Mirror this with pyproject.toml.
+pipecat-ai-subagents = { git = "https://github.com/pipecat-ai/pipecat-subagents", rev = "87b25eaab0d546f35490719c6bc3cd967feedc4b" }

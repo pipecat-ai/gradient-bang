@@ -373,13 +373,12 @@ In-process `AsyncQueueBus` from `pipecat-ai-subagents`. Pre-Phase-2 behavior bit
 
 ### `pgmq`
 
-Distributed bus over Postgres via upstream `PgmqBus`. Each voice-agent session gets its own PGMQ channel derived from `SUBAGENT_BUS_CHANNEL` plus the bot session id. In-process task agents share that channel automatically; BYOA processes join the same channel when wake passes it to them, or when you pass it manually in dev. Setup:
+Distributed bus over Postgres via upstream `PgmqBus` + `IsolatedPgmqBackend`. The bot allocates a fresh UUID-128 channel (`gb_<32hex>`) per voice session and forwards it to BYOA over HTTPS at wake time. In-process task agents join that channel automatically; BYOA processes receive it via `BYOA_CHANNEL` in their wake env. Setup:
 
 ```bash
 # .env.bot
 SUBAGENT_BUS_TRANSPORT=pgmq
 SUBAGENT_BUS_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
-SUBAGENT_BUS_CHANNEL=gb_dev_local
 ```
 
 These are bot-process settings, not Supabase settings. Keep them in `.env.bot` (loaded by `bot.py` at startup) and out of `.env.supabase`; an out-of-process BYOA agent that thought the bot was on `pgmq` because of `.env.supabase` will silently miss every dispatch if the bot was started without sourcing that file first.
