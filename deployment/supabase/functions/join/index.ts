@@ -47,7 +47,7 @@ import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import { ActorAuthorizationError } from "../_shared/actors.ts";
 import { resolvePlayerType } from "../_shared/status.ts";
 import { normalizeMapKnowledge, fetchAllAdjacencies, findRouteToNearest } from "../_shared/map.ts";
-import { loadUniverseMeta, getMegaPortSectors } from "../_shared/fedspace.ts";
+import { loadUniverseMeta, getMegaPortSectors, getFedspaceSectors } from "../_shared/fedspace.ts";
 import { traced } from "../_shared/weave.ts";
 import type { WeaveSpan } from "../_shared/weave.ts";
 
@@ -433,7 +433,15 @@ Deno.serve(traced("join", async (req, trace) => {
         const hasVisitedMega = visitedSectors.some((s) => megaSet.has(s));
         if (!hasVisitedMega) {
           const adjacency = await fetchAllAdjacencies();
-          const result = findRouteToNearest(adjacency, targetSector, megaSet);
+          // Restrict the route to Federation Space — the onboarding prompt
+          // tells task agents to stay in Fed Space, so a path that dips into
+          // Neutral as a shortcut is unusable and the agent will stall when
+          // it reaches the first Neutral hop.
+          const fedspaceSet = new Set(getFedspaceSectors(meta));
+          const traversable = fedspaceSet.size > 0
+            ? (s: number) => fedspaceSet.has(s)
+            : undefined;
+          const result = findRouteToNearest(adjacency, targetSector, megaSet, traversable);
           if (result && result.path.length > 1) {
             onboardingRoute = result.path;
           }

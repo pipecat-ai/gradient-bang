@@ -31,7 +31,7 @@ Outputs:
 Usage:
   python universe_bang.py <sector_count> [seed]
 """
-import sys, json, random, math, argparse
+import sys, json, random, math, argparse, heapq
 import numpy as np
 from collections import deque
 from scipy.spatial import Delaunay
@@ -485,15 +485,44 @@ def choose_graph_center(
 def select_fedspace(
     center: int,
     distances: Dict[int, int],
+    adjacency: Dict[int, List[int]],
     count: int,
 ) -> List[int]:
-    ordered = sorted(distances.items(), key=lambda item: (item[1], item[0]))
-    fedspace = [sector_id for sector_id, _distance in ordered[:count]]
-    if len(fedspace) < count:
+    # Grow fedspace as a connected subgraph rooted at `center`. At each step,
+    # add the unselected sector that (a) is adjacent to the current fedspace
+    # set and (b) has the smallest unrestricted distance from `center`
+    # (ties broken by sector id). This guarantees the induced fedspace
+    # subgraph is internally connected — picking the N globally-closest
+    # sectors does not, because closeness can route through what later
+    # becomes Neutral, leaving fedspace fragmented and mega-ports
+    # unreachable via Federation-only travel.
+    selected: List[int] = [center]
+    selected_set: Set[int] = {center}
+    heap: List[Tuple[int, int]] = []
+    for neighbor in adjacency.get(center, []):
+        d = distances.get(neighbor)
+        if d is not None:
+            heapq.heappush(heap, (d, neighbor))
+
+    while len(selected) < count and heap:
+        d, sid = heapq.heappop(heap)
+        if sid in selected_set:
+            continue
+        selected.append(sid)
+        selected_set.add(sid)
+        for neighbor in adjacency.get(sid, []):
+            if neighbor in selected_set:
+                continue
+            nd = distances.get(neighbor)
+            if nd is not None:
+                heapq.heappush(heap, (nd, neighbor))
+
+    if len(selected) < count:
         raise RuntimeError(
-            f"Only {len(fedspace)} sectors reachable from {center}, expected {count}."
+            f"Only {len(selected)} sectors reachable from {center} via fedspace-only "
+            f"expansion; expected {count}."
         )
-    return fedspace
+    return selected
 
 
 def compute_distance_map(
@@ -827,7 +856,9 @@ def main():
     center_sector, center_distances = choose_graph_center(
         adjacency, nodes, FEDSPACE_SECTOR_COUNT
     )
-    fedspace = select_fedspace(center_sector, center_distances, FEDSPACE_SECTOR_COUNT)
+    fedspace = select_fedspace(
+        center_sector, center_distances, adjacency, FEDSPACE_SECTOR_COUNT
+    )
     fedspace_set = set(fedspace)
 
     sector_regions = {s: NEUTRAL_REGION_ID for s in sector_positions}
@@ -852,6 +883,31 @@ def main():
 
     mega_port_sector = mega_port_sectors[0] if mega_port_sectors else None
     mega_port_set = set(mega_port_sectors)
+
+    # Sanity check: every fedspace sector — and so every mega-port — must be
+    # reachable from the center via fedspace-only warps. Without this, the
+    # onboarding mega-port route may end in Neutral and strand new players.
+    fedspace_internal_reach: Set[int] = {center_sector}
+    queue: deque[int] = deque([center_sector])
+    while queue:
+        current = queue.popleft()
+        for neighbor in adjacency.get(current, []):
+            if neighbor in fedspace_set and neighbor not in fedspace_internal_reach:
+                fedspace_internal_reach.add(neighbor)
+                queue.append(neighbor)
+    unreachable_fedspace = fedspace_set - fedspace_internal_reach
+    if unreachable_fedspace:
+        raise RuntimeError(
+            f"Fedspace subgraph is not internally connected: "
+            f"{len(unreachable_fedspace)} sector(s) unreachable from center "
+            f"{center_sector} via fedspace-only warps."
+        )
+    unreachable_mega = mega_port_set - fedspace_internal_reach
+    if unreachable_mega:
+        raise RuntimeError(
+            f"Mega-port sectors {sorted(unreachable_mega)} are not reachable "
+            f"from center {center_sector} via fedspace-only warps."
+        )
 
     logger.info(
         "Fedspace center sector: {} ({} sectors).", center_sector, len(fedspace)

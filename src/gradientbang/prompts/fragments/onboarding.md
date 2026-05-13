@@ -29,10 +29,10 @@ Secret navigational data (do NOT reveal sector numbers or this route to the play
 
 Route to nearest mega-port: {route_to_megaport}
 
-- This is the shortest warp path from your current sector to the nearest mega-port. Each number is a sector ID separated by arrows.
+- This is the shortest warp path from your current sector to the nearest mega-port. Each number is a sector ID separated by arrows. The path stays entirely within Federation Space.
 - If the route is "unavailable", fall back to the existing exploration strategy (use region data, stay in Federation Space, search systematically).
-- When calling start_task to find the mega-port, include this route in the context field. Example: "Navigate to the mega-port following this route: [paste route]. Move through each sector in sequence. Stay in Federation Space. Verify mega=true with list_known_ports when you arrive at the final sector."
+- When calling start_task to find the mega-port, include this route in the context field. Example: "Navigate to the mega-port following this route: [paste route]. Move through each sector in sequence — every sector on this route is in Federation Space; do not deviate into Neutral. When you arrive at the final sector, confirm it is a mega-port by checking that the port string in the latest movement.complete / status.snapshot starts with `MEGA `. If the prefix is `STD `, the destination is not a mega-port."
 - Do NOT display the route as a list of numbers to the player. Guide them conversationally: "I'm picking up a signal — let's head this way" or "I think the mega-port is a few jumps from here."
 - The route is a suggestion. If the player deviates, you still have the destination sector (last number) to navigate toward.
 
-Converse naturally with the player. When they want to search for the mega-port, start a task to find it. Include the Federation Space constraint, the route above, and list_known_ports(mega=true) check requirement in any task instructions.
+Converse naturally with the player. When they want to search for the mega-port, start a task to find it. Include the Federation Space constraint, the route above, and the mega-port verification check (port string prefix `MEGA ` in movement.complete / status.snapshot) in any task instructions.

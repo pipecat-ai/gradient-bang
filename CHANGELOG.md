@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `BusTaskFinishNotification` carries `actor_character_id` and the broker forwards it to `task_lifecycle(finish)` so private BYOA ship finishes authorise against the player, not the pseudo-character
 - Broker hardening: envelope `character_id` / `actor_character_id` are authoritative — `msg.args` can't shadow them
 
+### Fixed
+
+- Onboarding mega-port route now stays in Federation Space. The server-side route used unrestricted BFS, which could dip through Neutral as a shortcut and strand the task agent on the "stay in Fed Space" rule. `findRouteToNearest` now accepts a traversable predicate, `join` filters by `fedspace_sectors`, and worldgen's `select_fedspace` grows the fedspace region as a connected subgraph (with a gen-time sanity check) so all mega-ports are reachable from anywhere in Fed Space without crossing Neutral. Existing universes need to be regenerated to pick up the new fedspace layout
+- Task-agent mega-port verification: agents now read the `MEGA ` / `STD ` prefix on the port string in `movement.complete` / `status.snapshot` and only fall back to `list_known_ports(mega=true)` (no commodity / trade_type filters) if the prefix is missing. Stacking commodity filters on the verify call was producing false negatives
+
 ### Removed
 
 - DB columns `current_task_id`, `task_started_at`, `task_actor_character_id`, `task_last_heartbeat_at`, `byoa_session_channel`, `byoa_session_allocated_at` on `ship_instances` and their indexes
