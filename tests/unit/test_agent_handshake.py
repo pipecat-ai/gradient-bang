@@ -109,9 +109,7 @@ class TestIdleTeardownTimer:
         agent = _make_task_agent(is_corp_ship=True)
         # Long delay so the timer doesn't actually fire during the test.
         agent._byoa_config = type(agent._byoa_config)(
-            max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
-            task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=30.0,
             agent_idle_teardown_seconds=3600.0,
         )
@@ -131,9 +129,7 @@ class TestIdleTeardownTimer:
         agent = _make_task_agent(is_corp_ship=True)
         # Very short delay so the timer fires inside the test window.
         agent._byoa_config = type(agent._byoa_config)(
-            max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
-            task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=30.0,
             agent_idle_teardown_seconds=0.01,
         )
@@ -150,9 +146,7 @@ class TestIdleTeardownTimer:
     async def test_teardown_reset_when_active_task_arrives(self):
         agent = _make_task_agent(is_corp_ship=True)
         agent._byoa_config = type(agent._byoa_config)(
-            max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
-            task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=30.0,
             agent_idle_teardown_seconds=3600.0,
         )
@@ -208,9 +202,7 @@ class TestVoiceAgentHelloSender:
         agent.send_message.side_effect = _capture_and_respond
         # Tight timeout so we fail fast if the wiring is broken.
         agent._byoa_config = type(agent._byoa_config)(
-            max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
-            task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=2.0,
             agent_idle_teardown_seconds=300.0,
         )
@@ -224,9 +216,7 @@ class TestVoiceAgentHelloSender:
         agent = _make_voice_agent()
         agent.send_message = AsyncMock()  # never resolves the future
         agent._byoa_config = type(agent._byoa_config)(
-            max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
-            task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=0.05,
             agent_idle_teardown_seconds=300.0,
         )
@@ -252,9 +242,7 @@ class TestVoiceAgentHelloSender:
 
         agent.send_message.side_effect = _capture_and_respond
         agent._byoa_config = type(agent._byoa_config)(
-            max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
-            task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=2.0,
             agent_idle_teardown_seconds=300.0,
         )

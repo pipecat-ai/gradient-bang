@@ -96,13 +96,18 @@ export async function resetDatabase(
       ON CONFLICT (id) DO NOTHING
     `);
 
-    // Clear app_runtime_config but preserve `pubsub_internal_secret` (the
-    // HS256 secret auto-provisioned by the pgmq migration). Wiping the secret
-    // breaks verify_token + subscribe_my_events; rotating it mid-suite would
-    // invalidate verify_token's module-scope cache. Other runtime-config rows
-    // (e.g. cron knobs) are still wiped to keep parity with reset-world.sh.
+    // Clear app_runtime_config but preserve the two auto-provisioned secrets:
+    //   - `pubsub_internal_secret` — HS256 signing key from the pgmq migration.
+    //     Wiping it breaks verify_token + subscribe_my_events; rotating it
+    //     mid-suite would invalidate verify_token's module-scope cache.
+    //   - `byoa_operator_secret` — symmetric key for byoa_wake_secret_enc on
+    //     ship_instances. Wiping it makes any encrypted bearer undecipherable
+    //     and breaks wake_agent's get_ship_byoa_wake_config rpc.
+    // Other runtime-config rows (e.g. cron knobs) are still wiped to keep
+    // parity with reset-world.sh.
     await pg.queryObject(
-      `DELETE FROM public.app_runtime_config WHERE key <> 'pubsub_internal_secret'`,
+      `DELETE FROM public.app_runtime_config
+        WHERE key NOT IN ('pubsub_internal_secret', 'byoa_operator_secret')`,
     );
   } finally {
     await pg.end();

@@ -39,9 +39,11 @@ Source the edge env first (for `SUPABASE_URL` / `EDGE_API_TOKEN`), then the bot 
 set -a && source <edge-env-file> && source <bot-env-file> && set +a
 ```
 
-The bot env is sourced only to **validate** that `SUBAGENT_BUS_DATABASE_URL` exists at runtime — the skill does not copy it into `.env.byoa`. `uv run byoa` loads `.env.byoa` first, then falls back to `.env.bot` for anything missing (see `src/gradientbang/byoa/cli.py`), so the bus URL flows through naturally when running from the bot checkout.
+The bot env is sourced only to **validate** that `SUBAGENT_BUS_DATABASE_URL` exists at runtime — the skill does not copy it into `.env.byoa`. The local-dev wake daemon (`uv run byoa --serve`) loads `.env.byoa` first, then falls back to `.env.bot` for anything missing (see `src/gradientbang/byoa/serve.py`), so the bus URL flows through naturally when running from the bot checkout. The single-session harness (`uv run byoa` invoked by the daemon per wake) reads only `os.environ` — values arrive via the spawned-child env.
 
-The bus **channel** is no longer part of the operator config either — the bot allocates a per-session channel at task time and the BYOA discovers it via `byoa_session_claim`.
+The bus **channel** is no longer part of the operator config either — the bot allocates a per-session channel at task time and `wake_agent` injects `BYOA_CHANNEL` into the spawned harness env.
+
+`BYOA_WAKE_SECRET` is the **per-ship** bearer that authenticates `wake_agent` → wake-receiver (local daemon or operator's Vercel Function) traffic. Generate a fresh random hex string (`openssl rand -hex 32`) **per ship** — never share across ships, never reuse `EDGE_API_TOKEN` (that's privileged trusted-caller auth for our edge functions and must never leave our infra). The skill writes the generated value into `.env.byoa` so the daemon can validate inbound POSTs, AND sends the same value to us via `ship_byoa_configure { action: 'set', wake_secret }` so wake_agent can sign outbound POSTs. We encrypt the secret at rest and never return it to clients.
 
 ### Auth header cheat-sheet
 
@@ -124,6 +126,27 @@ The response contains `token` (the plaintext HS256 JWT) — **shown exactly once
 
 If rotating tokens, remind the operator to revoke the old one via `byoa_token_revoke` after the new one works.
 
+### 6.5. Generate + persist the per-ship wake secret
+
+Generate a fresh random hex bearer (`openssl rand -hex 32`). Capture in memory; you'll write it to `.env.byoa` in step 7 AND send the same value to us via `ship_byoa_configure set { wake_secret }` here so wake_agent can sign outbound POSTs to the operator's wake receiver:
+
+```bash
+curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
+  -H "Content-Type: application/json" \
+  -H "X-Edge-Auth: ${EDGE_API_TOKEN}" \
+  -H "X-API-Token: <access_token>" \
+  -d '{
+    "character_id": "<character_id>",
+    "ship_id": "<ship_id>",
+    "action": "set",
+    "wake_secret": "<generated hex>"
+  }'
+```
+
+For production also: set `BYOA_WAKE_SECRET=<same hex>` as project env on the operator's Vercel project (where their wake receiver runs), plus pass `source_url` on the same `set` call (or in a follow-up) so we know where to POST.
+
+> The `set` action above lands with the `ship_byoa_configure` follow-up edge-function change. On branches where it's not yet wired, expect a 400 from this step — surface the error and continue; the operator will need to rerun this once the action ships.
+
 ### 7. Write `.env.byoa`
 
 Path: `--out` value, or `./.env.byoa` if not provided. File mode **0600**.
@@ -132,15 +155,15 @@ Path: `--out` value, or `./.env.byoa` if not provided. File mode **0600**.
 umask 077
 cat > "<out_path>" <<EOF
 # Written by /byoa-setup on $(date -Iseconds)
-BYOA_CLAIM_ENDPOINT_URL=${SUPABASE_URL}/functions/v1/byoa_session_claim
 BYOA_TOKEN=<token from step 6>
 BYOA_CHARACTER_ID=<character_id from step 3>
 BYOA_SHIP_ID=<ship_id from step 4>
+BYOA_WAKE_SECRET=<existing value from env, or freshly-generated hex>
 EOF
 chmod 600 "<out_path>"
 ```
 
-`SUBAGENT_BUS_DATABASE_URL` is intentionally omitted — `uv run byoa` picks it up from `.env.bot` via fallback when running from the bot checkout. Standalone operator deploys without a bot checkout need to set it in the shell env or add it to `.env.byoa` by hand.
+`SUBAGENT_BUS_DATABASE_URL` is intentionally omitted — `uv run byoa --serve` picks it up from `.env.bot` via fallback when running from the bot checkout. Standalone operator deploys without a bot checkout need to set it in the shell env or add it to `.env.byoa` by hand.
 
 Verify the file is `0600` after writing; surface a warning if not.
 
@@ -149,11 +172,14 @@ Verify the file is `0600` after writing; surface a warning if not.
 Echo a copy-pasteable summary the operator can act on:
 
 - Where the env file was written.
-- The exact `uv run byoa` invocation:
+- Author `./prompt.md` (≤ 8 KB, appended to the base task-agent prompt) and set `BYOA_PROMPT_FILE=./prompt.md` (or inline `BYOA_PROMPT=...`) in `.env.byoa`.
+- **Local dev** (env != `prod`): start the local wake daemon (separate terminal):
   ```bash
-  uv run byoa --prompt-file ./prompt.md
+  uv run byoa --serve
   ```
-- They need to author `./prompt.md` (≤ 8 KB, appended to the base task-agent prompt). Point at `docs/setup-byoa.md`.
+  The daemon reads `.env.byoa` and waits for wakes from `wake_agent`. The bot's edge functions need `DEFAULT_BYOA_SOURCE_URL=http://host.docker.internal:8765/wake` and `BYOA_WAKE_SECRET=<same value as in .env.byoa>` set; the wake POST is then routed to the daemon automatically.
+- **Production** (env = `prod`): deploy our hosted template (`gradient-bang-byoa-template`) to your own Vercel project. Set `BYOA_WAKE_SECRET`, `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, and the matching `*_API_KEY` as project env on that Vercel project. Then point this ship at the deployed function URL via `ship_byoa_configure set { source_url: "https://<your-project>.vercel.app/api/wake" }`. Our wake_agent POSTs to that URL on task start; the Vercel Function inside the template calls `Sandbox.create()` with project env merged into the sandbox.
+- Point at `docs/byoa.md` for full env / config reference.
 - Token rotation: 90-day TTL by default; re-run this skill before expiry, then revoke the old token via `byoa_token_revoke`.
 
 ## Failure modes

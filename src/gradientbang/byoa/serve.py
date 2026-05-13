@@ -82,11 +82,11 @@ class _WakeDaemon:
         *,
         ship_id: str,
         character_id: str,
-        edge_api_token: str,
+        wake_secret: str,
     ) -> None:
         self.ship_id = ship_id
         self.character_id = character_id
-        self.edge_api_token = edge_api_token
+        self.wake_secret = wake_secret
         self._lock = threading.Lock()
         self._processes: dict[str, subprocess.Popen[Any]] = {}
 
@@ -112,7 +112,7 @@ class _WakeDaemon:
         authorization: Optional[str],
         payload: dict[str, Any],
     ) -> tuple[int, dict[str, Any]]:
-        expected = f"Bearer {self.edge_api_token}"
+        expected = f"Bearer {self.wake_secret}"
         if authorization != expected:
             return 401, {"success": False, "error": "unauthorized"}
 
@@ -268,7 +268,7 @@ def run_wake_daemon(*, host: str, port: int) -> None:
         ship_id = _require("BYOA_SHIP_ID")
         character_id = _require("BYOA_CHARACTER_ID")
         _require("BYOA_TOKEN")
-        edge_api_token = _require("EDGE_API_TOKEN")
+        wake_secret = _require("BYOA_WAKE_SECRET")
     except ServeError as exc:
         print(f"byoa: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -276,7 +276,7 @@ def run_wake_daemon(*, host: str, port: int) -> None:
     daemon = _WakeDaemon(
         ship_id=ship_id,
         character_id=character_id,
-        edge_api_token=edge_api_token,
+        wake_secret=wake_secret,
     )
     server = ThreadingHTTPServer((host, port), _make_wake_handler(daemon))
     bound_host, bound_port = server.server_address[:2]

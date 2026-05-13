@@ -25,21 +25,14 @@ class ByoaAgentConfig:
     Construct directly or via env (``ByoaAgentConfig.from_env()``).
     """
 
-    # Per-agent ceiling on concurrent tasks. Soft local guard so a
-    # misbehaving operator can't fan out arbitrarily many concurrent
-    # task children.
-    max_concurrent_tasks: int = 4
-
-    # Reply timeout for an outbound BusGameToolCallRequest.
+    # Reply timeout for an outbound BusGameToolCallRequest. Read by the
+    # BYOA TaskAgent.
     tool_call_timeout_seconds: float = 30.0
 
-    # Reply timeout for a BusTaskRequest.
-    task_request_timeout_seconds: float = 600.0
-
     # How long VoiceAgent waits for a target agent to signal alive after
-    # start_task (via BusAgentHelloRequest/Response). Generous enough to
-    # cover sandbox cold starts. In-process agents respond near-instantly;
-    # remote BYOA agents respond after cold start.
+    # start_task (via BusAgentHelloRequest/Response). Read by the bot, not
+    # by BYOA — operators setting BYOA_AGENT_WAKE_TIMEOUT_SECONDS on their
+    # sandbox have no effect. Generous enough to cover sandbox cold starts.
     agent_wake_timeout_seconds: float = 30.0
 
     # How long an idle warm agent stays around before tearing itself down.
@@ -66,12 +59,6 @@ class ByoaAgentConfig:
 
         source = env if env is not None else os.environ
 
-        def _int(name: str, default: int) -> int:
-            raw = source.get(f"{prefix}{name}")
-            if raw is None or raw == "":
-                return default
-            return int(raw)
-
         def _float(name: str, default: float) -> float:
             raw = source.get(f"{prefix}{name}")
             if raw is None or raw == "":
@@ -79,11 +66,7 @@ class ByoaAgentConfig:
             return float(raw)
 
         return cls(
-            max_concurrent_tasks=_int("MAX_CONCURRENT_TASKS", 4),
             tool_call_timeout_seconds=_float("TOOL_CALL_TIMEOUT_SECONDS", 30.0),
-            task_request_timeout_seconds=_float(
-                "TASK_REQUEST_TIMEOUT_SECONDS", 600.0
-            ),
             agent_wake_timeout_seconds=_float(
                 "AGENT_WAKE_TIMEOUT_SECONDS", 30.0
             ),

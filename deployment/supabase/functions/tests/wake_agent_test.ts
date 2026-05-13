@@ -63,6 +63,35 @@ function restoreEnv(snapshot: Record<string, string | undefined>) {
   }
 }
 
+async function setShipWakeConfig(
+  shipId: string,
+  sourceUrl: string | null,
+  wakeSecret: string | null,
+): Promise<void> {
+  await withPg(async (pg) => {
+    if (wakeSecret === null) {
+      await pg.queryObject(
+        `UPDATE ship_instances
+           SET byoa_runtime_source_url = $1,
+               byoa_wake_secret_enc = NULL
+         WHERE ship_id = $2::uuid`,
+        [sourceUrl, shipId],
+      );
+    } else {
+      await pg.queryObject(
+        `UPDATE ship_instances
+           SET byoa_runtime_source_url = $1,
+               byoa_wake_secret_enc = extensions.pgp_sym_encrypt(
+                 $2,
+                 public.byoa_operator_secret()
+               )
+         WHERE ship_id = $3::uuid`,
+        [sourceUrl, wakeSecret, shipId],
+      );
+    }
+  });
+}
+
 Deno.test({
   name: "wake_agent — start server",
   sanitizeOps: false,
@@ -205,21 +234,25 @@ Deno.test({
 
     const envSnapshot = {
       WAKE_TARGET: Deno.env.get("WAKE_TARGET"),
-      BYOA_WAKE_URL: Deno.env.get("BYOA_WAKE_URL"),
-      EDGE_API_TOKEN: Deno.env.get("EDGE_API_TOKEN"),
+      DEFAULT_BYOA_SOURCE_URL: Deno.env.get("DEFAULT_BYOA_SOURCE_URL"),
       BYOA_BUS_DATABASE_URL: Deno.env.get("BYOA_BUS_DATABASE_URL"),
     };
 
     await t.step(
-      "missing http provider env → visible spawn failure",
+      "missing per-ship wake secret → visible spawn failure",
       async () => {
         try {
           Deno.env.set("WAKE_TARGET", "http");
-          Deno.env.delete("BYOA_WAKE_URL");
-          Deno.env.set("EDGE_API_TOKEN", "test-secret");
           Deno.env.set(
             "BYOA_BUS_DATABASE_URL",
             "postgresql://byoa_login:test@db/postgres",
+          );
+          // URL set, secret unset — wake_agent must refuse rather than
+          // POST without a bearer.
+          await setShipWakeConfig(
+            corpShipId,
+            "http://example.invalid/wake",
+            null,
           );
 
           const result = await api("wake_agent", {
@@ -232,15 +265,16 @@ Deno.test({
           const body = result.body as Record<string, unknown>;
           assertEquals(body.error, "wake_spawn_failed");
           assertEquals(body.spawn_target, "http");
-          assertEquals(body.spawn_status, "missing_byoa_wake_url");
+          assertEquals(body.spawn_status, "missing_wake_secret");
         } finally {
           restoreEnv(envSnapshot);
+          await setShipWakeConfig(corpShipId, null, null);
         }
       },
     );
 
     await t.step(
-      "http provider receives wake payload + bearer auth",
+      "per-ship URL + secret are used as bearer and target",
       async () => {
         taskId = crypto.randomUUID();
 
@@ -263,13 +297,13 @@ Deno.test({
         try {
           Deno.env.set("WAKE_TARGET", "http");
           Deno.env.set(
-            "BYOA_WAKE_URL",
-            `http://127.0.0.1:${provider.addr.port}/wake`,
-          );
-          Deno.env.set("EDGE_API_TOKEN", "test-secret");
-          Deno.env.set(
             "BYOA_BUS_DATABASE_URL",
             "postgresql://byoa_login:test@db/postgres",
+          );
+          await setShipWakeConfig(
+            corpShipId,
+            `http://127.0.0.1:${provider.addr.port}/wake`,
+            "test-secret",
           );
 
           const result = await apiOk("wake_agent", {
@@ -296,6 +330,7 @@ Deno.test({
         } finally {
           await provider.shutdown();
           restoreEnv(envSnapshot);
+          await setShipWakeConfig(corpShipId, null, null);
         }
       },
     );
@@ -311,13 +346,13 @@ Deno.test({
       try {
         Deno.env.set("WAKE_TARGET", "http");
         Deno.env.set(
-          "BYOA_WAKE_URL",
-          `http://127.0.0.1:${provider.addr.port}/wake`,
-        );
-        Deno.env.set("EDGE_API_TOKEN", "test-secret");
-        Deno.env.set(
           "BYOA_BUS_DATABASE_URL",
           "postgresql://byoa_login:test@db/postgres",
+        );
+        await setShipWakeConfig(
+          corpShipId,
+          `http://127.0.0.1:${provider.addr.port}/wake`,
+          "test-secret",
         );
 
         const result = await api("wake_agent", {
@@ -334,6 +369,7 @@ Deno.test({
       } finally {
         await provider.shutdown();
         restoreEnv(envSnapshot);
+        await setShipWakeConfig(corpShipId, null, null);
       }
     });
   },

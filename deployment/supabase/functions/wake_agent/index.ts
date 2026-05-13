@@ -84,24 +84,33 @@ async function dispatchHttpSpawn(
   taskId: string,
   requestId: string,
   byoaBusDatabaseUrl: string,
+  shipWakeUrl: string | null,
+  shipWakeSecret: string | null,
 ): Promise<SpawnResult> {
   const target = "http";
-  const wakeUrl = (Deno.env.get("BYOA_WAKE_URL") ?? "").trim();
-  const edgeApiToken = (Deno.env.get("EDGE_API_TOKEN") ?? "").trim();
+  // Per-ship URL wins; fall back to DEFAULT_BYOA_SOURCE_URL for ships that
+  // haven't been configured yet (typical only in local dev).
+  const wakeUrl = (
+    shipWakeUrl ?? Deno.env.get("DEFAULT_BYOA_SOURCE_URL") ?? ""
+  ).trim();
+  // Per-ship secret only. No env-var fallback — a single shared secret
+  // across all operators would mean any leak compromises every BYOA.
+  // Each ship's secret is set via ship_byoa_configure and stored encrypted.
+  const wakeSecret = (shipWakeSecret ?? "").trim();
 
   if (!wakeUrl) {
     console.error(
-      "wake_agent.spawn.http.missing_byoa_wake_url",
+      "wake_agent.spawn.http.missing_wake_url",
       JSON.stringify({ request_id: requestId, ship_id: shipId, channel }),
     );
-    return { target, status: "missing_byoa_wake_url" };
+    return { target, status: "missing_wake_url" };
   }
-  if (!edgeApiToken) {
+  if (!wakeSecret) {
     console.error(
-      "wake_agent.spawn.http.missing_edge_api_token",
+      "wake_agent.spawn.http.missing_wake_secret",
       JSON.stringify({ request_id: requestId, ship_id: shipId, channel }),
     );
-    return { target, status: "missing_edge_api_token" };
+    return { target, status: "missing_wake_secret" };
   }
 
   const controller = new AbortController();
@@ -111,7 +120,7 @@ async function dispatchHttpSpawn(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${edgeApiToken}`,
+        "Authorization": `Bearer ${wakeSecret}`,
       },
       body: JSON.stringify({
         request_id: requestId,
@@ -179,6 +188,8 @@ async function dispatchSpawn(
   channel: string,
   taskId: string,
   requestId: string,
+  shipWakeUrl: string | null,
+  shipWakeSecret: string | null,
 ): Promise<SpawnResult> {
   const target = (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase();
   if (target === "noop") {
@@ -204,42 +215,21 @@ async function dispatchSpawn(
       taskId,
       requestId,
       byoaBusDatabaseUrl,
+      shipWakeUrl,
+      shipWakeSecret,
     );
   }
 
-  if (target !== "vercel_sandbox") {
-    console.warn(
-      "wake_agent.spawn.unknown_target",
-      JSON.stringify({
-        request_id: requestId,
-        ship_id: shipId,
-        channel,
-        target,
-      }),
-    );
-    return { target, status: "unknown_target" };
-  }
-
-  // Spawn implementation for `vercel_sandbox` lands in follow-up work.
-  // For now they fall through to a logged no-op so an operator misreading
-  // the env var doesn't get a 500 — they get a visible warning in logs.
   console.warn(
-    "wake_agent.spawn.unimplemented",
+    "wake_agent.spawn.unknown_target",
     JSON.stringify({
       request_id: requestId,
       ship_id: shipId,
       channel,
       target,
-      env: byoaRuntimeEnv(
-        shipId,
-        channel,
-        taskId,
-        requestId,
-        "<set>",
-      ),
     }),
   );
-  return { target, status: "unimplemented" };
+  return { target, status: "unknown_target" };
 }
 
 Deno.serve(traced("wake_agent", async (req, trace) => {
@@ -263,13 +253,12 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
   if (payload.healthcheck === true) {
     return successResponse({
       status: "ok",
-      token_present: Boolean(Deno.env.get("EDGE_API_TOKEN")),
       wake_target: (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase(),
       byoa_bus_database_url_present: Boolean(
         (Deno.env.get("BYOA_BUS_DATABASE_URL") ?? "").trim(),
       ),
-      byoa_wake_url_present: Boolean(
-        (Deno.env.get("BYOA_WAKE_URL") ?? "").trim(),
+      default_byoa_source_url_present: Boolean(
+        (Deno.env.get("DEFAULT_BYOA_SOURCE_URL") ?? "").trim(),
       ),
     });
   }
@@ -321,12 +310,39 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
       return errorResponse("not_a_byoa_ship", 400);
     }
 
+    // Pull the per-ship wake URL + decrypted bearer in a single SECURITY
+    // DEFINER call. The operator_secret never leaves the function body.
+    // get_ship_byoa_wake_config returns TABLE(...), which the rpc client
+    // surfaces as an array; the first row is what we want.
+    let shipWakeUrl: string | null = null;
+    let shipWakeSecret: string | null = null;
+    if (taskId !== null) {
+      const { data: wakeCfg, error: wakeCfgErr } = await supabase
+        .rpc("get_ship_byoa_wake_config", { p_ship_id: shipId });
+      if (wakeCfgErr) {
+        console.error("wake_agent.wake_config_lookup", wakeCfgErr);
+        return errorResponse("Failed to load BYOA wake config", 500);
+      }
+      const row = Array.isArray(wakeCfg) ? wakeCfg[0] : wakeCfg;
+      shipWakeUrl = typeof row?.source_url === "string" ? row.source_url : null;
+      shipWakeSecret = typeof row?.wake_secret === "string"
+        ? row.wake_secret
+        : null;
+    }
+
     // No DB-side channel allocation needed: byoa_bus_authorize verifies the
     // caller's BYOA token against the ship's byoa_owner_character_id directly,
     // not against a stored channel binding. The channel is passed straight to
     // the spawn dispatcher.
     const spawn = taskId !== null
-      ? await dispatchSpawn(shipId, channel, taskId, requestId)
+      ? await dispatchSpawn(
+        shipId,
+        channel,
+        taskId,
+        requestId,
+        shipWakeUrl,
+        shipWakeSecret,
+      )
       : {
         target: (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase(),
         status: "registered",
