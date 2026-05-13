@@ -64,7 +64,6 @@ class ByoaContext:
     config: ByoaAgentConfig
     task_id: Optional[str]
     wake_request_id: Optional[str]
-    token: Optional[str] = None
 
     @classmethod
     def from_env(cls) -> "ByoaContext":
@@ -77,7 +76,6 @@ class ByoaContext:
             config=ByoaAgentConfig.from_env(),
             task_id=os.environ.get("BYOA_TASK_ID") or None,
             wake_request_id=os.environ.get("BYOA_WAKE_REQUEST_ID") or None,
-            token=(os.environ.get("BYOA_TOKEN") or "").strip() or None,
         )
 
 

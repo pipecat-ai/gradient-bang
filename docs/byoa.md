@@ -32,7 +32,7 @@ Run the bot and your BYOA agent side-by-side on the same machine; both speak to 
 /byoa-setup local
 ```
 
-The skill logs in, lets you pick a corp ship to claim, mints a BYOA token bound to your character, and writes `./.env.byoa` (mode `0600`). The plaintext token is shown once and never re-fetchable.
+The skill logs in, lets you pick a corp ship to claim, and writes `./.env.byoa` (mode `0600`) with the per-ship wake secret and the rest of the operator config.
 
 **2. Author a prompt** in `./prompt.md` (≤ 8 KB, appended to the base task-agent system prompt):
 
@@ -60,13 +60,13 @@ Set the local edge-function env with `BYOA_BUS_DATABASE_URL` and `WAKE_TARGET=ht
 
 The per-ship wake bearer is set via `ship_byoa_configure set { source_url, wake_secret }` (the `byoa-setup` skill writes this for you in step 1; it generates the value, stores it in `.env.byoa` for the daemon, and sends the same value to us via the configure endpoint). When a task starts, `wake_agent` looks up the ship's URL + decrypted bearer, POSTs the wake to the URL with `Authorization: Bearer <ship's wake secret>`; the daemon validates the bearer against its own `.env.byoa` copy and spawns `uv run byoa` (no flag — single session) with the merged env. The spawned process joins the per-session PGMQ channel via the SECURITY DEFINER `public.bus_*` wrappers; knowledge of the channel name (transported wake → BYOA over HTTPS) is the bus capability.
 
-**Rotate tokens.** Re-run `/byoa-setup local --force` to mint a fresh token, then revoke the old one via `byoa_token_revoke`.
+**Rotate the wake secret.** Re-run `/byoa-setup local --force` to write a new `BYOA_WAKE_SECRET` to both `.env.byoa` and your ship's `ship_byoa_configure set` row.
 
 ## Production quickstart
 
 In production, BYOA runs in a Vercel Sandbox the **operator** owns. The operator deploys a small Vercel Function (from our hosted template) on their Vercel project. That function is what calls `Sandbox.create()` — it has access to the operator's project env at runtime (standard Vercel Function behavior), forwards it into the sandbox via the `env` param, and we never see operator secrets.
 
-**1. Onboard.** Same as local — `/byoa-setup prod` claims the ship and mints a BYOA token in our prod env.
+**1. Onboard.** Same as local — `/byoa-setup prod` claims the ship and writes your operator config to `.env.byoa` in our prod env.
 
 **2. Deploy our hosted template to Vercel.** One-click "Deploy to Vercel" from `gradient-bang-byoa-template` (see [byoa-vercel.md](byoa-vercel.md) for the reference function code while that template is still being assembled). The template includes:
 
@@ -156,7 +156,6 @@ The harness reads only `os.environ`. Population is the receiver's responsibility
 | `BYOA_SHIP_ID` | wake POST | Corp ship UUID (used as TaskAgent's `character_id`) |
 | `BYOA_CHARACTER_ID` | wake POST | Operator's character |
 | `BYOA_CHANNEL` | wake POST | Per-voice-session bus channel; capability for `public.bus_*` wrappers |
-| `BYOA_TOKEN` | optional, operator-supplied | Reserved for a future HTTP-side BYOA gateway; not used by the bus today |
 | `BYOA_BUS_DATABASE_URL` | wake POST | Restricted Postgres DSN |
 | `BYOA_TASK_ID` | wake POST | Log correlation |
 | `BYOA_WAKE_REQUEST_ID` | wake POST | Log correlation |
