@@ -307,9 +307,7 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
 
     const { data: shipRow, error: shipErr } = await supabase
       .from("ship_instances")
-      .select(
-        "ship_id, byoa_owner_character_id, current_task_id, byoa_session_channel",
-      )
+      .select("ship_id, byoa_owner_character_id")
       .eq("ship_id", shipId)
       .maybeSingle();
     if (shipErr) {
@@ -323,33 +321,10 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
       return errorResponse("not_a_byoa_ship", 400);
     }
 
-    // Register the session channel. With a task_id this is guarded by the
-    // active ship-task lock so a stale wake cannot re-point the ship after
-    // the lock moved. Without a task_id this is idle registration: the bot
-    // is advertising the channel a local/long-running BYOA process should
-    // join before any task exists.
-    let updateQuery = supabase
-      .from("ship_instances")
-      .update({
-        byoa_session_channel: channel,
-        byoa_session_allocated_at: new Date().toISOString(),
-      })
-      .eq("ship_id", shipId);
-    if (taskId !== null) {
-      updateQuery = updateQuery.eq("current_task_id", taskId);
-    }
-    const { data: updated, error: updateErr } = await updateQuery.select(
-      "ship_id, current_task_id, byoa_session_channel",
-    );
-    if (updateErr) {
-      console.error("wake_agent.allocate", updateErr);
-      return errorResponse("Failed to allocate session channel", 500);
-    }
-    if (!updated || updated.length === 0) {
-      // Either the task lock isn't held by this task, or the row vanished.
-      return errorResponse("lock_not_held", 409);
-    }
-
+    // No DB-side channel allocation needed: byoa_bus_authorize verifies the
+    // caller's BYOA token against the ship's byoa_owner_character_id directly,
+    // not against a stored channel binding. The channel is passed straight to
+    // the spawn dispatcher.
     const spawn = taskId !== null
       ? await dispatchSpawn(shipId, channel, taskId, requestId)
       : {

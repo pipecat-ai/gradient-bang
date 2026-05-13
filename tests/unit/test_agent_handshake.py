@@ -109,14 +109,11 @@ class TestIdleTeardownTimer:
         agent = _make_task_agent(is_corp_ship=True)
         # Long delay so the timer doesn't actually fire during the test.
         agent._byoa_config = type(agent._byoa_config)(
-            heartbeat_interval_seconds=60,
             max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
             task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=30.0,
             agent_idle_teardown_seconds=3600.0,
-            server_lock_stale_seconds_expected=180,
-            server_lock_hard_ttl_minutes_expected=30,
         )
         agent._arm_idle_teardown()
         assert agent._idle_teardown_handle is not None
@@ -134,14 +131,11 @@ class TestIdleTeardownTimer:
         agent = _make_task_agent(is_corp_ship=True)
         # Very short delay so the timer fires inside the test window.
         agent._byoa_config = type(agent._byoa_config)(
-            heartbeat_interval_seconds=60,
             max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
             task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=30.0,
             agent_idle_teardown_seconds=0.01,
-            server_lock_stale_seconds_expected=180,
-            server_lock_hard_ttl_minutes_expected=30,
         )
         agent._arm_idle_teardown()
         # Let the loop fire the call_later and run the created task.
@@ -156,14 +150,11 @@ class TestIdleTeardownTimer:
     async def test_teardown_reset_when_active_task_arrives(self):
         agent = _make_task_agent(is_corp_ship=True)
         agent._byoa_config = type(agent._byoa_config)(
-            heartbeat_interval_seconds=60,
             max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
             task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=30.0,
             agent_idle_teardown_seconds=3600.0,
-            server_lock_stale_seconds_expected=180,
-            server_lock_hard_ttl_minutes_expected=30,
         )
         agent._arm_idle_teardown()
         assert agent._idle_teardown_handle is not None
@@ -182,7 +173,6 @@ def _make_voice_agent() -> VoiceAgent:
     mock_game_client.set_event_polling_scope = MagicMock()
     mock_game_client.task_lifecycle = AsyncMock(return_value={"success": True})
     mock_game_client.task_cancel = AsyncMock(return_value={"success": True})
-    mock_game_client.task_heartbeat = AsyncMock(return_value={"refreshed": 0})
 
     mock_rtvi = MagicMock()
     mock_rtvi.push_frame = AsyncMock()
@@ -218,14 +208,11 @@ class TestVoiceAgentHelloSender:
         agent.send_message.side_effect = _capture_and_respond
         # Tight timeout so we fail fast if the wiring is broken.
         agent._byoa_config = type(agent._byoa_config)(
-            heartbeat_interval_seconds=60,
             max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
             task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=2.0,
             agent_idle_teardown_seconds=300.0,
-            server_lock_stale_seconds_expected=180,
-            server_lock_hard_ttl_minutes_expected=30,
         )
 
         response = await agent._send_hello_and_wait("task_target")
@@ -237,14 +224,11 @@ class TestVoiceAgentHelloSender:
         agent = _make_voice_agent()
         agent.send_message = AsyncMock()  # never resolves the future
         agent._byoa_config = type(agent._byoa_config)(
-            heartbeat_interval_seconds=60,
             max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
             task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=0.05,
             agent_idle_teardown_seconds=300.0,
-            server_lock_stale_seconds_expected=180,
-            server_lock_hard_ttl_minutes_expected=30,
         )
 
         with pytest.raises(asyncio.TimeoutError):
@@ -268,14 +252,11 @@ class TestVoiceAgentHelloSender:
 
         agent.send_message.side_effect = _capture_and_respond
         agent._byoa_config = type(agent._byoa_config)(
-            heartbeat_interval_seconds=60,
             max_concurrent_tasks=4,
             tool_call_timeout_seconds=30.0,
             task_request_timeout_seconds=600.0,
             agent_wake_timeout_seconds=2.0,
             agent_idle_teardown_seconds=300.0,
-            server_lock_stale_seconds_expected=180,
-            server_lock_hard_ttl_minutes_expected=30,
         )
 
         with pytest.raises(RuntimeError, match="cold start failed"):

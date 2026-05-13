@@ -12,8 +12,9 @@
  *   - Self-only claim: a member can only claim BYOA for themselves
  *   - clear is allowed by the current owner; non-owners cannot clear
  *     (a future stale-owner recovery path may relax this)
- *   - Refuses to claim/clear while current_task_id IS NOT NULL —
- *     can't yank BYOA state out from under a running task
+ *   - Refuses to claim/clear while the ship appears to have an active task
+ *     (derived from recent task.start events without a matching task.finish/
+ *     task.cancel). Best-effort UX guard, not an atomic mutex.
  *   - Only corporation-owned ships can have BYOA configured
  */
 
@@ -38,6 +39,7 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
+import { fetchActiveTaskIdsByShip } from "../_shared/tasks.ts";
 import { traced } from "../_shared/weave.ts";
 
 type ByoaAction = "claim" | "clear";
@@ -115,7 +117,7 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     const { data: shipRow, error: shipErr } = await supabase
       .from("ship_instances")
       .select(
-        "ship_id, ship_name, owner_type, owner_corporation_id, byoa_owner_character_id, byoa_mode, current_task_id",
+        "ship_id, ship_name, owner_type, owner_corporation_id, byoa_owner_character_id, byoa_mode",
       )
       .eq("ship_id", shipId)
       .maybeSingle();
@@ -157,15 +159,19 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       );
     }
 
-    // Locked-task guard — no BYOA changes while a task is in flight on this
-    // ship. Toggling ownership mid-task would create ambiguity about who's
-    // running the active task.
-    if (shipRow.current_task_id !== null) {
+    // Best-effort active-task guard — no BYOA changes while a task appears
+    // to be in flight on this ship. Toggling ownership mid-task would create
+    // ambiguity about who's running the active task. Inferred from recent
+    // task.start events without a matching task.finish/task.cancel; not an
+    // atomic mutex.
+    const activeTasks = await fetchActiveTaskIdsByShip(supabase, [shipId]);
+    const activeTaskId = activeTasks.get(shipId) ?? null;
+    if (activeTaskId !== null) {
       return new Response(
         JSON.stringify({
           error: "ship_busy",
           ship_id: shipId,
-          current_task_id: shipRow.current_task_id,
+          current_task_id: activeTaskId,
         }),
         { status: 409, headers: { "Content-Type": "application/json" } },
       );
@@ -225,7 +231,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
         .eq("ship_id", shipId)
         .eq("owner_type", "corporation")
         .eq("owner_corporation_id", corpId)
-        .is("current_task_id", null)
         .eq("byoa_mode", currentMode);
 
       const { data: updatedRow, error: updateErr } = currentOwner
@@ -243,25 +248,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
         return errorResponse("Failed to update BYOA configuration", 500);
       }
       if (!updatedRow) {
-        const { data: latestRow, error: latestErr } = await supabase
-          .from("ship_instances")
-          .select("current_task_id")
-          .eq("ship_id", shipId)
-          .maybeSingle();
-        if (latestErr) {
-          console.error("ship_byoa_configure.conflict_lookup", latestErr);
-          return errorResponse("Failed to update BYOA configuration", 500);
-        }
-        if (latestRow?.current_task_id) {
-          return new Response(
-            JSON.stringify({
-              error: "ship_busy",
-              ship_id: shipId,
-              current_task_id: latestRow.current_task_id,
-            }),
-            { status: 409, headers: { "Content-Type": "application/json" } },
-          );
-        }
         return errorResponse("BYOA configuration changed; retry", 409);
       }
     }

@@ -1,13 +1,14 @@
 /**
  * BYOA access control + ship_byoa_configure tests.
  *
- * Covers the access checks added in PR 2:
- *   - task_lifecycle blocks non-owners from starting a task on a
+ * Covers the BYOA-owner enforcement and configure rules. The DB-persistent
+ * ship-task lock was removed; "task in progress" is now derived from
+ * task.start/task.finish/task.cancel events in the events table.
+ *
+ *   - task_lifecycle blocks non-owners from starting/finishing a task on a
  *     BYOA corp ship (403 byoa_private_not_owner).
- *   - task_lifecycle blocks non-owners from finishing a task on a
- *     BYOA corp ship, preventing lock-release bypasses.
- *   - task_cancel blocks non-owners from cancelling a BYOA task,
- *     but force=true is still allowed for corp members.
+ *   - task_cancel blocks non-owners from cancelling a BYOA task;
+ *     force=true is still allowed for corp members.
  *   - ship_byoa_configure claim/clear happy paths and rejections.
  *
  * Setup:
@@ -70,12 +71,40 @@ async function readShipByoa(
 ): Promise<Record<string, unknown> | null> {
   return await withPg(async (pg) => {
     const result = await pg.queryObject<Record<string, unknown>>(
-      `SELECT byoa_owner_character_id, byoa_mode, current_task_id
+      `SELECT byoa_owner_character_id, byoa_mode
          FROM ship_instances
         WHERE ship_id = $1`,
       [shipId],
     );
     return result.rows[0] ?? null;
+  });
+}
+
+/**
+ * Server's events-derived view of "which task is currently running on this
+ * ship", matching the logic in functions/_shared/tasks.ts: latest task.start
+ * for the ship within the active-task window, minus any task with a
+ * matching task.finish/task.cancel.
+ */
+async function activeTaskIdForShip(shipId: string): Promise<string | null> {
+  return await withPg(async (pg) => {
+    const result = await pg.queryObject<{ task_id: string | null }>(
+      `SELECT s.task_id
+         FROM events s
+        WHERE s.event_type = 'task.start'
+          AND s.ship_id = $1
+          AND s.inserted_at > NOW() - INTERVAL '60 minutes'
+          AND NOT EXISTS (
+            SELECT 1 FROM events f
+            WHERE f.task_id = s.task_id
+              AND f.event_type IN ('task.finish', 'task.cancel')
+              AND f.inserted_at >= s.inserted_at
+          )
+        ORDER BY s.inserted_at DESC
+        LIMIT 1`,
+      [shipId],
+    );
+    return result.rows[0]?.task_id ?? null;
   });
 }
 
@@ -150,9 +179,8 @@ Deno.test({
           p1Id.replace(/-/g, "").slice(0, 12),
         );
 
-        const row = await readShipByoa(corpShipId);
-        // Lock was NOT acquired — fast-fail before the acquire RPC.
-        assertEquals(row?.current_task_id, null);
+        // Non-owner was blocked before any task.start was emitted.
+        assertEquals(await activeTaskIdForShip(corpShipId), null);
       },
     );
 
@@ -165,10 +193,9 @@ Deno.test({
         event_type: "start",
         task_description: "owner task",
       });
-      const row = await readShipByoa(corpShipId);
-      assertEquals(row?.current_task_id, taskId);
+      assertEquals(await activeTaskIdForShip(corpShipId), taskId);
 
-      // Cleanup so subsequent tests don't see this lock.
+      // Cleanup so subsequent tests don't see this task as active.
       await apiOk("task_lifecycle", {
         character_id: corpShipId,
         actor_character_id: p1Id,
@@ -228,18 +255,17 @@ Deno.test({
         "byoa_private_not_owner",
       );
 
-      const row = await readShipByoa(corpShipId);
-      // Lock still held — cancel was rejected.
-      assertEquals(row?.current_task_id, taskId);
+      // No cancel event was emitted — task still appears active.
+      assertEquals(await activeTaskIdForShip(corpShipId), taskId);
     });
 
-    await t.step("P2 task.finish → 403; lock still held", async () => {
+    await t.step("P2 task.finish → 403; task still appears active", async () => {
       const result = await api("task_lifecycle", {
         character_id: corpShipId,
         actor_character_id: p2Id,
         task_id: taskId,
         event_type: "finish",
-        task_summary: "should not release BYOA task",
+        task_summary: "should not finish BYOA task",
       });
       assertEquals(result.status, 403);
       assertEquals(
@@ -247,20 +273,21 @@ Deno.test({
         "byoa_private_not_owner",
       );
 
-      const row = await readShipByoa(corpShipId);
-      assertEquals(row?.current_task_id, taskId);
+      assertEquals(await activeTaskIdForShip(corpShipId), taskId);
     });
 
-    await t.step("P2 force=true succeeds; lock released", async () => {
-      const result = await api("task_cancel", {
-        character_id: p2Id,
-        task_id: taskId,
-        force: true,
-      });
-      assertEquals(result.status, 200);
-      const row = await readShipByoa(corpShipId);
-      assertEquals(row?.current_task_id, null);
-    });
+    await t.step(
+      "P2 force=true succeeds; cancel event emitted, task no longer active",
+      async () => {
+        const result = await api("task_cancel", {
+          character_id: p2Id,
+          task_id: taskId,
+          force: true,
+        });
+        assertEquals(result.status, 200);
+        assertEquals(await activeTaskIdForShip(corpShipId), null);
+      },
+    );
   },
 });
 

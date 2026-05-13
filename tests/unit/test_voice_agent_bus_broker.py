@@ -38,7 +38,6 @@ def _make_voice_agent() -> VoiceAgent:
     mock_game_client.set_event_polling_scope = MagicMock()
     mock_game_client.task_lifecycle = AsyncMock(return_value={"success": True})
     mock_game_client.task_cancel = AsyncMock(return_value={"success": True})
-    mock_game_client.task_heartbeat = AsyncMock(return_value={"refreshed": 0})
 
     mock_rtvi = MagicMock()
     mock_rtvi.push_frame = AsyncMock()
@@ -284,7 +283,7 @@ class TestGameToolCallBroker:
         # getattr(..., None) fallback then trips correctly. _game_client
         # is a read-only property — assign the name-mangled private.
         spec_client = MagicMock(
-            spec=["task_lifecycle", "task_cancel", "task_heartbeat", "current_task_id"]
+            spec=["task_lifecycle", "task_cancel", "current_task_id"]
         )
         spec_client.current_task_id = None
         agent._VoiceAgent__game_client = spec_client

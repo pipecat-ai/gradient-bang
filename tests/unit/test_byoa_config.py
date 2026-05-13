@@ -1,4 +1,4 @@
-"""Tests for ByoaAgentConfig — env parsing, defaults, validation."""
+"""Tests for ByoaAgentConfig — env parsing and defaults."""
 
 import pytest
 
@@ -9,13 +9,9 @@ from gradientbang.byoa import ByoaAgentConfig
 class TestDefaults:
     def test_defaults_safe_for_bundled_agent(self):
         cfg = ByoaAgentConfig()
-        # Heartbeat must be strictly less than server stale window / 2 so
-        # one missed beat doesn't make the lock steal-eligible.
-        assert (
-            cfg.heartbeat_interval_seconds
-            < cfg.server_lock_stale_seconds_expected / 2.0
-        )
         assert cfg.max_concurrent_tasks > 0
+        assert cfg.tool_call_timeout_seconds > 0
+        assert cfg.task_request_timeout_seconds > 0
 
 
 @pytest.mark.unit
@@ -26,28 +22,24 @@ class TestFromEnv:
 
     def test_env_overrides_apply(self):
         env = {
-            "BYOA_HEARTBEAT_INTERVAL_SECONDS": "45",
             "BYOA_MAX_CONCURRENT_TASKS": "8",
             "BYOA_TOOL_CALL_TIMEOUT_SECONDS": "12.5",
-            "BYOA_SERVER_LOCK_STALE_SECONDS": "200",
         }
         cfg = ByoaAgentConfig.from_env(env=env)
-        assert cfg.heartbeat_interval_seconds == 45
         assert cfg.max_concurrent_tasks == 8
         assert cfg.tool_call_timeout_seconds == 12.5
-        assert cfg.server_lock_stale_seconds_expected == 200
         # Untouched fields keep defaults.
         assert cfg.task_request_timeout_seconds == 600.0
 
     def test_empty_string_env_falls_back_to_default(self):
-        env = {"BYOA_HEARTBEAT_INTERVAL_SECONDS": ""}
+        env = {"BYOA_MAX_CONCURRENT_TASKS": ""}
         cfg = ByoaAgentConfig.from_env(env=env)
-        assert cfg.heartbeat_interval_seconds == 60
+        assert cfg.max_concurrent_tasks == 4
 
     def test_custom_prefix(self):
-        env = {"OPS_HEARTBEAT_INTERVAL_SECONDS": "90"}
+        env = {"OPS_MAX_CONCURRENT_TASKS": "12"}
         cfg = ByoaAgentConfig.from_env(env=env, prefix="OPS_")
-        assert cfg.heartbeat_interval_seconds == 90
+        assert cfg.max_concurrent_tasks == 12
 
     def test_lifecycle_fields_defaults(self):
         """agent_wake_timeout_seconds and agent_idle_teardown_seconds
@@ -67,30 +59,3 @@ class TestFromEnv:
         cfg = ByoaAgentConfig.from_env(env=env)
         assert cfg.agent_wake_timeout_seconds == 45.5
         assert cfg.agent_idle_teardown_seconds == 120.0
-
-
-@pytest.mark.unit
-class TestHeartbeatValidation:
-    def test_safe_cadence_returns_none(self):
-        cfg = ByoaAgentConfig(
-            heartbeat_interval_seconds=60,
-            server_lock_stale_seconds_expected=180,
-        )
-        assert cfg.validate_heartbeat_against_server() is None
-
-    def test_too_slow_returns_warning(self):
-        cfg = ByoaAgentConfig(
-            heartbeat_interval_seconds=120,
-            server_lock_stale_seconds_expected=180,
-        )
-        warning = cfg.validate_heartbeat_against_server()
-        assert warning is not None
-        assert "missed beat" in warning
-
-    def test_exact_half_window_warns(self):
-        # Edge: heartbeat == window/2 leaves no margin for a missed beat.
-        cfg = ByoaAgentConfig(
-            heartbeat_interval_seconds=90,
-            server_lock_stale_seconds_expected=180,
-        )
-        assert cfg.validate_heartbeat_against_server() is not None

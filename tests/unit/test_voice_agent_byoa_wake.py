@@ -41,7 +41,6 @@ def _make_voice_agent(**overrides) -> VoiceAgent:
     mock_game_client.set_event_polling_scope = MagicMock()
     mock_game_client.task_lifecycle = AsyncMock(return_value={"success": True})
     mock_game_client.task_cancel = AsyncMock(return_value={"success": True})
-    mock_game_client.task_heartbeat = AsyncMock(return_value={"refreshed": 0})
     mock_game_client.wake_agent = AsyncMock(
         return_value={"spawn_target": "http", "spawn_status": "accepted"}
     )

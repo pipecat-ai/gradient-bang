@@ -150,9 +150,6 @@ class VoiceAgent(LLMAgent):
         self._rtvi = rtvi_processor
         self._event_relay = event_relay
         self._byoa_config = byoa_config or ByoaAgentConfig.from_env()
-        warning = self._byoa_config.validate_heartbeat_against_server()
-        if warning:
-            logger.warning(f"byoa_config: {warning}")
 
         # ── Task timeout ──
         _timeout = float(os.getenv("TASK_AGENT_TIMEOUT", 0))
@@ -187,14 +184,13 @@ class VoiceAgent(LLMAgent):
         self._start_task_lock: asyncio.Lock = asyncio.Lock()
         # Maps ship/character_id of the held lock → framework_task_id. The
         # server-side mutex on ship_instances.current_task_id is authoritative
-        # for cross-process contention; this map exists so we can heartbeat
-        # the right (ship_id, task_id) pair and release server-side on
-        # disconnect without re-querying.
+        # Per-bot in-memory authority on "ship is busy". Each entry maps
+        # ship_character_id → framework_task_id for the active task on that
+        # ship. The bot is the only authority; there is no DB-side persistent
+        # lock. Entries are cleared on task finish/error/timeout, on BYOA
+        # presence timeout (see _byoa_presence_sweep_loop), and on session
+        # teardown (close_tasks).
         self._locked_ships: Dict[str, str] = {}
-        # Background asyncio task that periodically posts task_heartbeat for
-        # every (ship_id, task_id) pair in _locked_ships. Lazily started on
-        # the first acquire; exits when the map drains.
-        self._heartbeat_task: Optional[asyncio.Task] = None
         # PendingRequests tracks outbound BusAgentHelloRequest correlation_ids;
         # the broker's hello-response handler resolves the awaiting future
         # when the targeted agent signals alive.
@@ -2320,6 +2316,45 @@ class VoiceAgent(LLMAgent):
                     status="offline",
                     last_seen_at=presence.last_seen_at,
                 )
+                # If this BYOA was running a task, the bot is the only
+                # authority on its lock. Release it locally and emit a
+                # task.cancel event so downstream consumers (event log, UI)
+                # see the task ended. The zombie BYOA (if still alive) won't
+                # affect this bot's state — any belated bus messages tagged
+                # with the cancelled task_id are filtered out by TaskAgent.
+                await self._release_lock_on_byoa_offline(ship_id)
+
+    async def _release_lock_on_byoa_offline(self, ship_character_id: str) -> None:
+        framework_task_id = self._locked_ships.pop(ship_character_id, None)
+        if not framework_task_id:
+            return
+        logger.warning(
+            f"byoa.presence_stale ship={ship_character_id[:8]} "
+            f"task={framework_task_id[:8]} releasing lock locally"
+        )
+        try:
+            await self._game_client.task_cancel(
+                task_id=framework_task_id,
+                character_id=self._character_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"byoa.presence_stale task_cancel emit failed for "
+                f"ship={ship_character_id[:8]} task={framework_task_id[:8]}: {exc}"
+            )
+        try:
+            await self.send_message(
+                BusEndAgentMessage(
+                    source=self.name,
+                    target=self.byoa_agent_name(ship_character_id),
+                    reason="byoa_offline",
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                f"byoa.presence_stale end_agent failed for "
+                f"ship={ship_character_id[:8]}: {exc}"
+            )
 
     def _has_fresh_byoa_presence(self, ship_id: str) -> bool:
         presence = self._byoa_presence.get(ship_id)
@@ -2735,7 +2770,6 @@ class VoiceAgent(LLMAgent):
                         if server_err:
                             return server_err
                         self._locked_ships[target_character_id] = framework_task_id
-                        self._ensure_heartbeat_task_running()
                         # Universal hello handshake before dispatching to
                         # the reused idle TaskAgent. For an in-process child
                         # this returns ~immediately; for a future remote
@@ -2870,7 +2904,6 @@ class VoiceAgent(LLMAgent):
                     # dispatches as usual when the operator's agent advertises.
                     self._pending_tasks[byoa_agent_name] = (framework_task_id, payload)
                     self._locked_ships[target_character_id] = framework_task_id
-                    self._ensure_heartbeat_task_running()
                     if byoa_has_fresh_presence:
                         logger.info(
                             f"byoa.wake_agent.skipped ship={target_character_id[:8]} "
@@ -2970,11 +3003,10 @@ class VoiceAgent(LLMAgent):
                 # Lock ship BEFORE add_agent — if add_agent partially fails
                 # (child in _children but pipeline not started), the ship stays
                 # locked so no second agent can be added for it. The
-                # server-side lock is already held; the local map and the
-                # heartbeat task are the only things still to wire up.
+                # task.start event already emitted; the local _locked_ships
+                # entry is the only thing still to wire up.
                 self._pending_tasks[agent_name] = (framework_task_id, payload)
                 self._locked_ships[target_character_id] = framework_task_id
-                self._ensure_heartbeat_task_running()
                 try:
                     await self.add_agent(task_agent)
                     # pipecat-subagents 0.4 requires explicit watch_agent for
@@ -3170,28 +3202,25 @@ class VoiceAgent(LLMAgent):
     async def close_tasks(self) -> None:
         """Cancel all active tasks and end all task agent pipelines.
 
-        Order is load-bearing: stop the heartbeat task FIRST (don't refresh
-        locks we're about to release), then release the server-side lock
-        for each held pair, then cancel framework tasks, then end pipelines,
-        then clear local state.
+        Order is load-bearing: stop background sweepers + wake watchdogs
+        first, emit task.cancel events for each held lock, then cancel
+        framework tasks, then end pipelines, then clear local state.
         """
-        # 1. Stop the heartbeat task so it can't reach the server with a
-        # refresh after we've started releasing locks.
-        await self._stop_heartbeat_task()
+        # 1. Stop background sweepers so they can't fire during teardown.
         if self._byoa_presence_sweep_task and not self._byoa_presence_sweep_task.done():
             self._byoa_presence_sweep_task.cancel()
         self._byoa_presence_sweep_task = None
 
-        # 1a. Cancel any BYOA wake watchdogs so they don't fire mid-shutdown
-        # and double-release a lock we're about to drop in step 2.
+        # 1a. Cancel any BYOA wake watchdogs so they don't fire mid-shutdown.
         for watchdog in list(self._pending_wakes.values()):
             if not watchdog.done():
                 watchdog.cancel()
         self._pending_wakes.clear()
 
-        # 2. Server-side release for each held lock. TaskAgent will also
-        # emit task_lifecycle(finish) on cancel — that's idempotent against
-        # the pair-matched release here; whichever lands first wins.
+        # 2. Emit task.cancel event for each held lock so downstream
+        # consumers (event log, UI history) see the task ended. The bot is
+        # the only authority on the in-memory lock; clearing _locked_ships
+        # in step 5 is what actually releases the ship.
         for ship_character_id, framework_task_id in list(self._locked_ships.items()):
             try:
                 await self._game_client.task_cancel(
@@ -3200,7 +3229,7 @@ class VoiceAgent(LLMAgent):
                 )
             except Exception as exc:
                 logger.warning(
-                    f"close_tasks: server release failed for ship "
+                    f"close_tasks: task_cancel emit failed for ship "
                     f"{ship_character_id[:8]} task {framework_task_id[:8]}: {exc}"
                 )
 
@@ -3226,7 +3255,7 @@ class VoiceAgent(LLMAgent):
         self._children = [c for c in self._children if not isinstance(c, TaskAgent)]
         self._locked_ships.clear()
 
-    # ── Server-side ship-task lock helpers ─────────────────────────────
+    # ── task.start emit ────────────────────────────────────────────────
 
     async def _acquire_server_ship_lock(
         self,
@@ -3237,14 +3266,19 @@ class VoiceAgent(LLMAgent):
         task_metadata: Dict[str, Any],
         task_status: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Call task_lifecycle(start) server-side; translate 409/403 into a
+        """Emit task.start via task_lifecycle; translate BYOA 403 into a
         user-facing error dict.
+
+        Note: despite the name, this no longer acquires a server-side lock
+        (there isn't one — the bot's in-memory ``_locked_ships`` is the
+        authority). It emits the task.start event so the events stream and
+        downstream consumers see the lifecycle transition, and surfaces
+        BYOA-owner errors cleanly to the caller.
 
         Returns:
             ``None`` on success, or a ``{"success": False, "error": ...}``
-            dict ready to surface to the LLM on 409 ship_busy / 403
-            BYOA-owner failure. Other RPC failures re-raise so the outer
-            handler can log + format them.
+            dict ready to surface to the LLM on a 403 BYOA-owner failure.
+            Other RPC failures re-raise so the outer handler can log them.
         """
         try:
             await self._game_client.task_lifecycle(
@@ -3259,18 +3293,6 @@ class VoiceAgent(LLMAgent):
         except RPCError as err:
             body = err.body if isinstance(err.body, dict) else {}
             err_code = body.get("error") if isinstance(body, dict) else None
-            if err.status == 409 and err_code == "ship_busy":
-                actor_prefix = body.get("task_actor_character_id_prefix")
-                actor_desc = (
-                    f"another character ({actor_prefix})" if actor_prefix else "another character"
-                )
-                return {
-                    "success": False,
-                    "error": (
-                        f"Ship is busy: {actor_desc} is already running a task. "
-                        "Stop that task first or wait for it to finish."
-                    ),
-                }
             if err.status == 403 and err_code == "byoa_private_not_owner":
                 owner_prefix = body.get("byoa_owner_character_id_prefix")
                 owner_desc = f"member {owner_prefix}" if owner_prefix else "another corp member"
@@ -3478,54 +3500,6 @@ class VoiceAgent(LLMAgent):
             ship_id=target_character_id,
         )
 
-    def _ensure_heartbeat_task_running(self) -> None:
-        """Lazily start the heartbeat loop if it isn't already running."""
-        if self._heartbeat_task is None or self._heartbeat_task.done():
-            self._heartbeat_task = asyncio.create_task(
-                self._heartbeat_loop(), name="voice_agent_heartbeat"
-            )
-
-    async def _stop_heartbeat_task(self) -> None:
-        task = self._heartbeat_task
-        if task is None:
-            return
-        self._heartbeat_task = None
-        if task.done():
-            return
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):
-            # CancelledError is expected; other exceptions are logged inside
-            # the loop and don't need to propagate out of cleanup.
-            pass
-
-    async def _heartbeat_loop(self) -> None:
-        """Periodically refresh held ship-task locks server-side.
-
-        Runs while ``_locked_ships`` is non-empty; exits when it drains.
-        Errors are warning-logged and don't terminate the loop — transient
-        network issues are expected and the next tick can recover.
-        """
-        interval = float(self._byoa_config.heartbeat_interval_seconds)
-        try:
-            while True:
-                await asyncio.sleep(interval)
-                if not self._locked_ships:
-                    return
-                locks = [
-                    {"ship_id": ship_id, "task_id": task_id}
-                    for ship_id, task_id in self._locked_ships.items()
-                ]
-                try:
-                    await self._game_client.task_heartbeat(
-                        locks=locks,
-                        character_id=self._character_id,
-                    )
-                except Exception as exc:
-                    logger.warning(f"task_heartbeat failed ({len(locks)} locks): {exc}")
-        except asyncio.CancelledError:
-            raise
 
     # ── Task management tool wrappers ─────────────────────────────────
 

@@ -257,6 +257,7 @@ class TaskAgent(LLMAgent):
         tag_outbound_rpcs_with_task_id: bool = True,
         byoa_config: Optional[ByoaAgentConfig] = None,
         custom_prompt: Optional[str] = None,
+        llm_override: Optional[Any] = None,
     ):
         super().__init__(name, bus=bus, active=False)
         self._character_id = character_id
@@ -270,6 +271,13 @@ class TaskAgent(LLMAgent):
         # TaskAgent construction always leaves this as None, so non-BYOA
         # paths are bit-for-bit identical.
         self._custom_prompt: Optional[str] = custom_prompt
+        # BYOA harness hook: pre-built pipecat LLMService instance. When
+        # provided, build_llm() returns it instead of constructing one from
+        # the env-driven factory. Lets a Mode-B operator return any
+        # pipecat-supported service (or a custom subclass) from @app.llm.
+        # None preserves the env-driven default path for in-process and
+        # Mode-A BYOA agents — non-BYOA paths are bit-for-bit identical.
+        self._llm_override = llm_override
         # Every game RPC goes over the bus. PendingRequests tracks outbound
         # correlation_ids until their matching responses land.
         self._pending: PendingRequests = PendingRequests()
@@ -336,6 +344,8 @@ class TaskAgent(LLMAgent):
     # ── LLM setup ─────────────────────────────────────────────────────
 
     def build_llm(self):
+        if self._llm_override is not None:
+            return self._llm_override
         config = get_task_agent_llm_config()
         return create_llm_service(config)
 
@@ -429,11 +439,11 @@ class TaskAgent(LLMAgent):
 
         logger.info(f"TaskAgent '{self.name}': received task {task_id[:8]}")
 
-        # task.start was already emitted server-side by VoiceAgent as part of
-        # the pre-spawn acquire (see VoiceAgent._acquire_server_ship_lock).
-        # Per-call task_id tagging on the broker's game client happens inside
-        # the broker handler, so TaskAgent no longer mutates a client's
-        # current_task_id directly.
+        # task.start was already emitted server-side by VoiceAgent
+        # (see VoiceAgent._acquire_server_ship_lock — name retained for
+        # historical reasons; it only emits the event now). Per-call
+        # task_id tagging on the broker's game client happens inside the
+        # broker handler, so TaskAgent does not mutate client state here.
 
         # Build initial context
         messages = [

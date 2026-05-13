@@ -21,7 +21,6 @@ def _make_voice_agent(**overrides):
     # these attrs after constructing the agent.
     mock_game_client.task_lifecycle = AsyncMock(return_value={"success": True})
     mock_game_client.task_cancel = AsyncMock(return_value={"success": True})
-    mock_game_client.task_heartbeat = AsyncMock(return_value={"refreshed": 0})
 
     mock_rtvi = MagicMock()
     mock_rtvi.push_frame = AsyncMock()
@@ -1671,40 +1670,6 @@ class TestServerSideShipLock:
         assert agent._locked_ships.get(agent._character_id) == result["task_id"]
 
     @pytest.mark.asyncio
-    async def test_start_task_returns_ship_busy_on_409(self):
-        """A 409 ship_busy from task_lifecycle surfaces a structured error
-        without ever creating a TaskAgent child."""
-        from gradientbang.utils.api_client import RPCError
-
-        agent = _make_voice_agent()
-        agent._task_groups = {}
-        agent._children = []
-        agent._inject_context = AsyncMock()
-        agent.add_agent = AsyncMock()
-
-        body = {
-            "error": "ship_busy",
-            "ship_id": "abc",
-            "current_task_id": "other-task",
-            "task_actor_character_id_prefix": "abcdef012345",
-            "task_started_at": "2026-05-11T00:00:00Z",
-        }
-        agent._game_client.task_lifecycle = AsyncMock(
-            side_effect=RPCError("task_lifecycle", 409, "ship_busy", body=body)
-        )
-
-        params = MagicMock()
-        params.arguments = {"task_description": "Mine"}
-        result = await agent._handle_start_task(params)
-
-        assert result["success"] is False
-        assert "Ship is busy" in result["error"]
-        assert "abcdef012345" in result["error"]
-        agent.add_agent.assert_not_called()
-        # Local map stays empty — no lock to track on a rejected acquire.
-        assert agent._locked_ships == {}
-
-    @pytest.mark.asyncio
     async def test_start_task_returns_byoa_private_on_403(self):
         from gradientbang.utils.api_client import RPCError
 
@@ -1779,70 +1744,6 @@ class TestServerSideShipLock:
         assert agent._locked_ships == {}
 
     @pytest.mark.asyncio
-    async def test_close_tasks_cancels_heartbeat_before_release(self):
-        """Heartbeat task must be cancelled before the release loop runs."""
-        agent = _make_voice_agent()
-        agent._task_groups = {}
-        agent._children = []
-        agent.send_message = AsyncMock()
-        agent.cancel_task = AsyncMock()
-        agent._locked_ships = {"ship-1": "task-1"}
-
-        order: list[str] = []
-
-        async def hb_loop():
-            try:
-                await asyncio.sleep(60)
-            except asyncio.CancelledError:
-                order.append("heartbeat_cancelled")
-                raise
-
-        async def task_cancel_mock(**_kwargs):
-            order.append("server_release")
-            return {"success": True}
-
-        agent._heartbeat_task = asyncio.create_task(hb_loop())
-        agent._game_client.task_cancel = AsyncMock(side_effect=task_cancel_mock)
-
-        # Let the heartbeat task start.
-        await asyncio.sleep(0)
-
-        await agent.close_tasks()
-
-        assert order[0] == "heartbeat_cancelled"
-        assert order[1] == "server_release"
-        assert agent._heartbeat_task is None
-
-    @pytest.mark.asyncio
-    async def test_heartbeat_task_started_on_first_acquire(self):
-        """The heartbeat background task is lazily created on first acquire."""
-        agent = _make_voice_agent()
-        agent._task_groups = {}
-        agent._children = []
-        agent._inject_context = AsyncMock()
-
-        async def add_agent(task_agent):
-            await asyncio.sleep(0)
-            agent._children.append(task_agent)
-
-        agent.add_agent = AsyncMock(side_effect=add_agent)
-
-        assert agent._heartbeat_task is None
-
-        params = MagicMock()
-        params.arguments = {"task_description": "Mine"}
-        result = await agent._handle_start_task(params)
-        assert result["success"]
-
-        assert agent._heartbeat_task is not None
-        # Clean up so the test doesn't leak the task.
-        agent._heartbeat_task.cancel()
-        try:
-            await agent._heartbeat_task
-        except asyncio.CancelledError:
-            pass
-
-    @pytest.mark.asyncio
     async def test_idle_player_agent_reuse_acquires_before_dispatch(self):
         """Reusing the idle player agent must hold the server lock before work starts."""
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
@@ -1881,34 +1782,3 @@ class TestServerSideShipLock:
         assert agent._locked_ships[agent._character_id] == result["task_id"]
         agent.request_task.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_heartbeat_loop_posts_held_locks(self):
-        """The heartbeat loop posts the current (ship_id, task_id) pairs."""
-        agent = _make_voice_agent()
-        agent._byoa_config = type(agent._byoa_config)(
-            heartbeat_interval_seconds=0,  # fire on every loop iteration
-            max_concurrent_tasks=agent._byoa_config.max_concurrent_tasks,
-            tool_call_timeout_seconds=agent._byoa_config.tool_call_timeout_seconds,
-            task_request_timeout_seconds=agent._byoa_config.task_request_timeout_seconds,
-            server_lock_stale_seconds_expected=agent._byoa_config.server_lock_stale_seconds_expected,
-            server_lock_hard_ttl_minutes_expected=agent._byoa_config.server_lock_hard_ttl_minutes_expected,
-        )
-
-        agent._locked_ships = {"ship-1": "task-1", "ship-2": "task-2"}
-        hb_calls: list[list[dict]] = []
-
-        async def heartbeat_mock(*, locks, **_kwargs):
-            hb_calls.append(locks)
-            # Drain the map after the first call so the loop exits.
-            agent._locked_ships.clear()
-            return {"refreshed": len(locks)}
-
-        agent._game_client.task_heartbeat = AsyncMock(side_effect=heartbeat_mock)
-
-        agent._ensure_heartbeat_task_running()
-        await agent._heartbeat_task  # runs until _locked_ships empties
-
-        assert len(hb_calls) == 1
-        locks = hb_calls[0]
-        pairs = {(lock["ship_id"], lock["task_id"]) for lock in locks}
-        assert pairs == {("ship-1", "task-1"), ("ship-2", "task-2")}

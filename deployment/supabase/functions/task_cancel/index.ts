@@ -111,7 +111,7 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const { data: shipData, error: shipError } = await supabase
       .from("ship_instances")
       .select(
-        "owner_type, owner_corporation_id, current_task_id, byoa_owner_character_id",
+        "owner_type, owner_corporation_id, byoa_owner_character_id",
       )
       .eq("ship_id", taskOwnerCharacterId)
       .maybeSingle();
@@ -146,8 +146,8 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     );
 
     // BYOA restricts cancel to the owner (or task actor) in normal mode.
-    // force=true is the explicit escape hatch — any corp member can still
-    // yank a stuck lock on a BYOA ship (Layer 4 stale recovery).
+    // force=true lets any corp member override the BYOA-owner-only check so
+    // a corpmate can emit a cancel event even when the owner is unreachable.
     const byoaOwnerId = typeof shipData?.byoa_owner_character_id === "string"
       ? (shipData.byoa_owner_character_id as string)
       : null;
@@ -161,8 +161,8 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     // - Any corp member can cancel corp ship tasks (normal mode), UNLESS
     //   the ship is BYOA — then only the BYOA owner (or task actor) may cancel
     // - force=true: requester must be a corp member of a corp ship; bypasses
-    //   the owner/actor and BYOA checks entirely so a corpmate can
-    //   yank a stuck lock without waiting for the stale window.
+    //   the BYOA owner-only check so a corpmate can emit a cancel event for
+    //   a BYOA-owned ship when the owner is unreachable.
     if (forceFlag) {
       if (!(isCorpShipTask && isSameCorp)) {
         sAuthCheck.end();
@@ -196,42 +196,8 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     }
     sAuthCheck.end();
 
-    let cancelTaskId = fullTaskId;
-    let cancelOwnerCharacterId = taskOwnerCharacterId;
-
-    if (forceFlag) {
-      const currentTaskId = typeof shipData?.current_task_id === "string"
-        ? shipData.current_task_id
-        : null;
-      if (currentTaskId) {
-        cancelTaskId = currentTaskId;
-        if (currentTaskId !== fullTaskId) {
-          const { data: currentTaskStart, error: currentTaskErr } =
-            await supabase
-              .from("events")
-              .select("character_id, task_id")
-              .eq("event_type", "task.start")
-              .eq("task_id", currentTaskId)
-              .order("inserted_at", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-          if (currentTaskErr) {
-            console.error(
-              "task_cancel.force_current_task_lookup",
-              currentTaskErr,
-            );
-            return errorResponse(
-              "Failed to validate current task ownership",
-              500,
-            );
-          }
-          if (!currentTaskStart?.character_id) {
-            return errorResponse("Current ship task metadata not found", 409);
-          }
-          cancelOwnerCharacterId = currentTaskStart.character_id as string;
-        }
-      }
-    }
+    const cancelTaskId = fullTaskId;
+    const cancelOwnerCharacterId = taskOwnerCharacterId;
 
     // Task events are actor-private — see task_lifecycle for the full
     // rationale. The cancel event goes to the task owner directly; if a
@@ -259,21 +225,6 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
       corpId: taskCorpId ?? undefined,
     });
     sEmit.end();
-
-    // Release after the cancel event is durably emitted so the running
-    // TaskAgent has a chance to observe cancellation before the lock is
-    // cleared. Use the task_id we emitted, even in force mode. If the lock
-    // moved between the metadata lookup and release, this becomes a no-op
-    // instead of clearing an unrelated newer task.
-    const sRelease = trace.span("release_lock");
-    const { error: releaseErr } = await supabase.rpc(
-      "release_ship_task_lock",
-      { p_ship_id: taskShipId, p_task_id: cancelTaskId },
-    );
-    if (releaseErr) {
-      console.warn("task_cancel.release_warn", releaseErr);
-    }
-    sRelease.end();
 
     trace.setOutput({ request_id: requestId, task_id: cancelTaskId });
     return successResponse({

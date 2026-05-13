@@ -10,10 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **BYOA (Bring-Your-Own-Agent)** — corp members can claim one of their corp ships as BYOA via `ship_byoa_configure`. BYOA ships are owner-only in this version: only the BYOA owner can start normal tasks on that ship. See [docs/setup-byoa.md](docs/setup-byoa.md) for the operator-facing guide
-- Server-enforced ship-task lock on `ship_instances.current_task_id`: a corp ship can run only one task at a time across processes and corp members. Layered stale-lock recovery — clean disconnect release (<1s), heartbeat staleness (3 missed beats, default 180s), hard TTL (default 30min), and corp-member force-cancel (`task_cancel(force=true)`)
-- New `task_heartbeat` edge function: bulk-refreshes `task_last_heartbeat_at` for a list of `{ship_id, task_id}` pairs; mismatched pairs are silent no-ops
+- BYOA crash detection via the existing `BusByoaPresenceMessage` (10s cadence). When presence goes stale (~30s) the bot clears its in-memory ship lock and emits `task.cancel` so downstream consumers see the task ended
+- `TASK_AGENT_TIMEOUT` (bot env, default 1800s = 30 min) is now a load-bearing per-task hard upper bound. When it fires the bot cancels the task and clears its local ship lock. Bot-controlled — BYOA operators cannot override it
 - `current_task_actor` and `byoa` blocks on `list_user_ships` and `corporation_info` ship-list payloads, with all character IDs truncated to 12 hex chars (full UUIDs never sent in these payloads)
-- `ByoaAgentConfig` (Python) + `BYOA_*` env overrides for agent-side heartbeat cadence, RPC timeouts, and concurrency. Two-surface design documented: server-side env (`TASK_LOCK_*`) is operator-only, agent-side `BYOA_*` is BYOA-tunable
+- `ByoaAgentConfig` (Python) + `BYOA_*` env overrides for agent-side RPC timeouts and concurrency
 - Typed bus protocol for in-process agent communication — every game RPC, lifecycle event, corp query, and combat doctrine fetch flows through typed messages (`BusGameToolCallRequest`/`Response`, `BusCombatStrategyRequest`/`Response`, `BusCorporationQueryRequest`/`Response`, `BusTaskFinishNotification`) to VoiceAgent's broker rather than direct `AsyncGameClient` calls. External BYOA agents will implement the same protocol
 - Universal `BusAgentHelloRequest` / `BusAgentHelloResponse` wake-up handshake before any task dispatch. Times out per `BYOA_AGENT_WAKE_TIMEOUT_SECONDS` (default 30s); generous enough to absorb a Vercel-Sandbox-class cold start for future remote BYOA agents
 - Idle teardown timer for warm corp-ship / BYOA agents — fires `BusEndAgentMessage` to self after `BYOA_AGENT_IDLE_TEARDOWN_SECONDS` (default 300s) of no activity. Player-ship agents are reused across tasks, so excluded
@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom bus messages round-trip cleanly through upstream `JSONMessageSerializer` (12 sample messages covering the typed request/response pairs, `BusTaskFinishNotification`, `BusGameEventMessage`, `BusSteerTaskMessage`, and the hello handshake). Precondition for PGMQ — guards against silent field drops if a non-JSON-safe field ever lands on a bus message
 - `pipecat-ai-subagents>=0.5.0` from PyPI with the `[pgmq]` extra (`pgmq` + `asyncpg`); the prior `vendor/pipecat-subagents` git submodule and `[tool.uv.sources]` override are removed
 - **BYOA restricted PGMQ bus** — external BYOA runners connect to the bot's per-session channel through `byoa_bus_*` SECURITY DEFINER wrappers. Each wrapper validates `BYOA_TOKEN`, channel, and ship id before touching PGMQ, so BYOA uses the restricted `BYOA_BUS_DATABASE_URL` instead of the bot/service DSN
-- `wake_agent` is no longer a stub — allocates `ship_instances.byoa_session_channel` (atomically gated by `current_task_id` so a stolen lock can't be wake-allocated), dispatches process wake based on `WAKE_TARGET` (`http`, `noop`, with `vercel_sandbox` reserved), and injects the same runtime payload for every target: `BYOA_CHANNEL`, `BYOA_SHIP_ID`, `BYOA_BUS_DATABASE_URL`, and task metadata
+- `wake_agent` is no longer a stub — dispatches process wake based on `WAKE_TARGET` (`http`, `noop`, with `vercel_sandbox` reserved) and injects the same runtime payload for every target: `BYOA_CHANNEL`, `BYOA_SHIP_ID`, `BYOA_BUS_DATABASE_URL`, and task metadata
 - BYOA CLI now supports the production-parity local wake flow: `uv run byoa serve --prompt-file ./prompt.md` starts an HTTP wake provider, and `wake_agent` calls it with `Authorization: Bearer $EDGE_API_TOKEN`. The daemon spawns `uv run byoa run` children with the injected channel and restricted bus DSN. Direct `uv run byoa run --channel ... --bus-database-url ...` remains an emergency/manual fallback
 - BYOA runners emit process presence over the subagent bus. VoiceAgent relays `byoa.presence` to the client, and the client shows BYOA online/offline state only for ships with a BYOA owner
 - BYOA cold starts emit `task_status: "waking"` on the existing `task.start` event. The client shows fuel-colored `Waking` badges until the first `task_output` for that task, then flips back to the normal active state
@@ -31,16 +31,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `record_event_with_recipients` now owns pubsub delivery from SQL, so SQL-only quest events reach pgmq without JS dual-writes
-- `task_lifecycle event_type=start` acquires the lock atomically before emitting the event; returns `409 ship_busy` (with truncated holder identity) on contention or `403 byoa_private_not_owner` on a private BYOA ship when the caller isn't the owner
-- `task_cancel` releases the lock atomically (pair-matched). New `force: true` flag lets any corp member yank a stuck lock immediately, bypassing the owner/actor check
-- `fetchActiveTaskIdsByShip` switched from ~150 lines of event scanning to a direct column read — perf win for `list_user_ships`, `corporation_info`, and `combat_finalization`
-- VoiceAgent acquires the server lock *before* spawning a TaskAgent (or dispatching to an idle reused one), and posts `task_heartbeat` every 60s for held locks; 409/403 surface as user-facing errors with no local child created
-- VoiceAgent shutdown explicitly releases each held lock server-side via `task_cancel` (was: clear local set only — lock would leak until stale window)
-- TaskAgent no longer emits `task.start` — VoiceAgent owns that as part of the pre-spawn acquire, eliminating the double-emit race
+- **Ship-task lock returned to per-bot, in-memory** (`VoiceAgent._locked_ships`). The earlier DB-persistent design (lock columns on `ship_instances` + heartbeat RPC + 30-min hard TTL) caused stuck-lock symptoms when a BYOA died mid-task — heartbeats run in the bot process, so a dead BYOA paired with a live bot kept the DB lock refreshed until the hard TTL. The bot is now the only authority; the BYOA presence heartbeat is the crash signal
+- `task_lifecycle event_type=start` no longer acquires a server-side lock — it just emits the `task.start` event. Still returns `403 byoa_private_not_owner` when a non-BYOA-owner tries to start a task on a private BYOA ship
+- `task_cancel` no longer touches a DB lock — emits the `task.cancel` event. `force: true` still lets any corp member emit a cancel event for a BYOA ship when the owner is unreachable
+- `fetchActiveTaskIdsByShip` and new sibling `fetchActiveTasksByShip` derive "active task per ship" from recent `task.start` events without a matching `task.finish`/`task.cancel` (60-minute window). Hint-only — the bot's in-memory map is authoritative
+- VoiceAgent: removed the per-bot heartbeat loop and `_ensure_heartbeat_task_running`/`_stop_heartbeat_task`. `_acquire_server_ship_lock` (name retained for back-compat) is now a thin wrapper that emits `task.start` and surfaces BYOA-owner 403 cleanly
+- VoiceAgent shutdown still emits `task.cancel` for each held lock (so downstream consumers see the lifecycle ended) and clears `_locked_ships`. No DB-side release call any more
+- TaskAgent no longer emits `task.start` — VoiceAgent owns that, eliminating the double-emit race
 - TaskAgent drops `AsyncGameClient` entirely; the per-corp-ship dedicated client construction is gone. VoiceAgent's single player-bound client services every TaskAgent via per-call identity overrides — one `AsyncGameClient` per bot process
 - Brokered RPCs propagate `task_id` via a `ContextVar` (`per_call_task_id`) instead of mutating shared client state, so concurrent broker handlers can't cross-tag each other's events
 - `BusTaskFinishNotification` carries `actor_character_id` and the broker forwards it to `task_lifecycle(finish)` so private BYOA ship finishes authorise against the player, not the pseudo-character
 - Broker hardening: envelope `character_id` / `actor_character_id` are authoritative — `msg.args` can't shadow them
+
+### Removed
+
+- DB columns `current_task_id`, `task_started_at`, `task_actor_character_id`, `task_last_heartbeat_at`, `byoa_session_channel`, `byoa_session_allocated_at` on `ship_instances` and their indexes
+- RPCs `acquire_ship_task_lock`, `release_ship_task_lock`, `force_release_ship_task_lock`, `refresh_ship_task_heartbeats`
+- `task_heartbeat` edge function (deleted)
+- `BYOA_HEARTBEAT_INTERVAL_SECONDS`, `TASK_LOCK_HEARTBEAT_STALE_SECONDS`, `TASK_LOCK_HARD_TTL_MINUTES`, `BYOA_SERVER_LOCK_STALE_SECONDS`, `BYOA_SERVER_LOCK_HARD_TTL_MINUTES` env vars
+- `ByoaAgentConfig.heartbeat_interval_seconds`, `server_lock_stale_seconds_expected`, `server_lock_hard_ttl_minutes_expected`, `validate_heartbeat_against_server`
+- `AsyncGameClient.task_heartbeat` method
 
 ## [0.4.1] - 2026-05-11
 

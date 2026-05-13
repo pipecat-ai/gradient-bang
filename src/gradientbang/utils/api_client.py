@@ -1314,29 +1314,6 @@ class AsyncGameClient:
             payload["force"] = True
         return await self._request("task.cancel", payload)
 
-    async def task_heartbeat(
-        self,
-        *,
-        locks: List[Dict[str, str]],
-        character_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Bulk-refresh held ship-task lock heartbeats.
-
-        Args:
-            locks: List of ``{"ship_id": ..., "task_id": ...}`` pairs. The
-                server only refreshes rows where the pair matches the current
-                lock; mismatches are silent no-ops.
-            character_id: Optional override; defaults to the bound character.
-        """
-        if character_id is None:
-            character_id = self._character_id
-
-        payload: Dict[str, Any] = {
-            "character_id": character_id,
-            "locks": locks,
-        }
-        return await self._request("task.heartbeat", payload)
-
     async def wake_agent(
         self,
         *,

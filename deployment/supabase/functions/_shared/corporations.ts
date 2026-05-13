@@ -5,7 +5,7 @@ import {
   emitCharacterEvent,
   recordEventWithRecipients,
 } from "./events.ts";
-import { fetchActiveTaskIdsByShip } from "./tasks.ts";
+import { type ActiveShipTask, fetchActiveTasksByShip } from "./tasks.ts";
 import type { ShipDefinitionRow } from "./status.ts";
 
 export interface CorporationRecord {
@@ -501,7 +501,7 @@ export async function fetchCorporationShipSummaries(
   const { data: shipRows, error: shipError } = await supabase
     .from("ship_instances")
     .select(
-      "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters, task_actor_character_id, byoa_owner_character_id",
+      "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters, byoa_owner_character_id",
     )
     .in("ship_id", shipIds)
     .neq("owner_type", "unowned")
@@ -513,12 +513,13 @@ export async function fetchCorporationShipSummaries(
 
   const definitionMap = await loadShipDefinitions(supabase, shipRows ?? []);
   const controlReady = await loadControlReadySet(supabase, shipIds);
-  const activeTasks = await fetchActiveTaskIdsByShip(supabase, shipIds);
+  const activeTasks = await fetchActiveTasksByShip(supabase, shipIds);
   // One batched lookup for all character names referenced by the new
   // current_task_actor / byoa blocks. Non-BYOA ships contribute nothing.
   const characterNames = await loadShipParticipantNames(
     supabase,
     shipRows ?? [],
+    activeTasks,
   );
   const summaries: CorporationShipSummary[] = [];
 
@@ -556,8 +557,11 @@ export async function fetchCorporationShipSummaries(
       max_shields: definition?.shields ?? 0,
       fighters: Number(row.current_fighters ?? definition?.fighters ?? 0),
       max_fighters: definition?.fighters ?? 0,
-      current_task_id: activeTasks.get(shipId) ?? null,
-      current_task_actor: buildTaskActorBlock(row, characterNames),
+      current_task_id: activeTasks.get(shipId)?.task_id ?? null,
+      current_task_actor: buildTaskActorBlock(
+        activeTasks.get(shipId) ?? null,
+        characterNames,
+      ),
       byoa: buildByoaBlock(row, characterNames),
     });
   }
@@ -567,15 +571,13 @@ export async function fetchCorporationShipSummaries(
 
 /**
  * Build the truncated actor block for the active task. Returns null when the
- * ship is idle (no current task on the lock row).
+ * ship is idle (no inferred active task in the events window).
  */
 export function buildTaskActorBlock(
-  row: Record<string, unknown>,
+  active: ActiveShipTask | null,
   characterNames: Map<string, string>,
 ): CorporationShipSummary["current_task_actor"] {
-  const actorId = typeof row.task_actor_character_id === "string"
-    ? (row.task_actor_character_id as string)
-    : null;
+  const actorId = active?.actor_character_id ?? null;
   if (!actorId) return null;
   return {
     character_id_prefix: truncateUuid(actorId),
@@ -609,21 +611,23 @@ function truncateUuid(value: string): string {
 }
 
 /**
- * Batched character-name lookup for the new ship-list blocks. Pulls the
- * union of task_actor_character_id and byoa_owner_character_id across all
- * supplied rows in a single query, returning a Map keyed by full UUID.
+ * Batched character-name lookup for the ship-list blocks. Pulls the union of
+ * the active-task actor (from events) and BYOA owner across all supplied
+ * rows in a single query, returning a Map keyed by full UUID.
  */
 export async function loadShipParticipantNames(
   supabase: SupabaseClient,
   shipRows: Array<Record<string, unknown>>,
+  activeTasks: Map<string, ActiveShipTask | null>,
 ): Promise<Map<string, string>> {
   const ids = new Set<string>();
   for (const row of shipRows) {
     if (!row) continue;
-    const actor = row.task_actor_character_id;
     const owner = row.byoa_owner_character_id;
-    if (typeof actor === "string" && actor) ids.add(actor);
     if (typeof owner === "string" && owner) ids.add(owner);
+  }
+  for (const info of activeTasks.values()) {
+    if (info?.actor_character_id) ids.add(info.actor_character_id);
   }
   const result = new Map<string, string>();
   if (!ids.size) return result;

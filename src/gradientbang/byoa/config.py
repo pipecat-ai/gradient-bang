@@ -1,18 +1,13 @@
 """Runtime tunables for any TaskAgent (in-process or BYOA).
 
-Two surfaces are explicitly separated:
+Agent-side configuration only: RPC timeouts, concurrency ceilings, wake/
+teardown windows. The bundled bot reads ``ByoaAgentConfig.from_env()``;
+external BYOA operators construct their own dataclass instance directly.
 
-- **Server-side** (game operator only): edge function env vars like
-  ``TASK_LOCK_HEARTBEAT_STALE_SECONDS`` and ``TASK_LOCK_HARD_TTL_MINUTES``.
-  These are enforced inside edge functions and Postgres; BYOA operators
-  cannot override them.
-- **Agent-side** (this module): heartbeat cadence, RPC timeouts,
-  concurrency ceilings. The bundled bot reads ``ByoaAgentConfig.from_env()``;
-  external BYOA operators construct their own dataclass instance directly.
-
-Mismatches between agent-side server-window expectations and the actual
-server config are logged at startup; the agent doesn't error out — it just
-observes. The server is always the source of truth for staleness windows.
+Ship-task locks are per-bot, in-memory — there is no server-side stale
+window or heartbeat. Crash detection is via the BYOA presence heartbeat
+the agent broadcasts on the bus (see VoiceAgent._byoa_presence_sweep_loop)
+combined with the bot's ``TASK_AGENT_TIMEOUT`` sanity bound.
 
 See docs/setup-byoa.md for the operator-facing env table.
 """
@@ -27,19 +22,12 @@ from dataclasses import dataclass
 class ByoaAgentConfig:
     """Runtime tunables. Defaults are safe for the bundled in-process agent.
 
-    Construct directly (``ByoaAgentConfig(heartbeat_interval_seconds=90)``)
-    or via env (``ByoaAgentConfig.from_env()``).
+    Construct directly or via env (``ByoaAgentConfig.from_env()``).
     """
 
-    # Client-side: how often the agent posts task_heartbeat for its held
-    # locks. Must be strictly less than the server's stale window / 2 to
-    # survive one missed beat. Default 60s pairs safely with the server's
-    # 180s default stale window.
-    heartbeat_interval_seconds: int = 60
-
-    # Per-agent ceiling on concurrent tasks. The server also enforces
-    # one task per ship; this is a soft local limit so a misbehaving
-    # operator can't fan out arbitrarily many concurrent task children.
+    # Per-agent ceiling on concurrent tasks. Soft local guard so a
+    # misbehaving operator can't fan out arbitrarily many concurrent
+    # task children.
     max_concurrent_tasks: int = 4
 
     # Reply timeout for an outbound BusGameToolCallRequest.
@@ -59,17 +47,6 @@ class ByoaAgentConfig:
     # player-ship agents effectively never hit this (reuse keeps them busy);
     # corp-ship and BYOA agents do — firing releases the ship slot.
     agent_idle_teardown_seconds: float = 300.0
-
-    # Informational: the agent's understanding of the server-side stale
-    # window. Used at startup to validate that ``heartbeat_interval_seconds``
-    # is small enough to survive one missed beat. Mismatch with the actual
-    # server config (``TASK_LOCK_HEARTBEAT_STALE_SECONDS``) only generates a
-    # warning — the server is authoritative.
-    server_lock_stale_seconds_expected: int = 180
-
-    # Informational: the agent's understanding of the hard-TTL safety floor.
-    # Mirrors ``TASK_LOCK_HARD_TTL_MINUTES``.
-    server_lock_hard_ttl_minutes_expected: int = 30
 
     @classmethod
     def from_env(
@@ -102,7 +79,6 @@ class ByoaAgentConfig:
             return float(raw)
 
         return cls(
-            heartbeat_interval_seconds=_int("HEARTBEAT_INTERVAL_SECONDS", 60),
             max_concurrent_tasks=_int("MAX_CONCURRENT_TASKS", 4),
             tool_call_timeout_seconds=_float("TOOL_CALL_TIMEOUT_SECONDS", 30.0),
             task_request_timeout_seconds=_float(
@@ -114,31 +90,7 @@ class ByoaAgentConfig:
             agent_idle_teardown_seconds=_float(
                 "AGENT_IDLE_TEARDOWN_SECONDS", 300.0
             ),
-            server_lock_stale_seconds_expected=_int(
-                "SERVER_LOCK_STALE_SECONDS", 180
-            ),
-            server_lock_hard_ttl_minutes_expected=_int(
-                "SERVER_LOCK_HARD_TTL_MINUTES", 30
-            ),
         )
-
-    def validate_heartbeat_against_server(self) -> str | None:
-        """Return a warning message if heartbeat cadence is too slow.
-
-        The heartbeat must arrive strictly faster than half the server's
-        stale window so a single missed beat doesn't make the lock
-        steal-eligible. Returns None when the configuration is safe.
-        """
-
-        half_window = self.server_lock_stale_seconds_expected / 2.0
-        if self.heartbeat_interval_seconds >= half_window:
-            return (
-                f"heartbeat_interval_seconds={self.heartbeat_interval_seconds} "
-                f"is >= server stale window / 2 "
-                f"({self.server_lock_stale_seconds_expected}/2 = {half_window:.0f}s); "
-                "one missed beat would make the lock steal-eligible"
-            )
-        return None
 
 
 __all__ = ["ByoaAgentConfig"]

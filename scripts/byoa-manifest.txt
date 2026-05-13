@@ -1,0 +1,71 @@
+# BYOA tarball allowlist.
+#
+# This is the source of truth for what ships inside byoa-runtime.tar.gz.
+# CI builds the tarball with `tar -czf byoa-runtime.tar.gz -T this-file`.
+#
+# Allowlist (not denylist): new files added elsewhere in src/gradientbang/
+# cannot silently leak in. If you add a module that the BYOA harness or
+# TaskAgent needs, add it here AND make sure the self-containment test
+# passes (extract → install pyproject.byoa.toml → import).
+#
+# Lines starting with # are skipped by `tar -T` when --verbatim-files-from
+# is not used; keep entries one-per-line, no globs.
+
+# ── Harness ───────────────────────────────────────────────────────────
+src/gradientbang/byoa/__init__.py
+src/gradientbang/byoa/app.py
+src/gradientbang/byoa/config.py
+src/gradientbang/byoa/serve.py
+
+# ── TaskAgent + bus message types + correlation helper ───────────────
+src/gradientbang/pipecat_server/__init__.py
+src/gradientbang/pipecat_server/subagents/__init__.py
+src/gradientbang/pipecat_server/subagents/task_agent.py
+src/gradientbang/pipecat_server/subagents/bus_messages.py
+src/gradientbang/pipecat_server/subagents/bus_correlation.py
+
+# ── Tool schemas (TaskAgent's 31 tools + GAME_METHOD_ALIASES) ────────
+src/gradientbang/tools/__init__.py
+src/gradientbang/tools/schemas.py
+
+# ── BYOA bus adapter (restricted DSN + SECURITY DEFINER wrappers) ────
+src/gradientbang/adapters/__init__.py
+src/gradientbang/adapters/bus/__init__.py
+src/gradientbang/adapters/bus/base.py
+src/gradientbang/adapters/bus/byoa_pgmq.py
+src/gradientbang/adapters/bus/pgmq.py
+src/gradientbang/adapters/bus/serializer.py
+
+# ── Utils (LLM factory + prompt loader + adapters + formatters) ──────
+src/gradientbang/utils/__init__.py
+src/gradientbang/utils/llm_factory.py
+src/gradientbang/utils/openai_responses_llm.py
+src/gradientbang/utils/prompt_loader.py
+src/gradientbang/utils/gemini_adapter.py
+src/gradientbang/utils/summary_formatters.py
+src/gradientbang/utils/formatting.py
+src/gradientbang/utils/weave_tracing.py
+
+# ── Prompts the TaskAgent loads ──────────────────────────────────────
+src/gradientbang/prompts/__init__.py
+src/gradientbang/prompts/agents/task_agent.md
+src/gradientbang/prompts/agents/task_progress.md
+src/gradientbang/prompts/base/game_overview.md
+src/gradientbang/prompts/fragments/combat.md
+src/gradientbang/prompts/fragments/combat_strategy.md
+src/gradientbang/prompts/fragments/context_summarization.md
+src/gradientbang/prompts/fragments/corporations.md
+src/gradientbang/prompts/fragments/event_logs.md
+src/gradientbang/prompts/fragments/exploration.md
+src/gradientbang/prompts/fragments/lore.md
+src/gradientbang/prompts/fragments/map_legend.md
+src/gradientbang/prompts/fragments/onboarding.md
+src/gradientbang/prompts/fragments/ships.md
+src/gradientbang/prompts/fragments/trading.md
+src/gradientbang/prompts/fragments/transfers.md
+
+# Top-level gradientbang package init — required for the namespace.
+src/gradientbang/__init__.py
+
+# ── Repo-root files needed inside the tarball ────────────────────────
+pyproject.byoa.toml

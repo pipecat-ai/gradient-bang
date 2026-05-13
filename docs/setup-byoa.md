@@ -50,7 +50,7 @@ voice client    bot / wake                             BYOA process
      │           │                                           │
      │           │                                           │
      │           │◄──presence/ready over PGMQ                │
-     │ start_task─► acquire_lock─────►                       │
+     │ start_task─► local lock + task.start emit             │
      │           │ wake_agent────────► HTTP wake provider────►│ spawns + joins bus
      │           │ BusTaskRequest───────────────────────────►│ runs task
      │           │                   │                       │
@@ -73,7 +73,6 @@ Read by `ByoaAgentConfig.from_env()` ([src/gradientbang/byoa/config.py](../src/g
 | `BYOA_CHANNEL` | run only | — | Voice-session PGMQ channel. Set by wake for spawned processes; only pass manually when using `uv run byoa run` fallback |
 | `--bus-database-url` | run only | — | Restricted Postgres DSN. Wake injects `BYOA_BUS_DATABASE_URL`; only pass manually when using `uv run byoa run` fallback |
 | `BYOA_PROMPT_FILE` | — | — | Path to custom prompt markdown (≤ 8 KB). `--prompt-file` wins |
-| `BYOA_HEARTBEAT_INTERVAL_SECONDS` | — | `60` | Task-lock heartbeat (must be `< TASK_LOCK_HEARTBEAT_STALE_SECONDS / 2`) |
 | `BYOA_AGENT_WAKE_TIMEOUT_SECONDS` | — | `30` | Wake handshake timeout |
 | `BYOA_AGENT_IDLE_TEARDOWN_SECONDS` | — | `300` | How long a warm agent stays idle before exiting |
 
@@ -90,8 +89,7 @@ Do not use the static `SUBAGENT_BUS_CHANNEL` prefix here. BYOA needs the derived
 | `BYOA_WAKE_URL` | edge fn | — | HTTP wake provider URL when `WAKE_TARGET=http`; local dev uses `http://host.docker.internal:8765/wake` |
 | `EDGE_API_TOKEN` | edge fn + BYOA daemon | — | Trusted edge token; also used as the bearer token between `wake_agent` and the HTTP wake provider |
 | `WAKE_TARGET` | edge fn | `noop` | `http` for local/webhook wake, `noop` manual fallback, `vercel_sandbox` reserved |
-| `TASK_LOCK_HEARTBEAT_STALE_SECONDS` | edge fn | `180` | Lock is steal-eligible after this many seconds without a heartbeat |
-| `TASK_LOCK_HARD_TTL_MINUTES` | edge fn | `30` | Safety floor regardless of heartbeats |
+| `TASK_AGENT_TIMEOUT` | bot | `1800` | Per-task hard upper bound in seconds (bot-side). Bot cancels the task and clears its local ship lock on expiry. BYOA operators cannot override this |
 
 ## Configuring a corp ship as BYOA
 
@@ -126,13 +124,15 @@ A BYOA agent needs to handle, at minimum:
 - **Inbound**: `BusAgentHelloRequest` (liveness probe), `BusTaskRequest`, `BusTaskCancel`, `BusGameEventMessage`, `BusGameToolCallResponse`
 - **Outbound**: `BusByoaPresenceMessage` (process online/offline heartbeat), `BusAgentHelloResponse` (reply `ready=true`), `BusGameToolCallRequest`, `BusTaskFinishNotification`, optional `BusTaskUpdate`
 
-Wake handshake: VoiceAgent sends `BusAgentHelloRequest` and waits up to `BYOA_AGENT_WAKE_TIMEOUT_SECONDS` (default 30s) for the response. Timeout aborts the spawn and releases the lock.
+Wake handshake: VoiceAgent sends `BusAgentHelloRequest` and waits up to `BYOA_AGENT_WAKE_TIMEOUT_SECONDS` (default 30s) for the response. Timeout aborts the spawn and clears the bot's local ship lock.
 
 ## Lock recovery
 
+The ship-task lock is per-bot in memory — there is no DB-persistent lock. The bot's `VoiceAgent._locked_ships` map is the only authority on "ship busy". When a BYOA dies the bot detects it through the `BusByoaPresenceMessage` heartbeat the BYOA broadcasts every 10s; missing beats for ~30s flip the bot's local lock back to idle and a `task.cancel` event is emitted.
+
 | Failure | Recovery |
 |---|---|
-| Clean disconnect | < 1s (VoiceAgent shutdown hook) |
-| Crash / network drop | ~3 min (heartbeat staleness) |
-| Wedged but heartbeating | ~30 min (hard TTL) |
-| Corp member wants it now | Immediate (`task_cancel { force: true }`) |
+| Clean disconnect | < 1s (VoiceAgent shutdown hook clears local map) |
+| BYOA crash / network drop | ~30s (BYOA presence heartbeat goes stale → bot clears its local lock + emits `task.cancel`) |
+| BYOA alive but task hangs | `TASK_AGENT_TIMEOUT` (default 1800s = 30 min); bot cancels regardless of presence |
+| Corp member wants it now | `task_cancel { force: true }` emits a cancel event; the owner's bot picks it up and clears its lock |
