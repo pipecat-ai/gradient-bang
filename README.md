@@ -352,7 +352,7 @@ The pubsub hot path does not call an edge function per poll. One bot session kee
 
 3. Make sure `EDGE_API_TOKEN` is present in the bot environment and matches `public.app_runtime_config.edge_api_token` in the target database.
 
-Migration `20260505000000_pubsub_and_broadcasts.sql` installs `pgmq` and publish wrappers. Later pubsub migrations add required delivery, immediate reads, scoped read/archive functions, and the direct `EDGE_API_TOKEN` gate.
+Migration `20260505000000_pubsub_and_broadcasts.sql` installs `pgmq`, required publish wrappers, immediate reads, scoped read/archive functions, and the direct `EDGE_API_TOKEN` gate.
 
 ### `polling`
 
