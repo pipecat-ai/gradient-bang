@@ -252,6 +252,36 @@ Deno.test({
     };
 
     await t.step(
+      "missing per-ship and default wake URL → visible spawn failure",
+      async () => {
+        try {
+          Deno.env.set("BYOA_WAKE_TARGET", "http");
+          Deno.env.delete("DEFAULT_BYOA_SOURCE_URL");
+          Deno.env.set(
+            "BYOA_BUS_DATABASE_URL",
+            "postgresql://byoa_login:test@db/postgres",
+          );
+          await setShipWakeConfig(corpShipId, null, "test-secret");
+
+          const result = await api("wake_agent", {
+            ship_id: corpShipId,
+            character_id: p1Id,
+            task_id: taskId,
+            channel,
+          });
+          assertEquals(result.status, 500);
+          const body = result.body as Record<string, unknown>;
+          assertEquals(body.error, "wake_spawn_failed");
+          assertEquals(body.spawn_target, "http");
+          assertEquals(body.spawn_status, "missing_wake_url");
+        } finally {
+          restoreEnv(envSnapshot);
+          await setShipWakeConfig(corpShipId, null, null);
+        }
+      },
+    );
+
+    await t.step(
       "missing per-ship wake secret → visible spawn failure",
       async () => {
         try {

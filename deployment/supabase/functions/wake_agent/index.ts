@@ -99,16 +99,10 @@ async function dispatchHttpSpawn(
   shipWakeSecret: string | null,
 ): Promise<SpawnResult> {
   const target = "http";
-  // Per-ship URL wins; fall back to DEFAULT_BYOA_SOURCE_URL, then to the
-  // local-dev convention `host.docker.internal:8765/wake` (the default port
-  // for `uv run byoa serve`). The hardcoded fallback only resolves inside
-  // Docker, so it fails fast in production environments that haven't been
-  // configured — mirrors the `BOT_START_URL` fallback in `start/index.ts`.
-  const wakeUrl = (
-    shipWakeUrl ??
-      Deno.env.get("DEFAULT_BYOA_SOURCE_URL") ??
-      "http://host.docker.internal:8765/wake"
-  ).trim();
+  // Per-ship URL wins; DEFAULT_BYOA_SOURCE_URL is an optional operator-level
+  // fallback. If neither is set, fail visibly instead of guessing a receiver.
+  const wakeUrl = (shipWakeUrl ?? Deno.env.get("DEFAULT_BYOA_SOURCE_URL") ?? "")
+    .trim();
   // Per-ship secret only. No env-var fallback — a single shared secret
   // across all operators would mean any leak compromises every BYOA.
   // Each ship's secret is set via ship_byoa_configure and stored encrypted.
