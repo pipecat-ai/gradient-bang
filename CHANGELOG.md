@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-14
+
 ### Added
 
 - **BYOA (Bring-Your-Own-Agent)** — corp members can claim a corp ship and run their own task agent for it. Operators deploy the [BYOA harness](docs/byoa.md) (local dev via `uv run byoa --serve`, or production via a Vercel Function the operator owns). The bot wakes the operator's receiver over HTTPS per task; the operator's runtime spawns `uv run byoa` with the wake env. BYOA ships are owner-only: only the BYOA owner can start tasks on them; any corp member can force-cancel
