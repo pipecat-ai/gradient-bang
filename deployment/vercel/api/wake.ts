@@ -62,7 +62,6 @@ const OPERATOR_ENV_KEYS = [
   "OPENAI_API_KEY",
   "MINIMAX_API_KEY",
   "BYOA_TOOL_CALL_TIMEOUT_SECONDS",
-  "BYOA_AGENT_IDLE_TEARDOWN_SECONDS",
 ] as const;
 
 // ── Helpers ──────────────────────────────────────────────────────────

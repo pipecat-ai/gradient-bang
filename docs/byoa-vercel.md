@@ -4,7 +4,7 @@ Deploy the BYOA wake receiver as a Vercel Function. This is the production path,
 
 The deployment is skill-driven:
 
-- `/byoa-setup` claims the ship and prepares `.env.byoa`.
+- `/byoa-link` claims the ship and prepares `.env.byoa`.
 - `/byoa-deploy-vercel` deploys the wake function and registers it against the ship.
 
 The wake receiver source lives in [deployment/vercel](../deployment/vercel/).
@@ -13,7 +13,7 @@ The wake receiver source lives in [deployment/vercel](../deployment/vercel/).
 
 Prereqs:
 
-- You have run `/byoa-setup`.
+- You have run `/byoa-link`.
 - `.env.byoa` contains your LLM provider, model, and matching API key.
 - You are logged in to Vercel CLI: `npx vercel whoami`.
 - `deployment/vercel/` is linked to your Vercel project.
@@ -93,9 +93,9 @@ Required:
 
 | Key | Purpose |
 |---|---|
-| `BYOA_CHARACTER_ID` | Written by `/byoa-setup`. |
-| `BYOA_SHIP_ID` | Written by `/byoa-setup`. |
-| `BYOA_WAKE_SECRET` | Written by `/byoa-setup`; pushed to Vercel by deploy. |
+| `BYOA_CHARACTER_ID` | Written by `/byoa-link`. |
+| `BYOA_SHIP_ID` | Written by `/byoa-link`. |
+| `BYOA_WAKE_SECRET` | Written by `/byoa-link`; pushed to Vercel by deploy. |
 | `TASK_LLM_PROVIDER` | `google`, `anthropic`, `openai`, or `minimax`. |
 | `TASK_LLM_MODEL` | Provider-specific model id. |
 | Provider API key | One of `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `MINIMAX_API_KEY`. |
@@ -108,7 +108,6 @@ Optional:
 | `BYOA_PROMPT_FILE` | Prompt file path inside the sandbox checkout, for example `./prompt.md`. |
 | `TASK_LLM_THINKING_BUDGET` | Model thinking budget. |
 | `BYOA_TOOL_CALL_TIMEOUT_SECONDS` | Tool-call timeout. |
-| `BYOA_AGENT_IDLE_TEARDOWN_SECONDS` | Warm-agent idle timeout. |
 | `BYOA_REPO_URL` / `BYOA_REPO_REVISION` | Run from a fork or pinned revision. |
 | `GITHUB_TOKEN` | Clone a private fork or avoid public rate limits. |
 
@@ -126,7 +125,7 @@ Most operators only edit `.env.byoa` and optionally `prompt.md`.
 - Code or env changed: run `/byoa-deploy-vercel` again.
 - Prompt changed in `BYOA_PROMPT`: run `/byoa-deploy-vercel` again.
 - Prompt file changed in a fork: commit the file, then run `/byoa-deploy-vercel`.
-- Wake secret rotation: run `/byoa-setup --force --ship-id $BYOA_SHIP_ID`, then `/byoa-deploy-vercel`.
+- Wake secret rotation: run `/byoa-link --force --ship-id $BYOA_SHIP_ID`, then `/byoa-deploy-vercel`.
 - New Vercel project: delete `deployment/vercel/.vercel/`, run `npx vercel link`, then `/byoa-deploy-vercel`.
 
 ## Troubleshooting

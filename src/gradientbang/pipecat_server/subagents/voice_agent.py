@@ -2941,9 +2941,9 @@ class VoiceAgent(LLMAgent):
                 # to the operator's queue and wait for the bus
                 # advertisement (via the existing on_agent_ready path).
                 # The watchdog releases the lock if no agent ever responds.
-                # If a fresh BYOA runner is already present in this session,
-                # dispatch through the normal watched-agent path. Otherwise,
-                # wake_agent must accept the spawn before we report "waking".
+                # BYOA workers are one-task processes, so every task is
+                # marked waking and every task calls wake_agent; presence is
+                # only liveness/UI state, never a dispatch shortcut.
                 if byoa_owner_id:
                     byoa_agent_name = self.byoa_agent_name(target_character_id)
                     # task_metadata.task_id is the stale-task guard the
@@ -3684,7 +3684,7 @@ class VoiceAgent(LLMAgent):
         if isinstance(ship_character_id, str) and ship_character_id:
             await self._silent_flush_for_ship(ship_character_id)
 
-        attrs = [f'name="task.cancelled"']
+        attrs = ['name="task.cancelled"']
         if task_id:
             attrs.append(f'task_id="{task_id}"')
         attrs.append(f'task_type="{task_type}"')
@@ -3726,7 +3726,7 @@ class VoiceAgent(LLMAgent):
         )
         summary = str(summary_field or "Steering instruction sent.").strip() or "Steering instruction sent."
 
-        attrs = [f'name="task.steered"']
+        attrs = ['name="task.steered"']
         if task_id:
             attrs.append(f'task_id="{task_id}"')
         attrs.append(f'task_type="{task_type}"')

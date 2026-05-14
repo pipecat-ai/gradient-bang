@@ -35,10 +35,10 @@ class ByoaAgentConfig:
     # sandbox have no effect. Generous enough to cover sandbox cold starts.
     agent_wake_timeout_seconds: float = 30.0
 
-    # How long an idle warm agent stays around before tearing itself down.
-    # Each inbound task / tool call resets the timer. In-process
-    # player-ship agents effectively never hit this (reuse keeps them busy);
-    # corp-ship and BYOA agents do — firing releases the ship slot.
+    # How long an idle in-process corp-ship agent stays around before
+    # tearing itself down. BYOA workers are one-task processes and self-end
+    # immediately after completion/cancellation so the next task always goes
+    # through wake_agent.
     agent_idle_teardown_seconds: float = 300.0
 
     @classmethod

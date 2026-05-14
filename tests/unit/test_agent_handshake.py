@@ -6,8 +6,9 @@
   - The hello sender wraps a fresh ``correlation_id`` and the configured
     timeout.
   - The new-agent spawn's rollback path runs cleanly on hello timeout.
-  - TaskAgent's idle teardown timer is wired correctly per agent flavour
-    (corp-ship + BYOA arm it; player-ship doesn't).
+  - TaskAgent's teardown path is wired correctly per agent flavour: local
+    corp ships use the idle timer, BYOA workers self-end after one task,
+    and player-ship agents stay warm.
 """
 
 import asyncio
@@ -22,6 +23,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
 )
 from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
+from pipecat_subagents.bus import BusEndAgentMessage
 
 
 # ── TaskAgent side ───────────────────────────────────────────────────
@@ -30,9 +32,10 @@ from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
 def _make_task_agent(**overrides) -> TaskAgent:
     bus = MagicMock()
     bus.send_message = AsyncMock()
+    name = overrides.pop("name", "task_test")
     kwargs = {"bus": bus, "character_id": "char-123"}
     kwargs.update(overrides)
-    agent = TaskAgent("task_test", **kwargs)
+    agent = TaskAgent(name, **kwargs)
     agent.send_message = AsyncMock()
     return agent
 
@@ -154,6 +157,43 @@ class TestIdleTeardownTimer:
         assert agent._idle_teardown_handle is not None
         # New task triggers _reset_task_state which cancels the timer.
         agent._reset_task_state()
+        assert agent._idle_teardown_handle is None
+
+    @pytest.mark.asyncio
+    async def test_byoa_agent_does_not_arm_idle_teardown(self):
+        agent = _make_task_agent(name="byoa_ship-123", is_corp_ship=True)
+        agent._byoa_config = type(agent._byoa_config)(
+            tool_call_timeout_seconds=30.0,
+            agent_wake_timeout_seconds=30.0,
+            agent_idle_teardown_seconds=3600.0,
+        )
+
+        agent._arm_idle_teardown()
+
+        assert agent._idle_teardown_handle is None
+
+    @pytest.mark.asyncio
+    async def test_byoa_agent_self_ends_after_completion(self):
+        agent = _make_task_agent(name="byoa_ship-123", is_corp_ship=True)
+        agent._upload_context_snapshot = MagicMock()
+        agent._drain_pending_task_outputs = AsyncMock()
+        agent._clear_awaited_completion = MagicMock()
+        agent._pending = MagicMock(cancel_all=MagicMock())
+        agent.send_task_response = AsyncMock()
+        agent._active_task_id = "task-123"
+        agent._task_finished_status = "completed"
+        agent._task_finished_message = "done"
+
+        await agent._complete_task()
+
+        end_messages = [
+            call.args[0]
+            for call in agent.send_message.await_args_list
+            if call.args and isinstance(call.args[0], BusEndAgentMessage)
+        ]
+        assert len(end_messages) == 1
+        assert end_messages[0].target == "byoa_ship-123"
+        assert end_messages[0].reason == "task complete"
         assert agent._idle_teardown_handle is None
 
 

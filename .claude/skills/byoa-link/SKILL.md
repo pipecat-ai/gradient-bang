@@ -1,16 +1,16 @@
 ---
-name: byoa-setup
-description: Onboard a Gradient Bang operator to run a Bring-Your-Own-Agent (BYOA) — logs in with email/password, claims a corp ship as BYOA, generates a per-ship wake secret, and writes `.env.byoa` for the `uv run byoa` CLI. Usage `/byoa-setup [env]`.
+name: byoa-link
+description: Onboard a Gradient Bang operator to run a Bring-Your-Own-Agent (BYOA) — logs in with email/password, claims a corp ship as BYOA, generates a per-ship wake secret, and writes `.env.byoa` for the `uv run byoa` CLI. Usage `/byoa-link [env]`.
 ---
 
-# BYOA setup
+# BYOA link
 
 Walks an operator through everything they need to run `uv run byoa` against a Gradient Bang corp ship. End state: a populated `.env.byoa` in the current directory (mode 0600), a ship claimed as BYOA in `private` mode with a wake secret registered server-side, and clear next-step instructions for the operator.
 
 ## Parameters
 
 ```
-/byoa-setup [env] [--force] [--ship-id <uuid>] [--out <path>]
+/byoa-link [env] [--force] [--ship-id <uuid>] [--out <path>]
 ```
 
 - **env**: `prod` (default) or `local`. Picks the game server endpoint:
@@ -172,7 +172,7 @@ Echo a copy-pasteable summary the operator can act on:
   The daemon reads `.env.byoa` and waits for wakes from `wake_agent`. As long as the ship has no per-ship `source_url` set, `wake_agent` defaults to `http://host.docker.internal:8765/wake` and routes to the daemon automatically using the per-ship `BYOA_WAKE_SECRET`. Only set `DEFAULT_BYOA_SOURCE_URL` on the edge env to override the default for *all* unconfigured ships.
 - **Production** (env = `prod`): run `/byoa-deploy-vercel prod` next. It deploys the template at [deployment/vercel/](../../../deployment/vercel/) to the operator's Vercel project (production by default — preview is SSO-gated), pushes `BYOA_WAKE_SECRET` / `TASK_LLM_*` / the matching `*_API_KEY` from `.env.byoa`, health-checks, then logs the operator in again to auto-register `source_url` via `ship_byoa_configure`. Pass `--access-token <jwt>` to reuse the JWT you just minted here and skip the second login prompt.
 - Point at `docs/byoa.md` for full env / config reference.
-- Rotate the wake secret by re-running `/byoa-setup <env> --force --ship-id <ship>` — this writes a fresh value and updates `ship_byoa_configure` in one shot.
+- Rotate the wake secret by re-running `/byoa-link <env> --force --ship-id <ship>` — this writes a fresh value and updates `ship_byoa_configure` in one shot.
 
 ## Failure modes
 

@@ -411,7 +411,7 @@ class TestStartTaskWakeBranch:
         agent._game_client.task_cancel.assert_awaited_once()
         assert "(http/http_503)" in agent._enqueue_deferred_update.call_args.args[0]
 
-    async def test_byoa_dispatch_with_fresh_presence_skips_wake(self):
+    async def test_byoa_dispatch_with_fresh_presence_still_wakes(self):
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
         agent._byoa_bus_channel = "bot_session_abc"
@@ -426,10 +426,16 @@ class TestStartTaskWakeBranch:
             "ship_id": "ship-uuid-123",
         }
         result = await agent._handle_start_task(params)
+        await asyncio.sleep(0)
 
         assert result["success"] is True
-        assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] is None
-        agent._game_client.wake_agent.assert_not_awaited()
+        assert result["status"] == "waking"
+        assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
+        agent._game_client.wake_agent.assert_awaited_once_with(
+            ship_id="ship-uuid-123",
+            channel="bot_session_abc",
+            task_id=result["task_id"],
+        )
         agent.watch_agent.assert_awaited_once_with("byoa_ship-uuid-123")
         watchdog = agent._pending_wakes.get("ship-uuid-123")
         if watchdog:

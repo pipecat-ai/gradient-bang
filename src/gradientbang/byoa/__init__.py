@@ -11,8 +11,8 @@ Public API:
   ``@app.on_session_start``, ``@app.on_session_end``.
 * :class:`ByoaContext` — what hooks receive: ship_id, character_id, channel,
   bus_dsn, prompt, config, …
-* :class:`ByoaAgentConfig` — runtime tunables (RPC timeouts, idle teardown,
-  wake timeout).
+* :class:`ByoaAgentConfig` — runtime tunables (RPC timeouts, wake timeout,
+  in-process corp-agent idle teardown).
 * :class:`ByoaConfigError` — raised for missing/malformed BYOA env vars.
 """
 

@@ -1,11 +1,11 @@
 ---
 name: byoa-deploy-vercel
-description: Deploy the BYOA wake-receiver Vercel Function from `deployment/vercel/`. Reads `.env.byoa`, pushes the operator's required env to the Vercel project, deploys via `npx vercel`, health-checks the URL, logs the operator in, and registers the resulting alias as the ship's `source_url` via `ship_byoa_configure`. Picks up from `/byoa-setup` (which claims the ship and writes `.env.byoa`). Usage `/byoa-deploy-vercel [env]`.
+description: Deploy the BYOA wake-receiver Vercel Function from `deployment/vercel/`. Reads `.env.byoa`, pushes the operator's required env to the Vercel project, deploys via `npx vercel`, health-checks the URL, logs the operator in, and registers the resulting alias as the ship's `source_url` via `ship_byoa_configure`. Picks up from `/byoa-link` (which claims the ship and writes `.env.byoa`). Usage `/byoa-deploy-vercel [env]`.
 ---
 
 # BYOA: deploy Vercel wake function
 
-Picks up where `/byoa-setup` finishes. The operator's ship is already claimed as BYOA, `.env.byoa` is populated with `BYOA_CHARACTER_ID` / `BYOA_SHIP_ID` / `BYOA_WAKE_SECRET`, and the per-ship wake secret is registered server-side. This skill takes the template Vercel Function at [deployment/vercel/](../../../deployment/vercel/) and walks the operator through deploying their own copy.
+Picks up where `/byoa-link` finishes. The operator's ship is already claimed as BYOA, `.env.byoa` is populated with `BYOA_CHARACTER_ID` / `BYOA_SHIP_ID` / `BYOA_WAKE_SECRET`, and the per-ship wake secret is registered server-side. This skill takes the template Vercel Function at [deployment/vercel/](../../../deployment/vercel/) and walks the operator through deploying their own copy.
 
 End state: a Vercel deployment at `https://<their-project>.vercel.app/api/wake` that auths inbound wakes against `BYOA_WAKE_SECRET` and spawns a persistent `@vercel/sandbox` running `uv run byoa` per wake. The skill prints a ready-to-run `ship_byoa_configure set { source_url }` curl so the operator can point their ship at it.
 
@@ -23,7 +23,7 @@ End state: a Vercel deployment at `https://<their-project>.vercel.app/api/wake` 
 - **--preview**: deploy as a Vercel preview instead of production. **Almost never what you want for BYOA**: Vercel's default Standard Protection gates preview URLs behind SSO, so the game server can't reach them. Use only if you've disabled Project Protection or are testing with a bypass token.
 - **--no-link**: skip the link verification (steps 3a + 3b). Use only when you're certain `deployment/vercel/.vercel/project.json` is correct.
 - **--out-url**: write the final canonical (alias) URL to this file. Defaults to stdout only.
-- **--access-token <jwt>**: skip the email+password prompt in step 8 by reusing an existing user JWT (e.g. one just minted by `/byoa-setup`). Token must be valid for the same operator who owns the ship.
+- **--access-token <jwt>**: skip the email+password prompt in step 8 by reusing an existing user JWT (e.g. one just minted by `/byoa-link`). Token must be valid for the same operator who owns the ship.
 - **--skip-register**: stop after the health-check; don't auto-register `source_url`. Falls back to printing a manual curl. Use when the operator wants to inspect the deployment first or doesn't have credentials handy.
 
 **Default deploy target is production.** The BYOA wake endpoint must be publicly reachable by the game server, and only the production alias (`<projectName>.vercel.app`) is exempt from Vercel's Standard Protection. Per-deploy URLs (`<projectName>-<hash>-<team>.vercel.app`) are SSO-gated regardless of target.
@@ -36,7 +36,7 @@ End state: a Vercel deployment at `https://<their-project>.vercel.app/api/wake` 
 
 Stop with a clean error if any of these is true:
 
-- `.env.byoa` does not exist in cwd → direct the operator to run `/byoa-setup` first.
+- `.env.byoa` does not exist in cwd → direct the operator to run `/byoa-link` first.
 - `.env.byoa` is missing any required key: `BYOA_WAKE_SECRET`, `BYOA_SHIP_ID`, `BYOA_CHARACTER_ID`, `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, and the API key matching the provider (one of `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `MINIMAX_API_KEY`).
 - [deployment/vercel/](../../../deployment/vercel/) does not exist or is missing `api/wake.ts`, `package.json`, or `vercel.json` — the template was deleted or this skill is being run against the wrong checkout.
 - `npx vercel --version` errors (Vercel CLI not available via npx).
@@ -242,7 +242,7 @@ Confirm the body matches `unauthorized` exactly before proceeding. Do **not** le
 
 ### 8. Register `source_url` with the game server
 
-Now that the deployment is verified, register `ALIAS_URL` as the ship's `source_url` so the game server's `wake_agent` knows where to POST. The ship was already claimed by `/byoa-setup`, and `wake_secret` was already registered there — this call is a partial `set` that only touches `source_url`. (Verified: `ship_byoa_configure` supports `wake_secret` and `source_url` independently via `p_update_wake_secret` / `p_update_source_url`.)
+Now that the deployment is verified, register `ALIAS_URL` as the ship's `source_url` so the game server's `wake_agent` knows where to POST. The ship was already claimed by `/byoa-link`, and `wake_secret` was already registered there — this call is a partial `set` that only touches `source_url`. (Verified: `ship_byoa_configure` supports `wake_secret` and `source_url` independently via `p_update_wake_secret` / `p_update_source_url`.)
 
 Skip this whole step if `--skip-register` was passed; jump straight to the manual-fallback block at the bottom.
 
@@ -288,7 +288,7 @@ echo "$REGISTER_RESPONSE"
 Expect a response containing `"source_url_updated":true`. If not, surface the body and fall through to 8c. Common failure modes:
 
 - "No authorization token provided" / "Invalid or expired token" → `ACCESS_TOKEN` is empty or expired; re-run step 8a
-- 403 `forbidden` → the JWT's user does not own the ship referenced by `BYOA_SHIP_ID`; re-run `/byoa-setup` with the right account
+- 403 `forbidden` → the JWT's user does not own the ship referenced by `BYOA_SHIP_ID`; re-run `/byoa-link` with the right account
 - `source_url must be http(s):// and ≤ 4096 chars` → `ALIAS_URL` is empty/malformed; check step 5's fallback
 
 **8c. Manual fallback (printed only on auto-register failure or `--skip-register`).**
@@ -307,7 +307,7 @@ curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
 
 `ALIAS_URL` (the `<projectName>.vercel.app` form) is stable, so the registered `source_url` survives future deploys — no re-registration needed unless you change Vercel projects. Never register a `DEPLOY_URL` (per-deploy hash): it rotates every deploy and 401s the game server via Vercel SSO.
 
-Fresh access tokens can be minted by re-running `/byoa-setup <env> --force --ship-id $BYOA_SHIP_ID` (also rotates `wake_secret`, which then needs a redeploy here to sync the Vercel env — pass `--access-token <jwt>` to skip the re-login on the redeploy).
+Fresh access tokens can be minted by re-running `/byoa-link <env> --force --ship-id $BYOA_SHIP_ID` (also rotates `wake_secret`, which then needs a redeploy here to sync the Vercel env — pass `--access-token <jwt>` to skip the re-login on the redeploy).
 
 ### 9. Report
 
@@ -323,7 +323,7 @@ End with a terse summary:
 
 ## Failure modes
 
-- **Missing `.env.byoa`**: run `/byoa-setup` first.
+- **Missing `.env.byoa`**: run `/byoa-link` first.
 - **`vercel whoami` says not authenticated**: `npx vercel login`, then re-run.
 - **`deployment/vercel/.vercel/project.json` missing**: run `cd deployment/vercel && npx vercel link` interactively, then re-run.
 - **Stray `.vercel/` at repo root or `deployment/`**: an earlier `vercel link` was run from the wrong cwd. Either `mv` it into `deployment/vercel/.vercel/` or `rm -rf` it and re-link from inside `deployment/vercel/`.
@@ -334,12 +334,12 @@ End with a terse summary:
 - **Deploy went to `target: production` even without `--prod`**: the project default in Vercel is set to production-on-deploy. Harmless for BYOA (we want prod anyway) but worth knowing if you expected a preview.
 - **First wake takes > 60s and times out on Hobby plan**: bump `maxDuration` in `vercel.json` (Hobby caps at 60s; Pro at 800s) or upgrade plan.
 - **`/login` returns 401 / `success: false`** in step 8a: bad credentials. Don't retry — fall through to the manual curl. Skill prints 8c and the operator finishes by hand.
-- **`ship_byoa_configure` returns 403 `forbidden`** or `Only the current BYOA owner can set wake config`: the JWT belongs to a different operator than the one who claimed the ship. Either re-run `/byoa-setup` with the right account, or supply `--access-token` from the right account on the next deploy.
+- **`ship_byoa_configure` returns 403 `forbidden`** or `Only the current BYOA owner can set wake config`: the JWT belongs to a different operator than the one who claimed the ship. Either re-run `/byoa-link` with the right account, or supply `--access-token` from the right account on the next deploy.
 - **`ship_byoa_configure` returns 401 "No authorization token provided"**: the `Authorization: Bearer` header was empty (likely because step 8a's `ACCESS_TOKEN` extraction failed silently). Surface the raw login response and re-run step 8a.
 
 ## What this skill does NOT do
 
-- Claim the ship or generate the wake secret — that's `/byoa-setup`. This skill only registers the `source_url` for an already-claimed, already-wake-secret-registered ship.
+- Claim the ship or generate the wake secret — that's `/byoa-link`. This skill only registers the `source_url` for an already-claimed, already-wake-secret-registered ship.
 - Persist the user JWT — it's used in-memory for the single `ship_byoa_configure` call and discarded. Operators wanting to skip the login prompt should pass `--access-token <jwt>` directly.
 - Edit the wake function code — operators who want custom behavior should fork the template directory.
 - Author the prompt for the operator — `wake.ts` auto-loads [deployment/vercel/prompt.md](../../../deployment/vercel/prompt.md) on every wake when neither `BYOA_PROMPT` nor `BYOA_PROMPT_FILE` is set in operator env. Operators wanting to override the default either edit `prompt.md` before deploying (changes ride along with the next `vercel deploy`, picked up by sandboxes on next provision) or set `BYOA_PROMPT` (inline ≤ 8 KB) on the Vercel project env.
