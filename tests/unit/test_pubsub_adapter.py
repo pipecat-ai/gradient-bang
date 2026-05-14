@@ -330,6 +330,23 @@ def _archived_msg_ids(cursor: _FakeCursor) -> list[int]:
 
 @pytest.mark.asyncio
 class TestPollOnceArchival:
+    async def test_empty_read_returns_false_without_archive(
+        self,
+        adapter: PubsubEventAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("PGMQ_URL", "postgresql://fake")
+        cursor = _FakeCursor(fetch_results=[[]])
+        _install_fake_psycopg(monkeypatch, cursor)
+        _stub_internal_token(adapter)
+        adapter._dispatch = AsyncMock()  # type: ignore[assignment]
+
+        had_rows = await adapter._poll_once(PLAYER_ID)
+
+        assert had_rows is False
+        assert _archived_msg_ids(cursor) == []
+        adapter._dispatch.assert_not_called()
+
     async def test_successful_dispatch_archives(
         self,
         adapter: PubsubEventAdapter,
@@ -341,8 +358,9 @@ class TestPollOnceArchival:
         _stub_internal_token(adapter)
         adapter._dispatch = AsyncMock()  # type: ignore[assignment]
 
-        await adapter._poll_once(PLAYER_ID)
+        had_rows = await adapter._poll_once(PLAYER_ID)
 
+        assert had_rows is True
         assert _archived_msg_ids(cursor) == [101]
 
     async def test_dispatch_failure_below_max_defers_archive(

@@ -1,15 +1,14 @@
 """pgmq-backed pubsub implementation of :class:`EventAdapter`.
 
 Connects directly to Postgres (admin URL — same as the rest of the system)
-and long-polls per-character queues via the auth-gated SECURITY DEFINER
-functions:
+and polls per-character queues via the auth-gated SECURITY DEFINER functions:
 
 - ``public.subscribe_my_events(character_id, internal_token, max_seconds, qty)``
 - ``public.archive_my_events(character_id, internal_token, msg_ids[])``
 
 Per-character authorization (direct ownership or corp membership) is enforced
 inside those functions; this adapter trusts what they return. The adapter
-runs one long-poll task per character in the active scope; ``set_scope`` adds
+runs one poll task per character in the active scope; ``set_scope`` adds
 and removes tasks as the bound voice agent expands subscription (e.g. when a
 corp ship joins the session).
 
@@ -71,10 +70,15 @@ if TYPE_CHECKING:
     from gradientbang.utils.supabase_client import AsyncGameClient
 
 
-# Long-poll window per subscribe_my_events call. Connection stays in
-# `read_with_poll` server-side until either a message arrives or this elapses.
-DEFAULT_MAX_POLL_SECONDS = int(os.getenv("PGMQ_MAX_POLL_SECONDS", "30"))
-# Max messages dispatched per long-poll iteration.
+# Max server-side poll window per subscribe_my_events call. Current migrations
+# return immediately; keep this low so older DBs that still use read_with_poll
+# cannot add a full 30s of delivery latency.
+DEFAULT_MAX_POLL_SECONDS = int(os.getenv("PGMQ_MAX_POLL_SECONDS", "1"))
+# Client-side pause after an empty immediate read.
+EMPTY_POLL_INTERVAL_SECONDS = float(
+    os.getenv("PGMQ_EMPTY_POLL_INTERVAL_SECONDS", "0.25")
+)
+# Max messages dispatched per poll iteration.
 DEFAULT_QTY = int(os.getenv("PGMQ_BATCH_QTY", "100"))
 # Backoff cap on transient connection errors.
 RECONNECT_BACKOFF_MAX = float(os.getenv("PGMQ_RECONNECT_BACKOFF_MAX", "10.0"))
@@ -83,9 +87,9 @@ RECONNECT_BACKOFF_MAX = float(os.getenv("PGMQ_RECONNECT_BACKOFF_MAX", "10.0"))
 # mis-wiring (the symptom this guard exists for) visible.
 NO_EVENTS_WARNING_SECONDS = float(os.getenv("PGMQ_NO_EVENTS_WARNING_SECONDS", "30.0"))
 # Max number of times a single message will be dispatched before we give up
-# and archive it as poison. pgmq's read_with_poll increments read_ct on each
-# read; with a 10s VT (see subscribe_my_events SQL) this gives a transient
-# fault ~MAX_DISPATCH_ATTEMPTS * 10s of redelivery before we drop the message.
+# and archive it as poison. pgmq increments read_ct on each read; with a 10s
+# VT (see subscribe_my_events SQL) this gives a transient fault
+# ~MAX_DISPATCH_ATTEMPTS * 10s of redelivery before we drop the message.
 MAX_DISPATCH_ATTEMPTS = int(os.getenv("PGMQ_MAX_DISPATCH_ATTEMPTS", "3"))
 
 
@@ -422,7 +426,7 @@ class PubsubEventAdapter:
             loop.create_task(self._sync_tasks())
 
     # ------------------------------------------------------------------
-    # Per-character long-poll loop
+    # Per-character poll loop
     # ------------------------------------------------------------------
 
     async def _sync_tasks(self) -> None:
@@ -489,13 +493,19 @@ class PubsubEventAdapter:
         await self._character_loop(character_id)
 
     async def _character_loop(self, character_id: str) -> None:
-        """Long-poll one character's queue forever (until stop)."""
+        """Poll one character's queue forever (until stop)."""
         logger.info(f"pubsub.character_loop_started character={character_id}")
         backoff = 1.0
         while not self._stop_event.is_set():
             try:
-                await self._poll_once(character_id)
+                had_rows = await self._poll_once(character_id)
                 backoff = 1.0
+                if not had_rows:
+                    with suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(
+                            self._stop_event.wait(),
+                            timeout=EMPTY_POLL_INTERVAL_SECONDS,
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -542,8 +552,12 @@ class PubsubEventAdapter:
                     await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
                 backoff = min(backoff * 2, RECONNECT_BACKOFF_MAX)
 
-    async def _poll_once(self, character_id: str) -> None:
-        """One long-poll + dispatch + archive cycle."""
+    async def _poll_once(self, character_id: str) -> bool:
+        """One read + dispatch + archive cycle.
+
+        Returns True if at least one message was read. The caller owns the
+        empty-queue sleep so tests can exercise a single cycle without delay.
+        """
         pgmq_url = _resolve_pgmq_url()
         internal_token = await self._ensure_internal_token(character_id)
 
@@ -558,7 +572,7 @@ class PubsubEventAdapter:
                 rows = await cur.fetchall()
 
                 if not rows:
-                    return
+                    return False
 
                 # Archive on success or when we give up (poison/malformed).
                 # Transient dispatch failures are deliberately left un-archived
@@ -599,6 +613,7 @@ class PubsubEventAdapter:
                         "SELECT public.archive_my_events(%s, %s, %s)",
                         (character_id, archive_token, msg_ids_to_archive),
                     )
+                return True
 
     async def _listen_broadcasts_once(self) -> None:
         """One LISTEN session: hold a connection, dispatch notifications.

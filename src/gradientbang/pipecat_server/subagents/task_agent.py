@@ -683,13 +683,22 @@ class TaskAgent(LLMAgent):
         if event_task_id and event_task_id == self._active_task_id:
             await self._handle_event(event)
             return
-        # Events for our character (movement, status, etc.)
+        # Untagged async completion events for our character. Normal task
+        # output should be scoped by task_id; this fallback only preserves
+        # compatibility with older producers that don't tag completion events.
         payload = event.get("payload")
         if isinstance(payload, dict):
             player = payload.get("player")
             if isinstance(player, dict) and player.get("id") == self._character_id:
-                await self._handle_event(event)
-                return
+                if self._matches_awaited_completion(event):
+                    await self._handle_event(event)
+                    return
+                logger.debug(
+                    "TaskAgent '{}': ignoring unscoped character event {} while awaiting {}",
+                    self.name,
+                    event.get("event_name"),
+                    self._awaiting_completion_event,
+                )
             # Combat events identify the actor via participants[].id (and
             # ship.destroyed via top-level ship_id) rather than payload.player,
             # so the corp-ship TaskAgent must match against those fields too.

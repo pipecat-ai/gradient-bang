@@ -68,11 +68,21 @@ In production, BYOA runs in a Vercel Sandbox the **operator** owns. The operator
 
 **1. Onboard.** Same as local — `/byoa-setup prod` claims the ship and writes your operator config to `.env.byoa` in our prod env.
 
-**2. Deploy the Vercel template.** The wake-receiver template lives in-tree at [deployment/vercel/](../deployment/vercel/) (`api/wake.ts`, `package.json`, `vercel.json`, `prompt.example.md`). Run `/byoa-deploy-vercel prod --prod` — it reads your `.env.byoa`, pushes the operator-side env (`BYOA_WAKE_SECRET`, `TASK_LLM_*`, the matching `*_API_KEY`, and optionally `BYOA_PROMPT` / `BYOA_PROMPT_FILE`) to the Vercel project, deploys, and health-checks. First-time setup needs one interactive `npx vercel link` from `deployment/vercel/`. See [byoa-vercel.md](byoa-vercel.md) for the full env reference and troubleshooting.
+**2. Deploy the Vercel template + register the wake URL.** The wake-receiver template lives in-tree at [deployment/vercel/](../deployment/vercel/) (`api/wake.ts`, `package.json`, `vercel.json`, `prompt.example.md`). First-time setup needs one interactive `npx vercel link` from `deployment/vercel/` to associate it with your Vercel project.
 
-**3. Point your ship at the deployed function URL and give us a wake bearer:**
+Then run `/byoa-deploy-vercel prod` — one command that:
 
-Generate a random secret (e.g. `openssl rand -hex 32`). Set it as `BYOA_WAKE_SECRET` on your Vercel project env, then send the **same value** to us so we can sign wakes to your function:
+- Pushes the operator-side env (`BYOA_WAKE_SECRET`, `TASK_LLM_*`, the matching `*_API_KEY`, optionally `BYOA_PROMPT` / `BYOA_PROMPT_FILE`) from `.env.byoa` to the Vercel project across all three envs
+- Deploys to production (the default — preview URLs are SSO-gated by Vercel Standard Protection and unreachable by wake_agent)
+- Captures the public alias (`https://<projectName>.vercel.app`) from the deploy output
+- Health-checks the wake endpoint + smoke-tests the bearer auth path
+- Prompts for your email + password (or accepts `--access-token <jwt>`), calls `/login`, and POSTs `ship_byoa_configure set { source_url }` to register the alias against your ship
+
+The wake secret is already registered server-side by `/byoa-setup` in step 1, so step 2 only needs to register `source_url`. See [byoa-vercel.md](byoa-vercel.md) for the full env reference, re-deploy flow, secret rotation, and troubleshooting.
+
+**3. Trigger a task** through the bot UI. `wake_agent` decrypts the per-ship `byoa_wake_secret_enc` inside a SECURITY DEFINER function and POSTs the wake to your registered `source_url` with `Authorization: Bearer <ship's wake secret>`. Your function reads its own `process.env` (= your Vercel project env, automatically inherited), merges with the wake payload, and calls `Sandbox.create({ source: { type: 'tarball', url }, runtime: 'python3.13', env: { …operator config…, …per-session bits… } })`. The sandbox runs `uv run byoa` and the harness reads the merged env.
+
+If you ever need to register `source_url` by hand (custom Vercel project, skill auto-register failed, etc.), the curl is:
 
 ```bash
 curl -X POST "$SUPABASE_URL/functions/v1/ship_byoa_configure" \
@@ -82,14 +92,11 @@ curl -X POST "$SUPABASE_URL/functions/v1/ship_byoa_configure" \
     "character_id": "<your character UUID>",
     "ship_id": "<corp ship UUID>",
     "action": "set",
-    "source_url": "https://<your-project>.vercel.app/api/wake",
-    "wake_secret": "<the random hex>"
+    "source_url": "https://<your-project>.vercel.app/api/wake"
   }'
 ```
 
-We store the secret encrypted at rest. wake_agent decrypts it inside a SECURITY DEFINER function at dispatch time and uses it as the `Authorization: Bearer …` to your function. The plaintext never appears in any client-readable column.
-
-**4. Trigger a task** through the bot UI. `wake_agent` POSTs the wake payload to your function URL. Your function reads its own `process.env` (= your Vercel project env, automatically inherited), merges with the wake payload, and calls `Sandbox.create({ source: { type: 'tarball', url }, runtime: 'python3.13', env: { …operator config…, …per-session bits… } })`. The sandbox runs `uv run byoa` and the harness reads the merged env.
+Pass `wake_secret` alongside `source_url` only if you're also rotating it; otherwise the existing server-side value is preserved (`set` is a partial update — see [ship_byoa_configure actions](#ship_byoa_configure-actions)).
 
 ## Mode B: ejecting from defaults
 

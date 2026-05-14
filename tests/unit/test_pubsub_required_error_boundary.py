@@ -5,8 +5,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "deployment/supabase/migrations/20260514010000_pubsub_required_error_boundary.sql"
+IMMEDIATE_READ_MIGRATION = (
+    ROOT / "deployment/supabase/migrations/20260514160000_pubsub_immediate_read.sql"
+)
 EVENTS_TS = ROOT / "deployment/supabase/functions/_shared/events.ts"
 BOT_PY = ROOT / "src/gradientbang/pipecat_server/bot.py"
+PUBSUB_PY = ROOT / "src/gradientbang/adapters/events/pubsub.py"
 
 
 def test_required_pubsub_migration_removes_silent_publish_noop() -> None:
@@ -27,6 +31,23 @@ def test_required_pubsub_migration_does_not_swallow_pgmq_publish_failures() -> N
     )[1].split("COMMENT ON FUNCTION public.record_event_with_recipients", 1)[0]
     assert "record_event_with_recipients pgmq_publish failed" not in record_body
     assert "PERFORM public.pgmq_publish('chr_' || v_id::TEXT, v_msg);" in record_body
+
+
+def test_subscribe_my_events_uses_immediate_read_not_wrapped_long_poll() -> None:
+    sql = IMMEDIATE_READ_MIGRATION.read_text(encoding="utf-8")
+
+    subscribe_body = sql.split(
+        "CREATE OR REPLACE FUNCTION public.subscribe_my_events", 1
+    )[1].split("COMMENT ON FUNCTION public.subscribe_my_events", 1)[0]
+    assert "read_with_poll" not in subscribe_body
+    assert "pgmq.read(" in subscribe_body
+
+
+def test_pubsub_adapter_caps_legacy_sql_poll_window() -> None:
+    source = PUBSUB_PY.read_text(encoding="utf-8")
+
+    assert 'PGMQ_MAX_POLL_SECONDS", "1"' in source
+    assert "PGMQ_EMPTY_POLL_INTERVAL_SECONDS" in source
 
 
 def test_emit_error_event_is_log_only() -> None:
