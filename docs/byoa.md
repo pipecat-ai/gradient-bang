@@ -1,11 +1,11 @@
 # BYOA: Bring Your Own Agent
 
-Run your own AI agent for a corporation ship. The harness reads its config from env vars at wake time and drives the TaskAgent against the game's PGMQ bus. Two intended modes:
+Run your own AI agent for a corporation ship. The harness reads its config from env vars at wake time and drives the TaskAgent against the game's PGMQ bus. Two modes:
 
 - **Mode A** — deploy our hosted template to Vercel, set env vars on your Vercel project, done. No code.
 - **Mode B** — fork the harness, attach hooks (`@app.prompt`, `@app.llm`, …) or eject entirely and write your own runner against the TaskAgent building blocks.
 
-> **Implementation status.** The harness, per-ship wake-URL column, and BYOA token primitives are live on `jpt/0.5.0-byoa-phase-3`. The `set` action on `ship_byoa_configure`, the hosted Vercel-function template, and the runtime tarball CI are rolling out across follow-up PRs. The **local-dev quickstart works end-to-end today**; the **production quickstart** describes the eventual flow.
+> **Status.** Local-dev quickstart works end-to-end today. The hosted Vercel template and runtime-tarball CI are still rolling out; the production quickstart describes the eventual flow.
 
 ## How wake works
 
@@ -56,7 +56,7 @@ uv run bot --host 0.0.0.0
 uv run byoa --serve
 ```
 
-Set the local edge-function env with `BYOA_BUS_DATABASE_URL` and `WAKE_TARGET=http`. Optionally set `DEFAULT_BYOA_SOURCE_URL=http://host.docker.internal:8765/wake` so a freshly-claimed ship without a per-ship URL still routes somewhere sensible.
+Set the local edge-function env with `BYOA_BUS_DATABASE_URL` and `BYOA_WAKE_TARGET=http`. Optionally set `DEFAULT_BYOA_SOURCE_URL=http://host.docker.internal:8765/wake` so a freshly-claimed ship without a per-ship URL still routes somewhere sensible.
 
 The per-ship wake bearer is set via `ship_byoa_configure set { source_url, wake_secret }` (the `byoa-setup` skill writes this for you in step 1; it generates the value, stores it in `.env.byoa` for the daemon, and sends the same value to us via the configure endpoint). When a task starts, `wake_agent` looks up the ship's URL + decrypted bearer, POSTs the wake to the URL with `Authorization: Bearer <ship's wake secret>`; the daemon validates the bearer against its own `.env.byoa` copy and spawns `uv run byoa` (no flag — single session) with the merged env. The spawned process joins the per-session PGMQ channel via the SECURITY DEFINER `public.bus_*` wrappers; knowledge of the channel name (transported wake → BYOA over HTTPS) is the bus capability.
 
@@ -68,16 +68,7 @@ In production, BYOA runs in a Vercel Sandbox the **operator** owns. The operator
 
 **1. Onboard.** Same as local — `/byoa-setup prod` claims the ship and writes your operator config to `.env.byoa` in our prod env.
 
-**2. Deploy our hosted template to Vercel.** One-click "Deploy to Vercel" from `gradient-bang-byoa-template` (see [byoa-vercel.md](byoa-vercel.md) for the reference function code while that template is still being assembled). The template includes:
-
-- `api/wake.ts` — a Vercel Function that receives our wake POST, calls `Sandbox.create()` with the operator's project env merged into the `env` param, and runs `uv run byoa` inside.
-- `prompt.md` — a placeholder prompt the operator edits.
-- Project env keys the operator must fill in via the Vercel dashboard or `vercel env add`:
-  - `BYOA_WAKE_SECRET` — the per-ship bearer that authenticates wake_agent → this function. Generate a fresh random value (`openssl rand -hex 32`) and use the same value when you `ship_byoa_configure set` in step 3.
-  - `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, and the matching `*_API_KEY` for your chosen LLM.
-  - Optional: `BYOA_PROMPT` (inline; otherwise the deployed `prompt.md` is used), `BYOA_TOOL_CALL_TIMEOUT_SECONDS`, `BYOA_AGENT_IDLE_TEARDOWN_SECONDS`.
-
-The function uses our default runtime tarball URL out of the box; fork the template to use your own.
+**2. Deploy the Vercel template.** The wake-receiver template lives in-tree at [deployment/vercel-function/](../deployment/vercel-function/) (`api/wake.ts`, `package.json`, `vercel.json`, `prompt.example.md`). Run `/byoa-deploy-vercel prod --prod` — it reads your `.env.byoa`, pushes the operator-side env (`BYOA_WAKE_SECRET`, `TASK_LLM_*`, the matching `*_API_KEY`, and optionally `BYOA_PROMPT` / `BYOA_PROMPT_FILE`) to the Vercel project, deploys, and health-checks. First-time setup needs one interactive `npx vercel link` from `deployment/vercel-function/`. See [byoa-vercel.md](byoa-vercel.md) for the full env reference and troubleshooting.
 
 **3. Point your ship at the deployed function URL and give us a wake bearer:**
 
@@ -186,14 +177,13 @@ The DB holds the wake URL and a **per-ship bearer** that authenticates wake_agen
 | Env var | Where | Default | What it controls |
 |---|---|---|---|
 | `SUBAGENT_BUS_TRANSPORT` | bot | `local` | `pgmq` to enable BYOA |
-| `SUBAGENT_BUS_DATABASE_URL` | bot | — | Bot's privileged bus DSN. BYOA receivers must not receive this |
-| `SUBAGENT_BUS_CHANNEL` | bot | — | Per-deployment channel prefix (e.g. `gb_prod`); bot derives per-session channel from this |
+| `SUBAGENT_BUS_DATABASE_URL` | bot | — | Bot's privileged bus DSN. BYOA receivers must not see this |
 | `BYOA_BUS_DATABASE_URL` | wake_agent | — | Restricted BYOA bus DSN injected into the wake POST payload |
-| `WAKE_TARGET` | wake_agent | `noop` | `http` to dispatch wakes, `noop` to disable (manual fallback) |
-| `DEFAULT_BYOA_SOURCE_URL` | wake_agent | — | Fallback wake URL used when a ship's `byoa_runtime_source_url` is NULL. The per-ship bearer (`byoa_wake_secret_enc`) is **always required** — there is no shared-secret fallback |
+| `BYOA_WAKE_TARGET` | wake_agent | `noop` | `http` dispatches wakes; `noop` disables (manual fallback) |
+| `DEFAULT_BYOA_SOURCE_URL` | wake_agent | — | Fallback wake URL when a ship's `byoa_runtime_source_url` is NULL. The per-ship bearer (`byoa_wake_secret_enc`) is **always required** — no shared-secret fallback |
 | `TASK_AGENT_TIMEOUT` | bot | `1800` | Per-task hard upper bound (seconds). Bot cancels and clears its local ship lock on expiry. Not operator-overridable |
 
-`EDGE_API_TOKEN` stays where it always was (privileged trusted-caller auth for our edge functions); it is **not** related to BYOA wake auth and never leaves our infra.
+`EDGE_API_TOKEN` is unrelated to BYOA wake auth and never leaves our infra. Bus channels are server-allocated UUID-128 strings (`gb_<32hex>`) minted per voice session — no channel-prefix env var is needed.
 
 ## `ship_byoa_configure` actions
 

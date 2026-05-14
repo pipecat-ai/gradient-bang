@@ -1,8 +1,7 @@
 """In-process :class:`AgentBus` backed by ``asyncio.Queue``.
 
-Default transport — preserves the pre-Phase-2 behavior bit-for-bit. Constructed
-by :func:`.factory.make_subagent_bus` when ``SUBAGENT_BUS_TRANSPORT`` is unset
-or ``local``.
+Default transport. Constructed by :func:`.factory.make_subagent_bus` when
+``SUBAGENT_BUS_TRANSPORT`` is unset or ``local``.
 """
 
 from pipecat_subagents.bus import AsyncQueueBus

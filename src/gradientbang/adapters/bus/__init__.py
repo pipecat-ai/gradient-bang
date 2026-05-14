@@ -1,8 +1,7 @@
 """Subagent-bus adapters for ``AgentRunner``.
 
 The bot picks an :class:`AgentBus` at startup via :func:`make_subagent_bus`,
-which branches on ``SUBAGENT_BUS_TRANSPORT``. Today only ``local`` is wired
-up; ``pgmq`` lands in a follow-up commit.
+which branches on ``SUBAGENT_BUS_TRANSPORT`` (``local`` or ``pgmq``).
 """
 
 from gradientbang.adapters.bus.base import AgentBus

@@ -236,9 +236,8 @@ class ByoaApp:
             handle_sigint=True,
         )
         # TaskAgent's character_id is the SHIP's pseudo-character (the
-        # subject of every game tool call). The BYOA token bound to the
-        # operator's real character is authorized to act on the ship via
-        # corp membership + ship_byoa_configure ownership.
+        # subject of every game tool call). Authorization is the bus channel
+        # (capability) + corp membership + ship_byoa_configure ownership.
         agent = TaskAgent(
             agent_name,
             bus=bus,
@@ -376,6 +375,9 @@ def main() -> None:
 
             run_wake_daemon(host=args.host, port=args.port)
             return
+        from gradientbang.utils.logging_config import configure_logging
+
+        configure_logging()
         ByoaApp().run()
     except ByoaConfigError as exc:
         print(f"byoa: {exc}", file=sys.stderr)

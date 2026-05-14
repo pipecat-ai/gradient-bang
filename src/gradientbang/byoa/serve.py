@@ -70,7 +70,7 @@ def _require(env_key: str) -> str:
 
 
 class _WakeDaemon:
-    """Wake provider for ``WAKE_TARGET=http``.
+    """Wake provider for ``BYOA_WAKE_TARGET=http``.
 
     The edge function owns the wake contract; this daemon validates the
     shared edge API token and spawns a real ``uv run byoa`` process with
@@ -265,6 +265,9 @@ def run_wake_daemon(*, host: str, port: int) -> None:
     """Serve the local HTTP wake provider until SIGINT/SIGTERM."""
     try:
         _load_env_files()
+        from gradientbang.utils.logging_config import configure_logging
+
+        configure_logging()
         ship_id = _require("BYOA_SHIP_ID")
         character_id = _require("BYOA_CHARACTER_ID")
         wake_secret = _require("BYOA_WAKE_SECRET")

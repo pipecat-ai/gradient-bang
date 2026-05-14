@@ -439,11 +439,9 @@ class TaskAgent(LLMAgent):
 
         logger.info(f"TaskAgent '{self.name}': received task {task_id[:8]}")
 
-        # task.start was already emitted server-side by VoiceAgent
-        # (see VoiceAgent._acquire_server_ship_lock — name retained for
-        # historical reasons; it only emits the event now). Per-call
-        # task_id tagging on the broker's game client happens inside the
-        # broker handler, so TaskAgent does not mutate client state here.
+        # task.start was already emitted by VoiceAgent. Per-call task_id
+        # tagging on the broker's game client happens inside the broker
+        # handler, so TaskAgent does not mutate client state here.
 
         # Build initial context
         messages = [
@@ -622,12 +620,9 @@ class TaskAgent(LLMAgent):
     def _arm_idle_teardown(self) -> None:
         """Schedule self-teardown after agent_idle_teardown_seconds.
 
-        Called when a task ends. Reset (cancelled + re-armed) on every
-        new inbound activity. For a single-shot corp-ship agent the
-        timer fires before any further task can land, so the agent
-        ends naturally after its task completes. For a Phase 3 BYOA
-        agent that stays warm, this is the only thing that eventually
-        closes the loop.
+        Called when a task ends; reset on every new inbound activity. For
+        single-shot corp-ship agents the timer fires before any follow-up
+        task can land. For a warm BYOA agent, this is what closes the loop.
         """
         if not self._idle_teardown_enabled():
             return
@@ -1891,16 +1886,12 @@ class TaskAgent(LLMAgent):
     async def _send_task_finish_notification(
         self, *, status: str, summary: Optional[str]
     ) -> None:
-        """Fire-and-forget — tells the broker to release the server lock.
+        """Fire-and-forget — broker emits ``task_lifecycle event_type=finish``.
 
-        No response is expected. Errors here are logged; the server-side
-        lock auto-clears within the stale window if this fails to land.
-
-        actor_character_id mirrors what was passed at start time — for a
-        corp-ship task that's the player who issued the work, not the
-        ship's pseudo-character. The edge function's BYOA owner check
-        authorises the finish against this field, so a missing /
-        defaulted actor would 403 on BYOA ships.
+        No response; errors are logged. ``actor_character_id`` mirrors what
+        was passed at start time (the player for corp-ship tasks, not the
+        ship's pseudo-character) — the BYOA finish auth check authorises
+        against this field, so a missing actor would 403 on BYOA ships.
         """
         target = self._task_requester
         if not target or not self._active_task_id:

@@ -127,7 +127,7 @@ class BusCombatStrategyRequest(BusDataMessage):
     """Fetch the combat doctrine for a character before initiating combat.
 
     Replaces the direct ``combat_get_strategy()`` call in TaskAgent's
-    combat preamble path (today: ``task_agent.py:751``).
+    combat preamble path.
 
     Parameters:
         correlation_id: Unique id matching the response.
@@ -212,9 +212,8 @@ class BusCorporationQueryResponse(BusDataMessage):
 class BusTaskFinishNotification(BusDataMessage):
     """Fire-and-forget signal that a task is done.
 
-    Triggers the server-side lock release inside the broker, which calls
-    ``task_lifecycle event_type=finish`` on behalf of the TaskAgent.
-    No response — the broker logs and moves on.
+    The broker emits ``task_lifecycle event_type=finish`` on behalf of the
+    TaskAgent. No response — errors are logged.
 
     Parameters:
         character_id: Character whose task ended (corp-ship pseudo-char

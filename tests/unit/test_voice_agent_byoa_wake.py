@@ -366,7 +366,7 @@ class TestStartTaskWakeBranch:
         result = await agent._handle_start_task(params)
 
         assert result["success"] is False
-        assert "WAKE_TARGET=http" in result["error"]
+        assert "BYOA_WAKE_TARGET=http" in result["error"]
         assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
         assert agent._pending_wakes == {}
         assert agent._pending_tasks == {}

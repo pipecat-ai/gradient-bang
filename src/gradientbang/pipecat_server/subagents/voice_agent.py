@@ -200,10 +200,10 @@ class VoiceAgent(LLMAgent):
         # Per-ship watchdogs for the BYOA wake flow. Keyed by
         # target_character_id (the ship's pseudo-character_id for corp
         # ships). Each entry is an asyncio.Task that sleeps for
-        # agent_wake_timeout_seconds; on expiry it releases the server
-        # lock so a stuck wake doesn't leak. Cancelled when the BYOA
-        # agent advertises ready (on_agent_ready) or the task otherwise
-        # completes/cancels.
+        # agent_wake_timeout_seconds; on expiry it clears the local ship
+        # lock and cancels the task so a stuck wake doesn't leak.
+        # Cancelled when the BYOA agent advertises ready (on_agent_ready)
+        # or the task otherwise completes/cancels.
         self._pending_wakes: Dict[str, asyncio.Task] = {}
         # The actual per-session subagent-bus channel. The factory generates
         # a fresh UUID-128 channel per session and stores it in
@@ -1966,11 +1966,9 @@ class VoiceAgent(LLMAgent):
     ) -> None:
         """Unwind a TaskAgent spawn after the wake-up handshake fails.
 
-        The server-side ship lock was already acquired in
-        ``_handle_start_task``; releasing it here lets a follow-up task try
-        again immediately rather than waiting for the stale window.
-        Best-effort: every step swallows its own exceptions so the rest
-        of the cleanup still runs.
+        The in-memory ship lock was taken in ``_handle_start_task``;
+        clearing it here unblocks a follow-up task. Best-effort — each
+        step swallows its own exceptions so the rest of cleanup runs.
         """
         target_character_id: Optional[str] = None
         child = next((c for c in self._children if c.name == agent_name), None)
@@ -2131,9 +2129,8 @@ class VoiceAgent(LLMAgent):
         # and silently folds in entries once the topic has clearly moved on.
         self._enqueue_deferred_update(event_xml, ship_id=ship_character_id)
 
-        # Release ship lock (both player and corp). The server-side release
-        # happens inside TaskAgent (it calls task_lifecycle finish before
-        # exiting), so we only clear the local map here.
+        # Clear the local ship lock. TaskAgent emits task_lifecycle finish
+        # before exiting.
         if ship_character_id:
             self._locked_ships.pop(ship_character_id, None)
 
@@ -2662,8 +2659,7 @@ class VoiceAgent(LLMAgent):
                 task_metadata=task_metadata or None,
             )
         except Exception as exc:
-            # Lock auto-clears within the stale window. Don't fail loudly —
-            # the task itself has already completed from the agent's POV.
+            # Task is already done from the agent's POV; log and move on.
             logger.warning(
                 f"broker task_finish failed for {msg.task_id[:8]}: {exc}"
             )
@@ -2827,10 +2823,10 @@ class VoiceAgent(LLMAgent):
                         None,
                     )
                     if existing:
-                        # Reuse must follow the same ordering as a new agent:
-                        # acquire the server lock before dispatching work, so
-                        # the child cannot start inference/tool calls without
-                        # a held (ship_id, task_id) pair.
+                        # Same ordering as a new agent: emit task.start
+                        # (which gates BYOA-owner auth) before dispatching,
+                        # so the child can't run tools without a (ship_id,
+                        # task_id) pair.
                         framework_task_id = str(uuid.uuid4())
                         server_err = await self._acquire_server_ship_lock(
                             target_character_id=target_character_id,
@@ -2862,7 +2858,7 @@ class VoiceAgent(LLMAgent):
                                 )
                             except Exception as release_exc:
                                 logger.warning(
-                                    f"server release after reuse hello failure errored: {release_exc}"
+                                    f"task_cancel after reuse hello failure errored: {release_exc}"
                                 )
                             return {
                                 "success": False,
@@ -2887,7 +2883,7 @@ class VoiceAgent(LLMAgent):
                                 )
                             except Exception as exc:
                                 logger.warning(
-                                    f"server release after reuse dispatch failure errored: {exc}"
+                                    f"task_cancel after reuse dispatch failure errored: {exc}"
                                 )
                             raise
                         self._update_polling_scope()
@@ -2993,7 +2989,7 @@ class VoiceAgent(LLMAgent):
                             f"byoa.watch_agent_failed name={byoa_agent_name} error={exc!r}"
                         )
                         # Roll back local state; the watchdog will still
-                        # eventually release the server lock if cleanup
+                        # cancel the task and clear local state if cleanup
                         # races us.
                         watchdog = self._pending_wakes.pop(target_character_id, None)
                         if watchdog and not watchdog.done():
@@ -3021,9 +3017,9 @@ class VoiceAgent(LLMAgent):
                         # immediately with status="waking" so the LLM keeps
                         # talking instead of blocking on the HTTP round-trip.
                         # On failure the dispatcher cancels the watchdog,
-                        # tears down local state, releases the server lock,
-                        # and surfaces a task.cancelled event via the
-                        # deferred-update queue (same path the watchdog uses).
+                        # tears down local state, cancels the task, and
+                        # surfaces a task.cancelled event via the deferred-
+                        # update queue (same path the watchdog uses).
                         asyncio.create_task(
                             self._dispatch_byoa_wake(
                                 target_character_id=target_character_id,
@@ -3078,15 +3074,15 @@ class VoiceAgent(LLMAgent):
                     self._locked_ships.pop(target_character_id, None)
                     self._pending_tasks.pop(agent_name, None)
                     self._children = [c for c in self._children if c.name != agent_name]
-                    # Best-effort server release so the lock we just acquired
-                    # doesn't leak waiting for the stale window.
+                    # Best-effort task cancel so a partially-spawned agent
+                    # doesn't leave a dangling task.
                     try:
                         await self._game_client.task_cancel(
                             task_id=framework_task_id,
                             character_id=self._character_id,
                         )
                     except Exception as exc:
-                        logger.warning(f"server release after add_agent failure errored: {exc}")
+                        logger.warning(f"task_cancel after add_agent failure errored: {exc}")
                     try:
                         await self.send_message(
                             BusEndAgentMessage(
@@ -3327,19 +3323,16 @@ class VoiceAgent(LLMAgent):
         task_metadata: Dict[str, Any],
         task_status: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Emit task.start via task_lifecycle; translate BYOA 403 into a
-        user-facing error dict.
+        """Emit ``task_lifecycle event_type=start``; translate a BYOA 403
+        into a user-facing error dict.
 
-        Note: despite the name, this no longer acquires a server-side lock
-        (there isn't one — the bot's in-memory ``_locked_ships`` is the
-        authority). It emits the task.start event so the events stream and
-        downstream consumers see the lifecycle transition, and surfaces
-        BYOA-owner errors cleanly to the caller.
+        The in-memory ``_locked_ships`` is the authority on ship busy-ness;
+        this just fires the lifecycle event so downstream consumers see the
+        transition.
 
         Returns:
             ``None`` on success, or a ``{"success": False, "error": ...}``
-            dict ready to surface to the LLM on a 403 BYOA-owner failure.
-            Other RPC failures re-raise so the outer handler can log them.
+            dict on a 403 BYOA-owner failure. Other RPC errors re-raise.
         """
         try:
             await self._game_client.task_lifecycle(
@@ -3500,9 +3493,9 @@ class VoiceAgent(LLMAgent):
         if target == "noop":
             return (
                 "BYOA wake is configured as noop and no runner is online for "
-                f"ship {ship_id[:8]}. Set WAKE_TARGET=http and run "
-                "`uv run byoa serve --prompt-file ./prompt.md`, or start a "
-                "manual BYOA runner before assigning the task."
+                f"ship {ship_id[:8]}. Set BYOA_WAKE_TARGET=http and run "
+                "`uv run byoa --serve`, or start a manual BYOA runner before "
+                "assigning the task."
             )
         return f"BYOA wake failed before the runner came online ({target}/{status})."
 
@@ -3581,11 +3574,11 @@ class VoiceAgent(LLMAgent):
 
         Cancellation is the happy path — `on_agent_ready` cancels this
         watchdog when the operator's agent comes online. Expiry is the
-        failure path: release the server lock, drop the pending task,
-        and clean local state. The buffered ``BusTaskRequest`` (if any
-        still sits in PGMQ) is left to age out per the bus's retention;
-        the operator's agent, if it eventually wakes, MUST verify its
-        ``task_id`` is still the active lock holder before processing.
+        failure path: cancel the task via ``task_cancel(force=true)`` and
+        drop local state. A buffered ``BusTaskRequest`` (if still sitting
+        in PGMQ) ages out per the bus's retention; if the operator's
+        agent eventually wakes, it MUST verify its ``task_id`` is still
+        the active lock holder before processing.
         """
         try:
             await asyncio.sleep(self._byoa_config.agent_wake_timeout_seconds)
@@ -3594,7 +3587,7 @@ class VoiceAgent(LLMAgent):
 
         logger.warning(
             f"byoa.wake_timeout ship={target_character_id[:8]} "
-            f"task={framework_task_id[:8]} — releasing server lock"
+            f"task={framework_task_id[:8]} — clearing ship lock + cancelling task"
         )
         # Clean local state first so a concurrent unsolicited hello after
         # this point can't trigger a half-dispatched task.
@@ -3603,8 +3596,8 @@ class VoiceAgent(LLMAgent):
         self._locked_ships.pop(target_character_id, None)
         self._invalidate_byoa_registry_entry(agent_name)
 
-        # Release the server-side lock. force=true bypasses the BYOA-owner
-        # check so the waking VoiceAgent can clean up after a failed wake.
+        # Force-cancel the task so the BYOA-owner check is bypassed when the
+        # bot cleans up a failed wake.
         try:
             await self._game_client.task_cancel(
                 task_id=framework_task_id,

@@ -239,7 +239,7 @@ Deno.test({
     });
 
     const envSnapshot = {
-      WAKE_TARGET: Deno.env.get("WAKE_TARGET"),
+      BYOA_WAKE_TARGET: Deno.env.get("BYOA_WAKE_TARGET"),
       DEFAULT_BYOA_SOURCE_URL: Deno.env.get("DEFAULT_BYOA_SOURCE_URL"),
       BYOA_BUS_DATABASE_URL: Deno.env.get("BYOA_BUS_DATABASE_URL"),
     };
@@ -248,7 +248,7 @@ Deno.test({
       "missing per-ship wake secret → visible spawn failure",
       async () => {
         try {
-          Deno.env.set("WAKE_TARGET", "http");
+          Deno.env.set("BYOA_WAKE_TARGET", "http");
           Deno.env.set(
             "BYOA_BUS_DATABASE_URL",
             "postgresql://byoa_login:test@db/postgres",
@@ -301,7 +301,7 @@ Deno.test({
         );
 
         try {
-          Deno.env.set("WAKE_TARGET", "http");
+          Deno.env.set("BYOA_WAKE_TARGET", "http");
           Deno.env.set(
             "BYOA_BUS_DATABASE_URL",
             "postgresql://byoa_login:test@db/postgres",
@@ -350,7 +350,7 @@ Deno.test({
       );
 
       try {
-        Deno.env.set("WAKE_TARGET", "http");
+        Deno.env.set("BYOA_WAKE_TARGET", "http");
         Deno.env.set(
           "BYOA_BUS_DATABASE_URL",
           "postgresql://byoa_login:test@db/postgres",

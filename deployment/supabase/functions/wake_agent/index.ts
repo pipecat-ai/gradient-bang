@@ -6,7 +6,7 @@
  *   1. Channel handoff: the voice agent owns the per-session subagent-bus
  *      channel and includes it in this request.
  *
- *   2. Spawn dispatch: based on `WAKE_TARGET` env, optionally trigger a
+ *   2. Spawn dispatch: based on `BYOA_WAKE_TARGET` env, optionally trigger a
  *      process spawn with BYOA_CHANNEL, BYOA_SHIP_ID, and
  *      BYOA_BUS_DATABASE_URL. Local dev uses the generic `http` target against
  *      `uv run byoa serve`; future production sandbox targets use the same
@@ -53,7 +53,7 @@ function channelHash(channel: string): string {
 }
 
 function lifecycleHint(): "single_task" | "idle_loop" {
-  return (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase() === "noop"
+  return (Deno.env.get("BYOA_WAKE_TARGET") ?? "noop").toLowerCase() === "noop"
     ? "idle_loop"
     : "single_task";
 }
@@ -217,7 +217,7 @@ async function dispatchSpawn(
   shipWakeUrl: string | null,
   shipWakeSecret: string | null,
 ): Promise<SpawnResult> {
-  const target = (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase();
+  const target = (Deno.env.get("BYOA_WAKE_TARGET") ?? "noop").toLowerCase();
   if (target === "noop") {
     console.log(
       "wake_agent.spawn.noop",
@@ -288,7 +288,7 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
   if (payload.healthcheck === true) {
     return successResponse({
       status: "ok",
-      wake_target: (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase(),
+      wake_target: (Deno.env.get("BYOA_WAKE_TARGET") ?? "noop").toLowerCase(),
       byoa_bus_database_url_present: Boolean(
         (Deno.env.get("BYOA_BUS_DATABASE_URL") ?? "").trim(),
       ),
@@ -380,7 +380,7 @@ Deno.serve(traced("wake_agent", async (req, trace) => {
         shipWakeSecret,
       )
       : {
-        target: (Deno.env.get("WAKE_TARGET") ?? "noop").toLowerCase(),
+        target: (Deno.env.get("BYOA_WAKE_TARGET") ?? "noop").toLowerCase(),
         status: "registered",
       };
 

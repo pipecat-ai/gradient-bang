@@ -9,9 +9,10 @@ Public API:
 * :class:`ByoaApp` — the default harness; instantiate and call ``.run()``
   for the zero-config path, or attach hooks via ``@app.prompt``, ``@app.llm``,
   ``@app.on_session_start``, ``@app.on_session_end``.
-* :class:`ByoaContext` — what hooks receive: token, ship_id, channel,
+* :class:`ByoaContext` — what hooks receive: ship_id, character_id, channel,
   bus_dsn, prompt, config, …
-* :class:`ByoaAgentConfig` — runtime tunables (heartbeat, timeouts, …).
+* :class:`ByoaAgentConfig` — runtime tunables (RPC timeouts, idle teardown,
+  wake timeout).
 * :class:`ByoaConfigError` — raised for missing/malformed BYOA env vars.
 """
 

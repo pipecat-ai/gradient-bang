@@ -104,7 +104,7 @@ Confirm the response has `byoa_owner_character_id` matching the operator's chara
 
 ### 6. Generate + register the per-ship wake secret
 
-Generate a fresh random hex bearer (`openssl rand -hex 32`). Capture in memory; write to `.env.byoa` in step 7 AND send the same value to us so wake_agent can sign outbound POSTs to the operator's wake receiver:
+Generate a fresh random hex bearer (`openssl rand -hex 32`). **Never reuse `EDGE_API_TOKEN`** — that's privileged trusted-caller auth for our edge functions and must not leave our infra; the wake secret is a per-ship, operator-side credential. Capture the freshly-generated hex in memory; write it to `.env.byoa` in step 7 AND send the same value to us so wake_agent can sign outbound POSTs to the operator's wake receiver:
 
 ```bash
 curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
@@ -130,20 +130,26 @@ For production also set `BYOA_WAKE_SECRET=<same hex>` as project env on the oper
 
 Path: `--out` value, or `./.env.byoa` if not provided. File mode **0600**.
 
+Use `env.byoa.example` (in the repo root) as the template — it contains every config option the harness and daemon understand, with the optional ones commented out at their defaults. Copy it to the output path, then fill in **only** the three required values at the top. Leave the rest of the template untouched so the operator can later uncomment any tunable in place without consulting docs.
+
 ```bash
 umask 077
-cat > "<out_path>" <<EOF
-# Written by /byoa-setup on $(date -Iseconds)
-BYOA_CHARACTER_ID=<character_id from step 3>
-BYOA_SHIP_ID=<ship_id from step 4>
-BYOA_WAKE_SECRET=<generated hex from step 6>
-EOF
+cp env.byoa.example "<out_path>"
+python3 - "<out_path>" "<character_id>" "<ship_id>" "<wake_secret_hex>" <<'PY'
+import sys, pathlib
+path, char_id, ship_id, secret = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+text = pathlib.Path(path).read_text()
+text = text.replace("BYOA_CHARACTER_ID=\n", f"BYOA_CHARACTER_ID={char_id}\n", 1)
+text = text.replace("BYOA_SHIP_ID=\n", f"BYOA_SHIP_ID={ship_id}\n", 1)
+text = text.replace("BYOA_WAKE_SECRET=\n", f"BYOA_WAKE_SECRET={secret}\n", 1)
+pathlib.Path(path).write_text(text)
+PY
 chmod 600 "<out_path>"
 ```
 
-`SUBAGENT_BUS_DATABASE_URL` is intentionally omitted — `uv run byoa --serve` picks it up from `.env.bot` via fallback when running from the bot checkout. Standalone operator deploys without a bot checkout need to set it in the shell env or add it to `.env.byoa` by hand.
+Only the three required values are filled in; every other option (`BYOA_PROMPT_FILE`, `TASK_LLM_*`, `BYOA_TOOL_CALL_TIMEOUT_SECONDS`, …) stays commented out at its default. `SUBAGENT_BUS_DATABASE_URL` is not in the template — `uv run byoa --serve` picks it up from `.env.bot` via fallback when running from the bot checkout. Standalone operator deploys without a bot checkout need to set it in the shell env or add it to `.env.byoa` by hand.
 
-Verify the file is `0600` after writing; surface a warning if not.
+Verify the file is `0600` and that all three values are populated after writing; surface a warning if not.
 
 ### 8. Print next steps
 
@@ -156,7 +162,7 @@ Echo a copy-pasteable summary the operator can act on:
   uv run byoa --serve
   ```
   The daemon reads `.env.byoa` and waits for wakes from `wake_agent`. As long as the ship has no per-ship `source_url` set, `wake_agent` defaults to `http://host.docker.internal:8765/wake` and routes to the daemon automatically using the per-ship `BYOA_WAKE_SECRET`. Only set `DEFAULT_BYOA_SOURCE_URL` on the edge env to override the default for *all* unconfigured ships.
-- **Production** (env = `prod`): deploy our hosted template (`gradient-bang-byoa-template`) to your own Vercel project. Set `BYOA_WAKE_SECRET`, `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, and the matching `*_API_KEY` as project env. Then point this ship at the deployed function URL via `ship_byoa_configure set { source_url: "https://<your-project>.vercel.app/api/wake" }`.
+- **Production** (env = `prod`): run `/byoa-deploy-vercel prod --prod` next. It deploys the template at [deployment/vercel-function/](../../../deployment/vercel-function/) to the operator's Vercel project, pushes `BYOA_WAKE_SECRET` / `TASK_LLM_*` / the matching `*_API_KEY` from `.env.byoa`, health-checks, and prints the `ship_byoa_configure set { source_url }` curl to point this ship at the deployment.
 - Point at `docs/byoa.md` for full env / config reference.
 - Rotate the wake secret by re-running `/byoa-setup <env> --force --ship-id <ship>` — this writes a fresh value and updates `ship_byoa_configure` in one shot.
 

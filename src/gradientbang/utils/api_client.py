@@ -1324,7 +1324,7 @@ class AsyncGameClient:
         """Call the server-side ``wake_agent`` endpoint for a BYOA ship.
 
         Passes the bot's per-session PGMQ channel to the server-side wake
-        dispatcher for a BYOA ship. Local dev uses ``WAKE_TARGET=http``
+        dispatcher for a BYOA ship. Local dev uses ``BYOA_WAKE_TARGET=http``
         pointed at ``uv run byoa serve``; future remote wake targets spawn
         the process with ``BYOA_CHANNEL``, ``BYOA_SHIP_ID``, and the
         restricted ``BYOA_BUS_DATABASE_URL``.
