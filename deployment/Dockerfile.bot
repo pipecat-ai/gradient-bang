@@ -13,7 +13,7 @@ ENV PYTHONPATH=/app
 
 # Install Deno for running edge functions locally
 ENV DENO_INSTALL=/root/.deno
-RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip git \
     && curl -fsSL https://deno.land/install.sh | sh \
     && apt-get purge -y curl unzip && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
