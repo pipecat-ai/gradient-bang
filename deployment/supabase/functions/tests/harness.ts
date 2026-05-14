@@ -6,6 +6,12 @@
  */
 
 import { Client } from "postgres";
+import {
+  v5,
+  validate as validateUuid,
+} from "https://deno.land/std@0.197.0/uuid/mod.ts";
+
+const LEGACY_NAMESPACE = "5a53c4f5-8f16-4be6-8d3d-2620f4c41b3b";
 
 // ---------------------------------------------------------------------------
 // All dynamic tables in the database (27 total, minus ship_definitions and
@@ -130,6 +136,35 @@ export async function resetDatabase(
   if (!result.success) {
     throw new Error(`test_reset returned failure: ${JSON.stringify(result)}`);
   }
+
+  await ensureCharacterQueues(characterIds);
+}
+
+async function ensureCharacterQueues(characterIds: string[]): Promise<void> {
+  if (characterIds.length === 0) return;
+
+  const pg = new Client(getPgUrl());
+  try {
+    await pg.connect();
+    for (const character of characterIds) {
+      const characterId = await canonicalCharacterId(character);
+      await pg.queryObject("SELECT public.ensure_character_queue($1)", [
+        characterId,
+      ]);
+      await pg.queryObject("SELECT pgmq.purge_queue($1)", [
+        `chr_${characterId}`,
+      ]);
+    }
+  } finally {
+    await pg.end();
+  }
+}
+
+async function canonicalCharacterId(value: string): Promise<string> {
+  const trimmed = value.trim();
+  if (validateUuid(trimmed)) return trimmed;
+  const data = new TextEncoder().encode(trimmed);
+  return await v5.generate(LEGACY_NAMESPACE, data);
 }
 
 /**

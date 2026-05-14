@@ -447,7 +447,7 @@ Deno.test({
 
 // ============================================================================
 // Group 7: Corp member (subject) — join() duplicate
-// The join endpoint emits status.snapshot and map.local with corpId.
+// The join endpoint returns status inline and emits map.local with corpId.
 // ============================================================================
 
 Deno.test({
@@ -465,14 +465,14 @@ Deno.test({
       await apiOk("join", { character_id: p1Id });
     });
 
-    await t.step("P1 polls WITH corp_id: exactly 1 status.snapshot, 1 map.local", async () => {
+    await t.step("P1 polls WITH corp_id: exactly 1 map.local and no status.snapshot", async () => {
       const { events } = await eventsSince(p1Id, cursor, corpAId);
       const counts = countByType(events);
       assertEquals(
         counts["status.snapshot"],
-        1,
-        `Expected 1 status.snapshot, got ${counts["status.snapshot"]}. ` +
-          `Duplicate bug: join emits with corpId, subject gets individual + corp row.`,
+        undefined,
+        `join status is returned inline and should not be published. ` +
+          `Got ${counts["status.snapshot"]} status.snapshot events.`,
       );
       assertEquals(
         counts["map.local"],
@@ -1176,37 +1176,31 @@ Deno.test({
   sanitizeResources: false,
   async fn(t) {
     let cursor: number;
+    let joinResult: Record<string, unknown> & { success: boolean };
 
     await t.step("capture cursor", async () => {
       cursor = await getEventCursor(p1Id);
     });
 
     await t.step("P1 re-joins", async () => {
-      await apiOk("join", { character_id: p1Id });
+      joinResult = await apiOk("join", { character_id: p1Id });
     });
 
-    await t.step("status.snapshot has identifiable event_context for P1", async () => {
+    await t.step("join response carries inline status for P1", async () => {
+      const status = joinResult.status as Record<string, unknown>;
+      assertExists(status, "join response should include inline status");
+      const player = status.player as Record<string, unknown>;
+      assertEquals(player.id, p1Id);
+      const source = status.source as Record<string, unknown>;
+      assertEquals(source.method, "join");
+    });
+
+    await t.step("no durable status.snapshot is emitted for join", async () => {
       const { events } = await eventsSince(p1Id, cursor, corpAId);
       const snapshots = events.filter(
         (e) => e.event_type === "status.snapshot",
       );
-      assert(snapshots.length >= 1, "Expected at least 1 status.snapshot");
-
-      const ctx = snapshots[0].event_context as Record<string, unknown>;
-      assertExists(ctx, "event_context should exist on status.snapshot");
-
-      const reason = ctx.reason as string | null;
-      const ctxCharId = ctx.character_id as string | null;
-      const isDirectReason = reason !== null &&
-        ["direct", "task_owner", "recipient"].includes(reason);
-      const isSubjectMatch = ctxCharId === p1Id;
-
-      assert(
-        isDirectReason || isSubjectMatch,
-        `Join status.snapshot must be identifiable by subject. ` +
-          `reason=${reason}, character_id=${ctxCharId}, expected=${p1Id}. ` +
-          `Without this, the bot ignores its own join snapshot.`,
-      );
+      assertEquals(snapshots.length, 0, "join status.snapshot should be inline only");
     });
 
     await t.step("map.local has identifiable event_context for P1", async () => {

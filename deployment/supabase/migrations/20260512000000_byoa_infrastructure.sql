@@ -90,7 +90,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 INSERT INTO public.app_runtime_config (key, value, description)
 VALUES (
   'byoa_operator_secret',
-  encode(gen_random_bytes(32), 'base64'),
+  encode(extensions.gen_random_bytes(32), 'base64'),
   'Symmetric secret used by pgp_sym_encrypt/decrypt for byoa_wake_secret_enc on ship_instances. Auto-provisioned by this migration; rotate via UPDATE.'
 )
 ON CONFLICT (key) DO NOTHING;

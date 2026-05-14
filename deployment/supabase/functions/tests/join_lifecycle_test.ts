@@ -76,32 +76,24 @@ Deno.test({
       await resetDatabase([PLAYER_1, PLAYER_2]);
     });
 
+    let joinResult: Record<string, unknown> & { success: boolean };
+
     // ── Join returns success ──────────────────────────────────────────
 
     await t.step("player 1 join returns success with request_id", async () => {
-      const result = await apiOk("join", {
+      joinResult = await apiOk("join", {
         character_id: player1Id,
         request_id: "test-join-p1",
       });
-      assert(result.success);
-      assertEquals((result as Record<string, unknown>).request_id, "test-join-p1");
+      assert(joinResult.success);
+      assertEquals(joinResult.request_id, "test-join-p1");
     });
 
-    // ── Events emitted by join ────────────────────────────────────────
+    // ── Response data and events emitted by join ──────────────────────
 
-    await t.step("player 1 receives status.snapshot event", async () => {
-      const snapshots = await eventsOfType(player1Id, "status.snapshot");
-      assert(snapshots.length >= 1, `Expected >= 1 status.snapshot, got ${snapshots.length}`);
-
-      // Delivered directly to the joining player
-      const ev = snapshots[0];
-      assertEquals(ev.recipient_ids[0], player1Id);
-      assertEquals(ev.recipient_reasons[0], "direct");
-    });
-
-    await t.step("status.snapshot payload has player, ship, sector, source", async () => {
-      const snapshots = await eventsOfType(player1Id, "status.snapshot");
-      const payload = snapshots[0].payload;
+    await t.step("inline status payload has player, ship, sector, source", async () => {
+      const payload = joinResult.status as Record<string, unknown>;
+      assertExists(payload, "join response status");
 
       // Player fields
       const player = payload.player as Record<string, unknown>;
@@ -246,6 +238,7 @@ Deno.test({
     });
 
     let cursorBeforeP2: number;
+    let p2JoinResult: Record<string, unknown> & { success: boolean };
 
     await t.step("capture event cursor before player 2 joins", async () => {
       cursorBeforeP2 = await getEventCursor(player1Id);
@@ -256,12 +249,14 @@ Deno.test({
       // Both players are pinned to sector 0 by PINNED_SECTORS in test_reset
       const result = await apiOk("join", { character_id: player2Id });
       assert(result.success);
+      p2JoinResult = result;
     });
 
-    await t.step("player 2 receives own status.snapshot", async () => {
-      const snapshots = await eventsOfType(player2Id, "status.snapshot");
-      assert(snapshots.length >= 1, "Player 2 should receive status.snapshot");
-      assertEquals(snapshots[0].recipient_ids[0], player2Id);
+    await t.step("player 2 receives own inline status", async () => {
+      const payload = p2JoinResult.status as Record<string, unknown>;
+      assertExists(payload, "Player 2 should receive inline status");
+      const player = payload.player as Record<string, unknown>;
+      assertEquals(player.id, player2Id);
     });
 
     await t.step("player 2 receives own map.local", async () => {
@@ -269,9 +264,8 @@ Deno.test({
       assert(maps.length >= 1, "Player 2 should receive map.local");
     });
 
-    await t.step("player 2 status.snapshot shows player 1 in sector", async () => {
-      const snapshots = await eventsOfType(player2Id, "status.snapshot");
-      const payload = snapshots[0].payload;
+    await t.step("player 2 inline status shows player 1 in sector", async () => {
+      const payload = p2JoinResult.status as Record<string, unknown>;
       const sector = payload.sector as Record<string, unknown>;
       const players = sector.players as Array<Record<string, unknown>>;
       assertExists(players, "sector.players should exist");
@@ -492,21 +486,18 @@ Deno.test({
       await apiOk("join", { character_id: player1Id, sector: 1 });
     });
 
-    await t.step("player 1 joining sector 0: gets snapshot, not own character.moved", async () => {
+    await t.step("player 1 joining sector 0: gets inline status and no own character.moved", async () => {
       await clearEvents();
       const cursor = await getEventCursor(player1Id);
 
       // Player 1 joins sector 0 (from sector 1)
-      await apiOk("join", { character_id: player1Id, sector: 0 });
+      const result = await apiOk("join", { character_id: player1Id, sector: 0 });
+      assertExists(result.status, "join should return inline status");
 
       const { events } = await eventsSince(player1Id, cursor);
       const eventTypes = events.map((e) => e.event_type);
 
-      // Should receive status.snapshot and map.local (self-directed)
-      assert(
-        eventTypes.includes("status.snapshot"),
-        `Expected status.snapshot in: ${JSON.stringify(eventTypes)}`,
-      );
+      // Should receive map.local (self-directed); status is inline in response.
       assert(
         eventTypes.includes("map.local"),
         `Expected map.local in: ${JSON.stringify(eventTypes)}`,
@@ -822,11 +813,10 @@ Deno.test({
 
     await t.step("join succeeds and snapshot has ship type name", async () => {
       await clearEvents();
-      await apiOk("join", { character_id: player1Id });
+      const result = await apiOk("join", { character_id: player1Id });
 
-      const snapshots = await eventsOfType(player1Id, "status.snapshot");
-      assert(snapshots.length >= 1);
-      const payload = snapshots[0].payload;
+      const payload = result.status as Record<string, unknown>;
+      assertExists(payload, "join response status");
       const ship = payload.ship as Record<string, unknown>;
       assertExists(ship, "payload.ship");
       // ship_name should be populated from shipDefinition.display_name

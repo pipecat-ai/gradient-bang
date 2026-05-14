@@ -397,3 +397,24 @@ REVOKE ALL ON FUNCTION public.record_event_with_recipients(
 GRANT EXECUTE ON FUNCTION public.record_event_with_recipients(
   TEXT, TEXT, TEXT, UUID, UUID, INTEGER, UUID, UUID, UUID, JSONB, JSONB, TEXT, UUID[], TEXT[], BOOLEAN, UUID
 ) TO service_role;
+
+-- Existing corporation ships may have been created before their
+-- pseudo-character queue was provisioned. They do not have an independent bot
+-- subscriber to create the queue lazily, but successful direct corp-ship events
+-- can still target chr_{ship_id}; create any missing queues without purging
+-- messages from queues that already exist.
+DO $$
+DECLARE
+  v_ship_id UUID;
+BEGIN
+  FOR v_ship_id IN
+    SELECT si.ship_id
+    FROM public.ship_instances si
+    JOIN public.characters c ON c.character_id = si.ship_id
+    WHERE si.owner_type = 'corporation'
+      AND si.owner_corporation_id IS NOT NULL
+  LOOP
+    PERFORM public.ensure_character_queue(v_ship_id);
+  END LOOP;
+END;
+$$;

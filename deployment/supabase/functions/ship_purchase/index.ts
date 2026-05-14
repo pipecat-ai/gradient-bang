@@ -528,6 +528,7 @@ async function handleCorporationPurchase(
     timestamp,
     shipName: shipNameOverride ? shipName : undefined,
   });
+  await ensureCorporationShipQueue(supabase, insertedShip.ship_id);
 
   // Seed the spawn sector into the corporation's map knowledge so the new
   // ship knows its own location from the moment it exists. Without this,
@@ -694,6 +695,22 @@ async function ensureCorporationShipCharacter(params: {
     "Failed to register corporation ship character",
     500,
   );
+}
+
+async function ensureCorporationShipQueue(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  shipId: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("ensure_character_queue", {
+    p_character_id: shipId,
+  });
+  if (error) {
+    console.error("ship_purchase.corporation_queue_ensure", error);
+    throw new ShipPurchaseError(
+      "Failed to provision corporation ship event queue",
+      500,
+    );
+  }
 }
 
 function generateCorporationShipName(

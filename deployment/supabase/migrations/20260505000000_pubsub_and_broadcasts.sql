@@ -46,6 +46,7 @@
 
 CREATE EXTENSION IF NOT EXISTS pgmq;
 CREATE EXTENSION IF NOT EXISTS pgjwt WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
 -- -----------------------------------------------------------------------------
 -- Internal token signing secret (auto-generated, stored in app_runtime_config)
@@ -54,7 +55,7 @@ CREATE EXTENSION IF NOT EXISTS pgjwt WITH SCHEMA extensions;
 INSERT INTO public.app_runtime_config (key, value, description)
 VALUES (
   'pubsub_internal_secret',
-  encode(gen_random_bytes(32), 'base64'),
+  encode(extensions.gen_random_bytes(32), 'base64'),
   'HS256 signing secret used by verify_token edge function and subscribe_my_events / archive_my_events SQL. Auto-provisioned by the pgmq pubsub migration; rotate via UPDATE.'
 )
 ON CONFLICT (key) DO NOTHING;
