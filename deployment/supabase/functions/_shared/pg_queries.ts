@@ -1883,6 +1883,7 @@ interface LocalMapSector {
 }
 
 interface LocalMapRegionPayload {
+  player: { id: string };
   center_sector: number;
   sectors: LocalMapSector[];
   total_sectors: number;
@@ -2301,6 +2302,7 @@ export async function pgBuildLocalMapRegion(
   const totalUnvisited = resultSectors.length - totalVisited;
 
   return convertBigInts({
+    player: { id: characterId },
     center_sector: centerSector,
     sectors: resultSectors,
     total_sectors: resultSectors.length,
