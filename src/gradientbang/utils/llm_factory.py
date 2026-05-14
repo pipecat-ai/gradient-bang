@@ -400,7 +400,7 @@ def _create_openai_service(
 
     return OpenAILLMService(
         api_key=api_key,
-        model=model,
+        settings=OpenAILLMService.Settings(model=model),
         **llm_kwargs,
     )
 
