@@ -1,9 +1,7 @@
 """HTTP-polling implementation of :class:`EventAdapter`.
 
 Extracted from ``gradientbang.utils.supabase_client.AsyncGameClient``. Behavior
-is intentionally byte-identical to the pre-refactor inline implementation —
-this module exists so a future pubsub adapter can plug in via the same
-Protocol without altering the polling code path.
+is intentionally byte-identical to the pre-refactor inline implementation.
 
 Tuning env vars:
 - ``SUPABASE_POLL_INTERVAL_SECONDS`` — sleep between poll batches (default 1.0).

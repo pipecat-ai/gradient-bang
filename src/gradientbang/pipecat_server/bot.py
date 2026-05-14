@@ -1024,7 +1024,7 @@ def _log_startup_config() -> None:
     from gradientbang import __version__
 
     bus_transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
-    event_transport = os.getenv("EVENT_TRANSPORT", "polling").strip().lower()
+    event_transport = os.getenv("EVENT_TRANSPORT", "pubsub").strip().lower()
     voice_provider = os.getenv("VOICE_LLM_PROVIDER", "google").strip().lower()
     voice_model = os.getenv("VOICE_LLM_MODEL", "(provider default)").strip()
     task_provider = os.getenv("TASK_LLM_PROVIDER", "google").strip().lower()

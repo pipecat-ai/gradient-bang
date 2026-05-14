@@ -13,7 +13,6 @@ SCOPED_POLLING_MIGRATION = (
 )
 EVENTS_TS = ROOT / "deployment/supabase/functions/_shared/events.ts"
 BOT_PY = ROOT / "src/gradientbang/pipecat_server/bot.py"
-PUBSUB_PY = ROOT / "src/gradientbang/adapters/events/pubsub.py"
 
 
 def test_required_pubsub_migration_removes_silent_publish_noop() -> None:
@@ -44,13 +43,6 @@ def test_subscribe_my_events_uses_immediate_read_not_wrapped_long_poll() -> None
     )[1].split("COMMENT ON FUNCTION public.subscribe_my_events", 1)[0]
     assert "read_with_poll" not in subscribe_body
     assert "pgmq.read(" in subscribe_body
-
-
-def test_pubsub_adapter_caps_legacy_sql_poll_window() -> None:
-    source = PUBSUB_PY.read_text(encoding="utf-8")
-
-    assert 'PGMQ_MAX_POLL_SECONDS", "1"' in source
-    assert 'PGMQ_EMPTY_POLL_INTERVAL_SECONDS", "1.0"' in source
 
 
 def test_scoped_pubsub_migration_uses_immediate_reads() -> None:

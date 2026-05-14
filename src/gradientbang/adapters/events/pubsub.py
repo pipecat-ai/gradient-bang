@@ -1,18 +1,8 @@
 """pgmq-backed pubsub implementation of :class:`EventAdapter`.
 
-Connects directly to Postgres and polls the active bot scope through
-auth-gated SECURITY DEFINER functions:
-
-- ``public.subscribe_my_events_scope(actor_character_id, edge_token, character_ids, qty)``
-- ``public.archive_my_events_scope(actor_character_id, edge_token, character_ids, msg_ids)``
-
-The hot event loop stays direct-to-Postgres. The shared ``EDGE_API_TOKEN``
-proves the caller is the trusted bot process; SQL then checks the actor
-character can access each requested character/ship queue before reading it.
-
-One bot session owns:
-- one scoped PGMQ reader task and connection
-- one optional Postgres LISTEN/NOTIFY broadcast listener connection
+One bot session owns one scoped PGMQ reader connection and, when enabled, one
+``LISTEN gb_broadcasts`` connection. SQL verifies ``EDGE_API_TOKEN`` and actor
+scope before reading any queue.
 """
 
 from __future__ import annotations
@@ -41,21 +31,14 @@ if TYPE_CHECKING:
     from gradientbang.utils.supabase_client import AsyncGameClient
 
 
-# Kept for SQL signature compatibility and legacy static checks. The scoped
-# SQL reader returns immediately; the Python adapter owns the poll cadence.
+# LISTEN timeout and legacy SQL signature value. Scoped reads return immediately.
 DEFAULT_MAX_POLL_SECONDS = int(os.getenv("PGMQ_MAX_POLL_SECONDS", "1"))
-# Client-side pause after an empty scoped read.
 EMPTY_POLL_INTERVAL_SECONDS = float(
     os.getenv("PGMQ_EMPTY_POLL_INTERVAL_SECONDS", "1.0")
 )
-# Max messages read per scoped queue per poll iteration.
 DEFAULT_QTY = int(os.getenv("PGMQ_BATCH_QTY", "100"))
-# Backoff cap on transient connection errors.
 RECONNECT_BACKOFF_MAX = float(os.getenv("PGMQ_RECONNECT_BACKOFF_MAX", "10.0"))
-# Warn if no events have been dispatched within this many seconds of start.
 NO_EVENTS_WARNING_SECONDS = float(os.getenv("PGMQ_NO_EVENTS_WARNING_SECONDS", "30.0"))
-# Max number of times a single message will be dispatched before we give up
-# and archive it as poison.
 MAX_DISPATCH_ATTEMPTS = int(os.getenv("PGMQ_MAX_DISPATCH_ATTEMPTS", "3"))
 
 
@@ -109,8 +92,6 @@ class PubsubEventAdapter:
         self._corp_id: Optional[str] = None
 
         self._poll_task: Optional[asyncio.Task] = None
-        # Single session-wide task that LISTENs on `gb_broadcasts` to receive
-        # chat broadcasts and gm/system messages.
         self._broadcast_task: Optional[asyncio.Task] = None
         self._watchdog_task: Optional[asyncio.Task] = None
 
