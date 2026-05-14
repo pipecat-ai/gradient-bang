@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.1] - 2026-05-14
 
+### Added
+
+- Gradium is now supported as the default TTS provider, with Cartesia still selectable via `TTS_PROVIDER=cartesia`
+
 ### Fixed
 
 - BYOA wake dispatch always calls `wake_agent`. The previous `fresh_presence` skip-wake optimization was racy — the just-exited harness's `online=False` broadcast could lag the next task dispatch, leaving the cache stale and the second task silently timing out

@@ -672,10 +672,13 @@ pnpm run dev
 | Variable            | Required | Description                                                                   |
 | ------------------- | -------- | ----------------------------------------------------------------------------- |
 | `DEEPGRAM_API_KEY`  | Yes      | [Deepgram](https://console.deepgram.com) API key for speech-to-text           |
-| `CARTESIA_API_KEY`  | Yes      | [Cartesia](https://play.cartesia.ai) API key for text-to-speech               |
+| `GRADIUM_API_KEY`   | Yes*     | [Gradium](https://gradium.ai) API key for text-to-speech when `TTS_PROVIDER=gradium` |
+| `CARTESIA_API_KEY`  | Yes*     | [Cartesia](https://play.cartesia.ai) API key for text-to-speech when `TTS_PROVIDER=cartesia` |
 | `GOOGLE_API_KEY`    | Yes      | [Google AI Studio](https://aistudio.google.com/apikey) key for Gemini LLM     |
 | `ANTHROPIC_API_KEY` | No       | [Anthropic](https://console.anthropic.com) key for Claude LLM                 |
 | `OPENAI_API_KEY`    | No       | [OpenAI](https://platform.openai.com) key (when using OpenAI as LLM provider) |
+
+*Exactly one TTS key is required for the selected `TTS_PROVIDER`; Gradium is the default.
 
 #### Supabase & connectivity
 
@@ -689,6 +692,12 @@ pnpm run dev
 | `EVENT_TRANSPORT`           | No       | `pubsub`  | Event-delivery transport: `pubsub` (direct Postgres scoped reads on per-character pgmq queues, default) or `polling` (HTTP via `events_since`). See [Event delivery modes](#event-delivery-modes).                                                                   |
 | `PGMQ_URL`                  | No       | —         | Session-mode Postgres URL with admin credentials. Required when `EVENT_TRANSPORT=pubsub`.                                                                                                                                                                          |
 | `PGMQ_EMPTY_POLL_INTERVAL_SECONDS` | No | `1.0` | Client-side pause after a scoped pgmq read returns no rows. When rows are available, the reader drains immediately without waiting. |
+
+#### TTS configuration
+
+| Variable       | Required | Default   | Description                                             |
+| -------------- | -------- | --------- | ------------------------------------------------------- |
+| `TTS_PROVIDER` | No       | `gradium` | Text-to-speech provider (`gradium` or `cartesia`)       |
 
 #### LLM configuration
 
