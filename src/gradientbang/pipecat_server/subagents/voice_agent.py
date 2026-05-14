@@ -61,6 +61,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
 from gradientbang.pipecat_server.subagents.event_relay import EventRelay
 from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 from pipecat_subagents.agents import LLMAgent, TaskStatus
+from pipecat_subagents.agents.llm.llm_agent import PipelineFlushFrame
 from pipecat_subagents.bus import (
     AgentBus,
     BusEndAgentMessage,
@@ -286,8 +287,10 @@ class VoiceAgent(LLMAgent):
     def install_main_pipeline_lifecycle_watchers(self, task: PipelineTask) -> None:
         # LLM and speaking frames flow through the main pipeline; install the
         # watchers that drive assistant-cycle / speaking state there.
+        # PipelineFlushFrame round-trip mirrors LLMAgent.create_pipeline_task
+        # so _flush_pipeline can use the main task as its barrier.
         task.add_reached_downstream_filter(
-            (LLMFullResponseStartFrame, LLMFullResponseEndFrame)
+            (LLMFullResponseStartFrame, LLMFullResponseEndFrame, PipelineFlushFrame)
         )
         task.add_reached_upstream_filter(
             (
@@ -295,6 +298,7 @@ class VoiceAgent(LLMAgent):
                 BotStoppedSpeakingFrame,
                 UserStartedSpeakingFrame,
                 UserStoppedSpeakingFrame,
+                PipelineFlushFrame,
             )
         )
 
@@ -304,6 +308,8 @@ class VoiceAgent(LLMAgent):
                 self._handle_llm_response_started()
             elif isinstance(frame, LLMFullResponseEndFrame):
                 self._handle_llm_response_ended()
+            elif isinstance(frame, PipelineFlushFrame):
+                self._flush_done.set()
 
         @task.event_handler("on_frame_reached_upstream")
         async def _on_speaking_lifecycle(task, frame):
@@ -315,6 +321,8 @@ class VoiceAgent(LLMAgent):
                 self._handle_user_started_speaking()
             elif isinstance(frame, UserStoppedSpeakingFrame):
                 self._handle_user_stopped_speaking()
+            elif isinstance(frame, PipelineFlushFrame):
+                await task.queue_frame(PipelineFlushFrame())
 
     def _cancel_speech_start_grace_task(self) -> None:
         task = self._speech_start_grace_task
@@ -583,6 +591,21 @@ class VoiceAgent(LLMAgent):
         if needs_inference:
             frames.append((LLMRunFrame(), FrameDirection.DOWNSTREAM))
         return frames
+
+    async def _flush_pipeline(self) -> None:
+        # LLMAgent.create_pipeline_task wires the flush round-trip on this
+        # agent's no-op pipeline. The LLM lives in the main pipeline, so
+        # route the barrier there — otherwise the probe returns instantly
+        # without waiting for in-flight FunctionCallResultFrames, and
+        # deferred LLM frames can race the post-tool response.
+        if self._main_pipeline_task is None:
+            await super()._flush_pipeline()
+            return
+        self._flush_done.clear()
+        await self._main_pipeline_task.queue_frame(
+            PipelineFlushFrame(), FrameDirection.UPSTREAM
+        )
+        await self._flush_done.wait()
 
     async def _flush_deferred_frames(self) -> None:
         # LLMAgent's flush queues frames via super().queue_frame(), which
