@@ -1,11 +1,11 @@
 # BYOA on Vercel
 
-Use Vercel when you want the BYOA wake receiver to run outside your local machine.
+Deploy the BYOA wake receiver as a Vercel Function. This is the production path, but it also works against a local game stack for development — see [Testing Locally](#testing-locally).
 
 The deployment is skill-driven:
 
-- `/byoa-setup prod` claims the ship and prepares `.env.byoa`.
-- `/byoa-deploy-vercel prod` deploys the wake function and registers it against the ship.
+- `/byoa-setup` claims the ship and prepares `.env.byoa`.
+- `/byoa-deploy-vercel` deploys the wake function and registers it against the ship.
 
 The wake receiver source lives in [deployment/vercel](../deployment/vercel/).
 
@@ -13,7 +13,7 @@ The wake receiver source lives in [deployment/vercel](../deployment/vercel/).
 
 Prereqs:
 
-- You have run `/byoa-setup prod`.
+- You have run `/byoa-setup`.
 - `.env.byoa` contains your LLM provider, model, and matching API key.
 - You are logged in to Vercel CLI: `npx vercel whoami`.
 - `deployment/vercel/` is linked to your Vercel project.
@@ -29,7 +29,7 @@ Suggested project name: `gradient-bang-byoa-<your-handle>`.
 
 Deploy:
 
-- Run `/byoa-deploy-vercel prod`.
+- Run `/byoa-deploy-vercel`.
 - Let the skill push env to Vercel.
 - Let the skill deploy to the production alias.
 - Let the skill health-check `/api/wake`.
@@ -44,9 +44,33 @@ npx vercel logs https://<projectName>.vercel.app
 
 First wake can take longer while Vercel creates and prepares the sandbox. Later wakes should resume faster.
 
+## Testing Locally
+
+You can point a Vercel-deployed wake receiver at your **local** game stack (local Supabase + local bot). The receiver itself still runs on Vercel; the only thing that needs to be reachable from the public internet is your local Postgres, because the Vercel sandbox connects to it directly to consume task messages on the BYOA bus.
+
+Expose your local Supabase Postgres with `ngrok tcp`:
+
+```bash
+ngrok tcp 54322
+```
+
+ngrok prints a forwarding line like `Forwarding tcp://7.tcp.eu.ngrok.io:20789 -> localhost:54322`. Use that as the bus DSN in `.env.supabase`:
+
+```
+BYOA_BUS_DATABASE_URL=postgresql://byoa_login:byoa_dev_password@7.tcp.eu.ngrok.io:20789/postgres
+```
+
+Restart `npx supabase functions serve` so `wake_agent` picks up the new URL. Every wake injects this DSN into the sandbox so the harness can reach your machine.
+
+Caveats:
+
+- Only the bus needs a tunnel — the wake URL on Vercel is still the public alias.
+- ngrok TCP forwarding hostnames change on every restart for free-tier accounts. Update `.env.supabase` and restart `supabase functions serve` whenever the tunnel reconnects.
+- Tunnel latency adds a small overhead to every bus round-trip; expect slower harness boot than a pure-prod setup.
+
 ## What The Deploy Skill Does
 
-`/byoa-deploy-vercel prod`:
+`/byoa-deploy-vercel`:
 
 - Reads `.env.byoa`.
 - Verifies required BYOA and LLM env keys.
@@ -69,9 +93,9 @@ Required:
 
 | Key | Purpose |
 |---|---|
-| `BYOA_CHARACTER_ID` | Written by `/byoa-setup prod`. |
-| `BYOA_SHIP_ID` | Written by `/byoa-setup prod`. |
-| `BYOA_WAKE_SECRET` | Written by `/byoa-setup prod`; pushed to Vercel by deploy. |
+| `BYOA_CHARACTER_ID` | Written by `/byoa-setup`. |
+| `BYOA_SHIP_ID` | Written by `/byoa-setup`. |
+| `BYOA_WAKE_SECRET` | Written by `/byoa-setup`; pushed to Vercel by deploy. |
 | `TASK_LLM_PROVIDER` | `google`, `anthropic`, `openai`, or `minimax`. |
 | `TASK_LLM_MODEL` | Provider-specific model id. |
 | Provider API key | One of `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `MINIMAX_API_KEY`. |
@@ -99,15 +123,15 @@ Most operators only edit `.env.byoa` and optionally `prompt.md`.
 
 ## Redeploys
 
-- Code or env changed: run `/byoa-deploy-vercel prod` again.
-- Prompt changed in `BYOA_PROMPT`: run `/byoa-deploy-vercel prod` again.
-- Prompt file changed in a fork: commit the file, then run `/byoa-deploy-vercel prod`.
-- Wake secret rotation: run `/byoa-setup prod --force --ship-id $BYOA_SHIP_ID`, then `/byoa-deploy-vercel prod`.
-- New Vercel project: delete `deployment/vercel/.vercel/`, run `npx vercel link`, then `/byoa-deploy-vercel prod`.
+- Code or env changed: run `/byoa-deploy-vercel` again.
+- Prompt changed in `BYOA_PROMPT`: run `/byoa-deploy-vercel` again.
+- Prompt file changed in a fork: commit the file, then run `/byoa-deploy-vercel`.
+- Wake secret rotation: run `/byoa-setup --force --ship-id $BYOA_SHIP_ID`, then `/byoa-deploy-vercel`.
+- New Vercel project: delete `deployment/vercel/.vercel/`, run `npx vercel link`, then `/byoa-deploy-vercel`.
 
 ## Troubleshooting
 
-- `wake_secret_configured: false`: Vercel env did not reach the deployed function. Re-run `/byoa-deploy-vercel prod`.
+- `wake_secret_configured: false`: Vercel env did not reach the deployed function. Re-run `/byoa-deploy-vercel`.
 - HTML "Authentication Required": you are using a protected Vercel URL. Use `https://<projectName>.vercel.app/api/wake`.
 - Wake POSTs return 401 in production: check that the registered URL is the production alias, not a per-deploy URL.
 - Registration failed: re-run with `--access-token <jwt>` or use the printed manual curl.
