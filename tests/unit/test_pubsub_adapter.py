@@ -433,13 +433,12 @@ class TestPollOnceArchival:
 
 @pytest.mark.asyncio
 class TestPurgeBacklog:
-    """`purge_backlog` ensures the per-character queue exists and is empty
-    so bootstrap-RPC publishes during session_init land successfully and
-    reach the client, while still discarding any backlog from a prior
-    session. Previously dropped the queue, but that lost bootstrap-window
-    events to ``undefined_table`` silent no-ops."""
+    """`purge_backlog` drops the per-character queue so subsequent server
+    publishes silently no-op until ``start`` recreates it. Replaces the
+    older drain-on-start mechanism, which had a commit-to-visibility race
+    when bootstrap RPCs' events landed in the queue mid-drain."""
 
-    async def test_purge_ensures_and_clears_each_character_queue(
+    async def test_purge_drops_each_character_queue(
         self,
         adapter: PubsubEventAdapter,
         monkeypatch: pytest.MonkeyPatch,
@@ -450,23 +449,19 @@ class TestPurgeBacklog:
 
         await adapter.purge_backlog()
 
-        ensure_calls = [
-            params for sql, params in cursor.executions if "ensure_character_queue" in sql
+        drop_calls = [
+            params for sql, params in cursor.executions if "drop_queue" in sql
         ]
-        purge_calls = [
-            params for sql, params in cursor.executions if "purge_queue" in sql
-        ]
-        assert ensure_calls == [(PLAYER_ID,)]
-        assert purge_calls == [(f"chr_{PLAYER_ID}",)]
+        assert drop_calls == [(f"chr_{PLAYER_ID}",)]
 
-    async def test_purge_swallows_errors(
+    async def test_purge_swallows_drop_errors(
         self,
         adapter: PubsubEventAdapter,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A pgmq error must not bubble up — the whole point of purge is
-        to leave a clean slate, and ``start`` will surface real problems
-        if any."""
+        """A missing queue (or any pgmq error) must not bubble up — the
+        whole point of purge is to leave a clean slate, and ``start`` will
+        surface real problems if any."""
         monkeypatch.setenv("PGMQ_URL", "postgresql://fake")
         cursor = _FakeCursor(fetch_results=[], raise_on_execute=RuntimeError("queue not found"))
         _install_fake_psycopg(monkeypatch, cursor)

@@ -820,8 +820,20 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                         )
                     )
 
+                # Bootstrap-path emits bypass pgmq (events emitted during
+                # session_init silently no-op against the dropped queue).
+                # The client's session-scoped events (e.g. map.local) gate
+                # on `payload.player.id`, which server-side pgEmit fills
+                # in via injectCharacterEventIdentity. We're not going
+                # through that path here, so inject the same field
+                # manually before forwarding.
+                map_local_payload = {
+                    **initial_state.map_local_payload,
+                    "player": {"id": character_id},
+                }
+
                 await _emit_client_event("status.snapshot", initial_state.status_payload)
-                await _emit_client_event("map.local", initial_state.map_local_payload)
+                await _emit_client_event("map.local", map_local_payload)
                 await _emit_client_event(
                     "ships.list",
                     {"ships": initial_state.ships_payload.get("ships", [])},
