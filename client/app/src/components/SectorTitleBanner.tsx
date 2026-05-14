@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import { StarIcon, SwapIcon, UserIcon } from "@phosphor-icons/react"
 import { AnimatePresence, motion } from "motion/react"
+import { StarIcon, SwapIcon, UserIcon } from "@phosphor-icons/react"
 
 import { ScrambleText, type ScrambleTextRef } from "@/fx/ScrambleText"
 import useAudioStore from "@/stores/audio"

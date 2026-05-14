@@ -1,6 +1,8 @@
 import { produce } from "immer"
 import type { StateCreator } from "zustand"
 
+import type { Notifications, UISlice } from "./uiSlice"
+
 export type QuestCompletionData =
   | {
       type: "step"
@@ -34,7 +36,12 @@ export interface QuestSlice {
   setQuestCompletionData: (data: QuestCompletionData) => void
 }
 
-export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
+type QuestSliceState = QuestSlice &
+  Pick<UISlice, "activePanel"> & {
+    notifications: Notifications
+  }
+
+export const createQuestSlice: StateCreator<QuestSliceState, [], [], QuestSlice> = (set, get) => ({
   quests: [],
 
   setQuests: (quests: Quest[]) =>
@@ -45,7 +52,7 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
           (q: Quest) => q.status === "active" && q.current_step?.meta?.codec
         )
         if (codecQuest) {
-          const s = state as Record<string, any>
+          const s = state as QuestSliceState
           s.notifications.incomingCodec = codecQuest.quest_id
           if (
             s.activePanel !== "contracts" &&
@@ -87,7 +94,7 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
         }
 
         if (nextStep?.meta?.codec) {
-          const s = state as Record<string, any>
+          const s = state as QuestSliceState
           s.notifications.incomingCodec = questId
           if (
             s.activePanel !== "contracts" &&
@@ -119,7 +126,7 @@ export const createQuestSlice: StateCreator<QuestSlice> = (set, get) => ({
           quest.current_step = null
         }
 
-        const s = state as Record<string, any>
+        const s = state as QuestSliceState
         s.notifications.seenContractCodecs = s.notifications.seenContractCodecs.filter(
           (key: string) => key !== questId
         )

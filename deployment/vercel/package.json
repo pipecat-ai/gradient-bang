@@ -2,6 +2,7 @@
   "name": "gradient-bang-byoa-wake",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "BYOA wake receiver — Vercel Function that auths inbound wakes, then spawns a persistent @vercel/sandbox running the gradient-bang BYOA harness. See deployment/vercel/api/wake.ts and docs/byoa-vercel.md.",
   "dependencies": {
     "@vercel/sandbox": "beta"

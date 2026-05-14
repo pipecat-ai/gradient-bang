@@ -30,8 +30,14 @@ import {
   successResponse,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
+import {
+  corporationShipOwnerLimitMessage,
+  getCorporationShipOwnerLimitState,
+  lockCorporationShipOwnerLimit,
+} from "../_shared/corporation_ship_limits.ts";
 import { buildEventSource, emitCharacterEvent } from "../_shared/events.ts";
 import { emitCorporationEvent } from "../_shared/corporations.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
 import {
   optionalString,
   parseJsonRequest,
@@ -199,10 +205,9 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     // active-task guard below is skipped — rotating a wake secret mid-task
     // is the supported recovery path when a daemon's secret leaks.
     if (action === "set") {
-      const currentOwner =
-        typeof shipRow.byoa_owner_character_id === "string"
-          ? (shipRow.byoa_owner_character_id as string)
-          : null;
+      const currentOwner = typeof shipRow.byoa_owner_character_id === "string"
+        ? (shipRow.byoa_owner_character_id as string)
+        : null;
       if (currentOwner !== characterId) {
         return errorResponse(
           "Only the current BYOA owner can set wake config",
@@ -377,30 +382,81 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
         byoa_owner_character_id: nextOwner,
         byoa_mode: nextMode,
       };
-      const baseUpdate = supabase
-        .from("ship_instances")
-        .update(updatePayload)
-        .eq("ship_id", shipId)
-        .eq("owner_type", "corporation")
-        .eq("owner_corporation_id", corpId)
-        .eq("byoa_mode", currentMode);
+      if (action === "clear" && nextOwner === null) {
+        const pgClient = await acquirePgClient();
+        let transactionOpen = false;
+        try {
+          await pgClient.queryObject("BEGIN");
+          transactionOpen = true;
 
-      const { data: updatedRow, error: updateErr } = currentOwner
-        ? await baseUpdate
-          .eq("byoa_owner_character_id", currentOwner)
-          .select("ship_id")
-          .maybeSingle()
-        : await baseUpdate
-          .is("byoa_owner_character_id", null)
-          .select("ship_id")
-          .maybeSingle();
+          const ownerResult = await pgClient.queryObject<{
+            added_by: string | null;
+          }>(
+            `SELECT added_by::text AS added_by
+               FROM corporation_ships
+              WHERE corp_id = $1
+                AND ship_id = $2`,
+            [corpId, shipId],
+          );
+          const addedBy = ownerResult.rows[0]?.added_by ?? null;
+          if (addedBy) {
+            await lockCorporationShipOwnerLimit(pgClient, corpId, addedBy);
+            const ownerLimit = await getCorporationShipOwnerLimitState(
+              pgClient,
+              corpId,
+              addedBy,
+            );
+            if (ownerLimit.count >= ownerLimit.cap) {
+              await pgClient.queryObject("ROLLBACK");
+              transactionOpen = false;
+              return errorResponse(
+                corporationShipOwnerLimitMessage(ownerLimit.cap),
+                409,
+              );
+            }
+          }
 
-      if (updateErr) {
-        console.error("ship_byoa_configure.update_error", updateErr);
-        return errorResponse("Failed to update BYOA configuration", 500);
-      }
-      if (!updatedRow) {
-        return errorResponse("BYOA configuration changed; retry", 409);
+          const { data: updatedRow, error: updateErr } = await updateByoaState({
+            supabase,
+            shipId,
+            corpId,
+            currentOwner,
+            currentMode,
+            updatePayload,
+          });
+          if (updateErr) {
+            console.error("ship_byoa_configure.update_error", updateErr);
+            return errorResponse("Failed to update BYOA configuration", 500);
+          }
+          if (!updatedRow) {
+            return errorResponse("BYOA configuration changed; retry", 409);
+          }
+
+          await pgClient.queryObject("COMMIT");
+          transactionOpen = false;
+        } finally {
+          if (transactionOpen) {
+            await rollbackQuietly(pgClient);
+          }
+          pgClient.release();
+        }
+      } else {
+        const { data: updatedRow, error: updateErr } = await updateByoaState({
+          supabase,
+          shipId,
+          corpId,
+          currentOwner,
+          currentMode,
+          updatePayload,
+        });
+
+        if (updateErr) {
+          console.error("ship_byoa_configure.update_error", updateErr);
+          return errorResponse("Failed to update BYOA configuration", 500);
+        }
+        if (!updatedRow) {
+          return errorResponse("BYOA configuration changed; retry", 409);
+        }
       }
     }
 
@@ -524,11 +580,53 @@ async function listClaimableShipsForCharacter(
       name: typeof row.ship_name === "string" && row.ship_name.length > 0
         ? row.ship_name
         : (row.ship_id as string),
-      sector: typeof row.current_sector === "number" ? row.current_sector : null,
+      sector: typeof row.current_sector === "number"
+        ? row.current_sector
+        : null,
       byoa_owner_character_id_prefix: ownerId
         ? ownerId.replace(/-/g, "").slice(0, 12)
         : null,
       claimable_by_me: ownerId === null || ownerId === characterId,
     };
   });
+}
+
+async function updateByoaState(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  shipId: string;
+  corpId: string;
+  currentOwner: string | null;
+  currentMode: ByoaMode;
+  updatePayload: {
+    byoa_owner_character_id: string | null;
+    byoa_mode: ByoaMode;
+  };
+}) {
+  const baseUpdate = params.supabase
+    .from("ship_instances")
+    .update(params.updatePayload)
+    .eq("ship_id", params.shipId)
+    .eq("owner_type", "corporation")
+    .eq("owner_corporation_id", params.corpId)
+    .eq("byoa_mode", params.currentMode);
+
+  return params.currentOwner
+    ? await baseUpdate
+      .eq("byoa_owner_character_id", params.currentOwner)
+      .select("ship_id")
+      .maybeSingle()
+    : await baseUpdate
+      .is("byoa_owner_character_id", null)
+      .select("ship_id")
+      .maybeSingle();
+}
+
+async function rollbackQuietly(
+  pgClient: Awaited<ReturnType<typeof acquirePgClient>>,
+): Promise<void> {
+  try {
+    await pgClient.queryObject("ROLLBACK");
+  } catch (err) {
+    console.warn("ship_byoa_configure.rollback_failed", err);
+  }
 }

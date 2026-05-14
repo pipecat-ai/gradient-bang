@@ -28,16 +28,16 @@ import {
   api,
   apiOk,
   characterIdFor,
-  shipIdFor,
   eventsOfType,
   getEventCursor,
   queryCharacter,
   queryShip,
+  setMegabankBalance,
   setShipCredits,
   setShipFighters,
-  setShipSector,
   setShipHyperspace,
-  setMegabankBalance,
+  setShipSector,
+  shipIdFor,
   withPg,
 } from "./helpers.ts";
 
@@ -126,9 +126,12 @@ Deno.test({
     await t.step("P1 purchases a new ship", async () => {
       // Get available ship types first
       const defs = await apiOk("ship_definitions", {});
-      const definitions = (defs as Record<string, unknown>).definitions as Array<Record<string, unknown>>;
+      const definitions = (defs as Record<string, unknown>)
+        .definitions as Array<Record<string, unknown>>;
       // Find a ship type different from current (kestrel_courier)
-      const otherShip = definitions.find((d) => d.ship_type !== "kestrel_courier");
+      const otherShip = definitions.find((d) =>
+        d.ship_type !== "kestrel_courier"
+      );
       assertExists(otherShip, "Should find a different ship type to purchase");
 
       const result = await apiOk("ship_purchase", {
@@ -143,7 +146,10 @@ Deno.test({
 
     await t.step("P1 receives ship.traded_in event", async () => {
       const events = await eventsOfType(p1Id, "ship.traded_in", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 ship.traded_in, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 ship.traded_in, got ${events.length}`,
+      );
     });
 
     await t.step("P1 receives status.update", async () => {
@@ -155,7 +161,10 @@ Deno.test({
       const char = await queryCharacter(p1Id);
       assertExists(char);
       // Ship ID should have changed
-      assert(char.current_ship_id !== oldShipId, "Ship ID should have changed after trade-in");
+      assert(
+        char.current_ship_id !== oldShipId,
+        "Ship ID should have changed after trade-in",
+      );
     });
   },
 });
@@ -193,7 +202,10 @@ Deno.test({
 
     await t.step("P1 receives ship.renamed event", async () => {
       const events = await eventsOfType(p1Id, "ship.renamed", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 ship.renamed, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 ship.renamed, got ${events.length}`,
+      );
     });
 
     await t.step("DB: ship name updated", async () => {
@@ -236,7 +248,10 @@ Deno.test({
 
     await t.step("P1 receives ships.list event", async () => {
       const events = await eventsOfType(p1Id, "ships.list", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 ships.list, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 ships.list, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertExists(payload.ships, "payload.ships");
       const ships = payload.ships as unknown[];
@@ -269,7 +284,10 @@ Deno.test({
         character_id: p1Id,
         ship_type: "kestrel_courier",
       });
-      assert(!result.ok || !result.body.success, "Expected purchase to fail without mega-port");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected purchase to fail without mega-port",
+      );
     });
   },
 });
@@ -299,7 +317,11 @@ Deno.test({
         ship_name: "UniqueTestShip",
       });
       const body = result as Record<string, unknown>;
-      assertEquals(body.changed, false, "Renaming to same name should return changed=false");
+      assertEquals(
+        body.changed,
+        false,
+        "Renaming to same name should return changed=false",
+      );
     });
 
     await t.step("rename to empty name fails", async () => {
@@ -383,7 +405,10 @@ Deno.test({
         character_id: p1Id,
         ship_id: p1ShipId,
       });
-      assert(!result.ok || !result.body.success, "Expected personal ship sell to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected personal ship sell to fail",
+      );
       assertEquals(result.status, 400, "Expected 400");
     });
   },
@@ -415,7 +440,8 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       // Move player to non-mega-port sector
       await setShipSector(p1ShipId, 3);
     });
@@ -457,7 +483,8 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       await setShipHyperspace(p1ShipId, true, 1);
     });
 
@@ -713,7 +740,8 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       assertExists(corpShipId, "Should get corp ship ID");
     });
 
@@ -806,14 +834,19 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       assertExists(corpShipId, "Should get corp ship ID");
     });
 
     await t.step("ship exists before sell with no destroyed_at", async () => {
       const ship = await queryShip(corpShipId);
       assertExists(ship, "Corp ship should exist before selling");
-      assertEquals(ship.destroyed_at, null, "destroyed_at should be null before sell");
+      assertEquals(
+        ship.destroyed_at,
+        null,
+        "destroyed_at should be null before sell",
+      );
     });
 
     await t.step("sell the corp ship", async () => {
@@ -834,7 +867,11 @@ Deno.test({
     await t.step("corp ship character is unlinked from ship", async () => {
       const char = await queryCharacter(corpShipId);
       assertExists(char, "Corp ship character should still exist");
-      assertEquals(char.current_ship_id, null, "current_ship_id should be nulled out");
+      assertEquals(
+        char.current_ship_id,
+        null,
+        "current_ship_id should be nulled out",
+      );
     });
   },
 });
@@ -866,22 +903,26 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       assertExists(corpShipId, "Should get corp ship ID");
     });
 
     let eventCountBefore: number;
 
-    await t.step("count events referencing the corp ship before sell", async () => {
-      eventCountBefore = await withPg(async (pg) => {
-        const result = await pg.queryObject<{ count: number }>(
-          `SELECT COUNT(*)::int AS count FROM events WHERE ship_id = $1`,
-          [corpShipId],
-        );
-        return result.rows[0].count;
-      });
-      assert(eventCountBefore >= 0, "Should be able to count events");
-    });
+    await t.step(
+      "count events referencing the corp ship before sell",
+      async () => {
+        eventCountBefore = await withPg(async (pg) => {
+          const result = await pg.queryObject<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM events WHERE ship_id = $1`,
+            [corpShipId],
+          );
+          return result.rows[0].count;
+        });
+        assert(eventCountBefore >= 0, "Should be able to count events");
+      },
+    );
 
     await t.step("sell the corp ship", async () => {
       cursorP1 = await getEventCursor(p1Id);
@@ -921,25 +962,29 @@ Deno.test({
     let corpShipId: string;
     const reusedName = "Phoenix";
 
-    await t.step("reset, create corp, buy corp ship with custom name", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipSector(p1ShipId, 0);
-      await setShipCredits(p1ShipId, 50000);
-      await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "Name Reuse Corp",
-      });
-      await setMegabankBalance(p1Id, 10000);
-      const purchaseResult = await apiOk("ship_purchase", {
-        character_id: p1Id,
-        ship_type: "autonomous_probe",
-        purchase_type: "corporation",
-        ship_name: reusedName,
-      });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
-      assertExists(corpShipId, "Should get corp ship ID");
-    });
+    await t.step(
+      "reset, create corp, buy corp ship with custom name",
+      async () => {
+        await resetDatabase([P1]);
+        await apiOk("join", { character_id: p1Id });
+        await setShipSector(p1ShipId, 0);
+        await setShipCredits(p1ShipId, 50000);
+        await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Name Reuse Corp",
+        });
+        await setMegabankBalance(p1Id, 10000);
+        const purchaseResult = await apiOk("ship_purchase", {
+          character_id: p1Id,
+          ship_type: "autonomous_probe",
+          purchase_type: "corporation",
+          ship_name: reusedName,
+        });
+        corpShipId = (purchaseResult as Record<string, unknown>)
+          .ship_id as string;
+        assertExists(corpShipId, "Should get corp ship ID");
+      },
+    );
 
     await t.step("DB: corp ship has the name", async () => {
       const ship = await queryShip(corpShipId);
@@ -962,16 +1007,19 @@ Deno.test({
       assertExists(ship.destroyed_at, "destroyed_at should be set");
     });
 
-    await t.step("rename player ship to the sold ship's name — should succeed", async () => {
-      const result = await apiOk("ship_rename", {
-        character_id: p1Id,
-        ship_name: reusedName,
-      });
-      assert(result.success);
-      const body = result as Record<string, unknown>;
-      assertEquals(body.ship_name, reusedName);
-      assertEquals(body.changed, true);
-    });
+    await t.step(
+      "rename player ship to the sold ship's name — should succeed",
+      async () => {
+        const result = await apiOk("ship_rename", {
+          character_id: p1Id,
+          ship_name: reusedName,
+        });
+        assert(result.success);
+        const body = result as Record<string, unknown>;
+        assertEquals(body.ship_name, reusedName);
+        assertEquals(body.changed, true);
+      },
+    );
   },
 });
 
@@ -983,26 +1031,30 @@ Deno.test({
     let corpShipId: string;
     const reusedName = "Stardust";
 
-    await t.step("reset, create corp, buy corp ship with custom name", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipSector(p1ShipId, 0);
-      await setShipCredits(p1ShipId, 200000);
-      await setShipFighters(p1ShipId, 300);
-      await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "Name Reuse Purchase Corp",
-      });
-      await setMegabankBalance(p1Id, 10000);
-      const purchaseResult = await apiOk("ship_purchase", {
-        character_id: p1Id,
-        ship_type: "autonomous_probe",
-        purchase_type: "corporation",
-        ship_name: reusedName,
-      });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
-      assertExists(corpShipId, "Should get corp ship ID");
-    });
+    await t.step(
+      "reset, create corp, buy corp ship with custom name",
+      async () => {
+        await resetDatabase([P1]);
+        await apiOk("join", { character_id: p1Id });
+        await setShipSector(p1ShipId, 0);
+        await setShipCredits(p1ShipId, 200000);
+        await setShipFighters(p1ShipId, 300);
+        await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Name Reuse Purchase Corp",
+        });
+        await setMegabankBalance(p1Id, 10000);
+        const purchaseResult = await apiOk("ship_purchase", {
+          character_id: p1Id,
+          ship_type: "autonomous_probe",
+          purchase_type: "corporation",
+          ship_name: reusedName,
+        });
+        corpShipId = (purchaseResult as Record<string, unknown>)
+          .ship_id as string;
+        assertExists(corpShipId, "Should get corp ship ID");
+      },
+    );
 
     await t.step("sell the corp ship (soft-delete)", async () => {
       const result = await apiOk("ship_sell", {
@@ -1013,16 +1065,19 @@ Deno.test({
       assert(result.success);
     });
 
-    await t.step("purchase a new ship with the sold ship's name — should succeed", async () => {
-      const result = await apiOk("ship_purchase", {
-        character_id: p1Id,
-        ship_type: "wayfarer_freighter",
-        ship_name: reusedName,
-      });
-      assert(result.success);
-      const body = result as Record<string, unknown>;
-      assertExists(body.ship_id);
-    });
+    await t.step(
+      "purchase a new ship with the sold ship's name — should succeed",
+      async () => {
+        const result = await apiOk("ship_purchase", {
+          character_id: p1Id,
+          ship_type: "wayfarer_freighter",
+          ship_name: reusedName,
+        });
+        assert(result.success);
+        const body = result as Record<string, unknown>;
+        assertExists(body.ship_id);
+      },
+    );
 
     await t.step("DB: new ship has the reused name", async () => {
       const char = await queryCharacter(p1Id);
@@ -1060,7 +1115,8 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       assertExists(corpShipId, "Should get corp ship ID");
     });
 
@@ -1084,7 +1140,10 @@ Deno.test({
         );
         return result.rows[0].count;
       });
-      assert(count > 0, `Expected events for corp ship character, got ${count}`);
+      assert(
+        count > 0,
+        `Expected events for corp ship character, got ${count}`,
+      );
     });
 
     await t.step("sell succeeds despite character having events", async () => {
@@ -1104,7 +1163,10 @@ Deno.test({
         );
         return result.rows[0].count;
       });
-      assert(count > 0, `Events for corp ship character should be preserved, got ${count}`);
+      assert(
+        count > 0,
+        `Events for corp ship character should be preserved, got ${count}`,
+      );
     });
   },
 });
@@ -1138,7 +1200,8 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       assertExists(corpShipId, "Should get corp ship ID");
       // Give the corp ship a credit balance
       await setShipCredits(corpShipId, corpShipCredits);
@@ -1146,28 +1209,32 @@ Deno.test({
       await setShipCredits(p1ShipId, personalShipCredits);
     });
 
-    await t.step("sell succeeds and credits_after includes ship credits", async () => {
-      const result = await apiOk("ship_sell", {
-        character_id: p1Id,
-        ship_id: corpShipId,
-        actor_character_id: p1Id,
-      });
-      assert(result.success);
-      const body = result as Record<string, unknown>;
-      tradeInValue = body.trade_in_value as number;
-      const creditsAfter = body.credits_after as number;
-      // credits_after should include trade-in value PLUS the sold ship's held credits
-      assertEquals(
-        creditsAfter,
-        personalShipCredits + tradeInValue + corpShipCredits,
-        `Expected credits_after to include the sold ship's ${corpShipCredits} credits on top of trade-in value ${tradeInValue}`,
-      );
-    });
+    await t.step(
+      "sell succeeds and credits_after includes ship credits",
+      async () => {
+        const result = await apiOk("ship_sell", {
+          character_id: p1Id,
+          ship_id: corpShipId,
+          actor_character_id: p1Id,
+        });
+        assert(result.success);
+        const body = result as Record<string, unknown>;
+        tradeInValue = body.trade_in_value as number;
+        const creditsAfter = body.credits_after as number;
+        // credits_after should include trade-in value PLUS the sold ship's held credits
+        assertEquals(
+          creditsAfter,
+          personalShipCredits + tradeInValue + corpShipCredits,
+          `Expected credits_after to include the sold ship's ${corpShipCredits} credits on top of trade-in value ${tradeInValue}`,
+        );
+      },
+    );
 
     await t.step("DB: player ship credits match expected total", async () => {
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
-      const expectedCredits = personalShipCredits + tradeInValue + corpShipCredits;
+      const expectedCredits = personalShipCredits + tradeInValue +
+        corpShipCredits;
       assertEquals(
         ship.credits as number,
         expectedCredits,
@@ -1189,35 +1256,42 @@ Deno.test({
     let corpShipId: string;
     const customName = "The Destroyer";
 
-    await t.step("reset, create corp, buy corp ship with custom name", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipSector(p1ShipId, 0);
-      await setShipCredits(p1ShipId, 50000);
-      await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "Custom Name Corp",
-      });
-      await setMegabankBalance(p1Id, 10000);
-      const purchaseResult = await apiOk("ship_purchase", {
-        character_id: p1Id,
-        ship_type: "autonomous_probe",
-        purchase_type: "corporation",
-        ship_name: customName,
-      });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
-      assertExists(corpShipId, "Should get corp ship ID");
-    });
+    await t.step(
+      "reset, create corp, buy corp ship with custom name",
+      async () => {
+        await resetDatabase([P1]);
+        await apiOk("join", { character_id: p1Id });
+        await setShipSector(p1ShipId, 0);
+        await setShipCredits(p1ShipId, 50000);
+        await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Custom Name Corp",
+        });
+        await setMegabankBalance(p1Id, 10000);
+        const purchaseResult = await apiOk("ship_purchase", {
+          character_id: p1Id,
+          ship_type: "autonomous_probe",
+          purchase_type: "corporation",
+          ship_name: customName,
+        });
+        corpShipId = (purchaseResult as Record<string, unknown>)
+          .ship_id as string;
+        assertExists(corpShipId, "Should get corp ship ID");
+      },
+    );
 
-    await t.step("DB: ship_instances.ship_name is the custom name", async () => {
-      const ship = await queryShip(corpShipId);
-      assertExists(ship);
-      assertEquals(
-        ship.ship_name,
-        customName,
-        `Expected ship_instances.ship_name to be '${customName}', got '${ship.ship_name}'`,
-      );
-    });
+    await t.step(
+      "DB: ship_instances.ship_name is the custom name",
+      async () => {
+        const ship = await queryShip(corpShipId);
+        assertExists(ship);
+        assertEquals(
+          ship.ship_name,
+          customName,
+          `Expected ship_instances.ship_name to be '${customName}', got '${ship.ship_name}'`,
+        );
+      },
+    );
 
     await t.step("DB: characters.name matches the custom name", async () => {
       const char = await queryCharacter(corpShipId);
@@ -1263,7 +1337,8 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       assertExists(corpShipId, "Should get corp ship ID");
     });
 
@@ -1279,16 +1354,38 @@ Deno.test({
 
     await t.step("player receives status.update event", async () => {
       const events = await eventsOfType(p1Id, "status.update", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 status.update, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 status.update, got ${events.length}`,
+      );
     });
 
     await t.step("player receives corporation.ship_sold event", async () => {
-      const events = await eventsOfType(p1Id, "corporation.ship_sold", cursorP1, corpId);
-      assert(events.length >= 1, `Expected >= 1 corporation.ship_sold, got ${events.length}`);
+      const events = await eventsOfType(
+        p1Id,
+        "corporation.ship_sold",
+        cursorP1,
+        corpId,
+      );
+      assert(
+        events.length >= 1,
+        `Expected >= 1 corporation.ship_sold, got ${events.length}`,
+      );
       const payload = events[0].payload;
-      assertEquals(payload.ship_id, corpShipId, "Event should reference the sold ship");
-      assertExists(payload.trade_in_value, "Event should include trade_in_value");
-      assertEquals(payload.seller_id, p1Id, "Event should reference the seller");
+      assertEquals(
+        payload.ship_id,
+        corpShipId,
+        "Event should reference the sold ship",
+      );
+      assertExists(
+        payload.trade_in_value,
+        "Event should include trade_in_value",
+      );
+      assertEquals(
+        payload.seller_id,
+        p1Id,
+        "Event should reference the seller",
+      );
     });
   },
 });
@@ -1346,7 +1443,10 @@ Deno.test({
       const oldShip = await queryShip(oldShipId);
       assertExists(oldShip);
       assertEquals(oldShip.owner_type, "unowned");
-      assertExists(oldShip.became_unowned, "Should have became_unowned timestamp");
+      assertExists(
+        oldShip.became_unowned,
+        "Should have became_unowned timestamp",
+      );
     });
   },
 });
@@ -1403,7 +1503,9 @@ Deno.test({
 
     await t.step("DB: pseudo-character created", async () => {
       await withPg(async (pg) => {
-        const result = await pg.queryObject<{ character_id: string; is_npc: boolean }>(
+        const result = await pg.queryObject<
+          { character_id: string; is_npc: boolean }
+        >(
           `SELECT character_id, is_npc FROM characters WHERE character_id = $1`,
           [corpShipId],
         );
@@ -1418,7 +1520,11 @@ Deno.test({
           `SELECT * FROM corporation_ships WHERE ship_id = $1 AND corp_id = $2`,
           [corpShipId, corpId],
         );
-        assertEquals(result.rows.length, 1, "Corporation_ships row should exist");
+        assertEquals(
+          result.rows.length,
+          1,
+          "Corporation_ships row should exist",
+        );
       });
     });
 
@@ -1430,6 +1536,105 @@ Deno.test({
       assertExists(char);
       assertEquals(char.credits_in_megabank, 0, "Bank should not be touched");
     });
+  },
+});
+
+// ============================================================================
+// Purchase: corporation ship owner cap is per character, not per corporation.
+// ============================================================================
+
+Deno.test({
+  name: "ship — corp ship owner cap is per character and ignores destroyed",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    const previousCap = Deno.env.get("CORPORATION_SHIP_OWNER_CAP");
+    Deno.env.set("CORPORATION_SHIP_OWNER_CAP", "1");
+    try {
+      let corpId: string;
+      let p1FirstShipId: string;
+
+      await t.step("reset and setup corp with two funded members", async () => {
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipCredits(p1ShipId, 50000);
+        await setShipCredits(p2ShipId, 50000);
+
+        const createResult = await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Owner Cap Corp",
+        });
+        corpId = (createResult as Record<string, unknown>).corp_id as string;
+        const inviteCode = (createResult as Record<string, unknown>)
+          .invite_code as string;
+
+        await setShipCredits(p1ShipId, 50000);
+        await apiOk("corporation_join", {
+          character_id: p2Id,
+          corp_id: corpId,
+          invite_code: inviteCode,
+        });
+      });
+
+      await t.step("P1 can buy up to the cap", async () => {
+        const result = await apiOk("ship_purchase", {
+          character_id: p1Id,
+          ship_type: "autonomous_probe",
+          purchase_type: "corporation",
+        });
+        p1FirstShipId = (result as Record<string, unknown>).ship_id as string;
+      });
+
+      await t.step("P1 cannot exceed their personal cap", async () => {
+        const result = await api("ship_purchase", {
+          character_id: p1Id,
+          ship_type: "autonomous_probe",
+          purchase_type: "corporation",
+        });
+        assertEquals(result.status, 409);
+        assert(
+          result.body.error?.includes("corp_ship_owner_limit_exceeded"),
+          `Expected owner cap error, got: ${result.body.error}`,
+        );
+      });
+
+      await t.step(
+        "P2 can still buy because this is not a corp-wide cap",
+        async () => {
+          const result = await apiOk("ship_purchase", {
+            character_id: p2Id,
+            ship_type: "autonomous_probe",
+            purchase_type: "corporation",
+          });
+          assertExists((result as Record<string, unknown>).ship_id);
+        },
+      );
+
+      await t.step("destroyed P1 corp ship stops counting", async () => {
+        await withPg(async (pg) => {
+          await pg.queryObject(
+            `UPDATE ship_instances
+                SET destroyed_at = NOW()
+              WHERE ship_id = $1`,
+            [p1FirstShipId],
+          );
+        });
+
+        const result = await apiOk("ship_purchase", {
+          character_id: p1Id,
+          ship_type: "autonomous_probe",
+          purchase_type: "corporation",
+        });
+        assertExists((result as Record<string, unknown>).ship_id);
+      });
+    } finally {
+      if (previousCap === undefined) {
+        Deno.env.delete("CORPORATION_SHIP_OWNER_CAP");
+      } else {
+        Deno.env.set("CORPORATION_SHIP_OWNER_CAP", previousCap);
+      }
+    }
   },
 });
 
@@ -1652,24 +1857,27 @@ Deno.test({
       corpShipId = (result as Record<string, unknown>).ship_id as string;
     });
 
-    await t.step("corporation.ship_purchased event visible via corp_id", async () => {
-      const events = await eventsOfType(
-        p1Id,
-        "corporation.ship_purchased",
-        cursorP1,
-        corpId,
-      );
-      assert(
-        events.length >= 1,
-        `Expected >= 1 corporation.ship_purchased event, got ${events.length}`,
-      );
-      const payload = events[0].payload;
-      assertEquals(payload.ship_id, corpShipId);
-      assertEquals(payload.ship_type, "autonomous_probe");
-      assertExists(payload.purchase_price);
-      assertExists(payload.buyer_id);
-      assertExists(payload.corp_name);
-    });
+    await t.step(
+      "corporation.ship_purchased event visible via corp_id",
+      async () => {
+        const events = await eventsOfType(
+          p1Id,
+          "corporation.ship_purchased",
+          cursorP1,
+          corpId,
+        );
+        assert(
+          events.length >= 1,
+          `Expected >= 1 corporation.ship_purchased event, got ${events.length}`,
+        );
+        const payload = events[0].payload;
+        assertEquals(payload.ship_id, corpShipId);
+        assertEquals(payload.ship_type, "autonomous_probe");
+        assertExists(payload.purchase_price);
+        assertExists(payload.buyer_id);
+        assertExists(payload.corp_name);
+      },
+    );
   },
 });
 
@@ -1707,18 +1915,25 @@ Deno.test({
       assertEquals(body.credits_after, 19000, "20000 - 1000 = 19000");
     });
 
-    await t.step("DB: ship credits debited, bank balance unchanged", async () => {
-      const ship = await queryShip(p1ShipId);
-      assertExists(ship);
-      assertEquals(ship.credits, 19000, "Ship credits should be 20000 - 1000");
-      const char = await queryCharacter(p1Id);
-      assertExists(char);
-      assertEquals(
-        char.credits_in_megabank,
-        99999,
-        "Bank balance must not change on corp purchase",
-      );
-    });
+    await t.step(
+      "DB: ship credits debited, bank balance unchanged",
+      async () => {
+        const ship = await queryShip(p1ShipId);
+        assertExists(ship);
+        assertEquals(
+          ship.credits,
+          19000,
+          "Ship credits should be 20000 - 1000",
+        );
+        const char = await queryCharacter(p1Id);
+        assertExists(char);
+        assertEquals(
+          char.credits_in_megabank,
+          99999,
+          "Bank balance must not change on corp purchase",
+        );
+      },
+    );
   },
 });
 
@@ -1761,17 +1976,24 @@ Deno.test({
       corpShipId = body.ship_id as string;
     });
 
-    await t.step("DB: buyer ship credits debited, new corp ship seeded, bank unchanged", async () => {
-      const ship = await queryShip(p1ShipId);
-      assertExists(ship);
-      assertEquals(ship.credits, 7000);
-      const corpShip = await queryShip(corpShipId);
-      assertExists(corpShip);
-      assertEquals(corpShip.credits, 2000);
-      const char = await queryCharacter(p1Id);
-      assertExists(char);
-      assertEquals(char.credits_in_megabank, 50000, "Bank should not be touched");
-    });
+    await t.step(
+      "DB: buyer ship credits debited, new corp ship seeded, bank unchanged",
+      async () => {
+        const ship = await queryShip(p1ShipId);
+        assertExists(ship);
+        assertEquals(ship.credits, 7000);
+        const corpShip = await queryShip(corpShipId);
+        assertExists(corpShip);
+        assertEquals(corpShip.credits, 2000);
+        const char = await queryCharacter(p1Id);
+        assertExists(char);
+        assertEquals(
+          char.credits_in_megabank,
+          50000,
+          "Bank should not be touched",
+        );
+      },
+    );
   },
 });
 
@@ -1811,11 +2033,14 @@ Deno.test({
       );
     });
 
-    await t.step("DB: bank balance unchanged after failed purchase", async () => {
-      const char = await queryCharacter(p1Id);
-      assertExists(char);
-      assertEquals(char.credits_in_megabank, 999999);
-    });
+    await t.step(
+      "DB: bank balance unchanged after failed purchase",
+      async () => {
+        const char = await queryCharacter(p1Id);
+        assertExists(char);
+        assertEquals(char.credits_in_megabank, 999999);
+      },
+    );
   },
 });
 

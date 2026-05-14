@@ -2,8 +2,9 @@ import { produce } from "immer"
 import type { StateCreator } from "zustand"
 
 import { wait } from "@/utils/animation"
-import { ACTIVE_PANEL_REST_SECS } from "./uiSlice"
+
 import type { UISlice } from "./uiSlice"
+import { ACTIVE_PANEL_REST_SECS } from "./uiSlice"
 
 // Duration of the "Steering" badge flash, in milliseconds. When the voice
 // agent sends a steering instruction to a running task, the badge briefly

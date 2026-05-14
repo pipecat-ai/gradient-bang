@@ -41,7 +41,6 @@ function StatusRow({
 }
 
 export const ShipStatusPopover = ({ ship }: { ship: Ship }) => {
-  const isBusy = !!ship.current_task_id
   const byoa = ship.byoa ?? null
   const isOnline = byoa?.presence?.online === true
   const actor = ship.current_task_actor ?? null

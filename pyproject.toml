@@ -34,9 +34,6 @@ bot = [
 tracing = ["weave>=0.50"]
 
 [project.scripts]
-# CLI
-gb = "gradientbang.cli:app"
-
 # Agent
 bot = "gradientbang.pipecat_server.__main__:main"
 byoa = "gradientbang.byoa.app:main"

@@ -9,7 +9,7 @@ import type { Toast, ToastInput } from "@/types/toasts"
 
 export const ACTIVE_PANEL_REST_SECS = 7
 
-interface Notifications {
+export interface Notifications {
   newChatMessage: boolean
   rankChanged: boolean
   questCompleted: boolean

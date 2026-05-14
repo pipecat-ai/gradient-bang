@@ -118,6 +118,9 @@ For most operators, the first two are enough. Eject from the default harness onl
 
 - One ship can be claimed by one BYOA owner at a time.
 - BYOA ships can only be issued tasks by their BYOA owner.
+- BYOA-claimed ships are exempt from the per-character corporation ship owner cap (`CORPORATION_SHIP_OWNER_CAP`, default `5`).
+- Unlinking a BYOA ship can fail if clearing the claim would put the purchaser over the active non-BYOA corporation ship cap. Destroyed ships do not count.
 - A corp member can still force-cancel a running task.
 - The wake secret is per ship; rotating it only affects that ship.
 - Preview Vercel URLs are usually protected by Vercel SSO. Use the production alias for BYOA.
+- `ship_byoa_configure` is authenticated by the caller's Supabase Auth JWT, not the trusted edge token. Any ship lookup, picker, claim, or unlink flow must stay inside that JWT security boundary so operators can only discover and mutate ships their character can access.

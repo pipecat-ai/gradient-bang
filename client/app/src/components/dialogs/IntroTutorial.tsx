@@ -32,7 +32,7 @@ export const IntroTutorial = ({ onContinue }: { onContinue: () => void }) => {
     setShowConfirmTutorial(true)
   }
 
-  const handleContinue = (_bypassTutorial: boolean = false) => {
+  const handleContinue = () => {
     // Note: we do not hide the modal here to prevent FOUS
 
     // Tutorial is not ready yet — always bypass regardless of user choice
@@ -92,7 +92,7 @@ export const IntroTutorial = ({ onContinue }: { onContinue: () => void }) => {
                     <Divider variant="dashed" className="h-4 text-accent" />
                   </CardContent>
                   <CardFooter className="flex flex-row gap-ui-sm justify-end">
-                    <Button variant="ghost" size="lg" onClick={() => handleContinue(true)}>
+                    <Button variant="ghost" size="lg" onClick={handleContinue}>
                       No, skip tutorial
                     </Button>
                     <Button size="lg" onClick={() => handleContinue()}>

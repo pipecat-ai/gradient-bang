@@ -6,6 +6,7 @@ from gradientbang.pipecat_server.voices import (
     CARTESIA_VOICES,
     DEFAULT_VOICE,
     GRADIUM_DEFAULT_VOICE_ID,
+    GRADIUM_VOICES,
     get_default_voice_id,
     get_voice_config,
     get_voices_for_provider,
@@ -27,9 +28,16 @@ class TestProviderVoices:
         gradium_names = set(get_voices_for_provider("gradium"))
         assert gradium_names == cartesia_names
 
-    def test_gradium_voices_use_default_gradium_voice_id(self):
-        for voice in get_voices_for_provider("gradium").values():
-            assert voice["voice_id"] == GRADIUM_DEFAULT_VOICE_ID
+    def test_gradium_ids_are_preserved(self):
+        assert GRADIUM_VOICES["ariel"]["voice_id"] == GRADIUM_DEFAULT_VOICE_ID
+        assert GRADIUM_VOICES["sterling"]["voice_id"] == "7c5UOKm7AiBgJADg"
+        assert GRADIUM_VOICES["dani"]["voice_id"] == "WHINGSh2X5oidrhY"
+        assert GRADIUM_VOICES["caine"]["voice_id"] == "vzanWTXLIajkUaaT"
+        assert GRADIUM_VOICES["voss"]["voice_id"] == "LFZvm12tW_z0xfGo"
+        assert GRADIUM_VOICES["gordon"]["voice_id"] == "LFZvm12tW_z0xfGo"
+        assert GRADIUM_VOICES["lucia"]["voice_id"] == "PqjKPYFyGNsg1YU-"
+        assert GRADIUM_VOICES["celeste"]["voice_id"] == "biPZlD1tJvi7Ixhq"
+        assert GRADIUM_VOICES["estrela"]["voice_id"] == "pYcGZz9VOo4n2ynh"
 
     def test_default_gradium_voice_id_resolves(self):
         assert DEFAULT_VOICE == "ariel"

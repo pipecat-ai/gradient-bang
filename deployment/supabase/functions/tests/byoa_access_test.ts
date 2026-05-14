@@ -33,6 +33,7 @@ import {
   getEventCursor,
   provisionUser,
   setShipCredits,
+  setShipSector,
   shipIdFor,
   type TestUser,
   withPg,
@@ -269,22 +270,25 @@ Deno.test({
       assertEquals(await activeTaskIdForShip(corpShipId), taskId);
     });
 
-    await t.step("P2 task.finish → 403; task still appears active", async () => {
-      const result = await api("task_lifecycle", {
-        character_id: corpShipId,
-        actor_character_id: p2Id,
-        task_id: taskId,
-        event_type: "finish",
-        task_summary: "should not finish BYOA task",
-      });
-      assertEquals(result.status, 403);
-      assertEquals(
-        (result.body as Record<string, unknown>).error,
-        "byoa_private_not_owner",
-      );
+    await t.step(
+      "P2 task.finish → 403; task still appears active",
+      async () => {
+        const result = await api("task_lifecycle", {
+          character_id: corpShipId,
+          actor_character_id: p2Id,
+          task_id: taskId,
+          event_type: "finish",
+          task_summary: "should not finish BYOA task",
+        });
+        assertEquals(result.status, 403);
+        assertEquals(
+          (result.body as Record<string, unknown>).error,
+          "byoa_private_not_owner",
+        );
 
-      assertEquals(await activeTaskIdForShip(corpShipId), taskId);
-    });
+        assertEquals(await activeTaskIdForShip(corpShipId), taskId);
+      },
+    );
 
     await t.step(
       "P2 force=true succeeds; cancel event emitted, task no longer active",
@@ -375,6 +379,84 @@ Deno.test({
       assertEquals(row?.byoa_owner_character_id, null);
       assertEquals(row?.byoa_mode, "private"); // back to migration default
     });
+  },
+});
+
+Deno.test({
+  name: "byoa_access — clearing BYOA enforces purchaser corp ship owner cap",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    const previousCap = Deno.env.get("CORPORATION_SHIP_OWNER_CAP");
+    Deno.env.set("CORPORATION_SHIP_OWNER_CAP", "1");
+    try {
+      let firstCorpShipId: string;
+      let p1User: TestUser;
+
+      await t.step("seed corp and buy first ship", async () => {
+        await resetDatabase([P1]);
+        await apiOk("join", { character_id: p1Id });
+        await setShipSector(p1ShipId, 0);
+        await setShipCredits(p1ShipId, 50000);
+        await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "BYOA Cap Corp",
+        });
+        await setShipCredits(p1ShipId, 50000);
+        p1User = await provisionUser("byoa-cap-p1", p1Id);
+
+        const result = await apiOk("ship_purchase", {
+          character_id: p1Id,
+          ship_type: "autonomous_probe",
+          purchase_type: "corporation",
+        });
+        firstCorpShipId = (result as Record<string, unknown>).ship_id as string;
+      });
+
+      await t.step("claiming first ship exempts it from the cap", async () => {
+        await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
+          character_id: p1Id,
+          ship_id: firstCorpShipId,
+          action: "claim",
+        });
+
+        const result = await apiOk("ship_purchase", {
+          character_id: p1Id,
+          ship_type: "autonomous_probe",
+          purchase_type: "corporation",
+        });
+        assert((result as Record<string, unknown>).ship_id);
+      });
+
+      await t.step(
+        "clearing the claim would exceed the cap and fails",
+        async () => {
+          const result = await apiAs(
+            p1User.accessToken,
+            "ship_byoa_configure",
+            {
+              character_id: p1Id,
+              ship_id: firstCorpShipId,
+              action: "clear",
+            },
+          );
+          assertEquals(result.status, 409);
+          assert(
+            result.body.error?.includes("corp_ship_owner_limit_exceeded"),
+            `Expected owner cap error, got: ${result.body.error}`,
+          );
+
+          const row = await readShipByoa(firstCorpShipId);
+          assertEquals(row?.byoa_owner_character_id, p1Id);
+        },
+      );
+    } finally {
+      if (previousCap === undefined) {
+        Deno.env.delete("CORPORATION_SHIP_OWNER_CAP");
+      } else {
+        Deno.env.set("CORPORATION_SHIP_OWNER_CAP", previousCap);
+      }
+    }
   },
 });
 

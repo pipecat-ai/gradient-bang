@@ -8,12 +8,12 @@ import { useConversationStore } from "@/stores/conversation"
 import useGameStore from "@/stores/game"
 
 import { useCombatControls } from "./combat/useCombatControls"
+import { useOnboardingControls } from "./onboarding/useOnboardingControls"
 import { useChatControls } from "./useChatControls"
 import { useMapControls } from "./useMapControls"
 import { useTaskControls } from "./useTaskControls"
 import { useTradeControls } from "./useTradeControls"
 import { useLeaderboardControls } from ".ladle/useLeaderboardControls"
-import { useOnboardingControls } from "./onboarding/useOnboardingControls"
 import { useQuestControls } from ".ladle/useQuestControls"
 
 import { SHIP_DEFINITIONS } from "@/types/ships"
