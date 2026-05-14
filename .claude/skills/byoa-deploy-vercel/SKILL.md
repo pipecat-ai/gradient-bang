@@ -28,7 +28,9 @@ End state: a Vercel deployment at `https://<their-project>.vercel.app/api/wake` 
 
 **Default deploy target is production.** The BYOA wake endpoint must be publicly reachable by the game server, and only the production alias (`<projectName>.vercel.app`) is exempt from Vercel's Standard Protection. Per-deploy URLs (`<projectName>-<hash>-<team>.vercel.app`) are SSO-gated regardless of target.
 
-**Tested with Vercel CLI 54.x.** Older/newer versions may differ in the preview-env-add behavior noted in step 4.
+**Tested with Vercel CLI 54.x.**
+
+**Game tool calls route through the bus, not direct HTTP.** The BYOA harness running in the Vercel sandbox never calls the game server directly — it publishes `BusGameToolCallRequest` messages onto the Postgres bus, and the bot-side VoiceAgent broker forwards them to Supabase using the bot's own `SUPABASE_URL`. wake_agent's injected env (`BYOA_BUS_DATABASE_URL`, `BYOA_CHANNEL`, `BYOA_SHIP_ID`, `BYOA_CHARACTER_ID`, `BYOA_TASK_ID`, `BYOA_WAKE_REQUEST_ID`) contains no game-server URL on purpose. Practical implication: for local-stack testing against a Vercel-deployed receiver, **only the Postgres bus needs to be publicly reachable** (e.g. via `ngrok tcp 54322` + `BYOA_BUS_DATABASE_URL` set in `.env.supabase`). No second tunnel for the game server is required. See `voice_agent.py` `_on_game_tool_call_request` for the broker side.
 
 ## Pre-flight
 
@@ -123,58 +125,47 @@ Tell the operator: run that in their shell, follow the prompts (suggested projec
 
 ### 4. Push project env to Vercel
 
-For each key below, push the value from `.env.byoa` to **all three** Vercel environments (production, preview, development). Use the `rm`-then-`add` pattern so re-runs are idempotent.
+Push the values from `.env.byoa` to the **production** Vercel environment only. The wake function is invoked through the production alias (`<projectName>.vercel.app`) and preview/development environments are never reached by the game server, so syncing env vars to them is pure noise. Use the `rm`-then-`add` pattern so re-runs are idempotent.
 
-**Two CLI quirks to work around (Vercel CLI 54.x):**
+All `vercel` invocations use `--cwd deployment/vercel` instead of `cd deployment/vercel && ...` — that way the snippet runs the same whether or not the caller wraps it in a subshell, and accidental cwd drift can't bleed into later steps. **Keep `--cwd` if you edit these commands** — chained `cd` patterns silently move the Bash-tool cwd and break later steps (the operator-side curl in step 8 tries to source `.env.supabase` from the repo root).
 
-1. `vercel env add KEY preview --yes` (and even `... --yes --value <v>`) ignores `--yes` and bails asking which git branch. **Workaround:** pass `""` as an explicit third positional arg — that means "all preview branches" and unblocks the prompt.
-2. `vercel env add KEY <env> --yes` reading from stdin works for `production`/`development` but not `preview` (same branch-prompt bug). Easiest to just use `--value` everywhere for consistency.
-
-Use this snippet verbatim — it handles all three envs correctly in one shot:
-
-First resolve the LLM-provider API key name from `TASK_LLM_PROVIDER` (see pre-flight table):
+First resolve the LLM-provider API key name + value from `TASK_LLM_PROVIDER` in one shot (resolving both here avoids `${!VAR}` indirect expansion, which works in bash but not zsh — and zsh is the default macOS shell):
 
 ```bash
 case "$TASK_LLM_PROVIDER" in
-  anthropic) API_KEY_NAME=ANTHROPIC_API_KEY ;;
-  google)    API_KEY_NAME=GOOGLE_API_KEY    ;;
-  openai)    API_KEY_NAME=OPENAI_API_KEY    ;;
-  minimax)   API_KEY_NAME=MINIMAX_API_KEY   ;;
+  anthropic) API_KEY_NAME=ANTHROPIC_API_KEY; API_KEY_VALUE="$ANTHROPIC_API_KEY" ;;
+  google)    API_KEY_NAME=GOOGLE_API_KEY;    API_KEY_VALUE="$GOOGLE_API_KEY"    ;;
+  openai)    API_KEY_NAME=OPENAI_API_KEY;    API_KEY_VALUE="$OPENAI_API_KEY"    ;;
+  minimax)   API_KEY_NAME=MINIMAX_API_KEY;   API_KEY_VALUE="$MINIMAX_API_KEY"   ;;
   *) echo "Unknown TASK_LLM_PROVIDER=$TASK_LLM_PROVIDER"; exit 1 ;;
 esac
 ```
 
-Then push every key to all three envs:
+Then push every key to production. The function reads named globals (`KEY` / `VAL`) instead of positional bash args — the slash-command loader substitutes literal positional refs (dollar-N) inside fenced code blocks with the skill's command-line args, which silently corrupts shell snippets. Don't use bash positional parameters in skill snippets — use named env vars on the call line instead, as below:
 
 ```bash
 push_env() {
-  local key="$1" val="$2"
-  [ -z "$val" ] && return
-  for env_name in production preview development; do
-    (cd deployment/vercel && npx vercel env rm "$key" "$env_name" --yes >/dev/null 2>&1 || true)
-    local ok=1
-    if [ "$env_name" = "preview" ]; then
-      # CLI 54 bug: --yes doesn't suppress the branch prompt. "" = all preview branches.
-      (cd deployment/vercel && npx vercel env add "$key" preview "" --value "$val" --yes >/dev/null 2>&1) || ok=0
-    else
-      (cd deployment/vercel && npx vercel env add "$key" "$env_name" --value "$val" --yes >/dev/null 2>&1) || ok=0
-    fi
-    [ "$ok" = "1" ] && echo "  ✓ $key → $env_name" || echo "  ✗ $key → $env_name FAILED"
-  done
+  [ -z "$VAL" ] && return
+  npx vercel --cwd deployment/vercel env rm "$KEY" production --yes >/dev/null 2>&1 || true
+  if npx vercel --cwd deployment/vercel env add "$KEY" production --value "$VAL" --yes >/dev/null 2>&1; then
+    echo "  ✓ $KEY → production"
+  else
+    echo "  ✗ $KEY → production FAILED"
+  fi
 }
 
 # Required
-push_env BYOA_WAKE_SECRET   "$BYOA_WAKE_SECRET"
-push_env TASK_LLM_PROVIDER  "$TASK_LLM_PROVIDER"
-push_env TASK_LLM_MODEL     "$TASK_LLM_MODEL"
-push_env "$API_KEY_NAME"    "${!API_KEY_NAME}"
+KEY=BYOA_WAKE_SECRET   VAL="$BYOA_WAKE_SECRET"   push_env
+KEY=TASK_LLM_PROVIDER  VAL="$TASK_LLM_PROVIDER"  push_env
+KEY=TASK_LLM_MODEL     VAL="$TASK_LLM_MODEL"     push_env
+KEY="$API_KEY_NAME"    VAL="$API_KEY_VALUE"      push_env
 
 # Optional — only push when set
-[ -n "$BYOA_PROMPT" ]                       && push_env BYOA_PROMPT                       "$BYOA_PROMPT"
-[ -n "$BYOA_PROMPT_FILE" ]                  && push_env BYOA_PROMPT_FILE                  "$BYOA_PROMPT_FILE"
-[ -n "$TASK_LLM_THINKING_BUDGET" ]          && push_env TASK_LLM_THINKING_BUDGET          "$TASK_LLM_THINKING_BUDGET"
-[ -n "$BYOA_TOOL_CALL_TIMEOUT_SECONDS" ]    && push_env BYOA_TOOL_CALL_TIMEOUT_SECONDS    "$BYOA_TOOL_CALL_TIMEOUT_SECONDS"
-[ -n "$BYOA_AGENT_IDLE_TEARDOWN_SECONDS" ]  && push_env BYOA_AGENT_IDLE_TEARDOWN_SECONDS  "$BYOA_AGENT_IDLE_TEARDOWN_SECONDS"
+[ -n "$BYOA_PROMPT" ]                       && KEY=BYOA_PROMPT                      VAL="$BYOA_PROMPT"                      push_env
+[ -n "$BYOA_PROMPT_FILE" ]                  && KEY=BYOA_PROMPT_FILE                 VAL="$BYOA_PROMPT_FILE"                 push_env
+[ -n "$TASK_LLM_THINKING_BUDGET" ]          && KEY=TASK_LLM_THINKING_BUDGET         VAL="$TASK_LLM_THINKING_BUDGET"         push_env
+[ -n "$BYOA_TOOL_CALL_TIMEOUT_SECONDS" ]    && KEY=BYOA_TOOL_CALL_TIMEOUT_SECONDS   VAL="$BYOA_TOOL_CALL_TIMEOUT_SECONDS"   push_env
+[ -n "$BYOA_AGENT_IDLE_TEARDOWN_SECONDS" ]  && KEY=BYOA_AGENT_IDLE_TEARDOWN_SECONDS VAL="$BYOA_AGENT_IDLE_TEARDOWN_SECONDS" push_env
 ```
 
 Note on `--value`: this puts the secret in the process command line, briefly visible to other local users via `ps aux`. Acceptable on a developer machine; if pushing on shared infrastructure use `vercel env pull` + manual edit instead.
@@ -183,10 +174,10 @@ If `vercel env rm` complains "Environment Variable was not found" on first run, 
 
 ### 5. Deploy and capture the canonical alias
 
-Default to production (see "Default deploy target" note above). Tee the output so we can grep for the alias line:
+Default to production (see "Default deploy target" note above). Tee the output so we can grep for the alias line. Same `--cwd` rule as step 4 — don't replace with chained `cd` patterns, even in pipelines:
 
 ```bash
-(cd deployment/vercel && npx vercel deploy --prod --yes 2>&1) | tee /tmp/byoa-deploy.log
+npx vercel --cwd deployment/vercel deploy --prod --yes 2>&1 | tee /tmp/byoa-deploy.log
 ```
 
 For `--preview` (rarely correct for BYOA), drop `--prod` — but warn the operator the resulting URL will be SSO-gated.
@@ -197,8 +188,11 @@ After the deploy, capture **two** URLs:
 # Per-deploy URL (immutable, SSO-gated under Standard Protection — not useful for source_url)
 DEPLOY_URL=$(grep -oE 'https://[a-z0-9-]+\.vercel\.app' /tmp/byoa-deploy.log | head -1)
 
-# Canonical alias (public for prod, the URL the game server actually hits)
-ALIAS_URL=$(grep -oE 'Aliased: https://[^ ]+' /tmp/byoa-deploy.log | awk '{print $2}' | head -1)
+# Canonical alias (public for prod, the URL the game server actually hits).
+# Use `cut`, not awk's positional-field operator — the loader rewrites literal
+# dollar-N tokens in this file with the slash-command args, which would mangle
+# any awk field reference inside a fenced code block.
+ALIAS_URL=$(grep -oE 'Aliased: https://[^ ]+' /tmp/byoa-deploy.log | head -1 | cut -d' ' -f2)
 
 # Fallback: construct from project.json if the Aliased: line is missing (e.g. on preview deploys)
 if [ -z "$ALIAS_URL" ]; then
@@ -333,9 +327,8 @@ End with a terse summary:
 - **`vercel whoami` says not authenticated**: `npx vercel login`, then re-run.
 - **`deployment/vercel/.vercel/project.json` missing**: run `cd deployment/vercel && npx vercel link` interactively, then re-run.
 - **Stray `.vercel/` at repo root or `deployment/`**: an earlier `vercel link` was run from the wrong cwd. Either `mv` it into `deployment/vercel/.vercel/` or `rm -rf` it and re-link from inside `deployment/vercel/`.
-- **`vercel env add KEY preview --yes` returns `git_branch_required` JSON**: CLI 54.x bug — `--yes` doesn't suppress the branch prompt. Pass `""` as the third positional arg: `vercel env add KEY preview "" --value <v> --yes`. The step 4 snippet handles this; if you're shelling manually, remember the empty-string branch arg.
 - **Health check returns HTML "Authentication Required"**: you're hitting `DEPLOY_URL` (per-deploy hash URL), which is gated by Vercel Standard Protection. Use `ALIAS_URL` (`<projectName>.vercel.app`) instead. This is **always** a URL confusion, never a function-level auth bug.
-- **Health check returns `wake_secret_configured: false`**: env push didn't propagate to the deployed target — re-run step 4 for `BYOA_WAKE_SECRET` and redeploy. (Common cause: the env push went to production but the deploy was preview, or vice versa.)
+- **Health check returns `wake_secret_configured: false`**: env push didn't propagate to production — re-run step 4 for `BYOA_WAKE_SECRET` and redeploy. (Step 4 only writes to the `production` Vercel env, so a preview-target deploy will *always* see this; if you deployed `--preview`, redeploy `--prod`.)
 - **POST returns anything but 401 `{"success":false,"error":"unauthorized"}` in step 7**: bearer check broken (or you hit `DEPLOY_URL` and saw a Vercel SSO 401 — re-check against `ALIAS_URL`). Do not register `source_url` until the function-level 401 is confirmed.
 - **`Aliased:` line missing from `vercel deploy` output**: happens on preview deploys (no automatic alias) and on first-ever production deploy for some projects. The step-5 snippet falls back to constructing `https://<projectName>.vercel.app` from `.vercel/project.json`.
 - **Deploy went to `target: production` even without `--prod`**: the project default in Vercel is set to production-on-deploy. Harmless for BYOA (we want prod anyway) but worth knowing if you expected a preview.
