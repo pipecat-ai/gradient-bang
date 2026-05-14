@@ -2425,15 +2425,6 @@ class VoiceAgent(LLMAgent):
                 if isinstance(remote_agents, dict):
                     remote_agents.pop(agent_name, None)
 
-    def _has_fresh_byoa_presence(self, ship_id: str) -> bool:
-        presence = self._byoa_presence.get(ship_id)
-        if not presence or not presence.online:
-            return False
-        return (
-            time.monotonic() - presence.last_seen_monotonic
-            <= BYOA_PRESENCE_STALE_SECONDS
-        )
-
     def _resolve_hello_response(self, message: BusAgentHelloResponse) -> None:
         """Resolve the awaiting hello future for ``correlation_id``.
 
@@ -2934,17 +2925,12 @@ class VoiceAgent(LLMAgent):
                 # Server-side acquire BEFORE spawning the TaskAgent. A 409
                 # ship_busy or 403 byoa_private_not_owner here surfaces as a
                 # user-facing error without ever creating the local child.
-                byoa_has_fresh_presence = (
-                    bool(byoa_owner_id) and self._has_fresh_byoa_presence(target_character_id)
-                )
                 server_err = await self._acquire_server_ship_lock(
                     target_character_id=target_character_id,
                     framework_task_id=framework_task_id,
                     task_desc=task_desc,
                     task_metadata=task_metadata,
-                    task_status="waking"
-                    if byoa_owner_id and not byoa_has_fresh_presence
-                    else None,
+                    task_status="waking" if byoa_owner_id else None,
                 )
                 if server_err:
                     return server_err
@@ -3007,27 +2993,27 @@ class VoiceAgent(LLMAgent):
                                 f"byoa.watch_agent_failed.release error={release_exc!r}"
                             )
                         return {"success": False, "error": str(exc)}
-                    if byoa_has_fresh_presence:
-                        logger.info(
-                            f"byoa.wake_agent.skipped ship={target_character_id[:8]} "
-                            "reason=fresh_presence"
-                        )
-                    else:
-                        # Fire wake_agent asynchronously. The tool returns
-                        # immediately with status="waking" so the LLM keeps
-                        # talking instead of blocking on the HTTP round-trip.
-                        # On failure the dispatcher cancels the watchdog,
-                        # tears down local state, cancels the task, and
-                        # surfaces a task.cancelled event via the deferred-
-                        # update queue (same path the watchdog uses).
-                        asyncio.create_task(
-                            self._dispatch_byoa_wake(
-                                target_character_id=target_character_id,
-                                framework_task_id=framework_task_id,
-                                agent_name=byoa_agent_name,
-                            ),
-                            name=f"byoa_wake_dispatch_{framework_task_id[:8]}",
-                        )
+                    # Always fire wake_agent. The BYOA pattern is wake → task
+                    # → exit, so each new task needs a fresh harness; the
+                    # previous "skip wake when presence is fresh" optimization
+                    # was racy (presence cache lagging the just-exited
+                    # harness's offline broadcast caused the next task to
+                    # silently time out). wake_agent is a notification —
+                    # cheap and idempotent on the receive side. The tool
+                    # returns immediately with status="waking" so the LLM
+                    # keeps talking instead of blocking on the HTTP
+                    # round-trip. On failure the dispatcher cancels the
+                    # watchdog, tears down local state, cancels the task,
+                    # and surfaces a task.cancelled event via the deferred-
+                    # update queue (same path the watchdog uses).
+                    asyncio.create_task(
+                        self._dispatch_byoa_wake(
+                            target_character_id=target_character_id,
+                            framework_task_id=framework_task_id,
+                            agent_name=byoa_agent_name,
+                        ),
+                        name=f"byoa_wake_dispatch_{framework_task_id[:8]}",
+                    )
                     if byoa_agent_name not in self._pending_tasks:
                         return {
                             "success": True,
