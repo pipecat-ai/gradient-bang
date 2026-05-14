@@ -176,17 +176,22 @@ class PubsubEventAdapter:
     # ------------------------------------------------------------------
 
     async def purge_backlog(self) -> None:
-        """Drop the per-character pgmq queue.
+        """Ensure the per-character pgmq queue exists, empty.
 
         Called by sessions that build their LLM context inline from RPC
-        responses before this adapter starts. After this returns, server
-        ``pgmq_publish`` calls for the bound character silently no-op
-        (``EXCEPTION WHEN undefined_table THEN RETURN NULL``) until
-        ``start()`` recreates the queue via ``ensure_character_queue``.
-        Eliminates the timing race between init-RPC pgmq inserts and
-        the adapter's startup, at the cost of losing any genuine
-        background events for this character during the bootstrap
-        window — acceptable since the next status.snapshot reconciles.
+        responses before this adapter starts. Previously this *dropped*
+        the queue, but that left a window where bootstrap-RPC publishes
+        hit ``undefined_table`` in ``pgmq_publish`` and were silently
+        lost — events emitted during that window never reached the
+        client, which depends on the pgmq-delivered payload (with
+        ``injectCharacterEventIdentity`` enrichment) for ``player.id``.
+
+        Now: ensure the queue exists, then purge any backlog. Same intent
+        (start the session with an empty queue, no stale messages from a
+        prior session) but bootstrap-window publishes land in the queue
+        and reach the client. The bot's LLM context stays
+        duplicate-free because ``start()`` is called after session_init
+        and the adapter only dispatches messages from that point on.
         """
         pgmq_url = _resolve_pgmq_url()
         async with await psycopg.AsyncConnection.connect(
@@ -197,15 +202,18 @@ class PubsubEventAdapter:
                     queue_name = f"chr_{character_id}"
                     try:
                         await cur.execute(
-                            "SELECT pgmq.drop_queue(%s)", (queue_name,)
+                            "SELECT public.ensure_character_queue(%s)",
+                            (character_id,),
+                        )
+                        await cur.execute(
+                            "SELECT pgmq.purge_queue(%s)", (queue_name,)
                         )
                         logger.info(
                             f"pubsub.backlog_purged character={character_id}"
                         )
                     except Exception as exc:
-                        # Queue didn't exist → drop is a no-op for our purposes.
-                        # Any other error is logged but not fatal; start() will
-                        # try again and surface real problems then.
+                        # Non-fatal — start() will surface real problems
+                        # (missing queue, auth failure) at its own check.
                         logger.debug(
                             f"pubsub.purge_skipped character={character_id} "
                             f"error={exc}"
