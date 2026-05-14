@@ -51,7 +51,7 @@ Resolve which API key is required from `TASK_LLM_PROVIDER`:
 | `openai` | `OPENAI_API_KEY` |
 | `minimax` | `MINIMAX_API_KEY` |
 
-If both `BYOA_PROMPT` and `BYOA_PROMPT_FILE` are unset, mention that the agent will run on the base TaskAgent prompt only.
+If both `BYOA_PROMPT` and `BYOA_PROMPT_FILE` are unset, mention that the agent will fall back to the bundled default prompt at [deployment/vercel/prompt.md](../../../deployment/vercel/prompt.md) (auto-loaded by `wake.ts` on every wake — operators can edit it pre-deploy, fork the deploy template, or override via `BYOA_PROMPT` / `BYOA_PROMPT_FILE` on the Vercel project env).
 
 ## Steps
 
@@ -342,4 +342,4 @@ End with a terse summary:
 - Claim the ship or generate the wake secret — that's `/byoa-setup`. This skill only registers the `source_url` for an already-claimed, already-wake-secret-registered ship.
 - Persist the user JWT — it's used in-memory for the single `ship_byoa_configure` call and discarded. Operators wanting to skip the login prompt should pass `--access-token <jwt>` directly.
 - Edit the wake function code — operators who want custom behavior should fork the template directory.
-- Push the operator's `prompt.md` file as a baked-in asset — pass the prompt via `BYOA_PROMPT` (inline ≤ 8 KB) in `.env.byoa`, or commit a `prompt.md` into a fork of `deployment/vercel/` and set `BYOA_PROMPT_FILE=./prompt.md` on the Vercel project env.
+- Author the prompt for the operator — `wake.ts` auto-loads [deployment/vercel/prompt.md](../../../deployment/vercel/prompt.md) on every wake when neither `BYOA_PROMPT` nor `BYOA_PROMPT_FILE` is set in operator env. Operators wanting to override the default either edit `prompt.md` before deploying (changes ride along with the next `vercel deploy`, picked up by sandboxes on next provision) or set `BYOA_PROMPT` (inline ≤ 8 KB) on the Vercel project env.
