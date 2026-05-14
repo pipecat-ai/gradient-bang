@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from pipecat.frames.frames import DataFrame
+from pipecat.frames.frames import DataFrame, SystemFrame
 
 
 @dataclass
@@ -22,7 +22,13 @@ class TaskActivityFrame(DataFrame):
 
 
 @dataclass
-class UserTextInputFrame(DataFrame):
-    """Frame indicating the client sent a text input message."""
+class UserTextInputFrame(SystemFrame):
+    """Frame indicating the client sent a text input message.
+
+    This is a pipeline control signal, not cancellable payload. The client
+    message handler queues it immediately before an InterruptionFrame so the
+    mute strategy can unmute text input; keeping it off the non-system
+    processing queue avoids racing Pipecat's interruption task reset.
+    """
 
     text: str = ""

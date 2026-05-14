@@ -3150,7 +3150,14 @@ class VoiceAgent(LLMAgent):
             self._locked_ships.pop(child._character_id, None)
 
             await self.cancel_task(framework_task_id, reason="Cancelled by user")
-            return {"success": True, "message": "Task cancelled", "task_id": framework_task_id}
+            task_type = "corp_ship" if child._is_corp_ship else "player_ship"
+            return {
+                "success": True,
+                "message": "Task cancelled",
+                "task_id": framework_task_id,
+                "task_type": task_type,
+                "ship_character_id": child._character_id,
+            }
         except Exception as e:
             logger.error(f"stop_task failed: {e}")
             return {"success": False, "error": str(e)}
@@ -3664,13 +3671,42 @@ class VoiceAgent(LLMAgent):
 
     async def _handle_stop_task_tool(self, params: FunctionCallParams):
         result = await self._handle_stop_task(params)
-        if result.get("success"):
-            await params.result_callback(
-                {"result": result},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
-        else:
+        if not result.get("success"):
             await params.result_callback({"result": result})
+            return
+
+        # Mirror _handle_start_task_tool: ack via run_llm=False, then drive a
+        # post-tool inference through _inject_context. The deferred LLMRunFrame
+        # is what clears the client's "thinking" state — without it, isThinking
+        # stays true until the next user turn (BotStartedSpeaking is the only
+        # thing that flips it off; see ConversationProvider.tsx).
+        await params.result_callback(
+            {"result": result},
+            properties=FunctionCallResultProperties(run_llm=False),
+        )
+
+        task_id = str(result.get("task_id", "")).strip()
+        task_type = str(result.get("task_type", "player_ship")).strip() or "player_ship"
+        ship_character_id = result.get("ship_character_id")
+        summary = (
+            str(result.get("message") or result.get("summary") or "Task cancelled").strip()
+            or "Task cancelled"
+        )
+
+        # Fold any pending task.completed for this ship into context silently —
+        # cancelling signals the player has moved on, regardless of turn count.
+        if isinstance(ship_character_id, str) and ship_character_id:
+            await self._silent_flush_for_ship(ship_character_id)
+
+        attrs = [f'name="task.cancelled"']
+        if task_id:
+            attrs.append(f'task_id="{task_id}"')
+        attrs.append(f'task_type="{task_type}"')
+        event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
+        await self._inject_context(
+            [{"role": "user", "content": event_xml}],
+            run_llm=True,
+        )
 
     async def _handle_steer_task_tool(self, params: FunctionCallParams):
         result = await self._handle_steer_task(params)
@@ -3680,21 +3716,39 @@ class VoiceAgent(LLMAgent):
                 {"error": result.get("error", "Request failed.")},
                 properties=FunctionCallResultProperties(run_llm=True),
             )
-        else:
-            # Suppress post-tool inference so we don't get a second,
-            # rephrased ack. The model already narrated the steer in the
-            # same turn as the tool call (per the Critical Rule); a fresh
-            # inference driven by the tool result just produces a duplicate.
-            # Mirrors the pattern used by _handle_stop_task_tool and the
-            # guard comments in event_relay.py for task.finish / quest.step.
-            summary = result.get("summary") if isinstance(result, dict) else None
-            payload = {"summary": summary or "steer_task completed."}
-            if isinstance(result, dict) and result.get("task_id"):
-                payload["task_id"] = result["task_id"]
-            await params.result_callback(
-                payload,
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            return
+
+        # Mirror _handle_start_task_tool: ack via run_llm=False, then drive a
+        # post-tool inference through _inject_context. The deferred LLMRunFrame
+        # is what clears the client's "thinking" state — without it, isThinking
+        # stays true until the next user turn (BotStartedSpeaking is the only
+        # thing that flips it off; see ConversationProvider.tsx).
+        summary_field = result.get("summary") if isinstance(result, dict) else None
+        payload = {"summary": summary_field or "steer_task completed."}
+        if isinstance(result, dict) and result.get("task_id"):
+            payload["task_id"] = result["task_id"]
+        await params.result_callback(
+            payload,
+            properties=FunctionCallResultProperties(run_llm=False),
+        )
+
+        task_id = str(result.get("task_id", "")).strip() if isinstance(result, dict) else ""
+        task_type = (
+            str(result.get("task_type", "player_ship")).strip() or "player_ship"
+            if isinstance(result, dict)
+            else "player_ship"
+        )
+        summary = str(summary_field or "Steering instruction sent.").strip() or "Steering instruction sent."
+
+        attrs = [f'name="task.steered"']
+        if task_id:
+            attrs.append(f'task_id="{task_id}"')
+        attrs.append(f'task_type="{task_type}"')
+        event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
+        await self._inject_context(
+            [{"role": "user", "content": event_xml}],
+            run_llm=True,
+        )
 
     async def _handle_query_task_progress_tool(self, params: FunctionCallParams):
         result = await self._handle_query_task_progress(params)
