@@ -604,4 +604,5 @@ export interface QuestRewardClaimedMessage extends ServerMessagePayload {
   step_id: string
   step_name: string
   reward: QuestReward
+  credits_after?: number
 }

@@ -1808,7 +1808,9 @@ export function GameProvider({ children }: GameProviderProps) {
             case "quest.reward_claimed": {
               const data = e.payload as Msg.QuestRewardClaimedMessage
               useGameStore.getState().claimStepReward(data.quest_id, data.step_id)
-              if (data.reward.credits) {
+              if (typeof data.credits_after === "number") {
+                useGameStore.getState().setShip({ credits: data.credits_after })
+              } else if (data.reward.credits) {
                 const currentCredits = useGameStore.getState().ship?.credits ?? 0
                 useGameStore.getState().setShip({ credits: currentCredits + data.reward.credits })
               }
