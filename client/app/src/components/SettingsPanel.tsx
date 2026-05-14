@@ -31,7 +31,8 @@ import { ToggleControl } from "@/components/primitives/ToggleControl"
 import usePipecatClientStore from "@/stores/client"
 import useGameStore from "@/stores/game"
 import type { SettingsSlice } from "@/stores/settingsSlice"
-import { PERSONALITY_OPTIONS, getPersonalityTone } from "@/types/constants"
+
+import { getPersonalityTone, PERSONALITY_OPTIONS } from "@/types/constants"
 
 const SettingSelect = ({
   label,
@@ -145,10 +146,7 @@ const VOICE_OPTIONS: Record<string, { value: string; label: string }[]> = {
   ],
   Español: [{ value: "lucia", label: "Navegante Lucia" }],
   Français: [{ value: "celeste", label: "Navigatrice Celeste" }],
-  Hindi: [{ value: "priya", label: "Navik Priya" }],
-  Italiano: [{ value: "marco", label: "Navigatore Marco" }],
   Português: [{ value: "estrela", label: "Navegadora Estrela" }],
-  Türkçe: [{ value: "taylan", label: "Seyirci Taylan" }],
 }
 
 interface SettingsPanelProps {

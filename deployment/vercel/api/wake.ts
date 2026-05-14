@@ -62,7 +62,6 @@ const OPERATOR_ENV_KEYS = [
   "OPENAI_API_KEY",
   "MINIMAX_API_KEY",
   "BYOA_TOOL_CALL_TIMEOUT_SECONDS",
-  "BYOA_AGENT_IDLE_TEARDOWN_SECONDS",
 ] as const;
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -134,6 +133,23 @@ async function getOrCreateSandbox(opts: {
       if (cp.exitCode !== 0) {
         throw new Error(`cp pyproject.byoa.toml failed: ${await cp.stderr()}`);
       }
+      // The /vercel/runtimes/python python3.13 ships without the `_sqlite3`
+      // C extension, which nltk imports eagerly at module-load time (pipecat
+      // → nltk → panlex_lite → `import sqlite3`). Install a standalone
+      // python-build-standalone Python via uv — those ship with the full
+      // stdlib. UV_PYTHON_PREFERENCE=only-managed in the sandbox env (set
+      // when Sandbox.getOrCreate ran above) ensures uv picks this one for
+      // every subsequent `uv sync` / `uv run` call.
+      const pyInstall = await sbx.runCommand("uv", [
+        "python",
+        "install",
+        "3.13",
+      ]);
+      if (pyInstall.exitCode !== 0) {
+        throw new Error(
+          `uv python install failed: ${await pyInstall.stderr()}`,
+        );
+      }
       // Not `--frozen`: the checked-in `uv.lock` was generated from the
       // main `pyproject.toml` and references workspace members that don't
       // exist in `pyproject.byoa.toml`. Letting uv re-resolve on first
@@ -191,10 +207,15 @@ export async function POST(req: Request): Promise<Response> {
   // BYOA_BUS_DATABASE_URL flow through correctly even if the operator set
   // something stale in project env. `PYTHONUNBUFFERED=1` so harness output
   // hits ~/byoa.log line-by-line instead of in 4KB chunks — critical for
-  // debugging detached runs via /api/logs.
+  // debugging detached runs via /api/logs. `UV_PYTHON_PREFERENCE=only-managed`
+  // so every uv invocation (sync at provision time, `uv run byoa` per wake)
+  // ignores `/vercel/runtimes/python` (which lacks the _sqlite3 C extension
+  // nltk imports eagerly) and uses the python-build-standalone Python we
+  // install in onCreate instead.
   const operatorEnv = pickOperatorEnv();
   const harnessEnv: Record<string, string> = {
     PYTHONUNBUFFERED: "1",
+    UV_PYTHON_PREFERENCE: "only-managed",
     ...operatorEnv,
     ...wakeEnv,
   };

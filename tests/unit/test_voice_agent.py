@@ -1014,6 +1014,99 @@ class TestTaskToolWrappers:
         )
         assert "steered with new instructions" in deferred_frame.messages[0]["content"]
 
+    @pytest.mark.asyncio
+    async def test_stop_task_tool_success_queues_cancelled_event(self):
+        from pipecat.frames.frames import LLMMessagesAppendFrame
+        from pipecat.processors.frame_processor import FrameDirection
+
+        agent = _make_voice_agent()
+        agent._tool_call_inflight = 1
+        result = {
+            "success": True,
+            "message": "Task cancelled",
+            "task_id": "task_abc123",
+            "task_type": "player_ship",
+            "ship_character_id": "ship-xyz",
+        }
+        agent._handle_stop_task = AsyncMock(return_value=result)
+        agent._silent_flush_for_ship = AsyncMock()
+        params = _make_function_call_params(function_name="stop_task", result_callback=AsyncMock())
+
+        await agent._handle_stop_task_tool(params)
+
+        params.result_callback.assert_awaited_once()
+        assert params.result_callback.await_args.args[0] == {"result": result}
+        properties = params.result_callback.await_args.kwargs["properties"]
+        assert properties.run_llm is False
+        agent._silent_flush_for_ship.assert_awaited_once_with("ship-xyz")
+
+        assert len(agent._deferred_frames) == 1
+        deferred_frame, direction = agent._deferred_frames[0]
+        assert direction == FrameDirection.DOWNSTREAM
+        assert isinstance(deferred_frame, LLMMessagesAppendFrame)
+        # run_llm=True drives the post-tool ack via the deferred LLMRunFrame —
+        # this is what clears the client's "thinking" state.
+        assert deferred_frame.run_llm is True
+        assert deferred_frame.messages[0]["role"] == "user"
+        assert (
+            '<event name="task.cancelled" task_id="task_abc123" task_type="player_ship">'
+            in deferred_frame.messages[0]["content"]
+        )
+        assert "Task cancelled" in deferred_frame.messages[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_stop_task_tool_failure_stays_quiet(self):
+        agent = _make_voice_agent()
+        result = {"success": False, "error": "no active task"}
+        agent._handle_stop_task = AsyncMock(return_value=result)
+        params = _make_function_call_params(function_name="stop_task", result_callback=AsyncMock())
+
+        await agent._handle_stop_task_tool(params)
+
+        params.result_callback.assert_awaited_once()
+        assert params.result_callback.await_args.args[0] == {"result": result}
+        # Failure path defaults run_llm=True (no properties override).
+        assert "properties" not in params.result_callback.await_args.kwargs
+        assert len(agent._deferred_frames) == 0
+
+    @pytest.mark.asyncio
+    async def test_steer_task_tool_success_queues_steered_event(self):
+        from pipecat.frames.frames import LLMMessagesAppendFrame
+        from pipecat.processors.frame_processor import FrameDirection
+
+        agent = _make_voice_agent()
+        agent._tool_call_inflight = 1
+        result = {
+            "success": True,
+            "summary": "Steering instruction sent.",
+            "task_id": "task_abc123",
+            "task_type": "corp_ship",
+            "steered": True,
+            "ship_character_id": "ship-xyz",
+        }
+        agent._handle_steer_task = AsyncMock(return_value=result)
+        params = _make_function_call_params(function_name="steer_task", result_callback=AsyncMock())
+
+        await agent._handle_steer_task_tool(params)
+
+        params.result_callback.assert_awaited_once()
+        properties = params.result_callback.await_args.kwargs["properties"]
+        assert properties.run_llm is False
+
+        assert len(agent._deferred_frames) == 1
+        deferred_frame, direction = agent._deferred_frames[0]
+        assert direction == FrameDirection.DOWNSTREAM
+        assert isinstance(deferred_frame, LLMMessagesAppendFrame)
+        # run_llm=True drives the post-tool ack via the deferred LLMRunFrame —
+        # this is what clears the client's "thinking" state.
+        assert deferred_frame.run_llm is True
+        assert deferred_frame.messages[0]["role"] == "user"
+        assert (
+            '<event name="task.steered" task_id="task_abc123" task_type="corp_ship">'
+            in deferred_frame.messages[0]["content"]
+        )
+        assert "Steering instruction sent" in deferred_frame.messages[0]["content"]
+
 
 @pytest.mark.unit
 class TestLeaderboardSummary:

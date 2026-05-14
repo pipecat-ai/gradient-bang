@@ -137,8 +137,19 @@ async function dispatchHttpSpawn(
     return { target, status: "missing_wake_secret" };
   }
 
+  // Default 60s. Vercel-sandbox cold starts (first wake per ship: git clone +
+  // `uv python install` + `uv sync`) take 30-90s; warm resumes from snapshot
+  // take 2-10s. 60s comfortably covers warm-resume and most cold starts.
+  // Operators with consistently long cold starts can bump via
+  // `BYOA_WAKE_TIMEOUT_MS` on the wake_agent edge function.
+  const timeoutMs = (() => {
+    const raw = Deno.env.get("BYOA_WAKE_TIMEOUT_MS");
+    if (!raw) return 60_000;
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 60_000;
+  })();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(wakeUrl, {
       method: "POST",

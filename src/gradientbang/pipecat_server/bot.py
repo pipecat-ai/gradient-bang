@@ -52,7 +52,6 @@ from pipecat.processors.frameworks.rtvi import (
 )
 from pipecat.runner.types import DailyRunnerArguments, RunnerArguments
 from pipecat.runner.utils import create_transport
-from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import TransportParams
@@ -67,7 +66,12 @@ from pipecat.utils.context.llm_context_summarization import (
 from gradientbang.pipecat_server import STARTUP_BANNER
 from gradientbang.pipecat_server.s3_smart_turn import S3SmartTurnAnalyzerV3
 from gradientbang.pipecat_server.session_init import gather_initial_state
-from gradientbang.pipecat_server.voices import DEFAULT_VOICE, DEFAULT_VOICE_ID, VOICES
+from gradientbang.pipecat_server.voices import (
+    DEFAULT_VOICE,
+    get_default_voice_id,
+    get_voice_config,
+    get_voices_for_provider,
+)
 from gradientbang.utils.access_token import assert_access_token_valid
 from gradientbang.utils.llm_factory import (
     LLMProvider,
@@ -83,6 +87,7 @@ from gradientbang.utils.prompt_loader import (
     load_prompt,
     set_prompt_substitutions,
 )
+from gradientbang.utils.tts_factory import create_tts_service, get_tts_config, get_tts_provider
 
 load_dotenv(dotenv_path=".env.bot")
 
@@ -249,15 +254,9 @@ async def _startup_init_stt(language: Language = Language.EN):
 
 
 @traced
-async def _startup_init_tts(voice_id: str = DEFAULT_VOICE_ID, language: Language = Language.EN):
+async def _startup_init_tts(voice_id: str, language: Language = Language.EN):
     """Initialize TTS service (traced span)."""
-    cartesia_key = os.getenv("CARTESIA_API_KEY", "")
-    if not cartesia_key:
-        logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
-    return CartesiaTTSService(
-        api_key=cartesia_key,
-        settings=CartesiaTTSService.Settings(voice=voice_id, language=language),
-    )
+    return create_tts_service(get_tts_config(voice_id=voice_id, language=language))
 
 
 @traced
@@ -265,7 +264,7 @@ async def bot_startup(
     character_id_hint: str | None,
     character_name_hint: str | None,
     server_url: str,
-    voice_id: str = DEFAULT_VOICE_ID,
+    voice_id: str,
     language: Language = Language.EN,
     access_token: str | None = None,
 ):
@@ -347,14 +346,19 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     except RuntimeError as exc:
         logger.error("access_token preflight failed: {}", exc)
         raise
-    # Resolve voice: prefer short name lookup, fall back to raw voice_id
+    # Resolve voice: prefer short name lookup for the active TTS provider,
+    # then fall back to a raw provider-specific voice_id when supplied.
+    tts_provider = get_tts_provider()
+    voices = get_voices_for_provider(tts_provider)
     voice_name = body.get("voice")
-    if voice_name and voice_name in VOICES:
-        voice_config = VOICES[voice_name]
+    voice_config = get_voice_config(voice_name, tts_provider) if voice_name else None
+    if voice_config:
+        active_voice_name = voice_name
         voice_id = voice_config["voice_id"]
         voice_language = Language(voice_config["language"])
     else:
-        voice_id = body.get("voice_id") or DEFAULT_VOICE_ID
+        active_voice_name = DEFAULT_VOICE
+        voice_id = body.get("voice_id") or get_default_voice_id(tts_provider)
         voice_language = Language.EN
     personality_tone = body.get("personality_tone", "").strip()
     # ScriptedAgent / tutorial path is WIP and currently bypassed for all sessions.
@@ -382,8 +386,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     # Active voice state — shared with ClientMessageHandler for runtime changes
     active_voice_state: dict = {
-        "name": voice_name or DEFAULT_VOICE,
+        "name": active_voice_name,
         "language": voice_language,
+        "tts_provider": tts_provider.value,
     }
 
     # System prompt. Personality/tone is injected via ${personality_tone}
@@ -886,6 +891,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         voice_agent=voice_agent,
         on_skip_tutorial=_on_tutorial_complete,
         active_voice_state=active_voice_state,
+        voices=voices,
     )
 
     @rtvi.event_handler("on_client_message")
@@ -1025,6 +1031,7 @@ def _log_startup_config() -> None:
 
     bus_transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
     event_transport = os.getenv("EVENT_TRANSPORT", "pubsub").strip().lower()
+    tts_provider = os.getenv("TTS_PROVIDER", "gradium").strip().lower()
     voice_provider = os.getenv("VOICE_LLM_PROVIDER", "google").strip().lower()
     voice_model = os.getenv("VOICE_LLM_MODEL", "(provider default)").strip()
     task_provider = os.getenv("TASK_LLM_PROVIDER", "google").strip().lower()
@@ -1045,6 +1052,7 @@ def _log_startup_config() -> None:
         f"  event_transport    {event_transport}",
         f"  subagent_bus       {bus_line}",
         f"  local_pooler       {'on' if local_pooler else 'off (HTTP edge functions)'}",
+        f"  tts                {tts_provider}",
         f"  voice_llm          {voice_provider}/{voice_model}",
         f"  task_llm           {task_provider}/{task_model}  thinking={task_thinking}",
         divider,

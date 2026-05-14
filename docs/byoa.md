@@ -4,8 +4,8 @@ BYOA lets an operator claim a corporation ship and run their own task agent for 
 
 The normal path is skill-driven:
 
-- Local development: run `/byoa-setup local`, start the local wake daemon, then trigger a task in the bot.
-- Vercel: run `/byoa-setup prod`, then `/byoa-deploy-vercel prod`. See [BYOA on Vercel](byoa-vercel.md).
+- Local development: run `/byoa-link local`, start the local wake daemon, then trigger a task in the bot.
+- Vercel: run `/byoa-link prod`, then `/byoa-deploy-vercel prod`. See [BYOA on Vercel](byoa-vercel.md).
 - Custom agents: start with the same skills, then replace the prompt, wake function, or harness wiring only when needed.
 
 ## How it works
@@ -26,10 +26,11 @@ Operator secrets stay operator-side:
 
 | Skill | Use it for | Result |
 |---|---|---|
-| `/byoa-setup local` | Local BYOA onboarding | Claims a ship, generates a wake secret, writes `.env.byoa`, and registers the wake secret. |
-| `/byoa-setup prod` | Production BYOA onboarding | Claims a ship, generates a wake secret, and prepares `.env.byoa` for deployment. |
+| `/byoa-link local` | Local BYOA onboarding | Claims a ship, generates a wake secret, writes `.env.byoa`, and registers the wake secret. |
+| `/byoa-link prod` | Production BYOA onboarding | Claims a ship, generates a wake secret, and prepares `.env.byoa` for deployment. |
 | `/byoa-deploy-vercel prod` | Vercel deployment | Pushes env, deploys the wake function, health-checks it, and registers the wake URL. |
-| `/byoa-setup <env> --force` | Secret rotation or re-onboarding | Rewrites `.env.byoa` and updates the server-side wake secret. |
+| `/byoa-link <env> --force` | Secret rotation or re-onboarding | Rewrites `.env.byoa` and updates the server-side wake secret. |
+| `/byoa-unlink <env>` | Release a claimed ship | Calls `ship_byoa_configure { action: "clear" }` — nulls owner server-side, frees the ship for someone else to claim. Owner-only, idempotent. Operator-side infra (Vercel deploy, local daemon, `.env.byoa`) is left alone unless `--clear-env` is passed. |
 
 ## Local Quickstart
 
@@ -41,7 +42,7 @@ Prereqs:
 
 Setup:
 
-- Run `/byoa-setup local`.
+- Run `/byoa-link local`.
 - Follow the prompts to log in and choose a corporation ship.
 - Let the skill write `.env.byoa`; it also registers the ship wake secret server-side.
 - Add your LLM settings to `.env.byoa`:
@@ -70,7 +71,7 @@ uv run byoa --serve
 
 Rotate local credentials:
 
-- Run `/byoa-setup local --force`.
+- Run `/byoa-link local --force`.
 - Restart `uv run byoa --serve` so it reads the updated `.env.byoa`.
 
 ## Prompting
@@ -96,7 +97,7 @@ Production BYOA runs through the Vercel wake receiver in [deployment/vercel](../
 
 Use [BYOA on Vercel](byoa-vercel.md) for the quickstart. The short version is:
 
-- Run `/byoa-setup prod`.
+- Run `/byoa-link prod`.
 - Fill in the LLM settings in `.env.byoa`.
 - Link `deployment/vercel/` to a Vercel project once with `npx vercel link`.
 - Run `/byoa-deploy-vercel prod`.

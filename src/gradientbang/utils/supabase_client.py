@@ -230,12 +230,20 @@ class AsyncGameClient(BaseAsyncGameClient):
         t0 = time.monotonic()
         if edge_endpoint != "events_since":
             _loguru.info(f"API.send {url} req_id={req_id}")
+        # wake_agent dispatches a remote BYOA spawn (Vercel sandbox cold
+        # start is 30-90s; warm resume 2-10s). Its own outbound HTTP timeout
+        # is `BYOA_WAKE_TIMEOUT_MS` (default 60s) — wait slightly longer
+        # here so wake_agent's own timeout fires first and we get a real
+        # 504 instead of a httpx ReadTimeout. Every other edge function
+        # call stays on the tight 10s client default.
+        post_kwargs: Dict[str, Any] = {
+            "headers": self._edge_headers(),
+            "json": enriched,
+        }
+        if edge_endpoint == "wake_agent":
+            post_kwargs["timeout"] = 70.0
         try:
-            response = await http_client.post(
-                url,
-                headers=self._edge_headers(),
-                json=enriched,
-            )
+            response = await http_client.post(url, **post_kwargs)
         except Exception as exc:
             elapsed_ms = (time.monotonic() - t0) * 1000
             _loguru.error(

@@ -672,10 +672,13 @@ pnpm run dev
 | Variable            | Required | Description                                                                   |
 | ------------------- | -------- | ----------------------------------------------------------------------------- |
 | `DEEPGRAM_API_KEY`  | Yes      | [Deepgram](https://console.deepgram.com) API key for speech-to-text           |
-| `CARTESIA_API_KEY`  | Yes      | [Cartesia](https://play.cartesia.ai) API key for text-to-speech               |
+| `GRADIUM_API_KEY`   | Yes*     | [Gradium](https://gradium.ai) API key for text-to-speech when `TTS_PROVIDER=gradium` |
+| `CARTESIA_API_KEY`  | Yes*     | [Cartesia](https://play.cartesia.ai) API key for text-to-speech when `TTS_PROVIDER=cartesia` |
 | `GOOGLE_API_KEY`    | Yes      | [Google AI Studio](https://aistudio.google.com/apikey) key for Gemini LLM     |
 | `ANTHROPIC_API_KEY` | No       | [Anthropic](https://console.anthropic.com) key for Claude LLM                 |
 | `OPENAI_API_KEY`    | No       | [OpenAI](https://platform.openai.com) key (when using OpenAI as LLM provider) |
+
+*Exactly one TTS key is required for the selected `TTS_PROVIDER`; Gradium is the default.
 
 #### Supabase & connectivity
 
@@ -689,6 +692,12 @@ pnpm run dev
 | `EVENT_TRANSPORT`           | No       | `pubsub`  | Event-delivery transport: `pubsub` (direct Postgres scoped reads on per-character pgmq queues, default) or `polling` (HTTP via `events_since`). See [Event delivery modes](#event-delivery-modes).                                                                   |
 | `PGMQ_URL`                  | No       | —         | Session-mode Postgres URL with admin credentials. Required when `EVENT_TRANSPORT=pubsub`.                                                                                                                                                                          |
 | `PGMQ_EMPTY_POLL_INTERVAL_SECONDS` | No | `1.0` | Client-side pause after a scoped pgmq read returns no rows. When rows are available, the reader drains immediately without waiting. |
+
+#### TTS configuration
+
+| Variable       | Required | Default   | Description                                             |
+| -------------- | -------- | --------- | ------------------------------------------------------- |
+| `TTS_PROVIDER` | No       | `gradium` | Text-to-speech provider (`gradium` or `cartesia`)       |
 
 #### LLM configuration
 
@@ -771,7 +780,8 @@ This project includes a set of [Claude Code](https://docs.anthropic.com/en/docs/
 | `/reset-world`      | Resets game database, generates a fresh universe, loads quests, and seeds combat cron config.                                             | Environment (`local`/`cloud`), sector count (default `5000`), seed (optional)    |
 | `/load-quests`      | Loads quest definitions from `quest-data/` JSON files into Supabase.                                                                      | Mode (`upsert`/`force`), dry run (yes/no)                                        |
 | `/character-create` | Creates a new game character via the `user_character_create` edge function.                                                               | Email, password, character name (all prompted)                                   |
-| `/byoa-setup`       | Onboards a BYOA operator: claims a corp ship, generates a per-ship wake secret, and writes `.env.byoa`.                                   | Environment (`local`/`prod`)                                                     |
+| `/byoa-link`        | Onboards a BYOA operator: claims a corp ship, generates a per-ship wake secret, and writes `.env.byoa`.                                   | Environment (`local`/`prod`)                                                     |
+| `/byoa-unlink`      | Releases a BYOA-claimed corp ship — calls `ship_byoa_configure { action: "clear" }` to null the owner server-side. Inverse of `/byoa-link`. | Environment (`local`/`prod`), optional `--ship-id`, `--clear-env`                |
 | `/npc <name>`       | Runs an autonomous AI task agent as a game character in the background.                                                                   | Character name (arg or prompted), task description (prompted)                    |
 | `/combat <target>`  | Initiates a combat encounter for testing. Shows sector context before starting.                                                           | Character name or ship UUID                                                      |
 | `/destroy-ship`     | Destroys a ship for testing — soft-delete, event emission, pseudo-character cleanup.                                                      | Ship UUID (prompted)                                                             |

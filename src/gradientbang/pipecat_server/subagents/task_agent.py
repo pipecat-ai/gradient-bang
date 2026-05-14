@@ -489,9 +489,11 @@ class TaskAgent(LLMAgent):
         # Any in-flight game RPCs over the bus have to fail fast — the
         # awaiting handler will see CancelledError and unwind.
         self._pending.cancel_all("task cancelled")
-        # Cancelled tasks don't go through _complete_task; arm the idle
-        # teardown directly so corp-ship / BYOA agents still wind down.
-        self._arm_idle_teardown()
+        # Cancelled tasks don't go through _complete_task. In-process corp
+        # agents still wind down via idle teardown; BYOA workers exit now so
+        # every follow-up task starts through wake_agent.
+        if not await self._end_byoa_process_after_task(reason="task cancelled"):
+            self._arm_idle_teardown()
         await super().on_task_cancelled(message)
 
     async def on_task_update_requested(self, message: BusTaskUpdateRequestMessage) -> None:
@@ -607,10 +609,31 @@ class TaskAgent(LLMAgent):
     def _idle_teardown_enabled(self) -> bool:
         """Player-ship agents are reused across tasks (the voice agent
         owns a single in-process TaskAgent that stays warm). Corp-ship
-        agents are one-shot; BYOA agents stay warm but only until idle.
-        Both of those get the teardown timer; player-ship agents don't.
+        agents are one-shot but use a short idle timer so final messages
+        can drain. BYOA agents are also one-shot, but they must exit
+        immediately after each task so the next task always goes through
+        wake_agent.
         """
-        return self._is_corp_ship
+        return self._is_corp_ship and not self._is_byoa_process_agent()
+
+    async def _end_byoa_process_after_task(self, *, reason: str) -> bool:
+        """End a BYOA worker after its single task."""
+        if not self._is_byoa_process_agent():
+            return False
+        self._cancel_idle_teardown()
+        try:
+            await self.send_message(
+                BusEndAgentMessage(
+                    source=self.name,
+                    target=self.name,
+                    reason=reason,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                f"TaskAgent '{self.name}': BYOA self-end emit failed: {exc}"
+            )
+        return True
 
     def _cancel_idle_teardown(self) -> None:
         if self._idle_teardown_handle is not None:
@@ -622,7 +645,8 @@ class TaskAgent(LLMAgent):
 
         Called when a task ends; reset on every new inbound activity. For
         single-shot corp-ship agents the timer fires before any follow-up
-        task can land. For a warm BYOA agent, this is what closes the loop.
+        task can land. BYOA agents bypass this timer and self-end as soon
+        as their task response has been sent.
         """
         if not self._idle_teardown_enabled():
             return
@@ -1270,10 +1294,11 @@ class TaskAgent(LLMAgent):
             pass  # Already responded
         finally:
             self._task_requester = None
-            # Task ended — start the idle countdown. For player-ship
-            # agents this is a no-op; for corp-ship and BYOA agents it
-            # eventually emits BusEndAgentMessage so the slot frees up.
-            self._arm_idle_teardown()
+            # Task ended. Player-ship agents stay warm, in-process corp
+            # agents wind down via idle teardown, and BYOA workers exit now
+            # so every follow-up task gets a fresh wake_agent invocation.
+            if not await self._end_byoa_process_after_task(reason="task complete"):
+                self._arm_idle_teardown()
 
     async def _fail_task_once(self, message: str) -> None:
         """Fail the active task exactly once using the normal task-failure path."""

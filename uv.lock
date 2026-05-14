@@ -1228,7 +1228,7 @@ dependencies = [
 bot = [
     { name = "boto3" },
     { name = "cekura", extra = ["pipecat"] },
-    { name = "pipecat-ai", extra = ["anthropic", "cartesia", "daily", "deepgram", "google", "runner", "webrtc"] },
+    { name = "pipecat-ai", extra = ["anthropic", "cartesia", "daily", "deepgram", "google", "gradium", "runner", "webrtc"] },
     { name = "pipecat-ai-cli" },
     { name = "pipecat-ai-subagents", extra = ["pgmq"] },
     { name = "pipecatcloud" },
@@ -1265,7 +1265,7 @@ requires-dist = [
 bot = [
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "cekura", extras = ["pipecat"], specifier = "==1.2.0rc3" },
-    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "google", "anthropic", "runner"], specifier = ">=1.0" },
+    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "gradium", "webrtc", "silero", "google", "anthropic", "runner"], specifier = ">=1.0" },
     { name = "pipecat-ai-cli" },
     { name = "pipecat-ai-subagents", extras = ["pgmq"], specifier = ">=0.6.0" },
     { name = "pipecatcloud", specifier = ">=0.6.0" },
@@ -2354,6 +2354,9 @@ google = [
     { name = "google-cloud-speech" },
     { name = "google-cloud-texttospeech" },
     { name = "google-genai" },
+    { name = "websockets" },
+]
+gradium = [
     { name = "websockets" },
 ]
 runner = [

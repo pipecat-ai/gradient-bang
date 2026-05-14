@@ -8,7 +8,9 @@ from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     CancelFrame,
+    DataFrame,
     LLMFullResponseStartFrame,
+    SystemFrame,
     UserStartedSpeakingFrame,
 )
 
@@ -144,6 +146,13 @@ class TestIdleReportProcessor:
         await _send(proc, BotStoppedSpeakingFrame())
         await asyncio.sleep(0.15)
         cb.assert_called_once()
+
+    def test_user_text_input_frame_is_system_signal(self):
+        """Text input must not be cancelled by the following interruption frame."""
+        frame = UserTextInputFrame(text="hello")
+
+        assert isinstance(frame, SystemFrame)
+        assert not isinstance(frame, DataFrame)
 
     async def test_bot_speech_cancels_then_restarts_on_stop(self):
         """Bot starting to speak cancels timer; stopping restarts it."""

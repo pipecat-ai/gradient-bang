@@ -21,7 +21,6 @@ from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
-from gradientbang.pipecat_server.voices import VOICES
 from gradientbang.pipecat_server.frames import UserTextInputFrame
 
 
@@ -52,6 +51,7 @@ class ClientMessageHandler:
         voice_agent=None,
         on_skip_tutorial=None,
         active_voice_state: dict | None = None,
+        voices: dict[str, dict[str, str]] | None = None,
     ):
         self._game_client = game_client
         self._character_id = character_id
@@ -67,6 +67,7 @@ class ClientMessageHandler:
         self._voice_agent = voice_agent
         self._on_skip_tutorial = on_skip_tutorial
         self._active_voice_state = active_voice_state or {}
+        self._voices = voices or {}
 
     @property
     def _pipeline_task(self):
@@ -321,9 +322,7 @@ class ClientMessageHandler:
         from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_chat_history
 
         try:
-            since_hours_raw = (
-                msg_data.get("since_hours") if isinstance(msg_data, dict) else None
-            )
+            since_hours_raw = msg_data.get("since_hours") if isinstance(msg_data, dict) else None
             since_hours = int(since_hours_raw) if since_hours_raw is not None else 24
             max_rows_raw = msg_data.get("max_rows") if isinstance(msg_data, dict) else None
             max_rows = int(max_rows_raw) if max_rows_raw is not None else 50
@@ -375,9 +374,7 @@ class ClientMessageHandler:
 
     async def _handle_get_my_corporation(self, msg_type, msg_data):
         try:
-            await self._game_client._request(
-                "my_corporation", {"character_id": self._character_id}
-            )
+            await self._game_client._request("my_corporation", {"character_id": self._character_id})
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed to fetch corporation data")
             await self._rtvi.push_frame(
@@ -416,11 +413,7 @@ class ClientMessageHandler:
                 raise ValueError("bounds must be between 0 and 100")
 
             max_hops = (
-                int(max_hops_raw)
-                if max_hops_raw is not None
-                else None
-                if bounds is not None
-                else 3
+                int(max_hops_raw) if max_hops_raw is not None else None if bounds is not None else 3
             )
             if max_hops is not None and (max_hops < 0 or max_hops > 100):
                 raise ValueError("max_hops must be between 0 and 100")
@@ -515,6 +508,14 @@ class ClientMessageHandler:
             return
         text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
         voice_id = msg_data.get("voice_id") if isinstance(msg_data, dict) else None
+        # Client-supplied quest/dialog voice IDs are currently Cartesia IDs.
+        # Ignore them for other providers so they don't clobber Gradium speech.
+        if voice_id and self._active_voice_state.get("tts_provider") != "cartesia":
+            logger.info(
+                "say-text voice_id ignored for TTS provider {}",
+                self._active_voice_state.get("tts_provider", "unknown"),
+            )
+            voice_id = None
         # Non-English: skip quest giver voice swap, keep the active voice
         if voice_id and self._active_voice_state.get("language", Language.EN) != Language.EN:
             voice_id = None
@@ -579,9 +580,7 @@ class ClientMessageHandler:
             frames.extend(
                 [
                     UserStartedSpeakingFrame(),
-                    TranscriptionFrame(
-                        text=text, user_id="player", timestamp=time_now_iso8601()
-                    ),
+                    TranscriptionFrame(text=text, user_id="player", timestamp=time_now_iso8601()),
                     UserStoppedSpeakingFrame(),
                 ]
             )
@@ -620,13 +619,13 @@ class ClientMessageHandler:
     async def _handle_set_voice(self, msg_type, msg_data):
         """Change voice and language by short name, respecting in-flight dialogs."""
         voice_name = msg_data.get("voice", "").strip() if isinstance(msg_data, dict) else ""
-        if not voice_name or voice_name not in VOICES:
+        if not voice_name or voice_name not in self._voices:
             return
         pipeline_task = self._pipeline_task
         if not pipeline_task:
             return
 
-        voice_config = VOICES[voice_name]
+        voice_config = self._voices[voice_name]
         new_voice_id = voice_config["voice_id"]
         new_language = Language(voice_config["language"])
 
@@ -654,6 +653,7 @@ class ClientMessageHandler:
         if self._llm_context:
             instruction = _language_instruction(new_language)
             from gradientbang.utils.prompt_loader import set_prompt_substitutions
+
             set_prompt_substitutions(language_instruction=instruction)
             for msg in self._llm_context.get_messages():
                 if msg.get("role") == "system":
@@ -661,6 +661,7 @@ class ClientMessageHandler:
                         apply_prompt_substitutions,
                         build_voice_agent_prompt,
                     )
+
                     msg["content"] = apply_prompt_substitutions(build_voice_agent_prompt())
                     break
         logger.info(f"Voice switched to {voice_name} (language={new_language})")
@@ -713,7 +714,9 @@ class ClientMessageHandler:
         # Voice agent context
         if self._llm_context:
             voice_messages = [safe_serialize(m) for m in self._llm_context.get_messages()]
-            voice_json = json.dumps(voice_messages, indent=2, ensure_ascii=False).replace("\\n", "\n")
+            voice_json = json.dumps(voice_messages, indent=2, ensure_ascii=False).replace(
+                "\\n", "\n"
+            )
             sections.append(
                 f"{'=' * 60}\n"
                 f"  VOICE AGENT CONTEXT ({len(voice_messages)} messages)\n"
@@ -730,7 +733,9 @@ class ClientMessageHandler:
                 if not messages:
                     continue
                 safe_messages = [safe_serialize(m) for m in messages]
-                task_json = json.dumps(safe_messages, indent=2, ensure_ascii=False).replace("\\n", "\n")
+                task_json = json.dumps(safe_messages, indent=2, ensure_ascii=False).replace(
+                    "\\n", "\n"
+                )
                 task_label = child._active_task_id or child.name
                 task_type = "corp_ship" if child._is_corp_ship else "player_ship"
                 sections.append(
@@ -742,9 +747,7 @@ class ClientMessageHandler:
 
         if not sections:
             await self._rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {"frame_type": "error", "error": "No context available"}
-                )
+                RTVIServerMessageFrame({"frame_type": "error", "error": "No context available"})
             )
             return
 
@@ -782,9 +785,12 @@ class ClientMessageHandler:
         messages = None
         if self._voice_agent:
             child = next(
-                (c for c in self._voice_agent.children
-                 if isinstance(c, TaskAgent)
-                 and (c.name == task_id or c._active_task_id == task_id)),
+                (
+                    c
+                    for c in self._voice_agent.children
+                    if isinstance(c, TaskAgent)
+                    and (c.name == task_id or c._active_task_id == task_id)
+                ),
                 None,
             )
             if child:

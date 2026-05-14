@@ -2425,15 +2425,6 @@ class VoiceAgent(LLMAgent):
                 if isinstance(remote_agents, dict):
                     remote_agents.pop(agent_name, None)
 
-    def _has_fresh_byoa_presence(self, ship_id: str) -> bool:
-        presence = self._byoa_presence.get(ship_id)
-        if not presence or not presence.online:
-            return False
-        return (
-            time.monotonic() - presence.last_seen_monotonic
-            <= BYOA_PRESENCE_STALE_SECONDS
-        )
-
     def _resolve_hello_response(self, message: BusAgentHelloResponse) -> None:
         """Resolve the awaiting hello future for ``correlation_id``.
 
@@ -2934,17 +2925,12 @@ class VoiceAgent(LLMAgent):
                 # Server-side acquire BEFORE spawning the TaskAgent. A 409
                 # ship_busy or 403 byoa_private_not_owner here surfaces as a
                 # user-facing error without ever creating the local child.
-                byoa_has_fresh_presence = (
-                    bool(byoa_owner_id) and self._has_fresh_byoa_presence(target_character_id)
-                )
                 server_err = await self._acquire_server_ship_lock(
                     target_character_id=target_character_id,
                     framework_task_id=framework_task_id,
                     task_desc=task_desc,
                     task_metadata=task_metadata,
-                    task_status="waking"
-                    if byoa_owner_id and not byoa_has_fresh_presence
-                    else None,
+                    task_status="waking" if byoa_owner_id else None,
                 )
                 if server_err:
                     return server_err
@@ -2955,9 +2941,9 @@ class VoiceAgent(LLMAgent):
                 # to the operator's queue and wait for the bus
                 # advertisement (via the existing on_agent_ready path).
                 # The watchdog releases the lock if no agent ever responds.
-                # If a fresh BYOA runner is already present in this session,
-                # dispatch through the normal watched-agent path. Otherwise,
-                # wake_agent must accept the spawn before we report "waking".
+                # BYOA workers are one-task processes, so every task is
+                # marked waking and every task calls wake_agent; presence is
+                # only liveness/UI state, never a dispatch shortcut.
                 if byoa_owner_id:
                     byoa_agent_name = self.byoa_agent_name(target_character_id)
                     # task_metadata.task_id is the stale-task guard the
@@ -3007,27 +2993,27 @@ class VoiceAgent(LLMAgent):
                                 f"byoa.watch_agent_failed.release error={release_exc!r}"
                             )
                         return {"success": False, "error": str(exc)}
-                    if byoa_has_fresh_presence:
-                        logger.info(
-                            f"byoa.wake_agent.skipped ship={target_character_id[:8]} "
-                            "reason=fresh_presence"
-                        )
-                    else:
-                        # Fire wake_agent asynchronously. The tool returns
-                        # immediately with status="waking" so the LLM keeps
-                        # talking instead of blocking on the HTTP round-trip.
-                        # On failure the dispatcher cancels the watchdog,
-                        # tears down local state, cancels the task, and
-                        # surfaces a task.cancelled event via the deferred-
-                        # update queue (same path the watchdog uses).
-                        asyncio.create_task(
-                            self._dispatch_byoa_wake(
-                                target_character_id=target_character_id,
-                                framework_task_id=framework_task_id,
-                                agent_name=byoa_agent_name,
-                            ),
-                            name=f"byoa_wake_dispatch_{framework_task_id[:8]}",
-                        )
+                    # Always fire wake_agent. The BYOA pattern is wake → task
+                    # → exit, so each new task needs a fresh harness; the
+                    # previous "skip wake when presence is fresh" optimization
+                    # was racy (presence cache lagging the just-exited
+                    # harness's offline broadcast caused the next task to
+                    # silently time out). wake_agent is a notification —
+                    # cheap and idempotent on the receive side. The tool
+                    # returns immediately with status="waking" so the LLM
+                    # keeps talking instead of blocking on the HTTP
+                    # round-trip. On failure the dispatcher cancels the
+                    # watchdog, tears down local state, cancels the task,
+                    # and surfaces a task.cancelled event via the deferred-
+                    # update queue (same path the watchdog uses).
+                    asyncio.create_task(
+                        self._dispatch_byoa_wake(
+                            target_character_id=target_character_id,
+                            framework_task_id=framework_task_id,
+                            agent_name=byoa_agent_name,
+                        ),
+                        name=f"byoa_wake_dispatch_{framework_task_id[:8]}",
+                    )
                     if byoa_agent_name not in self._pending_tasks:
                         return {
                             "success": True,
@@ -3150,7 +3136,14 @@ class VoiceAgent(LLMAgent):
             self._locked_ships.pop(child._character_id, None)
 
             await self.cancel_task(framework_task_id, reason="Cancelled by user")
-            return {"success": True, "message": "Task cancelled", "task_id": framework_task_id}
+            task_type = "corp_ship" if child._is_corp_ship else "player_ship"
+            return {
+                "success": True,
+                "message": "Task cancelled",
+                "task_id": framework_task_id,
+                "task_type": task_type,
+                "ship_character_id": child._character_id,
+            }
         except Exception as e:
             logger.error(f"stop_task failed: {e}")
             return {"success": False, "error": str(e)}
@@ -3664,13 +3657,42 @@ class VoiceAgent(LLMAgent):
 
     async def _handle_stop_task_tool(self, params: FunctionCallParams):
         result = await self._handle_stop_task(params)
-        if result.get("success"):
-            await params.result_callback(
-                {"result": result},
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
-        else:
+        if not result.get("success"):
             await params.result_callback({"result": result})
+            return
+
+        # Mirror _handle_start_task_tool: ack via run_llm=False, then drive a
+        # post-tool inference through _inject_context. The deferred LLMRunFrame
+        # is what clears the client's "thinking" state — without it, isThinking
+        # stays true until the next user turn (BotStartedSpeaking is the only
+        # thing that flips it off; see ConversationProvider.tsx).
+        await params.result_callback(
+            {"result": result},
+            properties=FunctionCallResultProperties(run_llm=False),
+        )
+
+        task_id = str(result.get("task_id", "")).strip()
+        task_type = str(result.get("task_type", "player_ship")).strip() or "player_ship"
+        ship_character_id = result.get("ship_character_id")
+        summary = (
+            str(result.get("message") or result.get("summary") or "Task cancelled").strip()
+            or "Task cancelled"
+        )
+
+        # Fold any pending task.completed for this ship into context silently —
+        # cancelling signals the player has moved on, regardless of turn count.
+        if isinstance(ship_character_id, str) and ship_character_id:
+            await self._silent_flush_for_ship(ship_character_id)
+
+        attrs = ['name="task.cancelled"']
+        if task_id:
+            attrs.append(f'task_id="{task_id}"')
+        attrs.append(f'task_type="{task_type}"')
+        event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
+        await self._inject_context(
+            [{"role": "user", "content": event_xml}],
+            run_llm=True,
+        )
 
     async def _handle_steer_task_tool(self, params: FunctionCallParams):
         result = await self._handle_steer_task(params)
@@ -3680,21 +3702,39 @@ class VoiceAgent(LLMAgent):
                 {"error": result.get("error", "Request failed.")},
                 properties=FunctionCallResultProperties(run_llm=True),
             )
-        else:
-            # Suppress post-tool inference so we don't get a second,
-            # rephrased ack. The model already narrated the steer in the
-            # same turn as the tool call (per the Critical Rule); a fresh
-            # inference driven by the tool result just produces a duplicate.
-            # Mirrors the pattern used by _handle_stop_task_tool and the
-            # guard comments in event_relay.py for task.finish / quest.step.
-            summary = result.get("summary") if isinstance(result, dict) else None
-            payload = {"summary": summary or "steer_task completed."}
-            if isinstance(result, dict) and result.get("task_id"):
-                payload["task_id"] = result["task_id"]
-            await params.result_callback(
-                payload,
-                properties=FunctionCallResultProperties(run_llm=False),
-            )
+            return
+
+        # Mirror _handle_start_task_tool: ack via run_llm=False, then drive a
+        # post-tool inference through _inject_context. The deferred LLMRunFrame
+        # is what clears the client's "thinking" state — without it, isThinking
+        # stays true until the next user turn (BotStartedSpeaking is the only
+        # thing that flips it off; see ConversationProvider.tsx).
+        summary_field = result.get("summary") if isinstance(result, dict) else None
+        payload = {"summary": summary_field or "steer_task completed."}
+        if isinstance(result, dict) and result.get("task_id"):
+            payload["task_id"] = result["task_id"]
+        await params.result_callback(
+            payload,
+            properties=FunctionCallResultProperties(run_llm=False),
+        )
+
+        task_id = str(result.get("task_id", "")).strip() if isinstance(result, dict) else ""
+        task_type = (
+            str(result.get("task_type", "player_ship")).strip() or "player_ship"
+            if isinstance(result, dict)
+            else "player_ship"
+        )
+        summary = str(summary_field or "Steering instruction sent.").strip() or "Steering instruction sent."
+
+        attrs = ['name="task.steered"']
+        if task_id:
+            attrs.append(f'task_id="{task_id}"')
+        attrs.append(f'task_type="{task_type}"')
+        event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
+        await self._inject_context(
+            [{"role": "user", "content": event_xml}],
+            run_llm=True,
+        )
 
     async def _handle_query_task_progress_tool(self, params: FunctionCallParams):
         result = await self._handle_query_task_progress(params)

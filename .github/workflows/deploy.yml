@@ -56,12 +56,31 @@ jobs:
             vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
           fi
 
+      - name: Force dev API for preview builds
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        run: |
+          echo "SUPABASE_PROJECT_REF=${{ secrets.SUPABASE_PROJECT_REF }}" >> "$GITHUB_ENV"
+          echo "VITE_SERVER_URL=https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1" >> "$GITHUB_ENV"
+          echo "VITE_PIPECAT_TRANSPORT=daily" >> "$GITHUB_ENV"
+
       - name: Build
         run: |
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
             vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
           else
             vercel build --token=${{ secrets.VERCEL_TOKEN }}
+          fi
+
+      - name: Verify preview API target
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        run: |
+          if grep -R "api.gradient-bang.com/functions/v1" .vercel/output app/dist 2>/dev/null; then
+            echo "Preview build contains production API URL"
+            exit 1
+          fi
+          if ! grep -R "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1" .vercel/output app/dist >/dev/null 2>&1; then
+            echo "Preview build does not contain expected dev API URL"
+            exit 1
           fi
 
       - name: Deploy

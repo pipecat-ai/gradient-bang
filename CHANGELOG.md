@@ -9,8 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.1] - 2026-05-14
 
+### Added
+
+- Gradium is now supported as the default TTS provider, with Cartesia still selectable via `TTS_PROVIDER=cartesia`
+
 ### Fixed
 
+- BYOA wake dispatch always calls `wake_agent`. The previous `fresh_presence` skip-wake optimization was racy — the just-exited harness's `online=False` broadcast could lag the next task dispatch, leaving the cache stale and the second task silently timing out
 - Pubsub event delivery hardened to a required boundary. `pgmq_publish` and `record_event_with_recipients` no longer swallow publish failures, and `purge_backlog` keeps the per-character queue present (purges messages instead of dropping the table) so bootstrap-RPC events stop hitting silent `undefined_table` no-ops. Bot-side double-purge brackets `session_init` so bootstrap echoes never leak into the LLM context via EventRelay
 - `pgBuildLocalMapRegion` includes `player: { id: characterId }` in its return so bootstrap `map.local` payloads pass the client's session-payload check
 - `Dockerfile.bot`: install `git` so `uv` can clone the pinned `pipecat-ai-subagents` rev; drop the dead `COPY src/gradientbang/subagents/` line
