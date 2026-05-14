@@ -26,14 +26,14 @@ class EventAdapter(Protocol):
     """Pluggable event-delivery transport for ``AsyncGameClient``."""
 
     async def purge_backlog(self) -> None:
-        """Reset the per-character delivery backlog before ``start``.
+        """Reset the delivery backlog before ``start``.
 
         Sessions that build their LLM context inline from RPC responses
         call this before bootstrap to clear stale prior-session messages,
         then again before ``start`` to discard bootstrap RPC echoes that
         were already consumed inline. Effect is transport-specific:
-        pubsub keeps the per-character pgmq queue present and purges its
-        messages; polling resets its cursor to current head.
+        pubsub keeps each scoped pgmq queue present and purges its messages;
+        polling resets its cursor to current head.
         """
         ...
 

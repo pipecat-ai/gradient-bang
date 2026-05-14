@@ -8,6 +8,9 @@ MIGRATION = ROOT / "deployment/supabase/migrations/20260514010000_pubsub_require
 IMMEDIATE_READ_MIGRATION = (
     ROOT / "deployment/supabase/migrations/20260514160000_pubsub_immediate_read.sql"
 )
+SCOPED_POLLING_MIGRATION = (
+    ROOT / "deployment/supabase/migrations/20260514170000_pubsub_scoped_polling.sql"
+)
 EVENTS_TS = ROOT / "deployment/supabase/functions/_shared/events.ts"
 BOT_PY = ROOT / "src/gradientbang/pipecat_server/bot.py"
 PUBSUB_PY = ROOT / "src/gradientbang/adapters/events/pubsub.py"
@@ -47,7 +50,45 @@ def test_pubsub_adapter_caps_legacy_sql_poll_window() -> None:
     source = PUBSUB_PY.read_text(encoding="utf-8")
 
     assert 'PGMQ_MAX_POLL_SECONDS", "1"' in source
-    assert "PGMQ_EMPTY_POLL_INTERVAL_SECONDS" in source
+    assert 'PGMQ_EMPTY_POLL_INTERVAL_SECONDS", "1.0"' in source
+
+
+def test_scoped_pubsub_migration_uses_immediate_reads() -> None:
+    sql = SCOPED_POLLING_MIGRATION.read_text(encoding="utf-8")
+
+    assert "read_with_poll" not in sql
+    assert "pgmq.read(" in sql
+    assert "subscribe_my_events_scope" in sql
+
+
+def test_scoped_pubsub_migration_verifies_edge_token() -> None:
+    sql = SCOPED_POLLING_MIGRATION.read_text(encoding="utf-8")
+
+    assert "app_runtime_config" in sql
+    assert "edge_api_token" in sql
+    assert "_assert_valid_edge_token" in sql
+    assert "invalid_edge_token" in sql
+
+
+def test_scoped_pubsub_migration_checks_actor_access() -> None:
+    sql = SCOPED_POLLING_MIGRATION.read_text(encoding="utf-8")
+
+    subscribe_body = sql.split(
+        "CREATE OR REPLACE FUNCTION public.subscribe_my_events_scope", 1
+    )[1].split("COMMENT ON FUNCTION public.subscribe_my_events_scope", 1)[0]
+    assert "can_actor_access_character" in subscribe_body
+    assert "RAISE EXCEPTION 'forbidden'" in subscribe_body
+
+
+def test_scoped_pubsub_archive_validates_pair_lengths() -> None:
+    sql = SCOPED_POLLING_MIGRATION.read_text(encoding="utf-8")
+
+    archive_body = sql.split(
+        "CREATE OR REPLACE FUNCTION public.archive_my_events_scope", 1
+    )[1].split("COMMENT ON FUNCTION public.archive_my_events_scope", 1)[0]
+    assert "array length mismatch" in archive_body
+    assert "p_queue_character_ids" in archive_body
+    assert "p_msg_ids" in archive_body
 
 
 def test_emit_error_event_is_log_only() -> None:

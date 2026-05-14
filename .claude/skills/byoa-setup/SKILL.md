@@ -13,45 +13,56 @@ Walks an operator through everything they need to run `uv run byoa` against a Gr
 /byoa-setup [env] [--force] [--ship-id <uuid>] [--out <path>]
 ```
 
-- **env**: `local` (default), `dev`, or `prod`. Each maps to two files — an **edge** env (for `SUPABASE_URL` + `EDGE_API_TOKEN`) and a **bot** env (for `SUBAGENT_BUS_DATABASE_URL`):
-  - `local` → edge `.env.supabase`, bot `.env.bot`
-  - `dev` → edge `.env.cloud.dev`, bot `.env.bot.dev`
-  - `prod` → edge `.env.cloud`, bot `.env.bot.cloud`
+- **env**: `prod` (default) or `local`. Picks the game server endpoint:
+  - `prod` → `https://api.gradient-bang.com/functions/v1` (operator-facing; no env file needed)
+  - `local` → sources `SUPABASE_URL` from `.env.supabase` (`http://127.0.0.1:54321` when `npx supabase start` is running)
 - **--force**: overwrite an existing `.env.byoa` without prompting
 - **--ship-id**: skip the ship picker; use this corp ship directly
 - **--out**: write the env file somewhere other than `./.env.byoa`
+
+The `dev` env was dropped — it required internal-only env files (`.env.cloud.dev`, `EDGE_API_TOKEN`) that operators don't have. Internal team members testing against dev should run `local` with their dev Supabase URL exported in shell.
 
 ## Pre-flight
 
 Refuse to proceed if any of these is true. Surface a clean error and stop:
 
-- `${SUBAGENT_BUS_DATABASE_URL}` is unset in the resolved **bot** env file.
-- `${SUPABASE_URL}` is unset in the resolved **edge** env file.
+- For `local`: `${SUPABASE_URL}` is unset in `.env.supabase` (or the file is missing entirely).
 - The operator already has a `.env.byoa` and `--force` was not passed.
+- `SUBAGENT_BUS_DATABASE_URL` is **only** required for the local-dev wake daemon (`byoa --serve`); not for setup. Don't pre-flight it here.
 
 ## Auth header cheat-sheet
 
+`/ship_byoa_configure` uses `getAuthenticatedUser()` — same pattern as `verify_token`, `user_character_create`, `reset-password`. JWT-only; no admin token. All BYOA actions (list, claim, clear, set) go through it.
+
 | Endpoint | Scheme | Headers required |
 |---|---|---|
-| `/login` | none | `Content-Type` only |
-| `/my_corporation` | `authenticate()` | `X-Edge-Auth: ${EDGE_API_TOKEN}` **and** `X-API-Token: <user_jwt>` |
-| `/ship_byoa_configure` | `authenticate()` | `X-Edge-Auth: ${EDGE_API_TOKEN}` **and** `X-API-Token: <user_jwt>` |
+| `/login` | public | `Content-Type` only |
+| `/ship_byoa_configure` | `getAuthenticatedUser()` | `Authorization: Bearer <user_jwt>` |
 
 ## Steps
 
-### 1. Source environment variables
+### 1. Resolve the game server URL
 
-Source the edge env first (for `SUPABASE_URL` / `EDGE_API_TOKEN`), then the bot env (for `SUBAGENT_BUS_DATABASE_URL`):
+For `prod` (the default):
 
 ```bash
-set -a && source <edge-env-file> && source <bot-env-file> && set +a
+SUPABASE_URL=https://api.gradient-bang.com
 ```
 
-The bot env is sourced only to validate that `SUBAGENT_BUS_DATABASE_URL` exists at runtime. The local-dev wake daemon (`uv run byoa --serve`) loads `.env.byoa` first, then falls back to `.env.bot` for anything missing. The single-session harness (`uv run byoa`, spawned by the daemon per wake) reads only `os.environ` — values arrive via the spawned-child env.
+Hardcoded — operator never types it. (If the CNAME proxy isn't live, fall back to the direct Supabase project URL; this URL is public.)
 
-The bus **channel** is allocated server-side per voice session and injected into the harness env by `wake_agent`. Operators never see or set a channel.
+For `local`:
 
-`BYOA_WAKE_SECRET` is the **per-ship** bearer that authenticates `wake_agent` → wake-receiver (local daemon or operator's Vercel Function). Generate a fresh random hex string (`openssl rand -hex 32`) **per ship** — never share across ships, never reuse `EDGE_API_TOKEN` (privileged trusted-caller auth, must never leave our infra). The skill writes the value into `.env.byoa` AND sends the same value to us via `ship_byoa_configure { action: 'set', wake_secret }`. We encrypt at rest and never return it to clients.
+```bash
+set -a && source .env.supabase && set +a
+# SUPABASE_URL now points at http://127.0.0.1:54321 (or whatever the file has).
+```
+
+All curls in steps 2–6 append `/functions/v1/<endpoint>` to `SUPABASE_URL`, so the resolved value must NOT include `/functions/v1`.
+
+`BYOA_WAKE_SECRET` is the **per-ship** bearer that authenticates `wake_agent` → wake-receiver (local daemon or operator's Vercel Function). Generate a fresh random hex string (`openssl rand -hex 32`) **per ship** — never share across ships. The skill writes the value into `.env.byoa` AND sends the same value to us via `ship_byoa_configure { action: 'set', wake_secret }`. We encrypt at rest and never return it to clients.
+
+The bus **channel** is allocated server-side per voice session and injected into the harness env by `wake_agent`. Operators never see or set a channel. The local-dev wake daemon (`uv run byoa --serve`) loads `.env.byoa` first, then falls back to `.env.bot` for `SUBAGENT_BUS_DATABASE_URL` when running from a bot checkout. Standalone operators set it in shell env or add it to `.env.byoa` by hand.
 
 ### 2. Log the operator in
 
@@ -72,26 +83,24 @@ If exactly one character → use it. If multiple → list by `name + character_i
 ### 4. List corp ships
 
 ```bash
-curl -s -X POST "${SUPABASE_URL}/functions/v1/my_corporation" \
+curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
   -H "Content-Type: application/json" \
-  -H "X-Edge-Auth: ${EDGE_API_TOKEN}" \
-  -H "X-API-Token: <access_token>" \
-  -d '{"character_id": "<character_id>"}'
+  -H "Authorization: Bearer <access_token>" \
+  -d '{"character_id": "<character_id>", "action": "list"}'
 ```
 
-From `corporation.ships`, filter to ships where `byoa` is `null` OR `byoa.owner_character_id_prefix` matches the operator's prefix.
+Response shape: `{ success, action: "list", ships: [{ ship_id, name, sector, byoa_owner_character_id_prefix, claimable_by_me }, ...] }`. Filter to `claimable_by_me === true`.
 
-If `--ship-id` was passed, validate it appears in this filtered list. Otherwise list (ship name + 8-char id prefix + sector) and ask the operator to pick.
+If `--ship-id` was passed, validate it appears in this filtered list. Otherwise present (`name` + 8-char `ship_id` prefix + `sector`) and ask the operator to pick.
 
-If the chosen ship is already claimed by the same operator, skip the claim and go to step 6.
+If the chosen ship is already claimed by the same operator (`byoa_owner_character_id_prefix` matches the operator's character prefix), the claim in step 5 is idempotent — proceed anyway.
 
 ### 5. Claim the ship as BYOA
 
 ```bash
 curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
   -H "Content-Type: application/json" \
-  -H "X-Edge-Auth: ${EDGE_API_TOKEN}" \
-  -H "X-API-Token: <access_token>" \
+  -H "Authorization: Bearer <access_token>" \
   -d '{
     "character_id": "<character_id>",
     "ship_id": "<ship_id>",
@@ -104,13 +113,12 @@ Confirm the response has `byoa_owner_character_id` matching the operator's chara
 
 ### 6. Generate + register the per-ship wake secret
 
-Generate a fresh random hex bearer (`openssl rand -hex 32`). **Never reuse `EDGE_API_TOKEN`** — that's privileged trusted-caller auth for our edge functions and must not leave our infra; the wake secret is a per-ship, operator-side credential. Capture the freshly-generated hex in memory; write it to `.env.byoa` in step 7 AND send the same value to us so wake_agent can sign outbound POSTs to the operator's wake receiver:
+Generate a fresh random hex bearer (`openssl rand -hex 32`). The wake secret is a per-ship, operator-side credential. Capture the freshly-generated hex in memory; write it to `.env.byoa` in step 7 AND send the same value to us so wake_agent can sign outbound POSTs to the operator's wake receiver:
 
 ```bash
 curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
   -H "Content-Type: application/json" \
-  -H "X-Edge-Auth: ${EDGE_API_TOKEN}" \
-  -H "X-API-Token: <access_token>" \
+  -H "Authorization: Bearer <access_token>" \
   -d '{
     "character_id": "<character_id>",
     "ship_id": "<ship_id>",
@@ -172,8 +180,8 @@ Echo a copy-pasteable summary the operator can act on:
 - **No characters**: direct to `/character-create` first.
 - **No corp ships**: operator isn't in a corp or their corp has no ships.
 - **409 ship_busy on claim**: ship is mid-task. Don't auto-retry.
-- **403 on claim**: not a member of the ship's corp.
-- **`admin_token_required` from /my_corporation or /ship_byoa_configure**: caller forgot the `X-Edge-Auth: ${EDGE_API_TOKEN}` header.
+- **403 on claim or set**: caller's JWT is for a different operator (not the ship owner). Stop and re-check which account was logged in.
+- **401 "No authorization token provided" / "Invalid or expired token" from /ship_byoa_configure**: the `Authorization: Bearer <jwt>` header is missing or the JWT is expired. Re-run `/login` to mint a fresh one.
 
 ## What this skill does NOT do
 

@@ -158,10 +158,9 @@ class AsyncGameClient(BaseAsyncGameClient):
         self._event_log_path = os.getenv("SUPABASE_EVENT_LOG_PATH")
         self._enable_event_polling = enable_event_polling
 
-        # User's Supabase Auth access_token, used by the pubsub event adapter
-        # to authenticate against per-character pgmq queues. Optional here so
-        # polling-mode callers (tests, NPC bots, scripts) don't need to fetch
-        # one. The pubsub adapter raises at start() if it's None.
+        # User's Supabase Auth access_token, forwarded to auth-gated edge
+        # functions. Pubsub event delivery uses EDGE_API_TOKEN plus SQL scope
+        # checks instead of this per-character JWT.
         self._access_token = access_token
 
         # Event-delivery adapter. Constructed and started only by an
@@ -614,13 +613,13 @@ class AsyncGameClient(BaseAsyncGameClient):
         return  # No legacy websocket frames
 
     async def purge_event_backlog(self) -> None:
-        """Reset the per-character delivery backlog before bootstrap RPCs.
+        """Reset the delivery backlog before bootstrap RPCs.
 
         Sessions that build their LLM context inline from RPC responses
         call this before issuing those RPCs. The pubsub adapter keeps the
-        per-character pgmq queue present and purges stale messages from
-        prior sessions. ``start_event_delivery`` then starts from a clean
-        baseline without creating a missing-queue publish window.
+        scoped pgmq queues present and purges stale messages from prior
+        sessions. ``start_event_delivery`` then starts from a clean baseline
+        without creating a missing-queue publish window.
         """
         if not self._enable_event_polling:
             return

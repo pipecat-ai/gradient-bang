@@ -1,8 +1,9 @@
 """Event-delivery adapters for ``AsyncGameClient``.
 
 The client picks an :class:`EventAdapter` at construction time via
-:func:`make_event_adapter`. Today only ``PollingEventAdapter`` exists; a
-pubsub (pgmq) adapter is planned. See :mod:`.base` for the Protocol the
+:func:`make_event_adapter`. ``PollingEventAdapter`` uses the historical
+``events_since`` edge function, while ``PubsubEventAdapter`` reads scoped
+pgmq queues directly through Postgres. See :mod:`.base` for the Protocol the
 client relies on.
 """
 

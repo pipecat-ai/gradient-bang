@@ -15,10 +15,11 @@ End state: a Vercel deployment at `https://<their-project>.vercel.app/api/wake` 
 /byoa-deploy-vercel [env] [--preview] [--no-link] [--out-url <path>] [--access-token <jwt>] [--skip-register]
 ```
 
-- **env**: `local` (default), `dev`, or `prod`. Picks the edge env file the skill sources for `SUPABASE_URL` + `EDGE_API_TOKEN` (used to call `/login` + `/ship_byoa_configure` at the end):
-  - `local` → `.env.supabase`
-  - `dev` → `.env.cloud.dev`
-  - `prod` → `.env.cloud`
+- **env**: `prod` (default) or `local`. Picks the game server endpoint that `/login` + `/ship_byoa_configure` are called against (the auto-register step at the end):
+  - `prod` → `https://api.gradient-bang.com` (hardcoded; operator never types it; no env file needed)
+  - `local` → sources `SUPABASE_URL` from `.env.supabase` (e.g. `http://127.0.0.1:54321` when `npx supabase start` is running)
+
+  The `dev` env was dropped — it required internal-only env files that external developers don't have. The skill no longer needs `EDGE_API_TOKEN` either; `ship_byoa_configure` and `my_corporation` authenticate on the user JWT alone via the standard `getAuthenticatedUser()` pattern (`Authorization: Bearer <jwt>`).
 - **--preview**: deploy as a Vercel preview instead of production. **Almost never what you want for BYOA**: Vercel's default Standard Protection gates preview URLs behind SSO, so the game server can't reach them. Use only if you've disabled Project Protection or are testing with a bypass token.
 - **--no-link**: skip the link verification (steps 3a + 3b). Use only when you're certain `deployment/vercel/.vercel/project.json` is correct.
 - **--out-url**: write the final canonical (alias) URL to this file. Defaults to stdout only.
@@ -37,7 +38,7 @@ Stop with a clean error if any of these is true:
 - `.env.byoa` is missing any required key: `BYOA_WAKE_SECRET`, `BYOA_SHIP_ID`, `BYOA_CHARACTER_ID`, `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, and the API key matching the provider (one of `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `MINIMAX_API_KEY`).
 - [deployment/vercel/](../../../deployment/vercel/) does not exist or is missing `api/wake.ts`, `package.json`, or `vercel.json` — the template was deleted or this skill is being run against the wrong checkout.
 - `npx vercel --version` errors (Vercel CLI not available via npx).
-- The resolved edge env file is missing `SUPABASE_URL` or `EDGE_API_TOKEN`.
+- For `env=local`: `.env.supabase` is missing or `SUPABASE_URL` is unset inside it.
 
 Resolve which API key is required from `TASK_LLM_PROVIDER`:
 
@@ -55,10 +56,21 @@ If both `BYOA_PROMPT` and `BYOA_PROMPT_FILE` are unset, mention that the agent w
 ### 1. Load envs
 
 ```bash
-set -a && source .env.byoa && source <edge-env-file> && set +a
+set -a && source .env.byoa && set +a
 ```
 
-Source `.env.byoa` first so any keys present in *both* (e.g. `TASK_LLM_*`) take the operator's value, then layer the edge env on top for `SUPABASE_URL` / `EDGE_API_TOKEN`. Never echo `BYOA_WAKE_SECRET` or any `*_API_KEY` to the console.
+Then resolve `SUPABASE_URL` per the env arg:
+
+```bash
+# prod (default)
+SUPABASE_URL=https://api.gradient-bang.com
+
+# local
+set -a && source .env.supabase && set +a
+# SUPABASE_URL now points at http://127.0.0.1:54321 (or whatever the file has)
+```
+
+All curls in step 8 append `/functions/v1/<endpoint>`, so `SUPABASE_URL` must NOT include `/functions/v1`. Never echo `BYOA_WAKE_SECRET` or any `*_API_KEY` to the console.
 
 ### 2. Verify Vercel CLI login
 
@@ -269,8 +281,7 @@ On a 401 or `success: false` response: don't retry (likely bad creds). Surface t
 ```bash
 REGISTER_RESPONSE=$(curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
   -H "Content-Type: application/json" \
-  -H "X-Edge-Auth: ${EDGE_API_TOKEN}" \
-  -H "X-API-Token: $ACCESS_TOKEN" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -d "{
     \"character_id\": \"$BYOA_CHARACTER_ID\",
     \"ship_id\": \"$BYOA_SHIP_ID\",
@@ -282,8 +293,8 @@ echo "$REGISTER_RESPONSE"
 
 Expect a response containing `"source_url_updated":true`. If not, surface the body and fall through to 8c. Common failure modes:
 
-- `admin_token_required` → `EDGE_API_TOKEN` missing from the resolved edge env file (regression in step 1)
-- `403` / `Only the current BYOA owner` → the access token belongs to a different operator than the one who claimed the ship; re-run `/byoa-setup` to align
+- "No authorization token provided" / "Invalid or expired token" → `ACCESS_TOKEN` is empty or expired; re-run step 8a
+- 403 `forbidden` → the JWT's user does not own the ship referenced by `BYOA_SHIP_ID`; re-run `/byoa-setup` with the right account
 - `source_url must be http(s):// and ≤ 4096 chars` → `ALIAS_URL` is empty/malformed; check step 5's fallback
 
 **8c. Manual fallback (printed only on auto-register failure or `--skip-register`).**
@@ -291,8 +302,7 @@ Expect a response containing `"source_url_updated":true`. If not, surface the bo
 ```bash
 curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
   -H "Content-Type: application/json" \
-  -H "X-Edge-Auth: ${EDGE_API_TOKEN}" \
-  -H "X-API-Token: <your access token from /login>" \
+  -H "Authorization: Bearer <your access token from /login>" \
   -d '{
     "character_id": "'"$BYOA_CHARACTER_ID"'",
     "ship_id": "'"$BYOA_SHIP_ID"'",
@@ -331,8 +341,8 @@ End with a terse summary:
 - **Deploy went to `target: production` even without `--prod`**: the project default in Vercel is set to production-on-deploy. Harmless for BYOA (we want prod anyway) but worth knowing if you expected a preview.
 - **First wake takes > 60s and times out on Hobby plan**: bump `maxDuration` in `vercel.json` (Hobby caps at 60s; Pro at 800s) or upgrade plan.
 - **`/login` returns 401 / `success: false`** in step 8a: bad credentials. Don't retry — fall through to the manual curl. Skill prints 8c and the operator finishes by hand.
-- **`ship_byoa_configure` returns `Only the current BYOA owner can set wake config`**: the JWT belongs to a different operator than the one who claimed the ship. Either re-run `/byoa-setup` with the right account, or supply `--access-token` from the right account on the next deploy.
-- **`admin_token_required` from `ship_byoa_configure`**: `EDGE_API_TOKEN` is unset in the edge env file or wasn't sourced. Re-check step 1.
+- **`ship_byoa_configure` returns 403 `forbidden`** or `Only the current BYOA owner can set wake config`: the JWT belongs to a different operator than the one who claimed the ship. Either re-run `/byoa-setup` with the right account, or supply `--access-token` from the right account on the next deploy.
+- **`ship_byoa_configure` returns 401 "No authorization token provided"**: the `Authorization: Bearer` header was empty (likely because step 8a's `ACCESS_TOKEN` extraction failed silently). Surface the raw login response and re-run step 8a.
 
 ## What this skill does NOT do
 

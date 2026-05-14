@@ -304,8 +304,8 @@ async def bot_startup(
 
     # Create game client directly. access_token is threaded through from
     # /start (proxy injects after Supabase Auth verification, or dev sets
-    # BOT_TEST_ACCESS_TOKEN). Polling adapter ignores it; pubsub adapter
-    # uses it to authenticate against per-character pgmq queues.
+    # BOT_TEST_ACCESS_TOKEN) for auth-gated edge functions. Pubsub event
+    # delivery uses EDGE_API_TOKEN plus SQL scope checks.
     # Event delivery is started explicitly by ``_join`` after session_init
     # has built the LLM context. Bootstrap RPC echoes are purged before
     # activation so they do not replay into EventRelay/LLM context.
@@ -331,8 +331,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     character_id_hint = body.get("character_id") or os.getenv("BOT_TEST_CHARACTER_ID")
     character_name_hint = body.get("character_name")
     # Per-character auth token — required so the bot can prove identity to
-    # downstream auth-gated services (e.g. pgmq pubsub channels, character_info
-    # lookup). The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev
+    # downstream auth-gated edge functions (e.g. character_info lookup).
+    # The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev
     # fallback for sessions that bypass the login → start proxy flow.
     body_access_token = body.get("access_token")
     access_token = body_access_token or os.getenv("BOT_TEST_ACCESS_TOKEN")

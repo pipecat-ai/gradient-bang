@@ -86,8 +86,7 @@ If you ever need to register `source_url` by hand (custom Vercel project, skill 
 
 ```bash
 curl -X POST "$SUPABASE_URL/functions/v1/ship_byoa_configure" \
-  -H "Authorization: Bearer $ANON_KEY" \
-  -H "X-API-Token: $YOUR_USER_JWT" \
+  -H "Authorization: Bearer $YOUR_USER_JWT" \
   -d '{
     "character_id": "<your character UUID>",
     "ship_id": "<corp ship UUID>",
@@ -95,6 +94,8 @@ curl -X POST "$SUPABASE_URL/functions/v1/ship_byoa_configure" \
     "source_url": "https://<your-project>.vercel.app/api/wake"
   }'
 ```
+
+`$YOUR_USER_JWT` is `session.access_token` from a `/login` call with your email + password. `ship_byoa_configure` uses the standard `getAuthenticatedUser()` pattern (same as `verify_token`, `user_character_create`, etc.) — JWT-only, no admin token needed; per-character ownership is checked via `can_user_access_character`.
 
 Pass `wake_secret` alongside `source_url` only if you're also rotating it; otherwise the existing server-side value is preserved (`set` is a partial update — see [ship_byoa_configure actions](#ship_byoa_configure-actions)).
 
@@ -194,10 +195,11 @@ The DB holds the wake URL and a **per-ship bearer** that authenticates wake_agen
 
 ## `ship_byoa_configure` actions
 
-One endpoint: `POST $SUPABASE_URL/functions/v1/ship_byoa_configure`. All actions require `Authorization: Bearer $ANON_KEY` + `X-API-Token: $YOUR_USER_JWT`. All actions are owner-only and refuse to mutate while the ship has a running task.
+One endpoint: `POST $SUPABASE_URL/functions/v1/ship_byoa_configure`. All actions require `Authorization: Bearer $YOUR_USER_JWT` (a JWT from `/login`); the endpoint authenticates via `getAuthenticatedUser()` and enforces per-character ownership through `can_user_access_character`. Mutating actions (claim / clear / set) are owner-only and refuse to mutate while the ship has a running task; the read-only `list` action returns the operator's corp ships shaped for the BYOA picker.
 
 | Action | Body fields | Effect |
 |---|---|---|
+| `list` | `character_id` | Read-only. Returns `{ ships: [{ ship_id, name, sector, byoa_owner_character_id_prefix, claimable_by_me }] }` — the operator's corp ships shaped for the BYOA picker. Full owner UUIDs are not surfaced; only a 12-char prefix |
 | `claim` | `character_id`, `ship_id` | Set `byoa_owner_character_id = self`. Idempotent if self-claimed; 409 if claimed by someone else |
 | `clear` | `character_id`, `ship_id` | Set `byoa_owner_character_id = NULL`. Owner-only |
 | `set` | `+ source_url?` / `+ wake_secret?` | Owner-only. Sets any supplied fields; omitted fields are left alone; explicit `null` clears. `wake_secret` is encrypted server-side before storage and never returned. `source_url` is validated `^https?://` and ≤ 4 KB |
