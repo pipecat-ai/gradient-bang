@@ -224,20 +224,10 @@ Deno.serve(traced("join", async (req, trace) => {
       `[join] payloads built: ${(performance.now() - t9).toFixed(1)}ms`,
     );
 
-    // Emit status.snapshot FIRST (preserve ordering)
-    const sStatusSnapshot = trace.span("emit_status_snapshot");
+    // status.snapshot is delivered inline via the join RPC response —
+    // the bot hydrates LLM context + RTVI from the response body. Emitting
+    // it to pgmq here would double-deliver through EventRelay.
     statusPayload["source"] = source;
-    await pgEmitCharacterEvent({
-      pg,
-      characterId,
-      eventType: "status.snapshot",
-      payload: statusPayload,
-      shipId: ship.ship_id,
-      sectorId: targetSector,
-      requestId,
-      corpId: character.corporation_id,
-    });
-    sStatusSnapshot.end();
 
     // Emit session.started (self-scoped session boundary marker for historical queries)
     const sSessionStarted = trace.span("emit_session_started");
