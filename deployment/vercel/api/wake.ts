@@ -192,11 +192,17 @@ export async function POST(req: Request): Promise<Response> {
   // something stale in project env. `PYTHONUNBUFFERED=1` so harness output
   // hits ~/byoa.log line-by-line instead of in 4KB chunks — critical for
   // debugging detached runs via /api/logs.
+  const operatorEnv = pickOperatorEnv();
   const harnessEnv: Record<string, string> = {
     PYTHONUNBUFFERED: "1",
-    ...pickOperatorEnv(),
+    ...operatorEnv,
     ...wakeEnv,
   };
+  // Fallback to the bundled prompt when the operator hasn't set one. Path is
+  // relative to the cloned repo root (the sandbox cwd for `uv run byoa`).
+  if (!operatorEnv.BYOA_PROMPT && !operatorEnv.BYOA_PROMPT_FILE) {
+    harnessEnv.BYOA_PROMPT_FILE = "deployment/vercel/prompt.md";
+  }
 
   const sandboxName = `byoa-${ship_id}`;
   let sandbox: Sandbox;

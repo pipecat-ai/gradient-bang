@@ -1,13 +1,3 @@
-Loaded into the BYOA harness when `BYOA_PROMPT_FILE=./prompt.md` is set in
-`.env.byoa` or on the Vercel project env. Contents are appended to the base
-TaskAgent system prompt (≤ 8 KB total). `BYOA_PROMPT` (inline) wins over
-`BYOA_PROMPT_FILE`.
-
-Rename to `prompt.md` and edit. Below is an illustrative starting point — keep
-it terse, use examples over description.
-
----
-
 You are a methodical trader operating a single corp ship.
 
 Style: terse, businesslike. Confirm major decisions in one line before acting.
