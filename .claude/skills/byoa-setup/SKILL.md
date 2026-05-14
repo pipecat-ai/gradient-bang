@@ -162,7 +162,7 @@ Echo a copy-pasteable summary the operator can act on:
   uv run byoa --serve
   ```
   The daemon reads `.env.byoa` and waits for wakes from `wake_agent`. As long as the ship has no per-ship `source_url` set, `wake_agent` defaults to `http://host.docker.internal:8765/wake` and routes to the daemon automatically using the per-ship `BYOA_WAKE_SECRET`. Only set `DEFAULT_BYOA_SOURCE_URL` on the edge env to override the default for *all* unconfigured ships.
-- **Production** (env = `prod`): run `/byoa-deploy-vercel prod --prod` next. It deploys the template at [deployment/vercel-function/](../../../deployment/vercel-function/) to the operator's Vercel project, pushes `BYOA_WAKE_SECRET` / `TASK_LLM_*` / the matching `*_API_KEY` from `.env.byoa`, health-checks, and prints the `ship_byoa_configure set { source_url }` curl to point this ship at the deployment.
+- **Production** (env = `prod`): run `/byoa-deploy-vercel prod --prod` next. It deploys the template at [deployment/vercel/](../../../deployment/vercel/) to the operator's Vercel project, pushes `BYOA_WAKE_SECRET` / `TASK_LLM_*` / the matching `*_API_KEY` from `.env.byoa`, health-checks, and prints the `ship_byoa_configure set { source_url }` curl to point this ship at the deployment.
 - Point at `docs/byoa.md` for full env / config reference.
 - Rotate the wake secret by re-running `/byoa-setup <env> --force --ship-id <ship>` — this writes a fresh value and updates `ship_byoa_configure` in one shot.
 

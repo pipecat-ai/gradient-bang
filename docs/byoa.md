@@ -68,7 +68,7 @@ In production, BYOA runs in a Vercel Sandbox the **operator** owns. The operator
 
 **1. Onboard.** Same as local — `/byoa-setup prod` claims the ship and writes your operator config to `.env.byoa` in our prod env.
 
-**2. Deploy the Vercel template.** The wake-receiver template lives in-tree at [deployment/vercel-function/](../deployment/vercel-function/) (`api/wake.ts`, `package.json`, `vercel.json`, `prompt.example.md`). Run `/byoa-deploy-vercel prod --prod` — it reads your `.env.byoa`, pushes the operator-side env (`BYOA_WAKE_SECRET`, `TASK_LLM_*`, the matching `*_API_KEY`, and optionally `BYOA_PROMPT` / `BYOA_PROMPT_FILE`) to the Vercel project, deploys, and health-checks. First-time setup needs one interactive `npx vercel link` from `deployment/vercel-function/`. See [byoa-vercel.md](byoa-vercel.md) for the full env reference and troubleshooting.
+**2. Deploy the Vercel template.** The wake-receiver template lives in-tree at [deployment/vercel/](../deployment/vercel/) (`api/wake.ts`, `package.json`, `vercel.json`, `prompt.example.md`). Run `/byoa-deploy-vercel prod --prod` — it reads your `.env.byoa`, pushes the operator-side env (`BYOA_WAKE_SECRET`, `TASK_LLM_*`, the matching `*_API_KEY`, and optionally `BYOA_PROMPT` / `BYOA_PROMPT_FILE`) to the Vercel project, deploys, and health-checks. First-time setup needs one interactive `npx vercel link` from `deployment/vercel/`. See [byoa-vercel.md](byoa-vercel.md) for the full env reference and troubleshooting.
 
 **3. Point your ship at the deployed function URL and give us a wake bearer:**
 

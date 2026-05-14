@@ -2,12 +2,12 @@
 
 Operator-facing reference for the wake receiver that runs on the operator's Vercel project. Implements the wake contract described in [byoa.md](byoa.md#how-wake-works).
 
-The source lives in-tree at [deployment/vercel-function/](../deployment/vercel-function/):
+The source lives in-tree at [deployment/vercel/](../deployment/vercel/):
 
-- [api/wake.ts](../deployment/vercel-function/api/wake.ts) — the function itself (bearer-auth, persistent-sandbox lookup, harness launch).
-- [package.json](../deployment/vercel-function/package.json) — pins `@vercel/sandbox@beta`.
-- [vercel.json](../deployment/vercel-function/vercel.json) — sets `maxDuration: 300` on the wake route.
-- [prompt.example.md](../deployment/vercel-function/prompt.example.md) — copy to `prompt.md` and edit; load via `BYOA_PROMPT_FILE` on the Vercel project env.
+- [api/wake.ts](../deployment/vercel/api/wake.ts) — the function itself (bearer-auth, persistent-sandbox lookup, harness launch).
+- [package.json](../deployment/vercel/package.json) — pins `@vercel/sandbox@beta`.
+- [vercel.json](../deployment/vercel/vercel.json) — sets `maxDuration: 300` on the wake route.
+- [prompt.example.md](../deployment/vercel/prompt.example.md) — copy to `prompt.md` and edit; load via `BYOA_PROMPT_FILE` on the Vercel project env.
 
 Deploy it with `/byoa-deploy-vercel <env>` — see [.claude/skills/byoa-deploy-vercel/SKILL.md](../.claude/skills/byoa-deploy-vercel/SKILL.md).
 
@@ -47,7 +47,7 @@ Vercel auth (`VERCEL_OIDC_TOKEN`) is automatic when the function runs on Vercel 
 
 1. **Claim a ship + generate the wake secret.** `/byoa-setup prod` — claims a corp ship as BYOA, writes `BYOA_*` to `.env.byoa`, registers the wake secret server-side.
 2. **Edit your operator config.** Open `.env.byoa`, fill in `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, the matching `*_API_KEY`, and (optionally) `BYOA_PROMPT` / `BYOA_PROMPT_FILE`.
-3. **First-time Vercel project setup.** From `deployment/vercel-function/`, run `npx vercel link` interactively to associate the directory with a Vercel project (suggested name: `gradient-bang-byoa-<your-handle>`).
+3. **First-time Vercel project setup.** From `deployment/vercel/`, run `npx vercel link` interactively to associate the directory with a Vercel project (suggested name: `gradient-bang-byoa-<your-handle>`).
 4. **Deploy.** `/byoa-deploy-vercel prod --prod` pushes env from `.env.byoa` to the Vercel project, runs `vercel deploy --prod`, health-checks `GET /api/wake`, smoke-tests bearer auth on `POST /api/wake`, and prints the `ship_byoa_configure set { source_url }` curl.
 5. **Wire the ship at the deployment.** Run the printed curl (or re-run `/byoa-setup prod --force --ship-id <ship>` to mint a fresh wake secret AND update both sides in one shot).
 6. **Trigger a wake.** Start a task on the ship from the bot. Watch Vercel function logs — first wake takes 30–60s for the cold-sandbox clone + `uv sync`; subsequent wakes resume the snapshot and complete in seconds.
@@ -58,4 +58,4 @@ Vercel auth (`VERCEL_OIDC_TOKEN`) is automatic when the function runs on Vercel 
 - **`POST /api/wake` returns 200 without auth** — bearer check is broken; do not register `source_url`. Investigate before pointing wake_agent at this function.
 - **First wake times out on Hobby plan** — `maxDuration` is capped at 60s on Hobby; the cold-sandbox clone + `uv sync` needs ~30–60s. Upgrade to Pro (caps at 800s) or accept that the first wake will fail and the second will succeed once the snapshot exists.
 - **Sandbox runs `uv sync` every wake** — the persistent sandbox snapshot expired. Bump `SNAPSHOT_EXPIRATION_MS` in `api/wake.ts` (default 30 days).
-- **Want to customize the wake function** — fork `deployment/vercel-function/` into your own repo, point `vercel link` at it. The skill keys off paths under `deployment/vercel-function/`; either symlink or keep your fork separate and run `vercel` commands by hand.
+- **Want to customize the wake function** — fork `deployment/vercel/` into your own repo, point `vercel link` at it. The skill keys off paths under `deployment/vercel/`; either symlink or keep your fork separate and run `vercel` commands by hand.
