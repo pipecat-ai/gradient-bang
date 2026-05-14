@@ -25,7 +25,7 @@ bot = [
     "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,google,anthropic,runner]>=1.0",
     "pipecat-ai-cli",
     "pipecatcloud>=0.6.0",
-    "pipecat-ai-subagents[pgmq]>=0.5.0",
+    "pipecat-ai-subagents[pgmq]>=0.6.0",
     "boto3>=1.35.0",
     "soundfile>=0.12.0",
     "cekura[pipecat]==1.2.0rc3",
@@ -79,10 +79,6 @@ override-dependencies = [
     "openai==1.99.5",
 ]
 package = true
-
-[tool.uv.sources]
-# Pinned to PR #24 (PgmqBus pluggable backends) until merged + released.
-pipecat-ai-subagents = { git = "https://github.com/pipecat-ai/pipecat-subagents", rev = "87b25eaab0d546f35490719c6bc3cd967feedc4b" }
 
 
 [tool.pytest.ini_options]
