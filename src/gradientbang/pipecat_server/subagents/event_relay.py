@@ -1006,6 +1006,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "task.finish": EventConfig(
         append=AppendRule.NEVER,
     ),
+    # VoiceAgent emits a synthetic task.cancelled deferred update when a
+    # task ends abnormally (BYOA wake failure, stop_task, etc.), so the
+    # LLM context comes from that path. The server-side task.cancel still
+    # needs to fan out to the bus (so TaskAgents shut down) and to RTVI
+    # (so the client clears the waking/active UI state).
+    "task.cancel": EventConfig(append=AppendRule.NEVER),
     # Local movement
     "character.moved": EventConfig(append=AppendRule.LOCAL),
     "garrison.character_moved": EventConfig(append=AppendRule.LOCAL),
@@ -1196,7 +1202,6 @@ class EventRelay:
         # Subscribe to game events from config registry
         for event_name in EVENT_CONFIGS:
             game_client.on(event_name)(self._relay_event)
-        game_client.on("task.cancel")(self._handle_task_cancel_event)
 
     @property
     def character_id(self) -> str:
@@ -1570,19 +1575,6 @@ class EventRelay:
         if task_summary is not None:
             return task_summary
         return event_for_summary.get("payload")
-
-    # ── Task cancel event handler ──────────────────────────────────────
-
-    async def _handle_task_cancel_event(self, event: Dict[str, Any]) -> None:
-        payload = event.get("payload", {})
-        task_id_to_cancel = payload.get("task_id")
-        if not task_id_to_cancel:
-            return
-        # Broadcast to bus so TaskAgents and VoiceAgent can react
-        try:
-            await self._task_state.broadcast_game_event(event)
-        except Exception:
-            logger.exception("task.cancel handler failed")
 
     # ── Router helpers ─────────────────────────────────────────────────
 

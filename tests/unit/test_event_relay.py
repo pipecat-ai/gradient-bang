@@ -1474,26 +1474,22 @@ class TestPortsListAlwaysFlows:
 
 @pytest.mark.unit
 class TestTaskCancelEvent:
-    async def test_cancel_broadcasts_event(self):
-        relay, task_state, _, _ = _make_relay()
-        event = {"payload": {"task_id": "full-uuid-1"}}
-        await relay._handle_task_cancel_event(event)
-        # Should broadcast the cancel event to the bus
+    async def test_cancel_pushes_to_rtvi_and_bus(self):
+        """task.cancel must reach the client (RTVI) and the bus (TaskAgents)
+        so the waking UI clears and any running child agent shuts down."""
+        relay, task_state, _, mock_rtvi = _make_relay()
+        event = _make_event("task.cancel", {"task_id": "full-uuid-1"})
+        await relay._relay_event(event)
+        assert mock_rtvi.push_frame.call_count == 1
         assert len(task_state.broadcast_events) == 1
-        assert task_state.broadcast_events[0] is event
 
-    async def test_cancel_no_match(self):
+    async def test_cancel_not_appended_to_llm(self):
+        """VoiceAgent already injects a task.cancelled deferred update, so the
+        server's task.cancel must not double-up the LLM context."""
         relay, task_state, _, _ = _make_relay()
-        event = {"payload": {"task_id": "nonexistent"}}
-        await relay._handle_task_cancel_event(event)
-        # No error, just returns
-
-    async def test_cancel_empty_task_id_skipped(self):
-        relay, task_state, _, _ = _make_relay()
-        event = {"payload": {}}
-        await relay._handle_task_cancel_event(event)
-        # No task_id in payload, so broadcast should not be called
-        assert len(task_state.broadcast_events) == 0
+        event = _make_event("task.cancel", {"task_id": "full-uuid-1"})
+        await relay._relay_event(event)
+        assert len(task_state.deferred_events) == 0
 
 
 @pytest.mark.unit
