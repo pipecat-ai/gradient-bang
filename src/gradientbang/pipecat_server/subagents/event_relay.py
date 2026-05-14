@@ -31,8 +31,6 @@ from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageF
 from gradientbang.pipecat_server.chat_history import emit_chat_history, fetch_chat_history
 from gradientbang.utils.formatting import (
     extract_display_name,
-    format_ship_summary_line,
-    friendly_ship_type,
     short_id,
     shorten_embedded_ids,
 )
@@ -40,7 +38,7 @@ from gradientbang.utils.prompt_loader import (
     render_combat_md_preamble_message,
     render_ship_doctrine_preamble_message,
 )
-from gradientbang.utils.summary_formatters import event_query_summary
+from gradientbang.utils.summary_formatters import event_query_summary, ships_list_summary
 
 if TYPE_CHECKING:
     from gradientbang.utils.supabase_client import AsyncGameClient
@@ -192,39 +190,10 @@ def _summarize_chat(_relay: EventRelay, event: dict) -> Optional[str]:
 
 
 def _summarize_ships_list(relay: EventRelay, event: dict) -> Optional[str]:
-    payload = event.get("payload", {})
-    ships = payload.get("ships", [])
-    if not ships:
-        return "No ships available."
-    active = [s for s in ships if not s.get("destroyed_at")]
-    destroyed = [s for s in ships if s.get("destroyed_at")]
-    personal = [s for s in active if s.get("owner_type") == "personal"]
-    corp = [s for s in active if s.get("owner_type") == "corporation"]
-    header = f"Fleet: {len(active)} active"
-    if destroyed:
-        header += f", {len(destroyed)} destroyed"
-    lines = [header]
-    if personal:
-        lines.append("Your ship:")
-        for ship in personal:
-            lines.append(format_ship_summary_line(ship, include_id=True))
-    if corp:
-        lines.append(f"Corporation ships ({len(corp)}):")
-        for ship in corp:
-            lines.append(format_ship_summary_line(ship, include_id=True))
-    if destroyed:
-        lines.append(f"Destroyed ships ({len(destroyed)}):")
-        for ship in destroyed:
-            name = shorten_embedded_ids(
-                str(ship.get("ship_name") or ship.get("name") or "Unnamed Vessel")
-            )
-            ship_type = friendly_ship_type(ship.get("ship_type"))
-            sector = ship.get("sector")
-            sector_display = sector if isinstance(sector, int) else "unknown"
-            lines.append(
-                f"- [DESTROYED] {name} ({ship_type}) last seen sector {sector_display}"
-            )
-    return "\n".join(lines)
+    # Delegate to the canonical formatter so init-time pulls (via
+    # session_init → game_client._get_summary) and runtime events render
+    # identically.
+    return ships_list_summary(event.get("payload", {}))
 
 
 def _is_player_participant(relay: EventRelay, payload: Any) -> bool:
@@ -935,6 +904,34 @@ def _summarize_ship_destroyed(relay: EventRelay, event: dict) -> Optional[str]:
     return f"Ship {ship_label} was destroyed in {sector_text}.{suffix}"
 
 
+def _xml_attrs_quest_reward_claimed(
+    _relay: EventRelay, payload: Mapping[str, Any]
+) -> list[tuple[str, str]]:
+    """Surface quest/step/reward metadata as envelope attrs so the body can
+    stay a short human-written instruction rather than a raw payload dump."""
+    attrs: list[tuple[str, str]] = []
+    for key in ("quest_code", "quest_name", "step_name"):
+        val = payload.get(key)
+        if isinstance(val, str) and val.strip():
+            attrs.append((key, val.strip()))
+    reward = payload.get("reward")
+    if isinstance(reward, Mapping):
+        credits = reward.get("credits")
+        if isinstance(credits, (int, float)):
+            attrs.append(("credits", str(credits)))
+    return attrs
+
+
+def _summarize_quest_reward_claimed(_relay: EventRelay, _event: dict) -> Optional[str]:
+    """Frame the event as a reward payout for an already-completed step, not
+    new contract progress. Quest/step/credit values are on envelope attrs."""
+    return (
+        "Reward credits paid out for a previously completed contract step. "
+        "Briefly acknowledge the payout — this is NOT new contract progress, "
+        "the step was completed earlier."
+    )
+
+
 # ── Event config registry ─────────────────────────────────────────────────
 
 EVENT_CONFIGS: dict[str, EventConfig] = {
@@ -1009,6 +1006,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "task.finish": EventConfig(
         append=AppendRule.NEVER,
     ),
+    # VoiceAgent emits a synthetic task.cancelled deferred update when a
+    # task ends abnormally (BYOA wake failure, stop_task, etc.), so the
+    # LLM context comes from that path. The server-side task.cancel still
+    # needs to fan out to the bus (so TaskAgents shut down) and to RTVI
+    # (so the client clears the waking/active UI state).
+    "task.cancel": EventConfig(append=AppendRule.NEVER),
     # Local movement
     "character.moved": EventConfig(append=AppendRule.LOCAL),
     "garrison.character_moved": EventConfig(append=AppendRule.LOCAL),
@@ -1046,7 +1049,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # Using ALWAYS here would double-fire (same pattern as task.finish).
     "quest.step_completed": EventConfig(inference=InferenceRule.VOICE_AGENT),
     "quest.completed": EventConfig(inference=InferenceRule.VOICE_AGENT),
-    "quest.reward_claimed": EventConfig(inference=InferenceRule.ALWAYS, debounce_seconds=2.0),
+    "quest.reward_claimed": EventConfig(
+        inference=InferenceRule.ALWAYS,
+        debounce_seconds=2.0,
+        xml_attrs_fn=_xml_attrs_quest_reward_claimed,
+        voice_summary=_summarize_quest_reward_claimed,
+    ),
     # Task-scoped allowlisted (direct events pass through when task-scoped)
     "trade.executed": EventConfig(task_scoped_allowlisted=True),
     "port.update": EventConfig(append=AppendRule.LOCAL),
@@ -1180,12 +1188,9 @@ class EventRelay:
         self.actor_ship_id: Optional[str] = None
         self._current_sector_id: Optional[int] = None
         self._last_poll_corp_id: Optional[str] = game_client.corporation_id
-        # Onboarding (passive observation)
-        self.is_new_player: Optional[bool] = None  # None=unknown, True=new, False=veteran
-        self._first_status_delivered = False
-        self._megaport_check_request_id: Optional[str] = None
-        self._onboarding_complete = False
-        self._onboarding_route: Optional[list[int]] = None
+        # Populated by ``attach_session_state`` after session_init runs;
+        # consumed downstream by event filters and task-description context.
+        self.is_new_player: Optional[bool] = None
         self._session_started_at: Optional[str] = None
         self._debounce_tasks: dict[str, asyncio.Task] = {}
         self._debounce_held_messages: dict[str, list[dict]] = {}
@@ -1197,7 +1202,6 @@ class EventRelay:
         # Subscribe to game events from config registry
         for event_name in EVENT_CONFIGS:
             game_client.on(event_name)(self._relay_event)
-        game_client.on("task.cancel")(self._handle_task_cancel_event)
 
     @property
     def character_id(self) -> str:
@@ -1213,54 +1217,40 @@ class EventRelay:
 
     # ── Session lifecycle ──────────────────────────────────────────────
 
-    async def join(self) -> Mapping[str, Any]:
-        logger.info(f"Joining game as character: {self._character_id}")
-        self.is_new_player = None
-        self._first_status_delivered = False
-        self._onboarding_complete = False
-        self._onboarding_route = None
-        self._session_started_at = None
-        result = await self._game_client.join(self._character_id)
-        self._session_started_at = datetime.now(timezone.utc).isoformat()
-        # Extract onboarding route if present (new players only)
-        if isinstance(result, Mapping):
-            route = result.get("onboarding_route")
-            if isinstance(route, list) and len(route) > 1:
-                self._onboarding_route = [int(s) for s in route]
-                logger.info(
-                    f"Onboarding: route to mega port received, "
-                    f"{len(self._onboarding_route)} hops: "
-                    f"{self._onboarding_route[0]} → {self._onboarding_route[-1]}"
-                )
-        await self._game_client.subscribe_my_messages()
-        await self._game_client.list_user_ships(character_id=self._character_id)
-        await self._game_client.quest_status(character_id=self._character_id)
-        # Issue megaport check — response arrives as a ports.list event after resume
-        try:
-            mega_ack = await self._game_client.list_known_ports(
-                character_id=self._character_id,
-                mega=True,
-                max_hops=100,
-            )
-            req_id = mega_ack.get("request_id") if isinstance(mega_ack, Mapping) else None
-            if req_id:
-                self._megaport_check_request_id = req_id
-                logger.info(f"Onboarding: mega-port check issued, request_id={req_id}")
-        except Exception:
-            logger.exception("Onboarding: mega-port check failed, assuming veteran")
-            self.is_new_player = False
+    async def attach_session_state(
+        self,
+        *,
+        session_started_at: str,
+        display_name: str,
+        is_new_player: bool,
+    ) -> None:
+        """Record session-level state after ``session_init`` has gathered
+        the initial state, and emit the side-channel side effects that
+        aren't part of the LLM context.
+
+        Specifically: relay chat history to the web UI and emit the
+        ``session.version`` RTVI event. Bootstrap data for the LLM
+        context lives in ``session_init.gather_initial_state``; this
+        method only handles the bits that don't belong there.
+        """
+        self._session_started_at = session_started_at
+        self.display_name = display_name
+        self.is_new_player = is_new_player
+
         await self._send_initial_chat_history()
-        if isinstance(result, Mapping):
-            self._update_display_name(result)
-        logger.info(f"Join successful as {self.display_name}: {result}")
+
         from gradientbang import __version__
 
         await self._rtvi.push_frame(
             RTVIServerMessageFrame(
-                {"frame_type": "event", "event": "session.version", "payload": {"version": __version__}}
+                {
+                    "frame_type": "event",
+                    "event": "session.version",
+                    "payload": {"version": __version__},
+                }
             )
         )
-        return result
+        logger.info(f"EventRelay session state attached for {display_name}")
 
     async def close(self) -> None:
         for task in self._debounce_tasks.values():
@@ -1268,10 +1258,6 @@ class EventRelay:
         self._debounce_tasks.clear()
         self._debounce_held_messages.clear()
         self.is_new_player = None
-        self._first_status_delivered = False
-        self._onboarding_complete = False
-        self._onboarding_route = None
-        self._megaport_check_request_id = None
         self._session_started_at = None
 
     async def _send_initial_chat_history(self) -> None:
@@ -1309,78 +1295,6 @@ class EventRelay:
         self._task_state.update_polling_scope()
 
     # ── Onboarding (passive observation) ─────────────────────────────
-
-    async def _observe_ports_list(self, clean_payload: Any) -> None:
-        """Observe ports.list events to detect mega-port knowledge."""
-        if not isinstance(clean_payload, Mapping):
-            return
-        ports = clean_payload.get("ports", [])
-        has_mega = isinstance(ports, list) and len(ports) > 0
-        if has_mega and self.is_new_player is not False:
-            was_new = self.is_new_player is True
-            logger.info("Onboarding: mega-ports found, player is veteran")
-            self.is_new_player = False
-            if was_new and self._onboarding_complete:
-                logger.info("Onboarding: mega-port discovered, injecting onboarding.complete")
-                await self._deliver_llm_event(
-                    '<event name="onboarding.complete">\n'
-                    "Player has discovered a mega-port. Onboarding is complete "
-                    "— disregard earlier onboarding instructions.\n"
-                    "</event>",
-                    should_run_llm=False,
-                )
-
-    def _resolve_initial_megaport_check(
-        self, request_id: Optional[str], clean_payload: Any
-    ) -> None:
-        """Resolve the initial megaport check from join()."""
-        if not self._megaport_check_request_id:
-            return
-        if request_id != self._megaport_check_request_id:
-            return
-        self._megaport_check_request_id = None
-        ports = clean_payload.get("ports", []) if isinstance(clean_payload, Mapping) else []
-        if isinstance(ports, list) and len(ports) > 0:
-            self.is_new_player = False
-            logger.info("Onboarding: initial check — player knows mega-ports (veteran)")
-        else:
-            self.is_new_player = True
-            logger.info("Onboarding: initial check — player has no mega-ports (new)")
-
-    async def _maybe_inject_onboarding(self) -> None:
-        """Inject onboarding or session.start after first status + megaport check resolve."""
-        if self._onboarding_complete:
-            return
-        if not self._first_status_delivered or self.is_new_player is None:
-            return
-        # Wait until the voice agent is active so the injection actually
-        # reaches the user. While inactive, the LLM run would produce no
-        # audible output (the edge sink drops outbound frames) and would
-        # pollute context. The caller (bot.py _on_tutorial_complete) re-invokes
-        # this method after activation to deliver the deferred event.
-        if not self._task_state.active:
-            return
-        self._onboarding_complete = True
-        if self.is_new_player:
-            from gradientbang.utils.prompt_loader import load_prompt
-
-            if self._onboarding_route:
-                route_str = " → ".join(str(s) for s in self._onboarding_route)
-            else:
-                route_str = "unavailable"
-            content = load_prompt("fragments/onboarding.md").format(
-                display_name=self.display_name,
-                route_to_megaport=route_str,
-            )
-            onboarding_xml = f'<event name="onboarding">\n{content}</event>'
-            logger.info("Onboarding: new player, injecting welcome message")
-            await self._deliver_llm_event(onboarding_xml, should_run_llm=True)
-        else:
-            logger.info("Onboarding: veteran player, normal startup")
-            await self._deliver_llm_event(
-                '<event name="session.start"></event>',
-                should_run_llm=True,
-            )
 
     # ── Payload helpers ─────────────────────────────────────────────────
 
@@ -1532,7 +1446,7 @@ class EventRelay:
                 run_llm=should_run_llm,
             )
         )
-        logger.info("LLM deliver complete")
+        logger.debug("LLM deliver complete")
 
     async def _inject_combat_preamble(self, payload: Mapping[str, Any]) -> None:
         """Inject combat.md + the ship's strategy into LLM context ahead of a
@@ -1661,19 +1575,6 @@ class EventRelay:
         if task_summary is not None:
             return task_summary
         return event_for_summary.get("payload")
-
-    # ── Task cancel event handler ──────────────────────────────────────
-
-    async def _handle_task_cancel_event(self, event: Dict[str, Any]) -> None:
-        payload = event.get("payload", {})
-        task_id_to_cancel = payload.get("task_id")
-        if not task_id_to_cancel:
-            return
-        # Broadcast to bus so TaskAgents and VoiceAgent can react
-        try:
-            await self._task_state.broadcast_game_event(event)
-        except Exception:
-            logger.exception("task.cancel handler failed")
 
     # ── Router helpers ─────────────────────────────────────────────────
 
@@ -1873,13 +1774,6 @@ class EventRelay:
         else:
             result = False
 
-        # Suppress initial status.snapshot inference until onboarding resolves
-        if result and not self._onboarding_complete and event_name == "status.snapshot":
-            logger.info(
-                "Onboarding: suppressing status.snapshot inference until onboarding resolves"
-            )
-            result = False
-
         return result
 
     # ── Core event router ──────────────────────────────────────────────
@@ -1979,17 +1873,6 @@ class EventRelay:
             sector_id = self._extract_sector_id(clean_payload)
             if sector_id is not None:
                 self._current_sector_id = sector_id
-
-        # ── Passive onboarding observation ──
-        # Runs on every event, independent of LLM append decision.
-        if event_name == "ports.list":
-            self._resolve_initial_megaport_check(request_id, clean_payload)
-            await self._observe_ports_list(clean_payload)
-            await self._maybe_inject_onboarding()
-        elif event_name == "status.snapshot" and not is_other_player:
-            if not self._first_status_delivered:
-                self._first_status_delivered = True
-                await self._maybe_inject_onboarding()
 
         # ── Phase 4: Append decision ──
         should_append = self._should_append_to_llm(

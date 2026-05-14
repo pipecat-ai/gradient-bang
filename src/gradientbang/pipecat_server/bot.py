@@ -2,9 +2,6 @@ import asyncio
 import os
 import uuid
 
-from dotenv import load_dotenv
-from loguru import logger
-
 # Clamp aiortc's SCTP DATA-chunk payload size so the on-wire UDP packet fits
 # inside the smallest-MTU path we're likely to see in the wild (IPv6 minimum
 # 1280; Tailscale overlays default to 1280; some consumer VPNs are lower).
@@ -25,6 +22,8 @@ from loguru import logger
 # Remove once aiortc ships DPLPMTUD (RFC 8899) or once we wrap this in a
 # proper Pipecat-level transport option.
 import aiortc.rtcsctptransport as _sctp_transport
+from dotenv import load_dotenv
+from loguru import logger
 
 _SCTP_USERDATA_CLAMP = 1100
 _sctp_transport.USERDATA_MAX_LENGTH = _SCTP_USERDATA_CLAMP
@@ -34,8 +33,6 @@ logger.warning(
 )
 
 BOT_INSTANCE_ID: str | None = None
-DEFAULT_VOICE_ID = "ec1e269e-9ca0-402f-8a18-58e0e022355a"
-from gradientbang.pipecat_server.voices import DEFAULT_VOICE, VOICES
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     InterruptionFrame,
@@ -53,7 +50,7 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
-from pipecat.runner.types import RunnerArguments, DailyRunnerArguments
+from pipecat.runner.types import DailyRunnerArguments, RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
@@ -67,7 +64,11 @@ from pipecat.utils.context.llm_context_summarization import (
     LLMContextSummaryConfig,
 )
 
+from gradientbang.pipecat_server import STARTUP_BANNER
 from gradientbang.pipecat_server.s3_smart_turn import S3SmartTurnAnalyzerV3
+from gradientbang.pipecat_server.session_init import gather_initial_state
+from gradientbang.pipecat_server.voices import DEFAULT_VOICE, DEFAULT_VOICE_ID, VOICES
+from gradientbang.utils.access_token import assert_access_token_valid
 from gradientbang.utils.llm_factory import (
     LLMProvider,
     LLMServiceConfig,
@@ -100,6 +101,9 @@ from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 from gradientbang.utils.weave_tracing import init_weave, traced
 
+if os.getenv("BOT_USE_KRISP"):
+    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
+
 # Initialize Weave early (before @traced decorators are applied to startup functions).
 # Must come after load_dotenv so WANDB_API_KEY is available.
 init_weave()
@@ -112,9 +116,6 @@ DEFAULT_PERSONALITY_TONE = (
     "Wistful about the old days when the Federation meant something, but too disciplined to dwell. "
     "Addresses the player as 'commander'."
 )
-
-if os.getenv("BOT_USE_KRISP"):
-    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 
 async def _lookup_character_display_name(
@@ -146,9 +147,7 @@ async def _lookup_character_display_name(
         ) as client:
             result = await client.character_info(character_id=character_id)
     except Exception as exc:
-        raise RuntimeError(
-            f"character_info lookup failed for {character_id}: {exc}"
-        ) from exc
+        raise RuntimeError(f"character_info lookup failed for {character_id}: {exc}") from exc
 
     name = result.get("name") if isinstance(result, dict) else None
     if not name:
@@ -307,6 +306,10 @@ async def bot_startup(
     # /start (proxy injects after Supabase Auth verification, or dev sets
     # BOT_TEST_ACCESS_TOKEN). Polling adapter ignores it; pubsub adapter
     # uses it to authenticate against per-character pgmq queues.
+    # Event delivery is started explicitly by ``_join`` after session_init
+    # has built the LLM context and the agent is activated. Until then no
+    # subscriber exists; events the server queues during the bootstrap
+    # window are drained and discarded when the adapter starts.
     game_client = AsyncGameClient(
         character_id=character_id,
         base_url=server_url,
@@ -330,21 +333,21 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     character_name_hint = body.get("character_name")
     # Per-character auth token — required so the bot can prove identity to
     # downstream auth-gated services (e.g. pgmq pubsub channels, character_info
-    # lookup). The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev/Ladle
+    # lookup). The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev
     # fallback for sessions that bypass the login → start proxy flow.
     body_access_token = body.get("access_token")
     access_token = body_access_token or os.getenv("BOT_TEST_ACCESS_TOKEN")
     if not access_token:
-        raise RuntimeError(
-            "access_token required to start a bot session. "
-            "Production: client/app passes it on /start after Supabase Auth login "
-            "(forwarded by the proxy edge function). "
-            "Dev/Ladle: set BOT_TEST_ACCESS_TOKEN in .env.bot."
-        )
+        raise RuntimeError("access_token required to start a bot session.")
     logger.info(
         "access_token source: {}",
         "start payload" if body_access_token else "BOT_TEST_ACCESS_TOKEN env",
     )
+    try:
+        assert_access_token_valid(access_token)
+    except RuntimeError as exc:
+        logger.error("access_token preflight failed: {}", exc)
+        raise
     # Resolve voice: prefer short name lookup, fall back to raw voice_id
     voice_name = body.get("voice")
     if voice_name and voice_name in VOICES:
@@ -355,7 +358,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         voice_id = body.get("voice_id") or DEFAULT_VOICE_ID
         voice_language = Language.EN
     personality_tone = body.get("personality_tone", "").strip()
-    bypass_tutorial = bool(body.get("bypass_tutorial", False))
+    # ScriptedAgent / tutorial path is WIP and currently bypassed for all sessions.
+    # Revisit when the scripted onboarding work resumes.
+    bypass_tutorial = True
 
     (
         rtvi,
@@ -395,16 +400,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             else f"IMPORTANT: Always respond in {voice_language.name.title()}. All your spoken output must be in {voice_language.name.title()}."
         ),
     )
-    messages = [
-        {
-            "role": "system",
-            "content": build_voice_agent_prompt(),
-        },
-        {
-            "role": "user",
-            "content": f"<start_of_session>Character Name: {character_display_name}</start_of_session>",
-        },
-    ]
+    # System prompt still contains ${universe_size} / ${fedspace_sector_count}
+    # placeholders at this point — those are resolved synchronously by
+    # session_init.gather_initial_state() and patched into the context before
+    # the VoiceAgent activates. Personality and language are already baked in.
+    system_message = {
+        "role": "system",
+        "content": build_voice_agent_prompt(),
+    }
 
     # Create dedicated Gemini Flash LLM for context summarization
     summarization_llm = create_llm_service(
@@ -424,9 +427,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         ),
     )
 
-    # Context starts empty — messages and tools are injected into the
-    # VoiceAgent via LLMAgentActivationArgs on the bus.
-    context = LLMContext()
+    # Seed the shared context with the system prompt. session_init resolves
+    # the ${universe_size} / ${fedspace_sector_count} placeholders inline once
+    # the join RPC returns, and activation appends the initial user messages
+    # behind the system message in one batch.
+    context = LLMContext(messages=[system_message])
     mute_strategy = TextInputBypassFirstBotMuteStrategy()
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
@@ -590,16 +595,16 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         RTVIFunctionCallReportLevel,
         RTVIObserverParams,
     )
+    from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
+    from pipecat_subagents.runner import AgentRunner
+    from pipecat_subagents.types import AgentReadyData
 
+    from gradientbang.adapters.bus import make_subagent_bus
     from gradientbang.pipecat_server.frames import TaskActivityFrame
     from gradientbang.pipecat_server.idle_report import IdleReportProcessor
     from gradientbang.pipecat_server.subagents.event_relay import EventRelay
     from gradientbang.pipecat_server.subagents.scripted_agent import ScriptedAgent
     from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
-    from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
-    from pipecat_subagents.bus import BusBridgeProcessor
-    from pipecat_subagents.runner import AgentRunner
-    from pipecat_subagents.types import AgentReadyData
 
     class MainAgent(BaseAgent):
         """Transport agent — bridges voice I/O to VoiceAgent via the bus.
@@ -639,11 +644,13 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             )
 
         async def build_pipeline(self) -> Pipeline:
-            bridge = BusBridgeProcessor(
-                bus=self.bus,
-                agent_name=self.name,
-                name=f"{self.name}::BusBridge",
-            )
+            # Voice LLM lives inline in branch 0 (no bus hop). VoiceAgent
+            # keeps a no-op pipeline so its bus-subscription / activation /
+            # task-supervision lifecycle still works.
+            # TODO(tutorial): ScriptedAgent's bus-bridged TTSSpeakFrame path
+            # no longer reaches TTS now that the main BusBridge is gone.
+            voice_llm = voice_agent.build_llm()
+            voice_agent._llm = voice_llm
 
             @transport.event_handler("on_client_connected")
             async def on_client_connected(transport, client):
@@ -660,7 +667,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     user_aggregator,
                     ParallelPipeline(
                         [
-                            bridge,
+                            voice_llm,
                             post_llm_gate,
                             token_usage_metrics,
                             say_text_voice_guard,
@@ -673,7 +680,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 ]
             )
 
-    agent_runner = AgentRunner(handle_sigint=getattr(runner_args, "handle_sigint", False))
+    agent_runner = AgentRunner(
+        bus=await make_subagent_bus(),
+        handle_sigint=getattr(runner_args, "handle_sigint", False),
+    )
 
     voice_agent = VoiceAgent(
         "player",
@@ -681,38 +691,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         game_client=game_client,
         character_id=character_id,
         rtvi_processor=rtvi,
-    )
-
-    # ── Universe info substitution ────────────────────────────────────
-    # Register a one-shot handler for the first status.snapshot so we can
-    # substitute ${universe_size} / ${fedspace_sector_count} in the system
-    # prompt before the voice agent is activated. The local `messages` list
-    # is what gets handed to VoiceAgent via LLMAgentActivationArgs later, so
-    # we mutate it directly (the empty LLMContext at this point has no
-    # system message yet).
-    def _on_first_status_snapshot(event: dict) -> None:
-        payload = event.get("payload", event)
-        player = payload.get("player") if isinstance(payload, dict) else None
-        if not isinstance(player, dict):
-            return
-        universe_size = player.get("universe_size")
-        fedspace_sector_count = player.get("fedspace_sector_count")
-        if universe_size is None and fedspace_sector_count is None:
-            return
-        subs: dict[str, str | int] = {}
-        if universe_size is not None:
-            subs["universe_size"] = universe_size
-        if fedspace_sector_count is not None:
-            subs["fedspace_sector_count"] = fedspace_sector_count
-        set_prompt_substitutions(**subs)
-        for msg in messages:
-            if msg.get("role") == "system":
-                msg["content"] = apply_prompt_substitutions(msg["content"])
-                break
-        game_client.remove_event_handler(_universe_info_token)
-
-    _universe_info_token = game_client.add_event_handler(
-        "status.snapshot", _on_first_status_snapshot
     )
 
     event_relay = EventRelay(
@@ -747,14 +725,13 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         # in-flight BotStoppedSpeakingFrame from the tutorial triggering unmute.
         await mute_strategy.reset()
         mute_strategy.force_mute = False
-        # run_llm=False — VoiceAgent.on_activated will call
-        # event_relay._maybe_inject_onboarding(), which queues the
-        # onboarding/session.start event with run_llm=True. Letting activation
-        # also run the LLM would cause a double inference.
-        await main_agent.activate_agent(
-            "player",
-            args=LLMAgentActivationArgs(messages=messages, run_llm=False),
-        )
+        # ScriptedAgent path is currently bypassed (bypass_tutorial=True);
+        # this branch only fires if tutorial gets re-enabled. When it does,
+        # initial_state needs to be threaded through to here so we can
+        # activate with the same initial_messages the veteran path uses.
+        # For now, activate with no messages — left as a TODO when tutorial
+        # work resumes.
+        await main_agent.activate_agent("player")
 
     scripted_agent = ScriptedAgent(
         "scripted",
@@ -773,6 +750,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     main_agent = MainAgent("main", bus=agent_runner.bus)
     await agent_runner.add_agent(main_agent)
 
+    @main_agent.event_handler("on_ready")
+    async def _wire_voice_agent_to_main(_agent):
+        # Main pipeline task is built; route VoiceAgent through it.
+        voice_agent.attach_main_pipeline_task(main_agent.pipeline_task)
+        voice_agent.install_main_pipeline_lifecycle_watchers(main_agent.pipeline_task)
+
     # ── Event handlers ─────────────────────────────────────────────────
 
     is_first_visit = False
@@ -783,31 +766,94 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
         async def _join():
             nonlocal is_first_visit
-            await asyncio.sleep(2)
-            await game_client.pause_event_delivery()
-            result = await event_relay.join()
-            # Track join request_id so the resulting status.snapshot triggers LLM inference
-            if isinstance(result, dict):
-                req_id = result.get("request_id")
-                if req_id:
-                    voice_agent.track_request_id(req_id)
-                is_first_visit = bool(result.get("is_first_visit", False))
-            await game_client.resume_event_delivery()
+            try:
+                await asyncio.sleep(2)
+                # Strict startup contract:
+                #   0. purge any leftover pubsub queue — server pgmq_publish
+                #      becomes a silent no-op until step 4 recreates it, so
+                #      init-RPC events can't accumulate
+                #   1. fetch initial state via blocking RPCs (data inline)
+                #   2. patch substitutions into the seeded system message
+                #   3. activate VoiceAgent with the initial messages
+                #   4. start the event adapter — fresh queue, steady-state
+                #      events begin flowing
+                # If any step fails, the bot bails rather than half-joining.
+                await game_client.purge_event_backlog()
 
-            # Activate the correct agent based on first visit status
-            if is_first_visit and not bypass_tutorial:
-                logger.info("First visit detected, activating ScriptedAgent")
-                mute_strategy.force_mute = True
-                await main_agent.activate_agent("scripted")
-            else:
-                if is_first_visit and bypass_tutorial:
-                    logger.info(
-                        "First visit detected but bypass_tutorial=True; skipping ScriptedAgent"
-                    )
-                await main_agent.activate_agent(
-                    "player",
-                    args=LLMAgentActivationArgs(messages=messages, run_llm=False),
+                initial_state = await gather_initial_state(
+                    game_client=game_client,
+                    character_id=character_id,
+                    character_display_name=character_display_name,
                 )
+                is_first_visit = initial_state.is_first_visit
+
+                subs: dict[str, str | int] = {}
+                if initial_state.universe_size is not None:
+                    subs["universe_size"] = initial_state.universe_size
+                if initial_state.fedspace_sector_count is not None:
+                    subs["fedspace_sector_count"] = initial_state.fedspace_sector_count
+                if subs:
+                    set_prompt_substitutions(**subs)
+                    for msg in context.messages:
+                        if msg.get("role") == "system":
+                            msg["content"] = apply_prompt_substitutions(msg["content"])
+                            break
+
+                await event_relay.attach_session_state(
+                    session_started_at=initial_state.session_started_at,
+                    display_name=initial_state.display_name,
+                    is_new_player=initial_state.is_new_player,
+                )
+
+                # Hydrate the web client with the same bootstrap data we just
+                # fed into the LLM context. Matches the RTVIServerMessageFrame
+                # envelope EventRelay forwards in steady state so the client's
+                # existing handlers consume these unchanged.
+                async def _emit_client_event(event_name: str, payload: dict) -> None:
+                    await rtvi.push_frame(
+                        RTVIServerMessageFrame(
+                            {
+                                "frame_type": "event",
+                                "event": event_name,
+                                "payload": payload,
+                            }
+                        )
+                    )
+
+                await _emit_client_event("status.snapshot", initial_state.status_payload)
+                await _emit_client_event("map.local", initial_state.map_local_payload)
+                await _emit_client_event(
+                    "ships.list",
+                    {"ships": initial_state.ships_payload.get("ships", [])},
+                )
+                await _emit_client_event(
+                    "quest.status",
+                    {"quests": initial_state.quest_payload.get("quests", [])},
+                )
+
+                if is_first_visit and not bypass_tutorial:
+                    logger.info("First visit detected, activating ScriptedAgent")
+                    mute_strategy.force_mute = True
+                    await main_agent.activate_agent("scripted")
+                else:
+                    if is_first_visit and bypass_tutorial:
+                        logger.info(
+                            "First visit detected but bypass_tutorial=True; skipping ScriptedAgent"
+                        )
+                    await main_agent.activate_agent(
+                        "player",
+                        args=LLMAgentActivationArgs(
+                            messages=initial_state.initial_messages,
+                            run_llm=True,
+                        ),
+                    )
+
+                await game_client.start_event_delivery()
+            except Exception as exc:
+                # Fire-and-forget task would swallow this otherwise. Tear down
+                # the runner so the session exits instead of hanging half-joined.
+                logger.exception("Join failed — access token may be invalid or expired: {}", exc)
+                await main_agent.cancel()
 
         asyncio.create_task(_join())
 
@@ -953,6 +999,45 @@ async def _configure_recording_bucket(room_url: str):
         logger.error(f"Failed to configure recording bucket: {exc}")
 
 
+def _log_startup_config() -> None:
+    """Pretty-print the core bot config so transport choices are obvious at a glance.
+
+    Called once per process at module import (before the HTTP server starts
+    listening), not per-session — the config is fixed for the lifetime of
+    the process. Reads env directly to avoid the LLM-factory side effects
+    (warnings on unknown providers, etc.).
+    """
+    from gradientbang import __version__
+
+    bus_transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
+    event_transport = os.getenv("EVENT_TRANSPORT", "polling").strip().lower()
+    voice_provider = os.getenv("VOICE_LLM_PROVIDER", "google").strip().lower()
+    voice_model = os.getenv("VOICE_LLM_MODEL", "(provider default)").strip()
+    task_provider = os.getenv("TASK_LLM_PROVIDER", "google").strip().lower()
+    task_model = os.getenv("TASK_LLM_MODEL", "(provider default)").strip()
+    task_thinking = os.getenv("TASK_LLM_THINKING_BUDGET", "4096").strip()
+    local_pooler = bool(os.getenv("LOCAL_API_POSTGRES_URL", "").strip())
+
+    bus_line = f"{bus_transport}"
+    if bus_transport != "local":
+        bus_line += "  channel=(per-session UUID)"
+
+    divider = "─" * 103
+    lines = [
+        divider,
+        STARTUP_BANNER.strip("\n"),
+        "",
+        f"  version            {__version__}",
+        f"  event_transport    {event_transport}",
+        f"  subagent_bus       {bus_line}",
+        f"  local_pooler       {'on' if local_pooler else 'off (HTTP edge functions)'}",
+        f"  voice_llm          {voice_provider}/{voice_model}",
+        f"  task_llm           {task_provider}/{task_model}  thinking={task_thinking}",
+        divider,
+    ]
+    logger.info("\n" + "\n".join(lines))
+
+
 async def bot(runner_args: RunnerArguments):
     """Main bot entry point"""
     global BOT_INSTANCE_ID
@@ -962,9 +1047,7 @@ async def bot(runner_args: RunnerArguments):
 
     configure_logging(instance_id=BOT_INSTANCE_ID)
 
-    from gradientbang import __version__
-
-    logger.info(f"Gradient Bang v{__version__}")
+    logger.info(f"Bot session started instance_id={BOT_INSTANCE_ID}")
     logger.info(f"Bot started with runner_args: {runner_args}")
 
     transport_params = {
@@ -990,4 +1073,5 @@ async def bot(runner_args: RunnerArguments):
 if __name__ == "__main__":
     from pipecat.runner.run import main
 
+    _log_startup_config()
     main()

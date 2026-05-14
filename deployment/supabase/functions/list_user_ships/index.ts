@@ -24,7 +24,13 @@ import {
   respondWithError,
 } from "../_shared/request.ts";
 import type { ShipDefinitionRow } from "../_shared/status.ts";
-import { fetchActiveTaskIdsByShip } from "../_shared/tasks.ts";
+import { fetchActiveTasksByShip } from "../_shared/tasks.ts";
+import {
+  buildByoaBlock,
+  buildTaskActorBlock,
+  loadShipParticipantNames,
+  type CorporationShipSummary,
+} from "../_shared/corporations.ts";
 import { traced } from "../_shared/weave.ts";
 
 type JsonRecord = Record<string, unknown>;
@@ -49,6 +55,11 @@ export interface ShipSummary {
   max_fighters: number;
   credits: number;
   current_task_id: string | null;
+  // Truncated identity blocks. `byoa` is null for non-BYOA corp ships
+  // (i.e. all ships today, until an operator claims via ship_byoa_configure).
+  // `current_task_actor` is null when the ship is idle.
+  current_task_actor: CorporationShipSummary["current_task_actor"];
+  byoa: CorporationShipSummary["byoa"];
   destroyed_at: string | null;
 }
 
@@ -110,7 +121,9 @@ Deno.serve(traced("list_user_ships", async (req, trace) => {
     sEmit.end();
 
     trace.setOutput({ request_id: requestId, ship_count: result.ships.length });
-    return successResponse({ request_id: requestId });
+    // Include data inline so callers can consume synchronously without waiting
+    // for the ships.list event. Event still emitted above for async subscribers.
+    return successResponse({ request_id: requestId, ...result });
   } catch (err) {
     const validationResponse = respondWithError(err);
     if (validationResponse) {
@@ -183,7 +196,7 @@ async function fetchUserShips(
     ? await supabase
         .from("ship_instances")
         .select(
-          "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters",
+          "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters, byoa_owner_character_id",
         )
         .in("ship_id", shipIds)
     : { data: [], error: null };
@@ -198,7 +211,14 @@ async function fetchUserShips(
 
   // 5. Build ship summaries
   const corpShipIdSet = new Set(corpShipIds);
-  const activeTasks = await fetchActiveTaskIdsByShip(supabase, shipIds);
+  const activeTasks = await fetchActiveTasksByShip(supabase, shipIds);
+  // Batched name lookup for current_task_actor and byoa.owner — both nullable,
+  // both null for normal non-BYOA idle corp ships.
+  const characterNames = await loadShipParticipantNames(
+    supabase,
+    shipRows ?? [],
+    activeTasks,
+  );
 
   for (const row of shipRows ?? []) {
     if (!row || typeof row.ship_id !== "string") {
@@ -236,7 +256,12 @@ async function fetchUserShips(
       fighters: Number(row.current_fighters ?? definition?.fighters ?? 0),
       max_fighters: definition?.fighters ?? 0,
       credits: Number(row.credits ?? 0),
-      current_task_id: activeTasks.get(shipId) ?? null,
+      current_task_id: activeTasks.get(shipId)?.task_id ?? null,
+      current_task_actor: buildTaskActorBlock(
+        activeTasks.get(shipId) ?? null,
+        characterNames,
+      ),
+      byoa: buildByoaBlock(row, characterNames),
       destroyed_at: null,
     });
   }
@@ -287,6 +312,8 @@ async function fetchUserShips(
             max_fighters: 0,
             credits: 0,
             current_task_id: null,
+            current_task_actor: null,
+            byoa: null,
             destroyed_at: row.destroyed_at,
           });
         }

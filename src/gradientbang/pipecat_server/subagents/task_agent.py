@@ -24,6 +24,7 @@ import inspect
 import json
 import os
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
@@ -49,13 +50,27 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams
 
+from gradientbang.byoa import ByoaAgentConfig
+from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequests
 from gradientbang.pipecat_server.subagents.bus_messages import (
+    BUS_PROTOCOL_VERSION,
+    BusAgentHelloRequest,
+    BusAgentHelloResponse,
+    BusByoaPresenceMessage,
+    BusCombatStrategyRequest,
+    BusCombatStrategyResponse,
+    BusCorporationQueryRequest,
+    BusCorporationQueryResponse,
     BusGameEventMessage,
+    BusGameToolCallRequest,
+    BusGameToolCallResponse,
     BusSteerTaskMessage,
+    BusTaskFinishNotification,
 )
 from pipecat_subagents.agents import LLMAgent, TaskStatus
 from pipecat_subagents.bus import (
     AgentBus,
+    BusEndAgentMessage,
     BusMessage,
     BusTaskCancelMessage,
     BusTaskRequestMessage,
@@ -74,7 +89,6 @@ from gradientbang.utils.prompt_loader import (
     render_combat_md_preamble_message,
     render_ship_doctrine_preamble_message,
 )
-from gradientbang.utils.supabase_client import AsyncGameClient
 from gradientbang.utils.weave_tracing import traced
 
 # ── Constants ─────────────────────────────────────────────────────────────
@@ -84,6 +98,7 @@ ASYNC_COMPLETION_TIMEOUT = 5.0
 MAX_NO_TOOL_NUDGES = 3
 MAX_CONSECUTIVE_ERRORS = 3
 NO_TOOL_WATCHDOG_DELAY = 5.0
+BYOA_PRESENCE_HEARTBEAT_SECONDS = 10.0
 
 # Tools restricted to player ships only (corp ships cannot use these).
 PLAYER_ONLY_TOOLS = frozenset(
@@ -236,18 +251,43 @@ class TaskAgent(LLMAgent):
         name: str,
         *,
         bus: AgentBus,
-        game_client: AsyncGameClient,
         character_id: str,
         is_corp_ship: bool = False,
         task_metadata: Optional[Dict[str, Any]] = None,
         tag_outbound_rpcs_with_task_id: bool = True,
+        byoa_config: Optional[ByoaAgentConfig] = None,
+        custom_prompt: Optional[str] = None,
+        llm_override: Optional[Any] = None,
     ):
         super().__init__(name, bus=bus, active=False)
-        self._game_client = game_client
         self._character_id = character_id
         self._is_corp_ship = is_corp_ship
         self._task_metadata = task_metadata or {}
         self._tag_outbound_rpcs_with_task_id = tag_outbound_rpcs_with_task_id
+        self._byoa_config = byoa_config or ByoaAgentConfig.from_env()
+        # BYOA-operator-supplied additional system-prompt text. Threaded
+        # into on_task_start ONLY — progress queries are operational, not
+        # gameplay, and should not pick up operator persona. In-process
+        # TaskAgent construction always leaves this as None, so non-BYOA
+        # paths are bit-for-bit identical.
+        self._custom_prompt: Optional[str] = custom_prompt
+        # BYOA harness hook: pre-built pipecat LLMService instance. When
+        # provided, build_llm() returns it instead of constructing one from
+        # the env-driven factory. Lets a Mode-B operator return any
+        # pipecat-supported service (or a custom subclass) from @app.llm.
+        # None preserves the env-driven default path for in-process and
+        # Mode-A BYOA agents — non-BYOA paths are bit-for-bit identical.
+        self._llm_override = llm_override
+        # Every game RPC goes over the bus. PendingRequests tracks outbound
+        # correlation_ids until their matching responses land.
+        self._pending: PendingRequests = PendingRequests()
+        self._byoa_presence_task: Optional[asyncio.Task] = None
+        # Idle teardown timer. Reset on every inbound task / tool call;
+        # fires BusEndAgentMessage to self after
+        # agent_idle_teardown_seconds. In-process player-ship agents are
+        # reused across tasks, so the timer is disabled for them. Corp-ship
+        # agents and BYOA agents use it to eventually free their ship slot.
+        self._idle_teardown_handle: Optional[asyncio.TimerHandle] = None
         self._tool_schemas: Dict[str, Any] = {t.name: t for t in self.build_tools()}
 
         # ── Task state ──
@@ -304,6 +344,8 @@ class TaskAgent(LLMAgent):
     # ── LLM setup ─────────────────────────────────────────────────────
 
     def build_llm(self):
+        if self._llm_override is not None:
+            return self._llm_override
         config = get_task_agent_llm_config()
         return create_llm_service(config)
 
@@ -332,6 +374,53 @@ class TaskAgent(LLMAgent):
             ]
         )
 
+    # ── BYOA process presence ────────────────────────────────────────
+
+    def _is_byoa_process_agent(self) -> bool:
+        return self.name.startswith("byoa_") and not self.name.startswith("byoa_runner_")
+
+    def _presence_timestamp(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    async def on_ready(self) -> None:
+        await super().on_ready()
+        if not self._is_byoa_process_agent():
+            return
+        await self._send_byoa_presence(online=True)
+        self._byoa_presence_task = self.create_asyncio_task(
+            self._byoa_presence_loop(),
+            f"byoa_presence_{self.name}",
+        )
+
+    async def on_finished(self) -> None:
+        if self._byoa_presence_task and not self._byoa_presence_task.done():
+            await self.cancel_asyncio_task(self._byoa_presence_task)
+        self._byoa_presence_task = None
+        if self._is_byoa_process_agent():
+            await self._send_byoa_presence(online=False)
+        await super().on_finished()
+
+    async def _byoa_presence_loop(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(BYOA_PRESENCE_HEARTBEAT_SECONDS)
+                await self._send_byoa_presence(online=True)
+        except asyncio.CancelledError:
+            return
+
+    async def _send_byoa_presence(self, *, online: bool) -> None:
+        ship_id = self._character_id
+        await self.send_message(
+            BusByoaPresenceMessage(
+                source=self.name,
+                ship_id=ship_id,
+                online=online,
+                status="online" if online else "offline",
+                last_seen_at=self._presence_timestamp(),
+                protocol_version=BUS_PROTOCOL_VERSION,
+            )
+        )
+
     # ── Bus protocol ──────────────────────────────────────────────────
 
     @traced
@@ -350,24 +439,16 @@ class TaskAgent(LLMAgent):
 
         logger.info(f"TaskAgent '{self.name}': received task {task_id[:8]}")
 
-        # Dedicated corp-task clients carry task_id on outbound RPCs. Player
-        # tasks share the voice client's game client, so tagging is opt-in.
-        self._set_client_task_id(task_id)
-
-        # Emit task.start game event
-        try:
-            await self._game_client.task_lifecycle(
-                task_id=task_id,
-                event_type="start",
-                task_description=self._task_description,
-                task_metadata=self._task_metadata,
-            )
-        except Exception as exc:
-            logger.warning(f"TaskAgent '{self.name}': failed to emit task.start: {exc}")
+        # task.start was already emitted by VoiceAgent. Per-call task_id
+        # tagging on the broker's game client happens inside the broker
+        # handler, so TaskAgent does not mutate client state here.
 
         # Build initial context
         messages = [
-            {"role": "system", "content": build_task_agent_prompt()},
+            {
+                "role": "system",
+                "content": build_task_agent_prompt(custom_prompt=self._custom_prompt),
+            },
             {
                 "role": "user",
                 "content": create_task_instruction_user_message(
@@ -399,21 +480,18 @@ class TaskAgent(LLMAgent):
         await self._drain_pending_task_outputs()
 
         if self._active_task_id and not self._finish_emitted:
-            try:
-                await self._game_client.task_lifecycle(
-                    task_id=self._active_task_id,
-                    event_type="finish",
-                    task_summary="Cancelled by user",
-                    task_status="cancelled",
-                    task_metadata=self._task_metadata,
-                )
-                self._finish_emitted = True
-            except Exception as exc:
-                logger.warning(
-                    f"TaskAgent '{self.name}': failed to emit task.finish (cancel): {exc}"
-                )
+            await self._send_task_finish_notification(
+                status="cancelled",
+                summary="Cancelled by user",
+            )
+            self._finish_emitted = True
 
-        self._clear_client_task_id(self._active_task_id)
+        # Any in-flight game RPCs over the bus have to fail fast — the
+        # awaiting handler will see CancelledError and unwind.
+        self._pending.cancel_all("task cancelled")
+        # Cancelled tasks don't go through _complete_task; arm the idle
+        # teardown directly so corp-ship / BYOA agents still wind down.
+        self._arm_idle_teardown()
         await super().on_task_cancelled(message)
 
     async def on_task_update_requested(self, message: BusTaskUpdateRequestMessage) -> None:
@@ -462,6 +540,122 @@ class TaskAgent(LLMAgent):
         elif isinstance(message, BusSteerTaskMessage):
             if self._active_task_id and message.task_id == self._active_task_id:
                 await self._inject_steering(message.text)
+        elif isinstance(
+            message,
+            (
+                BusGameToolCallResponse,
+                BusCombatStrategyResponse,
+                BusCorporationQueryResponse,
+            ),
+        ):
+            # Targeted at someone else? Upstream already short-circuits
+            # routing, but defensive: only consume responses for us.
+            if message.target and message.target != self.name:
+                return
+            self._resolve_bus_rpc_response(message)
+        elif isinstance(message, BusAgentHelloRequest):
+            if message.target and message.target != self.name:
+                return
+            await self._respond_to_hello(message)
+
+    def _resolve_bus_rpc_response(self, message: BusMessage) -> None:
+        """Hand an RPC response off to PendingRequests.
+
+        Each response type carries one of (result | strategy) plus an
+        optional error. ``error`` rejects with a RuntimeError; otherwise
+        the payload resolves the awaiting future. Late or mismatched
+        correlation_ids are silent no-ops on PendingRequests.
+        """
+        correlation_id = getattr(message, "correlation_id", "") or ""
+        if not correlation_id:
+            return
+        error = getattr(message, "error", None)
+        if error is not None:
+            self._pending.reject(correlation_id, error)
+            return
+        if isinstance(message, BusCombatStrategyResponse):
+            payload = message.strategy
+        else:
+            payload = getattr(message, "result", None)
+        self._pending.resolve(correlation_id, payload)
+
+    async def _respond_to_hello(self, request: BusAgentHelloRequest) -> None:
+        """Liveness probe handler for in-process and BYOA agents.
+
+        Responds ``ready=True`` once ``_llm_context`` has been initialised
+        (which happens inside ``build_pipeline``). For an in-process agent
+        this is essentially the moment the pipeline comes up; for a future
+        remote BYOA agent the same handler runs after the cold-start
+        completes, naturally bridging both deployment models.
+        """
+        ready = self._llm_context is not None
+        error = None if ready else "agent still warming up"
+        await self.send_message(
+            BusAgentHelloResponse(
+                source=self.name,
+                target=request.source,
+                correlation_id=request.correlation_id,
+                ready=ready,
+                protocol_version=BUS_PROTOCOL_VERSION,
+                capabilities={},
+                error=error,
+            )
+        )
+
+    # ── Idle teardown timer ──────────────────────────────────────────
+
+    def _idle_teardown_enabled(self) -> bool:
+        """Player-ship agents are reused across tasks (the voice agent
+        owns a single in-process TaskAgent that stays warm). Corp-ship
+        agents are one-shot; BYOA agents stay warm but only until idle.
+        Both of those get the teardown timer; player-ship agents don't.
+        """
+        return self._is_corp_ship
+
+    def _cancel_idle_teardown(self) -> None:
+        if self._idle_teardown_handle is not None:
+            self._idle_teardown_handle.cancel()
+            self._idle_teardown_handle = None
+
+    def _arm_idle_teardown(self) -> None:
+        """Schedule self-teardown after agent_idle_teardown_seconds.
+
+        Called when a task ends; reset on every new inbound activity. For
+        single-shot corp-ship agents the timer fires before any follow-up
+        task can land. For a warm BYOA agent, this is what closes the loop.
+        """
+        if not self._idle_teardown_enabled():
+            return
+        self._cancel_idle_teardown()
+        loop = asyncio.get_running_loop()
+        delay = max(0.0, float(self._byoa_config.agent_idle_teardown_seconds))
+        self._idle_teardown_handle = loop.call_later(
+            delay, lambda: asyncio.create_task(self._on_idle_teardown())
+        )
+
+    async def _on_idle_teardown(self) -> None:
+        self._idle_teardown_handle = None
+        if self._active_task_id is not None:
+            # Race: a task arrived between the timer firing and this
+            # coroutine running. Re-arm and bail.
+            self._arm_idle_teardown()
+            return
+        logger.info(
+            f"TaskAgent '{self.name}': idle teardown firing after "
+            f"{self._byoa_config.agent_idle_teardown_seconds}s of no activity"
+        )
+        try:
+            await self.send_message(
+                BusEndAgentMessage(
+                    source=self.name,
+                    target=self.name,
+                    reason="idle teardown",
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                f"TaskAgent '{self.name}': idle teardown emit failed: {exc}"
+            )
 
     async def _handle_bus_game_event(
         self, event: Dict[str, Any], *, voice_agent_originated: bool = False
@@ -541,6 +735,9 @@ class TaskAgent(LLMAgent):
     # ── Task state management ─────────────────────────────────────────
 
     def _reset_task_state(self):
+        # New task arrived — the idle teardown timer must not fire now,
+        # even if it was scheduled. _complete_task will re-arm later.
+        self._cancel_idle_teardown()
         # Snapshot current context for debugging before clearing
         if self._llm_context:
             self._last_context_dump = list(self._llm_context.get_messages())
@@ -550,6 +747,13 @@ class TaskAgent(LLMAgent):
         for task in list(self._pending_task_output_tasks):
             task.cancel()
         self._pending_task_output_tasks.clear()
+        # PendingRequests is single-use: cancel_all closes it. Replace with
+        # a fresh instance so the next task starts with a clean correlation
+        # map. Any tail-end pending futures from the previous task (e.g. a
+        # mid-cancel RPC) are cancelled here as a safety net.
+        if hasattr(self, "_pending") and self._pending is not None:
+            self._pending.cancel_all("task reset")
+        self._pending = PendingRequests()
         self._task_finished = False
         self._cancelled = False
         self._task_finished_message = None
@@ -621,19 +825,6 @@ class TaskAgent(LLMAgent):
                 "task_duration_s": duration_s,
             },
         )
-
-    def _set_client_task_id(self, task_id: Optional[str]) -> None:
-        if not self._tag_outbound_rpcs_with_task_id or not task_id:
-            return
-        self._game_client.current_task_id = task_id
-
-    def _clear_client_task_id(self, expected_task_id: Optional[str]) -> None:
-        if not self._tag_outbound_rpcs_with_task_id:
-            return
-        current_task_id = getattr(self._game_client, "current_task_id", None)
-        if expected_task_id and current_task_id not in {None, expected_task_id}:
-            return
-        self._game_client.current_task_id = None
 
     def _clear_awaited_completion(self) -> None:
         self._cancel_completion_timeout()
@@ -754,10 +945,7 @@ class TaskAgent(LLMAgent):
         if not ship_id:
             return
         try:
-            result = await self._game_client.combat_get_strategy(
-                ship_id=ship_id,
-                character_id=self._character_id,
-            )
+            result = await self._send_combat_strategy_request(ship_id=ship_id)
         except Exception:  # noqa: BLE001
             logger.warning(
                 "task_agent.combat_preamble.strategy_fetch_failed",
@@ -1034,17 +1222,11 @@ class TaskAgent(LLMAgent):
 
         # Emit task.finish game event
         if self._active_task_id and not self._finish_emitted:
-            try:
-                await self._game_client.task_lifecycle(
-                    task_id=self._active_task_id,
-                    event_type="finish",
-                    task_summary=self._task_finished_message,
-                    task_status=status,
-                    task_metadata=self._task_metadata,
-                )
-                self._finish_emitted = True
-            except Exception as exc:
-                logger.warning(f"TaskAgent '{self.name}': failed to emit task.finish: {exc}")
+            await self._send_task_finish_notification(
+                status=status,
+                summary=self._task_finished_message,
+            )
+            self._finish_emitted = True
 
         await self._complete_task()
 
@@ -1057,7 +1239,9 @@ class TaskAgent(LLMAgent):
         self._clear_awaited_completion()
         # Capture the task_id before clearing so we can still respond.
         framework_task_id = self._active_task_id
-        self._clear_client_task_id(framework_task_id)
+        # Any tool-call futures still pending here would leak; cancel them
+        # before tearing down so awaiting handlers wind up cleanly.
+        self._pending.cancel_all("task complete")
         self._active_task_id = None  # Stop processing events
         _STATUS_MAP = {"completed": TaskStatus.COMPLETED, "cancelled": TaskStatus.CANCELLED}
         status = _STATUS_MAP.get(self._task_finished_status, TaskStatus.FAILED)
@@ -1077,6 +1261,10 @@ class TaskAgent(LLMAgent):
             pass  # Already responded
         finally:
             self._task_requester = None
+            # Task ended — start the idle countdown. For player-ship
+            # agents this is a no-op; for corp-ship and BYOA agents it
+            # eventually emits BusEndAgentMessage so the slot frees up.
+            self._arm_idle_teardown()
 
     async def _fail_task_once(self, message: str) -> None:
         """Fail the active task exactly once using the normal task-failure path."""
@@ -1092,17 +1280,11 @@ class TaskAgent(LLMAgent):
         self._quench_inference_state()
 
         if self._active_task_id and not self._finish_emitted:
-            try:
-                await self._game_client.task_lifecycle(
-                    task_id=self._active_task_id,
-                    event_type="finish",
-                    task_summary=message,
-                    task_status="failed",
-                    task_metadata=self._task_metadata,
-                )
-                self._finish_emitted = True
-            except Exception as exc:
-                logger.warning(f"TaskAgent: failed to emit task.finish (failure): {exc}")
+            await self._send_task_finish_notification(
+                status="failed",
+                summary=message,
+            )
+            self._finish_emitted = True
 
         await self._complete_task()
 
@@ -1607,10 +1789,130 @@ class TaskAgent(LLMAgent):
     # ── Tool handlers ─────────────────────────────────────────────────
     # Most tools are dispatched via _TOOL_DISPATCH below.
     # Special-case handlers that need custom logic are defined as methods.
+    #
+    # Every task-agent game RPC goes over the bus. _call_game builds a
+    # BusGameToolCallRequest, sends it to the broker (VoiceAgent), and
+    # awaits the matching BusGameToolCallResponse via PendingRequests.
 
-    def _call_game(self, method: str, **kwargs) -> Any:
-        fn = getattr(self._game_client, method)
-        return fn(character_id=self._character_id, **kwargs)
+    async def _call_game(self, method: str, **kwargs) -> Any:
+        """Invoke a game method on the broker over the bus.
+
+        Builds a typed request with the bound character_id (plus the
+        actor identity from task_metadata for corp-ship tasks), sends to
+        ``_task_requester``, and awaits the response. Raises ``RuntimeError``
+        with the broker's error message on failure.
+        """
+        return await self._send_bus_game_tool_call(method, kwargs)
+
+    async def _send_bus_game_tool_call(
+        self, tool_name: str, args: Dict[str, Any]
+    ) -> Any:
+        target = self._task_requester
+        if not target:
+            raise RuntimeError(
+                f"TaskAgent '{self.name}': no broker target for {tool_name!r}"
+            )
+        correlation_id = uuid.uuid4().hex
+        actor = self._task_metadata.get("actor_character_id") if self._task_metadata else None
+        task_id_tag = (
+            self._active_task_id
+            if self._tag_outbound_rpcs_with_task_id
+            else ""
+        )
+        await self.send_message(
+            BusGameToolCallRequest(
+                source=self.name,
+                target=target,
+                correlation_id=correlation_id,
+                tool_name=tool_name,
+                args=dict(args),
+                character_id=self._character_id,
+                actor_character_id=str(actor) if isinstance(actor, str) else "",
+                task_id=str(task_id_tag) if task_id_tag else "",
+            )
+        )
+        return await self._pending.issue(
+            correlation_id,
+            timeout=self._byoa_config.tool_call_timeout_seconds,
+        )
+
+    async def _send_combat_strategy_request(self, *, ship_id: str) -> Any:
+        target = self._task_requester
+        if not target:
+            raise RuntimeError(
+                f"TaskAgent '{self.name}': no broker target for combat_strategy"
+            )
+        correlation_id = uuid.uuid4().hex
+        await self.send_message(
+            BusCombatStrategyRequest(
+                source=self.name,
+                target=target,
+                correlation_id=correlation_id,
+                character_id=self._character_id,
+                ship_id=ship_id,
+                task_id=self._active_task_id or "",
+            )
+        )
+        return await self._pending.issue(
+            correlation_id,
+            timeout=self._byoa_config.tool_call_timeout_seconds,
+        )
+
+    async def _send_corp_query(
+        self, *, query_type: str, corp_id: Optional[str]
+    ) -> Any:
+        target = self._task_requester
+        if not target:
+            raise RuntimeError(
+                f"TaskAgent '{self.name}': no broker target for corp_query"
+            )
+        correlation_id = uuid.uuid4().hex
+        await self.send_message(
+            BusCorporationQueryRequest(
+                source=self.name,
+                target=target,
+                correlation_id=correlation_id,
+                query_type=query_type,
+                character_id=self._character_id,
+                corp_id=corp_id,
+                task_id=self._active_task_id or "",
+            )
+        )
+        return await self._pending.issue(
+            correlation_id,
+            timeout=self._byoa_config.tool_call_timeout_seconds,
+        )
+
+    async def _send_task_finish_notification(
+        self, *, status: str, summary: Optional[str]
+    ) -> None:
+        """Fire-and-forget — broker emits ``task_lifecycle event_type=finish``.
+
+        No response; errors are logged. ``actor_character_id`` mirrors what
+        was passed at start time (the player for corp-ship tasks, not the
+        ship's pseudo-character) — the BYOA finish auth check authorises
+        against this field, so a missing actor would 403 on BYOA ships.
+        """
+        target = self._task_requester
+        if not target or not self._active_task_id:
+            return
+        actor = self._task_metadata.get("actor_character_id") if self._task_metadata else None
+        try:
+            await self.send_message(
+                BusTaskFinishNotification(
+                    source=self.name,
+                    target=target,
+                    character_id=self._character_id,
+                    actor_character_id=str(actor) if isinstance(actor, str) else "",
+                    task_id=self._active_task_id,
+                    status=status,
+                    summary=summary,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                f"TaskAgent '{self.name}': failed to send task_finish notification: {exc}"
+            )
 
     def _dispatch_tool(self, tool_name: str, args: dict) -> Any:
         """Dispatch a tool call using the schema to derive required/optional args."""
@@ -1639,21 +1941,21 @@ class TaskAgent(LLMAgent):
 
     async def _tool_corporation_info(self, args: dict) -> Any:
         if args.get("list_all"):
-            result = await self._game_client._request("corporation.list", {})
-        elif args.get("corp_id"):
-            result = await self._game_client._request(
-                "corporation.info",
-                {"character_id": self._character_id, "corp_id": args["corp_id"]},
+            return await self._send_corp_query(query_type="list", corp_id=None)
+        if args.get("corp_id"):
+            return await self._send_corp_query(
+                query_type="info", corp_id=args["corp_id"]
             )
-        else:
-            result = await self._game_client._request(
-                "my_corporation", {"character_id": self._character_id}
-            )
-        return result
+        return await self._send_corp_query(query_type="my", corp_id=None)
 
     async def _tool_ship_definitions(self, _args: dict) -> Any:
-        result = await self._game_client.get_ship_definitions()
-        return result.get("definitions", result)
+        # Routes through the standard tool-call path so the broker can
+        # surface ship_definitions to a BYOA agent the same way as any
+        # other tool. Server method is get_ship_definitions on AsyncGameClient.
+        result = await self._call_game("get_ship_definitions")
+        if isinstance(result, dict):
+            return result.get("definitions", result)
+        return result
 
     def _tool_dump_cargo(self, args: dict) -> Any:
         items = args.get("items", [])

@@ -25,6 +25,18 @@ from typing import Optional, Protocol, runtime_checkable
 class EventAdapter(Protocol):
     """Pluggable event-delivery transport for ``AsyncGameClient``."""
 
+    async def purge_backlog(self) -> None:
+        """Reset the per-character delivery backlog before ``start``.
+
+        Sessions that build their LLM context inline from RPC responses
+        call this to guarantee no events from bootstrap RPCs leak into
+        the context once steady-state delivery begins. Effect is
+        transport-specific: pubsub drops the per-character pgmq queue
+        (subsequent server publishes silently no-op until ``start``
+        recreates it); polling resets its cursor to current head.
+        """
+        ...
+
     async def start(self) -> None:
         """Start delivering events. Idempotent — safe to call repeatedly."""
         ...

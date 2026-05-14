@@ -88,17 +88,34 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pgmq
 AS $$
+DECLARE
+  v_qtable text := 'q_chr_' || p_character_id::text;
 BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'pgmq' AND c.relname = v_qtable
+  ) THEN
+    RETURN;
+  END IF;
   PERFORM pgmq.create('chr_' || p_character_id::text);
 EXCEPTION
   WHEN duplicate_table THEN
-    -- Queue already exists; treat as success.
     NULL;
 END;
 $$;
 
 COMMENT ON FUNCTION public.ensure_character_queue IS
-  'Idempotent: ensure a pgmq queue exists for a character_id. Called by subscribe_my_events on first authorized subscribe.';
+  'Idempotent queue ensure for a character_id. Fast path checks pg_class to avoid the AccessExclusiveLock that CREATE TABLE IF NOT EXISTS takes on existing tables — required because the caller (subscribe_my_events) holds its txn open for a 30s read_with_poll.';
+
+-- Drop the implicit PUBLIC EXECUTE grant so byoa_bus_client / other
+-- authenticated PG roles can't spam pgmq queue creation for arbitrary
+-- character_ids. subscribe_my_events calls this from inside its own
+-- SECURITY DEFINER body, which runs as the function owner and is
+-- unaffected by these grants.
+REVOKE ALL ON FUNCTION public.ensure_character_queue(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.ensure_character_queue(uuid) TO service_role;
 
 -- -----------------------------------------------------------------------------
 -- Ownership predicate: can user U access character/ship C?
@@ -358,4 +375,3 @@ COMMENT ON FUNCTION public.notify_broadcast IS
 
 REVOKE ALL ON FUNCTION public.notify_broadcast(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.notify_broadcast(jsonb) TO service_role;
-

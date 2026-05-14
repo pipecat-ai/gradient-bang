@@ -1,161 +1,126 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
-const START_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+/**
+ * Server's best-effort guess at the active task per ship, derived from the
+ * events table.
+ *
+ * There is no DB-persistent ship-task lock anymore — the bot's in-memory
+ * `VoiceAgent._locked_ships` is the authoritative source of "ship is busy".
+ * Server-side callers (UI list endpoints, ship_byoa_configure preconditions)
+ * still want a hint, so we derive one from `task.start` events without a
+ * matching `task.finish`/`task.cancel` inside a recent window. A bot crash
+ * that drops `task.finish` makes a ship look busy until the window expires —
+ * conservative but acceptable for hint-only consumers.
+ */
+const ACTIVE_TASK_WINDOW_MINUTES = 60;
 
-type TaskEventRow = {
-  ship_id: string | null;
-  character_id: string | null;
-  task_id: string | null;
-  event_type: string | null;
-  inserted_at: string | null;
+export type ActiveShipTask = {
+  task_id: string;
+  actor_character_id: string | null;
 };
 
+type EventRow = {
+  ship_id: string;
+  task_id: string;
+  inserted_at: string;
+  actor_character_id: string | null;
+};
+
+async function scanActiveTasks(
+  supabase: SupabaseClient,
+  shipIds: string[],
+): Promise<Map<string, ActiveShipTask>> {
+  const result = new Map<string, ActiveShipTask>();
+  if (!shipIds.length) return result;
+
+  const cutoff = new Date(
+    Date.now() - ACTIVE_TASK_WINDOW_MINUTES * 60_000,
+  ).toISOString();
+
+  const { data: starts, error: startsError } = await supabase
+    .from("events")
+    .select("ship_id, task_id, inserted_at, actor_character_id")
+    .eq("event_type", "task.start")
+    .in("ship_id", shipIds)
+    .gt("inserted_at", cutoff)
+    .order("inserted_at", { ascending: false });
+
+  if (startsError) {
+    console.error("tasks.active.lookup.starts", startsError);
+    throw new Error("Failed to load task status");
+  }
+
+  const latestPerShip = new Map<string, EventRow>();
+  for (const row of (starts ?? []) as EventRow[]) {
+    if (
+      typeof row.ship_id === "string" &&
+      typeof row.task_id === "string" &&
+      !latestPerShip.has(row.ship_id)
+    ) {
+      latestPerShip.set(row.ship_id, row);
+    }
+  }
+
+  if (latestPerShip.size === 0) return result;
+
+  const candidateTaskIds = Array.from(
+    new Set(Array.from(latestPerShip.values()).map((r) => r.task_id)),
+  );
+  const { data: terminations, error: terminationsError } = await supabase
+    .from("events")
+    .select("task_id")
+    .in("task_id", candidateTaskIds)
+    .in("event_type", ["task.finish", "task.cancel"]);
+
+  if (terminationsError) {
+    console.error("tasks.active.lookup.terminations", terminationsError);
+    throw new Error("Failed to load task status");
+  }
+
+  const terminated = new Set<string>(
+    (terminations ?? [])
+      .map((r) => (typeof r.task_id === "string" ? r.task_id : null))
+      .filter((v): v is string => v !== null),
+  );
+
+  for (const [shipId, row] of latestPerShip.entries()) {
+    if (!terminated.has(row.task_id)) {
+      result.set(shipId, {
+        task_id: row.task_id,
+        actor_character_id: typeof row.actor_character_id === "string"
+          ? row.actor_character_id
+          : null,
+      });
+    }
+  }
+
+  return result;
+}
+
+/** Active task_id per ship, or null if idle. */
 export async function fetchActiveTaskIdsByShip(
   supabase: SupabaseClient,
   shipIds: string[],
-  activeWindowMs: number = ACTIVE_WINDOW_MS,
-  startLookbackMs: number = START_LOOKBACK_MS,
 ): Promise<Map<string, string | null>> {
   const result = new Map<string, string | null>();
-  for (const shipId of shipIds) {
-    result.set(shipId, null);
+  for (const shipId of shipIds) result.set(shipId, null);
+  const active = await scanActiveTasks(supabase, shipIds);
+  for (const [shipId, info] of active.entries()) {
+    result.set(shipId, info.task_id);
   }
+  return result;
+}
 
-  if (!shipIds.length) {
-    return result;
+/** Active task + actor per ship, or null if idle. */
+export async function fetchActiveTasksByShip(
+  supabase: SupabaseClient,
+  shipIds: string[],
+): Promise<Map<string, ActiveShipTask | null>> {
+  const result = new Map<string, ActiveShipTask | null>();
+  for (const shipId of shipIds) result.set(shipId, null);
+  const active = await scanActiveTasks(supabase, shipIds);
+  for (const [shipId, info] of active.entries()) {
+    result.set(shipId, info);
   }
-
-  const shipIdSet = new Set(shipIds);
-  const startCutoffIso = new Date(Date.now() - startLookbackMs).toISOString();
-
-  const { data: startShipRows, error: startShipError } = await supabase
-    .from("events")
-    .select("ship_id, character_id, task_id, event_type, inserted_at")
-    .eq("event_type", "task.start")
-    .eq("direction", "event_out")
-    .gte("inserted_at", startCutoffIso)
-    .in("ship_id", shipIds)
-    .order("inserted_at", { ascending: false });
-
-  if (startShipError) {
-    console.error("tasks.active.lookup.ship_id", startShipError);
-    throw new Error("Failed to load task status");
-  }
-
-  const { data: startCharacterRows, error: startCharacterError } =
-    await supabase
-      .from("events")
-      .select("ship_id, character_id, task_id, event_type, inserted_at")
-      .eq("event_type", "task.start")
-      .eq("direction", "event_out")
-      .gte("inserted_at", startCutoffIso)
-      .in("character_id", shipIds)
-      .order("inserted_at", { ascending: false });
-
-  if (startCharacterError) {
-    console.error("tasks.active.lookup.character_id", startCharacterError);
-    throw new Error("Failed to load task status");
-  }
-
-  const combinedStarts = [
-    ...(startShipRows ?? []),
-    ...(startCharacterRows ?? []),
-  ];
-  combinedStarts.sort((a, b) => {
-    const left = typeof a?.inserted_at === "string" ? a.inserted_at : "";
-    const right = typeof b?.inserted_at === "string" ? b.inserted_at : "";
-    if (left == right) return 0;
-    return left > right ? -1 : 1;
-  });
-
-  const latestStartByShip = new Map<string, TaskEventRow>();
-  for (const row of combinedStarts) {
-    if (
-      !row ||
-      (typeof row.ship_id !== "string" && typeof row.character_id !== "string")
-    ) {
-      continue;
-    }
-    const shipKey =
-      typeof row.ship_id === "string" && row.ship_id
-        ? row.ship_id
-        : typeof row.character_id === "string"
-          ? row.character_id
-          : null;
-    if (!shipKey || !shipIdSet.has(shipKey)) {
-      continue;
-    }
-    if (latestStartByShip.has(shipKey)) {
-      continue;
-    }
-    if (typeof row.task_id !== "string" || !row.task_id) {
-      continue;
-    }
-    latestStartByShip.set(shipKey, row as TaskEventRow);
-  }
-
-  const taskIds = Array.from(
-    new Set(
-      Array.from(latestStartByShip.values())
-        .map((row) => row.task_id)
-        .filter(
-          (taskId): taskId is string =>
-            typeof taskId === "string" && taskId.length > 0,
-        ),
-    ),
-  );
-
-  if (!taskIds.length) {
-    return result;
-  }
-
-  const { data: taskRows, error: taskError } = await supabase
-    .from("events")
-    .select("task_id, event_type, inserted_at")
-    .eq("direction", "event_out")
-    .gte("inserted_at", startCutoffIso)
-    .in("task_id", taskIds)
-    .order("inserted_at", { ascending: false });
-
-  if (taskError) {
-    console.error("tasks.active.lookup.task_id", taskError);
-    throw new Error("Failed to load task status");
-  }
-
-  const latestEventByTask = new Map<string, TaskEventRow>();
-  for (const row of taskRows ?? []) {
-    if (!row || typeof row.task_id !== "string" || !row.task_id) {
-      continue;
-    }
-    if (latestEventByTask.has(row.task_id)) {
-      continue;
-    }
-    latestEventByTask.set(row.task_id, row as TaskEventRow);
-  }
-
-  const now = Date.now();
-  for (const [shipId, startEvent] of latestStartByShip) {
-    const taskId = startEvent.task_id;
-    if (!taskId) {
-      continue;
-    }
-    const latestEvent = latestEventByTask.get(taskId);
-    if (!latestEvent || typeof latestEvent.inserted_at !== "string") {
-      continue;
-    }
-    const insertedAtMs = Date.parse(latestEvent.inserted_at);
-    if (!Number.isFinite(insertedAtMs)) {
-      continue;
-    }
-    if (latestEvent.event_type === "task.finish") {
-      continue;
-    }
-    if (now - insertedAtMs > activeWindowMs) {
-      continue;
-    }
-    result.set(shipId, taskId);
-  }
-
   return result;
 }

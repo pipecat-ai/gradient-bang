@@ -77,6 +77,16 @@ class PollingEventAdapter:
     # EventAdapter Protocol
     # ------------------------------------------------------------------
 
+    async def purge_backlog(self) -> None:
+        """Reset the polling cursor to current head.
+
+        Polling has no server-side queue to drop; instead we fast-forward
+        past anything already in ``events`` so ``start()`` won't surface
+        history. The next ``events_since`` call uses the current max
+        event id as its baseline.
+        """
+        await self._initialize_polling_cursor()
+
     async def start(self) -> None:
         async with self._polling_lock:
             if self._polling_task and not self._polling_task.done():
@@ -169,7 +179,7 @@ class PollingEventAdapter:
 
     async def _initialize_polling_cursor(self) -> None:
         payload = self._build_events_since_payload(initial_only=True)
-        response = await self._client._request("events_since", payload, skip_event_delivery=True)
+        response = await self._client._request("events_since", payload)
         last_id = response.get("last_event_id")
         if isinstance(last_id, int):
             self._polling_last_event_id = last_id
@@ -218,9 +228,7 @@ class PollingEventAdapter:
         backoff = 0.5
         for attempt in range(1, attempts + 1):
             try:
-                response = await self._client._request(
-                    "events_since", payload, skip_event_delivery=True
-                )
+                response = await self._client._request("events_since", payload)
                 break
             except RPCError as exc:  # type: ignore
                 if exc.status >= 500 and attempt < attempts:

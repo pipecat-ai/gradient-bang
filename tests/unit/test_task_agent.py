@@ -11,8 +11,8 @@ from gradientbang.pipecat_server.subagents.task_agent import (
     ASYNC_TOOL_COMPLETIONS,
     PLAYER_ONLY_TOOLS,
     TaskAgent,
-    _SPECIAL_HANDLERS,
 )
+from gradientbang.pipecat_server.subagents.bus_messages import BusByoaPresenceMessage
 from pipecat_subagents.agents import TaskStatus
 from pipecat_subagents.bus import (
     BusTaskCancelMessage,
@@ -25,18 +25,142 @@ from gradientbang.utils.summary_formatters import event_query_summary
 
 
 def _make_task_agent(**overrides):
-    """Create a TaskAgent with mock dependencies."""
+    """Create a TaskAgent with mock dependencies.
+
+    Phase 1: TaskAgent no longer takes ``game_client`` — every game RPC
+    goes over the bus to VoiceAgent's broker. For test ergonomics we
+    attach a ``_game_client`` MagicMock to the returned agent and
+    install a simulated broker on ``agent.send_message`` that dispatches
+    outbound Phase 1 bus RPCs against that mock. So tests can keep
+    writing ``agent._game_client.foo.assert_awaited_once_with(...)``
+    and it Just Works.
+    """
+    import asyncio as _asyncio
+
+    from gradientbang.pipecat_server.subagents.bus_messages import (
+        BusCombatStrategyRequest,
+        BusCombatStrategyResponse,
+        BusCorporationQueryRequest,
+        BusCorporationQueryResponse,
+        BusGameToolCallRequest,
+        BusGameToolCallResponse,
+        BusTaskFinishNotification,
+    )
+
     bus = MagicMock()
     bus.send = AsyncMock()
-    game_client = MagicMock()
-    game_client.current_task_id = None
+    bus.send_message = AsyncMock()
+    legacy_game_client = overrides.pop("game_client", None)
+    name = overrides.pop("name", "test_task")
     kwargs = {
         "bus": bus,
-        "game_client": game_client,
         "character_id": "char-123",
     }
     kwargs.update(overrides)
-    return TaskAgent("test_task", **kwargs)
+    agent = TaskAgent(name, **kwargs)
+    if legacy_game_client is None:
+        legacy_game_client = MagicMock()
+        legacy_game_client.current_task_id = None
+    agent._game_client = legacy_game_client  # type: ignore[attr-defined]
+
+    async def _broker_dispatch(message):
+        if isinstance(message, BusGameToolCallRequest):
+            method = getattr(agent._game_client, message.tool_name, None)
+            if method is None or not callable(method):
+                response = BusGameToolCallResponse(
+                    source="voice_agent",
+                    target=agent.name,
+                    correlation_id=message.correlation_id,
+                    error=f"unknown tool: {message.tool_name!r}",
+                )
+            else:
+                try:
+                    call_kwargs = dict(message.args)
+                    if message.character_id:
+                        call_kwargs.setdefault("character_id", message.character_id)
+                    if message.actor_character_id:
+                        call_kwargs.setdefault(
+                            "actor_character_id", message.actor_character_id
+                        )
+                    raw = await method(**call_kwargs)
+                    result = raw if isinstance(raw, dict) else {"result": raw}
+                    response = BusGameToolCallResponse(
+                        source="voice_agent",
+                        target=agent.name,
+                        correlation_id=message.correlation_id,
+                        result=result,
+                    )
+                except Exception as exc:
+                    response = BusGameToolCallResponse(
+                        source="voice_agent",
+                        target=agent.name,
+                        correlation_id=message.correlation_id,
+                        error=str(exc),
+                    )
+        elif isinstance(message, BusCombatStrategyRequest):
+            try:
+                call_kwargs = {"character_id": message.character_id}
+                if message.ship_id:
+                    call_kwargs["ship_id"] = message.ship_id
+                raw = await agent._game_client.combat_get_strategy(**call_kwargs)
+                response = BusCombatStrategyResponse(
+                    source="voice_agent",
+                    target=agent.name,
+                    correlation_id=message.correlation_id,
+                    strategy=raw if isinstance(raw, dict) else {"strategy": raw},
+                )
+            except Exception as exc:
+                response = BusCombatStrategyResponse(
+                    source="voice_agent",
+                    target=agent.name,
+                    correlation_id=message.correlation_id,
+                    error=str(exc),
+                )
+        elif isinstance(message, BusCorporationQueryRequest):
+            try:
+                if message.query_type == "list":
+                    raw = await agent._game_client._request("corporation.list", {})
+                elif message.query_type == "info":
+                    raw = await agent._game_client._request(
+                        "corporation.info",
+                        {
+                            "character_id": message.character_id,
+                            "corp_id": message.corp_id,
+                        },
+                    )
+                else:
+                    raw = await agent._game_client._request(
+                        "my_corporation",
+                        {"character_id": message.character_id},
+                    )
+                response = BusCorporationQueryResponse(
+                    source="voice_agent",
+                    target=agent.name,
+                    correlation_id=message.correlation_id,
+                    result=raw if isinstance(raw, dict) else {"result": raw},
+                )
+            except Exception as exc:
+                response = BusCorporationQueryResponse(
+                    source="voice_agent",
+                    target=agent.name,
+                    correlation_id=message.correlation_id,
+                    error=str(exc),
+                )
+        elif isinstance(message, BusTaskFinishNotification):
+            await agent._game_client.task_lifecycle(
+                event_type="finish",
+                character_id=message.character_id,
+                task_id=message.task_id,
+                task_status=message.status,
+                task_summary=message.summary,
+            )
+            return
+        else:
+            return
+        _asyncio.create_task(agent.on_bus_message(response))
+
+    agent.send_message = AsyncMock(side_effect=_broker_dispatch)
+    return agent
 
 
 def _make_function_call_params(function_name: str, arguments: dict | None = None):
@@ -48,6 +172,54 @@ def _make_function_call_params(function_name: str, arguments: dict | None = None
 
 
 EXPECTED_TASK_TOOL_NAMES = {t.name for t in TASK_TOOLS.standard_tools}
+
+
+@pytest.mark.unit
+class TestByoaPresence:
+    async def test_on_ready_sends_online_presence_and_starts_heartbeat(self):
+        agent = _make_task_agent(name="byoa_ship-123", character_id="ship-123")
+        agent.send_message = AsyncMock()
+        created_task = MagicMock()
+
+        def _capture_task(coro, name):
+            coro.close()
+            return created_task
+
+        agent.create_asyncio_task = MagicMock(side_effect=_capture_task)
+
+        await agent.on_ready()
+
+        sent = agent.send_message.await_args.args[0]
+        assert isinstance(sent, BusByoaPresenceMessage)
+        assert sent.source == "byoa_ship-123"
+        assert sent.ship_id == "ship-123"
+        assert sent.online is True
+        assert sent.status == "online"
+        agent.create_asyncio_task.assert_called_once()
+
+    async def test_on_finished_sends_offline_presence(self):
+        agent = _make_task_agent(name="byoa_ship-123", character_id="ship-123")
+        agent.send_message = AsyncMock()
+        agent.cancel_asyncio_task = AsyncMock()
+        agent._byoa_presence_task = MagicMock(done=MagicMock(return_value=False))
+
+        await agent.on_finished()
+
+        sent = agent.send_message.await_args.args[0]
+        assert isinstance(sent, BusByoaPresenceMessage)
+        assert sent.online is False
+        assert sent.status == "offline"
+        agent.cancel_asyncio_task.assert_awaited_once()
+
+    async def test_non_byoa_agent_does_not_emit_presence(self):
+        agent = _make_task_agent(name="task_abc", character_id="ship-123")
+        agent.send_message = AsyncMock()
+        agent.create_asyncio_task = MagicMock()
+
+        await agent.on_ready()
+
+        agent.send_message.assert_not_awaited()
+        agent.create_asyncio_task.assert_not_called()
 
 
 @pytest.mark.unit
@@ -354,7 +526,12 @@ class TestTaskIdTagging:
 
         assert agent._game_client.current_task_id == "shared-task"
 
-    async def test_corp_task_request_sets_task_id_on_dedicated_client(self):
+    async def test_corp_task_request_does_not_mutate_shared_client_task_id(self):
+        """Phase 1: TaskAgent no longer mutates the broker's game_client.
+        The broker tags current_task_id per-call from the inbound
+        BusGameToolCallRequest's task_id — exercised in
+        test_voice_agent_bus_broker.TestGameToolCallBroker.
+        """
         agent = _make_task_agent(tag_outbound_rpcs_with_task_id=True)
         agent._llm_context = MagicMock()
         agent.queue_frame = AsyncMock()
@@ -368,7 +545,8 @@ class TestTaskIdTagging:
             )
         )
 
-        assert agent._game_client.current_task_id == "task-1"
+        # No direct mutation — the broker handles task_id tagging.
+        assert agent._game_client.current_task_id is None
 
     async def test_task_request_context_is_included_in_initial_prompt(self):
         agent = _make_task_agent(tag_outbound_rpcs_with_task_id=False)
@@ -439,19 +617,12 @@ class TestTaskIdTagging:
 
         assert agent._game_client.current_task_id == "shared-task"
 
-    async def test_corp_task_completion_clears_matching_task_id(self):
-        agent = _make_task_agent(tag_outbound_rpcs_with_task_id=True)
-        agent._active_task_id = "task-1"
-        agent._task_finished_status = "completed"
-        agent._task_finished_message = "Done"
-        agent.send_task_response = AsyncMock()
-        agent._game_client.current_task_id = "task-1"
-
-        await agent._complete_task()
-
-        assert agent._game_client.current_task_id is None
-
-    async def test_corp_task_completion_keeps_other_client_task_id(self):
+    async def test_corp_task_completion_does_not_mutate_shared_client(self):
+        """Phase 1: TaskAgent never reaches into the shared game client.
+        The broker (VoiceAgent) is responsible for tagging
+        current_task_id per outbound call. _complete_task should leave
+        the field alone whatever its value was before.
+        """
         agent = _make_task_agent(tag_outbound_rpcs_with_task_id=True)
         agent._active_task_id = "task-1"
         agent._task_finished_status = "completed"
@@ -749,8 +920,10 @@ class TestPipelineErrorFailureHandling:
         agent._task_requester = "voice_agent"
         agent._active_task_id = "task-1"
         agent._game_client.task_lifecycle = AsyncMock()
-        agent.send_message = AsyncMock()
         agent.send_task_response = AsyncMock()
+        # Note: we deliberately do NOT replace agent.send_message —
+        # the harness's simulated broker dispatches the outbound
+        # BusTaskFinishNotification back to agent._game_client.task_lifecycle.
 
         await agent.on_error(
             "Error during completion: context_length_exceeded: input too long",
@@ -771,6 +944,7 @@ class TestPipelineErrorFailureHandling:
     async def test_on_error_is_idempotent(self):
         agent = _make_task_agent()
         agent._active_task_id = "task-1"
+        agent._task_requester = "voice_agent"
         agent._game_client.task_lifecycle = AsyncMock()
         agent.send_task_response = AsyncMock()
 
@@ -812,6 +986,8 @@ class TestCombatPreamble:
     def _agent_with_context(*, character_id: str = "ship-pseudo-char"):
         agent = _make_task_agent(character_id=character_id, is_corp_ship=True)
         agent._active_task_id = "task-uuid-1"
+        # Phase 1: outbound bus RPCs need a known broker target.
+        agent._task_requester = "voice_agent"
         agent._llm_context = MagicMock()
         # Default: an authored 'offensive' doctrine. Individual tests
         # override to exercise the unset → default-balanced fallback.

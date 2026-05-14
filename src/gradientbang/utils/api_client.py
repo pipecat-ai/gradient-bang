@@ -28,6 +28,7 @@ from gradientbang.utils.summary_formatters import (
     path_region_summary,
     plot_course_summary,
     port_update_summary,
+    quest_status_summary,
     salvage_collected_summary,
     salvage_created_summary,
     garrison_combat_alert_summary,
@@ -54,13 +55,22 @@ class RPCError(RuntimeError):
     """Raised when the server responds with an RPC error frame."""
 
     def __init__(
-        self, endpoint: str, status: int, detail: str, code: Optional[str] = None
+        self,
+        endpoint: str,
+        status: int,
+        detail: str,
+        code: Optional[str] = None,
+        body: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(f"{endpoint} failed with status {status}: {detail}")
         self.endpoint = endpoint
         self.status = status
         self.detail = detail
         self.code = code
+        # Full server response body, retained so callers can read structured
+        # error info beyond ``detail``/``code`` (e.g. the ``task_actor_*``
+        # fields on a 409 ship_busy from task_lifecycle).
+        self.body = body
 
 
 class AsyncGameClient:
@@ -261,6 +271,7 @@ class AsyncGameClient:
             "task.cancel": task_cancel_summary,
             "task.finish": task_finish_summary,
             "event.query": event_query_wrapper,
+            "quest.status": quest_status_summary,
         }
 
     def _set_current_sector(self, candidate: Any) -> None:
@@ -1282,12 +1293,15 @@ class AsyncGameClient:
         *,
         task_id: str,
         character_id: Optional[str] = None,
+        force: bool = False,
     ) -> Dict[str, Any]:
         """Request cancellation of a running task.
 
         Args:
             task_id: Task ID (full UUID or short prefix)
             character_id: Character ID requesting the cancellation
+            force: If True, a corp member can release the lock without being
+                the task owner/actor (Layer 4 stale-lock recovery).
         """
         if character_id is None:
             character_id = self._character_id
@@ -1296,7 +1310,49 @@ class AsyncGameClient:
             "character_id": character_id,
             "task_id": task_id,
         }
+        if force:
+            payload["force"] = True
         return await self._request("task.cancel", payload)
+
+    async def wake_agent(
+        self,
+        *,
+        ship_id: str,
+        channel: str,
+        task_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Call the server-side ``wake_agent`` endpoint for a BYOA ship.
+
+        Passes the bot's per-session PGMQ channel to the server-side wake
+        dispatcher for a BYOA ship. Local dev uses ``BYOA_WAKE_TARGET=http``
+        pointed at ``uv run byoa serve``; future remote wake targets spawn
+        the process with ``BYOA_CHANNEL``, ``BYOA_SHIP_ID``, and the
+        restricted ``BYOA_BUS_DATABASE_URL``.
+
+        The bot's own ``character_id`` is auto-injected by ``_request``
+        for auth (``canActOnCharacter`` resolves the BYOA owner from the
+        row server-side), so callers do NOT pass the BYOA owner's
+        truncated identifier here — that prefix would fail UUID
+        canonicalization in the supabase client.
+
+        Args:
+            ship_id: Corp ship pseudo-character_id being delegated to.
+            channel: Bot's subagent-bus channel — the BYOA joins this.
+                This is the derived per-session channel, not the static
+                ``SUBAGENT_BUS_CHANNEL`` prefix.
+            task_id: Optional active task UUID for the wake/spawn path.
+
+        Returns:
+            ``{request_id, ship_id, channel, spawn_target, spawn_status,
+            lifecycle_hint}``.
+        """
+        payload: Dict[str, Any] = {
+            "ship_id": ship_id,
+            "channel": channel,
+        }
+        if task_id is not None:
+            payload["task_id"] = task_id
+        return await self._request("wake.agent", payload)
 
     async def create_corporation(
         self,

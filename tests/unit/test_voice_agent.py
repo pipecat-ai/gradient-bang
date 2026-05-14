@@ -15,6 +15,12 @@ def _make_voice_agent(**overrides):
     mock_game_client = MagicMock()
     mock_game_client.corporation_id = "corp-1"
     mock_game_client.set_event_polling_scope = MagicMock()
+    # Server-side lock RPCs surfaced through AsyncGameClient. Default to
+    # no-op success so the broad path of tests that don't care about lock
+    # semantics still work. Tests that want specific behavior override
+    # these attrs after constructing the agent.
+    mock_game_client.task_lifecycle = AsyncMock(return_value={"success": True})
+    mock_game_client.task_cancel = AsyncMock(return_value={"success": True})
 
     mock_rtvi = MagicMock()
     mock_rtvi.push_frame = AsyncMock()
@@ -46,15 +52,30 @@ def _make_function_call_params(
 
 
 EXPECTED_TOOLS = {
-    "my_status", "plot_course", "list_known_ports", "rename_ship",
-    "rename_corporation", "create_corporation", "corporation_info",
-    "join_corporation", "leave_corporation", "kick_corporation_member",
+    "my_status",
+    "plot_course",
+    "list_known_ports",
+    "rename_ship",
+    "rename_corporation",
+    "create_corporation",
+    "corporation_info",
+    "join_corporation",
+    "leave_corporation",
+    "kick_corporation_member",
     "regenerate_invite_code",
     "sell_ship",
-    "leaderboard_resources", "ship_definitions", "send_message",
-    "combat_initiate", "combat_action", "ship_strategy", "load_game_info",
+    "leaderboard_resources",
+    "ship_definitions",
+    "send_message",
+    "combat_initiate",
+    "combat_action",
+    "ship_strategy",
+    "load_game_info",
     "confirm_action",
-    "start_task", "stop_task", "steer_task", "query_task_progress",
+    "start_task",
+    "stop_task",
+    "steer_task",
+    "query_task_progress",
 }
 
 
@@ -135,9 +156,7 @@ class TestFrameworkTaskQueries:
         mock_child.name = "task_abc123"
         agent._children = [mock_child]
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
-        agent._task_groups = {
-            full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})
-        }
+        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
 
         # Full UUID
         assert agent._find_task_agent_by_task_id(full_id) == (full_id, mock_child)
@@ -191,7 +210,9 @@ class TestFrameworkTaskQueries:
         agent._children = [corp]
         agent._update_polling_scope()
         agent._game_client.set_event_polling_scope.assert_called_once_with(
-            character_ids=["char-123"], corp_id="corp-1", ship_ids=["ship-1"],
+            character_ids=["char-123"],
+            corp_id="corp-1",
+            ship_ids=["ship-1"],
         )
 
     def test_update_polling_scope_no_children(self):
@@ -199,7 +220,9 @@ class TestFrameworkTaskQueries:
         agent._children = []
         agent._update_polling_scope()
         agent._game_client.set_event_polling_scope.assert_called_once_with(
-            character_ids=["char-123"], corp_id="corp-1", ship_ids=[],
+            character_ids=["char-123"],
+            corp_id="corp-1",
+            ship_ids=[],
         )
 
 
@@ -220,7 +243,8 @@ class TestDeferredEventBatching:
         agent = _make_voice_agent()
         agent._tool_call_inflight = 1
         frame = LLMMessagesAppendFrame(
-            messages=[{"role": "user", "content": "<event>test</event>"}], run_llm=True,
+            messages=[{"role": "user", "content": "<event>test</event>"}],
+            run_llm=True,
         )
         await agent.queue_frame(frame)
         assert len(agent._deferred_frames) == 1
@@ -232,8 +256,14 @@ class TestDeferredEventBatching:
 
         agent = _make_voice_agent()
         frames = [
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=True), FrameDirection.DOWNSTREAM),
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "b"}], run_llm=False), FrameDirection.DOWNSTREAM),
+            (
+                LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=True),
+                FrameDirection.DOWNSTREAM,
+            ),
+            (
+                LLMMessagesAppendFrame(messages=[{"role": "user", "content": "b"}], run_llm=False),
+                FrameDirection.DOWNSTREAM,
+            ),
         ]
         result = await agent.process_deferred_tool_frames(frames)
         appends = [f for f, _ in result if isinstance(f, LLMMessagesAppendFrame)]
@@ -248,7 +278,10 @@ class TestDeferredEventBatching:
 
         agent = _make_voice_agent()
         frames = [
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": c}], run_llm=True), FrameDirection.DOWNSTREAM)
+            (
+                LLMMessagesAppendFrame(messages=[{"role": "user", "content": c}], run_llm=True),
+                FrameDirection.DOWNSTREAM,
+            )
             for c in ("event_a", "event_b", "event_c")
         ]
         result = await agent.process_deferred_tool_frames(frames)
@@ -266,7 +299,12 @@ class TestDeferredEventBatching:
 
         agent = _make_voice_agent()
         frames = [
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "only"}], run_llm=True), FrameDirection.DOWNSTREAM)
+            (
+                LLMMessagesAppendFrame(
+                    messages=[{"role": "user", "content": "only"}], run_llm=True
+                ),
+                FrameDirection.DOWNSTREAM,
+            )
         ]
         result = await agent.process_deferred_tool_frames(frames)
 
@@ -283,7 +321,10 @@ class TestDeferredEventBatching:
 
         agent = _make_voice_agent()
         frames = [
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=False), FrameDirection.DOWNSTREAM)
+            (
+                LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=False),
+                FrameDirection.DOWNSTREAM,
+            )
         ]
         result = await agent.process_deferred_tool_frames(frames)
 
@@ -303,7 +344,12 @@ class TestDeferredEventBatching:
 
         agent = _make_voice_agent()
         frames = [
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": f"task{i}"}], run_llm=True), FrameDirection.DOWNSTREAM)
+            (
+                LLMMessagesAppendFrame(
+                    messages=[{"role": "user", "content": f"task{i}"}], run_llm=True
+                ),
+                FrameDirection.DOWNSTREAM,
+            )
             for i in range(3)
         ]
         result = await agent.process_deferred_tool_frames(frames)
@@ -325,8 +371,24 @@ class TestDeferredEventBatching:
 
         agent = _make_voice_agent()
         frames = [
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "<event name=\"status.snapshot\">...</event>"}], run_llm=True), FrameDirection.DOWNSTREAM),
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "<event name=\"task.completed\">...</event>"}], run_llm=True), FrameDirection.DOWNSTREAM),
+            (
+                LLMMessagesAppendFrame(
+                    messages=[
+                        {"role": "user", "content": '<event name="status.snapshot">...</event>'}
+                    ],
+                    run_llm=True,
+                ),
+                FrameDirection.DOWNSTREAM,
+            ),
+            (
+                LLMMessagesAppendFrame(
+                    messages=[
+                        {"role": "user", "content": '<event name="task.completed">...</event>'}
+                    ],
+                    run_llm=True,
+                ),
+                FrameDirection.DOWNSTREAM,
+            ),
         ]
         result = await agent.process_deferred_tool_frames(frames)
 
@@ -343,9 +405,18 @@ class TestDeferredEventBatching:
 
         agent = _make_voice_agent()
         frames = [
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=True), FrameDirection.DOWNSTREAM),
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "b"}], run_llm=True), FrameDirection.DOWNSTREAM),
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "c"}], run_llm=False), FrameDirection.DOWNSTREAM),
+            (
+                LLMMessagesAppendFrame(messages=[{"role": "user", "content": "a"}], run_llm=True),
+                FrameDirection.DOWNSTREAM,
+            ),
+            (
+                LLMMessagesAppendFrame(messages=[{"role": "user", "content": "b"}], run_llm=True),
+                FrameDirection.DOWNSTREAM,
+            ),
+            (
+                LLMMessagesAppendFrame(messages=[{"role": "user", "content": "c"}], run_llm=False),
+                FrameDirection.DOWNSTREAM,
+            ),
         ]
         result = await agent.process_deferred_tool_frames(frames)
         appends = [f for f, _ in result if isinstance(f, LLMMessagesAppendFrame)]
@@ -361,7 +432,9 @@ class TestDeferredEventBatching:
 
         agent = _make_voice_agent()
         agent._tool_call_inflight = 1
-        frame = LLMMessagesAppendFrame(messages=[{"role": "user", "content": "task.completed"}], run_llm=True)
+        frame = LLMMessagesAppendFrame(
+            messages=[{"role": "user", "content": "task.completed"}], run_llm=True
+        )
         await agent.queue_frame(frame)
 
         assert len(agent._deferred_frames) == 1
@@ -376,7 +449,12 @@ class TestDeferredEventBatching:
 
         agent = _make_voice_agent()
         frames = [
-            (LLMMessagesAppendFrame(messages=[{"role": "user", "content": "status.snapshot"}], run_llm=True), FrameDirection.DOWNSTREAM)
+            (
+                LLMMessagesAppendFrame(
+                    messages=[{"role": "user", "content": "status.snapshot"}], run_llm=True
+                ),
+                FrameDirection.DOWNSTREAM,
+            )
         ]
         result = await agent.process_deferred_tool_frames(frames)
 
@@ -448,16 +526,10 @@ class TestInjectContextManagedTask:
         agent._task_manager = mock_tm
 
         # Call twice rapidly — second should reuse the pending flag.
-        await agent._inject_context(
-            [{"role": "user", "content": "event1"}], run_llm=True
-        )
-        await agent._inject_context(
-            [{"role": "user", "content": "event2"}], run_llm=True
-        )
+        await agent._inject_context([{"role": "user", "content": "event1"}], run_llm=True)
+        await agent._inject_context([{"role": "user", "content": "event2"}], run_llm=True)
 
-        assert len(created_tasks) == 1, (
-            f"Expected 1 managed task but got {len(created_tasks)}"
-        )
+        assert len(created_tasks) == 1, f"Expected 1 managed task but got {len(created_tasks)}"
 
         await asyncio.sleep(0)
 
@@ -478,7 +550,7 @@ class TestHandleStopTask:
         child._is_corp_ship = False
         child._character_id = "corp-ship-1"
         agent._children = [child]
-        agent._locked_ships.add("corp-ship-1")
+        agent._locked_ships["corp-ship-1"] = "task-uuid"
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
         params = MagicMock()
@@ -486,6 +558,10 @@ class TestHandleStopTask:
         result = await agent._handle_stop_task(params)
         assert result["success"] is True
         assert result["task_id"] == full_id
+        agent._game_client.task_cancel.assert_awaited_once_with(
+            task_id=full_id,
+            character_id=agent._character_id,
+        )
         agent.cancel_task.assert_called_once_with(full_id, reason="Cancelled by user")
         # Lock must be released synchronously so a follow-up start_task in
         # the same turn can succeed.
@@ -503,7 +579,7 @@ class TestHandleStopTask:
         child._is_corp_ship = False
         child._character_id = "corp-ship-1"
         agent._children = [child]
-        agent._locked_ships.add("corp-ship-1")
+        agent._locked_ships["corp-ship-1"] = "task-uuid"
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={"task_abc123"})}
         params = MagicMock()
@@ -511,6 +587,10 @@ class TestHandleStopTask:
         result = await agent._handle_stop_task(params)
         assert result["success"] is True
         assert result["task_id"] == full_id
+        agent._game_client.task_cancel.assert_awaited_once_with(
+            task_id=full_id,
+            character_id=agent._character_id,
+        )
         agent.cancel_task.assert_called_once_with(full_id, reason="Cancelled by user")
         assert "corp-ship-1" not in agent._locked_ships
 
@@ -525,12 +605,16 @@ class TestHandleStopTask:
         child._is_corp_ship = False
         child._character_id = agent._character_id
         agent._children = [child]
-        agent._locked_ships.add(agent._character_id)
+        agent._locked_ships[agent._character_id] = "task-uuid"
         agent._task_groups = {"tid-1": TaskGroup(task_id="tid-1", agent_names={"task_abc123"})}
         params = MagicMock()
         params.arguments = {}
         result = await agent._handle_stop_task(params)
         assert result["success"] is True
+        agent._game_client.task_cancel.assert_awaited_once_with(
+            task_id="tid-1",
+            character_id=agent._character_id,
+        )
         agent.cancel_task.assert_called_once_with("tid-1", reason="Cancelled by user")
         assert agent._character_id not in agent._locked_ships
 
@@ -714,7 +798,7 @@ def _leaderboard_api_response():
                 "player_name": "Gale Surveyor",
                 "player_type": "human",
                 "sectors_visited": 66,
-            }
+            },
         ],
         "territory": [
             {
@@ -826,7 +910,9 @@ class TestVoiceToolErrorWrapping:
             result_callback=AsyncMock(),
         )
 
-        wrapped = agent._wrap_tool_errors("leaderboard_resources", agent._handle_leaderboard_resources)
+        wrapped = agent._wrap_tool_errors(
+            "leaderboard_resources", agent._handle_leaderboard_resources
+        )
         await wrapped(params)
 
         params.result_callback.assert_awaited_once()
@@ -866,8 +952,9 @@ class TestTaskToolWrappers:
         assert isinstance(deferred_frame, LLMMessagesAppendFrame)
         assert deferred_frame.run_llm is True
         assert deferred_frame.messages[0]["role"] == "user"
-        assert '<event name="task.started" task_id="task_abc123" task_type="player_ship">' in (
-            deferred_frame.messages[0]["content"]
+        assert (
+            '<event name="task.started" task_id="task_abc123" task_type="player_ship">'
+            in (deferred_frame.messages[0]["content"])
         )
         assert "Task started" in deferred_frame.messages[0]["content"]
 
@@ -921,8 +1008,9 @@ class TestTaskToolWrappers:
         # A fresh inference here produces a duplicate ack.
         assert deferred_frame.run_llm is False
         assert deferred_frame.messages[0]["role"] == "user"
-        assert '<event name="task.steered" task_id="task_abc123" task_type="player_ship">' in (
-            deferred_frame.messages[0]["content"]
+        assert (
+            '<event name="task.steered" task_id="task_abc123" task_type="player_ship">'
+            in (deferred_frame.messages[0]["content"])
         )
         assert "steered with new instructions" in deferred_frame.messages[0]["content"]
 
@@ -946,7 +1034,9 @@ class TestLeaderboardSummary:
     @pytest.mark.asyncio
     async def test_handle_leaderboard_resources_returns_summary_only(self):
         agent = _make_voice_agent()
-        agent._game_client.leaderboard_resources = AsyncMock(return_value=_leaderboard_api_response())
+        agent._game_client.leaderboard_resources = AsyncMock(
+            return_value=_leaderboard_api_response()
+        )
         params = _make_function_call_params(
             function_name="leaderboard_resources",
             arguments={"force_refresh": True},
@@ -993,9 +1083,7 @@ class TestCorporationDirectTools:
     @pytest.mark.asyncio
     async def test_create_corporation_calls_game_client(self):
         agent = _make_voice_agent()
-        agent._game_client.create_corporation = AsyncMock(
-            return_value={"request_id": "req-create"}
-        )
+        agent._game_client.create_corporation = AsyncMock(return_value={"request_id": "req-create"})
         params = MagicMock()
         params.arguments = {"name": "Test Corp"}
         params.result_callback = AsyncMock()
@@ -1003,7 +1091,8 @@ class TestCorporationDirectTools:
         await agent._handle_create_corporation(params)
 
         agent._game_client.create_corporation.assert_called_once_with(
-            name="Test Corp", character_id="char-123",
+            name="Test Corp",
+            character_id="char-123",
         )
         params.result_callback.assert_called_once()
         result = params.result_callback.call_args[0][0]
@@ -1013,9 +1102,7 @@ class TestCorporationDirectTools:
     @pytest.mark.asyncio
     async def test_rename_corporation_calls_game_client(self):
         agent = _make_voice_agent()
-        agent._game_client.rename_corporation = AsyncMock(
-            return_value={"request_id": "req-rename"}
-        )
+        agent._game_client.rename_corporation = AsyncMock(return_value={"request_id": "req-rename"})
         params = MagicMock()
         params.arguments = {"name": "New Name"}
         params.result_callback = AsyncMock()
@@ -1023,7 +1110,8 @@ class TestCorporationDirectTools:
         await agent._handle_rename_corporation(params)
 
         agent._game_client.rename_corporation.assert_called_once_with(
-            name="New Name", character_id="char-123",
+            name="New Name",
+            character_id="char-123",
         )
         params.result_callback.assert_called_once()
         result = params.result_callback.call_args[0][0]
@@ -1048,7 +1136,8 @@ class TestSellShipVoiceTool:
         await agent._handle_sell_ship(params)
 
         agent._game_client.sell_ship.assert_called_once_with(
-            ship_id="abc123", character_id="char-123",
+            ship_id="abc123",
+            character_id="char-123",
         )
         params.result_callback.assert_called_once()
         result = params.result_callback.call_args[0][0]
@@ -1061,7 +1150,7 @@ class TestSellShipVoiceTool:
     async def test_sell_ship_blocked_when_task_active(self):
         agent = _make_voice_agent()
         agent._game_client.sell_ship = AsyncMock()
-        agent._locked_ships = {agent._character_id}  # Simulate active player task
+        agent._locked_ships = {agent._character_id: "task-uuid"}  # Simulate active player task
         params = MagicMock()
         params.arguments = {"ship_id": "abc123"}
         params.result_callback = AsyncMock()
@@ -1077,9 +1166,7 @@ class TestSellShipVoiceTool:
     @pytest.mark.asyncio
     async def test_sell_ship_error_propagated(self):
         agent = _make_voice_agent()
-        agent._game_client.sell_ship = AsyncMock(
-            side_effect=RuntimeError("Not at mega-port")
-        )
+        agent._game_client.sell_ship = AsyncMock(side_effect=RuntimeError("Not at mega-port"))
         params = MagicMock()
         params.arguments = {"ship_id": "abc123"}
         params.result_callback = AsyncMock()
@@ -1105,7 +1192,7 @@ class TestEventDrivenToolErrors:
         active_task = MagicMock(spec=TaskAgent)
         active_task._is_corp_ship = False
         agent._children = [active_task]
-        agent._locked_ships = {agent._character_id}  # Player task is active
+        agent._locked_ships = {agent._character_id: "task-uuid"}  # Player task is active
         params = MagicMock()
         params.arguments = {}
         params.result_callback = AsyncMock()
@@ -1169,9 +1256,7 @@ class TestCorpShipRouting:
         """If the LLM passes a UUID that isn't a corp ship, treat as player task."""
         agent = _make_voice_agent()
         # _is_corp_ship_id returns False for an unknown ship
-        agent._VoiceAgent__game_client._request = AsyncMock(
-            return_value=_corp_api_response()
-        )
+        agent._VoiceAgent__game_client._request = AsyncMock(return_value=_corp_api_response())
         agent._VoiceAgent__game_client.base_url = "http://localhost"
         mock_client_cls.return_value = MagicMock()
 
@@ -1189,7 +1274,8 @@ class TestCorpShipRouting:
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        assert task_agent._game_client is agent._game_client
+        # Phase 1: TaskAgent no longer holds a game_client.
+        assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
     @pytest.mark.asyncio
@@ -1197,9 +1283,7 @@ class TestCorpShipRouting:
     async def test_corp_ship_id_treated_as_corp_task(self, mock_client_cls):
         """If the LLM passes a UUID that IS a corp ship, treat as corp task."""
         agent = _make_voice_agent()
-        agent._VoiceAgent__game_client._request = AsyncMock(
-            return_value=_corp_api_response()
-        )
+        agent._VoiceAgent__game_client._request = AsyncMock(return_value=_corp_api_response())
         agent._VoiceAgent__game_client.base_url = "http://localhost"
 
         # Mock the new AsyncGameClient constructor for corp ship tasks
@@ -1216,16 +1300,12 @@ class TestCorpShipRouting:
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "corp_ship"
-        mock_client_cls.assert_called_once_with(
-            base_url="http://localhost",
-            character_id=CORP_SHIP_ID,
-            actor_character_id="char-123",
-            entity_type="corporation_ship",
-            transport="supabase",
-            enable_event_polling=False,
-        )
+        # Phase 1: corp-ship tasks no longer construct a second
+        # AsyncGameClient. The broker uses the player-bound client and
+        # overrides character_id / actor_character_id per call.
+        mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        assert task_agent._game_client is mock_client_cls.return_value
+        assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is True
 
     @pytest.mark.asyncio
@@ -1251,7 +1331,8 @@ class TestCorpShipRouting:
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        assert task_agent._game_client is agent._game_client
+        # Phase 1: TaskAgent no longer holds a game_client.
+        assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
     @pytest.mark.asyncio
@@ -1272,7 +1353,8 @@ class TestCorpShipRouting:
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        assert task_agent._game_client is agent._game_client
+        # Phase 1: TaskAgent no longer holds a game_client.
+        assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
     @pytest.mark.asyncio
@@ -1398,8 +1480,6 @@ class TestCorpShipRouting:
     @pytest.mark.asyncio
     async def test_error_after_add_agent_cleans_up_ship_lock(self):
         """If add_agent fails after appending child, both lock and orphan are cleaned up."""
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-
         agent = _make_voice_agent()
         agent._task_groups = {}
         agent._children = []
@@ -1416,7 +1496,7 @@ class TestCorpShipRouting:
         result = await agent._handle_start_task(params)
 
         assert not result["success"]
-        assert agent._locked_ships == set()
+        assert agent._locked_ships == {}
         assert len(agent._children) == 0
         assert len(agent._pending_tasks) == 0
 
@@ -1424,8 +1504,6 @@ class TestCorpShipRouting:
     async def test_player_agent_reused_across_tasks(self):
         """Second player task reuses the idle agent instead of creating a new one."""
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-        from pipecat_subagents.bus.messages import BusTaskResponseMessage
-        from pipecat_subagents.agents.task_context import TaskStatus
 
         agent = _make_voice_agent()
         agent._task_groups = {}
@@ -1438,7 +1516,7 @@ class TestCorpShipRouting:
             agent._children.append(task_agent)
 
         agent.add_agent = AsyncMock(side_effect=add_agent)
-        agent.request_task = AsyncMock(return_value="framework-task-uuid")
+        agent.request_task = AsyncMock(return_value="should-not-be-used")
 
         # First task — creates a new agent
         params1 = MagicMock()
@@ -1454,17 +1532,26 @@ class TestCorpShipRouting:
         child = next(c for c in agent._children if isinstance(c, TaskAgent))
         first_agent_name = child.name
         child._active_task_id = None  # Mark as idle
-        agent._locked_ships.discard(agent._character_id)
+        agent._locked_ships.pop(agent._character_id, None)
+        agent._dispatch_task_with_id = AsyncMock()
+        # Phase 1: the reuse path performs the hello handshake before
+        # dispatch. Short-circuit it in the unit test.
+        agent._send_hello_and_wait = AsyncMock()
 
         # Second task — should reuse the existing idle agent.
-        # The reuse path returns request_task's return value as task_id.
+        # The reuse path now pre-generates/acquires a server-side task id,
+        # then dispatches that pinned id to the already-running agent.
         params2 = MagicMock()
         params2.arguments = {"task_description": "Trade goods"}
         result2 = await agent._handle_start_task(params2)
         assert result2["success"]
-        assert result2["task_id"] == "framework-task-uuid"  # from request_task
+        assert result2["task_id"] != "should-not-be-used"
         assert agent.add_agent.call_count == 1  # No new add_agent call
-        agent.request_task.assert_called_once()
+        agent.request_task.assert_not_called()
+        agent._dispatch_task_with_id.assert_awaited_once()
+        dispatch_call = agent._dispatch_task_with_id.await_args
+        assert dispatch_call.args[0] == first_agent_name
+        assert dispatch_call.args[1] == result2["task_id"]
         # The reused agent name should still be the same internal bus name
         assert any(c.name == first_agent_name for c in agent._children)
         # And the pre-generated id from the first call should differ from the
@@ -1475,7 +1562,6 @@ class TestCorpShipRouting:
     @patch("gradientbang.pipecat_server.subagents.voice_agent.AsyncGameClient")
     async def test_corp_agent_destroyed_after_task(self, mock_client_cls):
         """Corp ship agent is ended and removed from _children after task completes."""
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
         from pipecat_subagents.bus.messages import BusTaskResponseMessage
         from pipecat_subagents.agents.task_context import TaskStatus
 
@@ -1496,7 +1582,10 @@ class TestCorpShipRouting:
 
         # Start corp task
         params = MagicMock()
-        params.arguments = {"task_description": "Trade", "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}
+        params.arguments = {
+            "task_description": "Trade",
+            "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        }
         result = await agent._handle_start_task(params)
         assert result["success"]
         assert len(agent._children) == 1
@@ -1529,7 +1618,7 @@ class TestCorpShipRouting:
         agent = _make_voice_agent()
         agent._task_groups = {}
         agent._children = []
-        agent._locked_ships = {"ship-1"}
+        agent._locked_ships = {"ship-1": "task-uuid"}
         agent.send_message = AsyncMock()
 
         # Add an idle player task agent to children
@@ -1540,6 +1629,156 @@ class TestCorpShipRouting:
 
         await agent.close_tasks()
 
-        assert agent._locked_ships == set()
+        assert agent._locked_ships == {}
         assert len(agent._children) == 0
         agent.send_message.assert_called_once()  # BusEndAgentMessage sent
+
+
+# ── BYOA / server-side ship lock wiring ────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestServerSideShipLock:
+    """VoiceAgent's pre-spawn server acquire + heartbeat + disconnect release."""
+
+    @pytest.mark.asyncio
+    async def test_player_task_acquire_called_with_framework_task_id(self):
+        """The new-agent path emits task_lifecycle(start) before spawning."""
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent._inject_context = AsyncMock()
+
+        async def add_agent(task_agent):
+            await asyncio.sleep(0)
+            agent._children.append(task_agent)
+
+        agent.add_agent = AsyncMock(side_effect=add_agent)
+
+        params = MagicMock()
+        params.arguments = {"task_description": "Mine resources"}
+        result = await agent._handle_start_task(params)
+        assert result["success"]
+
+        agent._game_client.task_lifecycle.assert_called_once()
+        kwargs = agent._game_client.task_lifecycle.call_args.kwargs
+        assert kwargs["event_type"] == "start"
+        assert kwargs["task_id"] == result["task_id"]
+        assert kwargs["character_id"] == agent._character_id
+        assert kwargs["task_description"] == "Mine resources"
+        # The local lock map now carries the framework task_id.
+        assert agent._locked_ships.get(agent._character_id) == result["task_id"]
+
+    @pytest.mark.asyncio
+    async def test_start_task_returns_byoa_private_on_403(self):
+        from gradientbang.utils.api_client import RPCError
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent._inject_context = AsyncMock()
+        agent.add_agent = AsyncMock()
+        agent._is_corp_ship_id = AsyncMock(return_value=(True, "Bob's Probe"))
+        agent._VoiceAgent__game_client.base_url = "http://localhost"
+
+        body = {
+            "error": "byoa_private_not_owner",
+            "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "byoa_owner_character_id_prefix": "0123456789ab",
+        }
+        agent._game_client.task_lifecycle = AsyncMock(
+            side_effect=RPCError("task_lifecycle", 403, "byoa_private_not_owner", body=body)
+        )
+
+        params = MagicMock()
+        params.arguments = {
+            "task_description": "Trade",
+            "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        }
+        # Phase 1: corp-ship tasks no longer construct a dedicated
+        # AsyncGameClient. The broker uses the player-bound client and
+        # overrides character_id / actor_character_id per call. So a
+        # 403 acquire failure just bubbles up — nothing to close.
+        result = await agent._handle_start_task(params)
+
+        assert result["success"] is False
+        assert "BYOA ship" in result["error"]
+        assert "0123456789ab" in result["error"]
+        agent.add_agent.assert_not_called()
+        assert agent._locked_ships == {}
+
+    @pytest.mark.asyncio
+    async def test_close_tasks_releases_server_side_locks(self):
+        """Disconnect path explicitly releases each held lock server-side."""
+        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent.send_message = AsyncMock()
+        agent.cancel_task = AsyncMock()
+
+        # Two locks held: a player ship and a corp ship.
+        agent._locked_ships = {
+            agent._character_id: "task-player",
+            "corp-ship-1": "task-corp",
+        }
+        mock_player_agent = MagicMock(spec=TaskAgent)
+        mock_player_agent.name = "task_player"
+        mock_player_agent._is_corp_ship = False
+        agent._children.append(mock_player_agent)
+
+        await agent.close_tasks()
+
+        # task_cancel called once per held lock, with the framework task_id.
+        assert agent._game_client.task_cancel.await_count == 2
+        called_task_ids = {
+            call.kwargs["task_id"] for call in agent._game_client.task_cancel.await_args_list
+        }
+        assert called_task_ids == {"task-player", "task-corp"}
+        # Every call is from the player as requester.
+        for call in agent._game_client.task_cancel.await_args_list:
+            assert call.kwargs["character_id"] == agent._character_id
+
+        # Local state cleared after.
+        assert agent._locked_ships == {}
+
+    @pytest.mark.asyncio
+    async def test_idle_player_agent_reuse_acquires_before_dispatch(self):
+        """Reusing the idle player agent must hold the server lock before work starts."""
+        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        child = MagicMock(spec=TaskAgent)
+        child.name = "task_idle"
+        child._is_corp_ship = False
+        child._active_task_id = None
+        agent._children = [child]
+
+        order: list[str] = []
+
+        async def lifecycle_mock(**_kwargs):
+            order.append("acquire")
+            return {"success": True}
+
+        async def dispatch_mock(*_args, **_kwargs):
+            order.append("dispatch")
+
+        agent._game_client.task_lifecycle = AsyncMock(side_effect=lifecycle_mock)
+        agent._dispatch_task_with_id = AsyncMock(side_effect=dispatch_mock)
+        agent.request_task = AsyncMock(return_value="should-not-be-used")
+        # Phase 1: hello handshake sits between acquire and dispatch.
+        agent._send_hello_and_wait = AsyncMock()
+
+        params = MagicMock()
+        params.arguments = {"task_description": "Trade goods"}
+        result = await agent._handle_start_task(params)
+
+        assert result["success"]
+        assert order == ["acquire", "dispatch"]
+        # The hello fires after the acquire and before the dispatch.
+        agent._send_hello_and_wait.assert_awaited_once_with("task_idle")
+        assert agent._locked_ships[agent._character_id] == result["task_id"]
+        agent.request_task.assert_not_called()
+

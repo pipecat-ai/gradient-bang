@@ -1147,12 +1147,18 @@ export interface RouteToNearestResult {
  * in the target set. Returns the full path [fromSector, ..., target].
  * Pure function — no I/O. Uses the adjacency map directly.
  *
+ * If `traversable` is provided, intermediate neighbors are only expanded
+ * when the predicate returns true. The start sector and target sectors
+ * are always allowed regardless of the predicate, so a target adjacent
+ * to a non-traversable region is still reachable in one hop.
+ *
  * Returns null if no target is reachable.
  */
 export function findRouteToNearest(
   adjacency: Map<number, number[]>,
   fromSector: number,
   targets: Set<number>,
+  traversable?: (sector: number) => boolean,
 ): RouteToNearestResult | null {
   if (targets.has(fromSector)) {
     return { path: [fromSector], distance: 0, target: fromSector };
@@ -1169,20 +1175,25 @@ export function findRouteToNearest(
     const next: number[] = [];
     for (const current of frontier) {
       for (const neighbor of adjacency.get(current) ?? []) {
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor);
-          parents.set(neighbor, current);
-          if (targets.has(neighbor)) {
-            const path: number[] = [];
-            let cur: number | null | undefined = neighbor;
-            while (cur !== null && cur !== undefined) {
-              path.unshift(cur);
-              cur = parents.get(cur) ?? null;
-            }
-            return { path, distance: path.length - 1, target: neighbor };
-          }
-          next.push(neighbor);
+        if (visited.has(neighbor)) {
+          continue;
         }
+        const isTarget = targets.has(neighbor);
+        if (traversable && !isTarget && !traversable(neighbor)) {
+          continue;
+        }
+        visited.add(neighbor);
+        parents.set(neighbor, current);
+        if (isTarget) {
+          const path: number[] = [];
+          let cur: number | null | undefined = neighbor;
+          while (cur !== null && cur !== undefined) {
+            path.unshift(cur);
+            cur = parents.get(cur) ?? null;
+          }
+          return { path, distance: path.length - 1, target: neighbor };
+        }
+        next.push(neighbor);
       }
     }
     frontier = next;

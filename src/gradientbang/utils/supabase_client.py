@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import os
 import uuid
 import logging
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Iterator, Mapping, Optional
 from pathlib import Path
 from datetime import datetime, timezone
 import json
@@ -15,11 +17,69 @@ import time
 import httpx
 
 from gradientbang.adapters.events import make_event_adapter
+from gradientbang.adapters.events.base import EventAdapter
 from gradientbang.utils.api_client import AsyncGameClient as BaseAsyncGameClient, RPCError
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 
 logger = logging.getLogger(__name__)
+
+
+# Per-call task_id override. The Phase 1 broker tags the task_id on
+# every brokered RPC. The shared ``self._current_task_id`` instance
+# field would race if two concurrent broker handlers wrote to it
+# between set and read (each ``_request`` ``await``s before
+# ``_inject_character_ids`` runs). A ContextVar is async-safe — each
+# asyncio Task carries its own copy of the context — so handler A and
+# handler B can run concurrently without cross-pollution.
+_per_call_task_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "gb_supabase_per_call_task_id", default=None
+)
+_per_call_character_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "gb_supabase_per_call_character_id", default=None
+)
+_per_call_actor_character_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "gb_supabase_per_call_actor_character_id", default=None
+)
+
+
+@contextlib.contextmanager
+def per_call_task_id(task_id: Optional[str]) -> Iterator[None]:
+    """Bind ``task_id`` for the duration of a brokered RPC.
+
+    The Supabase client's ``_inject_character_ids`` reads this and
+    enriches the outbound payload with the override. Outside the
+    block, payloads fall back to the client's ``current_task_id`` (or
+    nothing). Safe under concurrent broker dispatch.
+    """
+    token = _per_call_task_id.set(task_id)
+    try:
+        yield
+    finally:
+        _per_call_task_id.reset(token)
+
+
+@contextlib.contextmanager
+def per_call_identity(
+    character_id: Optional[str],
+    actor_character_id: Optional[str] = None,
+) -> Iterator[None]:
+    """Bind authoritative per-call identity for brokered RPC payloads.
+
+    The broker should not pass identity through heterogeneous method
+    signatures. Instead, ``_inject_character_ids`` reads these ContextVars at
+    the transport boundary and overwrites any payload identity fields with the
+    envelope values for the current asyncio Task.
+    """
+    character_token = _per_call_character_id.set(character_id)
+    actor_token = _per_call_actor_character_id.set(actor_character_id)
+    try:
+        yield
+    finally:
+        _per_call_actor_character_id.reset(actor_token)
+        _per_call_character_id.reset(character_token)
+
+
 logger.addHandler(logging.NullHandler())
 _TRUE_VALUES = {"1", "true", "on", "yes"}
 
@@ -104,11 +164,13 @@ class AsyncGameClient(BaseAsyncGameClient):
         # one. The pubsub adapter raises at start() if it's None.
         self._access_token = access_token
 
-        # Event-delivery adapter. Transport-specific state (scope, cursor,
-        # dedup ring, task lifecycle) lives inside the adapter — see
-        # ``gradientbang.adapters.events`` for the Protocol and the polling /
-        # pubsub implementations. The factory branches on EVENT_TRANSPORT.
-        self._event_adapter = make_event_adapter(self)
+        # Event-delivery adapter. Constructed and started only by an
+        # explicit ``start_event_delivery()`` call once the caller is
+        # ready to consume events. Callers that build their LLM context
+        # inline from RPC responses call ``purge_event_backlog`` first to
+        # guarantee no events the server queued during bootstrap reach
+        # the LLM context.
+        self._event_adapter: Optional[EventAdapter] = None
 
     def set_event_polling_scope(
         self,
@@ -120,8 +182,14 @@ class AsyncGameClient(BaseAsyncGameClient):
         """Update the event subscription scope (delegates to the adapter).
 
         Public name preserved for backward compatibility with VoiceAgent /
-        EventRelay callers; the underlying transport is the adapter.
+        EventRelay callers; the underlying transport is the adapter. No-op
+        if the adapter hasn't been constructed yet — scope changes before
+        ``start_event_delivery`` are not currently supported (the bot
+        doesn't need it).
         """
+        if self._event_adapter is None:
+            logger.debug("set_event_polling_scope: adapter not started; ignoring")
+            return
         self._event_adapter.set_scope(
             character_ids=character_ids,
             corp_id=corp_id,
@@ -130,7 +198,8 @@ class AsyncGameClient(BaseAsyncGameClient):
 
     async def close(self):
         await super().close()
-        await self._event_adapter.stop()
+        if self._event_adapter is not None:
+            await self._event_adapter.stop()
         if self._http:
             await self._http.aclose()
             self._http = None
@@ -146,13 +215,7 @@ class AsyncGameClient(BaseAsyncGameClient):
         self,
         endpoint: str,
         payload: Dict[str, Any],
-        *,
-        skip_event_delivery: bool = False,
     ) -> Dict[str, Any]:  # type: ignore[override]
-        # Skip polling setup only for get_character_jwt (to avoid recursion)
-        # For join, we establish polling BEFORE the RPC so join events are received
-        if not skip_event_delivery:
-            await self._ensure_event_delivery()
         http_client = self._ensure_http_client()
 
         req_id = str(uuid.uuid4())
@@ -164,16 +227,26 @@ class AsyncGameClient(BaseAsyncGameClient):
         edge_endpoint = endpoint.replace('.', '_')
 
         url = f"{self._functions_url}/{edge_endpoint}"
-        t0 = time.monotonic()
-        response = await http_client.post(
-            url,
-            headers=self._edge_headers(),
-            json=enriched,
-        )
-        elapsed_ms = (time.monotonic() - t0) * 1000
         from loguru import logger as _loguru
+        t0 = time.monotonic()
         if edge_endpoint != "events_since":
-            _loguru.info(f"API {url} {response.status_code} {elapsed_ms:.0f}ms")
+            _loguru.info(f"API.send {url} req_id={req_id}")
+        try:
+            response = await http_client.post(
+                url,
+                headers=self._edge_headers(),
+                json=enriched,
+            )
+        except Exception as exc:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _loguru.error(
+                f"API.fail {url} req_id={req_id} {elapsed_ms:.0f}ms "
+                f"{type(exc).__name__}: {exc}"
+            )
+            raise
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        if edge_endpoint != "events_since":
+            _loguru.info(f"API.recv {url} {response.status_code} {elapsed_ms:.0f}ms")
 
         try:
             data = response.json()
@@ -193,7 +266,15 @@ class AsyncGameClient(BaseAsyncGameClient):
                 request_id=req_id,
                 error_payload=error_payload,
             )
-            raise RPCError(endpoint, status, detail, code)
+            # Pass the full body so callers can read structured 409/403 fields
+            # (e.g. ship_busy holder info) without needing to bypass _request.
+            raise RPCError(
+                endpoint,
+                status,
+                detail,
+                code,
+                body=data if isinstance(data, dict) else None,
+            )
 
         result = {k: v for k, v in data.items() if k != "success"}
         result.setdefault("success", True)
@@ -352,15 +433,15 @@ class AsyncGameClient(BaseAsyncGameClient):
 
     def _inject_character_ids(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         enriched = dict(payload)
-        requested_character_id = enriched.get("character_id")
+        override_character_id = _per_call_character_id.get()
+        requested_character_id = override_character_id or enriched.get("character_id")
         if requested_character_id:
-            enriched["character_id"] = canonicalize_character_id(
-                str(requested_character_id)
-            )
+            enriched["character_id"] = canonicalize_character_id(str(requested_character_id))
         else:
             enriched["character_id"] = self._canonical_character_id
 
-        requested_actor = enriched.get("actor_character_id")
+        override_actor = _per_call_actor_character_id.get()
+        requested_actor = override_actor or enriched.get("actor_character_id")
         canonical_actor: Optional[str]
         if requested_actor:
             canonical_actor = canonicalize_character_id(str(requested_actor))
@@ -370,9 +451,17 @@ class AsyncGameClient(BaseAsyncGameClient):
         if canonical_actor is not None:
             enriched["actor_character_id"] = canonical_actor
 
-        # Auto-inject task_id if set (for TaskAgent task correlation)
-        if self._current_task_id and "task_id" not in enriched:
-            enriched["task_id"] = self._current_task_id
+        # Auto-inject task_id if set (for TaskAgent task correlation).
+        # The Phase 1 broker prefers the ContextVar override so that
+        # concurrent brokered RPCs can't cross-tag each other's events
+        # by racing on the shared client field. Outside a broker
+        # context the ContextVar is unset and the bound field wins.
+        override_task_id = _per_call_task_id.get()
+        effective_task_id = (
+            override_task_id if override_task_id is not None else self._current_task_id
+        )
+        if effective_task_id and "task_id" not in enriched:
+            enriched["task_id"] = effective_task_id
 
         return enriched
 
@@ -524,9 +613,34 @@ class AsyncGameClient(BaseAsyncGameClient):
     async def _emit_frame(self, direction: str, frame: Mapping[str, Any]) -> None:  # type: ignore[override]
         return  # No legacy websocket frames
 
-    async def _ensure_event_delivery(self) -> None:
+    async def purge_event_backlog(self) -> None:
+        """Reset the per-character delivery backlog before bootstrap RPCs.
+
+        Sessions that build their LLM context inline from RPC responses
+        call this before issuing those RPCs. The pubsub adapter drops
+        the per-character pgmq queue (so subsequent server publishes
+        silently no-op until ``start_event_delivery`` recreates it); the
+        polling adapter fast-forwards its cursor to current head. Either
+        way, ``start_event_delivery`` starts on a clean baseline and the
+        bootstrap RPCs' events never reach the LLM context.
+        """
         if not self._enable_event_polling:
             return
+        if self._event_adapter is None:
+            self._event_adapter = make_event_adapter(self)
+        await self._event_adapter.purge_backlog()
+
+    async def start_event_delivery(self) -> None:
+        """Construct the event adapter and start consuming events.
+
+        Call this once the caller is ready for events to flow.
+        Idempotent. Callers building context from RPC responses should
+        call ``purge_event_backlog`` first.
+        """
+        if not self._enable_event_polling:
+            return
+        if self._event_adapter is None:
+            self._event_adapter = make_event_adapter(self)
         await self._event_adapter.start()
 
     def _append_event_log(self, event_name: str, payload: Dict[str, Any]) -> None:

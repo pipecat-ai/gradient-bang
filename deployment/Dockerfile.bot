@@ -38,6 +38,8 @@ COPY src/gradientbang/scripts/ gradientbang/scripts/
 COPY src/gradientbang/prompts/ gradientbang/prompts/
 COPY src/gradientbang/tools/ gradientbang/tools/
 COPY src/gradientbang/subagents/ gradientbang/subagents/
+COPY src/gradientbang/adapters/ gradientbang/adapters/
+COPY src/gradientbang/byoa/ gradientbang/byoa/
 COPY src/gradientbang/pipecat_server/ gradientbang/pipecat_server/
 
 COPY src/gradientbang/pipecat_server/bot.py bot.py

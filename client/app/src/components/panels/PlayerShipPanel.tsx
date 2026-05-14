@@ -16,6 +16,7 @@ import { cn } from "@/utils/tailwind"
 import { PlayerFightersBadge, PlayerShieldsBadge, PlayerShipFuelBadge } from "../PlayerShipBadges"
 import { PlayerShipCargo } from "../PlayerShipCargo"
 import { PopoverHelper } from "../PopoverHelper"
+import { ShipStatusPopover } from "../ShipStatusPopover"
 import { Badge } from "../primitives/Badge"
 import { Button } from "../primitives/Button"
 import { DotDivider } from "../primitives/DotDivider"
@@ -53,6 +54,7 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
     Object.values(state.activeTasks).find((task) => task.ship_id === ship.ship_id)
   )
   const isBusy = !!(activeTask || ship.current_task_id)
+  const isWaking = activeTask?.task_status === "waking"
   const actorName = activeTask?.actor_character_name ?? ship.current_task_actor_name
   const isInCombat = useGameStore((state) => isShipInCombat(state, ship.ship_id))
 
@@ -105,14 +107,20 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
             </Badge>
           : <>
               <Badge
-                variant={isBusy ? "success" : "secondary"}
+                variant={
+                  isWaking ? "highlight"
+                  : isBusy ?
+                    "success"
+                  : "secondary"
+                }
                 border="bracket"
                 size="sm"
                 className="font-semibold w-20 "
               >
                 {isBusy ?
                   <>
-                    <CircleNotchIcon weight="duotone" size={16} className="animate-spin" /> Active
+                    <CircleNotchIcon weight="duotone" size={16} className="animate-spin" />{" "}
+                    {isWaking ? "Waking" : "Active"}
                   </>
                 : <span className="text-muted-foreground">Inactive</span>}
               </Badge>
@@ -134,6 +142,11 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
         <ShipCardStat Icon={FighterIcon} value={ship.fighters} />
         <ShipCardStat Icon={ShieldIcon} value={ship.shields} />
       </dl>
+      {ship.byoa && (
+        <div className="relative z-10 self-start mr-1 mt-1">
+          <ShipStatusPopover ship={ship} />
+        </div>
+      )}
     </div>
   )
 }
@@ -327,7 +340,7 @@ const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
                         >
                           <ShipCard ship={ship} />
                           <motion.div
-                            className="absolute inset-0 cross-lines-destructive cross-lines-offset-5 flex items-center justify-center bg-card/50"
+                            className="absolute inset-0 cross-lines-destructive cross-lines-offset-5 flex items-center justify-center bg-card/50 pointer-events-none"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: isDestroying ? 1 : 0 }}
                             transition={{ duration: 0.3 }}

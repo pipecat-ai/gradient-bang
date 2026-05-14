@@ -68,6 +68,7 @@ declare global {
       fighters: number
       max_fighters: number
       current_task_id: string | null
+      byoa?: Ship["byoa"] | null
     }>
     destroyed_ships?: DestroyedCorporationShip[]
   }
@@ -90,6 +91,23 @@ declare global {
     owner_type?: "personal" | "corporation" | "unowned"
     current_task_id?: string | null
     current_task_actor_name?: string | null
+    // Truncated actor identity for the active task (12 hex chars, no dashes).
+    // Null when the ship is idle. Server-side payload extension from BYOA
+    // groundwork — see docs/setup-byoa.md.
+    current_task_actor?: {
+      character_id_prefix: string
+      character_name: string | null
+    } | null
+    // BYOA presentation block. Null on non-BYOA corp ships (the default).
+    byoa?: {
+      owner_character_id_prefix: string
+      owner_character_name: string | null
+      presence?: {
+        online: boolean
+        status: "online" | "offline"
+        last_seen_at?: string | null
+      }
+    } | null
     sector?: number
     destroyed_at?: string | null
   }
@@ -485,6 +503,7 @@ declare global {
     ship_id?: string
     ship_name?: string | null
     ship_type?: string | null
+    task_status?: "waking" | "active" | "completed" | "cancelled" | "failed"
   }
 
   interface TaskSummary extends ActiveTask {

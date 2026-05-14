@@ -25,6 +25,7 @@ export interface TaskSlice {
   getTaskOutputsByTaskId: (taskId: string) => TaskOutput[]
   removeTaskOutputsByTaskId: (taskId: string) => void
   addActiveTask: (task: ActiveTask) => void
+  markTaskActive: (taskId: string) => void
   removeActiveTask: (taskId: string) => void
   addTaskSummary: (taskSummary: TaskSummary) => void
   getTaskSummaryByTaskId: (taskId: string) => TaskSummary | undefined
@@ -115,6 +116,16 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
       }
     }
   },
+
+  markTaskActive: (taskId: string) =>
+    set(
+      produce((state) => {
+        const task = state.activeTasks[taskId]
+        if (task) {
+          task.task_status = "active"
+        }
+      })
+    ),
 
   removeActiveTask: (taskId: string) =>
     set(

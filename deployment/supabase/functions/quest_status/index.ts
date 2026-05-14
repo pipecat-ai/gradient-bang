@@ -107,7 +107,9 @@ Deno.serve(traced("quest_status", async (req, trace) => {
     sEmit.end();
 
     trace.setOutput({ request_id: requestId, quest_count: result.quests.length });
-    return successResponse({ request_id: requestId });
+    // Include data inline so callers can consume synchronously without waiting
+    // for the quest.status event. Event still emitted above for async subscribers.
+    return successResponse({ request_id: requestId, ...result });
   } catch (err) {
     const validationResponse = respondWithError(err);
     if (validationResponse) {

@@ -232,6 +232,8 @@ scripts/reset-world.sh --env .env.supabase 1000 42
 scripts/reset-world.sh --env .env.cloud 1000 42
 ```
 
+Local resets also create/update the restricted BYOA bus login used by `uv run byoa`: `postgresql://byoa_login:byoa_dev_password@127.0.0.1:54322/postgres`.
+
 ### Generate universe map visualization
 
 ```bash
@@ -337,7 +339,7 @@ The internal token is minted by the `verify_token` edge function in exchange for
 
 **Setup for local pubsub:**
 
-1. Edge functions always dual-write events into pgmq queues — no flag to set, just deploy the migration.
+1. `record_event_with_recipients` writes events into pgmq queues from SQL — no flag to set, just deploy the migration.
 2. In `.env.bot`:
 
    ```
@@ -358,6 +360,30 @@ HTTP polling against the `events_since` edge function, authenticated by `EDGE_AP
 ### Why two modes?
 
 Polling is the simplest path and works everywhere. Pubsub eliminates the busy-poll loop and the polling lag, and is the foundation for the upcoming distributed-runtime work (where a separate process per task can subscribe to its ship's queue independently). Both modes deliver byte-equivalent events through the same client sinks, so the rest of the bot doesn't care which is in use.
+
+---
+
+## Subagent bus transport
+
+Independent of `EVENT_TRANSPORT`: the bot's internal subagent bus (how MainAgent / VoiceAgent / TaskAgent talk to each other) is also transport-pluggable, chosen at startup by `SUBAGENT_BUS_TRANSPORT`. This is the wire BYOA agents ride on; see [docs/byoa.md](docs/byoa.md) for the operator-facing guide.
+
+### `local` (default)
+
+In-process `AsyncQueueBus` from `pipecat-ai-subagents`. No env changes needed.
+
+### `pgmq`
+
+Distributed bus over Postgres via upstream `PgmqBus` + `IsolatedPgmqBackend`. The bot mints a fresh UUID-128 channel (`gb_<32hex>`) per voice session and forwards it to BYOA over HTTPS at wake time. Required for BYOA.
+
+```bash
+# .env.bot
+SUBAGENT_BUS_TRANSPORT=pgmq
+SUBAGENT_BUS_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+```
+
+On managed Postgres, prefer the session-mode pooler (port 5432 on Supabase).
+
+BYOA processes never see this DSN. They use the restricted `BYOA_BUS_DATABASE_URL` injected by `wake_agent`, which can only call `public.bus_*` SECURITY DEFINER wrappers gated by per-channel peer registration. Channels are unguessable UUIDs transported wake → BYOA over HTTPS; knowledge of the channel name is the bus capability.
 
 ---
 
@@ -743,6 +769,7 @@ This project includes a set of [Claude Code](https://docs.anthropic.com/en/docs/
 | `/reset-world`      | Resets game database, generates a fresh universe, loads quests, and seeds combat cron config.                                             | Environment (`local`/`cloud`), sector count (default `5000`), seed (optional)    |
 | `/load-quests`      | Loads quest definitions from `quest-data/` JSON files into Supabase.                                                                      | Mode (`upsert`/`force`), dry run (yes/no)                                        |
 | `/character-create` | Creates a new game character via the `user_character_create` edge function.                                                               | Email, password, character name (all prompted)                                   |
+| `/byoa-setup`       | Onboards a BYOA operator: claims a corp ship, generates a per-ship wake secret, and writes `.env.byoa`.                                   | Environment (`local`/`prod`)                                                     |
 | `/npc <name>`       | Runs an autonomous AI task agent as a game character in the background.                                                                   | Character name (arg or prompted), task description (prompted)                    |
 | `/combat <target>`  | Initiates a combat encounter for testing. Shows sector context before starting.                                                           | Character name or ship UUID                                                      |
 | `/destroy-ship`     | Destroys a ship for testing — soft-delete, event emission, pseudo-character cleanup.                                                      | Ship UUID (prompted)                                                             |

@@ -1,12 +1,12 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
+  type AuthContext,
   authenticate,
   authErrorResponse,
   canActOnCharacter,
   errorResponse,
   successResponse,
-  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { buildEventSource, emitCharacterEvent } from "../_shared/events.ts";
@@ -48,17 +48,20 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
   try {
     const characterId = requireString(payload, "character_id");
     const taskId = requireString(payload, "task_id");
+    const forceFlag = payload.force === true;
 
     if (!(await canActOnCharacter(auth, characterId, supabase))) {
       return errorResponse("forbidden", 403);
     }
 
-    trace.setInput({ characterId, taskId, requestId });
+    trace.setInput({ characterId, taskId, requestId, force: forceFlag });
 
     const sQueryTask = trace.span("query_task");
     let query = supabase
       .from("events")
-      .select("id, character_id, actor_character_id, task_id, task_id_prefix")
+      .select(
+        "id, character_id, actor_character_id, task_id, task_id_prefix, ship_id",
+      )
       .eq("event_type", "task.start")
       .order("timestamp", { ascending: false });
 
@@ -94,8 +97,11 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const taskOwnerCharacterId = taskRow.character_id as string | null;
     const actorCharacterId = taskRow.actor_character_id as string | null;
     const fullTaskId = taskRow.task_id as string | null;
+    // Fall back to character_id for corp ships (where ship_id == pseudo-char).
+    const taskShipId = (taskRow.ship_id as string | null) ??
+      taskOwnerCharacterId;
 
-    if (!taskOwnerCharacterId || !fullTaskId) {
+    if (!taskOwnerCharacterId || !fullTaskId || !taskShipId) {
       return errorResponse("Invalid task metadata", 500);
     }
 
@@ -104,7 +110,9 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     let taskCorpId: string | null = null;
     const { data: shipData, error: shipError } = await supabase
       .from("ship_instances")
-      .select("owner_type, owner_corporation_id")
+      .select(
+        "owner_type, owner_corporation_id, byoa_owner_character_id",
+      )
       .eq("ship_id", taskOwnerCharacterId)
       .maybeSingle();
 
@@ -137,10 +145,47 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
       taskCorpId && requesterCorpId && taskCorpId === requesterCorpId,
     );
 
+    // BYOA restricts cancel to the owner (or task actor) in normal mode.
+    // force=true lets any corp member override the BYOA-owner-only check so
+    // a corpmate can emit a cancel event even when the owner is unreachable.
+    const byoaOwnerId = typeof shipData?.byoa_owner_character_id === "string"
+      ? (shipData.byoa_owner_character_id as string)
+      : null;
+    const isByoaShip = Boolean(byoaOwnerId);
+    const isRequesterByoaOwner = Boolean(
+      byoaOwnerId && characterId === byoaOwnerId,
+    );
+
     // Authorization rules:
-    // - Task owner or actor can cancel their own tasks
-    // - Any corp member can cancel corp ship tasks
-    if (
+    // - Task owner or actor can cancel their own tasks (normal mode)
+    // - Any corp member can cancel corp ship tasks (normal mode), UNLESS
+    //   the ship is BYOA — then only the BYOA owner (or task actor) may cancel
+    // - force=true: requester must be a corp member of a corp ship; bypasses
+    //   the BYOA owner-only check so a corpmate can emit a cancel event for
+    //   a BYOA-owned ship when the owner is unreachable.
+    if (forceFlag) {
+      if (!(isCorpShipTask && isSameCorp)) {
+        sAuthCheck.end();
+        return errorResponse(
+          "force=true is only allowed for corp members on corp ships",
+          403,
+        );
+      }
+    } else if (isByoaShip) {
+      if (!(isRequesterByoaOwner || isRequesterActor)) {
+        sAuthCheck.end();
+        return new Response(
+          JSON.stringify({
+            error: "byoa_private_not_owner",
+            ship_id: taskShipId,
+            byoa_owner_character_id_prefix: byoaOwnerId!
+              .replace(/-/g, "")
+              .slice(0, 12),
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    } else if (
       !(isRequesterOwner || isRequesterActor || (isCorpShipTask && isSameCorp))
     ) {
       sAuthCheck.end();
@@ -151,6 +196,9 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     }
     sAuthCheck.end();
 
+    const cancelTaskId = fullTaskId;
+    const cancelOwnerCharacterId = taskOwnerCharacterId;
+
     // Task events are actor-private — see task_lifecycle for the full
     // rationale. The cancel event goes to the task owner directly; if a
     // corpmate triggered the cancel, they do NOT get a copy in their UI.
@@ -158,27 +206,30 @@ Deno.serve(traced("task_cancel", async (req, trace) => {
     const sEmit = trace.span("emit_event");
     await emitCharacterEvent({
       supabase,
-      characterId: taskOwnerCharacterId,
+      characterId: cancelOwnerCharacterId,
       eventType: "task.cancel",
       payload: {
         source: buildEventSource("task_cancel", requestId),
-        task_id: fullTaskId,
+        task_id: cancelTaskId,
         cancelled_by: characterId,
+        ship_id: taskShipId,
+        task_scope: isCorpShipTask ? "corp_ship" : "player_ship",
+        ...(forceFlag ? { force: true } : {}),
       },
       senderId: characterId,
       actorCharacterId: characterId,
       requestId,
-      taskId: fullTaskId,
+      taskId: cancelTaskId,
       recipientReason: "task_owner",
       scope: "self",
       corpId: taskCorpId ?? undefined,
     });
     sEmit.end();
 
-    trace.setOutput({ request_id: requestId, task_id: fullTaskId });
+    trace.setOutput({ request_id: requestId, task_id: cancelTaskId });
     return successResponse({
       request_id: requestId,
-      task_id: fullTaskId,
+      task_id: cancelTaskId,
       message: "Cancel event emitted",
     });
   } catch (err) {

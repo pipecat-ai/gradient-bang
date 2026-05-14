@@ -84,6 +84,7 @@ Deno.test({
         task_id: taskId,
         event_type: "start",
         task_description: "Test task for coverage",
+        task_status: "waking",
       });
       const body = result as Record<string, unknown>;
       assertEquals(body.task_id, taskId);
@@ -95,6 +96,7 @@ Deno.test({
       assert(events.length >= 1, `Expected >= 1 task.start, got ${events.length}`);
       const payload = events[0].payload;
       assertEquals(payload.task_id, taskId);
+      assertEquals(payload.task_status, "waking");
     });
   },
 });
@@ -218,7 +220,14 @@ Deno.test({
 
     await t.step("P1 receives task.cancel event", async () => {
       const events = await eventsOfType(p1Id, "task.cancel", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 task.cancel, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 task.cancel, got ${events.length}`,
+      );
+      const payload = events[events.length - 1].payload;
+      assertEquals(payload.task_id, taskId);
+      assertEquals(payload.ship_id, p1ShipId);
+      assertEquals(payload.task_scope, "player_ship");
     });
   },
 });
@@ -651,67 +660,53 @@ Deno.test({
       corpShipId = ship.shipId;
     });
 
-    await t.step("6-char prefix of corp ship resolves", async () => {
-      const prefix = corpShipId.slice(0, 6);
+    // Each step start+finish so the ship-task lock is released between
+    // prefix variants — the lock is on ship_id, not task_id.
+    const startAndFinish = async (
+      label: string,
+      prefix: string,
+    ): Promise<void> => {
+      const taskId = crypto.randomUUID();
       const result = await apiOk("task_lifecycle", {
         character_id: p1Id,
-        task_id: crypto.randomUUID(),
+        task_id: taskId,
         event_type: "start",
-        task_description: "Prefix 6",
+        task_description: label,
         ship_id: prefix,
       });
       assertExists(result);
+      await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: taskId,
+        event_type: "finish",
+        ship_id: prefix,
+      });
+    };
+
+    await t.step("6-char prefix of corp ship resolves", async () => {
+      await startAndFinish("Prefix 6", corpShipId.slice(0, 6));
     });
 
     await t.step("7-char prefix of corp ship resolves", async () => {
-      const prefix = corpShipId.slice(0, 7);
-      const result = await apiOk("task_lifecycle", {
-        character_id: p1Id,
-        task_id: crypto.randomUUID(),
-        event_type: "start",
-        task_description: "Prefix 7",
-        ship_id: prefix,
-      });
-      assertExists(result);
+      await startAndFinish("Prefix 7", corpShipId.slice(0, 7));
     });
 
     await t.step("8-char prefix of corp ship resolves", async () => {
-      const prefix = corpShipId.slice(0, 8);
-      const result = await apiOk("task_lifecycle", {
-        character_id: p1Id,
-        task_id: crypto.randomUUID(),
-        event_type: "start",
-        task_description: "Prefix 8",
-        ship_id: prefix,
-      });
-      assertExists(result);
+      await startAndFinish("Prefix 8", corpShipId.slice(0, 8));
     });
 
     await t.step("6-char prefix of player ship resolves", async () => {
-      const prefix = p1ShipId.slice(0, 6);
-      const result = await apiOk("task_lifecycle", {
-        character_id: p1Id,
-        task_id: crypto.randomUUID(),
-        event_type: "start",
-        task_description: "Player ship prefix",
-        ship_id: prefix,
-      });
-      assertExists(result);
+      await startAndFinish("Player ship prefix", p1ShipId.slice(0, 6));
     });
 
-    await t.step("6-char prefix of character ID resolves to personal ship", async () => {
-      // Character ID prefix matches via owner_character_id, resolving to
-      // the player's personal ship.
-      const prefix = p1Id.slice(0, 6);
-      const result = await apiOk("task_lifecycle", {
-        character_id: p1Id,
-        task_id: crypto.randomUUID(),
-        event_type: "start",
-        task_description: "Char ID prefix",
-        ship_id: prefix,
-      });
-      assertExists(result);
-    });
+    await t.step(
+      "6-char prefix of character ID resolves to personal ship",
+      async () => {
+        // Character ID prefix matches via owner_character_id, resolving to
+        // the player's personal ship.
+        await startAndFinish("Char ID prefix", p1Id.slice(0, 6));
+      },
+    );
 
     await t.step("5-char prefix → 400 (too short)", async () => {
       const result = await api("task_lifecycle", {
@@ -751,49 +746,46 @@ Deno.test({
       corpShipId = ship.shipId;
     });
 
-    await t.step("uppercase full UUID of player ship resolves", async () => {
+    // Same pattern as the prefix-resolution suite: release the lock between
+    // ship-id variants on the same ship.
+    const startAndFinish = async (
+      label: string,
+      shipIdInput: string,
+    ): Promise<void> => {
+      const taskId = crypto.randomUUID();
       const result = await apiOk("task_lifecycle", {
         character_id: p1Id,
-        task_id: crypto.randomUUID(),
+        task_id: taskId,
         event_type: "start",
-        task_description: "Uppercase player ship",
-        ship_id: p1ShipId.toUpperCase(),
+        task_description: label,
+        ship_id: shipIdInput,
       });
       assertExists(result);
+      await apiOk("task_lifecycle", {
+        character_id: p1Id,
+        task_id: taskId,
+        event_type: "finish",
+        ship_id: shipIdInput,
+      });
+    };
+
+    await t.step("uppercase full UUID of player ship resolves", async () => {
+      await startAndFinish("Uppercase player ship", p1ShipId.toUpperCase());
     });
 
     await t.step("uppercase full UUID of corp ship resolves", async () => {
-      const result = await apiOk("task_lifecycle", {
-        character_id: p1Id,
-        task_id: crypto.randomUUID(),
-        event_type: "start",
-        task_description: "Uppercase corp ship",
-        ship_id: corpShipId.toUpperCase(),
-      });
-      assertExists(result);
+      await startAndFinish("Uppercase corp ship", corpShipId.toUpperCase());
     });
 
     await t.step("uppercase character ID as ship_id resolves", async () => {
-      const result = await apiOk("task_lifecycle", {
-        character_id: p1Id,
-        task_id: crypto.randomUUID(),
-        event_type: "start",
-        task_description: "Uppercase char ID",
-        ship_id: p1Id.toUpperCase(),
-      });
-      assertExists(result);
+      await startAndFinish("Uppercase char ID", p1Id.toUpperCase());
     });
 
     await t.step("uppercase prefix of corp ship resolves", async () => {
-      const prefix = corpShipId.slice(0, 8).toUpperCase();
-      const result = await apiOk("task_lifecycle", {
-        character_id: p1Id,
-        task_id: crypto.randomUUID(),
-        event_type: "start",
-        task_description: "Uppercase prefix",
-        ship_id: prefix,
-      });
-      assertExists(result);
+      await startAndFinish(
+        "Uppercase prefix",
+        corpShipId.slice(0, 8).toUpperCase(),
+      );
     });
   },
 });

@@ -1,20 +1,20 @@
 import {
+  type AuthContext,
   authenticate,
   authErrorResponse,
   canActOnCharacter,
   errorResponse,
   successResponse,
-  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
 import { buildEventSource, emitCharacterEvent } from "../_shared/events.ts";
 import {
-  parseJsonRequest,
-  requireString,
   optionalString,
+  parseJsonRequest,
+  RequestValidationError,
+  requireString,
   resolveRequestId,
   respondWithError,
-  RequestValidationError,
 } from "../_shared/request.ts";
 import { traced } from "../_shared/weave.ts";
 
@@ -97,6 +97,12 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     };
 
     const actorCharacterId = actorCharacterIdRaw ?? characterId;
+    if (
+      actorCharacterId !== characterId &&
+      !(await canActOnCharacter(auth, actorCharacterId, supabase))
+    ) {
+      return errorResponse("forbidden", 403);
+    }
     eventPayload.actor_character_id = actorCharacterId;
 
     const sLoadState = trace.span("load_state");
@@ -117,7 +123,8 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     // Parse and validate the raw ship_id input.
     // We strip brackets and lowercase, then treat any hex string ≥6 chars
     // as a prefix to match against ship_id (full UUIDs are just long prefixes).
-    const rawLookup = shipIdRaw?.trim().replace(/[\[\]]/g, "").replace(/-/g, "") || null;
+    const rawLookup =
+      shipIdRaw?.trim().replace(/[\[\]]/g, "").replace(/-/g, "") || null;
     const lookupId = rawLookup?.toLowerCase() || null;
 
     if (lookupId && (lookupId.length < 6 || !/^[0-9a-f]+$/i.test(lookupId))) {
@@ -160,7 +167,7 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     const { data: accessibleShips, error: shipLookupError } = await supabase
       .from("ship_instances")
       .select(
-        "ship_id, ship_name, ship_type, owner_type, owner_character_id, owner_corporation_id",
+        "ship_id, ship_name, ship_type, owner_type, owner_character_id, owner_corporation_id, byoa_owner_character_id",
       )
       .or(orClauses.join(","));
 
@@ -178,7 +185,8 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       // No ship_id provided: default to the player's personal ship,
       // or the corp ship whose pseudo-character IS the characterId.
       shipRow = ships.find(
-        (s) => s.owner_character_id === characterId || s.ship_id === characterId,
+        (s) =>
+          s.owner_character_id === characterId || s.ship_id === characterId,
       ) ?? null;
     } else {
       // Match by ship_id prefix (full UUIDs are just 32-char prefixes).
@@ -187,7 +195,9 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       const stripDashes = (v: string) => v.replace(/-/g, "").toLowerCase();
       const matches = ships.filter((s) => {
         const sid = stripDashes(s.ship_id as string);
-        const oid = s.owner_character_id ? stripDashes(s.owner_character_id as string) : null;
+        const oid = s.owner_character_id
+          ? stripDashes(s.owner_character_id as string)
+          : null;
         return sid.startsWith(lookupId) || oid?.startsWith(lookupId);
       });
       if (matches.length > 1) {
@@ -203,12 +213,13 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
     }
 
     const shipId: string | null = (shipRow?.ship_id as string) ?? null;
-    const shipName: string | null =
-      shipNameRaw ?? (shipRow?.ship_name as string) ?? null;
-    const shipType: string | null =
-      shipTypeRaw ?? (shipRow?.ship_type as string) ?? null;
-    let taskScope: "player_ship" | "corp_ship" =
-      taskScopeRaw === "corp_ship" ? "corp_ship" : "player_ship";
+    const shipName: string | null = shipNameRaw ??
+      (shipRow?.ship_name as string) ?? null;
+    const shipType: string | null = shipTypeRaw ??
+      (shipRow?.ship_type as string) ?? null;
+    let taskScope: "player_ship" | "corp_ship" = taskScopeRaw === "corp_ship"
+      ? "corp_ship"
+      : "player_ship";
 
     if (shipRow?.owner_type === "corporation") {
       taskScope = "corp_ship";
@@ -224,6 +235,10 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       eventPayload.task_description = taskDescription;
     }
 
+    if (eventType === "start" && taskStatusRaw) {
+      eventPayload.task_status = taskStatusRaw;
+    }
+
     if (eventType === "finish") {
       const taskStatus = taskStatusRaw ?? "completed";
       eventPayload.task_status = taskStatus;
@@ -232,30 +247,64 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       }
     }
 
+    // BYOA owner check. Local BYOA processes listen on the owner's active
+    // voice-session channel; routing another corp member's task to that
+    // process would require cross-session wake/fanout. Keep BYOA private-only
+    // until that routing exists.
+    //
+    // actorCharacterId has already been authorized above, so callers cannot
+    // spoof the BYOA owner's UUID to bypass this check.
+    const byoaOwner = typeof shipRow?.byoa_owner_character_id === "string"
+      ? (shipRow.byoa_owner_character_id as string)
+      : null;
+    if (
+      byoaOwner &&
+      actorCharacterId !== byoaOwner
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "byoa_private_not_owner",
+          ship_id: shipId,
+          byoa_owner_character_id_prefix: byoaOwner
+            .replace(/-/g, "")
+            .slice(0, 12),
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
     // Task events are actor-private. Whether the ship is personal or
     // corp-owned, only the acting character sees task lifecycle updates in
-    // their UI and LLM context. Cross-member awareness of ship busyness is
-    // enforced synchronously at start_task time (the server rejects an
-    // attempt to start a second task on a ship whose current_task_id is
-    // already set) — not by fanning out task events to corpmates.
+    // their UI and LLM context. There is no server-side mutex: the bot's
+    // in-memory VoiceAgent._locked_ships is the only authority on ship
+    // busyness. See CHANGELOG.md.
     const sEmit = trace.span("emit_event");
-    await emitCharacterEvent({
-      supabase,
-      characterId,
-      eventType: eventName,
-      payload: eventPayload,
-      senderId: characterId,
-      actorCharacterId: actorCharacterId ?? undefined,
-      requestId,
-      taskId,
-      shipId: shipId ?? undefined,
-      corpId: taskScope === "corp_ship" ? (effectiveCorpId ?? undefined) : undefined,
-      recipientReason: "task_owner",
-      scope: "self",
-    });
-    sEmit.end();
+    try {
+      await emitCharacterEvent({
+        supabase,
+        characterId,
+        eventType: eventName,
+        payload: eventPayload,
+        senderId: characterId,
+        actorCharacterId: actorCharacterId ?? undefined,
+        requestId,
+        taskId,
+        shipId: shipId ?? undefined,
+        corpId: taskScope === "corp_ship"
+          ? (effectiveCorpId ?? undefined)
+          : undefined,
+        recipientReason: "task_owner",
+        scope: "self",
+      });
+    } finally {
+      sEmit.end();
+    }
 
-    trace.setOutput({ request_id: requestId, task_id: taskId, event_type: eventType });
+    trace.setOutput({
+      request_id: requestId,
+      task_id: taskId,
+      event_type: eventType,
+    });
     return successResponse({
       request_id: requestId,
       task_id: taskId,
@@ -267,9 +316,9 @@ Deno.serve(traced("task_lifecycle", async (req, trace) => {
       return validationResponse;
     }
     console.error("task_lifecycle.error", err);
-    const detail =
-      err instanceof Error ? err.message : "task lifecycle event failed";
+    const detail = err instanceof Error
+      ? err.message
+      : "task lifecycle event failed";
     return errorResponse(detail, 500);
   }
 }));
-

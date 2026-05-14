@@ -237,23 +237,43 @@ def build_voice_agent_prompt() -> str:
     return apply_prompt_substitutions("\n\n".join(parts))
 
 
-def build_task_agent_prompt() -> str:
+def build_task_agent_prompt(custom_prompt: Optional[str] = None) -> str:
     """Build the complete system prompt for the task agent.
 
     Combines:
     1. base/game_overview.md - Concise game basics
     2. base/how_to_load_info.md - How to use load_game_info
     3. agents/task_agent.md - Task execution instructions
+    4. (optional) "Operator guidance" — BYOA-operator-supplied custom
+       prompt appended verbatim (no template substitution applied to the
+       custom block; operators shouldn't be able to reach into the
+       runtime's substitution namespace).
+
+    Args:
+        custom_prompt: Optional operator-supplied additional instructions
+            (BYOA Phase 3). Empty / whitespace-only is a no-op — produces
+            bit-for-bit the same output as the no-arg form.
 
     Returns:
-        Complete system prompt for task agent
+        Complete system prompt for task agent.
     """
     parts = [
         load_prompt("base/game_overview.md"),
         load_prompt("base/how_to_load_info.md"),
         load_prompt("agents/task_agent.md"),
     ]
-    return apply_prompt_substitutions("\n\n".join(parts))
+    base = apply_prompt_substitutions("\n\n".join(parts))
+    trimmed = (custom_prompt or "").strip()
+    if not trimmed:
+        return base
+    # Custom block is appended AFTER substitution so the operator's text
+    # never participates in ${key} expansion. Mirrors the layering pattern
+    # used by combat-doctrine preambles (render_combat_strategy_preamble).
+    return (
+        f"{base}\n\n## Operator guidance\n\n"
+        "Layer the following on top of the instructions above:\n\n"
+        f"{trimmed}"
+    )
 
 
 def build_ui_agent_prompt() -> str:

@@ -5,7 +5,7 @@ set -euo pipefail
 # Reset World Data
 #
 # Truncates all game data tables (preserving auth.users, app_runtime_config,
-# and static config),
+# and static config), ensures the restricted local BYOA bus login exists,
 # generates a fresh universe, and loads it into Supabase.
 #
 # Usage:
@@ -95,6 +95,14 @@ if [[ "${POSTGRES_POOLER_URL:-}" == *"supabase.co"* || "${POSTGRES_POOLER_URL:-}
   IS_CLOUD=true
 fi
 
+BYOA_BUS_DB_USER="${BYOA_BUS_DB_USER:-byoa_login}"
+if [[ "$IS_CLOUD" == true ]]; then
+  BYOA_BUS_DB_PASSWORD="${BYOA_BUS_DB_PASSWORD:-}"
+else
+  BYOA_BUS_DB_PASSWORD="${BYOA_BUS_DB_PASSWORD:-byoa_dev_password}"
+fi
+BYOA_BUS_LOGIN_PROVISIONED=false
+
 # ---------------------------------------------------------------------------
 # Production guard: .env.cloud (no suffix) = production
 # Require --allow-production flag to proceed
@@ -134,6 +142,53 @@ run_sql() {
     docker exec -e PGPASSWORD=postgres "$DB_CONTAINER" \
       psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "$sql"
   fi
+}
+
+validate_role_name() {
+  local role="$1"
+  if [[ ! "$role" =~ ^[A-Za-z_][A-Za-z0-9_]{0,62}$ ]]; then
+    echo "[reset-world] Invalid BYOA_BUS_DB_USER '$role'." >&2
+    echo "              Use a valid Postgres role identifier, e.g. byoa_login." >&2
+    exit 1
+  fi
+}
+
+sql_quote_literal() {
+  local value="$1"
+  value=${value//\'/\'\'}
+  printf "%s" "$value"
+}
+
+ensure_byoa_bus_login() {
+  validate_role_name "$BYOA_BUS_DB_USER"
+
+  if [[ -z "$BYOA_BUS_DB_PASSWORD" ]]; then
+    echo "[reset-world] BYOA_BUS_DB_PASSWORD is not set; skipping BYOA login provisioning."
+    echo "              Set BYOA_BUS_DB_PASSWORD in $ENV_FILE when resetting a cloud project."
+    return
+  fi
+
+  local escaped_password
+  escaped_password=$(sql_quote_literal "$BYOA_BUS_DB_PASSWORD")
+
+  run_sql "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'byoa_bus_client') THEN
+        CREATE ROLE byoa_bus_client NOLOGIN;
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$BYOA_BUS_DB_USER') THEN
+        CREATE ROLE $BYOA_BUS_DB_USER LOGIN PASSWORD '$escaped_password';
+      ELSE
+        ALTER ROLE $BYOA_BUS_DB_USER WITH LOGIN PASSWORD '$escaped_password';
+      END IF;
+
+      GRANT byoa_bus_client TO $BYOA_BUS_DB_USER;
+    END \$\$;
+  "
+
+  BYOA_BUS_LOGIN_PROVISIONED=true
 }
 
 # ---------------------------------------------------------------------------
@@ -238,7 +293,7 @@ fi
 # Step 1: Truncate all game data tables
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 1/4 -- Truncating all public tables (preserving auth + config) ..."
+echo "[reset-world] Step 1/5 -- Truncating all public tables (preserving auth + config) ..."
 
 # Dynamically find and truncate all public tables except preserved ones
 run_sql "
@@ -263,10 +318,26 @@ echo "[reset-world] All public tables truncated. auth.users and app_runtime_conf
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 2: Generate new universe
+# Step 2: Ensure restricted BYOA bus login exists
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 2/4 -- Generating universe ($SECTOR_COUNT sectors) ..."
+echo "[reset-world] Step 2/5 -- Ensuring restricted BYOA bus login exists ..."
+
+ensure_byoa_bus_login
+
+if [[ "$BYOA_BUS_LOGIN_PROVISIONED" == true ]]; then
+  echo "[reset-world] BYOA bus login ready: $BYOA_BUS_DB_USER"
+fi
+if [[ "$IS_CLOUD" != true && "$BYOA_BUS_LOGIN_PROVISIONED" == true ]]; then
+  echo "[reset-world] Local BYOA DSN: postgresql://$BYOA_BUS_DB_USER:$BYOA_BUS_DB_PASSWORD@127.0.0.1:54322/postgres"
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 3: Generate new universe
+# ---------------------------------------------------------------------------
+
+echo "[reset-world] Step 3/5 -- Generating universe ($SECTOR_COUNT sectors) ..."
 
 BANG_ARGS=("$SECTOR_COUNT")
 if [[ -n "$SEED" ]]; then
@@ -280,10 +351,10 @@ echo "[reset-world] Universe generated."
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 3: Load universe into Supabase
+# Step 4: Load universe into Supabase
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 3/4 -- Loading universe into Supabase ..."
+echo "[reset-world] Step 4/5 -- Loading universe into Supabase ..."
 
 uv run -m gradientbang.scripts.load_universe_to_supabase \
   --from-json world-data/ --force
@@ -292,10 +363,10 @@ echo "[reset-world] Universe loaded."
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 4: Load quest definitions
+# Step 5: Load quest definitions
 # ---------------------------------------------------------------------------
 
-echo "[reset-world] Step 4/4 -- Loading quest definitions ..."
+echo "[reset-world] Step 5/5 -- Loading quest definitions ..."
 
 uv run -m gradientbang.scripts.load_quests_to_supabase \
   --from-json quest-data/ --force

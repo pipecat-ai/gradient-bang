@@ -73,6 +73,7 @@ async def main_async() -> int:
                 base_url=args.server,
                 character_id=character_id,
             ) as client:
+                await client.start_event_delivery()
                 # Wait for status.snapshot event
                 status_payload = None
                 def capture_status(payload):

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **BYOA (Bring-Your-Own-Agent)** — corp members can claim a corp ship and run their own task agent for it. Operators deploy the [BYOA harness](docs/byoa.md) (local dev via `uv run byoa --serve`, or production via a Vercel Function the operator owns). The bot wakes the operator's receiver over HTTPS per task; the operator's runtime spawns `uv run byoa` with the wake env. BYOA ships are owner-only: only the BYOA owner can start tasks on them; any corp member can force-cancel
+- Per-ship wake config via `ship_byoa_configure { action: 'set', source_url, wake_secret }`. The wake bearer is stored encrypted at rest (`byoa_wake_secret_enc`, pgcrypto) and used per-ship — no shared env-var bearer
+- BYOA online/offline + waking state on corp ship cards. Cold starts show a fuel-colored `Waking` badge until the first `task_output`
+- Subagent bus is transport-pluggable via `SUBAGENT_BUS_TRANSPORT` (`local` default; `pgmq` enables BYOA). Set `SUBAGENT_BUS_DATABASE_URL` when running `pgmq`. Channels are server-allocated UUID-128 strings (`gb_<32hex>`) minted per voice session — knowledge of the channel name is the bus capability
+- `TASK_AGENT_TIMEOUT` (bot env, default `1800`s) is now the per-task hard upper bound. Bot cancels and clears its local ship lock on expiry. Not operator-overridable
+- `current_task_actor` and `byoa` blocks on `list_user_ships` and `corporation_info` ship-list payloads (character IDs truncated to 12 hex chars)
+- Universal wake-up handshake (`BusAgentHelloRequest` / `Response`) before task dispatch. Times out per `BYOA_AGENT_WAKE_TIMEOUT_SECONDS` (default 30s) — generous enough for a Vercel-Sandbox cold start
+- Idle teardown for warm corp-ship / BYOA agents after `BYOA_AGENT_IDLE_TEARDOWN_SECONDS` (default 300s) of no activity. Player-ship agents are reused across tasks and excluded
+
+### Changed
+
+- Ship-task lock is per-bot in memory (`VoiceAgent._locked_ships`). BYOA presence heartbeats (10s cadence over the bus) are the crash signal — ~30s stale presence clears the local lock and emits `task.cancel`
+- `task_lifecycle event_type=start` and `task_cancel` no longer touch a DB lock; they emit lifecycle events only. Still returns `403 byoa_private_not_owner` when a non-owner tries to start a task on a private BYOA ship. `task_cancel { force: true }` lets any corp member cancel a BYOA-owned task when the owner is unreachable
+- `record_event_with_recipients` owns pubsub delivery from SQL, so SQL-only quest events reach pgmq without JS dual-writes
+- `quest.reward_claimed` events reframed as payout, not progress
+- TaskAgent drops its dedicated `AsyncGameClient` — VoiceAgent's single player-bound client services every TaskAgent via per-call identity overrides. Concurrent calls disambiguate `task_id` via a `ContextVar` instead of mutating shared client state
+- Game RPCs, lifecycle events, corp queries, and combat doctrine fetches all flow through typed bus messages to VoiceAgent's broker. Broker treats envelope `character_id` / `actor_character_id` as authoritative
+
+### Fixed
+
+- Onboarding mega-port route stays in Federation Space. `findRouteToNearest` accepts a traversable predicate; `join` filters by `fedspace_sectors`; worldgen's `select_fedspace` grows the fedspace region as a connected subgraph so every mega-port is reachable without crossing Neutral. **Existing universes must be regenerated** to pick up the new layout
+- Task-agent mega-port verification: read the `MEGA ` / `STD ` prefix on the port string in `movement.complete` / `status.snapshot` instead of stacking commodity filters on `list_known_ports`, which produced false negatives
+
+### Removed
+
+- DB ship-lock columns and RPCs (`acquire_ship_task_lock`, `release_ship_task_lock`, `force_release_ship_task_lock`, `refresh_ship_task_heartbeats`), the `task_heartbeat` edge function, and `AsyncGameClient.task_heartbeat`
+- BYOA token surface: `byoa_tokens` table, `verify_byoa_token` SQL function, and the `byoa_token_mint` / `byoa_token_revoke` edge functions. Channel-as-capability replaced the per-op token check
+- Env vars: `BYOA_TOKEN`, `BYOA_HEARTBEAT_INTERVAL_SECONDS`, `TASK_LOCK_HEARTBEAT_STALE_SECONDS`, `TASK_LOCK_HARD_TTL_MINUTES`, `BYOA_SERVER_LOCK_STALE_SECONDS`, `BYOA_SERVER_LOCK_HARD_TTL_MINUTES`
+
 ## [0.4.1] - 2026-05-11
 
 ### Changed

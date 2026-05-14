@@ -160,8 +160,8 @@ export ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1
 # server.ts is imported inside the test process so that deno test --coverage
 # can measure coverage of all edge function code.
 #
-# Edge functions always dual-write to both the events table and per-character
-# pgmq queues. The default run only exercises the pubsub path; pass
+# record_event_with_recipients writes both the events table and SQL-owned
+# pubsub delivery. The default run only exercises the pubsub path; pass
 # `TRANSPORT=polling` to run the polling pass instead (kept reachable for
 # regression checks on the polling adapter).
 echo ""

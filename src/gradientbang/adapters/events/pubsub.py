@@ -35,9 +35,11 @@ Failure modes:
   the auth design: no token-refresh path; expired sessions terminate).
 
 No client-side dedup ring: per the design, a fresh pubsub session does not
-replay history. Anything sitting in the queue at connect time is drained and
-discarded by ``_drain_backlog`` before the long-poll loop starts; only events
-arriving after ``start()`` are dispatched.
+replay history. Callers that build their LLM context inline from RPC
+responses call ``purge_backlog`` before issuing those RPCs — it drops the
+per-character pgmq queue so subsequent server publishes silently no-op
+until ``start`` recreates it. Only events arriving after ``start()``
+reach the dispatch sink.
 """
 
 from __future__ import annotations
@@ -70,7 +72,7 @@ if TYPE_CHECKING:
 # Long-poll window per subscribe_my_events call. Connection stays in
 # `read_with_poll` server-side until either a message arrives or this elapses.
 DEFAULT_MAX_POLL_SECONDS = int(os.getenv("PGMQ_MAX_POLL_SECONDS", "30"))
-# Max messages drained per call. Above this, the next iteration picks them up.
+# Max messages dispatched per long-poll iteration.
 DEFAULT_QTY = int(os.getenv("PGMQ_BATCH_QTY", "100"))
 # Backoff cap on transient connection errors.
 RECONNECT_BACKOFF_MAX = float(os.getenv("PGMQ_RECONNECT_BACKOFF_MAX", "10.0"))
@@ -154,6 +156,48 @@ class PubsubEventAdapter:
     # EventAdapter Protocol
     # ------------------------------------------------------------------
 
+    async def purge_backlog(self) -> None:
+        """Drop the per-character pgmq queue.
+
+        Called by sessions that build their LLM context inline from RPC
+        responses before this adapter starts. After this returns, server
+        ``pgmq_publish`` calls for the bound character silently no-op
+        (``EXCEPTION WHEN undefined_table THEN RETURN NULL``) until
+        ``start()`` recreates the queue via ``ensure_character_queue``.
+        Eliminates the timing race between init-RPC pgmq inserts and
+        the adapter's startup, at the cost of losing any genuine
+        background events for this character during the bootstrap
+        window — acceptable since the next status.snapshot reconciles.
+        """
+        if not os.getenv("PGMQ_URL"):
+            raise RuntimeError(
+                "PGMQ_URL is required when EVENT_TRANSPORT=pubsub. "
+                "Set it to a direct (NOT pooled) postgres URL using the same "
+                "admin credentials as POSTGRES_POOLER_URL in .env.supabase."
+            )
+        pgmq_url = os.environ["PGMQ_URL"]
+        async with await psycopg.AsyncConnection.connect(
+            pgmq_url, autocommit=True, row_factory=tuple_row
+        ) as conn:
+            async with conn.cursor() as cur:
+                for character_id in self._character_ids:
+                    queue_name = f"chr_{character_id}"
+                    try:
+                        await cur.execute(
+                            "SELECT pgmq.drop_queue(%s)", (queue_name,)
+                        )
+                        logger.info(
+                            f"pubsub.backlog_purged character={character_id}"
+                        )
+                    except Exception as exc:
+                        # Queue didn't exist → drop is a no-op for our purposes.
+                        # Any other error is logged but not fatal; start() will
+                        # try again and surface real problems then.
+                        logger.debug(
+                            f"pubsub.purge_skipped character={character_id} "
+                            f"error={exc}"
+                        )
+
     async def start(self) -> None:
         if self._char_tasks:
             return  # Already running.
@@ -193,21 +237,10 @@ class PubsubEventAdapter:
             await self._ensure_internal_token(character_id)
 
         # Self-test: verify the SQL roundtrip works end-to-end before we
-        # silently accept the session. Catches verify_token/secret mismatch,
-        # missing per-character queue, or auth-gate misconfig — symptoms that
-        # otherwise only show up minutes later when a long-poll fails.
+        # silently accept the session. Also creates the per-character queue
+        # if a prior ``purge_backlog`` dropped it (or it never existed).
         for character_id in self._character_ids:
             await self._run_startup_self_test(character_id)
-
-        # Discard anything left over from a previous session. pgmq is
-        # persistent; without this a crash mid-archive would replay history
-        # on the next connect.
-        for character_id in self._character_ids:
-            drained = await self._drain_backlog(character_id)
-            if drained:
-                logger.info(
-                    f"pubsub.backlog_drained character={character_id} count={drained}"
-                )
 
         await self._sync_tasks()
 
@@ -408,13 +441,54 @@ class PubsubEventAdapter:
                 if task is not None:
                     task.cancel()
 
+            if self._stop_event.is_set():
+                return
+
             for cid in to_add:
-                if self._stop_event.is_set():
-                    break
+                loop_coro = (
+                    self._dynamic_character_loop(cid)
+                    if self._started
+                    else self._character_loop(cid)
+                )
                 self._char_tasks[cid] = asyncio.create_task(
-                    self._character_loop(cid),
+                    loop_coro,
                     name=f"pubsub-loop-{cid}",
                 )
+
+    async def _dynamic_character_loop(self, character_id: str) -> None:
+        """Preflight a post-start scope add, then enter the normal poll loop."""
+        logger.info(f"pubsub.dynamic_preflight_started character={character_id}")
+        backoff = 1.0
+        while not self._stop_event.is_set():
+            async with self._scope_lock:
+                if character_id not in self._character_ids:
+                    return
+            try:
+                await self._run_startup_self_test(character_id)
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if _is_fatal_pubsub_error(exc):
+                    logger.error(
+                        f"pubsub.dynamic_preflight_fatal character={character_id} "
+                        f"error={exc}"
+                    )
+                    self._stop_event.set()
+                    raise
+                logger.warning(
+                    f"pubsub.dynamic_preflight_failed character={character_id}; "
+                    f"retrying after {backoff:.1f}s",
+                    exc_info=True,
+                )
+                with suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
+                backoff = min(backoff * 2, RECONNECT_BACKOFF_MAX)
+
+        async with self._scope_lock:
+            if character_id not in self._character_ids:
+                return
+        await self._character_loop(character_id)
 
     async def _character_loop(self, character_id: str) -> None:
         """Long-poll one character's queue forever (until stop)."""
@@ -469,33 +543,6 @@ class PubsubEventAdapter:
                 with suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
                 backoff = min(backoff * 2, RECONNECT_BACKOFF_MAX)
-
-    async def _drain_backlog(self, character_id: str) -> int:
-        """Archive every message currently queued for this character without
-        dispatching. Run once at session start to enforce no-history-replay."""
-        pgmq_url = os.environ["PGMQ_URL"]
-        internal_token = await self._ensure_internal_token(character_id)
-        drained = 0
-
-        async with await psycopg.AsyncConnection.connect(
-            pgmq_url, autocommit=True, row_factory=tuple_row
-        ) as conn:
-            async with conn.cursor() as cur:
-                while True:
-                    await cur.execute(
-                        "SELECT msg_id FROM public.subscribe_my_events(%s, %s, %s, %s)",
-                        (character_id, internal_token, 0, DEFAULT_QTY),
-                    )
-                    rows = await cur.fetchall()
-                    if not rows:
-                        break
-                    msg_ids = [r[0] for r in rows]
-                    await cur.execute(
-                        "SELECT public.archive_my_events(%s, %s, %s)",
-                        (character_id, internal_token, msg_ids),
-                    )
-                    drained += len(msg_ids)
-        return drained
 
     async def _poll_once(self, character_id: str) -> None:
         """One long-poll + dispatch + archive cycle."""
@@ -642,6 +689,10 @@ class PubsubEventAdapter:
         request_id = message.get("request_id")
         request_id_str = (
             request_id if isinstance(request_id, str) else None
+        )
+
+        logger.debug(
+            f"pubsub.dispatch event={event_name} request_id={request_id_str}"
         )
 
         await self._client._maybe_update_sector_from_event(event_name, payload)

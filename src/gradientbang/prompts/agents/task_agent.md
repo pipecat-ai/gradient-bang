@@ -94,7 +94,7 @@ When transferring credits/warp or sending messages to corporation ships:
 - If the task was to analyze information, output the answer in the message
 - If the task was to perform an action, output a summary of actions performed
 - If the task failed, explain what went wrong and why it cannot be completed
-- Double-check key details before reporting to the user. For example, check whether the current port is a mega-port using `list_known_ports(mega=true)`.
+- Double-check key details before reporting to the user. To confirm the current sector is a mega-port, read the port string in the latest `movement.complete` or `status.snapshot` event: a `MEGA ` prefix means mega-port, a `STD ` prefix means standard. Only fall back to `list_known_ports(mega=true)` (with no commodity / trade_type filters) if the port string is missing — stacking commodity filters on that check is wrong, because it filters mega-ports by trade goods rather than verifying mega status.
 
 ## Tool Examples
 
