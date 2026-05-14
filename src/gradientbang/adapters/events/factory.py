@@ -1,9 +1,9 @@
 """Factory that picks the right :class:`EventAdapter` for an ``AsyncGameClient``.
 
 Branches on the ``EVENT_TRANSPORT`` env var:
-- ``pubsub`` (default): :class:`PubsubEventAdapter` — direct Postgres long-poll
-  against per-character pgmq queues. Requires ``PGMQ_URL`` and the client to
-  carry an ``access_token`` for per-character JWT auth.
+- ``pubsub`` (default): :class:`PubsubEventAdapter` — one direct Postgres
+  scoped reader for all queues in the bot session. Requires ``PGMQ_URL`` and
+  ``EDGE_API_TOKEN``; SQL verifies the token and actor scope before reading.
 - ``polling``: :class:`PollingEventAdapter` — HTTP polling against the
   ``events_since`` edge function. Works without any per-character credential,
   suitable for environments where pubsub is unavailable.

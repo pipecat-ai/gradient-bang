@@ -25,11 +25,8 @@
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
-  type AuthContext,
-  authenticate,
-  authErrorResponse,
-  canActOnCharacter,
   errorResponse,
+  getAuthenticatedUser,
   successResponse,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
@@ -46,10 +43,10 @@ import {
 import { fetchActiveTaskIdsByShip } from "../_shared/tasks.ts";
 import { traced } from "../_shared/weave.ts";
 
-type ByoaAction = "claim" | "clear" | "set";
+type ByoaAction = "claim" | "clear" | "set" | "list";
 type ByoaMode = "private";
 
-const VALID_ACTIONS: readonly ByoaAction[] = ["claim", "clear", "set"];
+const VALID_ACTIONS: readonly ByoaAction[] = ["claim", "clear", "set", "list"];
 const VALID_MODES: readonly ByoaMode[] = ["private"];
 
 const SOURCE_URL_PATTERN = /^https?:\/\//;
@@ -57,11 +54,14 @@ const SOURCE_URL_MAX_LENGTH = 4096;
 const WAKE_SECRET_MAX_LENGTH = 256;
 
 Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
-  let auth: AuthContext;
+  let user;
   try {
-    auth = await authenticate(req);
+    user = await getAuthenticatedUser(req);
   } catch (err) {
-    return authErrorResponse(err);
+    return errorResponse(
+      err instanceof Error ? err.message : "Authentication failed",
+      401,
+    );
   }
 
   const supabase = createServiceRoleClient();
@@ -85,7 +85,6 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
 
   try {
     const characterId = requireString(payload, "character_id");
-    const shipId = requireString(payload, "ship_id");
     const actionRaw = requireString(payload, "action");
     const modeRaw = optionalString(payload, "mode");
     const wakeSecretProvided = Object.prototype.hasOwnProperty.call(
@@ -99,13 +98,18 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     const wakeSecretRaw = wakeSecretProvided ? payload.wake_secret : undefined;
     const sourceUrlRaw = sourceUrlProvided ? payload.source_url : undefined;
 
-    if (!(await canActOnCharacter(auth, characterId, supabase))) {
+    const { data: ownsCharacter, error: ownsErr } = await supabase.rpc(
+      "can_user_access_character",
+      { p_user_id: user.id, p_character_id: characterId },
+    );
+    if (ownsErr) {
+      console.error("ship_byoa_configure.ownership_rpc", ownsErr);
+      return errorResponse("Failed to verify character ownership", 500);
+    }
+    if (ownsCharacter !== true) {
       return errorResponse("forbidden", 403);
     }
 
-    if (!validateUuid(shipId)) {
-      throw new RequestValidationError("ship_id must be a UUID", 400);
-    }
     if (!VALID_ACTIONS.includes(actionRaw as ByoaAction)) {
       throw new RequestValidationError(
         `action must be one of ${VALID_ACTIONS.join(", ")}`,
@@ -113,6 +117,19 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
       );
     }
     const action = actionRaw as ByoaAction;
+
+    // ----- list ----- (no ship_id required)
+    if (action === "list") {
+      trace.setInput({ characterId, action, requestId });
+      const ships = await listClaimableShipsForCharacter(supabase, characterId);
+      trace.setOutput({ count: ships.length, action });
+      return successResponse({ action, ships, request_id: requestId });
+    }
+
+    const shipId = requireString(payload, "ship_id");
+    if (!validateUuid(shipId)) {
+      throw new RequestValidationError("ship_id must be a UUID", 400);
+    }
 
     let mode: ByoaMode | null = null;
     if (modeRaw !== null && modeRaw !== undefined) {
@@ -443,3 +460,75 @@ Deno.serve(traced("ship_byoa_configure", async (req, trace) => {
     );
   }
 }));
+
+interface ClaimableShip {
+  ship_id: string;
+  name: string;
+  sector: number | null;
+  byoa_owner_character_id_prefix: string | null;
+  claimable_by_me: boolean;
+}
+
+/**
+ * Return the operator's corp ships, shaped for the BYOA picker. Caller
+ * authorization (JWT → character_id) is enforced by the caller before
+ * invoking this. We never surface the full BYOA owner UUID; only a 12-char
+ * prefix consistent with the rest of the API.
+ */
+async function listClaimableShipsForCharacter(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  characterId: string,
+): Promise<ClaimableShip[]> {
+  const { data: character, error: charErr } = await supabase
+    .from("characters")
+    .select("corporation_id")
+    .eq("character_id", characterId)
+    .maybeSingle();
+  if (charErr) {
+    console.error("ship_byoa_configure.list.character", charErr);
+    throw new Error("Failed to load character");
+  }
+  const corpId = character?.corporation_id as string | undefined | null;
+  if (!corpId) return [];
+
+  const { data: shipLinks, error: linkErr } = await supabase
+    .from("corporation_ships")
+    .select("ship_id")
+    .eq("corp_id", corpId);
+  if (linkErr) {
+    console.error("ship_byoa_configure.list.ship_links", linkErr);
+    throw new Error("Failed to load corp ships");
+  }
+  const shipIds = (shipLinks ?? [])
+    .map((row) => row?.ship_id)
+    .filter(
+      (v): v is string => typeof v === "string" && v.length > 0,
+    );
+  if (!shipIds.length) return [];
+
+  const { data: shipRows, error: shipErr } = await supabase
+    .from("ship_instances")
+    .select("ship_id, ship_name, current_sector, byoa_owner_character_id")
+    .in("ship_id", shipIds)
+    .neq("owner_type", "unowned")
+    .is("destroyed_at", null);
+  if (shipErr) {
+    console.error("ship_byoa_configure.list.ships", shipErr);
+    throw new Error("Failed to load ship instances");
+  }
+
+  return (shipRows ?? []).map((row): ClaimableShip => {
+    const ownerId = (row?.byoa_owner_character_id as string | null) ?? null;
+    return {
+      ship_id: row.ship_id as string,
+      name: typeof row.ship_name === "string" && row.ship_name.length > 0
+        ? row.ship_name
+        : (row.ship_id as string),
+      sector: typeof row.current_sector === "number" ? row.current_sector : null,
+      byoa_owner_character_id_prefix: ownerId
+        ? ownerId.replace(/-/g, "").slice(0, 12)
+        : null,
+      claimable_by_me: ownerId === null || ownerId === characterId,
+    };
+  });
+}

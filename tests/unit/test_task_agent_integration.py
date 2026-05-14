@@ -6,7 +6,7 @@ restrictions. External boundaries (game_client, bus, LLM pipeline) are mocked.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -25,12 +25,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusSteerTaskMessage,
     BusTaskFinishNotification,
 )
-from gradientbang.pipecat_server.subagents.task_agent import (
-    ASYNC_TOOL_COMPLETIONS,
-    PLAYER_ONLY_TOOLS,
-    SYNC_TOOL_EVENTS,
-    TaskAgent,
-)
+from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 from pipecat_subagents.bus import BusTaskCancelMessage, BusTaskRequestMessage
 
 
@@ -468,7 +463,7 @@ class TestBusEventFiltering:
         msg_count_after = len(h.agent._llm_context.get_messages())
         assert msg_count_after == msg_count_before
 
-    async def test_character_event_processed(self):
+    async def test_unscoped_character_event_ignored(self):
         h = TaskAgentHarness(character_id="ship-456")
         await h.start_task()
         msg_count_before = len(h.agent._llm_context.get_messages())
@@ -479,7 +474,7 @@ class TestBusEventFiltering:
         )
 
         msg_count_after = len(h.agent._llm_context.get_messages())
-        assert msg_count_after > msg_count_before
+        assert msg_count_after == msg_count_before
 
     async def test_ambient_error_event_processed(self):
         h = TaskAgentHarness()

@@ -15,11 +15,14 @@ import {
 import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
+  apiAsOk,
   apiOk,
   characterIdFor,
   createCorpShip,
+  provisionUser,
   setShipCredits,
   shipIdFor,
+  type TestUser,
   withPg,
 } from "./helpers.ts";
 
@@ -111,6 +114,7 @@ Deno.test({
     p1ShipId = await shipIdFor(P1);
 
     let corpShipId: string;
+    let p1User: TestUser;
     const taskId = crypto.randomUUID();
     const channel = "gb_" + "00112233445566778899aabbccddeeff";
 
@@ -121,7 +125,8 @@ Deno.test({
       await setShipCredits(p1ShipId, 50_000);
       const seeded = await seedCorpWithMembers(p1Id, [p2Id], "Wake Alloc Corp");
       corpShipId = seeded.corpShipId;
-      await apiOk("ship_byoa_configure", {
+      p1User = await provisionUser("wake-p1", p1Id);
+      await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
@@ -221,6 +226,7 @@ Deno.test({
     p1ShipId = await shipIdFor(P1);
 
     let corpShipId: string;
+    let p1User: TestUser;
     let taskId = crypto.randomUUID();
     const channel = "gb_" + "ffeeddccbbaa99887766554433221100";
 
@@ -231,7 +237,8 @@ Deno.test({
       await setShipCredits(p1ShipId, 50_000);
       const seeded = await seedCorpWithMembers(p1Id, [p2Id], "Wake HTTP Corp");
       corpShipId = seeded.corpShipId;
-      await apiOk("ship_byoa_configure", {
+      p1User = await provisionUser("wake-http-p1", p1Id);
+      await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",

@@ -1,61 +1,132 @@
-# BYOA: Vercel wake function
+# BYOA on Vercel
 
-Operator-facing reference for the wake receiver that runs on the operator's Vercel project. Implements the wake contract described in [byoa.md](byoa.md#how-wake-works).
+Use Vercel when you want the BYOA wake receiver to run outside your local machine.
 
-The source lives in-tree at [deployment/vercel-function/](../deployment/vercel-function/):
+The deployment is skill-driven:
 
-- [api/wake.ts](../deployment/vercel-function/api/wake.ts) — the function itself (bearer-auth, persistent-sandbox lookup, harness launch).
-- [package.json](../deployment/vercel-function/package.json) — pins `@vercel/sandbox@beta`.
-- [vercel.json](../deployment/vercel-function/vercel.json) — sets `maxDuration: 300` on the wake route.
-- [prompt.example.md](../deployment/vercel-function/prompt.example.md) — copy to `prompt.md` and edit; load via `BYOA_PROMPT_FILE` on the Vercel project env.
+- `/byoa-setup prod` claims the ship and prepares `.env.byoa`.
+- `/byoa-deploy-vercel prod` deploys the wake function and registers it against the ship.
 
-Deploy it with `/byoa-deploy-vercel <env>` — see [.claude/skills/byoa-deploy-vercel/SKILL.md](../.claude/skills/byoa-deploy-vercel/SKILL.md).
+The wake receiver source lives in [deployment/vercel](../deployment/vercel/).
 
-## What the function does
+## Quickstart
 
-On every wake POST from `wake_agent`:
+Prereqs:
 
-1. **Authenticates** the inbound request against `BYOA_WAKE_SECRET` — the per-ship bearer the operator stored against their ship via `ship_byoa_configure set { wake_secret }` and pasted into this Vercel project's env. wake_agent decrypts the per-ship value from `ship_instances.byoa_wake_secret_enc` at dispatch time and signs the POST with it.
-2. **Looks up the ship's persistent sandbox** by name `byoa-<ship_id>`. First wake provisions a fresh one (clones the gradient-bang repo, runs `uv sync` against [pyproject.byoa.toml](../pyproject.byoa.toml)); subsequent wakes resume from the auto-snapshot in seconds.
-3. **Merges env**: operator project env (allowlisted keys only — see `OPERATOR_ENV_KEYS` in `api/wake.ts`) + per-session wake env (`BYOA_CHANNEL`, `BYOA_TASK_ID`, `BYOA_BUS_DATABASE_URL`, …) injected by `wake_agent`. Wake bits win on overlap.
-4. **Spawns `uv run byoa` detached** inside the sandbox with the merged env.
-5. **Returns 202** with `{ sandbox_name, cmd_id, task_id, request_id, created }`.
+- You have run `/byoa-setup prod`.
+- `.env.byoa` contains your LLM provider, model, and matching API key.
+- You are logged in to Vercel CLI: `npx vercel whoami`.
+- `deployment/vercel/` is linked to your Vercel project.
 
-Operator-private state (LLM keys, prompt, tunables) stays on the operator's Vercel project. Our `wake_agent` only sees the URL and signs requests with the per-ship bearer.
+First-time Vercel link:
 
-## Required project env on the operator's Vercel project
+```bash
+cd deployment/vercel
+npx vercel link
+```
 
-`/byoa-deploy-vercel` pushes these from `.env.byoa` for you. Pasted here as a reference if you'd rather configure via the Vercel dashboard.
+Suggested project name: `gradient-bang-byoa-<your-handle>`.
 
-| Key | Required | What it does |
-|---|---|---|
-| `BYOA_WAKE_SECRET` | yes | Per-ship bearer authenticating wake_agent → this function. Generate with `openssl rand -hex 32`; set this value here AND send the same value to us via `ship_byoa_configure set { wake_secret }`. Per-ship (not shared across operators) so a leak only compromises that one ship. |
-| `TASK_LLM_PROVIDER` | yes | One of `google` / `anthropic` / `openai` / `minimax`. |
-| `TASK_LLM_MODEL` | yes | Provider-specific model id. |
-| `GOOGLE_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `MINIMAX_API_KEY` | yes (matching `TASK_LLM_PROVIDER`) | The operator's own LLM credential. Never leaves their Vercel project. |
-| `BYOA_PROMPT` | optional | Inline operator prompt (≤ 8 KB). Wins over `BYOA_PROMPT_FILE`. |
-| `BYOA_PROMPT_FILE` | optional | Path inside the sandbox checkout, e.g. `./prompt.md` if you committed one alongside `api/wake.ts` in your fork. |
-| `TASK_LLM_THINKING_BUDGET` | optional | Default `4096`. |
-| `BYOA_TOOL_CALL_TIMEOUT_SECONDS` | optional | Default `30.0`. |
-| `BYOA_AGENT_IDLE_TEARDOWN_SECONDS` | optional | Default `300.0`. |
-| `BYOA_REPO_URL` / `BYOA_REPO_REVISION` | optional | Point the sandbox at a fork / specific revision of the gradient-bang repo. |
-| `GITHUB_TOKEN` | optional | Fine-grained PAT for cloning a private fork (avoids public rate limits even on public repos). |
+Deploy:
 
-Vercel auth (`VERCEL_OIDC_TOKEN`) is automatic when the function runs on Vercel — no extra env needed for the `@vercel/sandbox` SDK.
+- Run `/byoa-deploy-vercel prod`.
+- Let the skill push env to Vercel.
+- Let the skill deploy to the production alias.
+- Let the skill health-check `/api/wake`.
+- Let the skill register `https://<projectName>.vercel.app/api/wake` as the ship `source_url`.
+- Trigger a task on the ship from the bot.
 
-## End-to-end operator flow
+Tail logs:
 
-1. **Claim a ship + generate the wake secret.** `/byoa-setup prod` — claims a corp ship as BYOA, writes `BYOA_*` to `.env.byoa`, registers the wake secret server-side.
-2. **Edit your operator config.** Open `.env.byoa`, fill in `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, the matching `*_API_KEY`, and (optionally) `BYOA_PROMPT` / `BYOA_PROMPT_FILE`.
-3. **First-time Vercel project setup.** From `deployment/vercel-function/`, run `npx vercel link` interactively to associate the directory with a Vercel project (suggested name: `gradient-bang-byoa-<your-handle>`).
-4. **Deploy.** `/byoa-deploy-vercel prod --prod` pushes env from `.env.byoa` to the Vercel project, runs `vercel deploy --prod`, health-checks `GET /api/wake`, smoke-tests bearer auth on `POST /api/wake`, and prints the `ship_byoa_configure set { source_url }` curl.
-5. **Wire the ship at the deployment.** Run the printed curl (or re-run `/byoa-setup prod --force --ship-id <ship>` to mint a fresh wake secret AND update both sides in one shot).
-6. **Trigger a wake.** Start a task on the ship from the bot. Watch Vercel function logs — first wake takes 30–60s for the cold-sandbox clone + `uv sync`; subsequent wakes resume the snapshot and complete in seconds.
+```bash
+npx vercel logs https://<projectName>.vercel.app
+```
+
+First wake can take longer while Vercel creates and prepares the sandbox. Later wakes should resume faster.
+
+## What The Deploy Skill Does
+
+`/byoa-deploy-vercel prod`:
+
+- Reads `.env.byoa`.
+- Verifies required BYOA and LLM env keys.
+- Pushes operator env to the Vercel production environment.
+- Deploys [deployment/vercel](../deployment/vercel/) with `npx vercel deploy --prod`.
+- Uses the stable production alias, not the per-deploy URL.
+- Checks that the wake function is reachable.
+- Confirms bearer auth rejects unauthenticated wake POSTs.
+- Registers the wake URL with `ship_byoa_configure`.
+
+Useful flags:
+
+- `--access-token <jwt>`: skip the email/password prompt during registration.
+- `--skip-register`: deploy and health-check only; print the manual registration curl.
+- `--preview`: rarely useful for BYOA because preview URLs are usually SSO-protected.
+
+## What To Put In `.env.byoa`
+
+Required:
+
+| Key | Purpose |
+|---|---|
+| `BYOA_CHARACTER_ID` | Written by `/byoa-setup prod`. |
+| `BYOA_SHIP_ID` | Written by `/byoa-setup prod`. |
+| `BYOA_WAKE_SECRET` | Written by `/byoa-setup prod`; pushed to Vercel by deploy. |
+| `TASK_LLM_PROVIDER` | `google`, `anthropic`, `openai`, or `minimax`. |
+| `TASK_LLM_MODEL` | Provider-specific model id. |
+| Provider API key | One of `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `MINIMAX_API_KEY`. |
+
+Optional:
+
+| Key | Purpose |
+|---|---|
+| `BYOA_PROMPT` | Inline prompt. Wins over `BYOA_PROMPT_FILE`. |
+| `BYOA_PROMPT_FILE` | Prompt file path inside the sandbox checkout, for example `./prompt.md`. |
+| `TASK_LLM_THINKING_BUDGET` | Model thinking budget. |
+| `BYOA_TOOL_CALL_TIMEOUT_SECONDS` | Tool-call timeout. |
+| `BYOA_AGENT_IDLE_TEARDOWN_SECONDS` | Warm-agent idle timeout. |
+| `BYOA_REPO_URL` / `BYOA_REPO_REVISION` | Run from a fork or pinned revision. |
+| `GITHUB_TOKEN` | Clone a private fork or avoid public rate limits. |
+
+## Files In The Template
+
+- [api/wake.ts](../deployment/vercel/api/wake.ts): authenticates wakes and starts the sandbox.
+- [package.json](../deployment/vercel/package.json): Vercel function dependencies.
+- [vercel.json](../deployment/vercel/vercel.json): Vercel route settings.
+- [prompt.example.md](../deployment/vercel/prompt.example.md): optional prompt starting point.
+
+Most operators only edit `.env.byoa` and optionally `prompt.md`.
+
+## Redeploys
+
+- Code or env changed: run `/byoa-deploy-vercel prod` again.
+- Prompt changed in `BYOA_PROMPT`: run `/byoa-deploy-vercel prod` again.
+- Prompt file changed in a fork: commit the file, then run `/byoa-deploy-vercel prod`.
+- Wake secret rotation: run `/byoa-setup prod --force --ship-id $BYOA_SHIP_ID`, then `/byoa-deploy-vercel prod`.
+- New Vercel project: delete `deployment/vercel/.vercel/`, run `npx vercel link`, then `/byoa-deploy-vercel prod`.
 
 ## Troubleshooting
 
-- **`wake_secret_configured: false` on `GET /api/wake`** — env didn't propagate to the deployed function. Re-run `/byoa-deploy-vercel` (it pushes env *and* redeploys).
-- **`POST /api/wake` returns 200 without auth** — bearer check is broken; do not register `source_url`. Investigate before pointing wake_agent at this function.
-- **First wake times out on Hobby plan** — `maxDuration` is capped at 60s on Hobby; the cold-sandbox clone + `uv sync` needs ~30–60s. Upgrade to Pro (caps at 800s) or accept that the first wake will fail and the second will succeed once the snapshot exists.
-- **Sandbox runs `uv sync` every wake** — the persistent sandbox snapshot expired. Bump `SNAPSHOT_EXPIRATION_MS` in `api/wake.ts` (default 30 days).
-- **Want to customize the wake function** — fork `deployment/vercel-function/` into your own repo, point `vercel link` at it. The skill keys off paths under `deployment/vercel-function/`; either symlink or keep your fork separate and run `vercel` commands by hand.
+- `wake_secret_configured: false`: Vercel env did not reach the deployed function. Re-run `/byoa-deploy-vercel prod`.
+- HTML "Authentication Required": you are using a protected Vercel URL. Use `https://<projectName>.vercel.app/api/wake`.
+- Wake POSTs return 401 in production: check that the registered URL is the production alias, not a per-deploy URL.
+- Registration failed: re-run with `--access-token <jwt>` or use the printed manual curl.
+- First wake times out: retry once after the sandbox has been created, or use a Vercel plan with a longer function duration.
+- Sandbox setup repeats every wake: the persistent sandbox snapshot expired or was not reused.
+
+## Manual Registration
+
+The deploy skill normally handles this. Use the manual path only when registration fails or you are running a custom deployment.
+
+```bash
+curl -X POST "$SUPABASE_URL/functions/v1/ship_byoa_configure" \
+  -H "Authorization: Bearer $YOUR_USER_JWT" \
+  -d '{
+    "character_id": "<your character UUID>",
+    "ship_id": "<corp ship UUID>",
+    "action": "set",
+    "source_url": "https://<your-project>.vercel.app/api/wake"
+  }'
+```
+
+Only send `wake_secret` in the same request when rotating the secret. Otherwise, leave it unchanged.

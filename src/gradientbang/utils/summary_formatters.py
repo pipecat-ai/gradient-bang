@@ -527,13 +527,16 @@ def quest_status_summary(result: Dict[str, Any]) -> str:
             continue
         name = quest.get("name") or quest.get("quest_code") or "unnamed"
         status = quest.get("status", "active")
-        progress = quest.get("progress")
         line = f"- {name} ({status})"
-        if isinstance(progress, dict):
-            current = progress.get("current")
-            total = progress.get("total")
-            if current is not None and total is not None:
-                line += f" — {current}/{total}"
+        step = quest.get("current_step")
+        if isinstance(step, dict):
+            step_name = step.get("name")
+            if step_name:
+                line += f" — step: {step_name}"
+                current = step.get("current_value")
+                target = step.get("target_value")
+                if isinstance(current, (int, float)) and isinstance(target, (int, float)):
+                    line += f" ({int(current)}/{int(target)})"
         lines.append(line)
     return "\n".join(lines)
 

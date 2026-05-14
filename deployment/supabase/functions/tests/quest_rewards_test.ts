@@ -150,11 +150,13 @@ Deno.test({
     });
 
     await t.step("claim reward grants credits", async () => {
-      await apiOk("quest_claim_reward", {
+      const result = await apiOk("quest_claim_reward", {
         character_id: p1Id,
         quest_id: stepCompletedPayload.quest_id as string,
         step_id: stepCompletedPayload.step_id as string,
       });
+      assertEquals(result.credits, 50);
+      assertEquals(result.credits_after, 1050);
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
       assertEquals(ship.credits, 1050, `Expected 1050 credits after claim, got ${ship.credits}`);
@@ -171,6 +173,7 @@ Deno.test({
         | Record<string, unknown>
         | undefined;
       assertEquals(reward?.credits, 50);
+      assertEquals((rewardClaimed.payload as Record<string, unknown>).credits_after, 1050);
     });
   },
 });
@@ -283,11 +286,13 @@ Deno.test({
       const stepEvents = await eventsOfType(p1Id, "quest.step_completed", cursor);
       assert(stepEvents.length >= 1, "Expected quest.step_completed for final step");
       const stepPayload = stepEvents[0].payload as Record<string, unknown>;
-      await apiOk("quest_claim_reward", {
+      const result = await apiOk("quest_claim_reward", {
         character_id: p1Id,
         quest_id: stepPayload.quest_id as string,
         step_id: stepPayload.step_id as string,
       });
+      assertEquals(result.credits, 1000);
+      assertEquals(result.credits_after, 6000);
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
       assertEquals(ship.credits, 6000, `Expected 6000 credits after claim, got ${ship.credits}`);

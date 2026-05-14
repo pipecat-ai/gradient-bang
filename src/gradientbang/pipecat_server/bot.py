@@ -304,12 +304,11 @@ async def bot_startup(
 
     # Create game client directly. access_token is threaded through from
     # /start (proxy injects after Supabase Auth verification, or dev sets
-    # BOT_TEST_ACCESS_TOKEN). Polling adapter ignores it; pubsub adapter
-    # uses it to authenticate against per-character pgmq queues.
+    # BOT_TEST_ACCESS_TOKEN) for auth-gated edge functions. Pubsub event
+    # delivery uses EDGE_API_TOKEN plus SQL scope checks.
     # Event delivery is started explicitly by ``_join`` after session_init
-    # has built the LLM context and the agent is activated. Until then no
-    # subscriber exists; events the server queues during the bootstrap
-    # window are drained and discarded when the adapter starts.
+    # has built the LLM context. Bootstrap RPC echoes are purged before
+    # activation so they do not replay into EventRelay/LLM context.
     game_client = AsyncGameClient(
         character_id=character_id,
         base_url=server_url,
@@ -332,8 +331,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     character_id_hint = body.get("character_id") or os.getenv("BOT_TEST_CHARACTER_ID")
     character_name_hint = body.get("character_name")
     # Per-character auth token — required so the bot can prove identity to
-    # downstream auth-gated services (e.g. pgmq pubsub channels, character_info
-    # lookup). The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev
+    # downstream auth-gated edge functions (e.g. character_info lookup).
+    # The /start body wins; BOT_TEST_ACCESS_TOKEN is the dev
     # fallback for sessions that bypass the login → start proxy flow.
     body_access_token = body.get("access_token")
     access_token = body_access_token or os.getenv("BOT_TEST_ACCESS_TOKEN")
@@ -769,14 +768,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             try:
                 await asyncio.sleep(2)
                 # Strict startup contract:
-                #   0. purge any leftover pubsub queue — server pgmq_publish
-                #      becomes a silent no-op until step 4 recreates it, so
-                #      init-RPC events can't accumulate
+                #   0. purge any leftover pubsub messages while keeping the
+                #      queue present, so init-RPC publishes remain required
                 #   1. fetch initial state via blocking RPCs (data inline)
                 #   2. patch substitutions into the seeded system message
-                #   3. activate VoiceAgent with the initial messages
-                #   4. start the event adapter — fresh queue, steady-state
-                #      events begin flowing
+                #   3. hydrate the web client from inline bootstrap data
+                #   4. purge bootstrap RPC echoes from pgmq
+                #   5. start the event adapter — steady-state events flow
+                #   6. activate VoiceAgent with the initial messages
                 # If any step fails, the bot bails rather than half-joining.
                 await game_client.purge_event_backlog()
 
@@ -820,8 +819,17 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                         )
                     )
 
+                # The client's session-scoped events (e.g. map.local) gate
+                # on `payload.player.id`. Bootstrap UI hydration bypasses
+                # EventRelay, so inject the same field the SQL event path
+                # would add before forwarding.
+                map_local_payload = {
+                    **initial_state.map_local_payload,
+                    "player": {"id": character_id},
+                }
+
                 await _emit_client_event("status.snapshot", initial_state.status_payload)
-                await _emit_client_event("map.local", initial_state.map_local_payload)
+                await _emit_client_event("map.local", map_local_payload)
                 await _emit_client_event(
                     "ships.list",
                     {"ships": initial_state.ships_payload.get("ships", [])},
@@ -830,6 +838,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     "quest.status",
                     {"quests": initial_state.quest_payload.get("quests", [])},
                 )
+
+                # Bootstrap RPCs publish real events because pubsub delivery
+                # is required. The inline RPC responses above already seeded
+                # the LLM context and hydrated the client, so purge those
+                # queued echoes before EventRelay starts consuming.
+                await game_client.purge_event_backlog()
+
+                await game_client.start_event_delivery()
 
                 if is_first_visit and not bypass_tutorial:
                     logger.info("First visit detected, activating ScriptedAgent")
@@ -847,8 +863,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                             run_llm=True,
                         ),
                     )
-
-                await game_client.start_event_delivery()
             except Exception as exc:
                 # Fire-and-forget task would swallow this otherwise. Tear down
                 # the runner so the session exits instead of hanging half-joined.
@@ -1010,7 +1024,7 @@ def _log_startup_config() -> None:
     from gradientbang import __version__
 
     bus_transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
-    event_transport = os.getenv("EVENT_TRANSPORT", "polling").strip().lower()
+    event_transport = os.getenv("EVENT_TRANSPORT", "pubsub").strip().lower()
     voice_provider = os.getenv("VOICE_LLM_PROVIDER", "google").strip().lower()
     voice_model = os.getenv("VOICE_LLM_MODEL", "(provider default)").strip()
     task_provider = os.getenv("TASK_LLM_PROVIDER", "google").strip().lower()

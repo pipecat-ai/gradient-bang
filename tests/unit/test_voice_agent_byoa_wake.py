@@ -329,10 +329,11 @@ class TestStartTaskWakeBranch:
             task_id=framework_task_id,
         )
 
-    async def test_byoa_dispatch_without_bus_channel_fails_fast(self):
-        """Without a session channel and without fresh presence, BYOA cannot wake."""
+    async def test_byoa_dispatch_without_bus_channel_cleans_up_async(self):
+        """Without a session channel, start returns waking and cleanup follows async."""
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
+        agent._enqueue_deferred_update = MagicMock()
         agent._byoa_bus_channel = ""
 
         params = MagicMock()
@@ -341,18 +342,21 @@ class TestStartTaskWakeBranch:
             "ship_id": "ship-uuid-123",
         }
         result = await agent._handle_start_task(params)
+        await asyncio.sleep(0)
 
-        assert result["success"] is False
-        assert "missing_bus_channel" in result["error"]
+        assert result["success"] is True
+        assert result["status"] == "waking"
         assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
         agent._game_client.wake_agent.assert_not_awaited()
         assert agent._pending_wakes == {}
         assert agent._pending_tasks == {}
         agent._game_client.task_cancel.assert_awaited_once()
+        assert "missing_bus_channel" in agent._enqueue_deferred_update.call_args.args[0]
 
-    async def test_byoa_dispatch_noop_without_presence_fails_fast(self):
+    async def test_byoa_dispatch_noop_without_presence_cleans_up_async(self):
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
+        agent._enqueue_deferred_update = MagicMock()
         agent._byoa_bus_channel = "bot_session_abc"
         agent._game_client.wake_agent = AsyncMock(
             return_value={"spawn_target": "noop", "spawn_status": "noop"}
@@ -364,17 +368,20 @@ class TestStartTaskWakeBranch:
             "ship_id": "ship-uuid-123",
         }
         result = await agent._handle_start_task(params)
+        await asyncio.sleep(0)
 
-        assert result["success"] is False
-        assert "BYOA_WAKE_TARGET=http" in result["error"]
+        assert result["success"] is True
+        assert result["status"] == "waking"
         assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
         assert agent._pending_wakes == {}
         assert agent._pending_tasks == {}
         agent._game_client.task_cancel.assert_awaited_once()
+        assert "BYOA_WAKE_TARGET=http" in agent._enqueue_deferred_update.call_args.args[0]
 
     async def test_byoa_dispatch_preserves_structured_wake_failure(self):
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
+        agent._enqueue_deferred_update = MagicMock()
         agent._byoa_bus_channel = "bot_session_abc"
         agent._game_client.wake_agent = AsyncMock(
             side_effect=RPCError(
@@ -395,12 +402,14 @@ class TestStartTaskWakeBranch:
             "ship_id": "ship-uuid-123",
         }
         result = await agent._handle_start_task(params)
+        await asyncio.sleep(0)
 
-        assert result["success"] is False
-        assert "(http/http_503)" in result["error"]
+        assert result["success"] is True
+        assert result["status"] == "waking"
         assert agent._pending_wakes == {}
         assert agent._pending_tasks == {}
         agent._game_client.task_cancel.assert_awaited_once()
+        assert "(http/http_503)" in agent._enqueue_deferred_update.call_args.args[0]
 
     async def test_byoa_dispatch_with_fresh_presence_skips_wake(self):
         agent = _make_voice_agent()

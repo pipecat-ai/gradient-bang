@@ -329,29 +329,30 @@ The bot's `AsyncGameClient` receives game events via one of two transports, pick
 
 ### `pubsub` (default)
 
-Direct Postgres long-poll against per-character pgmq queues. The bot connects with admin credentials (same URL as the rest of the system, `POSTGRES_POOLER_URL`) and calls SECURITY DEFINER functions (`subscribe_my_events` / `archive_my_events`) that:
+Direct Postgres reads against per-character pgmq queues. The bot calls SECURITY DEFINER functions (`subscribe_my_events_scope` / `archive_my_events_scope`) that:
 
-1. Verify a short-lived **internal HS256 token** scoped to one character.
-2. Check the user owns the requested `character_id` directly (via `user_characters`) **or** via corp membership for corp ships.
-3. Return up to N pending messages for that character via `pgmq.read_with_poll`.
+1. Verify the trusted bot's `EDGE_API_TOKEN` against `public.app_runtime_config.edge_api_token`.
+2. Check the actor character can read every requested character/ship queue.
+3. Return up to N pending messages per scoped queue via `pgmq.read`.
 
-The internal token is minted by the `verify_token` edge function in exchange for the bot's Supabase Auth `access_token`. The edge function handles the JWT verification (Supabase Auth has moved to ES256 with rotating signing keys, which is awkward to verify inside Postgres); the SQL functions only need to verify the internal token against a stable HS256 secret we control end-to-end. That secret is auto-provisioned by the migration into `public.app_runtime_config` — no manual ALTER step, no env var to wire up. Auth failures (`forbidden` / `token_expired` / `invalid_token`) propagate up and disconnect the bot — there is intentionally no token-refresh path; sessions terminate on expiry (JWTs are 24h).
+The pubsub hot path does not call an edge function per poll. One bot session keeps one scoped pgmq reader connection open, plus one optional broadcast `LISTEN` connection.
 
 **Setup for local pubsub:**
 
-1. `record_event_with_recipients` writes events into pgmq queues from SQL — no flag to set, just deploy the migration.
+1. Apply the pubsub migrations; `record_event_with_recipients` writes to pgmq automatically.
 2. In `.env.bot`:
 
    ```
    EVENT_TRANSPORT=pubsub
    PGMQ_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+   PGMQ_EMPTY_POLL_INTERVAL_SECONDS=1.0
    ```
 
-   (Same admin URL as `POSTGRES_POOLER_URL` in `.env.supabase` — there is no separate pubsub role.)
+   Use a session-mode admin Postgres URL. Local Supabase uses `postgresql://postgres:postgres@127.0.0.1:54322/postgres`.
 
-3. Make sure the bot's `/start` body includes a real Supabase Auth `access_token` (or set `BOT_TEST_ACCESS_TOKEN`). The bot's `/start` requires this in **both** transport modes — pubsub uses it to mint internal tokens via `verify_token`, polling uses it as `X-API-Token` so per-character endpoint checks pass.
+3. Make sure `EDGE_API_TOKEN` is present in the bot environment and matches `public.app_runtime_config.edge_api_token` in the target database.
 
-Migration `20260505000000_pubsub_and_broadcasts.sql` installs the `pgmq` and `pgjwt` extensions, provisions the internal signing secret in `public.app_runtime_config`, defines the auth functions (`subscribe_my_events` / `archive_my_events`), the service-role publish wrappers (`pgmq_publish` / `notify_broadcast`), and adds an `INSERT` trigger on `characters` that auto-creates per-character queues. Existing characters are backfilled at migration time. Production deploys are migration-only — no manual SQL or secret-injection step.
+Migration `20260505000000_pubsub_and_broadcasts.sql` installs `pgmq`, required publish wrappers, immediate reads, scoped read/archive functions, and the direct `EDGE_API_TOKEN` gate.
 
 ### `polling`
 
@@ -359,7 +360,7 @@ HTTP polling against the `events_since` edge function, authenticated by `EDGE_AP
 
 ### Why two modes?
 
-Polling is the simplest path and works everywhere. Pubsub eliminates the busy-poll loop and the polling lag, and is the foundation for the upcoming distributed-runtime work (where a separate process per task can subscribe to its ship's queue independently). Both modes deliver byte-equivalent events through the same client sinks, so the rest of the bot doesn't care which is in use.
+Polling remains the fallback. Pubsub is the default direct-Postgres path. Both modes deliver events through the same client sinks.
 
 ---
 
@@ -649,7 +650,7 @@ pnpm run dev
 | `SUPABASE_ANON_KEY`           | Yes      | —                                        | Public Supabase anon JWT key                                                                                                                                                                        |
 | `SUPABASE_SERVICE_ROLE_KEY`   | Yes      | —                                        | Service role key (bypasses RLS)                                                                                                                                                                     |
 | `POSTGRES_POOLER_URL`         | Yes      | —                                        | PgBouncer pooled Postgres connection string                                                                                                                                                         |
-| `EDGE_API_TOKEN`              | Yes      | —                                        | Token for authenticating internal requests via `X-API-Token` header. When unset, token validation is skipped (local dev)                                                                            |
+| `EDGE_API_TOKEN`              | Yes      | —                                        | Trusted-backend credential. Edge functions receive it as `X-Edge-Auth`; SQL pubsub readers verify it against `app_runtime_config.edge_api_token`.                                                    |
 | `BOT_START_URL`               | No       | `http://host.docker.internal:7860/start` | URL of the bot's `/start` endpoint for creating voice chat sessions                                                                                                                                 |
 | `BOT_START_API_KEY`           | No       | —                                        | Bearer token for authenticating requests to the bot start endpoint                                                                                                                                  |
 | `MOVE_DELAY_SCALE`            | No       | `1.0`                                    | Multiplier to scale movement delays (set to `0.25` for faster local dev)                                                                                                                            |
@@ -682,11 +683,12 @@ pnpm run dev
 | --------------------------- | -------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SUPABASE_URL`              | Yes      | —         | Supabase project URL                                                                                                                                                                                                                                              |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes      | —         | Service role key for DB access                                                                                                                                                                                                                                    |
-| `EDGE_API_TOKEN`            | Yes      | —         | Trusted-backend credential sent on every edge call as `X-Edge-Auth`. Proves the request came through bot.py rather than from an end user with a bare JWT. Required in production for the voice bot, NPC bots, scripts, and the combat-tick cron job. Tests/local-dev can leave it unset and rely on `ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1` on the server.                                                                                                                                  |
+| `EDGE_API_TOKEN`            | Yes      | —         | Trusted-backend credential sent as `X-Edge-Auth` and verified by SQL pubsub readers. Required outside local auth-bypass test/dev setups.                                                                                                                           |
 | `DAILY_API_KEY`             | No       | —         | [Daily](https://www.daily.co/) API key (required for Daily transport)                                                                                                                                                                                             |
 | `LOCAL_API_POSTGRES_URL`    | No       | —         | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead                                                                                                                                                |
-| `EVENT_TRANSPORT`           | No       | `pubsub`  | Event-delivery transport: `pubsub` (direct Postgres long-poll on per-character pgmq queues, default) or `polling` (HTTP via `events_since`). See [Event delivery modes](#event-delivery-modes).                                                                   |
-| `PGMQ_URL`                  | No       | —         | Direct (NOT pooled) postgres URL with the `pubsub_client` role's credentials. Required when `EVENT_TRANSPORT=pubsub`.                                                                                                                                             |
+| `EVENT_TRANSPORT`           | No       | `pubsub`  | Event-delivery transport: `pubsub` (direct Postgres scoped reads on per-character pgmq queues, default) or `polling` (HTTP via `events_since`). See [Event delivery modes](#event-delivery-modes).                                                                   |
+| `PGMQ_URL`                  | No       | —         | Session-mode Postgres URL with admin credentials. Required when `EVENT_TRANSPORT=pubsub`.                                                                                                                                                                          |
+| `PGMQ_EMPTY_POLL_INTERVAL_SECONDS` | No | `1.0` | Client-side pause after a scoped pgmq read returns no rows. When rows are available, the reader drains immediately without waiting. |
 
 #### LLM configuration
 
@@ -749,10 +751,10 @@ pnpm run dev
 ## Auth & secrets quick guide
 
 - **Gateway check (Supabase)**: default `verify_jwt=true` requires `Authorization: Bearer $SUPABASE_ANON_KEY` (or a user access token). Keep this on in production; optional `--no-verify-jwt` only for local.
-- **App gate (gameplay)**: every gameplay edge function expects a credential in `X-API-Token`. The shared `_shared/auth.ts` `authenticate()` helper accepts two kinds:
-  - **User auth**: a Supabase Auth `access_token` JWT. The bot threads this from the proxy `start` edge function (verified via `supabase.auth.getUser`) all the way into per-action `canActOnCharacter()` checks, so the caller can only operate on characters they own directly or via corp membership.
-  - **Admin token**: the shared `EDGE_API_TOKEN` env. Used by NPCs, the combat-tick cron job, internal `pg_net` invocations, and dev tooling. Bypasses per-character checks (god mode by design).
-- **Bot/client calls**: send `apikey: $SUPABASE_ANON_KEY`, `Authorization: Bearer $SUPABASE_ANON_KEY` (gateway), `X-Edge-Auth: $EDGE_API_TOKEN` (trusted-backend gate, required), and `X-API-Token: <user-access-token>` (per-character user context). NPCs / scripts send `X-Edge-Auth` alone for admin context.
+- **App gate (gameplay)**: every gameplay edge function expects `X-Edge-Auth: $EDGE_API_TOKEN`, except explicit local auth-bypass test/dev setups. `X-API-Token: <user-access-token>` is optional user context for bot sessions.
+  - **Bot context**: `X-Edge-Auth` plus a Supabase Auth `access_token` in `X-API-Token`. Edge functions use `canActOnCharacter()` so the caller can only operate on characters they own directly or via corp membership.
+  - **Admin context**: `X-Edge-Auth` only. Used by NPCs, the combat-tick cron job, internal `pg_net` invocations, and dev tooling. Bypasses per-character checks by design.
+- **Bot/client calls**: send `apikey: $SUPABASE_ANON_KEY`, `Authorization: Bearer $SUPABASE_ANON_KEY` (gateway), `X-Edge-Auth: $EDGE_API_TOKEN`, and, for user-bound bot sessions, `X-API-Token: <user-access-token>`.
 - **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_POOLER_URL`, `EDGE_API_TOKEN` (required on every bot, NPC, and cron caller — the trusted-backend gate verifies it on every gameplay edge call).
 - **Combat cron**: ensure `app_runtime_config` has `supabase_url` and `edge_api_token` set to the live values (use `scripts/setup-production-combat-tick.sh --env <env-file>`; prod requires `--allow-production`).
 

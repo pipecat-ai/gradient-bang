@@ -392,11 +392,12 @@ class TestBusEventReception:
         await agent.on_bus_message(msg)
         agent._handle_event.assert_not_called()
 
-    async def test_processes_event_matching_character_id(self):
+    async def test_processes_untagged_matching_character_event_when_awaited(self):
         from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
 
         agent = _make_task_agent(character_id="ship-456")
         agent._active_task_id = "task-uuid-123"
+        agent._awaiting_completion_event = "status.snapshot"
         agent._handle_event = AsyncMock()
 
         msg = BusGameEventMessage(
@@ -405,6 +406,75 @@ class TestBusEventReception:
         )
         await agent.on_bus_message(msg)
         agent._handle_event.assert_called_once()
+
+    async def test_ignores_unscoped_character_event_when_not_awaited(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+
+        agent = _make_task_agent(character_id="ship-456")
+        agent._active_task_id = "task-uuid-123"
+        agent._awaiting_completion_event = "movement.complete"
+        agent._handle_event = AsyncMock()
+
+        msg = BusGameEventMessage(
+            source="player",
+            event={"event_name": "status.snapshot", "payload": {"player": {"id": "ship-456"}}},
+        )
+        await agent.on_bus_message(msg)
+        agent._handle_event.assert_not_called()
+
+    async def test_ignores_combat_event_for_other_ship(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+
+        agent = _make_task_agent(character_id="ship-2")
+        agent._active_task_id = "task-uuid-123"
+        agent._handle_event = AsyncMock()
+
+        msg = BusGameEventMessage(
+            source="player",
+            event={
+                "event_name": "combat.round_waiting",
+                "payload": {"participants": [{"id": "ship-1"}, {"id": "enemy-1"}]},
+            },
+        )
+        await agent.on_bus_message(msg)
+        agent._handle_event.assert_not_called()
+
+    async def test_processes_combat_event_for_own_ship(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+
+        agent = _make_task_agent(character_id="ship-2")
+        agent._active_task_id = "task-uuid-123"
+        agent._handle_event = AsyncMock()
+
+        msg = BusGameEventMessage(
+            source="player",
+            event={
+                "event_name": "combat.round_waiting",
+                "payload": {"participants": [{"id": "ship-2"}, {"id": "enemy-1"}]},
+            },
+        )
+        await agent.on_bus_message(msg)
+        agent._handle_event.assert_called_once()
+
+    async def test_ignores_destroyed_event_for_other_ship(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+
+        agent = _make_task_agent(character_id="ship-2")
+        agent._active_task_id = "task-uuid-123"
+        agent._handle_event = AsyncMock()
+
+        msg = BusGameEventMessage(
+            source="player",
+            event={
+                "event_name": "garrison.destroyed",
+                "payload": {
+                    "ship_id": "ship-1",
+                    "owner_character_id": "ship-1-owner",
+                },
+            },
+        )
+        await agent.on_bus_message(msg)
+        agent._handle_event.assert_not_called()
 
     async def test_ignores_when_no_active_task(self):
         from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage

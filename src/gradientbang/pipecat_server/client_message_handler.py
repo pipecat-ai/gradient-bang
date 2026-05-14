@@ -1,6 +1,7 @@
 """Client message handler — routes RTVI client messages to game actions."""
 
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 
 from loguru import logger
@@ -385,6 +386,7 @@ class ClientMessageHandler:
 
     async def _handle_get_my_map(self, msg_type, msg_data):
         try:
+            started_at = time.monotonic()
             if not isinstance(msg_data, dict):
                 raise ValueError("Message data must be an object")
 
@@ -433,7 +435,16 @@ class ClientMessageHandler:
             if max_sectors is not None and max_sectors <= 0:
                 raise ValueError("max_sectors must be positive")
 
-            await self._game_client.local_map_region(
+            logger.info(
+                "client.get_my_map.start center_sector={} bounds={} max_hops={} "
+                "max_sectors={} fit_sectors={}",
+                center_sector if fit_sectors is None else None,
+                bounds,
+                max_hops,
+                max_sectors,
+                fit_sectors,
+            )
+            result = await self._game_client.local_map_region(
                 character_id=self._character_id,
                 center_sector=center_sector if fit_sectors is None else None,
                 bounds=bounds,
@@ -442,6 +453,31 @@ class ClientMessageHandler:
                 fit_sectors=fit_sectors,
                 source="get-my-map",
             )
+            elapsed_ms = (time.monotonic() - started_at) * 1000
+            logger.info(
+                "client.get_my_map.recv elapsed_ms={:.0f} sectors={} request_id={}",
+                elapsed_ms,
+                len(result.get("sectors", [])) if isinstance(result, dict) else None,
+                result.get("request_id") if isinstance(result, dict) else None,
+            )
+
+            # local_map_region returns the full map payload synchronously. Push
+            # it to the client immediately so map UI is not gated on the
+            # emitted map.region event making a PGMQ round trip. During join
+            # bootstrap the event adapter may not have started yet, and the
+            # bootstrap purge may intentionally clear queued echoes.
+            if isinstance(result, dict) and isinstance(result.get("sectors"), list):
+                payload = dict(result)
+                payload["player"] = {"id": self._character_id}
+                await self._rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "map.region",
+                            "payload": payload,
+                        }
+                    )
+                )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed to fetch local map region via client message")
             await self._rtvi.push_frame(

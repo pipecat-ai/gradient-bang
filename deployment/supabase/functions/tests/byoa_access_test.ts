@@ -24,13 +24,17 @@ import {
 import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
+  apiAs,
+  apiAsOk,
   apiOk,
   characterIdFor,
   createCorpShip,
   eventsOfType,
   getEventCursor,
+  provisionUser,
   setShipCredits,
   shipIdFor,
+  type TestUser,
   withPg,
 } from "./helpers.ts";
 
@@ -136,6 +140,8 @@ Deno.test({
 
     let corpShipId: string;
 
+    let p1User: TestUser;
+
     await t.step("seed corp + members + corp ship", async () => {
       await resetDatabase([P1, P2]);
       await apiOk("join", { character_id: p1Id });
@@ -143,10 +149,11 @@ Deno.test({
       await setShipCredits(p1ShipId, 50_000);
       const seeded = await seedCorpWithMembers(p1Id, [p2Id], "BYOA Test Corp");
       corpShipId = seeded.corpShipId;
+      p1User = await provisionUser("byoa-p1", p1Id);
     });
 
     await t.step("P1 claims BYOA on the corp ship", async () => {
-      const result = await apiOk("ship_byoa_configure", {
+      const result = await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
@@ -219,6 +226,8 @@ Deno.test({
     let corpShipId: string;
     const taskId = crypto.randomUUID();
 
+    let p1User: TestUser;
+
     await t.step("seed corp + claim private + start task", async () => {
       await resetDatabase([P1, P2]);
       await apiOk("join", { character_id: p1Id });
@@ -230,7 +239,8 @@ Deno.test({
         "Cancel BYOA Corp",
       );
       corpShipId = seeded.corpShipId;
-      await apiOk("ship_byoa_configure", {
+      p1User = await provisionUser("byoa-cancel-p1", p1Id);
+      await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
@@ -301,6 +311,9 @@ Deno.test({
   sanitizeResources: false,
   async fn(t) {
     let corpShipId: string;
+    let p1User: TestUser;
+    let p2User: TestUser;
+    let p3User: TestUser;
 
     await t.step("seed corp", async () => {
       await resetDatabase([P1, P2, P3]);
@@ -311,10 +324,13 @@ Deno.test({
       await setShipCredits(p1ShipId, 50_000);
       const seeded = await seedCorpWithMembers(p1Id, [p2Id], "Configure Corp");
       corpShipId = seeded.corpShipId;
+      p1User = await provisionUser("byoa-cfg-p1", p1Id);
+      p2User = await provisionUser("byoa-cfg-p2", p2Id);
+      p3User = await provisionUser("byoa-cfg-p3", p3Id);
     });
 
     await t.step("P3 (non-corp) cannot configure", async () => {
-      const result = await api("ship_byoa_configure", {
+      const result = await apiAs(p3User.accessToken, "ship_byoa_configure", {
         character_id: p3Id,
         ship_id: corpShipId,
         action: "claim",
@@ -323,7 +339,7 @@ Deno.test({
     });
 
     await t.step("P1 claims", async () => {
-      await apiOk("ship_byoa_configure", {
+      await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
@@ -331,7 +347,7 @@ Deno.test({
     });
 
     await t.step("P2 cannot re-claim while P1 owns", async () => {
-      const result = await api("ship_byoa_configure", {
+      const result = await apiAs(p2User.accessToken, "ship_byoa_configure", {
         character_id: p2Id,
         ship_id: corpShipId,
         action: "claim",
@@ -340,7 +356,7 @@ Deno.test({
     });
 
     await t.step("shared mode is rejected", async () => {
-      const result = await api("ship_byoa_configure", {
+      const result = await apiAs(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
@@ -350,7 +366,7 @@ Deno.test({
     });
 
     await t.step("P1 clears; row is back to defaults", async () => {
-      await apiOk("ship_byoa_configure", {
+      await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "clear",
@@ -384,6 +400,8 @@ Deno.test({
   sanitizeResources: false,
   async fn(t) {
     let corpShipId: string;
+    let p1User: TestUser;
+    let p2User: TestUser;
     const wakeSecret = "deadbeef".repeat(8);
     const sourceUrl = "https://example.test/api/wake";
 
@@ -394,7 +412,9 @@ Deno.test({
       await setShipCredits(p1ShipId, 50_000);
       const seeded = await seedCorpWithMembers(p1Id, [p2Id], "Set Corp");
       corpShipId = seeded.corpShipId;
-      await apiOk("ship_byoa_configure", {
+      p1User = await provisionUser("byoa-set-p1", p1Id);
+      p2User = await provisionUser("byoa-set-p2", p2Id);
+      await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
@@ -402,7 +422,7 @@ Deno.test({
     });
 
     await t.step("P2 (non-owner) set → 403", async () => {
-      const result = await api("ship_byoa_configure", {
+      const result = await apiAs(p2User.accessToken, "ship_byoa_configure", {
         character_id: p2Id,
         ship_id: corpShipId,
         action: "set",
@@ -412,7 +432,7 @@ Deno.test({
     });
 
     await t.step("set with neither field → 400", async () => {
-      const result = await api("ship_byoa_configure", {
+      const result = await apiAs(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "set",
@@ -421,7 +441,7 @@ Deno.test({
     });
 
     await t.step("set with bad source_url → 400", async () => {
-      const result = await api("ship_byoa_configure", {
+      const result = await apiAs(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "set",
@@ -433,13 +453,17 @@ Deno.test({
     await t.step(
       "P1 set wake_secret + source_url; round-trip via getter",
       async () => {
-        const result = await apiOk("ship_byoa_configure", {
-          character_id: p1Id,
-          ship_id: corpShipId,
-          action: "set",
-          wake_secret: wakeSecret,
-          source_url: sourceUrl,
-        });
+        const result = await apiAsOk(
+          p1User.accessToken,
+          "ship_byoa_configure",
+          {
+            character_id: p1Id,
+            ship_id: corpShipId,
+            action: "set",
+            wake_secret: wakeSecret,
+            source_url: sourceUrl,
+          },
+        );
         const body = result as Record<string, unknown>;
         assertEquals(body.wake_secret_updated, true);
         assertEquals(body.source_url_updated, true);
@@ -452,7 +476,7 @@ Deno.test({
 
     await t.step("set source_url only leaves wake_secret intact", async () => {
       const newUrl = "https://example.test/v2/wake";
-      await apiOk("ship_byoa_configure", {
+      await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "set",
@@ -471,6 +495,7 @@ Deno.test({
   sanitizeResources: false,
   async fn(t) {
     let corpShipId: string;
+    let p1User: TestUser;
 
     await t.step("seed corp + active task (non-BYOA)", async () => {
       await resetDatabase([P1]);
@@ -482,6 +507,7 @@ Deno.test({
         "Locked Configure Corp",
       );
       corpShipId = seeded.corpShipId;
+      p1User = await provisionUser("byoa-busy-p1", p1Id);
       await apiOk("task_lifecycle", {
         character_id: corpShipId,
         actor_character_id: p1Id,
@@ -492,7 +518,7 @@ Deno.test({
     });
 
     await t.step("claim while held → 409 ship_busy", async () => {
-      const result = await api("ship_byoa_configure", {
+      const result = await apiAs(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",
@@ -519,13 +545,16 @@ Deno.test({
     let corpShipId: string;
     const taskId = crypto.randomUUID();
 
+    let p1User: TestUser;
+
     await t.step("seed corp + claim BYOA + start a task", async () => {
       await resetDatabase([P1]);
       await apiOk("join", { character_id: p1Id });
       await setShipCredits(p1ShipId, 50_000);
       const seeded = await seedCorpWithMembers(p1Id, [], "Payload Corp");
       corpShipId = seeded.corpShipId;
-      await apiOk("ship_byoa_configure", {
+      p1User = await provisionUser("byoa-payload-p1", p1Id);
+      await apiAsOk(p1User.accessToken, "ship_byoa_configure", {
         character_id: p1Id,
         ship_id: corpShipId,
         action: "claim",

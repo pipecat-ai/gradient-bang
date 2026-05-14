@@ -6,6 +6,7 @@
  */
 
 import { Client } from "postgres";
+import { createClient } from "@supabase/supabase-js";
 import {
   v5,
   validate as validateUuid,
@@ -113,6 +114,124 @@ export async function apiOk<T = Record<string, unknown>>(
     );
   }
   return result.body as T & { success: boolean };
+}
+
+/**
+ * Variant of {@link api} that sends `Authorization: Bearer <accessToken>`.
+ * Use for endpoints that go through `getAuthenticatedUser()` (e.g.
+ * `ship_byoa_configure`, `my_corporation`, `verify_token`). Provision the
+ * token with {@link provisionUser}.
+ */
+export async function apiAs<T = Record<string, unknown>>(
+  accessToken: string,
+  endpoint: string,
+  payload: Record<string, unknown> = {},
+): Promise<ApiResponse<T>> {
+  const baseUrl = getBaseUrl();
+  const resp = await fetch(`${baseUrl}/${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const body = await resp.json();
+  return {
+    status: resp.status,
+    ok: resp.ok,
+    body: body as T & { success: boolean; error?: string },
+  };
+}
+
+/** Auth-aware variant of {@link apiOk}. */
+export async function apiAsOk<T = Record<string, unknown>>(
+  accessToken: string,
+  endpoint: string,
+  payload: Record<string, unknown> = {},
+): Promise<T & { success: boolean }> {
+  const result = await apiAs<T>(accessToken, endpoint, payload);
+  if (!result.ok || !result.body.success) {
+    throw new Error(
+      `API ${endpoint} failed: status=${result.status} ` +
+        `body=${JSON.stringify(result.body)}`,
+    );
+  }
+  return result.body as T & { success: boolean };
+}
+
+// ============================================================================
+// Supabase user provisioning (for endpoints that require a real user JWT)
+// ============================================================================
+
+export interface TestUser {
+  userId: string;
+  email: string;
+  password: string;
+  accessToken: string;
+}
+
+/**
+ * Create a Supabase Auth user, link it to `characterId` via `user_characters`,
+ * sign in to get a real `access_token`. Use the returned token with
+ * {@link apiAs} / {@link apiAsOk} to call operator-facing endpoints.
+ *
+ * Reads `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` from
+ * the test process env (set by `run_tests.sh`).
+ */
+export async function provisionUser(
+  emailLocal: string,
+  characterId: string,
+): Promise<TestUser> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321";
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const email = `${emailLocal}+${crypto.randomUUID().slice(0, 8)}@example.test`;
+  const password = `pw-${crypto.randomUUID()}`;
+
+  const { data: created, error: createErr } = await admin.auth.admin.createUser(
+    { email, password, email_confirm: true },
+  );
+  if (createErr || !created.user) {
+    throw new Error(
+      `admin.createUser failed: ${createErr?.message ?? "no user"}`,
+    );
+  }
+  const userId = created.user.id;
+
+  // Link user to the test character so can_user_access_character returns true.
+  const pg = new Client(getPgUrl());
+  try {
+    await pg.connect();
+    await pg.queryObject(
+      "INSERT INTO public.user_characters (user_id, character_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      [userId, characterId],
+    );
+  } finally {
+    await pg.end();
+  }
+
+  const anon = createClient(supabaseUrl, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data: session, error: signinErr } = await anon.auth
+    .signInWithPassword({ email, password });
+  if (signinErr || !session.session?.access_token) {
+    throw new Error(
+      `signInWithPassword failed: ${signinErr?.message ?? "no session"}`,
+    );
+  }
+
+  return {
+    userId,
+    email,
+    password,
+    accessToken: session.session.access_token,
+  };
 }
 
 // ============================================================================
@@ -440,6 +559,8 @@ export async function createCorpShip(
        VALUES ($1, $2)`,
       [corpId, shipId],
     );
+
+    await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [shipId]);
 
     return { shipId, pseudoCharacterId: shipId };
   });

@@ -11,7 +11,11 @@
  *      persistent sandbox cloning the gradient-bang git repo and runs
  *      `uv sync` once.
  *   3. Spawns `uv run byoa` detached with the merged operator-env + wake-env,
- *      then returns 202 with the sandbox name + cmd id.
+ *      with stdout+stderr appended to ~/byoa.log inside the sandbox, then
+ *      returns 202 with the sandbox name + cmd id. Wake is "done" the moment
+ *      the harness is launched — task progress is observed via the game bus,
+ *      not the wake response. Use GET /api/logs?ship_id=… to inspect
+ *      ~/byoa.log when something silently misbehaves.
  *
  * Persistent sandboxes (beta in @vercel/sandbox@beta) auto-snapshot on stop,
  * so the second wake for the same ship skips clone + dep install and resumes
@@ -87,26 +91,18 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-function isNotFoundError(err: unknown): boolean {
-  if (err && typeof err === "object") {
-    const anyErr = err as { status?: number; code?: string };
-    if (anyErr.status === 404) return true;
-    if (anyErr.code === "not_found") return true;
-  }
-  return /not.?found/i.test(err instanceof Error ? err.message : String(err));
-}
-
-async function provisionSandbox(opts: {
+async function getOrCreateSandbox(opts: {
   name: string;
   env: Record<string, string>;
-}): Promise<Sandbox> {
+}): Promise<{ sandbox: Sandbox; created: boolean }> {
   const repoUrl = (process.env.BYOA_REPO_URL ?? DEFAULT_REPO_URL).trim();
   const revision = (
     process.env.BYOA_REPO_REVISION ?? DEFAULT_REPO_REVISION
   ).trim();
   const githubToken = (process.env.GITHUB_TOKEN ?? "").trim();
 
-  const sandbox = await Sandbox.create({
+  let created = false;
+  const sandbox = await Sandbox.getOrCreate({
     name: opts.name,
     // `persistent: true` is the default in @vercel/sandbox@beta; pinned
     // here for clarity in case the default flips.
@@ -126,37 +122,30 @@ async function provisionSandbox(opts: {
       depth: 1,
     },
     env: opts.env,
+    onCreate: async (sbx) => {
+      created = true;
+      // python3.13 runtime ships with `uv` preinstalled. Install deps from
+      // the slim BYOA runtime pyproject so we don't pull bot/server-only
+      // packages into the sandbox.
+      const cp = await sbx.runCommand("cp", [
+        "pyproject.byoa.toml",
+        "pyproject.toml",
+      ]);
+      if (cp.exitCode !== 0) {
+        throw new Error(`cp pyproject.byoa.toml failed: ${await cp.stderr()}`);
+      }
+      // Not `--frozen`: the checked-in `uv.lock` was generated from the
+      // main `pyproject.toml` and references workspace members that don't
+      // exist in `pyproject.byoa.toml`. Letting uv re-resolve on first
+      // wake regenerates a BYOA-shaped lock; subsequent wakes resume the
+      // sandbox snapshot and skip this step entirely.
+      const sync = await sbx.runCommand("uv", ["sync"]);
+      if (sync.exitCode !== 0) {
+        throw new Error(`uv sync failed: ${await sync.stderr()}`);
+      }
+    },
   });
-
-  // python3.13 runtime ships with `uv` preinstalled. Install deps from the
-  // slim BYOA runtime pyproject so we don't pull bot/server-only packages
-  // into the sandbox.
-  const cp = await sandbox.runCommand("cp", [
-    "pyproject.byoa.toml",
-    "pyproject.toml",
-  ]);
-  if (cp.exitCode !== 0) {
-    throw new Error(`cp pyproject.byoa.toml failed: ${await cp.stderr()}`);
-  }
-  const sync = await sandbox.runCommand("uv", ["sync", "--frozen"]);
-  if (sync.exitCode !== 0) {
-    throw new Error(`uv sync failed: ${await sync.stderr()}`);
-  }
-  return sandbox;
-}
-
-async function getOrCreateSandbox(opts: {
-  name: string;
-  env: Record<string, string>;
-}): Promise<{ sandbox: Sandbox; created: boolean }> {
-  try {
-    const sandbox = await Sandbox.get({ name: opts.name, resume: true });
-    return { sandbox, created: false };
-  } catch (err) {
-    if (!isNotFoundError(err)) throw err;
-    const sandbox = await provisionSandbox(opts);
-    return { sandbox, created: true };
-  }
+  return { sandbox, created };
 }
 
 // ── Handler ──────────────────────────────────────────────────────────
@@ -200,8 +189,11 @@ export async function POST(req: Request): Promise<Response> {
   // Operator config from project env first, then per-session bits from the
   // wake POST. Wake bits win on overlap so BYOA_CHANNEL / BYOA_TASK_ID /
   // BYOA_BUS_DATABASE_URL flow through correctly even if the operator set
-  // something stale in project env.
+  // something stale in project env. `PYTHONUNBUFFERED=1` so harness output
+  // hits ~/byoa.log line-by-line instead of in 4KB chunks — critical for
+  // debugging detached runs via /api/logs.
   const harnessEnv: Record<string, string> = {
+    PYTHONUNBUFFERED: "1",
     ...pickOperatorEnv(),
     ...wakeEnv,
   };
@@ -223,9 +215,17 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   try {
+    // Wrap in a login shell so we can redirect stdout+stderr to a file
+    // that survives the snapshot. Each wake prepends a banner line so
+    // /api/logs can show distinct invocations. Use `>>` not `>` so we
+    // keep history across wakes.
+    const launchScript = [
+      `printf '\\n--- wake %s %s task=%s ---\\n' "$(date -u +%FT%TZ)" "${request_id ?? ""}" "${task_id}" >> ~/byoa.log`,
+      `exec uv run byoa >> ~/byoa.log 2>&1`,
+    ].join(" ; ");
     const command = await sandbox.runCommand({
-      cmd: "uv",
-      args: ["run", "byoa"],
+      cmd: "bash",
+      args: ["-lc", launchScript],
       env: harnessEnv,
       detached: true,
     });

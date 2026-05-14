@@ -1,3 +1,12 @@
+[build-system]
+# Required: without this, uv defaults to its own `uv_build` backend, which
+# ignores `[tool.setuptools]` below and expects src/<normalized_name>/ —
+# i.e. src/gradient_bang_byoa_runtime/. Our source lives at src/gradientbang/,
+# so the default backend silently installs an empty package and the `byoa`
+# entry script never gets written into .venv/bin/.
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "gradient-bang-byoa-runtime"
 version = "0.0.0"

@@ -47,6 +47,7 @@ export default defineConfig(({ command, mode }) => {
       tailwindcss(),
       VitePWA({
         registerType: "prompt",
+        useCredentials: true,
         devOptions: {
           enabled: false,
         },

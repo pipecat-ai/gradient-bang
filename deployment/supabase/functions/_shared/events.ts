@@ -433,19 +433,22 @@ export async function emitErrorEvent(
     log?: RequestLogger | null;
   },
 ): Promise<void> {
-  const payload = {
-    source: buildEventSource(params.method, params.requestId),
-    endpoint: params.method,
-    error: params.detail,
+  // Deprecated: request failures must surface synchronously via the edge
+  // function response so bot callers receive RPCError on the awaited call.
+  // Do not publish durable `error` events into pgmq/events.
+  const msg =
+    `error ${params.method} char=${params.characterId} status=${params.status ?? 400}`;
+  const details = {
+    method: params.method,
+    request_id: params.requestId,
+    character_id: params.characterId,
     status: params.status ?? 400,
-  } as Record<string, unknown>;
-  await emitCharacterEvent({
-    supabase,
-    characterId: params.characterId,
-    eventType: "error",
-    payload,
-    requestId: params.requestId,
-    recipientReason: "error",
-    log: params.log,
-  });
+    detail: params.detail,
+  };
+  if (params.log) {
+    params.log.warn(msg, details);
+  } else {
+    console.warn("emitErrorEvent.deprecated_noop", details);
+  }
+  void supabase;
 }

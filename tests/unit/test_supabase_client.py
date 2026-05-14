@@ -14,6 +14,7 @@ from typing import Any, Dict
 
 import pytest
 
+from gradientbang.adapters.events.polling import PollingEventAdapter
 from gradientbang.utils.supabase_client import AsyncGameClient, per_call_identity
 
 
@@ -23,15 +24,12 @@ CORP_SHIP_ID = "22222222-2222-2222-2222-222222222222"
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGameClient:
-    """Construct a real AsyncGameClient without starting the poller.
-
-    ``enable_event_polling=False`` makes ``start_event_delivery`` a no-op,
-    so the polling task never spins up. Test drives event ingestion via
-    ``client._event_adapter._deliver_polled_event`` with crafted rows.
-    """
+    """Construct a real AsyncGameClient with a manually driven polling adapter."""
     monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
     monkeypatch.setenv("EDGE_API_TOKEN", "test-token")
-    return AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+    game_client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+    game_client._event_adapter = PollingEventAdapter(game_client)
+    return game_client
 
 
 def _row(event_type: str, payload: Dict[str, Any], *, event_id: int = 1) -> Dict[str, Any]:

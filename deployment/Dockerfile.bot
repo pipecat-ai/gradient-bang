@@ -13,7 +13,7 @@ ENV PYTHONPATH=/app
 
 # Install Deno for running edge functions locally
 ENV DENO_INSTALL=/root/.deno
-RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip git \
     && curl -fsSL https://deno.land/install.sh | sh \
     && apt-get purge -y curl unzip && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
@@ -37,7 +37,6 @@ COPY src/gradientbang/utils/ gradientbang/utils/
 COPY src/gradientbang/scripts/ gradientbang/scripts/
 COPY src/gradientbang/prompts/ gradientbang/prompts/
 COPY src/gradientbang/tools/ gradientbang/tools/
-COPY src/gradientbang/subagents/ gradientbang/subagents/
 COPY src/gradientbang/adapters/ gradientbang/adapters/
 COPY src/gradientbang/byoa/ gradientbang/byoa/
 COPY src/gradientbang/pipecat_server/ gradientbang/pipecat_server/

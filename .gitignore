@@ -54,6 +54,8 @@ supabase/.temp/
 # Deployment
 deployment/pcc-deploy*.toml
 !deployment/pcc-deploy.example.toml
+deployment/vercel/node_modules/
+deployment/vercel/.vercel/
 
 # Local runtime artifacts / large scratch trees
 bot.log.example
