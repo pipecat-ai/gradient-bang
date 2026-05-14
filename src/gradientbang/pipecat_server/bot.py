@@ -307,9 +307,8 @@ async def bot_startup(
     # BOT_TEST_ACCESS_TOKEN). Polling adapter ignores it; pubsub adapter
     # uses it to authenticate against per-character pgmq queues.
     # Event delivery is started explicitly by ``_join`` after session_init
-    # has built the LLM context and the agent is activated. Until then no
-    # subscriber exists; events the server queues during the bootstrap
-    # window are drained and discarded when the adapter starts.
+    # has built the LLM context. Bootstrap RPC echoes are purged before
+    # activation so they do not replay into EventRelay/LLM context.
     game_client = AsyncGameClient(
         character_id=character_id,
         base_url=server_url,
@@ -769,14 +768,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             try:
                 await asyncio.sleep(2)
                 # Strict startup contract:
-                #   0. purge any leftover pubsub queue — server pgmq_publish
-                #      becomes a silent no-op until step 4 recreates it, so
-                #      init-RPC events can't accumulate
+                #   0. purge any leftover pubsub messages while keeping the
+                #      queue present, so init-RPC publishes remain required
                 #   1. fetch initial state via blocking RPCs (data inline)
                 #   2. patch substitutions into the seeded system message
-                #   3. activate VoiceAgent with the initial messages
-                #   4. start the event adapter — fresh queue, steady-state
-                #      events begin flowing
+                #   3. hydrate the web client from inline bootstrap data
+                #   4. purge bootstrap RPC echoes from pgmq
+                #   5. start the event adapter — steady-state events flow
+                #   6. activate VoiceAgent with the initial messages
                 # If any step fails, the bot bails rather than half-joining.
                 await game_client.purge_event_backlog()
 
@@ -820,13 +819,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                         )
                     )
 
-                # Bootstrap-path emits bypass pgmq (events emitted during
-                # session_init silently no-op against the dropped queue).
                 # The client's session-scoped events (e.g. map.local) gate
-                # on `payload.player.id`, which server-side pgEmit fills
-                # in via injectCharacterEventIdentity. We're not going
-                # through that path here, so inject the same field
-                # manually before forwarding.
+                # on `payload.player.id`. Bootstrap UI hydration bypasses
+                # EventRelay, so inject the same field the SQL event path
+                # would add before forwarding.
                 map_local_payload = {
                     **initial_state.map_local_payload,
                     "player": {"id": character_id},
@@ -842,6 +838,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     "quest.status",
                     {"quests": initial_state.quest_payload.get("quests", [])},
                 )
+
+                # Bootstrap RPCs publish real events because pubsub delivery
+                # is required. The inline RPC responses above already seeded
+                # the LLM context and hydrated the client, so purge those
+                # queued echoes before EventRelay starts consuming.
+                await game_client.purge_event_backlog()
+
+                await game_client.start_event_delivery()
 
                 if is_first_visit and not bypass_tutorial:
                     logger.info("First visit detected, activating ScriptedAgent")
@@ -859,8 +863,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                             run_llm=True,
                         ),
                     )
-
-                await game_client.start_event_delivery()
             except Exception as exc:
                 # Fire-and-forget task would swallow this otherwise. Tear down
                 # the runner so the session exits instead of hanging half-joined.

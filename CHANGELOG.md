@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-05-14
+
+### Fixed
+
+- Pubsub event delivery hardened to a required boundary. `pgmq_publish` and `record_event_with_recipients` no longer swallow publish failures, and `purge_backlog` keeps the per-character queue present (purges messages instead of dropping the table) so bootstrap-RPC events stop hitting silent `undefined_table` no-ops. Bot-side double-purge brackets `session_init` so bootstrap echoes never leak into the LLM context via EventRelay
+- `pgBuildLocalMapRegion` includes `player: { id: characterId }` in its return so bootstrap `map.local` payloads pass the client's session-payload check
+- `Dockerfile.bot`: install `git` so `uv` can clone the pinned `pipecat-ai-subagents` rev; drop the dead `COPY src/gradientbang/subagents/` line
+- Deno edge server warms the adjacency cache at startup before serving traffic; bumps the local pg pool 3→8 to absorb bursty bootstrap traffic
+- `purge_event_backlog` resolver: `PGMQ_URL` falls back to `LOCAL_API_POSTGRES_URL` when unset (both point at the same admin DSN in cloud deploys)
+
 ## [0.5.0] - 2026-05-14
 
 ### Added

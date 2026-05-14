@@ -1780,14 +1780,6 @@ export function GameProvider({ children }: GameProviderProps) {
                 })
                 useGameStore.getState().setNotifications({ questCompleted: true })
               }
-              useGameStore.getState().addToast({
-                type: "quest.step_completed",
-                meta: {
-                  quest_name: data.quest_name,
-                  step_name: data.step_name,
-                  reward_credits: data.reward?.credits,
-                },
-              })
               useGameStore.getState().addActivityLogEntry({
                 type: "quest.step_completed",
                 message: `[${data.quest_name}] Step completed: ${data.step_name}`,

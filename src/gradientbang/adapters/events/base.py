@@ -29,11 +29,11 @@ class EventAdapter(Protocol):
         """Reset the per-character delivery backlog before ``start``.
 
         Sessions that build their LLM context inline from RPC responses
-        call this to guarantee no events from bootstrap RPCs leak into
-        the context once steady-state delivery begins. Effect is
-        transport-specific: pubsub drops the per-character pgmq queue
-        (subsequent server publishes silently no-op until ``start``
-        recreates it); polling resets its cursor to current head.
+        call this before bootstrap to clear stale prior-session messages,
+        then again before ``start`` to discard bootstrap RPC echoes that
+        were already consumed inline. Effect is transport-specific:
+        pubsub keeps the per-character pgmq queue present and purges its
+        messages; polling resets its cursor to current head.
         """
         ...
 

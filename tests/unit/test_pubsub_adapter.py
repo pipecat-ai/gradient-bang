@@ -433,12 +433,9 @@ class TestPollOnceArchival:
 
 @pytest.mark.asyncio
 class TestPurgeBacklog:
-    """`purge_backlog` drops the per-character queue so subsequent server
-    publishes silently no-op until ``start`` recreates it. Replaces the
-    older drain-on-start mechanism, which had a commit-to-visibility race
-    when bootstrap RPCs' events landed in the queue mid-drain."""
+    """`purge_backlog` keeps the per-character queue present and empty."""
 
-    async def test_purge_drops_each_character_queue(
+    async def test_purge_ensures_and_clears_each_character_queue(
         self,
         adapter: PubsubEventAdapter,
         monkeypatch: pytest.MonkeyPatch,
@@ -449,24 +446,27 @@ class TestPurgeBacklog:
 
         await adapter.purge_backlog()
 
-        drop_calls = [
-            params for sql, params in cursor.executions if "drop_queue" in sql
+        ensure_calls = [
+            params for sql, params in cursor.executions if "ensure_character_queue" in sql
         ]
-        assert drop_calls == [(f"chr_{PLAYER_ID}",)]
+        purge_calls = [
+            params for sql, params in cursor.executions if "purge_queue" in sql
+        ]
+        assert ensure_calls == [(PLAYER_ID,)]
+        assert purge_calls == [(f"chr_{PLAYER_ID}",)]
 
-    async def test_purge_swallows_drop_errors(
+    async def test_purge_errors_are_fatal(
         self,
         adapter: PubsubEventAdapter,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A missing queue (or any pgmq error) must not bubble up — the
-        whole point of purge is to leave a clean slate, and ``start`` will
-        surface real problems if any."""
+        """If queue setup or purge fails, startup must fail synchronously."""
         monkeypatch.setenv("PGMQ_URL", "postgresql://fake")
         cursor = _FakeCursor(fetch_results=[], raise_on_execute=RuntimeError("queue not found"))
         _install_fake_psycopg(monkeypatch, cursor)
 
-        await adapter.purge_backlog()  # must not raise
+        with pytest.raises(RuntimeError, match="queue not found"):
+            await adapter.purge_backlog()
 
 
 @pytest.mark.asyncio

@@ -168,8 +168,8 @@ class AsyncGameClient(BaseAsyncGameClient):
         # explicit ``start_event_delivery()`` call once the caller is
         # ready to consume events. Callers that build their LLM context
         # inline from RPC responses call ``purge_event_backlog`` first to
-        # guarantee no events the server queued during bootstrap reach
-        # the LLM context.
+        # clear stale messages from prior sessions while keeping the queue
+        # present for required pubsub publishes during bootstrap.
         self._event_adapter: Optional[EventAdapter] = None
 
     def set_event_polling_scope(
@@ -617,12 +617,10 @@ class AsyncGameClient(BaseAsyncGameClient):
         """Reset the per-character delivery backlog before bootstrap RPCs.
 
         Sessions that build their LLM context inline from RPC responses
-        call this before issuing those RPCs. The pubsub adapter drops
-        the per-character pgmq queue (so subsequent server publishes
-        silently no-op until ``start_event_delivery`` recreates it); the
-        polling adapter fast-forwards its cursor to current head. Either
-        way, ``start_event_delivery`` starts on a clean baseline and the
-        bootstrap RPCs' events never reach the LLM context.
+        call this before issuing those RPCs. The pubsub adapter keeps the
+        per-character pgmq queue present and purges stale messages from
+        prior sessions. ``start_event_delivery`` then starts from a clean
+        baseline without creating a missing-queue publish window.
         """
         if not self._enable_event_polling:
             return

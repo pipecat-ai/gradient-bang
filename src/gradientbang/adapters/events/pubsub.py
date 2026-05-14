@@ -36,12 +36,12 @@ Failure modes:
   ``subscribe_my_events`` → adapter re-raises so the bot can disconnect (per
   the auth design: no token-refresh path; expired sessions terminate).
 
-No client-side dedup ring: per the design, a fresh pubsub session does not
-replay history. Callers that build their LLM context inline from RPC
-responses call ``purge_backlog`` before issuing those RPCs — it drops the
-per-character pgmq queue so subsequent server publishes silently no-op
-until ``start`` recreates it. Only events arriving after ``start()``
-reach the dispatch sink.
+No client-side dedup ring: callers that build their LLM context inline from
+RPC responses call ``purge_backlog`` before issuing those RPCs. It ensures
+the per-character pgmq queue exists and purges stale messages from prior
+sessions. The queue remains present throughout bootstrap because pubsub
+delivery is required; publish failures surface synchronously to the RPC
+caller.
 """
 
 from __future__ import annotations
@@ -176,17 +176,12 @@ class PubsubEventAdapter:
     # ------------------------------------------------------------------
 
     async def purge_backlog(self) -> None:
-        """Drop the per-character pgmq queue.
+        """Ensure each per-character pgmq queue exists, then empty it.
 
-        Called by sessions that build their LLM context inline from RPC
-        responses before this adapter starts. After this returns, server
-        ``pgmq_publish`` calls for the bound character silently no-op
-        (``EXCEPTION WHEN undefined_table THEN RETURN NULL``) until
-        ``start()`` recreates the queue via ``ensure_character_queue``.
-        Eliminates the timing race between init-RPC pgmq inserts and
-        the adapter's startup, at the cost of losing any genuine
-        background events for this character during the bootstrap
-        window — acceptable since the next status.snapshot reconciles.
+        Sessions call this before bootstrap RPCs so stale messages from a
+        prior session cannot replay. The queue must remain present because
+        pubsub delivery is required: if a bootstrap or steady-state event
+        cannot publish to pgmq, the request should fail synchronously.
         """
         pgmq_url = _resolve_pgmq_url()
         async with await psycopg.AsyncConnection.connect(
@@ -195,21 +190,16 @@ class PubsubEventAdapter:
             async with conn.cursor() as cur:
                 for character_id in self._character_ids:
                     queue_name = f"chr_{character_id}"
-                    try:
-                        await cur.execute(
-                            "SELECT pgmq.drop_queue(%s)", (queue_name,)
-                        )
-                        logger.info(
-                            f"pubsub.backlog_purged character={character_id}"
-                        )
-                    except Exception as exc:
-                        # Queue didn't exist → drop is a no-op for our purposes.
-                        # Any other error is logged but not fatal; start() will
-                        # try again and surface real problems then.
-                        logger.debug(
-                            f"pubsub.purge_skipped character={character_id} "
-                            f"error={exc}"
-                        )
+                    await cur.execute(
+                        "SELECT public.ensure_character_queue(%s)",
+                        (character_id,),
+                    )
+                    await cur.execute(
+                        "SELECT pgmq.purge_queue(%s)", (queue_name,)
+                    )
+                    logger.info(
+                        f"pubsub.backlog_purged character={character_id}"
+                    )
 
     async def start(self) -> None:
         if self._char_tasks:
@@ -246,7 +236,7 @@ class PubsubEventAdapter:
 
         # Self-test: verify the SQL roundtrip works end-to-end before we
         # silently accept the session. Also creates the per-character queue
-        # if a prior ``purge_backlog`` dropped it (or it never existed).
+        # defensively if it never existed.
         for character_id in self._character_ids:
             await self._run_startup_self_test(character_id)
 
