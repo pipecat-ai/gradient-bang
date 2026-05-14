@@ -86,6 +86,21 @@ if (loadedCount < functionNames.length) {
   console.warn(`[server] Missing functions: ${missing.join(", ")}`);
 }
 
+// Block on the adjacency cache warmup before serving traffic. move/join
+// trigger warmupAdjacencyCache() at module load above; this awaits the
+// in-flight fetch (5000-row universe_structure scan, ~5s cold) so the
+// first /list_known_ports / /local_map_region request doesn't pay it.
+{
+  const { fetchAllAdjacencies } = await import("./_shared/map.ts");
+  const t0 = performance.now();
+  const adj = await fetchAllAdjacencies();
+  console.log(
+    `[server] Adjacency cache warm: ${adj.size} sectors in ${
+      Math.round(performance.now() - t0)
+    }ms`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Phase 2: Start the actual unified HTTP server
 // ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import {
 } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 import type { PoolClient } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
-const POOL_SIZE = 3;
+const POOL_SIZE = 8;
 
 let _pool: Pool | null = null;
 
