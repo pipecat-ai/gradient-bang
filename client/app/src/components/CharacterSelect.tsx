@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo } from "react"
 
 import { formatDistanceToNow } from "date-fns"
 import { AnimatePresence, motion } from "motion/react"
@@ -42,7 +42,7 @@ const CharacterCard = ({
 
   return (
     <motion.div
-      className="h-full cursor-pointer shrink-0 snap-start"
+      className="h-full cursor-pointer"
       initial={{ width: 0 }}
       animate={{ width: 192 }}
       exit={{ width: 0 }}
@@ -51,7 +51,6 @@ const CharacterCard = ({
       <motion.div
         tabIndex={0}
         role="button"
-        aria-label={`Select character ${character.name}, last active ${lastActiveString}`}
         className="interactive-card group bg-card focus-outline focus-hover relative py-0 border h-full w-48 elbow select-none elbow-offset-1 elbow-subtle-foreground hover:elbow-foreground hover:-elbow-offset-3 focus-visible:-elbow-offset-3 focus-visible:elbow-foreground hover:scale-105 focus-visible:scale-105 transition-transform duration-300 ease-in-out cursor-pointer"
         initial={{ opacity: 0, y: 20, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -98,22 +97,10 @@ export const CharacterSelect = ({
   onIsCreating: () => void
 }) => {
   const characters = useGameStore.use.characters()
-  const [hoverEnabled, setHoverEnabled] = useState(false)
-  const hasMovedRef = useRef(false)
-
-  const handleMouseMove = () => {
-    if (!hasMovedRef.current) {
-      hasMovedRef.current = true
-      setHoverEnabled(true)
-    }
-  }
 
   return (
-    <div
-      className="flex flex-row gap-3 h-64 px-ui-md md:px-0 snap-x snap-mandatory md:snap-none"
-      onMouseMove={handleMouseMove}
-    >
-      <div className={`contents ${!hoverEnabled ? "*:pointer-events-none" : ""}`}>
+    <div className="flex flex-row gap-3 h-64">
+      <div className="contents">
         {characters?.length > 0 && (
           <div className="flex flex-row gap-3 h-full focus-disables-hover">
             <AnimatePresence>
@@ -131,17 +118,27 @@ export const CharacterSelect = ({
           </div>
         )}
 
-        {characters?.length > 0 && (
-          <div className="w-3 shrink-0 dashed-bg-vertical dashed-bg-muted" />
-        )}
-        <div className="group bg-card focus-outline focus-hover relative py-0 border w-48 shrink-0 snap-start elbow select-none elbow-offset-1 elbow-subtle-foreground hover:elbow-foreground hover:-elbow-offset-3 focus-visible:-elbow-offset-3 hover:scale-105 focus-visible:scale-105 transition-transform duration-300 ease-in-out cursor-pointer">
-          <Card className="w-full h-full border-0" onClick={onIsCreating}>
+        {characters?.length > 0 && <div className="w-3 dashed-bg-vertical dashed-bg-muted" />}
+        <div
+          tabIndex={0}
+          role="button"
+          aria-label="Create new character"
+          className="group bg-card focus-outline focus-hover relative py-0 border w-48 elbow select-none elbow-offset-1 elbow-subtle-foreground hover:elbow-foreground hover:-elbow-offset-3 focus-visible:-elbow-offset-3 focus-visible:elbow-foreground hover:scale-105 focus-visible:scale-105 transition-transform duration-300 ease-in-out cursor-pointer"
+          onClick={onIsCreating}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+              onIsCreating()
+            }
+          }}
+        >
+          <Card className="w-full h-full border-0">
             <CardContent className="flex flex-col items-center justify-center w-full h-full gap-4">
               <PlusIcon
                 size={24}
-                className="relative size-8 z-10 group-hover:text-terminal group-hover:animate-blink"
+                className="relative size-8 z-10 group-hover:text-terminal group-focus-visible:text-terminal group-hover:animate-blink group-focus-visible:animate-blink"
               />
-              <span className="group-hover:text-terminal text-center relative text-white uppercase text-sm font-medium truncate leading-none">
+              <span className="group-hover:text-terminal group-focus-visible:text-terminal text-center relative text-white uppercase text-sm font-medium truncate leading-none">
                 New Character
               </span>
             </CardContent>
