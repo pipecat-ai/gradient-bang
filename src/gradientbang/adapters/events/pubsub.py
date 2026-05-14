@@ -22,6 +22,8 @@ character and refresh before expiry.
 
 Required env: ``PGMQ_URL`` — direct (NOT pooled) postgres URL with admin
 credentials (same value as ``POSTGRES_POOLER_URL`` in ``.env.supabase``).
+Falls back to ``LOCAL_API_POSTGRES_URL`` when unset, since both point at
+the same admin connection in cloud deploys.
 Required client state: ``access_token`` on the ``AsyncGameClient`` (set at
 construction time by the bot, originating from the proxy ``start`` edge
 function or the BOT_TEST_ACCESS_TOKEN dev env). Required also:
@@ -85,6 +87,23 @@ NO_EVENTS_WARNING_SECONDS = float(os.getenv("PGMQ_NO_EVENTS_WARNING_SECONDS", "3
 # read; with a 10s VT (see subscribe_my_events SQL) this gives a transient
 # fault ~MAX_DISPATCH_ATTEMPTS * 10s of redelivery before we drop the message.
 MAX_DISPATCH_ATTEMPTS = int(os.getenv("PGMQ_MAX_DISPATCH_ATTEMPTS", "3"))
+
+
+def _resolve_pgmq_url() -> str:
+    """Return the admin Postgres URL for pgmq, falling back to LOCAL_API_POSTGRES_URL.
+
+    In cloud deploys both vars point at the same admin connection, so a
+    single value satisfies both the pgmq adapter and the in-process edge
+    function server. Raises if neither is set.
+    """
+    url = os.getenv("PGMQ_URL") or os.getenv("LOCAL_API_POSTGRES_URL")
+    if not url:
+        raise RuntimeError(
+            "PGMQ_URL (or LOCAL_API_POSTGRES_URL) is required when "
+            "EVENT_TRANSPORT=pubsub. Set it to a direct (session-mode, NOT "
+            "transaction-pooled) postgres URL with admin credentials."
+        )
+    return url
 
 
 def _is_fatal_pubsub_error(exc: BaseException) -> bool:
@@ -169,13 +188,7 @@ class PubsubEventAdapter:
         background events for this character during the bootstrap
         window — acceptable since the next status.snapshot reconciles.
         """
-        if not os.getenv("PGMQ_URL"):
-            raise RuntimeError(
-                "PGMQ_URL is required when EVENT_TRANSPORT=pubsub. "
-                "Set it to a direct (NOT pooled) postgres URL using the same "
-                "admin credentials as POSTGRES_POOLER_URL in .env.supabase."
-            )
-        pgmq_url = os.environ["PGMQ_URL"]
+        pgmq_url = _resolve_pgmq_url()
         async with await psycopg.AsyncConnection.connect(
             pgmq_url, autocommit=True, row_factory=tuple_row
         ) as conn:
@@ -202,12 +215,7 @@ class PubsubEventAdapter:
         if self._char_tasks:
             return  # Already running.
 
-        if not os.getenv("PGMQ_URL"):
-            raise RuntimeError(
-                "PGMQ_URL is required when EVENT_TRANSPORT=pubsub. "
-                "Set it to a direct (NOT pooled) postgres URL using the same "
-                "admin credentials as POSTGRES_POOLER_URL in .env.supabase."
-            )
+        _resolve_pgmq_url()  # Validate early so start() raises before launching tasks.
         if not os.getenv("SUPABASE_URL"):
             raise RuntimeError(
                 "SUPABASE_URL is required when EVENT_TRANSPORT=pubsub "
@@ -323,7 +331,7 @@ class PubsubEventAdapter:
         ownership-revoked failures at session start instead of letting them
         manifest minutes later as a silent stalled poll.
         """
-        pgmq_url = os.environ["PGMQ_URL"]
+        pgmq_url = _resolve_pgmq_url()
         internal_token = await self._ensure_internal_token(character_id)
         try:
             async with await psycopg.AsyncConnection.connect(
@@ -546,7 +554,7 @@ class PubsubEventAdapter:
 
     async def _poll_once(self, character_id: str) -> None:
         """One long-poll + dispatch + archive cycle."""
-        pgmq_url = os.environ["PGMQ_URL"]
+        pgmq_url = _resolve_pgmq_url()
         internal_token = await self._ensure_internal_token(character_id)
 
         async with await psycopg.AsyncConnection.connect(
@@ -608,7 +616,7 @@ class PubsubEventAdapter:
         Returns when the connection drops or the stop_event fires. The outer
         loop reconnects on error with backoff.
         """
-        pgmq_url = os.environ["PGMQ_URL"]
+        pgmq_url = _resolve_pgmq_url()
 
         async with await psycopg.AsyncConnection.connect(
             pgmq_url, autocommit=True
