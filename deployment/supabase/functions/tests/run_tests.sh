@@ -160,10 +160,9 @@ export ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1
 # server.ts is imported inside the test process so that deno test --coverage
 # can measure coverage of all edge function code.
 #
-# record_event_with_recipients writes both the events table and SQL-owned
-# pubsub delivery. The default run only exercises the pubsub path; pass
-# `TRANSPORT=polling` to run the polling pass instead (kept reachable for
-# regression checks on the polling adapter).
+# record_event_with_recipients writes the events table and, for active online
+# sessions, SQL-owned session-queue pubsub delivery. The default run exercises
+# pubsub; pass `TRANSPORT=polling` to run the polling pass instead.
 echo ""
 echo "==> Running integration tests (with coverage)..."
 echo ""

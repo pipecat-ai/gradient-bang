@@ -1,8 +1,5 @@
 """HTTP-polling implementation of :class:`EventAdapter`.
 
-Extracted from ``gradientbang.utils.supabase_client.AsyncGameClient``. Behavior
-is intentionally byte-identical to the pre-refactor inline implementation.
-
 Tuning env vars:
 - ``SUPABASE_POLL_INTERVAL_SECONDS`` — sleep between poll batches (default 1.0).
 - ``SUPABASE_POLL_LIMIT`` — page size (default 100 local, 50 cloud).
@@ -67,7 +64,7 @@ class PollingEventAdapter:
         self._polling_lock = asyncio.Lock()
         self._polling_backoff = 0.0
 
-        # Per-adapter dedup ring — same ring size as the pre-refactor inline impl.
+        # Per-adapter dedup ring.
         self._recent_event_ids: Deque[int] = deque()
         self._recent_event_ids_max = 512
 
@@ -84,6 +81,16 @@ class PollingEventAdapter:
         event id as its baseline.
         """
         await self._initialize_polling_cursor()
+
+    async def prepare_bootstrap(self) -> None:
+        await self.purge_backlog()
+
+    async def complete_bootstrap(self, discard_request_ids: set[str]) -> None:
+        del discard_request_ids
+        await self.purge_backlog()
+
+    async def replay_catchup(self) -> None:
+        return
 
     async def start(self) -> None:
         async with self._polling_lock:
@@ -145,6 +152,9 @@ class PollingEventAdapter:
         else:
             cleaned = corp_id.strip() if isinstance(corp_id, str) else ""
             self._poll_corp_id = cleaned or None
+
+    async def sync_scope(self) -> None:
+        return
 
     # ------------------------------------------------------------------
     # Polling internals

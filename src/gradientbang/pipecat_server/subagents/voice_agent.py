@@ -1873,22 +1873,39 @@ class VoiceAgent(LLMAgent):
             f"{corp}/{MAX_CORP_SHIP_TASKS} corp."
         )
 
-    def update_polling_scope(self) -> None:
-        """Derive corp ship IDs from children and update game_client polling.
-
-        Public interface for EventRelay's TaskStateProvider protocol.
-        """
+    def _polling_scope_ship_ids(self, *, include_ship_id: Optional[str] = None) -> list[str]:
         ship_ids = sorted(
             {c._character_id for c in self.children if isinstance(c, TaskAgent) and c._is_corp_ship}
         )
+        if include_ship_id and include_ship_id != self._character_id:
+            ship_ids = sorted({*ship_ids, include_ship_id})
+        return ship_ids
+
+    def update_polling_scope(self) -> None:
+        """Update event delivery scope from active corp-ship tasks."""
         self._game_client.set_event_polling_scope(
             character_ids=[self._character_id],
             corp_id=self._game_client.corporation_id,
-            ship_ids=ship_ids,
+            ship_ids=self._polling_scope_ship_ids(),
         )
 
     # Keep private alias for internal callers
     _update_polling_scope = update_polling_scope
+
+    async def _sync_polling_scope_for_task_start(self, target_character_id: str) -> None:
+        if target_character_id == self._character_id:
+            return
+        self._game_client.set_event_polling_scope(
+            character_ids=[self._character_id],
+            corp_id=self._game_client.corporation_id,
+            ship_ids=self._polling_scope_ship_ids(include_ship_id=target_character_id),
+        )
+        sync_scope = getattr(self._game_client, "sync_event_polling_scope", None)
+        if not callable(sync_scope):
+            return
+        result = sync_scope()
+        if inspect.isawaitable(result):
+            await result
 
     def _get_task_type(self, ship_id: Optional[str]) -> str:
         if ship_id and ship_id != self._character_id:
@@ -2226,7 +2243,7 @@ class VoiceAgent(LLMAgent):
     # edge-function ingress for the whole agent ecosystem. Each handler:
     #   - derives character_id / actor_character_id from local broker state
     #     for remote BYOA messages, falling back to local TaskAgent metadata
-    #     or legacy message fields for in-process callers
+    #     or message fields for in-process callers
     #   - tags task_id for the call duration via a ContextVar so concurrent
     #     brokered RPCs don't trample each other's event correlation
     #   - catches exceptions → error=str(e) in the response. Never re-raises.
@@ -2794,9 +2811,7 @@ class VoiceAgent(LLMAgent):
                             steer_text,
                             summary="Task already running; steered with new instructions.",
                         )
-                    # Lock is held but we can't resolve the child (race between
-                    # lock release and task_group cleanup). Surface the old
-                    # error rather than silently swallowing the request.
+                    # Lock is held but the active child is unavailable.
                     return {
                         "success": False,
                         "error": f"Ship {target_character_id[:8]}... already has a task running. Stop it first.",
@@ -3018,19 +3033,10 @@ class VoiceAgent(LLMAgent):
                         except Exception as release_exc:
                             logger.warning(f"byoa.watch_agent_failed.release error={release_exc!r}")
                         return {"success": False, "error": str(exc)}
-                    # Always fire wake_agent. The BYOA pattern is wake → task
-                    # → exit, so each new task needs a fresh harness; the
-                    # previous "skip wake when presence is fresh" optimization
-                    # was racy (presence cache lagging the just-exited
-                    # harness's offline broadcast caused the next task to
-                    # silently time out). wake_agent is a notification —
-                    # cheap and idempotent on the receive side. The tool
-                    # returns immediately with status="waking" so the LLM
-                    # keeps talking instead of blocking on the HTTP
-                    # round-trip. On failure the dispatcher cancels the
-                    # watchdog, tears down local state, cancels the task,
-                    # and surfaces a task.cancelled event via the deferred-
-                    # update queue (same path the watchdog uses).
+                    # Always fire wake_agent. BYOA workers are one-task
+                    # processes, so each task needs a fresh wake signal. The
+                    # tool returns status="waking" immediately; failure cleanup
+                    # uses the same path as the watchdog.
                     asyncio.create_task(
                         self._dispatch_byoa_wake(
                             target_character_id=target_character_id,
@@ -3338,17 +3344,8 @@ class VoiceAgent(LLMAgent):
         task_metadata: Dict[str, Any],
         task_status: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Emit ``task_lifecycle event_type=start``; translate a BYOA 403
-        into a user-facing error dict.
-
-        The in-memory ``_locked_ships`` is the authority on ship busy-ness;
-        this just fires the lifecycle event so downstream consumers see the
-        transition.
-
-        Returns:
-            ``None`` on success, or a ``{"success": False, "error": ...}``
-            dict on a 403 BYOA-owner failure. Other RPC errors re-raise.
-        """
+        """Emit ``task_lifecycle start`` and translate BYOA-owner denial."""
+        await self._sync_polling_scope_for_task_start(target_character_id)
         try:
             await self._game_client.task_lifecycle(
                 character_id=target_character_id,

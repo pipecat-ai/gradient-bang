@@ -5,14 +5,89 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PUBSUB_MIGRATION = ROOT / "deployment/supabase/migrations/20260505000000_pubsub_and_broadcasts.sql"
-QUEUE_LIFECYCLE_MIGRATION = (
-    ROOT / "deployment/supabase/migrations/20260515000000_pubsub_character_queue_lifecycle.sql"
+SESSION_PUBSUB_MIGRATION = (
+    ROOT / "deployment/supabase/migrations/20260515020000_session_scoped_event_pubsub.sql"
 )
 EVENTS_TS = ROOT / "deployment/supabase/functions/_shared/events.ts"
 BOT_PY = ROOT / "src/gradientbang/pipecat_server/bot.py"
+BUS_MIGRATION = ROOT / "deployment/supabase/migrations/20260512000000_byoa_infrastructure.sql"
 
 
-def test_pubsub_migration_removes_silent_publish_noop() -> None:
+def test_session_pubsub_migration_creates_session_table_and_indexes() -> None:
+    sql = SESSION_PUBSUB_MIGRATION.read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS public.event_sessions" in sql
+    assert "session_id uuid PRIMARY KEY" in sql
+    assert "queue_name text UNIQUE NOT NULL" in sql
+    assert "expires_at timestamptz NOT NULL" in sql
+    assert "idx_event_sessions_expires_at" in sql
+    assert "USING gin (scope_character_ids)" in sql
+
+
+def test_session_pubsub_migration_adds_required_wrappers() -> None:
+    sql = SESSION_PUBSUB_MIGRATION.read_text(encoding="utf-8")
+
+    for fn in (
+        "event_session_register",
+        "event_session_heartbeat",
+        "event_session_update_scope",
+        "event_session_subscribe",
+        "event_session_archive",
+        "event_session_unregister",
+        "event_session_cleanup",
+        "event_session_publish",
+        "_validate_event_session_corp",
+    ):
+        assert f"FUNCTION public.{fn}" in sql
+
+
+def test_session_cleanup_is_database_owned_batched_and_lock_safe() -> None:
+    sql = SESSION_PUBSUB_MIGRATION.read_text(encoding="utf-8")
+    cleanup_body = sql.split(
+        "CREATE OR REPLACE FUNCTION public.event_session_cleanup", 1
+    )[1].split("COMMENT ON FUNCTION public.event_session_cleanup", 1)[0]
+
+    assert "pg_try_advisory_lock(hashtext('event_session_cleanup'))" in cleanup_body
+    assert "FOR UPDATE SKIP LOCKED" in cleanup_body
+    assert "LIMIT v_limit" in cleanup_body
+    assert "pgmq.drop_queue" in cleanup_body
+    assert "expires_at <= now()" in cleanup_body
+    assert "cron.schedule" in sql
+    assert "'event-session-cleanup'" in sql
+
+
+def test_session_publish_only_targets_active_sessions() -> None:
+    sql = SESSION_PUBSUB_MIGRATION.read_text(encoding="utf-8")
+    publish_body = sql.split(
+        "CREATE OR REPLACE FUNCTION public.event_session_publish", 1
+    )[1].split("COMMENT ON FUNCTION public.event_session_publish", 1)[0]
+
+    assert "expires_at > now()" in publish_body
+    assert "hard_expires_at > now()" in publish_body
+    assert "scope_character_ids && COALESCE(p_recipient_ids" in publish_body
+    assert "corp_id = p_corp_id" in publish_body
+    assert "COALESCE(p_is_broadcast, false)" in publish_body
+    assert "undefined_table" in publish_body
+    assert "DELETE FROM public.event_sessions" in publish_body
+
+
+def test_session_register_and_scope_update_validate_corp_access() -> None:
+    sql = SESSION_PUBSUB_MIGRATION.read_text(encoding="utf-8")
+
+    assert "_validate_event_session_corp(p_actor_character_id, p_corp_id)" in sql
+    assert "_validate_event_session_corp(v_actor_character_id, p_corp_id)" in sql
+    assert "RAISE EXCEPTION 'forbidden'" in sql
+
+
+def test_record_event_is_patched_away_from_chr_queue_publish() -> None:
+    sql = SESSION_PUBSUB_MIGRATION.read_text(encoding="utf-8")
+
+    assert "event_session_publish" in sql
+    assert "PERFORM public.event_session_publish" in sql
+    assert "Could not patch record_event_with_recipients for session-scoped pubsub" in sql
+
+
+def test_pgmq_publish_wrapper_does_not_swallow_failures() -> None:
     sql = PUBSUB_MIGRATION.read_text(encoding="utf-8")
 
     pgmq_publish_body = sql.split("CREATE OR REPLACE FUNCTION public.pgmq_publish", 1)[1].split(
@@ -22,93 +97,13 @@ def test_pubsub_migration_removes_silent_publish_noop() -> None:
     assert "RETURN NULL" not in pgmq_publish_body
 
 
-def test_pubsub_migration_does_not_swallow_pgmq_publish_failures() -> None:
-    sql = PUBSUB_MIGRATION.read_text(encoding="utf-8")
+def test_session_wrappers_verify_edge_token() -> None:
+    sql = SESSION_PUBSUB_MIGRATION.read_text(encoding="utf-8")
 
-    record_body = sql.split(
-        "CREATE OR REPLACE FUNCTION public.record_event_with_recipients", 1
-    )[1].split("COMMENT ON FUNCTION public.record_event_with_recipients", 1)[0]
-    assert "record_event_with_recipients pgmq_publish failed" not in record_body
-    assert "PERFORM public.pgmq_publish('chr_' || v_id::TEXT, v_msg);" in record_body
-
-
-def test_queue_lifecycle_migration_restores_character_insert_trigger() -> None:
-    sql = QUEUE_LIFECYCLE_MIGRATION.read_text(encoding="utf-8")
-
-    assert "CREATE OR REPLACE FUNCTION public._tg_ensure_character_queue()" in sql
-    assert "PERFORM public.ensure_character_queue(NEW.character_id);" in sql
-    assert "CREATE TRIGGER trg_ensure_character_queue" in sql
-    assert "AFTER INSERT ON public.characters" in sql
-
-
-def test_queue_lifecycle_migration_backfills_existing_characters() -> None:
-    sql = QUEUE_LIFECYCLE_MIGRATION.read_text(encoding="utf-8")
-
-    assert "SELECT public.ensure_character_queue(character_id)" in sql
-    assert "FROM public.characters" in sql
-    assert "pgmq.purge_queue" not in sql
-
-
-def test_queue_lifecycle_migration_ensures_queue_before_publish() -> None:
-    sql = QUEUE_LIFECYCLE_MIGRATION.read_text(encoding="utf-8")
-    ensure = "PERFORM public.ensure_character_queue(v_id);"
-    publish = "PERFORM public.pgmq_publish(''chr_'' || v_id::TEXT, v_msg);"
-
-    assert ensure in sql
-    assert publish in sql
-    assert sql.index(ensure) < sql.rindex(publish)
-    assert "position(v_new in v_def) > 0" in sql
-    assert "Could not patch record_event_with_recipients" in sql
-
-
-def test_subscribe_my_events_uses_immediate_read_not_wrapped_long_poll() -> None:
-    sql = PUBSUB_MIGRATION.read_text(encoding="utf-8")
-
-    subscribe_body = sql.split(
-        "CREATE OR REPLACE FUNCTION public.subscribe_my_events", 1
-    )[1].split("COMMENT ON FUNCTION public.subscribe_my_events", 1)[0]
-    assert "read_with_poll" not in subscribe_body
-    assert "pgmq.read(" in subscribe_body
-
-
-def test_scoped_pubsub_migration_uses_immediate_reads() -> None:
-    sql = PUBSUB_MIGRATION.read_text(encoding="utf-8")
-
-    subscribe_body = sql.split(
-        "CREATE OR REPLACE FUNCTION public.subscribe_my_events_scope", 1
-    )[1].split("COMMENT ON FUNCTION public.subscribe_my_events_scope", 1)[0]
-    assert "read_with_poll" not in subscribe_body
-    assert "pgmq.read(" in subscribe_body
-
-
-def test_scoped_pubsub_migration_verifies_edge_token() -> None:
-    sql = PUBSUB_MIGRATION.read_text(encoding="utf-8")
-
-    assert "app_runtime_config" in sql
-    assert "edge_api_token" in sql
     assert "_assert_valid_edge_token" in sql
-    assert "invalid_edge_token" in sql
-
-
-def test_scoped_pubsub_migration_checks_actor_access() -> None:
-    sql = PUBSUB_MIGRATION.read_text(encoding="utf-8")
-
-    subscribe_body = sql.split(
-        "CREATE OR REPLACE FUNCTION public.subscribe_my_events_scope", 1
-    )[1].split("COMMENT ON FUNCTION public.subscribe_my_events_scope", 1)[0]
-    assert "can_actor_access_character" in subscribe_body
-    assert "RAISE EXCEPTION 'forbidden'" in subscribe_body
-
-
-def test_scoped_pubsub_archive_validates_pair_lengths() -> None:
-    sql = PUBSUB_MIGRATION.read_text(encoding="utf-8")
-
-    archive_body = sql.split(
-        "CREATE OR REPLACE FUNCTION public.archive_my_events_scope", 1
-    )[1].split("COMMENT ON FUNCTION public.archive_my_events_scope", 1)[0]
-    assert "array length mismatch" in archive_body
-    assert "p_queue_character_ids" in archive_body
-    assert "p_msg_ids" in archive_body
+    assert "event_session_register" in sql
+    assert "event_session_subscribe" in sql
+    assert "event_session_archive" in sql
 
 
 def test_emit_error_event_is_log_only() -> None:
@@ -121,16 +116,26 @@ def test_emit_error_event_is_log_only() -> None:
     assert "deprecated_noop" in emit_error_body
 
 
-def test_bot_purges_bootstrap_echoes_before_activation_and_event_delivery() -> None:
+def test_bot_session_queue_bootstrap_order_and_catchup_replay() -> None:
     source = BOT_PY.read_text(encoding="utf-8")
 
     join_body = source.split("async def _join():", 1)[1].split(
         "except Exception as exc:", 1
     )[0]
-    first_purge = join_body.index("await game_client.purge_event_backlog()")
+    prepare = join_body.index("await game_client.prepare_event_delivery_for_bootstrap()")
     gather = join_body.index("initial_state = await gather_initial_state")
-    second_purge = join_body.rindex("await game_client.purge_event_backlog()")
-    start_delivery = join_body.index("await game_client.start_event_delivery()")
+    complete = join_body.index("await game_client.complete_event_delivery_bootstrap()")
     activate = join_body.index("await main_agent.activate_agent(")
+    replay = join_body.index("await game_client.replay_event_delivery_catchup()")
+    start_delivery = join_body.index("await game_client.start_event_delivery()")
 
-    assert first_purge < gather < second_purge < start_delivery < activate
+    assert prepare < gather < complete < activate < replay < start_delivery
+
+
+def test_bus_migration_still_owns_only_bus_wrappers() -> None:
+    sql = BUS_MIGRATION.read_text(encoding="utf-8")
+
+    for fn in ("bus_join", "bus_publish", "bus_subscribe", "bus_archive", "bus_leave"):
+        assert f"FUNCTION public.{fn}" in sql
+    assert "event_sessions" not in sql
+    assert "record_event_with_recipients" not in sql

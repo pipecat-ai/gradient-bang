@@ -1,9 +1,9 @@
 """Factory that picks the right :class:`EventAdapter` for an ``AsyncGameClient``.
 
 Branches on the ``EVENT_TRANSPORT`` env var:
-- ``pubsub`` (default): :class:`PubsubEventAdapter` — one direct Postgres
-  scoped reader for all queues in the bot session. Requires ``PGMQ_URL`` and
-  ``EDGE_API_TOKEN``; SQL verifies the token and actor scope before reading.
+- ``pubsub`` (default): :class:`PubsubEventAdapter` — one temporary session
+  pgmq queue for the online bot session. Requires ``PGMQ_URL`` and
+  ``EDGE_API_TOKEN``; SQL verifies the token before reading.
 - ``polling``: :class:`PollingEventAdapter` — HTTP polling against the
   ``events_since`` edge function. Works without any per-character credential,
   suitable for environments where pubsub is unavailable.

@@ -305,9 +305,8 @@ async def bot_startup(
     # /start (proxy injects after Supabase Auth verification, or dev sets
     # BOT_TEST_ACCESS_TOKEN) for auth-gated edge functions. Pubsub event
     # delivery uses EDGE_API_TOKEN plus SQL scope checks.
-    # Event delivery is started explicitly by ``_join`` after session_init
-    # has built the LLM context. Bootstrap RPC echoes are purged before
-    # activation so they do not replay into EventRelay/LLM context.
+    # Event delivery is prepared by ``_join`` before bootstrap RPCs and
+    # unpaused after the initial LLM context is active.
     game_client = AsyncGameClient(
         character_id=character_id,
         base_url=server_url,
@@ -651,8 +650,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             # Voice LLM lives inline in branch 0 (no bus hop). VoiceAgent
             # keeps a no-op pipeline so its bus-subscription / activation /
             # task-supervision lifecycle still works.
-            # TODO(tutorial): ScriptedAgent's bus-bridged TTSSpeakFrame path
-            # no longer reaches TTS now that the main BusBridge is gone.
+            # Scripted tutorial TTS needs a direct downstream route before use.
             voice_llm = voice_agent.build_llm()
             voice_agent._llm = voice_llm
 
@@ -729,12 +727,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         # in-flight BotStoppedSpeakingFrame from the tutorial triggering unmute.
         await mute_strategy.reset()
         mute_strategy.force_mute = False
-        # ScriptedAgent path is currently bypassed (bypass_tutorial=True);
-        # this branch only fires if tutorial gets re-enabled. When it does,
-        # initial_state needs to be threaded through to here so we can
-        # activate with the same initial_messages the veteran path uses.
-        # For now, activate with no messages — left as a TODO when tutorial
-        # work resumes.
+        # Tutorial re-enable needs initial_state threaded into this callback.
         await main_agent.activate_agent("player")
 
     scripted_agent = ScriptedAgent(
@@ -772,17 +765,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             nonlocal is_first_visit
             try:
                 await asyncio.sleep(2)
-                # Strict startup contract:
-                #   0. purge any leftover pubsub messages while keeping the
-                #      queue present, so init-RPC publishes remain required
-                #   1. fetch initial state via blocking RPCs (data inline)
-                #   2. patch substitutions into the seeded system message
-                #   3. hydrate the web client from inline bootstrap data
-                #   4. purge bootstrap RPC echoes from pgmq
-                #   5. start the event adapter — steady-state events flow
-                #   6. activate VoiceAgent with the initial messages
-                # If any step fails, the bot bails rather than half-joining.
-                await game_client.purge_event_backlog()
+                # Register the session queue before bootstrap RPCs, then
+                # discard only matching startup echoes before activation.
+                await game_client.prepare_event_delivery_for_bootstrap()
 
                 initial_state = await gather_initial_state(
                     game_client=game_client,
@@ -809,10 +794,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     is_new_player=initial_state.is_new_player,
                 )
 
-                # Hydrate the web client with the same bootstrap data we just
-                # fed into the LLM context. Matches the RTVIServerMessageFrame
-                # envelope EventRelay forwards in steady state so the client's
-                # existing handlers consume these unchanged.
+                # Hydrate the web client with the same bootstrap data used for
+                # the initial LLM context.
                 async def _emit_client_event(event_name: str, payload: dict) -> None:
                     await rtvi.push_frame(
                         RTVIServerMessageFrame(
@@ -824,10 +807,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                         )
                     )
 
-                # The client's session-scoped events (e.g. map.local) gate
-                # on `payload.player.id`. Bootstrap UI hydration bypasses
-                # EventRelay, so inject the same field the SQL event path
-                # would add before forwarding.
+                # Client map handlers require the bound player id.
                 map_local_payload = {
                     **initial_state.map_local_payload,
                     "player": {"id": character_id},
@@ -844,13 +824,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     {"quests": initial_state.quest_payload.get("quests", [])},
                 )
 
-                # Bootstrap RPCs publish real events because pubsub delivery
-                # is required. The inline RPC responses above already seeded
-                # the LLM context and hydrated the client, so purge those
-                # queued echoes before EventRelay starts consuming.
-                await game_client.purge_event_backlog()
-
-                await game_client.start_event_delivery()
+                # Keep non-bootstrap events that arrived during startup.
+                await game_client.complete_event_delivery_bootstrap()
 
                 if is_first_visit and not bypass_tutorial:
                     logger.info("First visit detected, activating ScriptedAgent")
@@ -868,6 +843,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                             run_llm=True,
                         ),
                     )
+
+                await game_client.replay_event_delivery_catchup()
+                await game_client.start_event_delivery()
             except Exception as exc:
                 # Fire-and-forget task would swallow this otherwise. Tear down
                 # the runner so the session exits instead of hanging half-joined.

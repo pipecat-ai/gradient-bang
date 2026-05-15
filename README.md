@@ -329,30 +329,35 @@ The bot's `AsyncGameClient` receives game events via one of two transports, pick
 
 ### `pubsub` (default)
 
-Direct Postgres reads against per-character pgmq queues. The bot calls SECURITY DEFINER functions (`subscribe_my_events_scope` / `archive_my_events_scope`) that:
+Direct Postgres reads against a temporary pgmq queue created for the live bot session. The bot calls SECURITY DEFINER functions (`event_session_register` / `event_session_subscribe` / `event_session_archive` / `event_session_unregister`) that:
 
 1. Verify the trusted bot's `EDGE_API_TOKEN` against `public.app_runtime_config.edge_api_token`.
-2. Check the actor character can read every requested character/ship queue.
-3. Return up to N pending messages per scoped queue via `pgmq.read`.
+2. Create one random `evs_*` queue before bootstrap RPCs run.
+3. Keep the session alive with heartbeat while the bot is online.
+4. Return up to N pending messages from that session queue via `pgmq.read`.
 
-The pubsub hot path does not call an edge function per poll. One bot session keeps one scoped pgmq reader connection open, plus one optional broadcast `LISTEN` connection.
+The pubsub hot path does not call an edge function per poll. `record_event_with_recipients` still writes durable rows to `events`, then fans out only to active, non-expired `event_sessions`. Offline characters do not receive pgmq copies.
+
+Cleanup is database-owned. A clean bot shutdown calls `event_session_unregister()` and drops the queue immediately. If the bot crashes or is left dangling, heartbeats stop, the session expires, publish ignores it, and the scheduled `event-session-cleanup` pg_cron job drops the queue in bounded batches.
 
 **Setup for local pubsub:**
 
-1. Apply the pubsub migrations; `record_event_with_recipients` writes to pgmq automatically.
+1. Apply the pubsub migrations; `record_event_with_recipients` writes to active session queues automatically.
 2. In `.env.bot`:
 
    ```
    EVENT_TRANSPORT=pubsub
    PGMQ_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
-   PGMQ_EMPTY_POLL_INTERVAL_SECONDS=1.0
+   EVENT_SESSION_EMPTY_POLL_INTERVAL_SECONDS=1.0
+   EVENT_SESSION_HEARTBEAT_SECONDS=15
+   EVENT_SESSION_TTL_SECONDS=60
    ```
 
    Use a session-mode admin Postgres URL. Local Supabase uses `postgresql://postgres:postgres@127.0.0.1:54322/postgres`.
 
 3. Make sure `EDGE_API_TOKEN` is present in the bot environment and matches `public.app_runtime_config.edge_api_token` in the target database.
 
-Migration `20260505000000_pubsub_and_broadcasts.sql` installs `pgmq`, required publish wrappers, immediate reads, scoped read/archive functions, and the direct `EDGE_API_TOKEN` gate.
+Migration `20260515020000_session_scoped_event_pubsub.sql` adds `event_sessions`, session read/archive/heartbeat wrappers, scheduled cleanup, and session-scoped gameplay event fanout.
 
 ### `polling`
 
@@ -360,7 +365,7 @@ HTTP polling against the `events_since` edge function, authenticated by `EDGE_AP
 
 ### Why two modes?
 
-Polling remains the fallback. Pubsub is the default direct-Postgres path. Both modes deliver events through the same client sinks.
+Polling remains the fallback. Pubsub is the default direct-Postgres path for online sessions. Both modes deliver events through the same client sinks.
 
 ---
 
@@ -385,6 +390,8 @@ SUBAGENT_BUS_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgre
 On managed Postgres, prefer the session-mode pooler (port 5432 on Supabase).
 
 BYOA processes never see this DSN. They use the restricted `BYOA_BUS_DATABASE_URL` injected by `wake_agent`, which can only call `public.bus_*` SECURITY DEFINER wrappers gated by per-channel peer registration. Channels are unguessable UUIDs transported wake → BYOA over HTTPS; knowledge of the channel name is the bus capability.
+
+Cleanup is database-owned. A clean bus shutdown calls `bus_leave()` and drops the peer queue immediately. If a bot or BYOA process crashes, the old `gb_<32hex>` channel is abandoned and future sessions mint a fresh channel; the scheduled `subagent-bus-cleanup` pg_cron job drops any remaining `q_*` peer queues older than 48 hours in bounded batches.
 
 ---
 
@@ -687,12 +694,20 @@ pnpm run dev
 | --------------------------- | -------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SUPABASE_URL`              | Yes      | —         | Supabase project URL                                                                                                                                                                                                                                              |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes      | —         | Service role key for DB access                                                                                                                                                                                                                                    |
-| `EDGE_API_TOKEN`            | Yes      | —         | Trusted-backend credential sent as `X-Edge-Auth` and verified by SQL pubsub readers. Required outside local auth-bypass test/dev setups.                                                                                                                           |
+| `EDGE_API_TOKEN`            | Yes      | —         | Trusted-backend credential sent as `X-Edge-Auth` and verified by SQL pubsub session wrappers. Required outside local auth-bypass test/dev setups.                                                                                                                   |
 | `DAILY_API_KEY`             | No       | —         | [Daily](https://www.daily.co/) API key (required for Daily transport)                                                                                                                                                                                             |
 | `LOCAL_API_POSTGRES_URL`    | No       | —         | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead                                                                                                                                                |
-| `EVENT_TRANSPORT`           | No       | `pubsub`  | Event-delivery transport: `pubsub` (direct Postgres scoped reads on per-character pgmq queues, default) or `polling` (HTTP via `events_since`). See [Event delivery modes](#event-delivery-modes).                                                                   |
+| `EVENT_TRANSPORT`           | No       | `pubsub`  | Event-delivery transport: `pubsub` (direct Postgres reads from a temporary session pgmq queue, default) or `polling` (HTTP via `events_since`). See [Event delivery modes](#event-delivery-modes).                                                                   |
 | `PGMQ_URL`                  | No       | —         | Session-mode Postgres URL with admin credentials. Required when `EVENT_TRANSPORT=pubsub`.                                                                                                                                                                          |
-| `PGMQ_EMPTY_POLL_INTERVAL_SECONDS` | No | `1.0` | Client-side pause after a scoped pgmq read returns no rows. When rows are available, the reader drains immediately without waiting. |
+| `EVENT_SESSION_HEARTBEAT_SECONDS` | No | `15` | Seconds between pubsub session heartbeats. |
+| `EVENT_SESSION_TTL_SECONDS` | No | `60` | Session expiry window extended by each heartbeat. Publish ignores sessions past this expiry. |
+| `EVENT_SESSION_HARD_TTL_SECONDS` | No | `21600` | Maximum lifetime for one pubsub event session, even if heartbeats continue. |
+| `EVENT_SESSION_VISIBILITY_TIMEOUT_SECONDS` | No | `10` | pgmq visibility timeout for messages read from the session queue. |
+| `EVENT_SESSION_EMPTY_POLL_INTERVAL_SECONDS` | No | `1.0` | Client-side pause after a session pgmq read returns no rows. When rows are available, the reader drains immediately without waiting. |
+| `EVENT_SESSION_BATCH_QTY` | No | `100` | Maximum messages read per session pgmq poll. |
+| `EVENT_SESSION_BOOTSTRAP_DRAIN_TIMEOUT_SECONDS` | No | `2.0` | Maximum time spent draining startup-window messages before agent activation. |
+| `SUBAGENT_BUS_CLEANUP_MAX_AGE` | No | `48 hours` | Documented cleanup age; the migration schedules `subagent-bus-cleanup` hourly and drops bus peer queues older than this. |
+| `SUBAGENT_BUS_CLEANUP_BATCH_SIZE` | No | `100` | Documented cleanup batch size; the scheduled job drops up to 100 orphaned bus peer queues per run. |
 
 #### TTS configuration
 
