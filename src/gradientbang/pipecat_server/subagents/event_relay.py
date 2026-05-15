@@ -1077,6 +1077,10 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     # tool, which returns summarize_corporation_info; the raw event would only
     # duplicate ~3KB of redundant ship/member/destroyed-ship history per call.
     "corporation.data": EventConfig(append=AppendRule.NEVER),
+    # Personal ship purchases are UI/state notifications. The purchase tool
+    # result plus the paired status.update already cover voice context; still
+    # relay this event to RTVI so the client can show the purchase toast.
+    "ship.purchased": EventConfig(append=AppendRule.NEVER),
     # Pending confirmation events: client-only. The client opens a
     # confirmation modal; the bot's client_message_handler drives the
     # follow-up confirm/cancel and injects its own <event> context for

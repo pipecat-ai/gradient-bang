@@ -12,7 +12,6 @@ so EventRelay can query task state during event routing.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, replace
 import functools
 import inspect
 import os
@@ -20,6 +19,7 @@ import re
 import time
 import uuid
 from collections import deque
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
 from loguru import logger
@@ -41,7 +41,17 @@ from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat_subagents.agents import LLMAgent, TaskStatus
+from pipecat_subagents.agents.llm.llm_agent import PipelineFlushFrame
+from pipecat_subagents.bus import (
+    AgentBus,
+    BusEndAgentMessage,
+    BusMessage,
+    BusTaskResponseMessage,
+    BusTaskUpdateMessage,
+)
 
+from gradientbang.byoa import ByoaAgentConfig
 from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequests
 from gradientbang.pipecat_server.subagents.bus_messages import (
@@ -60,16 +70,6 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
 )
 from gradientbang.pipecat_server.subagents.event_relay import EventRelay
 from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
-from pipecat_subagents.agents import LLMAgent, TaskStatus
-from pipecat_subagents.agents.llm.llm_agent import PipelineFlushFrame
-from pipecat_subagents.bus import (
-    AgentBus,
-    BusEndAgentMessage,
-    BusMessage,
-    BusTaskResponseMessage,
-    BusTaskUpdateMessage,
-)
-from gradientbang.byoa import ByoaAgentConfig
 from gradientbang.tools import VOICE_TOOLS
 from gradientbang.utils.api_client import RPCError
 from gradientbang.utils.formatting import looks_like_uuid
@@ -210,13 +210,9 @@ class VoiceAgent(LLMAgent):
         # SUBAGENT_BUS_SESSION_CHANNEL. Wake passes this value to the spawned
         # BYOA process over HTTPS; local dev does the same through the
         # generic HTTP wake provider (`uv run byoa serve`).
-        self._byoa_bus_channel = os.getenv(
-            "SUBAGENT_BUS_SESSION_CHANNEL", ""
-        ).strip()
+        self._byoa_bus_channel = os.getenv("SUBAGENT_BUS_SESSION_CHANNEL", "").strip()
         if self._byoa_bus_channel:
-            logger.info(
-                f"byoa.session_channel channel_prefix={self._byoa_bus_channel[:11]}"
-            )
+            logger.info(f"byoa.session_channel channel_prefix={self._byoa_bus_channel[:11]}")
         # Remote BYOA agents are not children in this process, so the broker
         # keeps its own active-task table for authorization and cleanup.
         # agent_name -> {task_id, character_id, actor_character_id, task_metadata}
@@ -260,11 +256,7 @@ class VoiceAgent(LLMAgent):
     ) -> None:
         # Mirrors LLMAgent.queue_frame's deferral, then routes to the main
         # pipeline task instead of this agent's no-op pipeline.
-        if (
-            self._defer_tool_frames
-            and self._tool_call_inflight > 0
-            and not self._closing
-        ):
+        if self._defer_tool_frames and self._tool_call_inflight > 0 and not self._closing:
             self._deferred_frames.append((frame, direction))
             return
         if self._main_pipeline_task is not None:
@@ -602,9 +594,7 @@ class VoiceAgent(LLMAgent):
             await super()._flush_pipeline()
             return
         self._flush_done.clear()
-        await self._main_pipeline_task.queue_frame(
-            PipelineFlushFrame(), FrameDirection.UPSTREAM
-        )
+        await self._main_pipeline_task.queue_frame(PipelineFlushFrame(), FrameDirection.UPSTREAM)
         await self._flush_done.wait()
 
     async def _flush_deferred_frames(self) -> None:
@@ -1715,11 +1705,7 @@ class VoiceAgent(LLMAgent):
     def _cancel_pending_byoa_wake(self, game_task_id: str, *, summary: str) -> bool:
         """Clear a BYOA task that was cancelled before the runner became ready."""
         target_character_id = next(
-            (
-                ship_id
-                for ship_id, task_id in self._locked_ships.items()
-                if task_id == game_task_id
-            ),
+            (ship_id for ship_id, task_id in self._locked_ships.items() if task_id == game_task_id),
             None,
         )
         if not target_character_id:
@@ -1746,8 +1732,7 @@ class VoiceAgent(LLMAgent):
         )
         self._enqueue_deferred_update(event_xml, ship_id=target_character_id)
         logger.info(
-            f"byoa.pending_wake_cancelled ship={target_character_id[:8]} "
-            f"task={game_task_id[:8]}"
+            f"byoa.pending_wake_cancelled ship={target_character_id[:8]} task={game_task_id[:8]}"
         )
         return True
 
@@ -1916,17 +1901,14 @@ class VoiceAgent(LLMAgent):
             if watchdog is not None and not watchdog.done():
                 watchdog.cancel()
                 logger.info(
-                    f"byoa.wake_ready ship={target_character_id[:8]} "
-                    f"task={framework_task_id[:8]}"
+                    f"byoa.wake_ready ship={target_character_id[:8]} task={framework_task_id[:8]}"
                 )
         # Universal liveness handshake. For an in-process TaskAgent this
         # returns ~instantly; for a BYOA agent it bridges the cold-start window.
         try:
             await self._send_hello_and_wait(data.agent_name)
         except (asyncio.TimeoutError, RuntimeError) as exc:
-            logger.warning(
-                f"VoiceAgent: hello handshake with '{data.agent_name}' failed: {exc}"
-            )
+            logger.warning(f"VoiceAgent: hello handshake with '{data.agent_name}' failed: {exc}")
             await self._rollback_failed_spawn(
                 agent_name=data.agent_name,
                 framework_task_id=framework_task_id,
@@ -1989,9 +1971,7 @@ class VoiceAgent(LLMAgent):
         # End the child agent's pipeline + remove it from _children.
         try:
             await self.send_message(
-                BusEndAgentMessage(
-                    source=self.name, target=agent_name, reason=reason
-                )
+                BusEndAgentMessage(source=self.name, target=agent_name, reason=reason)
             )
         except Exception as exc:
             logger.warning(f"rollback: BusEndAgentMessage send failed: {exc}")
@@ -2108,9 +2088,7 @@ class VoiceAgent(LLMAgent):
         # Notify the LLM so it can inform the user (use response.message for detail)
         llm_msg = (message.response or {}).get("message", f"Task {status_label}")
         task_metadata = (
-            child._task_metadata
-            if child
-            else byoa_ctx.get("task_metadata", {}) if byoa_ctx else {}
+            child._task_metadata if child else byoa_ctx.get("task_metadata", {}) if byoa_ctx else {}
         )
         ship_name = task_metadata.get("ship_name") if isinstance(task_metadata, dict) else None
         ship_attr = f' ship_name="{ship_name}"' if ship_name else ""
@@ -2122,7 +2100,9 @@ class VoiceAgent(LLMAgent):
         ship_character_id = (
             child._character_id
             if child
-            else str(byoa_ctx.get("character_id") or "") if byoa_ctx else None
+            else str(byoa_ctx.get("character_id") or "")
+            if byoa_ctx
+            else None
         )
         # Hand off to the deferred-update queue. The drain coordinator
         # batches close-together completions, gates on bot/user speech state,
@@ -2226,10 +2206,7 @@ class VoiceAgent(LLMAgent):
         """Dispatch typed messages; delegate everything else upstream."""
         # Targeted messages for other agents are ignored upstream; mirror
         # that here so we don't broker requests addressed to siblings.
-        if (
-            getattr(message, "target", None)
-            and message.target != self.name
-        ):
+        if getattr(message, "target", None) and message.target != self.name:
             await super().on_bus_message(message)
             return
 
@@ -2253,9 +2230,7 @@ class VoiceAgent(LLMAgent):
         ship_id = (message.ship_id or "").strip()
         source = getattr(message, "source", "") or ""
         if not ship_id or source != self.byoa_agent_name(ship_id):
-            logger.warning(
-                f"byoa.presence_ignored source={source!r} ship={ship_id[:8]!r}"
-            )
+            logger.warning(f"byoa.presence_ignored source={source!r} ship={ship_id[:8]!r}")
             return
 
         if ship_id not in self._byoa_known_ships:
@@ -2343,10 +2318,7 @@ class VoiceAgent(LLMAgent):
     async def _mark_stale_byoa_presence_offline(self) -> None:
         now = time.monotonic()
         for ship_id, presence in list(self._byoa_presence.items()):
-            if (
-                presence.online
-                and now - presence.last_seen_monotonic > BYOA_PRESENCE_STALE_SECONDS
-            ):
+            if presence.online and now - presence.last_seen_monotonic > BYOA_PRESENCE_STALE_SECONDS:
                 self._byoa_presence[ship_id] = replace(
                     presence,
                     online=False,
@@ -2395,8 +2367,7 @@ class VoiceAgent(LLMAgent):
             )
         except Exception as exc:
             logger.warning(
-                f"byoa.presence_stale end_agent failed for "
-                f"ship={ship_character_id[:8]}: {exc}"
+                f"byoa.presence_stale end_agent failed for ship={ship_character_id[:8]}: {exc}"
             )
 
     def _invalidate_byoa_registry_entry(self, agent_name: str) -> None:
@@ -2448,8 +2419,7 @@ class VoiceAgent(LLMAgent):
                 logger.info(f"byoa.online_signal source={source!r}")
             else:
                 logger.warning(
-                    f"byoa.online_signal_not_ready source={source!r} "
-                    f"error={message.error!r}"
+                    f"byoa.online_signal_not_ready source={source!r} error={message.error!r}"
                 )
             return
         if message.ready:
@@ -2496,9 +2466,7 @@ class VoiceAgent(LLMAgent):
             kwargs["character_id"] = self._character_id
         return kwargs
 
-    async def _on_game_tool_call_request(
-        self, msg: BusGameToolCallRequest
-    ) -> None:
+    async def _on_game_tool_call_request(self, msg: BusGameToolCallRequest) -> None:
         """Dispatch a TaskAgent tool call to the player-bound game client.
 
         ``character_id`` and ``actor_character_id`` from the envelope
@@ -2525,16 +2493,17 @@ class VoiceAgent(LLMAgent):
                 error = f"unknown tool: {msg.tool_name!r}"
             else:
                 kwargs = self._broker_tool_kwargs(method, msg.args)
-                with per_call_identity(
-                    character_id or None,
-                    actor_character_id or None,
-                ), per_call_task_id(task_id or None):
+                with (
+                    per_call_identity(
+                        character_id or None,
+                        actor_character_id or None,
+                    ),
+                    per_call_task_id(task_id or None),
+                ):
                     raw = await method(**kwargs)
                 result = raw if isinstance(raw, dict) else {"result": raw}
         except Exception as exc:
-            logger.warning(
-                f"broker game_tool_call({msg.tool_name}) failed: {exc}"
-            )
+            logger.warning(f"broker game_tool_call({msg.tool_name}) failed: {exc}")
             error = str(exc)
 
         await self.send_message(
@@ -2547,9 +2516,7 @@ class VoiceAgent(LLMAgent):
             )
         )
 
-    async def _on_combat_strategy_request(
-        self, msg: BusCombatStrategyRequest
-    ) -> None:
+    async def _on_combat_strategy_request(self, msg: BusCombatStrategyRequest) -> None:
         strategy: Optional[Dict[str, Any]] = None
         error: Optional[str] = None
         try:
@@ -2578,9 +2545,7 @@ class VoiceAgent(LLMAgent):
             )
         )
 
-    async def _on_corporation_query_request(
-        self, msg: BusCorporationQueryRequest
-    ) -> None:
+    async def _on_corporation_query_request(self, msg: BusCorporationQueryRequest) -> None:
         result: Optional[Dict[str, Any]] = None
         error: Optional[str] = None
         try:
@@ -2619,9 +2584,7 @@ class VoiceAgent(LLMAgent):
             )
         )
 
-    async def _on_task_finish_notification(
-        self, msg: BusTaskFinishNotification
-    ) -> None:
+    async def _on_task_finish_notification(self, msg: BusTaskFinishNotification) -> None:
         """Fire-and-forget — call task_lifecycle(finish) and log on failure.
 
         Server-side this triggers the pair-matched ship-lock release.
@@ -2651,9 +2614,7 @@ class VoiceAgent(LLMAgent):
             )
         except Exception as exc:
             # Task is already done from the agent's POV; log and move on.
-            logger.warning(
-                f"broker task_finish failed for {msg.task_id[:8]}: {exc}"
-            )
+            logger.warning(f"broker task_finish failed for {msg.task_id[:8]}: {exc}")
 
     # ── Task output handling ───────────────────────────────────────────
 
@@ -2838,9 +2799,7 @@ class VoiceAgent(LLMAgent):
                         try:
                             await self._send_hello_and_wait(existing.name)
                         except (asyncio.TimeoutError, RuntimeError) as exc:
-                            logger.warning(
-                                f"reuse-path hello with '{existing.name}' failed: {exc}"
-                            )
+                            logger.warning(f"reuse-path hello with '{existing.name}' failed: {exc}")
                             self._locked_ships.pop(target_character_id, None)
                             try:
                                 await self._game_client.task_cancel(
@@ -2989,9 +2948,7 @@ class VoiceAgent(LLMAgent):
                                 force=True,
                             )
                         except Exception as release_exc:
-                            logger.warning(
-                                f"byoa.watch_agent_failed.release error={release_exc!r}"
-                            )
+                            logger.warning(f"byoa.watch_agent_failed.release error={release_exc!r}")
                         return {"success": False, "error": str(exc)}
                     # Always fire wake_agent. The BYOA pattern is wake → task
                     # → exit, so each new task needs a fresh harness; the
@@ -3431,9 +3388,7 @@ class VoiceAgent(LLMAgent):
     ) -> Dict[str, Any]:
         """Call the server-side ``wake_agent`` endpoint and return spawn status."""
         if not self._byoa_bus_channel:
-            logger.warning(
-                f"byoa.wake_agent.skipped ship={ship_id[:8]} reason=no_bus_channel"
-            )
+            logger.warning(f"byoa.wake_agent.skipped ship={ship_id[:8]} reason=no_bus_channel")
             return {"spawn_target": "none", "spawn_status": "missing_bus_channel"}
         try:
             result = await self._game_client.wake_agent(
@@ -3464,9 +3419,7 @@ class VoiceAgent(LLMAgent):
                 "error": str(body.get("error") or exc.detail),
             }
         except Exception as exc:
-            logger.warning(
-                f"byoa.wake_agent.call_failed ship={ship_id[:8]} error={exc!r}"
-            )
+            logger.warning(f"byoa.wake_agent.call_failed ship={ship_id[:8]} error={exc!r}")
             return {
                 "spawn_target": "error",
                 "spawn_status": "call_failed",
@@ -3542,9 +3495,7 @@ class VoiceAgent(LLMAgent):
                 force=True,
             )
         except Exception as release_exc:
-            logger.warning(
-                f"byoa.wake_agent.rejected.release error={release_exc!r}"
-            )
+            logger.warning(f"byoa.wake_agent.rejected.release error={release_exc!r}")
         self._enqueue_deferred_update(
             (
                 f'<event name="task.cancelled" task_id="{framework_task_id[:8]}" '
@@ -3610,7 +3561,6 @@ class VoiceAgent(LLMAgent):
             ),
             ship_id=target_character_id,
         )
-
 
     # ── Task management tool wrappers ─────────────────────────────────
 
@@ -3724,7 +3674,10 @@ class VoiceAgent(LLMAgent):
             if isinstance(result, dict)
             else "player_ship"
         )
-        summary = str(summary_field or "Steering instruction sent.").strip() or "Steering instruction sent."
+        summary = (
+            str(summary_field or "Steering instruction sent.").strip()
+            or "Steering instruction sent."
+        )
 
         attrs = ['name="task.steered"']
         if task_id:

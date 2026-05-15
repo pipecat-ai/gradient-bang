@@ -75,9 +75,12 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
         )}
       </AnimatePresence>
       <div className="relative z-10 flex flex-col gap-2 flex-1 min-w-0">
-        <div className="flex flex-row gap-2 items-center">
-          <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
-          <div className="text-xxs text-subtle-foreground">{shipTypeVerbose(ship.ship_type)}</div>
+        <div className="flex flex-row gap-1 items-center">
+          {ship.byoa && <ShipStatusPopover ship={ship} isActive={isBusy} />}
+          <div className="flex flex-row gap-2 items-center">
+            <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
+            <div className="text-xxs text-subtle-foreground">{shipTypeVerbose(ship.ship_type)}</div>
+          </div>
         </div>
         <div className="text-sm text-subtle-foreground flex flex-row gap-ui-xxs items-center min-w-0">
           <Badge variant="secondary" border="elbow" size="sm" className="font-semibold bg-white/7">
@@ -124,15 +127,17 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
                   </>
                 : <span className="text-muted-foreground">Inactive</span>}
               </Badge>
-              <div
-                className={cn(
-                  "flex flex-row gap-1 items-center text-xs truncate flex-1 min-w-0 overflow-hidden w-full",
-                  isBusy ? "gap-1.5 text-white" : "text-accent-foreground"
-                )}
-              >
-                <UserIcon weight="duotone" className="size-4 shrink-0" />
-                <span className="truncate">{actorName ?? "---"}</span>
-              </div>
+              {!ship.byoa && (
+                <div
+                  className={cn(
+                    "flex flex-row gap-1 items-center text-xs truncate flex-1 min-w-0 overflow-hidden w-full",
+                    isBusy ? "gap-1.5 text-white" : "text-accent-foreground"
+                  )}
+                >
+                  <UserIcon weight="duotone" className="size-4 shrink-0" />
+                  <span className="truncate">{actorName ?? "---"}</span>
+                </div>
+              )}
             </>
           }
         </div>
@@ -142,11 +147,6 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
         <ShipCardStat Icon={FighterIcon} value={ship.fighters} />
         <ShipCardStat Icon={ShieldIcon} value={ship.shields} />
       </dl>
-      {ship.byoa && (
-        <div className="relative z-10 self-start mr-1 mt-1">
-          <ShipStatusPopover ship={ship} />
-        </div>
-      )}
     </div>
   )
 }

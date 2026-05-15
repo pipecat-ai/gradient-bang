@@ -458,10 +458,15 @@ const createGameSlice: StateCreator<GameStoreState, [], [], GameSlice> = (set, g
       produce((state) => {
         state.corporation = corporation
 
-        // When joining/updating a corp with ships, upsert them into the
-        // fleet so PlayerShipsPanel sees them immediately.
+        // Treat corporation ship snapshots as authoritative for active corp
+        // ships. Sold ships are already absent from the latest payload and
+        // must not survive locally until a full reload.
         if (corporation?.ships) {
-          const existingShips = state.ships.data ?? []
+          const corporationShipIds = new Set(corporation.ships.map((ship) => ship.ship_id))
+          const existingShips = (state.ships.data ?? []).filter(
+            (ship: ShipSelf) =>
+              ship.owner_type !== "corporation" || corporationShipIds.has(ship.ship_id)
+          )
           const existingById = new Map(
             existingShips.map((s: ShipSelf) => [s.ship_id, s] as [string, ShipSelf])
           )

@@ -222,6 +222,21 @@ export function GameProvider({ children }: GameProviderProps) {
             })
           }
 
+          const addShipPurchasedToast = (ship: Ship): void => {
+            const existingToast = useGameStore.getState().toasts.find((toast) => {
+              const toastShip = toast.type === "ship.purchased" ? toast.meta?.ship : undefined
+              return toastShip?.ship_id === ship.ship_id
+            })
+            if (existingToast) {
+              return
+            }
+
+            useGameStore.getState().addToast({
+              type: "ship.purchased",
+              meta: { ship },
+            })
+          }
+
           const normalizeTaskId = (value: unknown): string | undefined => {
             if (typeof value !== "string") {
               return undefined
@@ -234,7 +249,9 @@ export function GameProvider({ children }: GameProviderProps) {
             eventMessage: Msg.ServerMessage,
             payload: Msg.ServerMessagePayload
           ): string[] => {
-            const eventWithShort = eventMessage as Msg.ServerMessage & { task_short_id?: string }
+            const eventWithShort = eventMessage as Msg.ServerMessage & {
+              task_short_id?: string
+            }
             const payloadTaskId =
               payload && typeof payload === "object" ?
                 normalizeTaskId((payload as Record<string, unknown>).task_id)
@@ -341,6 +358,9 @@ export function GameProvider({ children }: GameProviderProps) {
                     message: "Joined the game",
                   })
                 }
+                const existingShipIds = new Set(
+                  (useGameStore.getState().ships.data ?? []).map((ship) => ship.ship_id)
+                )
                 // Update store — corporation goes through setCorporation
                 // so ship upsert/strip logic runs (same as corporation.data).
                 useGameStore.getState().setState({
@@ -349,6 +369,20 @@ export function GameProvider({ children }: GameProviderProps) {
                   sector: status.sector,
                 })
                 useGameStore.getState().setCorporation(status.corporation ?? undefined)
+                if (status.source?.method === "ship_purchase" && status.corporation?.ships) {
+                  for (const ship of status.corporation.ships) {
+                    if (existingShipIds.has(ship.ship_id)) {
+                      continue
+                    }
+                    addShipPurchasedToast({
+                      ship_id: ship.ship_id,
+                      ship_name: ship.name,
+                      ship_type: ship.ship_type,
+                      owner_type: "corporation",
+                      sector: ship.sector ?? undefined,
+                    })
+                  }
+                }
               } else {
                 // Corp member connected — show their name in the activity log
                 if (status.source?.method === "join" && status.player?.name) {
@@ -580,10 +614,14 @@ export function GameProvider({ children }: GameProviderProps) {
               if (bankShipId && isKnownFleetShip(bankShipId)) {
                 // Corp ship: update corp ship credits only. Bank balance
                 // will be updated by the subsequent status.update event.
-                upsertCorporationShip(bankShipId, { credits: data.credits_on_hand_after })
+                upsertCorporationShip(bankShipId, {
+                  credits: data.credits_on_hand_after,
+                })
               } else {
                 // Personal ship: update ship credits and bank balance
-                useGameStore.getState().setShip({ credits: data.credits_on_hand_after })
+                useGameStore.getState().setShip({
+                  credits: data.credits_on_hand_after,
+                })
                 const currentPlayer = useGameStore.getState().player
                 if (currentPlayer) {
                   useGameStore.getState().setState({
@@ -883,15 +921,31 @@ export function GameProvider({ children }: GameProviderProps) {
                 owner_type: "corporation",
                 sector: data.sector,
               })
-              useGameStore.getState().addToast({
-                type: "ship.purchased",
-                meta: {
-                  ship: {
-                    ship_id: data.ship_id,
-                    ship_name: data.ship_name,
-                    ship_type: data.ship_type,
-                  },
-                },
+              addShipPurchasedToast({
+                ship_id: data.ship_id,
+                ship_name: data.ship_name,
+                ship_type: data.ship_type,
+                owner_type: "corporation",
+                sector: data.sector,
+              })
+              break
+            }
+
+            case "ship.purchased": {
+              console.debug("[GAME EVENT] Ship purchased", e.payload)
+              const data = e.payload as Msg.ShipPurchaseMessage
+              const sessionId = useGameStore.getState().playerSessionId
+              if (data.character_id && sessionId && data.character_id !== sessionId) {
+                logIgnored("ship.purchased", `character ${data.character_id}`, data)
+                break
+              }
+
+              addShipPurchasedToast({
+                ship_id: data.ship_id,
+                ship_name: data.ship_name,
+                ship_type: data.ship_type,
+                owner_type: "personal",
+                sector: data.sector,
               })
               break
             }
@@ -900,6 +954,13 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Ship sold", e.payload)
               const data = e.payload as Msg.CorporationShipSoldMessage
               useGameStore.getState().removeShip(data.ship_id)
+              const corporation = useGameStore.getState().corporation
+              if (corporation?.corp_id === data.corp_id) {
+                useGameStore.getState().setCorporation({
+                  ...corporation,
+                  ships: (corporation.ships ?? []).filter((ship) => ship.ship_id !== data.ship_id),
+                })
+              }
               useGameStore.getState().addToast({
                 type: "ship.sold",
                 meta: {
@@ -945,7 +1006,12 @@ export function GameProvider({ children }: GameProviderProps) {
                     corporation_id: null as string | null,
                   }
                 : null
-              useGameStore.getState().updateMapSectors([{ id: data.id, garrison: mapGarrison }])
+              useGameStore.getState().updateMapSectors([
+                {
+                  id: data.id,
+                  garrison: mapGarrison,
+                },
+              ])
 
               // Note: not updating activity log as redundant from other logs
 
@@ -997,9 +1063,9 @@ export function GameProvider({ children }: GameProviderProps) {
 
               useGameStore.getState().addActivityLogEntry({
                 type: "salvage.created",
-                message: `Salvage created in [sector ${
-                  data.sector.id
-                }] ${salvageCreatedSummaryString(salvageDetails ?? {})}`,
+                message: `Salvage created in [sector ${data.sector.id}] ${salvageCreatedSummaryString(
+                  salvageDetails ?? {}
+                )}`,
               })
 
               if (salvageDetails) {
@@ -1022,9 +1088,9 @@ export function GameProvider({ children }: GameProviderProps) {
 
               useGameStore.getState().addActivityLogEntry({
                 type: "salvage.collected",
-                message: `Salvage collected in [sector ${
-                  data.sector.id
-                }] ${salvageCollectedSummaryString(data.salvage_details)}`,
+                message: `Salvage collected in [sector ${data.sector.id}] ${salvageCollectedSummaryString(
+                  data.salvage_details
+                )}`,
               })
 
               useGameStore.getState().addToast({
@@ -1213,7 +1279,9 @@ export function GameProvider({ children }: GameProviderProps) {
                 const currentShipCredits = useGameStore.getState().ship?.credits ?? 0
 
                 if (data.transfer_direction === "sent") {
-                  useGameStore.getState().setShip({ credits: currentShipCredits - amount })
+                  useGameStore.getState().setShip({
+                    credits: currentShipCredits - amount,
+                  })
                   const toShipId = data.to?.ship?.ship_id
                   if (toShipId && isKnownFleetShip(toShipId)) {
                     const corpShip = (useGameStore.getState().ships.data ?? []).find(
@@ -1224,7 +1292,9 @@ export function GameProvider({ children }: GameProviderProps) {
                     })
                   }
                 } else {
-                  useGameStore.getState().setShip({ credits: currentShipCredits + amount })
+                  useGameStore.getState().setShip({
+                    credits: currentShipCredits + amount,
+                  })
                   const fromShipId = data.from?.ship?.ship_id
                   if (fromShipId && isKnownFleetShip(fromShipId)) {
                     const corpShip = (useGameStore.getState().ships.data ?? []).find(
@@ -1241,7 +1311,9 @@ export function GameProvider({ children }: GameProviderProps) {
                 const currentWarp = useGameStore.getState().ship?.warp_power ?? 0
 
                 if (data.transfer_direction === "sent") {
-                  useGameStore.getState().setShip({ warp_power: currentWarp - amount })
+                  useGameStore.getState().setShip({
+                    warp_power: currentWarp - amount,
+                  })
                   const toShipId = data.to?.ship?.ship_id
                   if (toShipId && isKnownFleetShip(toShipId)) {
                     const corpShip = (useGameStore.getState().ships.data ?? []).find(
@@ -1252,7 +1324,9 @@ export function GameProvider({ children }: GameProviderProps) {
                     })
                   }
                 } else {
-                  useGameStore.getState().setShip({ warp_power: currentWarp + amount })
+                  useGameStore.getState().setShip({
+                    warp_power: currentWarp + amount,
+                  })
                   const fromShipId = data.from?.ship?.ship_id
                   if (fromShipId && isKnownFleetShip(fromShipId)) {
                     const corpShip = (useGameStore.getState().ships.data ?? []).find(
@@ -1522,9 +1596,10 @@ export function GameProvider({ children }: GameProviderProps) {
                 useGameStore.getState().addTaskSummary(data as unknown as TaskSummary)
 
                 // Refetch task history
-                useGameStore
-                  .getState()
-                  .dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
+                useGameStore.getState().dispatchAction({
+                  type: "get-task-history",
+                  payload: { max_rows: 20 },
+                })
               }
               break
             }
@@ -1621,9 +1696,13 @@ export function GameProvider({ children }: GameProviderProps) {
 
               const deployShipId = getPayloadShipId(data)
               if (useGameStore.getState().ship?.ship_id === deployShipId) {
-                useGameStore.getState().setShip({ fighters: data.fighters_remaining })
+                useGameStore.getState().setShip({
+                  fighters: data.fighters_remaining,
+                })
               } else if (isCorporationShipPayload(data) && deployShipId) {
-                upsertCorporationShip(deployShipId, { fighters: data.fighters_remaining })
+                upsertCorporationShip(deployShipId, {
+                  fighters: data.fighters_remaining,
+                })
               }
 
               useGameStore.getState().addActivityLogEntry({
@@ -1639,16 +1718,22 @@ export function GameProvider({ children }: GameProviderProps) {
 
               const collectShipId = getPayloadShipId(data)
               if (useGameStore.getState().ship?.ship_id === collectShipId) {
-                useGameStore.getState().setShip({ fighters: data.fighters_on_ship })
+                useGameStore.getState().setShip({
+                  fighters: data.fighters_on_ship,
+                })
               } else if (isCorporationShipPayload(data) && collectShipId) {
-                upsertCorporationShip(collectShipId, { fighters: data.fighters_on_ship })
+                upsertCorporationShip(collectShipId, {
+                  fighters: data.fighters_on_ship,
+                })
               }
 
               useGameStore.getState().addActivityLogEntry({
                 type: "garrison.collected",
                 message:
                   data.disbanded ?
-                    `Garrison disbanded in [sector ${data.sector.id}] - [${data.fighters_disbanded ?? 0}] fighters destroyed`
+                    `Garrison disbanded in [sector ${data.sector.id}] - [${
+                      data.fighters_disbanded ?? 0
+                    }] fighters destroyed`
                   : `Collected fighters from [sector ${data.sector.id}] - ship now has [${data.fighters_on_ship}] fighters`,
               })
               break
@@ -1669,7 +1754,12 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Garrison destroyed", e.payload)
               const data = e.payload as Msg.GarrisonDestroyedMessage
 
-              useGameStore.getState().updateMapSectors([{ id: data.sector.id, garrison: null }])
+              useGameStore.getState().updateMapSectors([
+                {
+                  id: data.sector.id,
+                  garrison: null,
+                },
+              ])
 
               useGameStore.getState().addActivityLogEntry({
                 type: "garrison.destroyed",
@@ -1739,7 +1829,9 @@ export function GameProvider({ children }: GameProviderProps) {
 
               useGameStore.getState().addActivityLogEntry({
                 type: "garrison.character_moved",
-                message: `[${data.player.name}] ${data.movement === "depart" ? "departed" : "arrived"} near garrison`,
+                message: `[${data.player.name}] ${
+                  data.movement === "depart" ? "departed" : "arrived"
+                } near garrison`,
               })
               break
             }
@@ -1778,7 +1870,9 @@ export function GameProvider({ children }: GameProviderProps) {
                   nextStep: data.next_step,
                   reward: data.reward,
                 })
-                useGameStore.getState().setNotifications({ questCompleted: true })
+                useGameStore.getState().setNotifications({
+                  questCompleted: true,
+                })
               }
               useGameStore.getState().addActivityLogEntry({
                 type: "quest.step_completed",
@@ -1797,7 +1891,9 @@ export function GameProvider({ children }: GameProviderProps) {
                 reward: data.reward,
               })
               useGameStore.getState().completeQuest(data.quest_id)
-              useGameStore.getState().setNotifications({ questCompleted: true })
+              useGameStore.getState().setNotifications({
+                questCompleted: true,
+              })
               useGameStore.getState().addActivityLogEntry({
                 type: "quest.completed",
                 message: `Quest completed: ${data.quest_name}`,
@@ -1809,10 +1905,14 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as Msg.QuestRewardClaimedMessage
               useGameStore.getState().claimStepReward(data.quest_id, data.step_id)
               if (typeof data.credits_after === "number") {
-                useGameStore.getState().setShip({ credits: data.credits_after })
+                useGameStore.getState().setShip({
+                  credits: data.credits_after,
+                })
               } else if (data.reward.credits) {
                 const currentCredits = useGameStore.getState().ship?.credits ?? 0
-                useGameStore.getState().setShip({ credits: currentCredits + data.reward.credits })
+                useGameStore.getState().setShip({
+                  credits: currentCredits + data.reward.credits,
+                })
               }
               useGameStore.getState().addActivityLogEntry({
                 type: "quest.reward_claimed",
@@ -1838,7 +1938,9 @@ export function GameProvider({ children }: GameProviderProps) {
               ) {
                 // Show a nofication in the conversation panel
                 // @TODO: do not do this if chat window is open
-                useGameStore.getState().setNotifications({ newChatMessage: true })
+                useGameStore.getState().setNotifications({
+                  newChatMessage: true,
+                })
 
                 useGameStore.getState().addActivityLogEntry({
                   type: "chat.direct",
@@ -2046,7 +2148,10 @@ export function GameProvider({ children }: GameProviderProps) {
             // ----- TUTORIAL
             case "tutorial.start": {
               useGameStore.getState().handleTutorialStart()
-              useAudioStore.getState().fadeIn("tutorial", { volume: 0.3, duration: 6000 })
+              useAudioStore.getState().fadeIn("tutorial", {
+                volume: 0.3,
+                duration: 6000,
+              })
               break
             }
             case "tutorial.step": {
@@ -2079,7 +2184,6 @@ export function GameProvider({ children }: GameProviderProps) {
           }*/
         }
       },
-
       [playerSessionId]
     )
   )

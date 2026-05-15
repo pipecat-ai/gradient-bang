@@ -116,6 +116,7 @@ You may call `start_task` multiple times in a single response to fill available 
 If all slots are occupied, do NOT call `start_task` — tell the commander the slots are full.
 Check the `Active tasks:` line in `status.snapshot` to see which slots are in use.
 - Transfers TO a corp ship are personal-ship tasks, so OMIT `ship_id`; transfers FROM a corp ship are corp-ship tasks, so PASS `ship_id`.
+- Ship purchases/upgrades are local tasks: omit `ship_id` even when the request names a corp ship; include the ship name in `task_description` or `context`.
 - Players often say "fuel" when they mean warp power. Treat fuel-transfer requests as warp-power transfers unless the commander is clearly asking to buy fuel at a mega-port.
 
 ### After stop_task

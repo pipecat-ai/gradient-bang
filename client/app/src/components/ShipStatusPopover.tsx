@@ -40,7 +40,7 @@ function StatusRow({
   )
 }
 
-export const ShipStatusPopover = ({ ship }: { ship: Ship }) => {
+export const ShipStatusPopover = ({ ship, isActive }: { ship: Ship; isActive?: boolean }) => {
   const byoa = ship.byoa ?? null
   const isOnline = byoa?.presence?.online === true
   const actor = ship.current_task_actor ?? null
@@ -54,7 +54,7 @@ export const ShipStatusPopover = ({ ship }: { ship: Ship }) => {
           aria-label={`Open BYOA status for ${ship.ship_name}`}
           className={cn(
             "p-0 size-5 text-subtle-foreground hover:text-terminal data-[state=open]:text-terminal",
-            byoa && "text-terminal"
+            isActive && "text-terminal"
           )}
         >
           <BroadcastIcon weight="duotone" className="size-3.5 shrink-0" />

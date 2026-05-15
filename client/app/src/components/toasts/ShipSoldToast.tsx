@@ -1,6 +1,7 @@
 import { useEffect } from "react"
 
 import useAudioStore from "@/stores/audio"
+import { shipTypeVerbose } from "@/utils/game"
 import { getShipLogoImage } from "@/utils/images"
 
 import { Card, CardContent } from "../primitives/Card"
@@ -52,6 +53,9 @@ export const ShipSoldToast = ({
           />
           <div className="flex flex-col gap-1 w-full items-center uppercase text-sm">
             <span>{meta?.ship?.ship_name}</span>
+            <span className="text-xxs text-subtle-foreground">
+              {shipTypeVerbose(meta?.ship?.ship_type)}
+            </span>
             {meta?.trade_in_value != null && (
               <span className="text-xs text-terminal/70">
                 +{meta.trade_in_value.toLocaleString()} credits

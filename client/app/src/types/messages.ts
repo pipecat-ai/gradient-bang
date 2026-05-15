@@ -533,6 +533,20 @@ export interface CorporationShipPurchaseMessage extends ServerMessagePayload {
   purchase_price: number
 }
 
+export interface ShipPurchaseMessage extends ServerMessagePayload {
+  character_id: string
+  ship_id: string
+  ship_type: string
+  ship_name: string
+  purchase_price: number
+  trade_in_value: number
+  net_cost: number
+  old_ship_id?: string
+  old_ship_type?: string
+  sector: number
+  timestamp: string
+}
+
 export interface CorporationShipSoldMessage extends ServerMessagePayload {
   sector: number
   corp_id: string
