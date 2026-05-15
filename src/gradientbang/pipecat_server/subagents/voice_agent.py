@@ -122,6 +122,14 @@ class _ByoaPresence:
     last_seen_monotonic: float
 
 
+@dataclass
+class _SteerTarget:
+    framework_task_id: str
+    agent_name: str
+    task_type: str
+    ship_character_id: str
+
+
 # ── VoiceAgent ────────────────────────────────────────────────────────────
 
 
@@ -1773,6 +1781,86 @@ class VoiceAgent(LLMAgent):
                 return framework_task_id, child
         return None
 
+    def _find_steer_target_by_ship(self, ship_character_id: str) -> Optional[_SteerTarget]:
+        """Resolve the active bus target for a ship-level task."""
+        framework_task_id = self._locked_ships.get(ship_character_id)
+        if not framework_task_id:
+            return None
+
+        byoa_agent_name = self.byoa_agent_name(ship_character_id)
+        byoa_ctx = self._byoa_active_agents.get(byoa_agent_name)
+        if byoa_ctx is not None and str(byoa_ctx.get("task_id") or "") == framework_task_id:
+            return _SteerTarget(
+                framework_task_id=framework_task_id,
+                agent_name=byoa_agent_name,
+                task_type="corp_ship",
+                ship_character_id=ship_character_id,
+            )
+
+        for group_task_id, group in self._task_groups.items():
+            if group_task_id != framework_task_id:
+                continue
+            for name in group.agent_names:
+                child = next(
+                    (
+                        c
+                        for c in self.children
+                        if isinstance(c, TaskAgent)
+                        and c.name == name
+                        and c._character_id == ship_character_id
+                    ),
+                    None,
+                )
+                if child is not None:
+                    return _SteerTarget(
+                        framework_task_id=group_task_id,
+                        agent_name=child.name,
+                        task_type="corp_ship" if child._is_corp_ship else "player_ship",
+                        ship_character_id=child._character_id,
+                    )
+        return None
+
+    def _find_steer_target_by_task_id(self, task_id: str) -> Optional[_SteerTarget]:
+        """Resolve a task id/prefix to the bus agent that should receive steering."""
+        cleaned = task_id.strip()
+        if not cleaned:
+            return None
+
+        matches = [
+            (tid, group)
+            for tid, group in self._task_groups.items()
+            if tid == cleaned or tid.startswith(cleaned)
+        ]
+        if not matches:
+            return None
+        matches.sort(key=lambda kv: 0 if kv[0] == cleaned else 1)
+        framework_task_id, group = matches[0]
+
+        for name in group.agent_names:
+            child = next(
+                (c for c in self.children if isinstance(c, TaskAgent) and c.name == name),
+                None,
+            )
+            if child is not None:
+                return _SteerTarget(
+                    framework_task_id=framework_task_id,
+                    agent_name=child.name,
+                    task_type="corp_ship" if child._is_corp_ship else "player_ship",
+                    ship_character_id=child._character_id,
+                )
+
+            byoa_ctx = self._byoa_active_agents.get(name)
+            if byoa_ctx is not None and str(byoa_ctx.get("task_id") or "") == framework_task_id:
+                character_id = str(byoa_ctx.get("character_id") or "")
+                if character_id:
+                    return _SteerTarget(
+                        framework_task_id=framework_task_id,
+                        agent_name=name,
+                        task_type="corp_ship",
+                        ship_character_id=character_id,
+                    )
+        return None
+
     def _count_active_corp_tasks(self) -> int:
         return sum(1 for c in self.children if isinstance(c, TaskAgent) and c._is_corp_ship)
 
@@ -2696,33 +2784,13 @@ class VoiceAgent(LLMAgent):
                 # (navigation, trade, combat) and reuses the BusSteerTaskMessage
                 # primitive the `steer_task` tool uses.
                 if target_character_id in self._locked_ships:
-                    active_child = next(
-                        (
-                            c
-                            for c in self.children
-                            if isinstance(c, TaskAgent)
-                            and c._character_id == target_character_id
-                            and c._active_task_id
-                        ),
-                        None,
-                    )
-                    active_task_id = None
-                    if active_child is not None:
-                        active_task_id = next(
-                            (
-                                tid
-                                for tid, group in self._task_groups.items()
-                                if active_child.name in group.agent_names
-                            ),
-                            None,
-                        )
-                    if active_child is not None and active_task_id is not None:
+                    active_target = self._find_steer_target_by_ship(target_character_id)
+                    if active_target is not None:
                         steer_text = task_desc
                         if isinstance(explicit_context, str) and explicit_context.strip():
                             steer_text = f"{task_desc}\n\nContext: {explicit_context.strip()}"
                         return await self._steer_existing_task(
-                            active_task_id,
-                            active_child,
+                            active_target,
                             steer_text,
                             summary="Task already running; steered with new instructions.",
                         )
@@ -3107,13 +3175,12 @@ class VoiceAgent(LLMAgent):
 
     async def _steer_existing_task(
         self,
-        framework_task_id: str,
-        child: TaskAgent,
+        target: _SteerTarget,
         text: str,
         *,
         summary: str = "Steering instruction sent.",
     ) -> dict:
-        """Send a BusSteerTaskMessage to an active TaskAgent.
+        """Send a BusSteerTaskMessage to an active task agent.
 
         Shared by `_handle_steer_task` and the busy-ship path in
         `_handle_start_task` so the routing stays in one place.
@@ -3127,28 +3194,27 @@ class VoiceAgent(LLMAgent):
         await self.send_message(
             BusSteerTaskMessage(
                 source=self.name,
-                target=child.name,
-                task_id=framework_task_id,
+                target=target.agent_name,
+                task_id=target.framework_task_id,
                 text=steering_text,
             )
         )
-        task_type_value = "corp_ship" if child._is_corp_ship else "player_ship"
         # Also push a STEERING-typed task_output frame so the client can
         # flash the task status badge and append a log entry recording the
         # steering instruction.
         await self._task_output_handler(
             steering_text,
             message_type="STEERING",
-            task_id=framework_task_id,
-            task_type=task_type_value,
+            task_id=target.framework_task_id,
+            task_type=target.task_type,
         )
         return {
             "success": True,
             "summary": summary,
-            "task_id": framework_task_id,
-            "task_type": task_type_value,
+            "task_id": target.framework_task_id,
+            "task_type": target.task_type,
             "steered": True,
-            "ship_character_id": child._character_id,
+            "ship_character_id": target.ship_character_id,
         }
 
     @traced
@@ -3161,12 +3227,11 @@ class VoiceAgent(LLMAgent):
         if not isinstance(message, str) or not message.strip():
             return {"success": False, "error": "message is required"}
 
-        resolved = self._find_task_agent_by_task_id(task_id.strip())
+        resolved = self._find_steer_target_by_task_id(task_id.strip())
         if not resolved:
             return {"success": False, "error": f"Task {task_id} not found"}
-        framework_task_id, child = resolved
 
-        return await self._steer_existing_task(framework_task_id, child, message)
+        return await self._steer_existing_task(resolved, message)
 
     @traced
     async def _handle_query_task_progress(self, params: FunctionCallParams) -> dict:
@@ -3595,14 +3660,13 @@ class VoiceAgent(LLMAgent):
                 attrs.append(f'task_id="{task_id}"')
             attrs.append(f'task_type="{task_type}"')
             event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
-            # For a genuinely new task, trigger inference so the model can
-            # announce the newly-started task. For a steered (busy-ship) path,
-            # suppress inference — the model already narrated the steer in the
-            # same turn as the tool call; a fresh inference here would produce
-            # a duplicate ack. Keep the event in context either way.
+            # Drive the post-tool assistant turn through the same deferred
+            # LLMRunFrame path used by stop_task / steer_task. This is what
+            # clears the client's "thinking" state now that the voice LLM
+            # lives in the main pipeline.
             await self._inject_context(
                 [{"role": "user", "content": event_xml}],
-                run_llm=not steered,
+                run_llm=True,
             )
 
     async def _handle_stop_task_tool(self, params: FunctionCallParams):
