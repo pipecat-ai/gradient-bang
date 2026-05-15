@@ -11,6 +11,37 @@
 SET check_function_bodies = OFF;
 SET search_path = public;
 
+CREATE OR REPLACE FUNCTION public.ensure_character_queue(p_character_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pgmq
+AS $$
+DECLARE
+  v_qtable text := 'q_chr_' || p_character_id::text;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'pgmq' AND c.relname = v_qtable
+  ) THEN
+    RETURN;
+  END IF;
+
+  PERFORM pgmq.create('chr_' || p_character_id::text);
+EXCEPTION
+  WHEN duplicate_table THEN
+    NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION public.ensure_character_queue IS
+  'Idempotent queue ensure for a character_id.';
+
+REVOKE ALL ON FUNCTION public.ensure_character_queue(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.ensure_character_queue(uuid) TO service_role;
+
 CREATE OR REPLACE FUNCTION public._tg_ensure_character_queue()
 RETURNS trigger
 LANGUAGE plpgsql
