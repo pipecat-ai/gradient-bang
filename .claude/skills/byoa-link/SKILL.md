@@ -7,7 +7,9 @@ description: Onboard a Gradient Bang operator to run a Bring-Your-Own-Agent (BYO
 
 > **env defaults to `prod` when omitted.** `live` is accepted as a user-facing synonym for `prod` (e.g. `/byoa-link live` is equivalent to `/byoa-link prod` and to `/byoa-link` with no arg). `local` is the only other valid value.
 
-Walks an operator through everything they need to run `uv run byoa` against a Gradient Bang corp ship. End state: a populated `.env.byoa` in the current directory (mode 0600), a ship claimed as BYOA in `private` mode with a wake secret registered server-side, and clear next-step instructions for the operator.
+Walks an operator through everything they need to run `uv run byoa` against a Gradient Bang corp ship. End state: a populated `.env.byoa` at the **main repo root** (mode 0600), a ship claimed as BYOA in `private` mode with a wake secret registered server-side, and clear next-step instructions for the operator.
+
+**Always write the env file to the main repo root**, never to the current directory. The skill is often invoked from a git worktree (`.claude/worktrees/<name>/`), and a file dropped there is invisible from the operator's normal checkout. Resolve the destination via `git rev-parse --path-format=absolute --git-common-dir` (its parent is always the main worktree root, even when invoked from a linked worktree). Only honor `--out` when explicitly passed.
 
 ## Parameters
 
@@ -20,7 +22,7 @@ Walks an operator through everything they need to run `uv run byoa` against a Gr
   - `local` → sources `SUPABASE_URL` from `.env.supabase` (`http://127.0.0.1:54321` when `npx supabase start` is running)
 - **--force**: overwrite an existing `.env.byoa` without prompting
 - **--ship-id**: skip the ship picker; use this corp ship directly
-- **--out**: write the env file somewhere other than `./.env.byoa`
+- **--out**: write the env file somewhere other than `<repo-root>/.env.byoa`. Without this flag, the file always lands at the main repo root regardless of cwd.
 
 The `dev` env was dropped — it required internal-only env files (`.env.cloud.dev`, `EDGE_API_TOKEN`) that operators don't have. Internal team members testing against dev should run `local` with their dev Supabase URL exported in shell.
 
@@ -29,7 +31,7 @@ The `dev` env was dropped — it required internal-only env files (`.env.cloud.d
 Refuse to proceed if any of these is true. Surface a clean error and stop:
 
 - For `local`: `${SUPABASE_URL}` is unset in `.env.supabase` (or the file is missing entirely).
-- The operator already has a `.env.byoa` and `--force` was not passed.
+- The resolved destination already has a `.env.byoa` and `--force` was not passed. Check the resolved repo-root path (or `--out`), not cwd.
 - `SUBAGENT_BUS_DATABASE_URL` is **only** required for the local-dev wake daemon (`byoa --serve`); not for setup. Don't pre-flight it here.
 
 ## Auth header cheat-sheet
@@ -140,14 +142,16 @@ For production also set `BYOA_WAKE_SECRET=<same hex>` as project env on the oper
 
 ### 7. Write `.env.byoa`
 
-Path: `--out` value, or `./.env.byoa` if not provided. File mode **0600**.
+Path: `--out` value, or `<main-repo-root>/.env.byoa` if not provided. **Never write to cwd** — the skill is regularly invoked from a worktree, and writing there hides the file from the operator's normal checkout. File mode **0600**.
 
-Use `env.byoa.example` (in the repo root) as the template — it contains every config option the harness and daemon understand, with the optional ones commented out at their defaults. Copy it to the output path, then fill in **only** the three required values at the top. Leave the rest of the template untouched so the operator can later uncomment any tunable in place without consulting docs.
+Resolve the main repo root with `git rev-parse --path-format=absolute --git-common-dir` — its parent is the main worktree root whether the caller is in the main checkout or a linked worktree. The `env.byoa.example` template also lives at that root.
 
 ```bash
+REPO_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+OUT_PATH="${OUT_OVERRIDE:-$REPO_ROOT/.env.byoa}"
 umask 077
-cp env.byoa.example "<out_path>"
-python3 - "<out_path>" "<character_id>" "<ship_id>" "<wake_secret_hex>" <<'PY'
+cp "$REPO_ROOT/env.byoa.example" "$OUT_PATH"
+python3 - "$OUT_PATH" "<character_id>" "<ship_id>" "<wake_secret_hex>" <<'PY'
 import sys, pathlib
 path, char_id, ship_id, secret = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 text = pathlib.Path(path).read_text()
@@ -156,12 +160,12 @@ text = text.replace("BYOA_SHIP_ID=\n", f"BYOA_SHIP_ID={ship_id}\n", 1)
 text = text.replace("BYOA_WAKE_SECRET=\n", f"BYOA_WAKE_SECRET={secret}\n", 1)
 pathlib.Path(path).write_text(text)
 PY
-chmod 600 "<out_path>"
+chmod 600 "$OUT_PATH"
 ```
 
 Only the three required values are filled in; every other option (`BYOA_PROMPT_FILE`, `TASK_LLM_*`, `BYOA_TOOL_CALL_TIMEOUT_SECONDS`, …) stays commented out at its default. `SUBAGENT_BUS_DATABASE_URL` is not in the template — `uv run byoa --serve` picks it up from `.env.bot` via fallback when running from the bot checkout. Standalone operator deploys without a bot checkout need to set it in the shell env or add it to `.env.byoa` by hand.
 
-Verify the file is `0600` and that all three values are populated after writing; surface a warning if not.
+Verify the file is `0600`, sits at the resolved repo root (not a worktree), and all three values are populated after writing; surface a warning if not.
 
 ### 8. Print next steps
 
