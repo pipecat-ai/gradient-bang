@@ -1610,6 +1610,66 @@ async function pgmqTotalMessages(queueName: string): Promise<number> {
   });
 }
 
+async function characterQueueExists(characterId: string): Promise<boolean> {
+  return await withPg(async (pg) => {
+    const r = await pg.queryObject<{ exists: boolean }>(
+      `SELECT EXISTS (
+        SELECT 1
+        FROM pg_class cls
+        JOIN pg_namespace n ON n.oid = cls.relnamespace
+        WHERE n.nspname = 'pgmq'
+          AND cls.relname = 'q_chr_' || $1::text
+      ) AS exists`,
+      [characterId],
+    );
+    return r.rows[0]?.exists ?? false;
+  });
+}
+
+Deno.test({
+  name:
+    "event_dedup — pgmq: record_event_with_recipients creates missing recipient queue before publish",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    const requestId = `queue-lifecycle-${crypto.randomUUID()}`;
+    const queueName = `chr_${p3Id}`;
+
+    await t.step("setup: remove recipient queue to simulate reset drift", async () => {
+      await withPg(async (pg) => {
+        if (await characterQueueExists(p3Id)) {
+          await pg.queryObject(`SELECT pgmq.drop_queue($1)`, [queueName]);
+        }
+      });
+      assertEquals(await characterQueueExists(p3Id), false);
+    });
+
+    await t.step("publish event to recipient with missing queue", async () => {
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `SELECT public.record_event_with_recipients(
+            p_event_type => 'test.queue_lifecycle',
+            p_scope => 'direct',
+            p_actor_character_id => $1::uuid,
+            p_character_id => $1::uuid,
+            p_payload => '{"source":"queue_lifecycle_test"}'::jsonb,
+            p_request_id => $2,
+            p_recipients => ARRAY[$1::uuid],
+            p_reasons => ARRAY['test_missing_queue']
+          )`,
+          [p3Id, requestId],
+        );
+      });
+    });
+
+    await t.step("verify queue was recreated and message published", async () => {
+      assertEquals(await characterQueueExists(p3Id), true);
+      const messages = await pgmqTotalMessages(queueName);
+      assert(messages > 0, "Expected recreated recipient queue to contain message");
+    });
+  },
+});
+
 Deno.test({
   name:
     "event_dedup — pgmq: corp ship pseudo-char queue receives no copy when corp has members",
