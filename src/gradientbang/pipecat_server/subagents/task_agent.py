@@ -125,7 +125,7 @@ ASYNC_TOOL_COMPLETIONS = {
     "event_query": "event.query",
     "purchase_fighters": "fighter.purchase",
     "purchase_ship": "status.update",
-    "sell_ship": "status.update",
+    "sell_ship": "corporation.ship_sold",
     "bank_deposit": "bank.transaction",
     "bank_withdraw": "bank.transaction",
     "transfer_credits": "credits.transfer",
