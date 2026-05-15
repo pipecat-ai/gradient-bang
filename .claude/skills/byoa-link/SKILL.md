@@ -1,9 +1,11 @@
 ---
 name: byoa-link
-description: Onboard a Gradient Bang operator to run a Bring-Your-Own-Agent (BYOA) — logs in with email/password, claims a corp ship as BYOA, generates a per-ship wake secret, and writes `.env.byoa` for the `uv run byoa` CLI. Usage `/byoa-link [env]`.
+description: Onboard a Gradient Bang operator to run a Bring-Your-Own-Agent (BYOA) — logs in with email/password, claims a corp ship as BYOA, generates a per-ship wake secret, and writes `.env.byoa` for the `uv run byoa` CLI. Usage `/byoa-link [env]` (env defaults to `prod`; `live` is an accepted synonym for `prod`).
 ---
 
 # BYOA link
+
+> **env defaults to `prod` when omitted.** `live` is accepted as a user-facing synonym for `prod` (e.g. `/byoa-link live` is equivalent to `/byoa-link prod` and to `/byoa-link` with no arg). `local` is the only other valid value.
 
 Walks an operator through everything they need to run `uv run byoa` against a Gradient Bang corp ship. End state: a populated `.env.byoa` in the current directory (mode 0600), a ship claimed as BYOA in `private` mode with a wake secret registered server-side, and clear next-step instructions for the operator.
 
@@ -13,8 +15,8 @@ Walks an operator through everything they need to run `uv run byoa` against a Gr
 /byoa-link [env] [--force] [--ship-id <uuid>] [--out <path>]
 ```
 
-- **env**: `prod` (default) or `local`. Picks the game server endpoint:
-  - `prod` → `https://api.gradient-bang.com/functions/v1` (operator-facing; no env file needed)
+- **env**: `prod` (default, also accepts `live` as a synonym) or `local`. Picks the game server endpoint:
+  - `prod` / `live` → `https://api.gradient-bang.com/functions/v1` (operator-facing; no env file needed). If the operator types nothing, this is what they get.
   - `local` → sources `SUPABASE_URL` from `.env.supabase` (`http://127.0.0.1:54321` when `npx supabase start` is running)
 - **--force**: overwrite an existing `.env.byoa` without prompting
 - **--ship-id**: skip the ship picker; use this corp ship directly
@@ -43,13 +45,15 @@ Refuse to proceed if any of these is true. Surface a clean error and stop:
 
 ### 1. Resolve the game server URL
 
-For `prod` (the default):
+For `prod` or `live` (the default — if the operator types nothing, treat as `prod`; `live` is a user-facing synonym):
 
 ```bash
 SUPABASE_URL=https://api.gradient-bang.com
 ```
 
 Hardcoded — operator never types it. (If the CNAME proxy isn't live, fall back to the direct Supabase project URL; this URL is public.)
+
+Anything other than `prod`, `live`, or `local` should error out with `unknown env: <value>; expected prod | live | local` before any network call.
 
 For `local`:
 

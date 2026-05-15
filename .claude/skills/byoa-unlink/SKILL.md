@@ -1,11 +1,16 @@
 ---
 name: byoa-unlink
-description: Release a Gradient Bang corp ship from BYOA — logs in with email/password (or reuses a JWT) and calls `ship_byoa_configure { action: "clear" }` to null the ship's `byoa_owner_character_id` server-side, freeing the ship for someone else to claim. Inverse of `/byoa-link`. Usage `/byoa-unlink [env]`.
+description: Release a Gradient Bang corp ship from BYOA — logs in with email/password (or reuses a JWT), nulls the ship's stored `source_url` and `wake_secret` via `ship_byoa_configure { action: "set" }`, then calls `{ action: "clear" }` to null `byoa_owner_character_id`. Frees the ship completely for someone else to claim. Inverse of `/byoa-link`. Usage `/byoa-unlink [env]`.
 ---
 
 # BYOA unlink
 
-Releases a corp ship that was claimed via `/byoa-link`. The server-side `clear` action nulls `byoa_owner_character_id` and resets `byoa_mode` to `private`; the ship goes back into the pool for any corp member to claim. Owner-only, idempotent (re-running on an already-cleared ship returns success without error).
+Releases a corp ship that was claimed via `/byoa-link`, in two server calls:
+
+1. `set` with `{ wake_secret: null, source_url: null }` — wipes the per-ship wake config while we still own the ship (the `set` action is owner-only).
+2. `clear` — nulls `byoa_owner_character_id` and resets `byoa_mode` to `private`.
+
+After both succeed the ship has no owner, no `source_url`, and no `wake_secret`, and goes back into the pool for any corp member to claim. Idempotent (re-running on an already-cleared ship returns success without error — the `set` call is skipped automatically).
 
 This skill does **not** delete `.env.byoa`, tear down the operator's local daemon, or unprovision the Vercel deployment — those are the operator's own infrastructure to keep or discard. Pass `--clear-env` to also remove `.env.byoa` from the current directory.
 
@@ -64,7 +69,30 @@ ACCESS_TOKEN=$(echo "$LOGIN_RESPONSE" | grep -o '"access_token":"[^"]*"' | head 
 
 On 401 / `success: false`: don't retry. Surface the response body and stop. Never echo `$PASSWORD` or `$ACCESS_TOKEN` to chat.
 
-### 3. POST clear
+### 3a. POST set (null wake config)
+
+Wipe the stored `source_url` and `wake_secret` while we still own the ship. The `set` action is owner-only, so this must run before `clear`.
+
+```bash
+SET_RESPONSE=$(curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -d "{
+    \"character_id\": \"$CHARACTER_ID\",
+    \"ship_id\": \"$SHIP_ID\",
+    \"action\": \"set\",
+    \"wake_secret\": null,
+    \"source_url\": null
+  }")
+```
+
+Expected success: `{"success":true,"action":"set","wake_secret_updated":true,"source_url_updated":true,...}`.
+
+If the response is `403 Only the current BYOA owner can set wake config`, the ship is already unowned (or owned by someone else) — skip to step 3b, which will either succeed idempotently or surface the real ownership mismatch with its own 403. Don't treat this 403 as fatal here.
+
+For any other non-2xx (500, network error, etc.): surface the body and stop. Don't proceed to `clear` if the wipe genuinely failed — leaving a stale `source_url` / `wake_secret` on an unowned ship is the failure mode this whole change is meant to prevent.
+
+### 3b. POST clear (release ownership)
 
 ```bash
 curl -s -X POST "${SUPABASE_URL}/functions/v1/ship_byoa_configure" \
@@ -95,12 +123,15 @@ Print a terse summary:
 
 - Ship released: `<ship_id>` (8-char prefix)
 - Mode reset to `private`, owner null
+- `source_url`: cleared (or "skipped — ship already unowned" if step 3a was bypassed)
+- `wake_secret`: cleared (or "skipped — ship already unowned")
 - `.env.byoa`: kept / removed (per `--clear-env`)
 - Next steps: any corp member can now claim this ship via `/byoa-link <env> --ship-id <ship_id>`. Operator-side cleanup (`vercel project rm`, killing `byoa --serve`, etc.) is the operator's call.
 
 ## Failure modes
 
 - **`.env.byoa` missing AND no `--ship-id`**: nothing to unlink — point operator at `/byoa-link` to claim a ship first, or supply `--ship-id`.
+- **403 `Only the current BYOA owner can set wake config`** (on step 3a): expected when the ship is already unowned. The skill falls through to `clear` automatically. If `clear` then also 403s with "Only the current BYOA owner can clear BYOA", the ship is genuinely owned by someone else — see below.
 - **403 `Only the current BYOA owner can clear BYOA`**: the JWT belongs to a different operator. Either log in as the right account, supply `--access-token` from the right account, or have a corp admin override at the DB level.
 - **403 `Only corp members can configure BYOA on this ship`**: the caller isn't in the ship's corp. Same remediation as above.
 - **404 `ship_not_found`**: bad `--ship-id`. Confirm it matches what `/byoa-link list` showed.
@@ -110,7 +141,6 @@ Print a terse summary:
 
 ## What this skill does NOT do
 
-- Tear down operator-owned infrastructure (Vercel deployment, local `byoa --serve` daemon, ngrok tunnel, etc.). The skill releases the database link only; the operator decides whether to keep their wake receiver standing for a future re-claim.
-- Rotate or revoke the per-ship `wake_secret` server-side beyond what `clear` does. (`clear` zeroes ownership; whether `wake_secret` / `source_url` rows are nulled by a server-side trigger is a server concern — re-running `/byoa-link --force` on a fresh claim writes a new secret regardless.)
+- Tear down operator-owned infrastructure (Vercel deployment, local `byoa --serve` daemon, ngrok tunnel, etc.). The skill releases the database link and wipes the server-side wake config; the operator decides whether to keep their wake receiver standing for a future re-claim.
 - Touch `.env.bot`, `.env.supabase`, or any other env file. Only `.env.byoa` is in scope, and only when `--clear-env` is passed.
 - Notify other corp members that the ship is now claimable. The ship just appears as `claimable_by_me: true` on their next `/byoa-link list` call.

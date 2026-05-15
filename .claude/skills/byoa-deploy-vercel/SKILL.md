@@ -1,9 +1,11 @@
 ---
 name: byoa-deploy-vercel
-description: Deploy the BYOA wake-receiver Vercel Function from `deployment/vercel/`. Reads `.env.byoa`, pushes the operator's required env to the Vercel project, deploys via `npx vercel`, health-checks the URL, logs the operator in, and registers the resulting alias as the ship's `source_url` via `ship_byoa_configure`. Picks up from `/byoa-link` (which claims the ship and writes `.env.byoa`). Usage `/byoa-deploy-vercel [env]`.
+description: Deploy the BYOA wake-receiver Vercel Function from `deployment/vercel/`. Reads `.env.byoa`, pushes the operator's required env to the Vercel project, deploys via `npx vercel`, health-checks the URL, logs the operator in, and registers the resulting alias as the ship's `source_url` via `ship_byoa_configure`. Picks up from `/byoa-link` (which claims the ship and writes `.env.byoa`). Usage `/byoa-deploy-vercel [env]` (env defaults to `prod`; `live` is an accepted synonym for `prod`).
 ---
 
 # BYOA: deploy Vercel wake function
+
+> **env defaults to `prod` when omitted.** `live` is accepted as a user-facing synonym for `prod` (e.g. `/byoa-deploy-vercel live` is equivalent to `/byoa-deploy-vercel prod` and to `/byoa-deploy-vercel` with no arg). `local` is the only other valid value.
 
 Picks up where `/byoa-link` finishes. The operator's ship is already claimed as BYOA, `.env.byoa` is populated with `BYOA_CHARACTER_ID` / `BYOA_SHIP_ID` / `BYOA_WAKE_SECRET`, and the per-ship wake secret is registered server-side. This skill takes the template Vercel Function at [deployment/vercel/](../../../deployment/vercel/) and walks the operator through deploying their own copy.
 
@@ -15,8 +17,8 @@ End state: a Vercel deployment at `https://<their-project>.vercel.app/api/wake` 
 /byoa-deploy-vercel [env] [--preview] [--no-link] [--out-url <path>] [--access-token <jwt>] [--skip-register]
 ```
 
-- **env**: `prod` (default) or `local`. Picks the game server endpoint that `/login` + `/ship_byoa_configure` are called against (the auto-register step at the end):
-  - `prod` → `https://api.gradient-bang.com` (hardcoded; operator never types it; no env file needed)
+- **env**: `prod` (default, also accepts `live` as a synonym) or `local`. Picks the game server endpoint that `/login` + `/ship_byoa_configure` are called against (the auto-register step at the end):
+  - `prod` / `live` → `https://api.gradient-bang.com` (hardcoded; operator never types it; no env file needed). If the operator types nothing, this is what they get.
   - `local` → sources `SUPABASE_URL` from `.env.supabase` (e.g. `http://127.0.0.1:54321` when `npx supabase start` is running)
 
   The `dev` env was dropped — it required internal-only env files that external developers don't have. The skill no longer needs `EDGE_API_TOKEN` either; `ship_byoa_configure` and `my_corporation` authenticate on the user JWT alone via the standard `getAuthenticatedUser()` pattern (`Authorization: Bearer <jwt>`).
@@ -37,7 +39,7 @@ End state: a Vercel deployment at `https://<their-project>.vercel.app/api/wake` 
 Stop with a clean error if any of these is true:
 
 - `.env.byoa` does not exist in cwd → direct the operator to run `/byoa-link` first.
-- `.env.byoa` is missing any required key: `BYOA_WAKE_SECRET`, `BYOA_SHIP_ID`, `BYOA_CHARACTER_ID`, `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, and the API key matching the provider (one of `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `MINIMAX_API_KEY`).
+- `.env.byoa` is missing any required key: `BYOA_WAKE_SECRET`, `BYOA_SHIP_ID`, `BYOA_CHARACTER_ID`, `TASK_LLM_PROVIDER`, `TASK_LLM_MODEL`, and the API key matching the provider (one of `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `MINIMAX_API_KEY`). **Check by sourcing the file first (`set -a && source .env.byoa && set +a`), then verifying each required var is non-empty (`[ -n "$BYOA_WAKE_SECRET" ]`, etc.). Do NOT grep the raw file — commented-out lines like `# BYOA_PROMPT=...` will match a naive `grep BYOA_PROMPT=` and produce false "is set" readings.** Operators routinely keep commented-out alternates in `.env.byoa`; `source` correctly skips them, so trust the resulting env, not the file's text.
 - [deployment/vercel/](../../../deployment/vercel/) does not exist or is missing `api/wake.ts`, `package.json`, or `vercel.json` — the template was deleted or this skill is being run against the wrong checkout.
 - `npx vercel --version` errors (Vercel CLI not available via npx).
 - For `env=local`: `.env.supabase` is missing or `SUPABASE_URL` is unset inside it.
@@ -61,15 +63,15 @@ If both `BYOA_PROMPT` and `BYOA_PROMPT_FILE` are unset, mention that the agent w
 set -a && source .env.byoa && set +a
 ```
 
-Then resolve `SUPABASE_URL` per the env arg:
+Then resolve `SUPABASE_URL` per the env arg. If the operator typed nothing, treat it as `prod`. `live` is accepted as a user-facing synonym for `prod`:
 
 ```bash
-# prod (default)
-SUPABASE_URL=https://api.gradient-bang.com
-
-# local
-set -a && source .env.supabase && set +a
-# SUPABASE_URL now points at http://127.0.0.1:54321 (or whatever the file has)
+case "${ENV_ARG:-prod}" in
+  prod|live) SUPABASE_URL=https://api.gradient-bang.com ;;
+  local)     set -a && source .env.supabase && set +a ;;
+  *)         echo "unknown env: ${ENV_ARG}; expected prod | live | local"; exit 1 ;;
+esac
+# SUPABASE_URL now points at api.gradient-bang.com (prod/live) or http://127.0.0.1:54321 (local)
 ```
 
 All curls in step 8 append `/functions/v1/<endpoint>`, so `SUPABASE_URL` must NOT include `/functions/v1`. Never echo `BYOA_WAKE_SECRET` or any `*_API_KEY` to the console.

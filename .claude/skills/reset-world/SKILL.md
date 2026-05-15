@@ -4,22 +4,27 @@ Resets the game database, generates a fresh universe, loads quest definitions, a
 
 ## Production safety
 
-**This skill MUST NEVER run against production (`.env.cloud`).** If the user asks for `/reset-world prod` or `/reset-world production`, REFUSE. Tell them:
+Production (`.env.cloud`) is destructive and irreversible. It is **only** allowed when ALL of these are true:
 
-> Production resets cannot be run through this skill. To reset production, run the script manually where you get interactive confirmation prompts:
->
-> ```bash
-> scripts/reset-world.sh --env .env.cloud --allow-production [sector_count] [seed]
-> ```
+1. The user invoked this skill with `prod` or `production` explicitly (e.g. `/reset-world prod`). Do NOT route to prod from a generic `/reset-world` invocation, even if context suggests it.
+2. Claude has surfaced the env file, project ref, and a plain-English warning, then asked the user to confirm in this chat.
+3. The user has replied with an explicit, unambiguous confirmation in this same conversation (e.g. "yes, destroy production"). A prior "sure go ahead" from earlier in the session does NOT count — re-confirm every time.
 
-Do NOT offer to proceed, do NOT ask for confirmation, do NOT accept "I'm sure" — just refuse and show the manual command.
+If any of those is missing, do NOT run prod. Show the manual command instead:
+
+```bash
+scripts/reset-world.sh --env .env.cloud --allow-production [sector_count] [seed]
+```
+
+The underlying script has its own independent safeguard: it ignores `--yes` / `--confirm-ref` for production and requires the literal string `DESTROY PRODUCTION` on stdin. The skill pipes that string in (see step 3 below) — so the chat-level confirmation above is the real gate.
 
 ## Parameters
 
-The user specifies the environment as an argument: `/reset-world local` or `/reset-world dev`. If not provided, ask which environment.
+The user specifies the environment as an argument: `/reset-world local`, `/reset-world dev`, or `/reset-world prod`. If not provided, ask which environment.
 
 - `local` → env file: `.env.supabase`
 - `dev` → env file: `.env.cloud.dev`
+- `prod` / `production` → env file: `.env.cloud` (requires explicit chat confirmation, see above)
 
 Additional optional parameters (ask if not provided, or use defaults):
 - **Sector count**: number of sectors to generate (default: `5000`)
@@ -29,10 +34,13 @@ Additional optional parameters (ask if not provided, or use defaults):
 
 ### 1. Derive the project ref (cloud only)
 
-For **dev**, extract the Supabase project ref from `SUPABASE_URL` in the env file. This value is passed to both scripts via `--confirm-ref` so confirmation prompts can run non-interactively, while still aborting on any mismatch:
+For **dev** and **prod**, extract the Supabase project ref from `SUPABASE_URL` in the env file. For **dev** this is passed to both scripts via `--confirm-ref` so confirmation prompts can run non-interactively, while still aborting on any mismatch. For **prod**, derive it anyway and display it to the user as part of the chat-level confirmation (the script ignores `--confirm-ref` for prod).
 
 ```bash
+# dev
 ref=$(grep '^SUPABASE_URL=' .env.cloud.dev | sed 's|.*//||;s|\..*||')
+# prod
+ref=$(grep '^SUPABASE_URL=' .env.cloud | sed 's|.*//||;s|\..*||')
 ```
 
 Skip for **local**.
@@ -59,7 +67,12 @@ For **dev**:
 scripts/reset-world.sh --env .env.cloud.dev --confirm-ref "$ref" <sector_count> [seed]
 ```
 
-Production is never run from this skill. The script enforces this independently — `.env.cloud` requires `--allow-production` AND will refuse to honor `--confirm-ref` for production (forces interactive `DESTROY PRODUCTION` typing).
+For **prod** — only after the user has explicitly confirmed in chat (see Production safety):
+```bash
+echo "DESTROY PRODUCTION" | scripts/reset-world.sh --env .env.cloud --allow-production <sector_count> [seed]
+```
+
+`--confirm-ref` and `--yes` are intentionally NOT passed for prod — the script ignores them and requires `DESTROY PRODUCTION` on stdin, which the pipe supplies.
 
 ### 4. Seed combat cron config
 
@@ -82,10 +95,12 @@ For **dev**, run:
 scripts/setup-production-combat-tick.sh --env .env.cloud.dev --confirm-ref "$ref"
 ```
 
-For **prod** (manual only — never invoke through this skill):
+For **prod** — only after the same chat-level confirmation from Production safety (reuse it; don't re-prompt if step 3 just succeeded):
 ```bash
 scripts/setup-production-combat-tick.sh --env .env.cloud --allow-production
 ```
+
+If this script also has an interactive prompt, pipe the expected confirmation string the same way step 3 does. Inspect the script before running if unsure.
 
 ### 5. Verify
 
