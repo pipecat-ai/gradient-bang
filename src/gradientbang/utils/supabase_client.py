@@ -165,11 +165,11 @@ class AsyncGameClient(BaseAsyncGameClient):
 
         # Event-delivery adapter. Constructed and started only by an
         # explicit ``start_event_delivery()`` call once the caller is
-        # ready to consume events. Callers that build their LLM context
-        # inline from RPC responses call ``purge_event_backlog`` first to
-        # clear stale messages from prior sessions while keeping the queue
-        # present for required pubsub publishes during bootstrap.
+        # ready to consume events. Pubsub callers register their session queue
+        # before bootstrap RPCs, capture bootstrap request ids, and replay any
+        # unrelated startup-window events after agent activation.
         self._event_adapter: Optional[EventAdapter] = None
+        self._captured_bootstrap_request_ids: Optional[set[str]] = None
 
     def set_event_polling_scope(
         self,
@@ -180,11 +180,7 @@ class AsyncGameClient(BaseAsyncGameClient):
     ) -> None:
         """Update the event subscription scope (delegates to the adapter).
 
-        Public name preserved for backward compatibility with VoiceAgent /
-        EventRelay callers; the underlying transport is the adapter. No-op
-        if the adapter hasn't been constructed yet — scope changes before
-        ``start_event_delivery`` are not currently supported (the bot
-        doesn't need it).
+        No-op until the adapter is prepared or started.
         """
         if self._event_adapter is None:
             logger.debug("set_event_polling_scope: adapter not started; ignoring")
@@ -195,6 +191,10 @@ class AsyncGameClient(BaseAsyncGameClient):
             ship_ids=ship_ids,
         )
 
+    async def sync_event_polling_scope(self) -> None:
+        if self._event_adapter is not None:
+            await self._event_adapter.sync_scope()
+
     async def close(self):
         await super().close()
         if self._event_adapter is not None:
@@ -204,10 +204,10 @@ class AsyncGameClient(BaseAsyncGameClient):
             self._http = None
 
     async def _ensure_ws(self):  # type: ignore[override]
-        return  # Supabase transport does not use legacy websockets
+        return  # Supabase transport does not use websocket frames
 
     async def identify(self, *, name: Optional[str] = None, character_id: Optional[str] = None):  # type: ignore[override]
-        """No-op for Supabase transport (identify is legacy websocket-only)."""
+        """No-op for Supabase transport."""
         return None
 
     async def _request(
@@ -222,6 +222,10 @@ class AsyncGameClient(BaseAsyncGameClient):
         enriched = self._inject_character_ids(payload)
         if "request_id" not in enriched:
             enriched["request_id"] = req_id
+        if self._captured_bootstrap_request_ids is not None:
+            outbound_req_id = enriched.get("request_id")
+            if isinstance(outbound_req_id, str) and outbound_req_id:
+                self._captured_bootstrap_request_ids.add(outbound_req_id)
 
         edge_endpoint = endpoint.replace('.', '_')
 
@@ -618,29 +622,43 @@ class AsyncGameClient(BaseAsyncGameClient):
         return await self._request("bank_transfer", payload)
 
     async def _emit_frame(self, direction: str, frame: Mapping[str, Any]) -> None:  # type: ignore[override]
-        return  # No legacy websocket frames
+        return  # Supabase transport does not emit websocket frames
 
     async def purge_event_backlog(self) -> None:
-        """Reset the delivery backlog before bootstrap RPCs.
-
-        Sessions that build their LLM context inline from RPC responses
-        call this before issuing those RPCs. The pubsub adapter keeps the
-        scoped pgmq queues present and purges stale messages from prior
-        sessions. ``start_event_delivery`` then starts from a clean baseline
-        without creating a missing-queue publish window.
-        """
+        """Reset pending event delivery for non-bootstrap callers."""
         if not self._enable_event_polling:
             return
         if self._event_adapter is None:
             self._event_adapter = make_event_adapter(self)
         await self._event_adapter.purge_backlog()
 
+    async def prepare_event_delivery_for_bootstrap(self) -> None:
+        """Prepare the adapter before event-emitting bootstrap RPCs run."""
+        if not self._enable_event_polling:
+            return
+        if self._event_adapter is None:
+            self._event_adapter = make_event_adapter(self)
+        self._captured_bootstrap_request_ids = set()
+        await self._event_adapter.prepare_bootstrap()
+
+    async def complete_event_delivery_bootstrap(self) -> None:
+        """Discard bootstrap echoes and hold unrelated startup events."""
+        if not self._enable_event_polling or self._event_adapter is None:
+            return
+        request_ids = self._captured_bootstrap_request_ids or set()
+        self._captured_bootstrap_request_ids = None
+        await self._event_adapter.complete_bootstrap(request_ids)
+
+    async def replay_event_delivery_catchup(self) -> None:
+        """Replay queued non-bootstrap events after the agent is active."""
+        if not self._enable_event_polling or self._event_adapter is None:
+            return
+        await self._event_adapter.replay_catchup()
+
     async def start_event_delivery(self) -> None:
         """Construct the event adapter and start consuming events.
 
-        Call this once the caller is ready for events to flow.
-        Idempotent. Callers building context from RPC responses should
-        call ``purge_event_backlog`` first.
+        Call this once the caller is ready for events to flow. Idempotent.
         """
         if not self._enable_event_polling:
             return

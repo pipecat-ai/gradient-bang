@@ -45,6 +45,8 @@ async function resetWithQuests(characterIds: string[]): Promise<void> {
   await seedQuestDefinitions();
 }
 
+const eventSessionToken = "quest-rewards-event-session-token";
+
 function normalizePgmqMessage(message: unknown): Record<string, unknown> {
   if (typeof message === "string") {
     return JSON.parse(message) as Record<string, unknown>;
@@ -52,27 +54,47 @@ function normalizePgmqMessage(message: unknown): Record<string, unknown> {
   return message as Record<string, unknown>;
 }
 
-async function readAndArchivePgmqMessages(characterId: string): Promise<Record<string, unknown>[]> {
-  const queueName = `chr_${characterId}`;
-  return await withPg(async (pg) => {
-    await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [characterId]);
-    // pgmq.read_with_poll(..., max_seconds=0) checks the deadline before any
-    // read attempt and returns 0 rows even when messages are queued. Use the
-    // non-polling pgmq.read for a single immediate fetch.
-    const result = await pg.queryObject<{ msg_id: bigint; message: unknown }>(
-      `SELECT msg_id, message FROM pgmq.read($1, 10, 100)`,
-      [queueName],
+async function ensureEventSessionToken(): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `INSERT INTO public.app_runtime_config(key, value, description)
+       VALUES ('edge_api_token', $1, 'quest reward test edge token')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [eventSessionToken],
     );
-    const msgIds = result.rows.map((row) => row.msg_id);
-    if (msgIds.length > 0) {
-      await pg.queryObject(`SELECT pgmq.archive($1, $2::bigint[])`, [queueName, msgIds]);
-    }
-    return result.rows.map((row) => normalizePgmqMessage(row.message));
   });
 }
 
-async function drainPgmqMessages(characterId: string): Promise<void> {
-  await readAndArchivePgmqMessages(characterId);
+async function createEventSession(characterId: string): Promise<string> {
+  await ensureEventSessionToken();
+  return await withPg(async (pg) => {
+    const result = await pg.queryObject<{ session_id: string }>(
+      `SELECT session_id
+       FROM public.event_session_register($1::uuid, $2::text, ARRAY[$1::uuid], NULL, 60, 3600)`,
+      [characterId, eventSessionToken],
+    );
+    const row = result.rows[0];
+    assertExists(row, "event_session_register should create a session");
+    return row.session_id;
+  });
+}
+
+async function readAndArchiveSessionMessages(sessionId: string): Promise<Record<string, unknown>[]> {
+  return await withPg(async (pg) => {
+    const result = await pg.queryObject<{ msg_id: bigint; message: unknown }>(
+      `SELECT msg_id, message
+       FROM public.event_session_subscribe($1::uuid, $2::text, 10, 100)`,
+      [sessionId, eventSessionToken],
+    );
+    const msgIds = result.rows.map((row) => row.msg_id);
+    if (msgIds.length > 0) {
+      await pg.queryObject(
+        `SELECT public.event_session_archive($1::uuid, $2::text, $3::bigint[])`,
+        [sessionId, eventSessionToken, msgIds],
+      );
+    }
+    return result.rows.map((row) => normalizePgmqMessage(row.message));
+  });
 }
 
 // ============================================================================
@@ -119,6 +141,7 @@ Deno.test({
     });
 
     let cursor: number;
+    let eventSessionId: string;
     await t.step("capture cursor", async () => {
       cursor = await getEventCursor(p1Id);
     });
@@ -145,8 +168,8 @@ Deno.test({
       assertEquals(reward.credits, 50, "Reward should be 50 credits");
     });
 
-    await t.step("drain pgmq before reward claim", async () => {
-      await drainPgmqMessages(p1Id);
+    await t.step("create event session before reward claim", async () => {
+      eventSessionId = await createEventSession(p1Id);
     });
 
     await t.step("claim reward grants credits", async () => {
@@ -162,8 +185,8 @@ Deno.test({
       assertEquals(ship.credits, 1050, `Expected 1050 credits after claim, got ${ship.credits}`);
     });
 
-    await t.step("quest.reward_claimed is published to pgmq", async () => {
-      const messages = await readAndArchivePgmqMessages(p1Id);
+    await t.step("quest.reward_claimed is published to session pgmq", async () => {
+      const messages = await readAndArchiveSessionMessages(eventSessionId);
       const rewardClaimed = messages.find((msg) => msg.event_type === "quest.reward_claimed");
       assertExists(
         rewardClaimed,

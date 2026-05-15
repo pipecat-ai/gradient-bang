@@ -12,6 +12,7 @@
  *   - Cross-channel publish: a peer cannot publish using a channel it didn't
  *     join (42501 channel_not_authorized).
  *   - Cross-channel subscribe: same, for read paths.
+ *   - Cleanup: old bus_peers rows drop their q_<uuid> queue and registry row.
  *   - bus_peers is not readable from the byoa_bus_client role.
  */
 
@@ -191,6 +192,52 @@ Deno.test({
         await pg.queryObject("SELECT public.bus_leave($1, $2)", [queueA, chanA]);
         await pg.queryObject("SELECT public.bus_leave($1, $2)", [queueB, chanB]);
       }
+    });
+  },
+});
+
+Deno.test({
+  name: "bus wrappers — subagent_bus_cleanup drops old peer queues",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const channel = freshChannel();
+
+    await withPg(async (pg) => {
+      const joined = await pg.queryObject<{ queue: string }>(
+        "SELECT public.bus_join($1) AS queue",
+        [channel],
+      );
+      const queue = joined.rows[0].queue;
+
+      await pg.queryObject(
+        "UPDATE public.bus_peers SET created_at = now() - interval '49 hours' WHERE queue_name = $1",
+        [queue],
+      );
+
+      const cleaned = await pg.queryObject<{ count: number }>(
+        "SELECT public.subagent_bus_cleanup(interval '48 hours', 100) AS count",
+      );
+      assertEquals(cleaned.rows[0].count, 1);
+
+      const after = await pg.queryObject<{ count: bigint }>(
+        "SELECT COUNT(*)::bigint AS count FROM public.bus_peers WHERE queue_name = $1",
+        [queue],
+      );
+      assertEquals(Number(after.rows[0].count), 0);
+
+      await assertRejects(
+        () =>
+          pg.queryObject(
+            "SELECT * FROM public.bus_subscribe($1, $2, 30, 10, 1)",
+            [
+              queue,
+              channel,
+            ],
+          ),
+        Error,
+        "channel_not_authorized",
+      );
     });
   },
 });

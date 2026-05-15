@@ -560,8 +560,6 @@ export async function createCorpShip(
       [corpId, shipId],
     );
 
-    await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [shipId]);
-
     return { shipId, pseudoCharacterId: shipId };
   });
 }

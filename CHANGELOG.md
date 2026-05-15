@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Gameplay `EVENT_TRANSPORT=pubsub` now uses online session-scoped PGMQ queues with heartbeat expiry and scheduled DB cleanup.
+
 ## [0.5.2] - 2026-05-14
 
 ### Added

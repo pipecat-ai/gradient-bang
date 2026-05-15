@@ -15,6 +15,7 @@ def _make_voice_agent(**overrides):
     mock_game_client = MagicMock()
     mock_game_client.corporation_id = "corp-1"
     mock_game_client.set_event_polling_scope = MagicMock()
+    mock_game_client.sync_event_polling_scope = AsyncMock()
     # Server-side lock RPCs surfaced through AsyncGameClient. Default to
     # no-op success so the broad path of tests that don't care about lock
     # semantics still work. Tests that want specific behavior override
@@ -224,6 +225,35 @@ class TestFrameworkTaskQueries:
             corp_id="corp-1",
             ship_ids=[],
         )
+
+    async def test_task_start_syncs_corp_ship_scope_before_lifecycle(self):
+        agent = _make_voice_agent()
+        calls: list[str] = []
+
+        async def sync_scope():
+            calls.append("sync")
+
+        async def task_lifecycle(**_kwargs):
+            calls.append("lifecycle")
+            return {"success": True}
+
+        agent._game_client.sync_event_polling_scope = AsyncMock(side_effect=sync_scope)
+        agent._game_client.task_lifecycle = AsyncMock(side_effect=task_lifecycle)
+
+        result = await agent._acquire_server_ship_lock(
+            target_character_id="ship-1",
+            framework_task_id="task-1",
+            task_desc="Mine ore",
+            task_metadata={"task_scope": "corp_ship"},
+        )
+
+        assert result is None
+        agent._game_client.set_event_polling_scope.assert_called_once_with(
+            character_ids=["char-123"],
+            corp_id="corp-1",
+            ship_ids=["ship-1"],
+        )
+        assert calls == ["sync", "lifecycle"]
 
 
 # ── Deferred event batching ──────────────────────────────────────────
@@ -1429,7 +1459,7 @@ class TestCorpShipRouting:
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        # Phase 1: TaskAgent no longer holds a game_client.
+        # TaskAgent uses the broker-owned game client.
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
@@ -1455,9 +1485,7 @@ class TestCorpShipRouting:
         result = await agent._handle_start_task(params)
         assert result["success"] is True
         assert result["task_type"] == "corp_ship"
-        # Phase 1: corp-ship tasks no longer construct a second
-        # AsyncGameClient. The broker uses the player-bound client and
-        # overrides character_id / actor_character_id per call.
+        # Corp-ship tasks use the broker-owned game client.
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
@@ -1486,7 +1514,7 @@ class TestCorpShipRouting:
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        # Phase 1: TaskAgent no longer holds a game_client.
+        # TaskAgent uses the broker-owned game client.
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
@@ -1508,7 +1536,7 @@ class TestCorpShipRouting:
         assert result["task_type"] == "player_ship"
         mock_client_cls.assert_not_called()
         task_agent = agent.add_agent.call_args.args[0]
-        # Phase 1: TaskAgent no longer holds a game_client.
+        # TaskAgent uses the broker-owned game client.
         assert not hasattr(task_agent, "_game_client") or task_agent._game_client is None  # type: ignore[union-attr]
         assert task_agent._tag_outbound_rpcs_with_task_id is False
 
@@ -1850,10 +1878,7 @@ class TestServerSideShipLock:
             "task_description": "Trade",
             "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         }
-        # Phase 1: corp-ship tasks no longer construct a dedicated
-        # AsyncGameClient. The broker uses the player-bound client and
-        # overrides character_id / actor_character_id per call. So a
-        # 403 acquire failure just bubbles up — nothing to close.
+        # A 403 acquire failure returns before any child is created.
         result = await agent._handle_start_task(params)
 
         assert result["success"] is False

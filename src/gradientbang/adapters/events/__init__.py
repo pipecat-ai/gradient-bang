@@ -1,10 +1,8 @@
 """Event-delivery adapters for ``AsyncGameClient``.
 
-The client picks an :class:`EventAdapter` at construction time via
-:func:`make_event_adapter`. ``PollingEventAdapter`` uses the historical
-``events_since`` edge function, while ``PubsubEventAdapter`` reads scoped
-pgmq queues directly through Postgres. See :mod:`.base` for the Protocol the
-client relies on.
+The client picks an :class:`EventAdapter` via :func:`make_event_adapter`.
+``PollingEventAdapter`` uses ``events_since``; ``PubsubEventAdapter`` reads one
+temporary session pgmq queue through Postgres.
 """
 
 from gradientbang.adapters.events.base import EventAdapter

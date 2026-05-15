@@ -1587,30 +1587,71 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 24: pgmq pubsub — corp ship pseudo-char queue is skipped when corp
-// has active members.
+// Group 24: pgmq pubsub — gameplay fanout uses online session queues.
 //
-// In pubsub mode, every active corp member receives corp-ship events on
-// their own per-character pgmq queue (chr_{member_id}). The corp-owned ship
-// pseudo-character queue (chr_{ship_id}) is therefore redundant — and worse,
-// when multiple member bots subscribe to it via set_scope(ship_ids=[…]),
-// pgmq's competing-consumer semantics cause one bot to dispatch the event
-// twice (once via chr_{member_id}, once via chr_{ship_id}). The fix in
-// record_event_with_recipients filters corp_ship reasons out of the recipient map
-// when any corp_member entry is present. This test pins that behavior.
+// Pubsub no longer writes to permanent chr_* queues. A bot creates an
+// event_session row and a temporary evs_* pgmq queue when it comes online.
+// record_event_with_recipients still writes durable events, but only active
+// non-expired sessions receive pgmq copies.
 // ============================================================================
 
-async function pgmqTotalMessages(queueName: string): Promise<number> {
-  return await withPg(async (pg) => {
-    const r = await pg.queryObject<{ total_messages: bigint | null }>(
-      `SELECT total_messages FROM pgmq.metrics($1)`,
-      [queueName],
+const eventSessionToken = "integration-event-session-token";
+
+async function ensureEventSessionToken(): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `INSERT INTO public.app_runtime_config(key, value, description)
+       VALUES ('edge_api_token', $1, 'integration test edge token')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [eventSessionToken],
     );
-    return Number(r.rows[0]?.total_messages ?? 0);
   });
 }
 
-async function characterQueueExists(characterId: string): Promise<boolean> {
+async function createEventSession(
+  actorCharacterId: string,
+  scopeCharacterIds: string[],
+  corpId: string | null = null,
+): Promise<{ sessionId: string; queueName: string }> {
+  await ensureEventSessionToken();
+  return await withPg(async (pg) => {
+    const r = await pg.queryObject<{ session_id: string; queue_name: string }>(
+      `SELECT session_id, queue_name
+       FROM public.event_session_register(
+         $1::uuid,
+         $2::text,
+         $3::uuid[],
+         $4::uuid,
+         60,
+         3600
+       )`,
+      [actorCharacterId, eventSessionToken, scopeCharacterIds, corpId],
+    );
+    const row = r.rows[0];
+    assertExists(row, "event_session_register should return a session");
+    return { sessionId: row.session_id, queueName: row.queue_name };
+  });
+}
+
+async function readEventSessionMessages(sessionId: string): Promise<Record<string, unknown>[]> {
+  return await withPg(async (pg) => {
+    const r = await pg.queryObject<{ msg_id: bigint; message: Record<string, unknown> }>(
+      `SELECT msg_id, message
+       FROM public.event_session_subscribe($1::uuid, $2::text, 10, 100)`,
+      [sessionId, eventSessionToken],
+    );
+    const msgIds = r.rows.map((row) => row.msg_id);
+    if (msgIds.length > 0) {
+      await pg.queryObject(
+        `SELECT public.event_session_archive($1::uuid, $2::text, $3::bigint[])`,
+        [sessionId, eventSessionToken, msgIds],
+      );
+    }
+    return r.rows.map((row) => row.message);
+  });
+}
+
+async function sessionQueueExists(queueName: string): Promise<boolean> {
   return await withPg(async (pg) => {
     const r = await pg.queryObject<{ exists: boolean }>(
       `SELECT EXISTS (
@@ -1618,30 +1659,46 @@ async function characterQueueExists(characterId: string): Promise<boolean> {
         FROM pg_class cls
         JOIN pg_namespace n ON n.oid = cls.relnamespace
         WHERE n.nspname = 'pgmq'
-          AND cls.relname = 'q_chr_' || $1::text
+          AND cls.relname = 'q_' || $1::text
       ) AS exists`,
-      [characterId],
+      [queueName],
     );
     return r.rows[0]?.exists ?? false;
   });
 }
 
+async function expireEventSession(sessionId: string): Promise<void> {
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE public.event_sessions
+       SET expires_at = now() - interval '1 second'
+       WHERE session_id = $1::uuid`,
+      [sessionId],
+    );
+  });
+}
+
+async function countEventSessions(): Promise<number> {
+  return await withPg(async (pg) => {
+    const r = await pg.queryObject<{ count: bigint }>(
+      `SELECT COUNT(*)::bigint AS count FROM public.event_sessions`,
+    );
+    return Number(r.rows[0]?.count ?? 0);
+  });
+}
+
 Deno.test({
   name:
-    "event_dedup — pgmq: record_event_with_recipients creates missing recipient queue before publish",
+    "event_dedup — pgmq: active session queue receives direct event",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
-    const requestId = `queue-lifecycle-${crypto.randomUUID()}`;
-    const queueName = `chr_${p3Id}`;
+    const requestId = `session-direct-${crypto.randomUUID()}`;
+    let session: { sessionId: string; queueName: string };
 
-    await t.step("setup: remove recipient queue to simulate reset drift", async () => {
-      await withPg(async (pg) => {
-        if (await characterQueueExists(p3Id)) {
-          await pg.queryObject(`SELECT pgmq.drop_queue($1)`, [queueName]);
-        }
-      });
-      assertEquals(await characterQueueExists(p3Id), false);
+    await t.step("setup: create online event session", async () => {
+      session = await createEventSession(p3Id, [p3Id]);
+      assertEquals(await sessionQueueExists(session.queueName), true);
     });
 
     await t.step("publish event to recipient with missing queue", async () => {
@@ -1662,21 +1719,76 @@ Deno.test({
       });
     });
 
-    await t.step("verify queue was recreated and message published", async () => {
-      assertEquals(await characterQueueExists(p3Id), true);
-      const messages = await pgmqTotalMessages(queueName);
-      assert(messages > 0, "Expected recreated recipient queue to contain message");
+    await t.step("verify session queue received message", async () => {
+      const messages = await readEventSessionMessages(session.sessionId);
+      assert(
+        messages.some((msg) => msg.event_type === "test.queue_lifecycle"),
+        `Expected session queue to contain direct event, got ${messages.map((msg) => String(msg.event_type)).join(", ")}`,
+      );
     });
   },
 });
 
 Deno.test({
   name:
-    "event_dedup — pgmq: corp ship pseudo-char queue receives no copy when corp has members",
+    "event_dedup — pgmq: offline recipient writes durable event but no session fanout",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    const requestId = `offline-session-${crypto.randomUUID()}`;
+    let sessionsBefore = 0;
+
+    await t.step("capture active session count", async () => {
+      sessionsBefore = await countEventSessions();
+    });
+
+    await t.step("publish event with no active event session", async () => {
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `SELECT public.record_event_with_recipients(
+            p_event_type => 'test.offline_session',
+            p_scope => 'direct',
+            p_actor_character_id => $1::uuid,
+            p_character_id => $1::uuid,
+            p_payload => '{"source":"offline_session_test"}'::jsonb,
+            p_request_id => $2,
+            p_recipients => ARRAY[$1::uuid],
+            p_reasons => ARRAY['test_offline']
+          )`,
+          [p3Id, requestId],
+        );
+      });
+    });
+
+    await t.step("durable row exists and no session rows were created", async () => {
+      await withPg(async (pg) => {
+        const eventRows = await pg.queryObject<{ count: bigint }>(
+          `SELECT COUNT(*)::bigint AS count
+           FROM public.events
+           WHERE request_id = $1`,
+          [requestId],
+        );
+        assertEquals(Number(eventRows.rows[0]?.count ?? 0), 1);
+
+        const sessionRows = await pg.queryObject<{ count: bigint }>(
+          `SELECT COUNT(*)::bigint AS count
+           FROM public.event_sessions`,
+        );
+        assertEquals(Number(sessionRows.rows[0]?.count ?? 0), sessionsBefore);
+      });
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "event_dedup — pgmq: corp ship event fans out to active corp member sessions",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
     let corpShipId: string;
+    let p1Session: { sessionId: string; queueName: string };
+    let p2Session: { sessionId: string; queueName: string };
 
     await t.step("setup: buy corp ship for Corp A (P1)", async () => {
       await setShipSector(p1ShipId, 0);
@@ -1692,40 +1804,12 @@ Deno.test({
       await setShipSector(corpShipId, 0);
     });
 
-    await t.step(
-      "ensure pgmq queues exist for P1, P2, and corp ship pseudo-char",
-      async () => {
-        // pgmq queues are lazy-created on first authorized subscribe. Force
-        // them into existence so pgmq_publish doesn't silently no-op (and so
-        // we can read total_messages).
-        await withPg(async (pg) => {
-          await pg.queryObject(
-            `SELECT public.ensure_character_queue($1)`,
-            [p1Id],
-          );
-          await pg.queryObject(
-            `SELECT public.ensure_character_queue($1)`,
-            [p2Id],
-          );
-          await pg.queryObject(
-            `SELECT public.ensure_character_queue($1)`,
-            [corpShipId],
-          );
-        });
-      },
-    );
-
-    let p1Before: number;
-    let p2Before: number;
-    let shipBefore: number;
-
-    await t.step("capture pgmq baseline counts", async () => {
-      p1Before = await pgmqTotalMessages(`chr_${p1Id}`);
-      p2Before = await pgmqTotalMessages(`chr_${p2Id}`);
-      shipBefore = await pgmqTotalMessages(`chr_${corpShipId}`);
+    await t.step("create active corp member sessions", async () => {
+      p1Session = await createEventSession(p1Id, [p1Id], corpAId);
+      p2Session = await createEventSession(p2Id, [p2Id], corpAId);
     });
 
-    await t.step("move corp ship from sector 0 → 1", async () => {
+    await t.step("move corp ship from sector 0 to 1", async () => {
       await apiOk("move", {
         character_id: corpShipId,
         to_sector: 1,
@@ -1733,36 +1817,18 @@ Deno.test({
       });
     });
 
-    await t.step("corp members' pgmq queues received the corp-ship events", async () => {
-      const p1After = await pgmqTotalMessages(`chr_${p1Id}`);
-      const p2After = await pgmqTotalMessages(`chr_${p2Id}`);
+    await t.step("corp member sessions receive the corp ship events", async () => {
+      const p1Messages = await readEventSessionMessages(p1Session.sessionId);
+      const p2Messages = await readEventSessionMessages(p2Session.sessionId);
       assert(
-        p1After > p1Before,
-        `P1 (corp member) should receive corp ship events on chr_{P1}. ` +
-          `before=${p1Before} after=${p1After}`,
+        p1Messages.some((msg) => msg.event_type === "movement.complete"),
+        `P1 session should receive movement.complete, got ${p1Messages.map((msg) => String(msg.event_type)).join(", ")}`,
       );
       assert(
-        p2After > p2Before,
-        `P2 (corp member) should receive corp ship events on chr_{P2}. ` +
-          `before=${p2Before} after=${p2After}`,
+        p2Messages.some((msg) => msg.event_type === "movement.complete"),
+        `P2 session should receive movement.complete, got ${p2Messages.map((msg) => String(msg.event_type)).join(", ")}`,
       );
     });
-
-    await t.step(
-      "corp ship pseudo-char queue receives NO copy (filtered when corp has members)",
-      async () => {
-        const shipAfter = await pgmqTotalMessages(`chr_${corpShipId}`);
-        assertEquals(
-          shipAfter,
-          shipBefore,
-          `Corp ship pseudo-char queue chr_{ship} should be empty: ` +
-            `corp members already get the event via their own queues, ` +
-            `and a duplicate publish here would cause one corp member's bot ` +
-            `to dispatch the event twice via competing-consumer races. ` +
-            `before=${shipBefore} after=${shipAfter}`,
-        );
-      },
-    );
 
     await t.step("cleanup: move corp ship back", async () => {
       await setShipSector(corpShipId, 0);
@@ -1772,118 +1838,73 @@ Deno.test({
 
 Deno.test({
   name:
-    "event_dedup — pgmq: corp ship task event fans out to members, not ship queue",
+    "event_dedup — pgmq: expired session receives no new fanout and cleanup drops queue",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
-    let corpShipId: string;
+    const requestId = `expired-session-${crypto.randomUUID()}`;
+    let session: { sessionId: string; queueName: string };
 
-    await t.step("setup: buy corp ship for Corp A (P1)", async () => {
-      await setMegabankBalance(p1Id, 10000);
-      const purchaseResult = await apiOk("ship_purchase", {
-        character_id: p1Id,
-        ship_type: "autonomous_probe",
-        purchase_type: "corporation",
-      });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
-      assertExists(corpShipId, "Should get corp ship ID");
+    await t.step("setup: create and expire session", async () => {
+      session = await createEventSession(p3Id, [p3Id]);
+      await expireEventSession(session.sessionId);
     });
 
-    await t.step(
-      "ensure pgmq queues exist for P1, P2, and corp ship pseudo-char",
-      async () => {
-        await withPg(async (pg) => {
-          await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [p1Id]);
-          await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [p2Id]);
-          await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [corpShipId]);
-        });
-      },
-    );
-
-    let p1Before: number;
-    let p2Before: number;
-    let shipBefore: number;
-    const taskId = crypto.randomUUID();
-
-    await t.step("capture pgmq baseline counts", async () => {
-      p1Before = await pgmqTotalMessages(`chr_${p1Id}`);
-      p2Before = await pgmqTotalMessages(`chr_${p2Id}`);
-      shipBefore = await pgmqTotalMessages(`chr_${corpShipId}`);
-    });
-
-    await t.step("emit task.start for the corp ship", async () => {
-      await apiOk("task_lifecycle", {
-        character_id: corpShipId,
-        actor_character_id: p1Id,
-        task_id: taskId,
-        event_type: "start",
-        task_description: "Corp ship task",
+    await t.step("publish event after expiry", async () => {
+      await withPg(async (pg) => {
+        await pg.queryObject(
+          `SELECT public.record_event_with_recipients(
+            p_event_type => 'test.expired_session',
+            p_scope => 'direct',
+            p_actor_character_id => $1::uuid,
+            p_character_id => $1::uuid,
+            p_payload => '{"source":"expired_session_test"}'::jsonb,
+            p_request_id => $2,
+            p_recipients => ARRAY[$1::uuid],
+            p_reasons => ARRAY['test_expired']
+          )`,
+          [p3Id, requestId],
+        );
       });
     });
 
-    await t.step("corp members' queues receive the corp ship task event", async () => {
-      const p1After = await pgmqTotalMessages(`chr_${p1Id}`);
-      const p2After = await pgmqTotalMessages(`chr_${p2Id}`);
-      assert(
-        p1After > p1Before,
-        `P1 member queue should receive corp ship task event. before=${p1Before} after=${p1After}`,
-      );
-      assert(
-        p2After > p2Before,
-        `P2 member queue should receive corp ship task event. before=${p2Before} after=${p2After}`,
-      );
+    await t.step("expired session cannot subscribe to new message", async () => {
+      await withPg(async (pg) => {
+        let failed = false;
+        try {
+          await pg.queryObject(
+            `SELECT * FROM public.event_session_subscribe($1::uuid, $2::text, 10, 100)`,
+            [session.sessionId, eventSessionToken],
+          );
+        } catch {
+          failed = true;
+        }
+        assertEquals(failed, true);
+      });
     });
 
-    await t.step("corp ship pseudo-char queue receives no duplicate task event", async () => {
-      const shipAfter = await pgmqTotalMessages(`chr_${corpShipId}`);
-      assertEquals(
-        shipAfter,
-        shipBefore,
-        `Corp ship task event should not also publish to chr_{ship}. before=${shipBefore} after=${shipAfter}`,
-      );
+    await t.step("database cleanup drops expired queue", async () => {
+      await withPg(async (pg) => {
+        await pg.queryObject(`SELECT public.event_session_cleanup(100)`);
+      });
+      assertEquals(await sessionQueueExists(session.queueName), false);
     });
   },
 });
 
 Deno.test({
-  name: "event_dedup — pgmq: human member event does not fan out to corp mates",
+  name: "event_dedup — pgmq: human member event does not fan out to corp mate session",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
-    let corpShipId: string;
+    let p1Session: { sessionId: string; queueName: string };
+    let p2Session: { sessionId: string; queueName: string };
 
-    await t.step("setup: buy corp ship and prepare P1 warp purchase", async () => {
-      await setMegabankBalance(p1Id, 10000);
-      const purchaseResult = await apiOk("ship_purchase", {
-        character_id: p1Id,
-        ship_type: "autonomous_probe",
-        purchase_type: "corporation",
-      });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
-      assertExists(corpShipId, "Should get corp ship ID");
+    await t.step("setup: create member sessions and prepare P1 warp purchase", async () => {
+      p1Session = await createEventSession(p1Id, [p1Id], corpAId);
+      p2Session = await createEventSession(p2Id, [p2Id], corpAId);
       await setShipCredits(p1ShipId, 1000);
       await setShipWarpPower(p1ShipId, 0);
-    });
-
-    await t.step(
-      "ensure pgmq queues exist for P1, P2, and corp ship pseudo-char",
-      async () => {
-        await withPg(async (pg) => {
-          await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [p1Id]);
-          await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [p2Id]);
-          await pg.queryObject(`SELECT public.ensure_character_queue($1)`, [corpShipId]);
-        });
-      },
-    );
-
-    let p1Before: number;
-    let p2Before: number;
-    let shipBefore: number;
-
-    await t.step("capture pgmq baseline counts", async () => {
-      p1Before = await pgmqTotalMessages(`chr_${p1Id}`);
-      p2Before = await pgmqTotalMessages(`chr_${p2Id}`);
-      shipBefore = await pgmqTotalMessages(`chr_${corpShipId}`);
     });
 
     await t.step("P1 recharges their own ship", async () => {
@@ -1893,23 +1914,17 @@ Deno.test({
       });
     });
 
-    await t.step("only P1's queue receives the human member's personal event", async () => {
-      const p1After = await pgmqTotalMessages(`chr_${p1Id}`);
-      const p2After = await pgmqTotalMessages(`chr_${p2Id}`);
-      const shipAfter = await pgmqTotalMessages(`chr_${corpShipId}`);
+    await t.step("only P1's session receives the personal event", async () => {
+      const p1Messages = await readEventSessionMessages(p1Session.sessionId);
+      const p2Messages = await readEventSessionMessages(p2Session.sessionId);
       assert(
-        p1After > p1Before,
-        `P1 should receive their own ship event. before=${p1Before} after=${p1After}`,
+        p1Messages.length > 0,
+        "P1 should receive their own ship event",
       );
       assertEquals(
-        p2After,
-        p2Before,
-        `P2 should not receive P1's personal ship event. before=${p2Before} after=${p2After}`,
-      );
-      assertEquals(
-        shipAfter,
-        shipBefore,
-        `Corp ship queue should not receive P1's personal ship event. before=${shipBefore} after=${shipAfter}`,
+        p2Messages.length,
+        0,
+        `P2 should not receive P1's personal ship event. got=${p2Messages.map((msg) => String(msg.event_type)).join(", ")}`,
       );
     });
   },
