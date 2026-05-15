@@ -379,3 +379,61 @@ class TestPerCallIdentityInjection:
                 "actor_character_id": PLAYER_ID,
             }
         ]
+
+    @pytest.mark.asyncio
+    async def test_transfer_sender_payload_uses_context_identity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Transfer methods use ``from_character_id`` as the sender field;
+        brokered corp-ship calls must rewrite that field too."""
+
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        posted: list[dict] = []
+
+        class FakeResponse:
+            status_code = 200
+            is_success = True
+            text = '{"success": true}'
+
+            @staticmethod
+            def json() -> dict:
+                return {"success": True}
+
+        class FakeHttp:
+            async def post(self, _url: str, *, headers: dict, json: dict) -> FakeResponse:
+                posted.append(dict(json))
+                return FakeResponse()
+
+        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+        client._http = FakeHttp()  # type: ignore[assignment]
+
+        with per_call_identity(CORP_SHIP_ID, PLAYER_ID):
+            await client.transfer_warp_power(
+                character_id=PLAYER_ID,
+                units=10,
+                to_ship_id="33333333-3333-3333-3333-333333333333",
+            )
+            await client.transfer_credits(
+                character_id=PLAYER_ID,
+                amount=25,
+                to_ship_id="33333333-3333-3333-3333-333333333333",
+            )
+
+        assert posted == [
+            {
+                "from_character_id": CORP_SHIP_ID,
+                "units": 10,
+                "to_ship_id": "33333333-3333-3333-3333-333333333333",
+                "character_id": CORP_SHIP_ID,
+                "actor_character_id": PLAYER_ID,
+                "request_id": posted[0]["request_id"],
+            },
+            {
+                "from_character_id": CORP_SHIP_ID,
+                "amount": 25,
+                "to_ship_id": "33333333-3333-3333-3333-333333333333",
+                "character_id": CORP_SHIP_ID,
+                "actor_character_id": PLAYER_ID,
+                "request_id": posted[1]["request_id"],
+            },
+        ]

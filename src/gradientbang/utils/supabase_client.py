@@ -450,6 +450,10 @@ class AsyncGameClient(BaseAsyncGameClient):
             enriched["character_id"] = canonicalize_character_id(str(requested_character_id))
         else:
             enriched["character_id"] = self._canonical_character_id
+        if override_character_id and "from_character_id" in enriched:
+            enriched["from_character_id"] = canonicalize_character_id(
+                str(override_character_id)
+            )
 
         override_actor = _per_call_actor_character_id.get()
         requested_actor = override_actor or enriched.get("actor_character_id")
