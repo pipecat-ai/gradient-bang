@@ -109,8 +109,8 @@ export async function resetDatabase(
     //   - `byoa_operator_secret` — symmetric key for byoa_wake_secret_enc on
     //     ship_instances. Wiping it makes any encrypted bearer undecipherable
     //     and breaks wake_agent's get_ship_byoa_wake_config rpc.
-    // Other runtime-config rows (e.g. cron knobs) are still wiped to keep
-    // parity with reset-world.sh.
+    // Other runtime-config rows (e.g. cron knobs and event pgmq publish mode)
+    // are re-established below to keep parity with reset-world.sh.
     await pg.queryObject(
       `DELETE FROM public.app_runtime_config
         WHERE key NOT IN ('pubsub_internal_secret', 'byoa_operator_secret')`,
@@ -137,7 +137,31 @@ export async function resetDatabase(
     throw new Error(`test_reset returned failure: ${JSON.stringify(result)}`);
   }
 
+  await setEventPgmqPublishEnabled(
+    (Deno.env.get("TRANSPORT") ?? "polling").trim().toLowerCase() === "pubsub",
+  );
   await ensureCharacterQueues(characterIds);
+}
+
+async function setEventPgmqPublishEnabled(enabled: boolean): Promise<void> {
+  const pg = new Client(getPgUrl());
+  try {
+    await pg.connect();
+    await pg.queryObject(
+      `INSERT INTO public.app_runtime_config (key, value, description)
+       VALUES (
+         'event_pgmq_publish_enabled',
+         $1,
+         'Integration test transport toggle for per-character PGMQ event fanout'
+       )
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value,
+             updated_at = now()`,
+      [enabled ? "true" : "false"],
+    );
+  } finally {
+    await pg.end();
+  }
 }
 
 async function ensureCharacterQueues(characterIds: string[]): Promise<void> {

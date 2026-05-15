@@ -160,10 +160,9 @@ export ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1
 # server.ts is imported inside the test process so that deno test --coverage
 # can measure coverage of all edge function code.
 #
-# record_event_with_recipients writes both the events table and SQL-owned
-# pubsub delivery. The default run only exercises the pubsub path; pass
-# `TRANSPORT=polling` to run the polling pass instead (kept reachable for
-# regression checks on the polling adapter).
+# record_event_with_recipients always writes the events table. SQL-owned
+# event pubsub is opt-in; the default run exercises the polling path. Pass
+# `TRANSPORT=pubsub` to run the explicit pubsub regression pass.
 echo ""
 echo "==> Running integration tests (with coverage)..."
 echo ""
@@ -187,7 +186,7 @@ fi
 if [ -n "${TRANSPORT:-}" ]; then
   TRANSPORTS=("$TRANSPORT")
 else
-  TRANSPORTS=("pubsub")
+  TRANSPORTS=("polling")
 fi
 
 OVERALL_EXIT=0
@@ -213,7 +212,7 @@ for transport in "${TRANSPORTS[@]}"; do
   LOG_FILE="$LOG_DIR/$transport.log"
 
   set +e
-  deno test \
+  TRANSPORT="$transport" deno test \
     --config "$FUNCTIONS_DIR/deno.json" \
     --allow-all \
     --coverage="$COVERAGE_DIR/$transport" \

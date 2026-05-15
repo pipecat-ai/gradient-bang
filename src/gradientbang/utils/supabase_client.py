@@ -159,16 +159,15 @@ class AsyncGameClient(BaseAsyncGameClient):
         self._enable_event_polling = enable_event_polling
 
         # User's Supabase Auth access_token, forwarded to auth-gated edge
-        # functions. Pubsub event delivery uses EDGE_API_TOKEN plus SQL scope
-        # checks instead of this per-character JWT.
+        # functions. Opt-in pubsub event delivery uses EDGE_API_TOKEN plus SQL
+        # scope checks instead of this per-character JWT.
         self._access_token = access_token
 
         # Event-delivery adapter. Constructed and started only by an
         # explicit ``start_event_delivery()`` call once the caller is
         # ready to consume events. Callers that build their LLM context
-        # inline from RPC responses call ``purge_event_backlog`` first to
-        # clear stale messages from prior sessions while keeping the queue
-        # present for required pubsub publishes during bootstrap.
+        # inline from RPC responses call ``purge_event_backlog`` first. Polling
+        # resets its cursor; opt-in pubsub clears stale queue messages.
         self._event_adapter: Optional[EventAdapter] = None
 
     def set_event_polling_scope(
@@ -624,10 +623,9 @@ class AsyncGameClient(BaseAsyncGameClient):
         """Reset the delivery backlog before bootstrap RPCs.
 
         Sessions that build their LLM context inline from RPC responses
-        call this before issuing those RPCs. The pubsub adapter keeps the
-        scoped pgmq queues present and purges stale messages from prior
-        sessions. ``start_event_delivery`` then starts from a clean baseline
-        without creating a missing-queue publish window.
+        call this before issuing those RPCs. Polling fast-forwards its cursor
+        to the current event head; opt-in pubsub keeps scoped pgmq queues
+        present and purges stale messages from prior sessions.
         """
         if not self._enable_event_polling:
             return

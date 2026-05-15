@@ -40,6 +40,9 @@ const P1 = "test_qr_p1";
 let p1Id: string;
 let p1ShipId: string;
 
+const IS_PUBSUB_TRANSPORT =
+  (Deno.env.get("TRANSPORT") ?? "polling").trim().toLowerCase() === "pubsub";
+
 async function resetWithQuests(characterIds: string[]): Promise<void> {
   await resetDatabase(characterIds);
   await seedQuestDefinitions();
@@ -162,18 +165,27 @@ Deno.test({
       assertEquals(ship.credits, 1050, `Expected 1050 credits after claim, got ${ship.credits}`);
     });
 
-    await t.step("quest.reward_claimed is published to pgmq", async () => {
-      const messages = await readAndArchivePgmqMessages(p1Id);
-      const rewardClaimed = messages.find((msg) => msg.event_type === "quest.reward_claimed");
-      assertExists(
-        rewardClaimed,
-        `Expected quest.reward_claimed in pgmq messages, got ${messages.map((msg) => String(msg.event_type)).join(", ")}`,
-      );
-      const reward = (rewardClaimed.payload as Record<string, unknown>).reward as
-        | Record<string, unknown>
-        | undefined;
+    await t.step("quest.reward_claimed is delivered through active transport", async () => {
+      let rewardClaimedPayload: Record<string, unknown> | undefined;
+      if (IS_PUBSUB_TRANSPORT) {
+        const messages = await readAndArchivePgmqMessages(p1Id);
+        const rewardClaimed = messages.find((msg) => msg.event_type === "quest.reward_claimed");
+        assertExists(
+          rewardClaimed,
+          `Expected quest.reward_claimed in pgmq messages, got ${
+            messages.map((msg) => String(msg.event_type)).join(", ")
+          }`,
+        );
+        rewardClaimedPayload = rewardClaimed.payload as Record<string, unknown>;
+      } else {
+        const events = await eventsOfType(p1Id, "quest.reward_claimed", cursor);
+        rewardClaimedPayload = events[0]?.payload as Record<string, unknown> | undefined;
+        assertExists(rewardClaimedPayload, "Expected quest.reward_claimed via events_since");
+      }
+
+      const reward = rewardClaimedPayload.reward as Record<string, unknown> | undefined;
       assertEquals(reward?.credits, 50);
-      assertEquals((rewardClaimed.payload as Record<string, unknown>).credits_after, 1050);
+      assertEquals(rewardClaimedPayload.credits_after, 1050);
     });
   },
 });

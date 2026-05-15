@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Event delivery now defaults back to HTTP polling. Per-character PGMQ event fanout is opt-in via `app_runtime_config.event_pgmq_publish_enabled=true`; the BYOA/subagent PGMQ bus is unchanged.
+
 ## [0.5.2] - 2026-05-14
 
 ### Added

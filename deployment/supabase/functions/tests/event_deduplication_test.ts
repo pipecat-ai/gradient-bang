@@ -63,6 +63,9 @@ let p4ShipId: string;
 let corpAId: string;
 let corpBId: string;
 
+const IS_PUBSUB_TRANSPORT =
+  (Deno.env.get("TRANSPORT") ?? "polling").trim().toLowerCase() === "pubsub";
+
 /** Count events by type from a list. */
 function countByType(events: EventRow[]): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -1662,10 +1665,24 @@ Deno.test({
       });
     });
 
-    await t.step("verify queue was recreated and message published", async () => {
-      assertEquals(await characterQueueExists(p3Id), true);
-      const messages = await pgmqTotalMessages(queueName);
-      assert(messages > 0, "Expected recreated recipient queue to contain message");
+    await t.step("verify transport-appropriate delivery", async () => {
+      const rows = await queryEvents(
+        `event_type = 'test.queue_lifecycle' AND request_id = $1`,
+        [requestId],
+      );
+      assertEquals(rows.length, 1, "Expected event row to be durable in events table");
+
+      if (IS_PUBSUB_TRANSPORT) {
+        assertEquals(await characterQueueExists(p3Id), true);
+        const messages = await pgmqTotalMessages(queueName);
+        assert(messages > 0, "Expected recreated recipient queue to contain message");
+      } else {
+        assertEquals(
+          await characterQueueExists(p3Id),
+          false,
+          "Polling mode should not recreate chr_* queues during event publish",
+        );
+      }
     });
   },
 });
@@ -1718,8 +1735,10 @@ Deno.test({
     let p1Before: number;
     let p2Before: number;
     let shipBefore: number;
+    let cursor: number;
 
     await t.step("capture pgmq baseline counts", async () => {
+      cursor = await getEventCursor(p1Id);
       p1Before = await pgmqTotalMessages(`chr_${p1Id}`);
       p2Before = await pgmqTotalMessages(`chr_${p2Id}`);
       shipBefore = await pgmqTotalMessages(`chr_${corpShipId}`);
@@ -1733,19 +1752,29 @@ Deno.test({
       });
     });
 
-    await t.step("corp members' pgmq queues received the corp-ship events", async () => {
+    await t.step("corp members receive the corp-ship events", async () => {
       const p1After = await pgmqTotalMessages(`chr_${p1Id}`);
       const p2After = await pgmqTotalMessages(`chr_${p2Id}`);
-      assert(
-        p1After > p1Before,
-        `P1 (corp member) should receive corp ship events on chr_{P1}. ` +
-          `before=${p1Before} after=${p1After}`,
-      );
-      assert(
-        p2After > p2Before,
-        `P2 (corp member) should receive corp ship events on chr_{P2}. ` +
-          `before=${p2Before} after=${p2After}`,
-      );
+      if (IS_PUBSUB_TRANSPORT) {
+        assert(
+          p1After > p1Before,
+          `P1 (corp member) should receive corp ship events on chr_{P1}. ` +
+            `before=${p1Before} after=${p1After}`,
+        );
+        assert(
+          p2After > p2Before,
+          `P2 (corp member) should receive corp ship events on chr_{P2}. ` +
+            `before=${p2Before} after=${p2After}`,
+        );
+      } else {
+        assertEquals(p1After, p1Before, "Polling mode should not publish to chr_{P1}");
+        assertEquals(p2After, p2Before, "Polling mode should not publish to chr_{P2}");
+        const events = await eventsOfType(p1Id, "movement.complete", cursor, corpAId);
+        assert(
+          events.some((event) => event.character_id === corpShipId),
+          "Polling mode should expose corp ship movement via events_since",
+        );
+      }
     });
 
     await t.step(
@@ -1803,9 +1832,11 @@ Deno.test({
     let p1Before: number;
     let p2Before: number;
     let shipBefore: number;
+    let cursor: number;
     const taskId = crypto.randomUUID();
 
     await t.step("capture pgmq baseline counts", async () => {
+      cursor = await getEventCursor(p1Id);
       p1Before = await pgmqTotalMessages(`chr_${p1Id}`);
       p2Before = await pgmqTotalMessages(`chr_${p2Id}`);
       shipBefore = await pgmqTotalMessages(`chr_${corpShipId}`);
@@ -1821,17 +1852,27 @@ Deno.test({
       });
     });
 
-    await t.step("corp members' queues receive the corp ship task event", async () => {
+    await t.step("corp members receive the corp ship task event", async () => {
       const p1After = await pgmqTotalMessages(`chr_${p1Id}`);
       const p2After = await pgmqTotalMessages(`chr_${p2Id}`);
-      assert(
-        p1After > p1Before,
-        `P1 member queue should receive corp ship task event. before=${p1Before} after=${p1After}`,
-      );
-      assert(
-        p2After > p2Before,
-        `P2 member queue should receive corp ship task event. before=${p2Before} after=${p2After}`,
-      );
+      if (IS_PUBSUB_TRANSPORT) {
+        assert(
+          p1After > p1Before,
+          `P1 member queue should receive corp ship task event. before=${p1Before} after=${p1After}`,
+        );
+        assert(
+          p2After > p2Before,
+          `P2 member queue should receive corp ship task event. before=${p2Before} after=${p2After}`,
+        );
+      } else {
+        assertEquals(p1After, p1Before, "Polling mode should not publish to chr_{P1}");
+        assertEquals(p2After, p2Before, "Polling mode should not publish to chr_{P2}");
+        const events = await eventsOfType(p1Id, "task.start", cursor, corpAId);
+        assert(
+          events.some((event) => event.task_id === taskId),
+          "Polling mode should expose corp ship task.start via events_since",
+        );
+      }
     });
 
     await t.step("corp ship pseudo-char queue receives no duplicate task event", async () => {
@@ -1879,8 +1920,10 @@ Deno.test({
     let p1Before: number;
     let p2Before: number;
     let shipBefore: number;
+    let cursor: number;
 
     await t.step("capture pgmq baseline counts", async () => {
+      cursor = await getEventCursor(p1Id);
       p1Before = await pgmqTotalMessages(`chr_${p1Id}`);
       p2Before = await pgmqTotalMessages(`chr_${p2Id}`);
       shipBefore = await pgmqTotalMessages(`chr_${corpShipId}`);
@@ -1897,10 +1940,19 @@ Deno.test({
       const p1After = await pgmqTotalMessages(`chr_${p1Id}`);
       const p2After = await pgmqTotalMessages(`chr_${p2Id}`);
       const shipAfter = await pgmqTotalMessages(`chr_${corpShipId}`);
-      assert(
-        p1After > p1Before,
-        `P1 should receive their own ship event. before=${p1Before} after=${p1After}`,
-      );
+      if (IS_PUBSUB_TRANSPORT) {
+        assert(
+          p1After > p1Before,
+          `P1 should receive their own ship event. before=${p1Before} after=${p1After}`,
+        );
+      } else {
+        assertEquals(p1After, p1Before, "Polling mode should not publish to chr_{P1}");
+        const events = await eventsOfType(p1Id, "warp.purchase", cursor, corpAId);
+        assert(
+          events.some((event) => event.character_id === p1Id),
+          "Polling mode should expose P1's own warp.purchase via events_since",
+        );
+      }
       assertEquals(
         p2After,
         p2Before,

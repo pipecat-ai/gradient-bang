@@ -327,7 +327,17 @@ gb start
 
 The bot's `AsyncGameClient` receives game events via one of two transports, picked at construction time based on `EVENT_TRANSPORT`.
 
-### `pubsub` (default)
+### `polling` (default)
+
+HTTP polling against the `events_since` edge function, authenticated by `EDGE_API_TOKEN`. This is the supported default because the durable `events` table remains the source of truth and offline players do not accumulate per-character queue messages.
+
+```bash
+EVENT_TRANSPORT=polling
+```
+
+Polling works in any environment that can call the edge functions and does not require a direct Postgres event-delivery connection.
+
+### `pubsub` (opt-in)
 
 Direct Postgres reads against per-character pgmq queues. The bot calls SECURITY DEFINER functions (`subscribe_my_events_scope` / `archive_my_events_scope`) that:
 
@@ -337,10 +347,9 @@ Direct Postgres reads against per-character pgmq queues. The bot calls SECURITY 
 
 The pubsub hot path does not call an edge function per poll. One bot session keeps one scoped pgmq reader connection open, plus one optional broadcast `LISTEN` connection.
 
-**Setup for local pubsub:**
+Event pubsub is disabled by default at the SQL publish layer. To opt in, enable both sides:
 
-1. Apply the pubsub migrations; `record_event_with_recipients` writes to pgmq automatically.
-2. In `.env.bot`:
+1. In `.env.bot`:
 
    ```
    EVENT_TRANSPORT=pubsub
@@ -350,23 +359,27 @@ The pubsub hot path does not call an edge function per poll. One bot session kee
 
    Use a session-mode admin Postgres URL. Local Supabase uses `postgresql://postgres:postgres@127.0.0.1:54322/postgres`.
 
+2. Enable SQL event queue fanout:
+
+   ```sql
+   UPDATE public.app_runtime_config
+   SET value = 'true', updated_at = now()
+   WHERE key = 'event_pgmq_publish_enabled';
+   ```
+
 3. Make sure `EDGE_API_TOKEN` is present in the bot environment and matches `public.app_runtime_config.edge_api_token` in the target database.
 
-Migration `20260505000000_pubsub_and_broadcasts.sql` installs `pgmq`, required publish wrappers, immediate reads, scoped read/archive functions, and the direct `EDGE_API_TOKEN` gate.
-
-### `polling`
-
-HTTP polling against the `events_since` edge function, authenticated by `EDGE_API_TOKEN`. Works in any environment without per-character credentials. Set `EVENT_TRANSPORT=polling` to opt out of pubsub.
+Migration `20260505000000_pubsub_and_broadcasts.sql` installs `pgmq`, required publish wrappers, immediate reads, scoped read/archive functions, and the direct `EDGE_API_TOKEN` gate. Migration `20260515010000_event_pgmq_publish_opt_in.sql` keeps per-character event queue fanout disabled unless `event_pgmq_publish_enabled=true`.
 
 ### Why two modes?
 
-Polling remains the fallback. Pubsub is the default direct-Postgres path. Both modes deliver events through the same client sinks.
+Polling is the default durable path. Pubsub remains available for explicit regression testing and future session-scoped push work. Both modes deliver events through the same client sinks.
 
 ---
 
 ## Subagent bus transport
 
-Independent of `EVENT_TRANSPORT`: the bot's internal subagent bus (how MainAgent / VoiceAgent / TaskAgent talk to each other) is also transport-pluggable, chosen at startup by `SUBAGENT_BUS_TRANSPORT`. This is the wire BYOA agents ride on; see [docs/byoa.md](docs/byoa.md) for the operator-facing guide.
+Independent of `EVENT_TRANSPORT`: the bot's internal subagent bus (how MainAgent / VoiceAgent / TaskAgent talk to each other) is also transport-pluggable, chosen at startup by `SUBAGENT_BUS_TRANSPORT`. This is the wire BYOA agents ride on; see [docs/byoa.md](docs/byoa.md) for the operator-facing guide. Switching event delivery to polling does not disable `SUBAGENT_BUS_TRANSPORT=pgmq`.
 
 ### `local` (default)
 
@@ -650,7 +663,7 @@ pnpm run dev
 | `SUPABASE_ANON_KEY`           | Yes      | —                                        | Public Supabase anon JWT key                                                                                                                                                                        |
 | `SUPABASE_SERVICE_ROLE_KEY`   | Yes      | —                                        | Service role key (bypasses RLS)                                                                                                                                                                     |
 | `POSTGRES_POOLER_URL`         | Yes      | —                                        | PgBouncer pooled Postgres connection string                                                                                                                                                         |
-| `EDGE_API_TOKEN`              | Yes      | —                                        | Trusted-backend credential. Edge functions receive it as `X-Edge-Auth`; SQL pubsub readers verify it against `app_runtime_config.edge_api_token`.                                                    |
+| `EDGE_API_TOKEN`              | Yes      | —                                        | Trusted-backend credential. Edge functions receive it as `X-Edge-Auth`; SQL pubsub readers verify it against `app_runtime_config.edge_api_token` when event pubsub is enabled.                         |
 | `BOT_START_URL`               | No       | `http://host.docker.internal:7860/start` | URL of the bot's `/start` endpoint for creating voice chat sessions                                                                                                                                 |
 | `BOT_START_API_KEY`           | No       | —                                        | Bearer token for authenticating requests to the bot start endpoint                                                                                                                                  |
 | `MOVE_DELAY_SCALE`            | No       | `1.0`                                    | Multiplier to scale movement delays (set to `0.25` for faster local dev)                                                                                                                            |
@@ -687,12 +700,12 @@ pnpm run dev
 | --------------------------- | -------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SUPABASE_URL`              | Yes      | —         | Supabase project URL                                                                                                                                                                                                                                              |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes      | —         | Service role key for DB access                                                                                                                                                                                                                                    |
-| `EDGE_API_TOKEN`            | Yes      | —         | Trusted-backend credential sent as `X-Edge-Auth` and verified by SQL pubsub readers. Required outside local auth-bypass test/dev setups.                                                                                                                           |
+| `EDGE_API_TOKEN`            | Yes      | —         | Trusted-backend credential sent as `X-Edge-Auth`. Required outside local auth-bypass test/dev setups, and verified by SQL pubsub readers when event pubsub is enabled.                                                                                              |
 | `DAILY_API_KEY`             | No       | —         | [Daily](https://www.daily.co/) API key (required for Daily transport)                                                                                                                                                                                             |
 | `LOCAL_API_POSTGRES_URL`    | No       | —         | Session pooler connection string to run edge functions locally inside the bot, bypassing Supabase network overhead                                                                                                                                                |
-| `EVENT_TRANSPORT`           | No       | `pubsub`  | Event-delivery transport: `pubsub` (direct Postgres scoped reads on per-character pgmq queues, default) or `polling` (HTTP via `events_since`). See [Event delivery modes](#event-delivery-modes).                                                                   |
-| `PGMQ_URL`                  | No       | —         | Session-mode Postgres URL with admin credentials. Required when `EVENT_TRANSPORT=pubsub`.                                                                                                                                                                          |
-| `PGMQ_EMPTY_POLL_INTERVAL_SECONDS` | No | `1.0` | Client-side pause after a scoped pgmq read returns no rows. When rows are available, the reader drains immediately without waiting. |
+| `EVENT_TRANSPORT`           | No       | `polling` | Event-delivery transport: `polling` (HTTP via `events_since`, default) or `pubsub` (opt-in direct Postgres scoped reads on per-character pgmq queues). See [Event delivery modes](#event-delivery-modes).                                                            |
+| `PGMQ_URL`                  | No       | —         | Session-mode Postgres URL with admin credentials. Required only when `EVENT_TRANSPORT=pubsub`; not used by polling or by the BYOA subagent bus.                                                                                                                     |
+| `PGMQ_EMPTY_POLL_INTERVAL_SECONDS` | No | `1.0` | Event pubsub only: client-side pause after a scoped pgmq read returns no rows. When rows are available, the reader drains immediately without waiting. |
 
 #### TTS configuration
 

@@ -773,12 +773,12 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             try:
                 await asyncio.sleep(2)
                 # Strict startup contract:
-                #   0. purge any leftover pubsub messages while keeping the
-                #      queue present, so init-RPC publishes remain required
+                #   0. reset the event backlog (polling cursor or opt-in
+                #      pubsub queue messages)
                 #   1. fetch initial state via blocking RPCs (data inline)
                 #   2. patch substitutions into the seeded system message
                 #   3. hydrate the web client from inline bootstrap data
-                #   4. purge bootstrap RPC echoes from pgmq
+                #   4. reset bootstrap RPC echoes from event delivery
                 #   5. start the event adapter — steady-state events flow
                 #   6. activate VoiceAgent with the initial messages
                 # If any step fails, the bot bails rather than half-joining.
@@ -844,10 +844,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     {"quests": initial_state.quest_payload.get("quests", [])},
                 )
 
-                # Bootstrap RPCs publish real events because pubsub delivery
-                # is required. The inline RPC responses above already seeded
-                # the LLM context and hydrated the client, so purge those
-                # queued echoes before EventRelay starts consuming.
+                # Bootstrap RPCs publish real events. The inline RPC responses
+                # above already seeded the LLM context and hydrated the client,
+                # so reset those echoes before EventRelay starts consuming.
                 await game_client.purge_event_backlog()
 
                 await game_client.start_event_delivery()
@@ -1030,7 +1029,7 @@ def _log_startup_config() -> None:
     from gradientbang import __version__
 
     bus_transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
-    event_transport = os.getenv("EVENT_TRANSPORT", "pubsub").strip().lower()
+    event_transport = os.getenv("EVENT_TRANSPORT", "polling").strip().lower()
     tts_provider = os.getenv("TTS_PROVIDER", "gradium").strip().lower()
     voice_provider = os.getenv("VOICE_LLM_PROVIDER", "google").strip().lower()
     voice_model = os.getenv("VOICE_LLM_MODEL", "(provider default)").strip()

@@ -456,9 +456,9 @@ class ClientMessageHandler:
 
             # local_map_region returns the full map payload synchronously. Push
             # it to the client immediately so map UI is not gated on the
-            # emitted map.region event making a PGMQ round trip. During join
-            # bootstrap the event adapter may not have started yet, and the
-            # bootstrap purge may intentionally clear queued echoes.
+            # emitted map.region event making an event-delivery round trip.
+            # During join bootstrap the event adapter may not have started yet,
+            # and the bootstrap reset may intentionally clear event echoes.
             if isinstance(result, dict) and isinstance(result.get("sectors"), list):
                 payload = dict(result)
                 payload["player"] = {"id": self._character_id}

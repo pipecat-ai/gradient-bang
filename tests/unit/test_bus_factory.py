@@ -91,6 +91,22 @@ class TestMakeSubagentBus:
         chan = os.environ.get("SUBAGENT_BUS_SESSION_CHANNEL", "")
         assert chan.startswith("gb_") and len(chan) == 3 + 32
 
+    async def test_event_transport_does_not_affect_pgmq_bus(self, monkeypatch):
+        monkeypatch.setenv("EVENT_TRANSPORT", "polling")
+        monkeypatch.setenv("SUBAGENT_BUS_TRANSPORT", "pgmq")
+        monkeypatch.setenv(
+            "SUBAGENT_BUS_DATABASE_URL",
+            "postgres://user:pass@db.example:5432/postgres",
+        )
+
+        with patch(
+            "gradientbang.adapters.bus.pgmq.build_pgmq_bus",
+            new=AsyncMock(return_value=object()),
+        ) as build:
+            await make_subagent_bus()
+
+        build.assert_awaited_once()
+
 
 @pytest.mark.unit
 class TestParseDatabaseUrl:

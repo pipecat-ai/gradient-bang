@@ -8,6 +8,9 @@ PUBSUB_MIGRATION = ROOT / "deployment/supabase/migrations/20260505000000_pubsub_
 QUEUE_LIFECYCLE_MIGRATION = (
     ROOT / "deployment/supabase/migrations/20260515000000_pubsub_character_queue_lifecycle.sql"
 )
+EVENT_PGMQ_GATE_MIGRATION = (
+    ROOT / "deployment/supabase/migrations/20260515010000_event_pgmq_publish_opt_in.sql"
+)
 EVENTS_TS = ROOT / "deployment/supabase/functions/_shared/events.ts"
 BOT_PY = ROOT / "src/gradientbang/pipecat_server/bot.py"
 
@@ -22,14 +25,35 @@ def test_pubsub_migration_removes_silent_publish_noop() -> None:
     assert "RETURN NULL" not in pgmq_publish_body
 
 
-def test_pubsub_migration_does_not_swallow_pgmq_publish_failures() -> None:
+def test_pubsub_publish_wrapper_does_not_swallow_failures() -> None:
     sql = PUBSUB_MIGRATION.read_text(encoding="utf-8")
 
-    record_body = sql.split(
-        "CREATE OR REPLACE FUNCTION public.record_event_with_recipients", 1
-    )[1].split("COMMENT ON FUNCTION public.record_event_with_recipients", 1)[0]
-    assert "record_event_with_recipients pgmq_publish failed" not in record_body
-    assert "PERFORM public.pgmq_publish('chr_' || v_id::TEXT, v_msg);" in record_body
+    pgmq_publish_body = sql.split("CREATE OR REPLACE FUNCTION public.pgmq_publish", 1)[1].split(
+        "COMMENT ON FUNCTION public.pgmq_publish", 1
+    )[0]
+    assert "EXCEPTION" not in pgmq_publish_body
+    assert "pgmq.send" in pgmq_publish_body
+
+
+def test_event_pgmq_publish_gate_defaults_false() -> None:
+    sql = EVENT_PGMQ_GATE_MIGRATION.read_text(encoding="utf-8")
+
+    assert "'event_pgmq_publish_enabled'" in sql
+    assert "'false'" in sql
+    assert "ON CONFLICT (key) DO NOTHING" in sql
+
+
+def test_event_pgmq_publish_gate_wraps_per_character_publish() -> None:
+    sql = EVENT_PGMQ_GATE_MIGRATION.read_text(encoding="utf-8")
+
+    assert "v_event_pgmq_publish_enabled BOOLEAN := FALSE" in sql
+    assert "WHERE key = ''event_pgmq_publish_enabled''" in sql
+    assert "IF v_event_pgmq_publish_enabled THEN" in sql
+    assert "PERFORM public.ensure_character_queue(v_id);" in sql
+    assert "PERFORM public.pgmq_publish(''chr_'' || v_id::TEXT, v_msg);" in sql
+    assert sql.index("IF v_event_pgmq_publish_enabled THEN") < sql.rindex(
+        "PERFORM public.pgmq_publish(''chr_'' || v_id::TEXT, v_msg);"
+    )
 
 
 def test_queue_lifecycle_migration_restores_character_insert_trigger() -> None:
