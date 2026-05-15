@@ -665,6 +665,69 @@ class TestHandleSteerTask:
         assert sent.task_id == full_id
         assert sent.text.startswith("Steering instruction: ")
 
+    async def test_steer_success_for_byoa_agent_targets_bus_name(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusSteerTaskMessage
+        from pipecat_subagents.agents.base_agent import TaskGroup
+
+        agent = _make_voice_agent()
+        agent.send_message = AsyncMock()
+        ship_id = "550e8400-e29b-41d4-a716-446655440000"
+        byoa_name = agent.byoa_agent_name(ship_id)
+        full_id = "ff3fa419-1234-5678-9abc-def012345678"
+        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}
+        agent._byoa_active_agents[byoa_name] = {
+            "task_id": full_id,
+            "character_id": ship_id,
+            "actor_character_id": "char-123",
+        }
+        params = MagicMock()
+        params.arguments = {"task_id": "ff3fa419", "message": "Change course"}
+
+        result = await agent._handle_steer_task(params)
+
+        assert result["success"] is True
+        assert result["task_id"] == full_id
+        assert result["task_type"] == "corp_ship"
+        assert result["ship_character_id"] == ship_id
+        sent = agent.send_message.call_args[0][0]
+        assert isinstance(sent, BusSteerTaskMessage)
+        assert sent.target == byoa_name
+        assert sent.task_id == full_id
+
+    async def test_start_task_busy_byoa_ship_steers_existing_bus_agent(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusSteerTaskMessage
+        from pipecat_subagents.agents.base_agent import TaskGroup
+
+        agent = _make_voice_agent()
+        agent.send_message = AsyncMock()
+        agent._is_corp_ship_id = AsyncMock(return_value=(True, "Remote Ship"))
+        ship_id = "550e8400-e29b-41d4-a716-446655440000"
+        byoa_name = agent.byoa_agent_name(ship_id)
+        full_id = "ff3fa419-1234-5678-9abc-def012345678"
+        agent._locked_ships[ship_id] = full_id
+        agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}
+        agent._byoa_active_agents[byoa_name] = {
+            "task_id": full_id,
+            "character_id": ship_id,
+            "actor_character_id": "char-123",
+        }
+        params = MagicMock()
+        params.arguments = {
+            "ship_id": ship_id,
+            "task_description": "Go mine the nearby salvage",
+            "context": "Prefer safe routes.",
+        }
+
+        result = await agent._handle_start_task(params)
+
+        assert result["success"] is True
+        assert result["steered"] is True
+        assert result["task_id"] == full_id
+        sent = agent.send_message.call_args[0][0]
+        assert isinstance(sent, BusSteerTaskMessage)
+        assert sent.target == byoa_name
+        assert "Prefer safe routes" in sent.text
+
     async def test_steer_missing_args(self):
         agent = _make_voice_agent()
         params = MagicMock()
@@ -1003,10 +1066,9 @@ class TestTaskToolWrappers:
         deferred_frame, direction = agent._deferred_frames[0]
         assert direction == FrameDirection.DOWNSTREAM
         assert isinstance(deferred_frame, LLMMessagesAppendFrame)
-        # Steered path must NOT trigger a second inference — the model
-        # already narrated the steer in the same turn as the tool call.
-        # A fresh inference here produces a duplicate ack.
-        assert deferred_frame.run_llm is False
+        # run_llm=True drives the post-tool ack via the deferred LLMRunFrame —
+        # this is what clears the client's "thinking" state.
+        assert deferred_frame.run_llm is True
         assert deferred_frame.messages[0]["role"] == "user"
         assert (
             '<event name="task.steered" task_id="task_abc123" task_type="player_ship">'
@@ -1874,4 +1936,3 @@ class TestServerSideShipLock:
         agent._send_hello_and_wait.assert_awaited_once_with("task_idle")
         assert agent._locked_ships[agent._character_id] == result["task_id"]
         agent.request_task.assert_not_called()
-

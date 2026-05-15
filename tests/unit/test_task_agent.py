@@ -563,6 +563,23 @@ class TestSteering:
         agent._llm_context.add_message.assert_called_once()
         assert "Change direction" in agent._llm_context.add_message.call_args[0][0]["content"]
 
+    async def test_steering_for_other_target_ignored(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusSteerTaskMessage
+
+        agent = _make_task_agent()
+        agent._active_task_id = "task-1"
+        agent._llm_context = MagicMock()
+
+        msg = BusSteerTaskMessage(
+            source="voice",
+            target="other_task",
+            task_id="task-1",
+            text="Change direction",
+        )
+        await agent.on_bus_message(msg)
+
+        agent._llm_context.add_message.assert_not_called()
+
 
 @pytest.mark.unit
 class TestCancellation:

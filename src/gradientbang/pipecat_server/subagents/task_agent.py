@@ -540,6 +540,8 @@ class TaskAgent(LLMAgent):
                     message.event, voice_agent_originated=message.voice_agent_originated
                 )
         elif isinstance(message, BusSteerTaskMessage):
+            if message.target and message.target != self.name:
+                return
             if self._active_task_id and message.task_id == self._active_task_id:
                 await self._inject_steering(message.text)
         elif isinstance(
