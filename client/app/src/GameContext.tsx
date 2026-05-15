@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo } from "react"
 
 import { RTVIEvent } from "@pipecat-ai/client-js"
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
+import { useMediaQuery } from "@uidotdev/usehooks"
 
 import { GameContext } from "@/hooks/useGameContext"
 import useAudioStore from "@/stores/audio"
@@ -34,6 +35,7 @@ export function GameProvider({ children }: GameProviderProps) {
   const client = usePipecatClient()
   const playerSessionId = useGameStore((state) => state.playerSessionId)
   const dispatchAction = useGameStore((state) => state.dispatchAction)
+  const isSmallDevice = useMediaQuery("only screen and (max-width : 768px)")
 
   useEffect(() => {
     console.debug(
@@ -78,7 +80,9 @@ export function GameProvider({ children }: GameProviderProps) {
     setGameState("initializing")
 
     // 1. Construct and await heavier game instances
-    if (settings.renderStarfield) {
+    // Skip on small viewports — <Mobile /> does not mount <Starfield />, so the
+    // ready signal never fires and init would hang.
+    if (settings.renderStarfield && !isSmallDevice) {
       console.debug("[GAME CONTEXT] Waiting on Starfield ready...")
       await new Promise<void>((resolve) => {
         if (useGameStore.getState().starfieldReady) {
@@ -124,7 +128,7 @@ export function GameProvider({ children }: GameProviderProps) {
     console.debug("[GAME CONTEXT] Initialized, setting ready state")
     setGameStateMessage(GameInitStateMessage.READY)
     setGameState("ready")
-  }, [client])
+  }, [client, isSmallDevice])
 
   /**
    * Handle server message
