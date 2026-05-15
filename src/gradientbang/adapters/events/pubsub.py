@@ -133,10 +133,13 @@ class PubsubEventAdapter:
         await self._register_session()
         self._ensure_heartbeat_task()
         logger.info(
-            "pubsub.session_registered session_id={} queue={} ttl={}s heartbeat={}s",
+            "pubsub.session_queue_created session_id={} queue={} physical_queue=pgmq.{} "
+            "ttl={}s hard_ttl={}s heartbeat={}s",
             self._session_id,
             self._queue_name,
+            f"q_{self._queue_name}",
             TTL_SECONDS,
+            HARD_TTL_SECONDS,
             HEARTBEAT_SECONDS,
         )
 
@@ -295,11 +298,36 @@ class PubsubEventAdapter:
                     ),
                 )
                 row = await cur.fetchone()
-        if not row:
-            raise RuntimeError("event_session_register returned no row")
-        self._session_id = str(row[0])
-        self._queue_name = str(row[1])
+                if not row:
+                    raise RuntimeError("event_session_register returned no row")
+                session_id = str(row[0])
+                queue_name = str(row[1])
+                await self._assert_session_queue_exists(cur, queue_name)
+        self._session_id = session_id
+        self._queue_name = queue_name
         self._pending_scope_sync = False
+
+    async def _assert_session_queue_exists(self, cur: Any, queue_name: str) -> None:
+        physical_queue = f"q_{queue_name}"
+        await cur.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'pgmq'
+                  AND c.relname = %s
+            )
+            """,
+            (physical_queue,),
+        )
+        row = await cur.fetchone()
+        exists = bool(row and row[0])
+        if not exists:
+            raise RuntimeError(
+                "event_session_register returned queue_name but physical pgmq "
+                f"queue is missing: queue={queue_name} physical_queue=pgmq.{physical_queue}"
+            )
 
     async def _heartbeat_loop(self) -> None:
         while not self._stop_event.is_set():

@@ -181,7 +181,10 @@ async def test_prepare_bootstrap_registers_session_and_starts_heartbeat(
 ) -> None:
     monkeypatch.setenv("PGMQ_URL", "postgresql://fake")
     cursor = _FakeCursor(
-        fetchone_results=[("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "evs_queue")]
+        fetchone_results=[
+            ("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "evs_queue"),
+            (True,),
+        ]
     )
     _install_fake_psycopg(monkeypatch, cursor)
 
@@ -202,8 +205,34 @@ async def test_prepare_bootstrap_registers_session_and_starts_heartbeat(
     ]
     assert adapter._session_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     assert adapter._queue_name == "evs_queue"
+    queue_exists_calls = [
+        params for sql, params in cursor.executions if "pg_class" in sql
+    ]
+    assert queue_exists_calls == [("q_evs_queue",)]
     assert adapter._heartbeat_task is not None
     await adapter.stop()
+
+
+@pytest.mark.asyncio
+async def test_prepare_bootstrap_bails_if_registered_queue_is_missing(
+    adapter: PubsubEventAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PGMQ_URL", "postgresql://fake")
+    cursor = _FakeCursor(
+        fetchone_results=[
+            ("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "evs_queue"),
+            (False,),
+        ]
+    )
+    _install_fake_psycopg(monkeypatch, cursor)
+
+    with pytest.raises(RuntimeError, match="physical pgmq queue is missing"):
+        await adapter.prepare_bootstrap()
+
+    assert adapter._session_id is None
+    assert adapter._queue_name is None
+    assert adapter._heartbeat_task is None
 
 
 @pytest.mark.asyncio
