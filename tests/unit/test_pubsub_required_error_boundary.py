@@ -5,6 +5,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PUBSUB_MIGRATION = ROOT / "deployment/supabase/migrations/20260505000000_pubsub_and_broadcasts.sql"
+QUEUE_LIFECYCLE_MIGRATION = (
+    ROOT / "deployment/supabase/migrations/20260515000000_pubsub_character_queue_lifecycle.sql"
+)
 EVENTS_TS = ROOT / "deployment/supabase/functions/_shared/events.ts"
 BOT_PY = ROOT / "src/gradientbang/pipecat_server/bot.py"
 
@@ -27,6 +30,35 @@ def test_pubsub_migration_does_not_swallow_pgmq_publish_failures() -> None:
     )[1].split("COMMENT ON FUNCTION public.record_event_with_recipients", 1)[0]
     assert "record_event_with_recipients pgmq_publish failed" not in record_body
     assert "PERFORM public.pgmq_publish('chr_' || v_id::TEXT, v_msg);" in record_body
+
+
+def test_queue_lifecycle_migration_restores_character_insert_trigger() -> None:
+    sql = QUEUE_LIFECYCLE_MIGRATION.read_text(encoding="utf-8")
+
+    assert "CREATE OR REPLACE FUNCTION public._tg_ensure_character_queue()" in sql
+    assert "PERFORM public.ensure_character_queue(NEW.character_id);" in sql
+    assert "CREATE TRIGGER trg_ensure_character_queue" in sql
+    assert "AFTER INSERT ON public.characters" in sql
+
+
+def test_queue_lifecycle_migration_backfills_existing_characters() -> None:
+    sql = QUEUE_LIFECYCLE_MIGRATION.read_text(encoding="utf-8")
+
+    assert "SELECT public.ensure_character_queue(character_id)" in sql
+    assert "FROM public.characters" in sql
+    assert "pgmq.purge_queue" not in sql
+
+
+def test_queue_lifecycle_migration_ensures_queue_before_publish() -> None:
+    sql = QUEUE_LIFECYCLE_MIGRATION.read_text(encoding="utf-8")
+    ensure = "PERFORM public.ensure_character_queue(v_id);"
+    publish = "PERFORM public.pgmq_publish(''chr_'' || v_id::TEXT, v_msg);"
+
+    assert ensure in sql
+    assert publish in sql
+    assert sql.index(ensure) < sql.rindex(publish)
+    assert "position(v_new in v_def) > 0" in sql
+    assert "Could not patch record_event_with_recipients" in sql
 
 
 def test_subscribe_my_events_uses_immediate_read_not_wrapped_long_poll() -> None:
