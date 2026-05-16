@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Combat screen crash on missing result participant payloads.
+- `ship.destroyed` client handling no longer creates a synthetic corporation ship entry for sector-visible destruction events that do not belong to the player's corporation.
 
 ## [0.5.3] - 2026-05-15
 
