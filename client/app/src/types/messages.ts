@@ -400,6 +400,8 @@ export interface ShipDestroyedMessage extends ServerMessagePayload {
   player_name: string
   sector: { id: number }
   combat_id: string
+  owner_character_id?: string | null
+  corp_id?: string | null
   timestamp?: string
 }
 
