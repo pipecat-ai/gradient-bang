@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-05-16
+
 ### Fixed
 
 - Combat screen crash on missing result participant payloads.
+- Corp ship task-response cleanup now releases session locks even if task-output notification fails.
 - `ship.destroyed` client handling no longer creates a synthetic corporation ship entry for sector-visible destruction events that do not belong to the player's corporation.
 
 ## [0.5.3] - 2026-05-15
