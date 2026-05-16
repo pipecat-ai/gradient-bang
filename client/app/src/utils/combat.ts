@@ -243,17 +243,39 @@ export const applyCombatEndedState = async (
 
 export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDestroyedMessage) => {
   const localShipId = gameStore.ship?.ship_id
+  const localPlayerId = gameStore.player?.id
   const localPlayerName = gameStore.player?.name
+  const localCorpId = gameStore.corporation?.corp_id
+  const currentSectorId = gameStore.sector?.id
+  const isDestroyedCorpShip = destroyed.player_type === "corporation_ship"
+  const isKnownCorpShip = gameStore.ships.data?.some(
+    (s) => s.owner_type === "corporation" && s.ship_id === destroyed.ship_id
+  )
+  const isDestroyedShipInLocalCorp =
+    typeof localCorpId === "string" && destroyed.corp_id === localCorpId
+  const isKnownLocalCorpShipDestroyed = isDestroyedCorpShip && !!isKnownCorpShip
   const isLocalShipDestroyed =
     (typeof localShipId === "string" && destroyed.ship_id === localShipId) ||
+    (typeof localPlayerId === "string" && destroyed.owner_character_id === localPlayerId) ||
     (destroyed.player_type !== "corporation_ship" &&
       typeof localPlayerName === "string" &&
       destroyed.player_name === localPlayerName)
+  const isLocalSectorDestroyedEvent =
+    typeof currentSectorId === "number" && destroyed.sector?.id === currentSectorId
+  const isRelevantDestroyedEvent =
+    isLocalShipDestroyed ||
+    isKnownLocalCorpShipDestroyed ||
+    isDestroyedShipInLocalCorp ||
+    isLocalSectorDestroyedEvent
+
+  if (!isRelevantDestroyedEvent) {
+    console.debug("[GAME EVENT] Ignored ship.destroyed outside viewer scope", destroyed)
+    return
+  }
 
   const shipDescription =
     isLocalShipDestroyed ? "[Your ship]"
-    : destroyed.player_type === "corporation_ship" ?
-      `Corporation ship [${destroyed.ship_name ?? destroyed.ship_type}]`
+    : isDestroyedCorpShip ? `Corporation ship [${destroyed.ship_name ?? destroyed.ship_type}]`
     : `[${destroyed.player_name}]'s ship`
 
   if (isLocalShipDestroyed) {
@@ -263,31 +285,13 @@ export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDes
     })
   }
 
-  // Mark destroyed corporation ships so ShipCard can animate before removal.
-  // addShip first (if needed) then updateShip on next tick so React renders
-  // the alive state before the destroyed state — allowing transition detection.
-  if (destroyed.player_type === "corporation_ship") {
-    const existsInList = gameStore.ships.data?.some((s) => s.ship_id === destroyed.ship_id)
-    if (!existsInList) {
-      gameStore.addShip({
-        ship_id: destroyed.ship_id,
-        ship_name: destroyed.ship_name ?? destroyed.ship_type,
-        ship_type: destroyed.ship_type,
-        sector: destroyed.sector?.id ?? null,
-        owner_type: "corporation",
-      })
-      requestAnimationFrame(() => {
-        gameStore.updateShip({
-          ship_id: destroyed.ship_id,
-          destroyed_at: new Date().toISOString(),
-        })
-      })
-    } else {
-      gameStore.updateShip({
-        ship_id: destroyed.ship_id,
-        destroyed_at: new Date().toISOString(),
-      })
-    }
+  // Only mutate ships already known to this client. ship.destroyed can arrive
+  // as a sector/corp notification for ships that do not belong in this fleet.
+  if (isKnownLocalCorpShipDestroyed) {
+    gameStore.updateShip({
+      ship_id: destroyed.ship_id,
+      destroyed_at: new Date().toISOString(),
+    })
   }
 
   gameStore.addActivityLogEntry({
@@ -295,7 +299,7 @@ export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDes
     message: `${shipDescription} destroyed in [sector ${destroyed.sector.id}]`,
   })
 
-  if (destroyed.player_type === "corporation_ship" || isLocalShipDestroyed) {
+  if (isLocalShipDestroyed || (isDestroyedCorpShip && isDestroyedShipInLocalCorp)) {
     gameStore.addToast({
       type: "ship.destroyed",
       meta: {
