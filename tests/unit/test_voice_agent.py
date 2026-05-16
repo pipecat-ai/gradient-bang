@@ -1794,6 +1794,52 @@ class TestCorpShipRouting:
         agent.send_message.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_corp_response_cleanup_runs_when_notification_fails(self):
+        """A UI/deferred-update failure must not leak ship locks or corp agents."""
+        from pipecat_subagents.agents.task_context import TaskStatus
+        from pipecat_subagents.bus.messages import BusTaskResponseMessage
+
+        agent = _make_voice_agent()
+        agent._task_groups = {}
+        agent._children = []
+        agent._VoiceAgent__game_client.base_url = "http://localhost"
+
+        async def add_agent(task_agent):
+            await asyncio.sleep(0)
+            agent._children.append(task_agent)
+
+        agent.add_agent = AsyncMock(side_effect=add_agent)
+        agent._is_corp_ship_id = AsyncMock(return_value=(True, "Test Ship"))
+
+        params = MagicMock()
+        params.arguments = {
+            "task_description": "Trade",
+            "ship_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        }
+        result = await agent._handle_start_task(params)
+        assert result["success"]
+
+        child = agent._children[0]
+        assert child._character_id in agent._locked_ships
+
+        msg = MagicMock(spec=BusTaskResponseMessage)
+        msg.source = child.name
+        msg.task_id = result["task_id"]
+        msg.status = TaskStatus.COMPLETED
+        msg.response = {"message": "Done"}
+        agent._task_output_handler = AsyncMock(side_effect=RuntimeError("rtvi push failed"))
+        agent.send_message = AsyncMock()
+        agent._update_polling_scope = MagicMock()
+
+        await agent.on_task_response(msg)
+
+        agent._task_output_handler.assert_awaited_once()
+        assert child._character_id not in agent._locked_ships
+        assert all(c.name != child.name for c in agent._children)
+        agent.send_message.assert_awaited_once()
+        agent._update_polling_scope.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_close_tasks_ends_idle_player_agent(self):
         """close_tasks() ends all task agents including idle player agent."""
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent

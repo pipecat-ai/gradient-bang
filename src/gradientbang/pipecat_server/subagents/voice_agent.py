@@ -2167,41 +2167,11 @@ class VoiceAgent(LLMAgent):
             )
             return
 
-        await super().on_task_response(message)
-
         task_type = (
             "corp_ship"
             if (child and child._is_corp_ship) or byoa_ctx is not None
             else "player_ship"
         )
-
-        if message.status == TaskStatus.COMPLETED:
-            await self._task_output_handler(
-                "Task completed successfully", "complete", message.task_id, task_type
-            )
-            status_label = "completed"
-        elif message.status == TaskStatus.CANCELLED:
-            await self._task_output_handler(
-                "Task was cancelled", "cancelled", message.task_id, task_type
-            )
-            status_label = "cancelled"
-        else:
-            fail_msg = (message.response or {}).get("message", "Task failed")
-            await self._task_output_handler(fail_msg, "failed", message.task_id, task_type)
-            status_label = "failed"
-
-        # Notify the LLM so it can inform the user (use response.message for detail)
-        llm_msg = (message.response or {}).get("message", f"Task {status_label}")
-        task_metadata = (
-            child._task_metadata if child else byoa_ctx.get("task_metadata", {}) if byoa_ctx else {}
-        )
-        ship_name = task_metadata.get("ship_name") if isinstance(task_metadata, dict) else None
-        ship_attr = f' ship_name="{ship_name}"' if ship_name else ""
-        event_xml = (
-            f'<event name="task.{status_label}" task_id="{message.task_id[:8]}" '
-            f'task_type="{task_type}"{ship_attr}>\n{llm_msg}\n</event>'
-        )
-
         ship_character_id = (
             child._character_id
             if child
@@ -2209,32 +2179,74 @@ class VoiceAgent(LLMAgent):
             if byoa_ctx
             else None
         )
-        # Hand off to the deferred-update queue. The drain coordinator
-        # batches close-together completions, gates on bot/user speech state,
-        # and silently folds in entries once the topic has clearly moved on.
-        self._enqueue_deferred_update(event_xml, ship_id=ship_character_id)
 
-        # Clear the local ship lock. TaskAgent emits task_lifecycle finish
-        # before exiting.
-        if ship_character_id:
-            self._locked_ships.pop(ship_character_id, None)
+        try:
+            await super().on_task_response(message)
 
-        # Corp ship agents: end pipeline, remove from children. Player agents
-        # stay alive for reuse — pipeline stays running. There is no per-task
-        # game client to close; the broker owns the single client.
-        if child and child._is_corp_ship:
-            try:
-                await self.send_message(
-                    BusEndAgentMessage(source=self.name, target=agent_name, reason="task complete")
+            if message.status == TaskStatus.COMPLETED:
+                status_label = "completed"
+                await self._task_output_handler(
+                    "Task completed successfully", "complete", message.task_id, task_type
                 )
-            except Exception as e:
-                logger.error(f"Failed to end task agent '{agent_name}': {e}")
-            self._children = [c for c in self._children if c.name != agent_name]
-        if byoa_ctx is not None:
-            self._byoa_active_agents.pop(agent_name, None)
-            self._invalidate_byoa_registry_entry(agent_name)
+            elif message.status == TaskStatus.CANCELLED:
+                status_label = "cancelled"
+                await self._task_output_handler(
+                    "Task was cancelled", "cancelled", message.task_id, task_type
+                )
+            else:
+                status_label = "failed"
+                fail_msg = (message.response or {}).get("message", "Task failed")
+                await self._task_output_handler(fail_msg, "failed", message.task_id, task_type)
 
-        self._update_polling_scope()
+            # Notify the LLM so it can inform the user (use response.message for detail)
+            llm_msg = (message.response or {}).get("message", f"Task {status_label}")
+            task_metadata = (
+                child._task_metadata
+                if child
+                else byoa_ctx.get("task_metadata", {})
+                if byoa_ctx
+                else {}
+            )
+            ship_name = task_metadata.get("ship_name") if isinstance(task_metadata, dict) else None
+            ship_attr = f' ship_name="{ship_name}"' if ship_name else ""
+            event_xml = (
+                f'<event name="task.{status_label}" task_id="{message.task_id[:8]}" '
+                f'task_type="{task_type}"{ship_attr}>\n{llm_msg}\n</event>'
+            )
+
+            # Hand off to the deferred-update queue. The drain coordinator
+            # batches close-together completions, gates on bot/user speech state,
+            # and silently folds in entries once the topic has clearly moved on.
+            self._enqueue_deferred_update(event_xml, ship_id=ship_character_id)
+        except Exception as exc:
+            logger.exception(
+                f"VoiceAgent: task response notification failed for "
+                f"{agent_name!r} task={message.task_id[:8]}: {exc}"
+            )
+        finally:
+            # Clear the local ship lock. TaskAgent emits task_lifecycle finish
+            # before exiting.
+            if ship_character_id:
+                self._locked_ships.pop(ship_character_id, None)
+
+            # Corp ship agents: end pipeline, remove from children. Player agents
+            # stay alive for reuse — pipeline stays running. There is no per-task
+            # game client to close; the broker owns the single client.
+            if child and child._is_corp_ship:
+                try:
+                    await self.send_message(
+                        BusEndAgentMessage(
+                            source=self.name, target=agent_name, reason="task complete"
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to end task agent '{agent_name}': {e}")
+                self._children = [c for c in self._children if c.name != agent_name]
+            if byoa_ctx is not None:
+                self._byoa_active_agents.pop(agent_name, None)
+                self._invalidate_byoa_registry_entry(agent_name)
+
+            self._update_polling_scope()
 
     # ── BYOA broker ────────────────────────────────────────────────────
     #
