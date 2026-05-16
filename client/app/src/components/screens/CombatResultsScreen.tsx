@@ -15,10 +15,7 @@ import { cn } from "@/utils/tailwind"
  * Possible raw values: `{name}_fled`, `stalemate`, `mutual_defeat`,
  * `{name}_defeated`, `victory`, or null/continued.
  */
-function describeCombatOutcome(
-  summary: CombatEndedRound,
-  playerName: string | null,
-): string {
+function describeCombatOutcome(summary: CombatEndedRound, playerName: string | null): string {
   const raw = (summary.round_result ?? summary.result ?? summary.end ?? "").toLowerCase()
 
   if (!raw || raw === "continued") return "Inconclusive"
@@ -74,10 +71,14 @@ export const CombatResultsScreen = ({ combat }: { combat?: CombatEndedRound }) =
   const rounds = summary?.logs ?? []
   const totalHits = rounds.reduce((total, round) => total + sumRecordValues(round.hits), 0)
   const totalLosses = rounds.reduce(
-    (total, round) => total + sumRecordValues(round.offensive_losses) + sumRecordValues(round.defensive_losses),
+    (total, round) =>
+      total + sumRecordValues(round.offensive_losses) + sumRecordValues(round.defensive_losses),
     0
   )
-  const totalShieldLoss = rounds.reduce((total, round) => total + sumRecordValues(round.shield_loss), 0)
+  const totalShieldLoss = rounds.reduce(
+    (total, round) => total + sumRecordValues(round.shield_loss),
+    0
+  )
   const totalRounds = rounds.length > 0 ? rounds.length : (summary?.round ?? 0)
 
   const salvageStats = useMemo(() => {
@@ -102,7 +103,7 @@ export const CombatResultsScreen = ({ combat }: { combat?: CombatEndedRound }) =
   const participantResults = useMemo(() => {
     if (!summary) return []
 
-    return summary.participants.map((participant) => {
+    return (summary.participants ?? []).map((participant) => {
       const participantKey = participant.id ?? participant.name
       const fightersRemaining =
         summary.fighters_remaining?.[participantKey] ??
@@ -221,8 +222,12 @@ export const CombatResultsScreen = ({ combat }: { combat?: CombatEndedRound }) =
                       <span>Action: {action}</span>
                     </div>
                     <div className="text-muted-foreground flex items-center gap-ui-xs">
-                      <span>Fighters: {typeof fightersRemaining === "number" ? fightersRemaining : "—"}</span>
-                      <span>Shields: {typeof shieldsRemaining === "number" ? shieldsRemaining : "—"}</span>
+                      <span>
+                        Fighters: {typeof fightersRemaining === "number" ? fightersRemaining : "—"}
+                      </span>
+                      <span>
+                        Shields: {typeof shieldsRemaining === "number" ? shieldsRemaining : "—"}
+                      </span>
                     </div>
                   </li>
                 )

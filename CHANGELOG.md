@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Combat screen crash on missing result participant payloads.
+
 ## [0.5.3] - 2026-05-15
 
 ### Changed

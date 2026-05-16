@@ -1,4 +1,4 @@
-import type { GameStore } from "@/stores/game"
+import useGameStore, { type GameStore } from "@/stores/game"
 
 import { wait } from "./animation"
 
@@ -155,24 +155,30 @@ export const applyCombatRoundWaitingState = (
   combatSession: CombatSession
 ) => {
   gameStore.setUIState("combat")
+  gameStore.setActiveScreen(undefined)
 
   const activeCombatId = gameStore.activeCombatSession?.combat_id
   const incomingCombatId = combatSession.combat_id
+  const participants = combatSession.participants ?? []
+  const normalizedCombatSession = {
+    ...combatSession,
+    participants,
+  }
   const shouldStartSession =
     !gameStore.activeCombatSession || (activeCombatId && activeCombatId !== incomingCombatId)
 
   if (shouldStartSession) {
-    gameStore.setActiveCombatSession(combatSession)
+    gameStore.setActiveCombatSession(normalizedCombatSession)
     gameStore.addActivityLogEntry({
       type: "combat.session.started",
-      message: `Combat session started with ${combatSession.participants.length} participants`,
+      message: `Combat session started with ${participants.length} participants`,
     })
     return
   }
 
   gameStore.setTookDamageThisRound(false)
   gameStore.updateActiveCombatSession({
-    participants: combatSession.participants,
+    participants,
     garrison: combatSession.garrison ?? null,
     round: combatSession.round,
     deadline: combatSession.deadline,
@@ -205,23 +211,34 @@ export const applyCombatEndedState = async (
   gameStore: GameStore,
   combatEnded: CombatEndedRound
 ) => {
-  gameStore.addCombatRound(combatEnded)
-  syncShipFromCombatRound(gameStore, combatEnded)
-  if (combatEnded.ship) {
-    gameStore.setShip(combatEnded.ship)
+  const normalizedCombatEnded = {
+    ...combatEnded,
+    participants: combatEnded.participants ?? [],
+    logs: combatEnded.logs ?? [],
+    salvage: combatEnded.salvage ?? [],
   }
-  gameStore.addCombatHistory(combatEnded)
-  gameStore.setLastCombatEnded(combatEnded)
+  gameStore.addCombatRound(normalizedCombatEnded)
+  syncShipFromCombatRound(gameStore, normalizedCombatEnded)
+  if (normalizedCombatEnded.ship) {
+    gameStore.setShip(normalizedCombatEnded.ship)
+  }
+  gameStore.addCombatHistory(normalizedCombatEnded)
+  gameStore.setLastCombatEnded(normalizedCombatEnded)
   gameStore.setUIState("idle")
   gameStore.endActiveCombatSession()
   gameStore.addActivityLogEntry({
     type: "combat.session.ended",
-    message: `Combat session ended with result: [${combatEnded.result}]`,
+    message: `Combat session ended with result: [${normalizedCombatEnded.result}]`,
   })
 
   await wait(1000)
 
-  gameStore.setActiveScreen("combat-results", combatEnded)
+  const currentState = useGameStore.getState()
+  if (currentState.uiState === "combat" || currentState.activeCombatSession) {
+    return
+  }
+
+  gameStore.setActiveScreen("combat-results", normalizedCombatEnded)
 }
 
 export const applyShipDestroyedState = (gameStore: GameStore, destroyed: ShipDestroyedMessage) => {
