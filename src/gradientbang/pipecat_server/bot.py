@@ -1001,12 +1001,15 @@ def _log_startup_config() -> None:
 
     bus_transport = os.getenv("SUBAGENT_BUS_TRANSPORT", "local").strip().lower()
     event_transport = os.getenv("EVENT_TRANSPORT", "pubsub").strip().lower()
+    stt_provider = "deepgram"
     tts_provider = os.getenv("TTS_PROVIDER", "gradium").strip().lower()
     voice_provider = os.getenv("VOICE_LLM_PROVIDER", "google").strip().lower()
     voice_model = os.getenv("VOICE_LLM_MODEL", "(provider default)").strip()
     task_provider = os.getenv("TASK_LLM_PROVIDER", "google").strip().lower()
     task_model = os.getenv("TASK_LLM_MODEL", "(provider default)").strip()
     task_thinking = os.getenv("TASK_LLM_THINKING_BUDGET", "4096").strip()
+    ui_provider = os.getenv("UI_AGENT_LLM_PROVIDER", "google").strip().lower()
+    ui_model = os.getenv("UI_AGENT_LLM_MODEL", "gemini-2.5-flash").strip()
     local_pooler = bool(os.getenv("LOCAL_API_POSTGRES_URL", "").strip())
 
     bus_line = f"{bus_transport}"
@@ -1022,9 +1025,11 @@ def _log_startup_config() -> None:
         f"  event_transport    {event_transport}",
         f"  subagent_bus       {bus_line}",
         f"  local_pooler       {'on' if local_pooler else 'off (HTTP edge functions)'}",
+        f"  stt                {stt_provider}",
         f"  tts                {tts_provider}",
         f"  voice_llm          {voice_provider}/{voice_model}",
         f"  task_llm           {task_provider}/{task_model}  thinking={task_thinking}",
+        f"  ui_llm             {ui_provider}/{ui_model}",
         divider,
     ]
     logger.info("\n" + "\n".join(lines))
