@@ -25,6 +25,7 @@ import json
 import os
 import time
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
@@ -93,7 +94,16 @@ from gradientbang.utils.weave_tracing import traced
 
 # ── Constants ─────────────────────────────────────────────────────────────
 
-EVENT_BATCH_INFERENCE_DELAY = 1.0
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        logger.warning("Invalid {} value; using default {}", name, default)
+        return default
+
+
+EVENT_BATCH_INFERENCE_DELAY = max(0.0, _float_env("TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS", 0.25))
 ASYNC_COMPLETION_TIMEOUT = 5.0
 MAX_NO_TOOL_NUDGES = 3
 MAX_CONSECUTIVE_ERRORS = 3
@@ -182,9 +192,7 @@ class _ResponseStateTracker(FrameProcessor):
     def _flush_thinking(self) -> None:
         """Output accumulated thinking text and clear the buffer."""
         if self._accumulated_thinking:
-            self._agent._output(
-                self._accumulated_thinking, TaskOutputType.THINKING
-            )
+            self._agent._output(self._accumulated_thinking, TaskOutputType.THINKING)
             self._accumulated_thinking = ""
 
     async def process_frame(self, frame: Any, direction: FrameDirection):
@@ -326,6 +334,9 @@ class TaskAgent(LLMAgent):
         # ── Task log ──
         self._task_log: List[str] = []
         self._pending_task_output_tasks: set[asyncio.Task[None]] = set()
+        self._game_event_queue: asyncio.Queue[tuple[Dict[str, Any], bool]] = asyncio.Queue()
+        self._game_event_worker_task: Optional[asyncio.Task] = None
+        self._last_handled_event_id: Optional[int] = None
 
         # ── Debug context cache ──
         self._last_context_dump: Optional[List[Dict[str, Any]]] = None
@@ -536,7 +547,7 @@ class TaskAgent(LLMAgent):
         await super().on_bus_message(message)
         if isinstance(message, BusGameEventMessage):
             if self._active_task_id:
-                await self._handle_bus_game_event(
+                self._enqueue_bus_game_event(
                     message.event, voice_agent_originated=message.voice_agent_originated
                 )
         elif isinstance(message, BusSteerTaskMessage):
@@ -561,6 +572,85 @@ class TaskAgent(LLMAgent):
             if message.target and message.target != self.name:
                 return
             await self._respond_to_hello(message)
+
+    def _enqueue_bus_game_event(
+        self, event: Dict[str, Any], *, voice_agent_originated: bool = False
+    ) -> None:
+        self._game_event_queue.put_nowait((event, voice_agent_originated))
+        if self._game_event_worker_task is None or self._game_event_worker_task.done():
+            self._game_event_worker_task = asyncio.create_task(
+                self._game_event_worker_loop(),
+                name=f"{self.name}-game-event-worker",
+            )
+
+    async def _game_event_worker_loop(self) -> None:
+        while True:
+            first = await self._game_event_queue.get()
+            batch = [first]
+            while True:
+                try:
+                    batch.append(self._game_event_queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            for event, voice_agent_originated in self._sort_ready_game_events(batch):
+                try:
+                    await self._handle_bus_game_event(
+                        event, voice_agent_originated=voice_agent_originated
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "TaskAgent '{}': game event failed event_name={} event_id={} task_id={}",
+                        self.name,
+                        event.get("event_name"),
+                        self._extract_event_id(event),
+                        self._active_task_id,
+                    )
+                finally:
+                    self._game_event_queue.task_done()
+
+    @classmethod
+    def _sort_ready_game_events(
+        cls, events: list[tuple[Dict[str, Any], bool]]
+    ) -> list[tuple[Dict[str, Any], bool]]:
+        def key(item: tuple[int, tuple[Dict[str, Any], bool]]) -> tuple[int, int, int]:
+            idx, (event, _voice_agent_originated) = item
+            event_id = cls._extract_event_id(event)
+            return (1 if event_id is None else 0, event_id or 0, idx)
+
+        return [event for _idx, event in sorted(enumerate(events), key=key)]
+
+    @staticmethod
+    def _extract_event_id(event: Mapping[str, Any]) -> Optional[int]:
+        payload = event.get("payload")
+        if not isinstance(payload, Mapping):
+            return None
+        ctx = payload.get("__event_context") or payload.get("event_context")
+        if not isinstance(ctx, Mapping):
+            return None
+        event_id = ctx.get("event_id")
+        if isinstance(event_id, int):
+            return event_id
+        if isinstance(event_id, str) and event_id.isdigit():
+            return int(event_id)
+        return None
+
+    def _record_handled_event_order(self, event: Mapping[str, Any]) -> None:
+        event_id = self._extract_event_id(event)
+        if event_id is None:
+            return
+        if self._last_handled_event_id is not None and event_id < self._last_handled_event_id:
+            logger.warning(
+                "TaskAgent '{}': event order regression event_name={} event_id={} previous_event_id={} task_id={}",
+                self.name,
+                event.get("event_name"),
+                event_id,
+                self._last_handled_event_id,
+                self._active_task_id,
+            )
+        if self._last_handled_event_id is None or event_id > self._last_handled_event_id:
+            self._last_handled_event_id = event_id
 
     def _resolve_bus_rpc_response(self, message: BusMessage) -> None:
         """Hand an RPC response off to PendingRequests.
@@ -632,9 +722,7 @@ class TaskAgent(LLMAgent):
                 )
             )
         except Exception as exc:
-            logger.warning(
-                f"TaskAgent '{self.name}': BYOA self-end emit failed: {exc}"
-            )
+            logger.warning(f"TaskAgent '{self.name}': BYOA self-end emit failed: {exc}")
         return True
 
     def _cancel_idle_teardown(self) -> None:
@@ -679,9 +767,7 @@ class TaskAgent(LLMAgent):
                 )
             )
         except Exception as exc:
-            logger.warning(
-                f"TaskAgent '{self.name}': idle teardown emit failed: {exc}"
-            )
+            logger.warning(f"TaskAgent '{self.name}': idle teardown emit failed: {exc}")
 
     async def _handle_bus_game_event(
         self, event: Dict[str, Any], *, voice_agent_originated: bool = False
@@ -741,10 +827,7 @@ class TaskAgent(LLMAgent):
                 participants = payload.get("participants")
                 if isinstance(participants, list):
                     for p in participants:
-                        if (
-                            isinstance(p, dict)
-                            and p.get("id") == self._character_id
-                        ):
+                        if isinstance(p, dict) and p.get("id") == self._character_id:
                             await self._handle_event(event)
                             return
             if self._character_id and event_name in {
@@ -765,6 +848,11 @@ class TaskAgent(LLMAgent):
 
     async def _stop(self) -> None:
         self._cancel_timers()
+        if self._game_event_worker_task is not None:
+            self._game_event_worker_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._game_event_worker_task
+            self._game_event_worker_task = None
         await super()._stop()
 
     # ── Task state management ─────────────────────────────────────────
@@ -810,7 +898,18 @@ class TaskAgent(LLMAgent):
         self._task_output_progress_epoch = 0
         self._last_synthetic_progress_message = None
         self._last_synthetic_progress_epoch = -1
+        self._last_handled_event_id = None
+        self._clear_game_event_queue()
         self._cancel_timers()
+
+    def _clear_game_event_queue(self) -> None:
+        while True:
+            try:
+                self._game_event_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            else:
+                self._game_event_queue.task_done()
 
     def _archive_task_log(self):
         self._task_log = []
@@ -901,9 +1000,7 @@ class TaskAgent(LLMAgent):
         return isinstance(event_request_id, str) and event_request_id == request_id
 
     def _is_matching_awaited_event_query(self, event: Dict[str, Any]) -> bool:
-        return event.get("event_name") == "event.query" and self._matches_awaited_completion(
-            event
-        )
+        return event.get("event_name") == "event.query" and self._matches_awaited_completion(event)
 
     # ── Combat preamble ───────────────────────────────────────────────
 
@@ -931,9 +1028,7 @@ class TaskAgent(LLMAgent):
                     return ship_id.strip()
         return None
 
-    async def _maybe_inject_combat_preamble(
-        self, event_name: Optional[str], payload: Any
-    ) -> None:
+    async def _maybe_inject_combat_preamble(self, event_name: Optional[str], payload: Any) -> None:
         """Prepend combat.md + doctrine ahead of round-1 combat entry.
 
         Mirrors ``EventRelay._inject_combat_preamble`` for the player
@@ -954,8 +1049,7 @@ class TaskAgent(LLMAgent):
         # corp ship in the sector is fighting.
         participants = payload.get("participants")
         if not isinstance(participants, list) or not any(
-            isinstance(p, Mapping) and p.get("id") == self._character_id
-            for p in participants
+            isinstance(p, Mapping) and p.get("id") == self._character_id for p in participants
         ):
             return
         if self._llm_context is None:
@@ -965,9 +1059,7 @@ class TaskAgent(LLMAgent):
         if not self._combat_md_loaded:
             try:
                 content = render_combat_md_preamble_message()
-                self._llm_context.add_message(
-                    {"role": "user", "content": content}
-                )
+                self._llm_context.add_message({"role": "user", "content": content})
                 self._combat_md_loaded = True
             except Exception:  # noqa: BLE001
                 logger.warning(
@@ -991,9 +1083,7 @@ class TaskAgent(LLMAgent):
         try:
             content = render_ship_doctrine_preamble_message(strategy)
         except Exception:  # noqa: BLE001
-            logger.warning(
-                "task_agent.combat_preamble.render_failed", exc_info=True
-            )
+            logger.warning("task_agent.combat_preamble.render_failed", exc_info=True)
             return
         self._llm_context.add_message({"role": "user", "content": content})
 
@@ -1047,6 +1137,8 @@ class TaskAgent(LLMAgent):
             event_status = self._extract_event_task_status(event)
             if event_status in {"pending", "started", "running", "in_progress"}:
                 return
+
+        self._record_handled_event_order(event)
 
         summary = event.get("summary")
         response_data = summary or event.get("payload")
@@ -1840,21 +1932,13 @@ class TaskAgent(LLMAgent):
         """
         return await self._send_bus_game_tool_call(method, kwargs)
 
-    async def _send_bus_game_tool_call(
-        self, tool_name: str, args: Dict[str, Any]
-    ) -> Any:
+    async def _send_bus_game_tool_call(self, tool_name: str, args: Dict[str, Any]) -> Any:
         target = self._task_requester
         if not target:
-            raise RuntimeError(
-                f"TaskAgent '{self.name}': no broker target for {tool_name!r}"
-            )
+            raise RuntimeError(f"TaskAgent '{self.name}': no broker target for {tool_name!r}")
         correlation_id = uuid.uuid4().hex
         actor = self._task_metadata.get("actor_character_id") if self._task_metadata else None
-        task_id_tag = (
-            self._active_task_id
-            if self._tag_outbound_rpcs_with_task_id
-            else ""
-        )
+        task_id_tag = self._active_task_id if self._tag_outbound_rpcs_with_task_id else ""
         await self.send_message(
             BusGameToolCallRequest(
                 source=self.name,
@@ -1875,9 +1959,7 @@ class TaskAgent(LLMAgent):
     async def _send_combat_strategy_request(self, *, ship_id: str) -> Any:
         target = self._task_requester
         if not target:
-            raise RuntimeError(
-                f"TaskAgent '{self.name}': no broker target for combat_strategy"
-            )
+            raise RuntimeError(f"TaskAgent '{self.name}': no broker target for combat_strategy")
         correlation_id = uuid.uuid4().hex
         await self.send_message(
             BusCombatStrategyRequest(
@@ -1894,14 +1976,10 @@ class TaskAgent(LLMAgent):
             timeout=self._byoa_config.tool_call_timeout_seconds,
         )
 
-    async def _send_corp_query(
-        self, *, query_type: str, corp_id: Optional[str]
-    ) -> Any:
+    async def _send_corp_query(self, *, query_type: str, corp_id: Optional[str]) -> Any:
         target = self._task_requester
         if not target:
-            raise RuntimeError(
-                f"TaskAgent '{self.name}': no broker target for corp_query"
-            )
+            raise RuntimeError(f"TaskAgent '{self.name}': no broker target for corp_query")
         correlation_id = uuid.uuid4().hex
         await self.send_message(
             BusCorporationQueryRequest(
@@ -1919,9 +1997,7 @@ class TaskAgent(LLMAgent):
             timeout=self._byoa_config.tool_call_timeout_seconds,
         )
 
-    async def _send_task_finish_notification(
-        self, *, status: str, summary: Optional[str]
-    ) -> None:
+    async def _send_task_finish_notification(self, *, status: str, summary: Optional[str]) -> None:
         """Fire-and-forget — broker emits ``task_lifecycle event_type=finish``.
 
         No response; errors are logged. ``actor_character_id`` mirrors what
@@ -1979,9 +2055,7 @@ class TaskAgent(LLMAgent):
         if args.get("list_all"):
             return await self._send_corp_query(query_type="list", corp_id=None)
         if args.get("corp_id"):
-            return await self._send_corp_query(
-                query_type="info", corp_id=args["corp_id"]
-            )
+            return await self._send_corp_query(query_type="info", corp_id=args["corp_id"])
         return await self._send_corp_query(query_type="my", corp_id=None)
 
     async def _tool_ship_definitions(self, _args: dict) -> Any:
