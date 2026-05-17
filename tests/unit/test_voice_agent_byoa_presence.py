@@ -78,7 +78,7 @@ class TestReleaseLockOnByoaOffline:
         agent.send_message.assert_awaited_once()
         sent = agent.send_message.await_args.args[0]
         assert isinstance(sent, BusEndAgentMessage)
-        assert sent.target == agent.byoa_agent_name(ship_id)
+        assert sent.target == agent._byoa.agent_name_for(ship_id)
         assert sent.reason == "byoa_offline"
 
     async def test_noop_when_ship_not_locked(self):

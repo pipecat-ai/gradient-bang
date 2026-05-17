@@ -52,6 +52,7 @@ from pipecat_subagents.bus import (
 )
 
 from gradientbang.byoa import ByoaAgentConfig
+from gradientbang.pipecat_server.byoa_coordinator import ByoaCoordinator
 from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequests
 from gradientbang.pipecat_server.subagents.bus_messages import (
@@ -159,6 +160,11 @@ class VoiceAgent(LLMAgent):
         self._rtvi = rtvi_processor
         self._event_relay = event_relay
         self._byoa_config = byoa_config or ByoaAgentConfig.from_env()
+        self._byoa = ByoaCoordinator(
+            host=self,
+            game_client=game_client,
+            character_id=character_id,
+        )
 
         # ── Task timeout ──
         _timeout = float(os.getenv("TASK_AGENT_TIMEOUT", 0))
@@ -1719,7 +1725,7 @@ class VoiceAgent(LLMAgent):
         if not target_character_id:
             return False
 
-        agent_name = self.byoa_agent_name(target_character_id)
+        agent_name = self._byoa.agent_name_for(target_character_id)
         had_pending_task = agent_name in self._pending_tasks
         watchdog = self._pending_wakes.pop(target_character_id, None)
         had_watchdog = watchdog is not None
@@ -1787,7 +1793,7 @@ class VoiceAgent(LLMAgent):
         if not framework_task_id:
             return None
 
-        byoa_agent_name = self.byoa_agent_name(ship_character_id)
+        byoa_agent_name = self._byoa.agent_name_for(ship_character_id)
         byoa_ctx = self._byoa_active_agents.get(byoa_agent_name)
         if byoa_ctx is not None and str(byoa_ctx.get("task_id") or "") == framework_task_id:
             return _SteerTarget(
@@ -2020,7 +2026,7 @@ class VoiceAgent(LLMAgent):
                 reason="agent failed wake-up handshake",
             )
             return
-        if self._is_byoa_agent_name(data.agent_name):
+        if self._byoa.is_agent_name(data.agent_name):
             target_character_id = data.agent_name[len("byoa_") :]
             task_metadata = payload.get("task_metadata") if isinstance(payload, dict) else None
             task_metadata = task_metadata if isinstance(task_metadata, dict) else {}
@@ -2260,14 +2266,6 @@ class VoiceAgent(LLMAgent):
     #     brokered RPCs don't trample each other's event correlation
     #   - catches exceptions → error=str(e) in the response. Never re-raises.
     #
-    @staticmethod
-    def _is_byoa_agent_name(agent_name: str) -> bool:
-        return agent_name.startswith("byoa_") and not agent_name.startswith("byoa_runner_")
-
-    @staticmethod
-    def _is_byoa_runner_name(agent_name: str) -> bool:
-        return agent_name.startswith("byoa_runner_")
-
     def _broker_identity_for_message(
         self,
         message: BusMessage,
@@ -2285,10 +2283,10 @@ class VoiceAgent(LLMAgent):
         source = getattr(message, "source", "") or ""
         incoming_task_id = task_id if task_id is not None else getattr(message, "task_id", "")
 
-        if self._is_byoa_runner_name(source):
+        if self._byoa.is_runner_name(source):
             raise PermissionError("unauthorized_byoa_source")
 
-        if self._is_byoa_agent_name(source):
+        if self._byoa.is_agent_name(source):
             ctx = self._byoa_active_agents.get(source)
             if not ctx:
                 raise PermissionError("unauthorized_byoa_source")
@@ -2346,12 +2344,12 @@ class VoiceAgent(LLMAgent):
         """Track external BYOA runner process liveness and push it to RTVI."""
         ship_id = (message.ship_id or "").strip()
         source = getattr(message, "source", "") or ""
-        if not ship_id or source != self.byoa_agent_name(ship_id):
+        if not ship_id or source != self._byoa.agent_name_for(ship_id):
             logger.warning(f"byoa.presence_ignored source={source!r} ship={ship_id[:8]!r}")
             return
 
         if ship_id not in self._byoa_known_ships:
-            owner = await self._lookup_byoa_owner(ship_id)
+            owner = await self._byoa.lookup_owner(ship_id)
             if not owner:
                 logger.warning(
                     f"byoa.presence_ignored_not_claimed source={source!r} ship={ship_id[:8]}"
@@ -2378,7 +2376,7 @@ class VoiceAgent(LLMAgent):
             # Child harness reported on_finished — invalidate its registry
             # entry so the next watch_agent waits for a fresh ready event
             # instead of synchronously dispatching against a dead child.
-            self._invalidate_byoa_registry_entry(self.byoa_agent_name(ship_id))
+            self._invalidate_byoa_registry_entry(self._byoa.agent_name_for(ship_id))
 
         changed = previous is None or previous.online != online or previous.status != status
         if changed:
@@ -2441,7 +2439,7 @@ class VoiceAgent(LLMAgent):
                     online=False,
                     status="offline",
                 )
-                self._invalidate_byoa_registry_entry(self.byoa_agent_name(ship_id))
+                self._invalidate_byoa_registry_entry(self._byoa.agent_name_for(ship_id))
                 await self._push_byoa_presence(
                     ship_id=ship_id,
                     online=False,
@@ -2478,7 +2476,7 @@ class VoiceAgent(LLMAgent):
             await self.send_message(
                 BusEndAgentMessage(
                     source=self.name,
-                    target=self.byoa_agent_name(ship_character_id),
+                    target=self._byoa.agent_name_for(ship_character_id),
                     reason="byoa_offline",
                 )
             )
@@ -2641,7 +2639,7 @@ class VoiceAgent(LLMAgent):
                 msg,
                 task_id=msg.task_id or None,
             )
-            if self._is_byoa_agent_name(msg.source) and msg.ship_id and msg.ship_id != character_id:
+            if self._byoa.is_agent_name(msg.source) and msg.ship_id and msg.ship_id != character_id:
                 raise PermissionError("unauthorized_byoa_ship")
             kwargs: Dict[str, Any] = {"character_id": character_id}
             if msg.ship_id:
@@ -2954,7 +2952,7 @@ class VoiceAgent(LLMAgent):
 
                 byoa_owner_id: Optional[str] = None
                 if ship_id:
-                    byoa_owner_id = await self._lookup_byoa_owner(ship_id)
+                    byoa_owner_id = await self._byoa.lookup_owner(ship_id)
                     if byoa_owner_id:
                         self._byoa_known_ships.add(ship_id)
                         current_prefix = self._character_id.replace("-", "").lower()
@@ -2999,7 +2997,7 @@ class VoiceAgent(LLMAgent):
                 # marked waking and every task calls wake_agent; presence is
                 # only liveness/UI state, never a dispatch shortcut.
                 if byoa_owner_id:
-                    byoa_agent_name = self.byoa_agent_name(target_character_id)
+                    byoa_agent_name = self._byoa.agent_name_for(target_character_id)
                     # task_metadata.task_id is the stale-task guard the
                     # operator's agent checks against ship.current_task_id
                     # before doing real work. Include the framework id
@@ -3409,51 +3407,6 @@ class VoiceAgent(LLMAgent):
             timeout=self._byoa_config.agent_wake_timeout_seconds,
         )
 
-    def byoa_agent_name(self, target_character_id: str) -> str:
-        """Bus identity convention for a remote BYOA agent.
-
-        The operator's ``uv run byoa`` CLI advertises itself with this exact
-        name so the bot can target it via ``watch_agent`` / ``request_task``.
-        Format: ``byoa_<ship_id>`` with the full UUID (dashes kept).
-        """
-        return f"byoa_{target_character_id}"
-
-    async def _lookup_byoa_owner(self, ship_id: str) -> Optional[str]:
-        """Return the BYOA owner character_id for ``ship_id``, or None.
-
-        Hits ``my_corporation`` to read the ``byoa`` block surfaced by
-        ``_shared/corporations.ts``. Truthy return means the ship is
-        BYOA-claimed (route via wake_agent); None means in-process spawn.
-        """
-        try:
-            corp_result = await self._game_client._request(
-                "my_corporation",
-                {"character_id": self._character_id},
-            )
-        except Exception as exc:
-            logger.warning(f"_lookup_byoa_owner failed: {exc}")
-            return None
-        corp = corp_result.get("corporation") if isinstance(corp_result, dict) else None
-        if not isinstance(corp, dict):
-            return None
-        ships = corp.get("ships")
-        if not isinstance(ships, list):
-            return None
-        for ship in ships:
-            if not isinstance(ship, dict):
-                continue
-            if ship.get("ship_id") != ship_id:
-                continue
-            byoa = ship.get("byoa")
-            if not isinstance(byoa, dict):
-                return None
-            # The corp payload exposes a truncated 12-char prefix, not the
-            # full UUID. That's enough as a routing hint for the wake_agent
-            # call (the server re-resolves the owner from the row).
-            owner_prefix = byoa.get("owner_character_id_prefix")
-            return owner_prefix if isinstance(owner_prefix, str) and owner_prefix else None
-        return None
-
     async def _call_wake_agent(
         self,
         *,
@@ -3500,25 +3453,6 @@ class VoiceAgent(LLMAgent):
                 "error": repr(exc),
             }
 
-    def _byoa_wake_failure_message(
-        self,
-        wake_result: Dict[str, Any],
-        *,
-        ship_id: str,
-    ) -> Optional[str]:
-        target = str(wake_result.get("spawn_target") or "unknown")
-        status = str(wake_result.get("spawn_status") or "unknown")
-        if target == "http" and status == "accepted":
-            return None
-        if target == "noop":
-            return (
-                "BYOA wake is configured as noop and no runner is online for "
-                f"ship {ship_id[:8]}. Set BYOA_WAKE_TARGET=http and run "
-                "`uv run byoa --serve`, or start a manual BYOA runner before "
-                "assigning the task."
-            )
-        return f"BYOA wake failed before the runner came online ({target}/{status})."
-
     async def _dispatch_byoa_wake(
         self,
         *,
@@ -3537,7 +3471,7 @@ class VoiceAgent(LLMAgent):
             task_id=framework_task_id,
             ship_id=target_character_id,
         )
-        wake_error = self._byoa_wake_failure_message(
+        wake_error = self._byoa.wake_failure_message(
             wake_result,
             ship_id=target_character_id,
         )

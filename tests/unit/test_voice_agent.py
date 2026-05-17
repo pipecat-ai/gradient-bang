@@ -702,7 +702,7 @@ class TestHandleSteerTask:
         agent = _make_voice_agent()
         agent.send_message = AsyncMock()
         ship_id = "550e8400-e29b-41d4-a716-446655440000"
-        byoa_name = agent.byoa_agent_name(ship_id)
+        byoa_name = agent._byoa.agent_name_for(ship_id)
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}
         agent._byoa_active_agents[byoa_name] = {
@@ -732,7 +732,7 @@ class TestHandleSteerTask:
         agent.send_message = AsyncMock()
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Remote Ship"))
         ship_id = "550e8400-e29b-41d4-a716-446655440000"
-        byoa_name = agent.byoa_agent_name(ship_id)
+        byoa_name = agent._byoa.agent_name_for(ship_id)
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._locked_ships[ship_id] = full_id
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}

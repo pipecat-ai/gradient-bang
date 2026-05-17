@@ -2,9 +2,9 @@
 
 Covers:
 
-- ``_lookup_byoa_owner`` extracts the BYOA owner prefix from the
+- ``ByoaCoordinator.lookup_owner`` extracts the BYOA owner prefix from the
   ``my_corporation`` payload, returning None on any miss.
-- ``byoa_agent_name`` is the documented convention used by both sides.
+- ``ByoaCoordinator.agent_name_for`` is the documented convention used by both sides.
 - ``_resolve_hello_response`` treats ``correlation_id=""`` as an unsolicited
   online signal — no crash, no resolution of unrelated pending requests.
 - ``_watch_wake_timeout`` releases the server lock + clears local state when
@@ -60,7 +60,7 @@ def _make_voice_agent(**overrides) -> VoiceAgent:
 class TestByoaAgentName:
     def test_documented_format(self):
         agent = _make_voice_agent()
-        assert agent.byoa_agent_name("ship-uuid-123") == "byoa_ship-uuid-123"
+        assert agent._byoa.agent_name_for("ship-uuid-123") == "byoa_ship-uuid-123"
 
 
 @pytest.mark.unit
@@ -83,7 +83,7 @@ class TestLookupByoaOwner:
                 }
             }
         )
-        assert await agent._lookup_byoa_owner("ship-1") == "abc123def456"
+        assert await agent._byoa.lookup_owner("ship-1") == "abc123def456"
 
     async def test_returns_none_for_non_byoa_ship(self):
         agent = _make_voice_agent()
@@ -92,19 +92,19 @@ class TestLookupByoaOwner:
                 "corporation": {"ships": [{"ship_id": "ship-1", "byoa": None}]}
             }
         )
-        assert await agent._lookup_byoa_owner("ship-1") is None
+        assert await agent._byoa.lookup_owner("ship-1") is None
 
     async def test_returns_none_when_my_corporation_fails(self):
         agent = _make_voice_agent()
         agent._game_client._request = AsyncMock(side_effect=RuntimeError("network"))
-        assert await agent._lookup_byoa_owner("ship-1") is None
+        assert await agent._byoa.lookup_owner("ship-1") is None
 
     async def test_returns_none_when_ship_not_in_corp_response(self):
         agent = _make_voice_agent()
         agent._game_client._request = AsyncMock(
             return_value={"corporation": {"ships": []}}
         )
-        assert await agent._lookup_byoa_owner("ship-1") is None
+        assert await agent._byoa.lookup_owner("ship-1") is None
 
 
 @pytest.mark.unit
@@ -142,7 +142,7 @@ class TestUnsolicitedHello:
 class TestByoaPresence:
     async def test_presence_online_updates_map_and_pushes_rtvi(self):
         agent = _make_voice_agent()
-        agent._lookup_byoa_owner = AsyncMock(return_value="ownerprefix12")
+        agent._byoa.lookup_owner = AsyncMock(return_value="ownerprefix12")
 
         await agent._on_byoa_presence(
             BusByoaPresenceMessage(
@@ -164,7 +164,7 @@ class TestByoaPresence:
 
     async def test_presence_ignores_non_byoa_ship(self):
         agent = _make_voice_agent()
-        agent._lookup_byoa_owner = AsyncMock(return_value=None)
+        agent._byoa.lookup_owner = AsyncMock(return_value=None)
 
         await agent._on_byoa_presence(
             BusByoaPresenceMessage(
@@ -180,7 +180,7 @@ class TestByoaPresence:
 
     async def test_stale_presence_marks_offline(self):
         agent = _make_voice_agent()
-        agent._lookup_byoa_owner = AsyncMock(return_value="ownerprefix12")
+        agent._byoa.lookup_owner = AsyncMock(return_value="ownerprefix12")
         await agent._on_byoa_presence(
             BusByoaPresenceMessage(source="byoa_ship-1", ship_id="ship-1", online=True)
         )
@@ -279,7 +279,7 @@ class TestStartTaskWakeBranch:
         agent._is_valid_uuid = MagicMock(return_value=True)
         agent._resolve_ship_id_prefix = AsyncMock(return_value=None)
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Corp Ship"))
-        agent._lookup_byoa_owner = AsyncMock(return_value=byoa_owner_id)
+        agent._byoa.lookup_owner = AsyncMock(return_value=byoa_owner_id)
         agent._acquire_server_ship_lock = AsyncMock(return_value=None)
         agent._count_active_corp_tasks = MagicMock(return_value=0)
         agent._get_task_type = MagicMock(return_value="corp_ship")
