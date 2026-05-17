@@ -614,19 +614,30 @@ class TaskAgent(LLMAgent):
     def _sort_ready_game_events(
         cls, events: list[tuple[Dict[str, Any], bool]]
     ) -> list[tuple[Dict[str, Any], bool]]:
-        def key(item: tuple[int, tuple[Dict[str, Any], bool]]) -> tuple[int, int, int]:
-            idx, (event, _voice_agent_originated) = item
-            event_id = cls._extract_event_id(event)
-            return (1 if event_id is None else 0, event_id or 0, idx)
+        # Id-bearing events sort by event_id; no-id events keep their
+        # original arrival positions.
+        extracted = [
+            (idx, item, cls._extract_event_id(item[0])) for idx, item in enumerate(events)
+        ]
+        ided = [(idx, item, eid) for idx, item, eid in extracted if eid is not None]
+        ided.sort(key=lambda t: (t[2], t[0]))
 
-        return [event for _idx, event in sorted(enumerate(events), key=key)]
+        out: list[Optional[tuple[Dict[str, Any], bool]]] = [None] * len(events)
+        for idx, item, eid in extracted:
+            if eid is None:
+                out[idx] = item
+        free_slots = [i for i, slot in enumerate(out) if slot is None]
+        for slot, (_idx, item, _eid) in zip(free_slots, ided):
+            out[slot] = item
+        return [item for item in out if item is not None]
 
     @staticmethod
     def _extract_event_id(event: Mapping[str, Any]) -> Optional[int]:
-        payload = event.get("payload")
-        if not isinstance(payload, Mapping):
-            return None
-        ctx = payload.get("__event_context") or payload.get("event_context")
+        ctx = event.get("event_context")
+        if not isinstance(ctx, Mapping):
+            payload = event.get("payload")
+            if isinstance(payload, Mapping):
+                ctx = payload.get("__event_context") or payload.get("event_context")
         if not isinstance(ctx, Mapping):
             return None
         event_id = ctx.get("event_id")
@@ -637,6 +648,10 @@ class TaskAgent(LLMAgent):
         return None
 
     def _record_handled_event_order(self, event: Mapping[str, Any]) -> None:
+        # event.query is a backfill envelope — its ids don't belong
+        # on the live stream's high-water mark.
+        if event.get("event_name") == "event.query":
+            return
         event_id = self._extract_event_id(event)
         if event_id is None:
             return

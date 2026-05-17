@@ -1157,6 +1157,7 @@ class EventRelay:
         self._event_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
         self._event_worker_task: Optional[asyncio.Task] = None
         self._last_event_id: Optional[int] = None
+        self._closed = False
         # Combat preamble tracking: combat.md is loaded at most once per
         # session; strategy is re-fetched on every DIRECT round-1 entry (may
         # have changed between combats).
@@ -1216,6 +1217,9 @@ class EventRelay:
         logger.info(f"EventRelay session state attached for {display_name}")
 
     async def close(self) -> None:
+        # Set before cancelling so a late inbound event short-circuits
+        # in _enqueue_event instead of restarting the worker.
+        self._closed = True
         if self._event_worker_task is not None:
             self._event_worker_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -1229,6 +1233,8 @@ class EventRelay:
         self._session_started_at = None
 
     def _enqueue_event(self, event: Dict[str, Any]) -> None:
+        if self._closed:
+            return
         self._event_queue.put_nowait(event)
         if self._event_worker_task is None or self._event_worker_task.done():
             self._event_worker_task = asyncio.create_task(
@@ -1261,19 +1267,28 @@ class EventRelay:
 
     @classmethod
     def _sort_ready_events(cls, events: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
-        def key(item: tuple[int, Dict[str, Any]]) -> tuple[int, int, int]:
-            idx, event = item
-            event_id = cls._extract_event_id(event)
-            return (1 if event_id is None else 0, event_id or 0, idx)
+        # Id-bearing events sort by event_id; no-id events keep their
+        # original arrival positions.
+        extracted = [(idx, ev, cls._extract_event_id(ev)) for idx, ev in enumerate(events)]
+        ided = [(idx, ev, eid) for idx, ev, eid in extracted if eid is not None]
+        ided.sort(key=lambda t: (t[2], t[0]))
 
-        return [event for _idx, event in sorted(enumerate(events), key=key)]
+        out: list[Optional[Dict[str, Any]]] = [None] * len(events)
+        for idx, ev, eid in extracted:
+            if eid is None:
+                out[idx] = ev
+        free_slots = [i for i, slot in enumerate(out) if slot is None]
+        for slot, (_idx, ev, _eid) in zip(free_slots, ided):
+            out[slot] = ev
+        return [ev for ev in out if ev is not None]
 
     @staticmethod
     def _extract_event_id(event: Mapping[str, Any]) -> Optional[int]:
-        payload = event.get("payload")
-        if not isinstance(payload, Mapping):
-            return None
-        ctx = payload.get("__event_context") or payload.get("event_context")
+        ctx = event.get("event_context")
+        if not isinstance(ctx, Mapping):
+            payload = event.get("payload")
+            if isinstance(payload, Mapping):
+                ctx = payload.get("__event_context") or payload.get("event_context")
         if not isinstance(ctx, Mapping):
             return None
         event_id = ctx.get("event_id")
@@ -1284,6 +1299,10 @@ class EventRelay:
         return None
 
     def _record_event_order(self, event: Mapping[str, Any]) -> None:
+        # event.query is a backfill envelope — its ids don't belong
+        # on the live stream's high-water mark.
+        if event.get("event_name") == "event.query":
+            return
         event_id = self._extract_event_id(event)
         if event_id is None:
             return
@@ -1840,7 +1859,14 @@ class EventRelay:
 
         event_for_summary = {**event, "payload": clean_payload}
         task_summary = self._resolve_task_summary(cfg, event_name, event_for_summary)
-        event_for_bus = dict(event)
+
+        # Keep payload clean across the bus; lift event_context onto a
+        # top-level key so TaskAgent can still order by event_id without
+        # exposing internal metadata to the LLM.
+        event_for_bus = {**event, "payload": clean_payload}
+        bus_event_context = self._extract_event_context(payload)
+        if isinstance(bus_event_context, Mapping):
+            event_for_bus["event_context"] = dict(bus_event_context)
         if task_summary is not None:
             event_for_bus["summary"] = task_summary
 
@@ -1913,6 +1939,8 @@ class EventRelay:
             return
 
         # ── Phase 5: Summary, inference, delivery ──
+        # Voice path consumes the cleaned payload (event_for_summary),
+        # never event_for_bus.
         summary = self._resolve_voice_summary(cfg, event_for_summary, task_summary)
 
         # Append current task slot usage to our own status.snapshot summaries

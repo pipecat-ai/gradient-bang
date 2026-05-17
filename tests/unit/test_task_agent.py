@@ -379,7 +379,7 @@ class TestBusEventReception:
         await agent._game_event_queue.join()
         agent._handle_event.assert_called_once()
 
-    async def test_sparse_event_id_does_not_wait_for_gap(self):
+    async def test_event_with_event_id_is_processed_without_blocking(self):
         from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
 
         agent = _make_task_agent()
@@ -391,7 +391,8 @@ class TestBusEventReception:
             event={
                 "event_name": "trade.executed",
                 "task_id": "task-uuid-123",
-                "payload": {"__event_context": {"event_id": 101}},
+                "event_context": {"event_id": 101},
+                "payload": {},
             },
         )
         await agent.on_bus_message(msg)
@@ -400,9 +401,8 @@ class TestBusEventReception:
 
     def test_sorts_ready_events_by_event_id_without_requiring_contiguous_ids(self):
         ready = [
-            ({"event_name": "later", "payload": {"__event_context": {"event_id": 103}}}, False),
-            ({"event_name": "no-id", "payload": {}}, False),
-            ({"event_name": "earlier", "payload": {"__event_context": {"event_id": 101}}}, False),
+            ({"event_name": "later", "event_context": {"event_id": 103}, "payload": {}}, False),
+            ({"event_name": "earlier", "event_context": {"event_id": 101}, "payload": {}}, False),
         ]
 
         ordered = TaskAgent._sort_ready_game_events(ready)
@@ -410,8 +410,76 @@ class TestBusEventReception:
         assert [event["event_name"] for event, _originated in ordered] == [
             "earlier",
             "later",
-            "no-id",
         ]
+
+    def test_sorts_ready_events_preserves_arrival_order_for_no_id_events(self):
+        ready = [
+            ({"event_name": "no-id-A", "payload": {}}, False),
+            ({"event_name": "id-105", "event_context": {"event_id": 105}, "payload": {}}, False),
+            ({"event_name": "no-id-B", "payload": {}}, False),
+            ({"event_name": "id-101", "event_context": {"event_id": 101}, "payload": {}}, False),
+        ]
+
+        ordered = TaskAgent._sort_ready_game_events(ready)
+
+        assert [event["event_name"] for event, _originated in ordered] == [
+            "no-id-A",
+            "id-101",
+            "no-id-B",
+            "id-105",
+        ]
+
+    def test_extract_event_id_reads_top_level_event_context(self):
+        event = {"event_name": "x", "event_context": {"event_id": 42}, "payload": {}}
+        assert TaskAgent._extract_event_id(event) == 42
+
+    def test_extract_event_id_falls_back_to_payload_event_context(self):
+        event = {"event_name": "x", "payload": {"__event_context": {"event_id": 7}}}
+        assert TaskAgent._extract_event_id(event) == 7
+
+    def test_event_query_does_not_pollute_handled_high_water_mark(self):
+        agent = _make_task_agent()
+        agent._active_task_id = "task-1"
+        agent._last_handled_event_id = 100
+
+        agent._record_handled_event_order(
+            {"event_name": "event.query", "event_context": {"event_id": 50}, "payload": {}}
+        )
+        assert agent._last_handled_event_id == 100
+
+        agent._record_handled_event_order(
+            {"event_name": "trade.executed", "event_context": {"event_id": 110}, "payload": {}}
+        )
+        assert agent._last_handled_event_id == 110
+
+    async def test_bus_event_with_no_summary_does_not_leak_internal_metadata(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+
+        agent = _make_task_agent(character_id="char-123")
+        agent._active_task_id = "task-uuid-123"
+        agent._llm_context = MagicMock()
+        agent._output = MagicMock()
+
+        msg = BusGameEventMessage(
+            source="player",
+            event={
+                "event_name": "trade.executed",
+                "task_id": "task-uuid-123",
+                "event_context": {"event_id": 200, "scope": "direct"},
+                "payload": {"trade": {"price": 42}},
+            },
+        )
+        await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
+
+        appended = agent._llm_context.add_message.call_args.args[0]["content"]
+        assert "__event_context" not in appended
+        assert "recipient_ids" not in appended
+        assert "recipient_reasons" not in appended
+
+        output_text = agent._output.call_args.args[0]
+        assert "__event_context" not in output_text
+        assert "recipient_ids" not in output_text
 
     async def test_ignores_event_for_other_task(self):
         from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
