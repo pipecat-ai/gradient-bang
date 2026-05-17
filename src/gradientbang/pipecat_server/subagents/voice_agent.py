@@ -96,8 +96,6 @@ TASK_RESPONSE_SPEECH_START_GRACE_SECONDS = 0.75
 DEFERRED_UPDATE_STALE_TURNS = 5
 DEFERRED_UPDATE_SETTLE_SECONDS = 2.0
 DEFERRED_UPDATE_MAX_SETTLE_SECONDS = 8.0
-BYOA_PRESENCE_STALE_SECONDS = 25.0
-BYOA_PRESENCE_SWEEP_SECONDS = 5.0
 
 _UUID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
@@ -112,15 +110,6 @@ def _env_truthy(name: str) -> bool:
 class _DeferredUpdate:
     xml: str
     ship_id: Optional[str] = None
-
-
-@dataclass
-class _ByoaPresence:
-    ship_id: str
-    online: bool
-    status: str
-    last_seen_at: Optional[str]
-    last_seen_monotonic: float
 
 
 @dataclass
@@ -163,6 +152,7 @@ class VoiceAgent(LLMAgent):
         self._byoa = ByoaCoordinator(
             host=self,
             game_client=game_client,
+            rtvi=rtvi_processor,
             character_id=character_id,
         )
 
@@ -203,7 +193,7 @@ class VoiceAgent(LLMAgent):
         # ship_character_id → framework_task_id for the active task on that
         # ship. The bot is the only authority; there is no DB-side persistent
         # lock. Entries are cleared on task finish/error/timeout, on BYOA
-        # presence timeout (see _byoa_presence_sweep_loop), and on session
+        # presence timeout (see ByoaCoordinator._sweep_loop), and on session
         # teardown (close_tasks).
         self._locked_ships: Dict[str, str] = {}
         # PendingRequests tracks outbound BusAgentHelloRequest correlation_ids;
@@ -231,11 +221,6 @@ class VoiceAgent(LLMAgent):
         # keeps its own active-task table for authorization and cleanup.
         # agent_name -> {task_id, character_id, actor_character_id, task_metadata}
         self._byoa_active_agents: Dict[str, Dict[str, Any]] = {}
-        # Process presence for external BYOA runners. This is UI/task-start
-        # liveness only; registry + hello remains authoritative for dispatch.
-        self._byoa_presence: Dict[str, _ByoaPresence] = {}
-        self._byoa_presence_sweep_task: Optional[asyncio.Task] = None
-        self._byoa_known_ships: set[str] = set()
 
         # ── Deferred-update queue (task.completed batching, etc.) ──
         # Bounded drain task lifecycle: lazily spawned on first enqueue,
@@ -2334,156 +2319,28 @@ class VoiceAgent(LLMAgent):
         elif isinstance(message, BusTaskFinishNotification):
             await self._on_task_finish_notification(message)
         elif isinstance(message, BusByoaPresenceMessage):
-            await self._on_byoa_presence(message)
+            await self._byoa.on_presence(message)
         elif isinstance(message, BusAgentHelloResponse):
             self._resolve_hello_response(message)
 
         await super().on_bus_message(message)
 
-    async def _on_byoa_presence(self, message: BusByoaPresenceMessage) -> None:
-        """Track external BYOA runner process liveness and push it to RTVI."""
-        ship_id = (message.ship_id or "").strip()
-        source = getattr(message, "source", "") or ""
-        if not ship_id or source != self._byoa.agent_name_for(ship_id):
-            logger.warning(f"byoa.presence_ignored source={source!r} ship={ship_id[:8]!r}")
-            return
-
-        if ship_id not in self._byoa_known_ships:
-            owner = await self._byoa.lookup_owner(ship_id)
-            if not owner:
-                logger.warning(
-                    f"byoa.presence_ignored_not_claimed source={source!r} ship={ship_id[:8]}"
-                )
-                return
-            self._byoa_known_ships.add(ship_id)
-
-        online = bool(message.online)
-        status = "online" if online else "offline"
-        last_seen_at = message.last_seen_at
-        now = time.monotonic()
-        previous = self._byoa_presence.get(ship_id)
-        self._byoa_presence[ship_id] = _ByoaPresence(
-            ship_id=ship_id,
-            online=online,
-            status=status,
-            last_seen_at=last_seen_at,
-            last_seen_monotonic=now,
-        )
-
-        if online:
-            self._ensure_byoa_presence_sweeper()
-        else:
-            # Child harness reported on_finished — invalidate its registry
-            # entry so the next watch_agent waits for a fresh ready event
-            # instead of synchronously dispatching against a dead child.
-            self._invalidate_byoa_registry_entry(self._byoa.agent_name_for(ship_id))
-
-        changed = previous is None or previous.online != online or previous.status != status
-        if changed:
-            await self._push_byoa_presence(
-                ship_id=ship_id,
-                online=online,
-                status=status,
-                last_seen_at=last_seen_at,
-            )
-
-    async def _push_byoa_presence(
+    def release_ship_lock(
         self,
+        ship_character_id: str,
         *,
-        ship_id: str,
-        online: bool,
-        status: str,
-        last_seen_at: Optional[str],
-    ) -> None:
-        await self._rtvi.push_frame(
-            RTVIServerMessageFrame(
-                {
-                    "frame_type": "event",
-                    "event": "byoa.presence",
-                    "payload": {
-                        "ship_id": ship_id,
-                        "online": online,
-                        "status": status,
-                        "last_seen_at": last_seen_at,
-                    },
-                }
-            )
-        )
+        expected_task_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Release the local ship lock for ``ship_character_id``, if held.
 
-    def _ensure_byoa_presence_sweeper(self) -> None:
-        if self._byoa_presence_sweep_task is None or self._byoa_presence_sweep_task.done():
-            self._byoa_presence_sweep_task = asyncio.create_task(
-                self._byoa_presence_sweep_loop(),
-                name="byoa_presence_sweeper",
-            )
-
-    async def _byoa_presence_sweep_loop(self) -> None:
-        try:
-            while True:
-                await asyncio.sleep(BYOA_PRESENCE_SWEEP_SECONDS)
-                if not self._byoa_presence:
-                    return
-                await self._mark_stale_byoa_presence_offline()
-        except asyncio.CancelledError:
-            return
-        finally:
-            if asyncio.current_task() is self._byoa_presence_sweep_task:
-                self._byoa_presence_sweep_task = None
-
-    async def _mark_stale_byoa_presence_offline(self) -> None:
-        now = time.monotonic()
-        for ship_id, presence in list(self._byoa_presence.items()):
-            if presence.online and now - presence.last_seen_monotonic > BYOA_PRESENCE_STALE_SECONDS:
-                self._byoa_presence[ship_id] = replace(
-                    presence,
-                    online=False,
-                    status="offline",
-                )
-                self._invalidate_byoa_registry_entry(self._byoa.agent_name_for(ship_id))
-                await self._push_byoa_presence(
-                    ship_id=ship_id,
-                    online=False,
-                    status="offline",
-                    last_seen_at=presence.last_seen_at,
-                )
-                # If this BYOA was running a task, the bot is the only
-                # authority on its lock. Release it locally and emit a
-                # task.cancel event so downstream consumers (event log, UI)
-                # see the task ended. The zombie BYOA (if still alive) won't
-                # affect this bot's state — any belated bus messages tagged
-                # with the cancelled task_id are filtered out by TaskAgent.
-                await self._release_lock_on_byoa_offline(ship_id)
-
-    async def _release_lock_on_byoa_offline(self, ship_character_id: str) -> None:
-        framework_task_id = self._locked_ships.pop(ship_character_id, None)
-        if not framework_task_id:
-            return
-        logger.warning(
-            f"byoa.presence_stale ship={ship_character_id[:8]} "
-            f"task={framework_task_id[:8]} releasing lock locally"
-        )
-        try:
-            await self._game_client.task_cancel(
-                task_id=framework_task_id,
-                character_id=self._character_id,
-            )
-        except Exception as exc:
-            logger.warning(
-                f"byoa.presence_stale task_cancel emit failed for "
-                f"ship={ship_character_id[:8]} task={framework_task_id[:8]}: {exc}"
-            )
-        try:
-            await self.send_message(
-                BusEndAgentMessage(
-                    source=self.name,
-                    target=self._byoa.agent_name_for(ship_character_id),
-                    reason="byoa_offline",
-                )
-            )
-        except Exception as exc:
-            logger.warning(
-                f"byoa.presence_stale end_agent failed for ship={ship_character_id[:8]}: {exc}"
-            )
+        When ``expected_task_id`` is provided, the release only happens if
+        the current lock matches — prevents racing a concurrent acquire.
+        Returns the framework_task_id that was released, or None.
+        """
+        if expected_task_id is not None:
+            if self._locked_ships.get(ship_character_id) != expected_task_id:
+                return None
+        return self._locked_ships.pop(ship_character_id, None)
 
     def _invalidate_byoa_registry_entry(self, agent_name: str) -> None:
         """Pop a BYOA agent from pipecat's AgentRegistry.
@@ -2954,7 +2811,7 @@ class VoiceAgent(LLMAgent):
                 if ship_id:
                     byoa_owner_id = await self._byoa.lookup_owner(ship_id)
                     if byoa_owner_id:
-                        self._byoa_known_ships.add(ship_id)
+                        self._byoa.note_known_ship(ship_id)
                         current_prefix = self._character_id.replace("-", "").lower()
                         owner_prefix = byoa_owner_id.replace("-", "").lower()
                         if not current_prefix.startswith(owner_prefix):
@@ -3295,9 +3152,7 @@ class VoiceAgent(LLMAgent):
         framework tasks, then end pipelines, then clear local state.
         """
         # 1. Stop background sweepers so they can't fire during teardown.
-        if self._byoa_presence_sweep_task and not self._byoa_presence_sweep_task.done():
-            self._byoa_presence_sweep_task.cancel()
-        self._byoa_presence_sweep_task = None
+        self._byoa.close_sweeper()
 
         # 1a. Cancel any BYOA wake watchdogs so they don't fire mid-shutdown.
         for watchdog in list(self._pending_wakes.values()):

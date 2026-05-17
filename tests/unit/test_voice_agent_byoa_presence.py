@@ -5,8 +5,8 @@ is the only authority on "ship busy". When a BYOA process goes silent past
 the presence stale window, the bot must release its in-memory lock locally
 and emit a ``task.cancel`` event so downstream consumers see the task ended.
 
-Covers ``_release_lock_on_byoa_offline`` (the single-ship cleanup helper)
-and ``_mark_stale_byoa_presence_offline`` (the sweep loop's check, which
+Covers ``ByoaCoordinator._release_lock_on_offline`` (the single-ship cleanup helper)
+and ``ByoaCoordinator._mark_stale_offline`` (the sweep loop's check, which
 calls into the helper).
 """
 
@@ -19,11 +19,11 @@ import pytest
 
 from pipecat_subagents.bus import BusEndAgentMessage
 
-from gradientbang.pipecat_server.subagents.voice_agent import (
-    BYOA_PRESENCE_STALE_SECONDS,
-    VoiceAgent,
-    _ByoaPresence,
+from gradientbang.pipecat_server.byoa_coordinator import (
+    PRESENCE_STALE_SECONDS,
+    ByoaPresence,
 )
+from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
 
 
 def _make_voice_agent(**overrides) -> VoiceAgent:
@@ -50,7 +50,7 @@ def _set_presence(
     online: bool,
     seconds_ago: float,
 ) -> None:
-    agent._byoa_presence[ship_id] = _ByoaPresence(
+    agent._byoa._presence[ship_id] = ByoaPresence(
         ship_id=ship_id,
         online=online,
         status="online" if online else "offline",
@@ -68,7 +68,7 @@ class TestReleaseLockOnByoaOffline:
         task_id = "task-bbb"
         agent._locked_ships[ship_id] = task_id
 
-        await agent._release_lock_on_byoa_offline(ship_id)
+        await agent._byoa._release_lock_on_offline(ship_id)
 
         assert ship_id not in agent._locked_ships
         agent._game_client.task_cancel.assert_awaited_once_with(
@@ -85,7 +85,7 @@ class TestReleaseLockOnByoaOffline:
         agent = _make_voice_agent()
         agent.send_message = AsyncMock()
 
-        await agent._release_lock_on_byoa_offline("ship-not-locked")
+        await agent._byoa._release_lock_on_offline("ship-not-locked")
 
         agent._game_client.task_cancel.assert_not_awaited()
         agent.send_message.assert_not_awaited()
@@ -97,7 +97,7 @@ class TestReleaseLockOnByoaOffline:
         ship_id = "ship-ccc"
         agent._locked_ships[ship_id] = "task-ddd"
 
-        await agent._release_lock_on_byoa_offline(ship_id)
+        await agent._byoa._release_lock_on_offline(ship_id)
 
         # Lock still released locally even when the server emit fails;
         # the end-agent bus message is still attempted.
@@ -117,12 +117,12 @@ class TestMarkStaleByoaPresenceOffline:
             agent,
             ship_id,
             online=True,
-            seconds_ago=BYOA_PRESENCE_STALE_SECONDS + 5.0,
+            seconds_ago=PRESENCE_STALE_SECONDS + 5.0,
         )
 
-        await agent._mark_stale_byoa_presence_offline()
+        await agent._byoa._mark_stale_offline()
 
-        assert agent._byoa_presence[ship_id].online is False
+        assert agent._byoa._presence[ship_id].online is False
         assert ship_id not in agent._locked_ships
         agent._game_client.task_cancel.assert_awaited_once()
 
@@ -133,8 +133,8 @@ class TestMarkStaleByoaPresenceOffline:
         agent._locked_ships[ship_id] = "task-hhh"
         _set_presence(agent, ship_id, online=True, seconds_ago=1.0)
 
-        await agent._mark_stale_byoa_presence_offline()
+        await agent._byoa._mark_stale_offline()
 
-        assert agent._byoa_presence[ship_id].online is True
+        assert agent._byoa._presence[ship_id].online is True
         assert agent._locked_ships[ship_id] == "task-hhh"
         agent._game_client.task_cancel.assert_not_awaited()

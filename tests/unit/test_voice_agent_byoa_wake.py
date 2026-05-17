@@ -144,7 +144,7 @@ class TestByoaPresence:
         agent = _make_voice_agent()
         agent._byoa.lookup_owner = AsyncMock(return_value="ownerprefix12")
 
-        await agent._on_byoa_presence(
+        await agent._byoa.on_presence(
             BusByoaPresenceMessage(
                 source="byoa_ship-1",
                 ship_id="ship-1",
@@ -154,19 +154,19 @@ class TestByoaPresence:
             )
         )
 
-        assert agent._byoa_presence["ship-1"].online is True
+        assert agent._byoa._presence["ship-1"].online is True
         pushed = agent._rtvi.push_frame.await_args.args[0]
         assert pushed.data["event"] == "byoa.presence"
         assert pushed.data["payload"]["ship_id"] == "ship-1"
         assert pushed.data["payload"]["online"] is True
-        if agent._byoa_presence_sweep_task:
-            agent._byoa_presence_sweep_task.cancel()
+        if agent._byoa._sweep_task:
+            agent._byoa._sweep_task.cancel()
 
     async def test_presence_ignores_non_byoa_ship(self):
         agent = _make_voice_agent()
         agent._byoa.lookup_owner = AsyncMock(return_value=None)
 
-        await agent._on_byoa_presence(
+        await agent._byoa.on_presence(
             BusByoaPresenceMessage(
                 source="byoa_ship-1",
                 ship_id="ship-1",
@@ -175,25 +175,25 @@ class TestByoaPresence:
             )
         )
 
-        assert agent._byoa_presence == {}
+        assert agent._byoa._presence == {}
         agent._rtvi.push_frame.assert_not_awaited()
 
     async def test_stale_presence_marks_offline(self):
         agent = _make_voice_agent()
         agent._byoa.lookup_owner = AsyncMock(return_value="ownerprefix12")
-        await agent._on_byoa_presence(
+        await agent._byoa.on_presence(
             BusByoaPresenceMessage(source="byoa_ship-1", ship_id="ship-1", online=True)
         )
         agent._rtvi.push_frame.reset_mock()
-        agent._byoa_presence["ship-1"].last_seen_monotonic -= 999
+        agent._byoa._presence["ship-1"].last_seen_monotonic -= 999
 
-        await agent._mark_stale_byoa_presence_offline()
+        await agent._byoa._mark_stale_offline()
 
-        assert agent._byoa_presence["ship-1"].online is False
+        assert agent._byoa._presence["ship-1"].online is False
         pushed = agent._rtvi.push_frame.await_args.args[0]
         assert pushed.data["payload"]["online"] is False
-        if agent._byoa_presence_sweep_task:
-            agent._byoa_presence_sweep_task.cancel()
+        if agent._byoa._sweep_task:
+            agent._byoa._sweep_task.cancel()
 
 
 @pytest.mark.unit
@@ -415,7 +415,7 @@ class TestStartTaskWakeBranch:
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
         agent._byoa_bus_channel = "bot_session_abc"
-        agent._byoa_presence["ship-uuid-123"] = SimpleNamespace(
+        agent._byoa._presence["ship-uuid-123"] = SimpleNamespace(
             online=True,
             last_seen_monotonic=time.monotonic(),
         )
