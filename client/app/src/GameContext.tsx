@@ -1003,20 +1003,21 @@ export function GameProvider({ children }: GameProviderProps) {
 
               // Propagate garrison changes to map data so sector nodes re-render
               const sectorData = data as Sector
-              const mapGarrison =
-                sectorData.garrison ?
-                  {
+              if (sectorData.garrison) {
+                useGameStore.getState().applyMapDelta({
+                  kind: "garrison_set",
+                  sector_id: data.id,
+                  garrison: {
                     player_id: sectorData.garrison.owner_id,
-                    corporation_id: null as string | null,
+                    corporation_id: null,
                     mode: sectorData.garrison.mode ?? null,
-                  }
-                : null
-              useGameStore.getState().updateMapSectors([
-                {
-                  id: data.id,
-                  garrison: mapGarrison,
-                },
-              ])
+                  },
+                })
+              } else {
+                useGameStore
+                  .getState()
+                  .applyMapDelta({ kind: "garrison_cleared", sector_id: data.id })
+              }
 
               // Note: not updating activity log as redundant from other logs
 
@@ -1153,7 +1154,10 @@ export function GameProvider({ children }: GameProviderProps) {
             case "map.update": {
               console.debug("[GAME EVENT] Map update", e.payload)
               const data = e.payload as Msg.MapLocalMessage
-              useGameStore.getState().updateMapSectors(data.sectors as MapSectorNode[])
+              useGameStore.getState().applyMapDelta({
+                kind: "sector_upsert",
+                sectors: data.sectors as MapSectorNode[],
+              })
               break
             }
 
@@ -1377,7 +1381,11 @@ export function GameProvider({ children }: GameProviderProps) {
               // here too and should still highlight the sector.
               const overlaySectorId = getPayloadSectorId(data)
               if (typeof data.combat_id === "string" && typeof overlaySectorId === "number") {
-                useGameStore.getState().addCombatSector(data.combat_id, overlaySectorId)
+                useGameStore.getState().applyMapDelta({
+                  kind: "combat_started",
+                  sector_id: overlaySectorId,
+                  combat_id: data.combat_id,
+                })
               }
 
               const isParticipant =
@@ -1451,7 +1459,10 @@ export function GameProvider({ children }: GameProviderProps) {
               // Always clear the map overlay entry — fires for participant
               // and observer (observed: true) flavors alike.
               if (typeof data.combat_id === "string") {
-                useGameStore.getState().removeCombatSector(data.combat_id)
+                useGameStore.getState().applyMapDelta({
+                  kind: "combat_ended",
+                  combat_id: data.combat_id,
+                })
               }
 
               syncCorpShipsFromCombatRound(useGameStore.getState(), data as CombatRound)
@@ -1759,12 +1770,10 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Garrison destroyed", e.payload)
               const data = e.payload as Msg.GarrisonDestroyedMessage
 
-              useGameStore.getState().updateMapSectors([
-                {
-                  id: data.sector.id,
-                  garrison: null,
-                },
-              ])
+              useGameStore.getState().applyMapDelta({
+                kind: "garrison_cleared",
+                sector_id: data.sector.id,
+              })
 
               useGameStore.getState().addActivityLogEntry({
                 type: "garrison.destroyed",

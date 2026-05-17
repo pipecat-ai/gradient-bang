@@ -45,6 +45,23 @@ export interface MapUIActionPayload {
   clearCoursePlot?: boolean
 }
 
+/**
+ * Discriminated union of map-relevant deltas produced by GameContext from
+ * incoming server events. Client-internal type, never appears on the wire.
+ * Single merge function in the slice (`applyMapDelta`) consumes these and
+ * mutates `local_map_data` + `regional_map_data`, so every overlay change
+ * funnels through one code path.
+ */
+export type MapDelta =
+  | {
+      kind: "sector_upsert"
+      sectors: Array<Partial<MapSectorNode> & { id: number }>
+    }
+  | { kind: "garrison_set"; sector_id: number; garrison: MapSectorGarrison }
+  | { kind: "garrison_cleared"; sector_id: number }
+  | { kind: "combat_started"; sector_id: number; combat_id: string }
+  | { kind: "combat_ended"; combat_id: string }
+
 export interface MapSlice {
   // --- Map data ---
   pendingMapCenterRequestRef: MapCenterNode | null
@@ -63,16 +80,17 @@ export interface MapSlice {
   pendingMapFitMissingCount?: number
   coursePlotZoomEnabled: boolean
   mapLegendVisible: boolean
-  // Sectors with active combat the viewer can see, keyed by combat_id.
-  // Drives a dotted overlay on the big map; toggled by GameContext on
-  // combat.round_waiting (any flavor) and combat.ended (any flavor).
-  combat_sectors: Record<string, number>
   // --- Map data methods ---
   setPendingMapCenterRequest: (centerNode: MapCenterNode) => void
   handleMapCenterFallback: () => void
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
-  updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) => void
+  /**
+   * Single entry point for all map-relevant mutations from server events
+   * (sector.update, map.update, garrison.*, combat.*). Idempotent on
+   * (sector_id, field). Replaces the fan-in of bespoke per-event setters.
+   */
+  applyMapDelta: (delta: MapDelta) => void
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
 
@@ -87,9 +105,6 @@ export interface MapSlice {
   requestMapAutoRecenter: (reason: string) => void
   setCoursePlotZoomEnabled: (enabled: boolean) => void
   setMapLegendVisible: (visible: boolean) => void
-  addCombatSector: (combatId: string, sectorId: number) => void
-  removeCombatSector: (combatId: string) => void
-  clearCombatSectors: () => void
   resetMapView: () => void
   invalidateMapCoverage: (resetCenterSector?: number) => void
 
@@ -310,7 +325,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     pendingMapFitMissingCount: undefined,
     coursePlotZoomEnabled: true,
     mapLegendVisible: false,
-    combat_sectors: {},
     mapResetEpoch: 0,
     // =================================================================
     // Map data methods
@@ -446,102 +460,60 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       _maybeAutoRecenter("map.region")
     },
 
-    updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) =>
+    applyMapDelta: (delta: MapDelta) =>
       set(
         produce((state) => {
-          const processMapUpdates = (
-            mapData: MapSectorNode[] | undefined,
-            ignoreLocal: boolean = false
-          ): void => {
+          const merge = (mapData: MapSectorNode[] | undefined): void => {
             if (!mapData) return
-
-            const updates =
-              ignoreLocal ?
-                sectorUpdates.filter((s) => (s as MapSectorNode).source !== "player")
-              : sectorUpdates
-
-            const existingIndex = new Map<number, number>()
-            mapData.forEach((s: MapSectorNode, idx: number) => existingIndex.set(s.id, idx))
-
-            const hasExistingMatch =
-              updates.length > 0 && updates.some((s) => existingIndex.has(s.id))
-            const hasNewSectors =
-              updates.length > 0 && updates.some((s) => !existingIndex.has(s.id))
-            const hasPortOnlyWork =
-              ignoreLocal &&
-              sectorUpdates.some(
-                (s) =>
-                  (s as MapSectorNode).source === "player" &&
-                  s.port !== undefined &&
-                  existingIndex.has(s.id)
-              )
-
-            if (!hasExistingMatch && !hasNewSectors && !hasPortOnlyWork) return
-
-            for (const sectorUpdate of updates) {
-              const existingIdx = existingIndex.get(sectorUpdate.id)
-              if (existingIdx !== undefined) {
-                // When ignoreLocal is set (local_map_data), skip Object.assign
-                // on player-visited sectors to prevent corp-sourced updates
-                // from overwriting the player's own sector data. Unvisited or
-                // corp-only sectors can still be updated (e.g. when a probe
-                // visits a previously gray sector).
-                const existingSource = (mapData[existingIdx] as MapSectorNode).source
-                const isPlayerVisited = existingSource === "player" || existingSource === "both"
-                const incomingSource = (sectorUpdate as MapSectorNode).source
-                if (!ignoreLocal || !isPlayerVisited) {
-                  Object.assign(mapData[existingIdx], sectorUpdate)
-                  // Don't downgrade source from player/both to corp
-                  if (isPlayerVisited && incomingSource === "corp") {
-                    mapData[existingIdx].source = existingSource
-                  }
-                  if (sectorUpdate.port !== undefined) {
-                    const normalizedPort = normalizePort(
-                      (sectorUpdate as MapSectorNode).port as PortLike
-                    )
-                    mapData[existingIdx].port = normalizedPort as MapSectorNode["port"]
+            switch (delta.kind) {
+              case "sector_upsert": {
+                const indexById = new Map<number, number>()
+                mapData.forEach((s, idx) => indexById.set(s.id, idx))
+                for (const u of delta.sectors) {
+                  const idx = indexById.get(u.id)
+                  if (idx !== undefined) {
+                    Object.assign(mapData[idx], u)
+                    if (u.port !== undefined) {
+                      mapData[idx].port = normalizePort(
+                        (u as MapSectorNode).port as PortLike
+                      ) as MapSectorNode["port"]
+                    }
+                  } else {
+                    mapData.push({
+                      ...u,
+                      port: normalizePort((u as MapSectorNode).port as PortLike),
+                    } as MapSectorNode)
                   }
                 }
-              } else {
-                const newSector = {
-                  ...sectorUpdate,
-                  port: normalizePort((sectorUpdate as MapSectorNode).port as PortLike),
-                } as MapSectorNode
-                mapData.push(newSector)
+                break
               }
-            }
-
-            // For local_map_data: merge ONLY port data from player-sourced
-            // updates that were filtered out above. This ensures port changes
-            // (e.g. mega flag) reach local_map_data without overwriting
-            // structural data like lanes.
-            if (ignoreLocal) {
-              for (const su of sectorUpdates) {
-                if ((su as MapSectorNode).source !== "player") continue
-                if (su.port === undefined) continue
-                const idx = existingIndex.get(su.id)
-                if (idx !== undefined) {
-                  mapData[idx].port = normalizePort(
-                    (su as MapSectorNode).port as PortLike
-                  ) as MapSectorNode["port"]
-                }
+              case "garrison_set": {
+                const idx = mapData.findIndex((s) => s.id === delta.sector_id)
+                if (idx >= 0) mapData[idx].garrison = delta.garrison
+                break
               }
-
-              // Also merge garrison data into player-visited sectors that
-              // were skipped above. Garrison placements/removals should
-              // always be reflected on the mini map.
-              for (const su of sectorUpdates) {
-                if (su.garrison === undefined) continue
-                const idx = existingIndex.get(su.id)
-                if (idx !== undefined) {
-                  mapData[idx].garrison = su.garrison
+              case "garrison_cleared": {
+                const idx = mapData.findIndex((s) => s.id === delta.sector_id)
+                if (idx >= 0) mapData[idx].garrison = null
+                break
+              }
+              case "combat_started": {
+                const idx = mapData.findIndex((s) => s.id === delta.sector_id)
+                if (idx >= 0) mapData[idx].combat = { combat_id: delta.combat_id }
+                break
+              }
+              case "combat_ended": {
+                for (const sector of mapData) {
+                  if (sector.combat?.combat_id === delta.combat_id) {
+                    sector.combat = null
+                  }
                 }
+                break
               }
             }
           }
-
-          processMapUpdates(state.local_map_data, true)
-          processMapUpdates(state.regional_map_data)
+          merge(state.local_map_data)
+          merge(state.regional_map_data)
         })
       ),
 
@@ -611,36 +583,12 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         })
       ),
 
-    addCombatSector: (combatId: string, sectorId: number) =>
-      set(
-        produce((state) => {
-          if (state.combat_sectors[combatId] === sectorId) return
-          state.combat_sectors[combatId] = sectorId
-        })
-      ),
-
-    removeCombatSector: (combatId: string) =>
-      set(
-        produce((state) => {
-          if (!(combatId in state.combat_sectors)) return
-          delete state.combat_sectors[combatId]
-        })
-      ),
-
-    clearCombatSectors: () =>
-      set(
-        produce((state) => {
-          state.combat_sectors = {}
-        })
-      ),
-
     resetMapView: () =>
       set(
         produce((state) => {
           state.mapCenterSector = undefined
           state.mapCenterWorld = undefined
           state.mapFitBoundsWorld = undefined
-          state.combat_sectors = {}
           state.mapResetEpoch = (state.mapResetEpoch ?? 0) + 1
         })
       ),

@@ -134,7 +134,6 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
   const viewerCharacterId = useGameStore((state) => state.player?.id)
-  const combatSectorsRecord = useGameStore((state) => state.combat_sectors)
   const mapCenterSector = useGameStore((state) => state.mapCenterSector)
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const mapCenterWorld = useGameStore((state) => state.mapCenterWorld)
@@ -172,9 +171,11 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
 
   const combatSectorsSet = useMemo(() => {
     const ids = new Set<number>()
-    for (const id of Object.values(combatSectorsRecord)) ids.add(id)
+    for (const sectorNode of mapData ?? []) {
+      if (sectorNode.combat) ids.add(sectorNode.id)
+    }
     return ids
-  }, [combatSectorsRecord])
+  }, [mapData])
 
   // Initial fetch of map data
   useEffect(() => {
