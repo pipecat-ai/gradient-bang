@@ -154,6 +154,7 @@ class VoiceAgent(LLMAgent):
             game_client=game_client,
             rtvi=rtvi_processor,
             character_id=character_id,
+            config=self._byoa_config,
         )
 
         # ── Task timeout ──
@@ -201,22 +202,6 @@ class VoiceAgent(LLMAgent):
         # when the targeted agent signals alive.
         self._hello_pending: PendingRequests = PendingRequests()
 
-        # Per-ship watchdogs for the BYOA wake flow. Keyed by
-        # target_character_id (the ship's pseudo-character_id for corp
-        # ships). Each entry is an asyncio.Task that sleeps for
-        # agent_wake_timeout_seconds; on expiry it clears the local ship
-        # lock and cancels the task so a stuck wake doesn't leak.
-        # Cancelled when the BYOA agent advertises ready (on_agent_ready)
-        # or the task otherwise completes/cancels.
-        self._pending_wakes: Dict[str, asyncio.Task] = {}
-        # The actual per-session subagent-bus channel. The factory generates
-        # a fresh UUID-128 channel per session and stores it in
-        # SUBAGENT_BUS_SESSION_CHANNEL. Wake passes this value to the spawned
-        # BYOA process over HTTPS; local dev does the same through the
-        # generic HTTP wake provider (`uv run byoa serve`).
-        self._byoa_bus_channel = os.getenv("SUBAGENT_BUS_SESSION_CHANNEL", "").strip()
-        if self._byoa_bus_channel:
-            logger.info(f"byoa.session_channel channel_prefix={self._byoa_bus_channel[:11]}")
         # ── Deferred-update queue (task.completed batching, etc.) ──
         # Bounded drain task lifecycle: lazily spawned on first enqueue,
         # exits when the queue drains. While anything is pending or mid-flush,
@@ -1669,7 +1654,7 @@ class VoiceAgent(LLMAgent):
                 logger.error(f"Failed to cancel task {game_task_id[:8]} via client cancel: {e}")
             return
 
-        if self._cancel_pending_byoa_wake(
+        if self._byoa.try_cancel_pending_wake(
             game_task_id,
             summary="Task was cancelled before the BYOA agent came online.",
         ):
@@ -1696,39 +1681,19 @@ class VoiceAgent(LLMAgent):
                     logger.error(f"Failed to cancel task {tid} via client cancel: {e}")
                 return
 
-    def _cancel_pending_byoa_wake(self, game_task_id: str, *, summary: str) -> bool:
-        """Clear a BYOA task that was cancelled before the runner became ready."""
-        target_character_id = next(
-            (ship_id for ship_id, task_id in self._locked_ships.items() if task_id == game_task_id),
+    def ship_for_locked_task(self, task_id: str) -> Optional[str]:
+        """Find the ship currently holding a lock for `task_id`, or None."""
+        return next(
+            (ship_id for ship_id, tid in self._locked_ships.items() if tid == task_id),
             None,
         )
-        if not target_character_id:
-            return False
 
-        agent_name = self._byoa.agent_name_for(target_character_id)
-        had_pending_task = agent_name in self._pending_tasks
-        watchdog = self._pending_wakes.pop(target_character_id, None)
-        had_watchdog = watchdog is not None
-        if not had_pending_task and not had_watchdog:
-            return False
+    def clear_pending_task(self, agent_name: str) -> Optional[tuple]:
+        """Drop the pending-task entry for `agent_name`. Returns the prior (task_id, payload) or None."""
+        return self._pending_tasks.pop(agent_name, None)
 
-        if watchdog is not None and not watchdog.done():
-            watchdog.cancel()
-        self._pending_tasks.pop(agent_name, None)
-        self._locked_ships.pop(target_character_id, None)
-        self._update_polling_scope()
-
-        event_xml = (
-            f'<event name="task.cancelled" task_id="{game_task_id[:8]}" '
-            'task_type="corp_ship">\n'
-            f"{summary}\n"
-            "</event>"
-        )
-        self._enqueue_deferred_update(event_xml, ship_id=target_character_id)
-        logger.info(
-            f"byoa.pending_wake_cancelled ship={target_character_id[:8]} task={game_task_id[:8]}"
-        )
-        return True
+    def has_pending_task(self, agent_name: str) -> bool:
+        return agent_name in self._pending_tasks
 
     def is_our_task(self, task_id: str) -> bool:
         """Check if a task_id belongs to one of our active task groups."""
@@ -1988,9 +1953,7 @@ class VoiceAgent(LLMAgent):
         # never register a watchdog.
         if data.agent_name.startswith("byoa_"):
             target_character_id = data.agent_name[len("byoa_") :]
-            watchdog = self._pending_wakes.pop(target_character_id, None)
-            if watchdog is not None and not watchdog.done():
-                watchdog.cancel()
+            if self._byoa.cancel_pending_wake(target_character_id):
                 logger.info(
                     f"byoa.wake_ready ship={target_character_id[:8]} task={framework_task_id[:8]}"
                 )
@@ -2833,13 +2796,10 @@ class VoiceAgent(LLMAgent):
                     self._locked_ships[target_character_id] = framework_task_id
                     # Register watchdog before watch_agent so a same-tick
                     # ready event can cancel it cleanly.
-                    self._pending_wakes[target_character_id] = asyncio.create_task(
-                        self._watch_wake_timeout(
-                            target_character_id=target_character_id,
-                            framework_task_id=framework_task_id,
-                            agent_name=byoa_agent_name,
-                        ),
-                        name=f"byoa_wake_watchdog_{framework_task_id[:8]}",
+                    self._byoa.arm_wake_watchdog(
+                        target_character_id=target_character_id,
+                        framework_task_id=framework_task_id,
+                        agent_name=byoa_agent_name,
                     )
                     try:
                         await self.watch_agent(byoa_agent_name)
@@ -2850,9 +2810,7 @@ class VoiceAgent(LLMAgent):
                         # Roll back local state; the watchdog will still
                         # cancel the task and clear local state if cleanup
                         # races us.
-                        watchdog = self._pending_wakes.pop(target_character_id, None)
-                        if watchdog and not watchdog.done():
-                            watchdog.cancel()
+                        self._byoa.cancel_pending_wake(target_character_id)
                         self._pending_tasks.pop(byoa_agent_name, None)
                         self._locked_ships.pop(target_character_id, None)
                         try:
@@ -2868,13 +2826,10 @@ class VoiceAgent(LLMAgent):
                     # processes, so each task needs a fresh wake signal. The
                     # tool returns status="waking" immediately; failure cleanup
                     # uses the same path as the watchdog.
-                    asyncio.create_task(
-                        self._dispatch_byoa_wake(
-                            target_character_id=target_character_id,
-                            framework_task_id=framework_task_id,
-                            agent_name=byoa_agent_name,
-                        ),
-                        name=f"byoa_wake_dispatch_{framework_task_id[:8]}",
+                    self._byoa.dispatch_wake_async(
+                        target_character_id=target_character_id,
+                        framework_task_id=framework_task_id,
+                        agent_name=byoa_agent_name,
                     )
                     if byoa_agent_name not in self._pending_tasks:
                         return {
@@ -3119,10 +3074,7 @@ class VoiceAgent(LLMAgent):
         self._byoa.close_sweeper()
 
         # 1a. Cancel any BYOA wake watchdogs so they don't fire mid-shutdown.
-        for watchdog in list(self._pending_wakes.values()):
-            if not watchdog.done():
-                watchdog.cancel()
-        self._pending_wakes.clear()
+        self._byoa.cancel_all_pending_wakes()
 
         # 2. Emit task.cancel event for each held lock so downstream
         # consumers (event log, UI history) see the task ended. The bot is
@@ -3224,169 +3176,6 @@ class VoiceAgent(LLMAgent):
         return await self._hello_pending.issue(
             correlation_id,
             timeout=self._byoa_config.agent_wake_timeout_seconds,
-        )
-
-    async def _call_wake_agent(
-        self,
-        *,
-        task_id: str,
-        ship_id: str,
-    ) -> Dict[str, Any]:
-        """Call the server-side ``wake_agent`` endpoint and return spawn status."""
-        if not self._byoa_bus_channel:
-            logger.warning(f"byoa.wake_agent.skipped ship={ship_id[:8]} reason=no_bus_channel")
-            return {"spawn_target": "none", "spawn_status": "missing_bus_channel"}
-        try:
-            result = await self._game_client.wake_agent(
-                ship_id=ship_id,
-                channel=self._byoa_bus_channel,
-                task_id=task_id,
-            )
-            spawn_target = str(result.get("spawn_target") or "unknown")
-            spawn_status = str(result.get("spawn_status") or "unknown")
-            logger.info(
-                f"byoa.wake_agent.called ship={ship_id[:8]} "
-                f"task={task_id[:8]} channel_prefix={self._byoa_bus_channel[:11]} "
-                f"spawn_target={spawn_target!r} spawn_status={spawn_status!r}"
-            )
-            return result
-        except RPCError as exc:
-            body = exc.body if isinstance(exc.body, dict) else {}
-            spawn_target = str(body.get("spawn_target") or "error")
-            spawn_status = str(body.get("spawn_status") or "call_failed")
-            logger.warning(
-                f"byoa.wake_agent.call_failed ship={ship_id[:8]} "
-                f"spawn_target={spawn_target!r} spawn_status={spawn_status!r} "
-                f"error={exc!r}"
-            )
-            return {
-                "spawn_target": spawn_target,
-                "spawn_status": spawn_status,
-                "error": str(body.get("error") or exc.detail),
-            }
-        except Exception as exc:
-            logger.warning(f"byoa.wake_agent.call_failed ship={ship_id[:8]} error={exc!r}")
-            return {
-                "spawn_target": "error",
-                "spawn_status": "call_failed",
-                "error": repr(exc),
-            }
-
-    async def _dispatch_byoa_wake(
-        self,
-        *,
-        target_character_id: str,
-        framework_task_id: str,
-        agent_name: str,
-    ) -> None:
-        """Fire ``wake_agent`` off the start_task hot path.
-
-        Returning the tool result immediately is the goal — the LLM keeps
-        talking and the player UI shows ``waking`` while wake_agent does
-        its HTTP round-trip. On failure we mirror ``_watch_wake_timeout``'s
-        cleanup so the task doesn't get stuck waking.
-        """
-        wake_result = await self._call_wake_agent(
-            task_id=framework_task_id,
-            ship_id=target_character_id,
-        )
-        wake_error = self._byoa.wake_failure_message(
-            wake_result,
-            ship_id=target_character_id,
-        )
-        if not wake_error:
-            return
-        # A `task.started` event for this task has already been consumed by
-        # on_agent_ready — bail out so we don't double-cancel a live task.
-        if agent_name not in self._pending_tasks:
-            logger.info(
-                f"byoa.wake_agent.rejected.no_pending ship={target_character_id[:8]} "
-                f"task={framework_task_id[:8]} (agent already ready)"
-            )
-            return
-        logger.warning(
-            f"byoa.wake_agent.rejected ship={target_character_id[:8]} "
-            f"task={framework_task_id[:8]} error={wake_error!r}"
-        )
-        watchdog = self._pending_wakes.pop(target_character_id, None)
-        if watchdog is not None and not watchdog.done():
-            watchdog.cancel()
-        self._pending_tasks.pop(agent_name, None)
-        if self._locked_ships.get(target_character_id) == framework_task_id:
-            self._locked_ships.pop(target_character_id, None)
-        self._byoa.invalidate_registry_entry(agent_name)
-        try:
-            await self._game_client.task_cancel(
-                task_id=framework_task_id,
-                character_id=self._character_id,
-                force=True,
-            )
-        except Exception as release_exc:
-            logger.warning(f"byoa.wake_agent.rejected.release error={release_exc!r}")
-        self._enqueue_deferred_update(
-            (
-                f'<event name="task.cancelled" task_id="{framework_task_id[:8]}" '
-                'task_type="corp_ship">\n'
-                f"{wake_error}\n"
-                "</event>"
-            ),
-            ship_id=target_character_id,
-        )
-
-    async def _watch_wake_timeout(
-        self,
-        *,
-        target_character_id: str,
-        framework_task_id: str,
-        agent_name: str,
-    ) -> None:
-        """Watchdog that fires after ``agent_wake_timeout_seconds`` if the
-        BYOA agent never advertises ready.
-
-        Cancellation is the happy path — `on_agent_ready` cancels this
-        watchdog when the operator's agent comes online. Expiry is the
-        failure path: cancel the task via ``task_cancel(force=true)`` and
-        drop local state. A buffered ``BusTaskRequest`` (if still sitting
-        in PGMQ) ages out per the bus's retention; if the operator's
-        agent eventually wakes, it MUST verify its ``task_id`` is still
-        the active lock holder before processing.
-        """
-        try:
-            await asyncio.sleep(self._byoa_config.agent_wake_timeout_seconds)
-        except asyncio.CancelledError:
-            return
-
-        logger.warning(
-            f"byoa.wake_timeout ship={target_character_id[:8]} "
-            f"task={framework_task_id[:8]} — clearing ship lock + cancelling task"
-        )
-        # Clean local state first so a concurrent unsolicited hello after
-        # this point can't trigger a half-dispatched task.
-        self._pending_tasks.pop(agent_name, None)
-        self._pending_wakes.pop(target_character_id, None)
-        self._locked_ships.pop(target_character_id, None)
-        self._byoa.invalidate_registry_entry(agent_name)
-
-        # Force-cancel the task so the BYOA-owner check is bypassed when the
-        # bot cleans up a failed wake.
-        try:
-            await self._game_client.task_cancel(
-                task_id=framework_task_id,
-                character_id=self._character_id,
-                force=True,
-            )
-        except Exception as exc:
-            logger.warning(
-                f"byoa.wake_timeout.release_failed task={framework_task_id[:8]} error={exc!r}"
-            )
-        self._enqueue_deferred_update(
-            (
-                f'<event name="task.cancelled" task_id="{framework_task_id[:8]}" '
-                'task_type="corp_ship">\n'
-                "Task was cancelled because the BYOA agent did not come online in time.\n"
-                "</event>"
-            ),
-            ship_id=target_character_id,
         )
 
     # ── Task management tool wrappers ─────────────────────────────────
