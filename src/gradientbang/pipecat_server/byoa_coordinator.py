@@ -62,6 +62,11 @@ class ByoaCoordinator:
         self._sweep_task: Optional[asyncio.Task] = None
         self._known_ships: set[str] = set()
 
+        # Remote BYOA agents are not children in this process, so the broker
+        # keeps its own active-task table for authorization and cleanup.
+        # agent_name -> {task_id, character_id, actor_character_id, task_metadata}
+        self._active_agents: Dict[str, Dict[str, Any]] = {}
+
     # ── Pure helpers ──────────────────────────────────────────────────────
 
     @staticmethod
@@ -299,3 +304,57 @@ class ByoaCoordinator:
         if self._sweep_task and not self._sweep_task.done():
             self._sweep_task.cancel()
         self._sweep_task = None
+
+    # ── Active-agent table + broker auth ──────────────────────────────────
+
+    def register_active(
+        self,
+        agent_name: str,
+        *,
+        framework_task_id: str,
+        character_id: str,
+        actor_character_id: str,
+        task_metadata: Dict[str, Any],
+    ) -> None:
+        """Record a BYOA agent as the active task-holder for `agent_name`."""
+        self._active_agents[agent_name] = {
+            "task_id": framework_task_id,
+            "character_id": character_id,
+            "actor_character_id": actor_character_id,
+            "task_metadata": task_metadata,
+        }
+
+    def deactivate(self, agent_name: str) -> Optional[Dict[str, Any]]:
+        """Drop the active-agent entry, returning the removed context or None."""
+        return self._active_agents.pop(agent_name, None)
+
+    def get_active(self, agent_name: str) -> Optional[Dict[str, Any]]:
+        return self._active_agents.get(agent_name)
+
+    def resolve_identity(
+        self,
+        source: str,
+        incoming_task_id: str,
+    ) -> tuple[str, Optional[str], str]:
+        """Resolve authoritative identity for a brokered BYOA message.
+
+        Caller must have already confirmed ``is_agent_name(source)``; this
+        method assumes the source is a BYOA agent. Raises ``PermissionError``
+        if there is no matching active task or the task_id doesn't match.
+
+        Remote BYOA messages are untrusted even after the SQL wrapper
+        verifies their source name — the broker only accepts them while
+        there is a matching active task and derives character/actor
+        identity from the pending task payload, not from message fields.
+        """
+        ctx = self._active_agents.get(source)
+        if not ctx:
+            raise PermissionError("unauthorized_byoa_source")
+        expected_task_id = str(ctx.get("task_id") or "")
+        if not incoming_task_id or str(incoming_task_id) != expected_task_id:
+            raise PermissionError("unauthorized_byoa_task")
+        return (
+            str(ctx.get("character_id") or ""),
+            str(ctx.get("actor_character_id") or "") or None,
+            expected_task_id,
+        )

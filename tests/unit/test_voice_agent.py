@@ -705,7 +705,7 @@ class TestHandleSteerTask:
         byoa_name = agent._byoa.agent_name_for(ship_id)
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}
-        agent._byoa_active_agents[byoa_name] = {
+        agent._byoa._active_agents[byoa_name] = {
             "task_id": full_id,
             "character_id": ship_id,
             "actor_character_id": "char-123",
@@ -736,7 +736,7 @@ class TestHandleSteerTask:
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._locked_ships[ship_id] = full_id
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}
-        agent._byoa_active_agents[byoa_name] = {
+        agent._byoa._active_agents[byoa_name] = {
             "task_id": full_id,
             "character_id": ship_id,
             "actor_character_id": "char-123",

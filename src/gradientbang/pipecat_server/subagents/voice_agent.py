@@ -217,11 +217,6 @@ class VoiceAgent(LLMAgent):
         self._byoa_bus_channel = os.getenv("SUBAGENT_BUS_SESSION_CHANNEL", "").strip()
         if self._byoa_bus_channel:
             logger.info(f"byoa.session_channel channel_prefix={self._byoa_bus_channel[:11]}")
-        # Remote BYOA agents are not children in this process, so the broker
-        # keeps its own active-task table for authorization and cleanup.
-        # agent_name -> {task_id, character_id, actor_character_id, task_metadata}
-        self._byoa_active_agents: Dict[str, Dict[str, Any]] = {}
-
         # ── Deferred-update queue (task.completed batching, etc.) ──
         # Bounded drain task lifecycle: lazily spawned on first enqueue,
         # exits when the queue drains. While anything is pending or mid-flush,
@@ -1779,7 +1774,7 @@ class VoiceAgent(LLMAgent):
             return None
 
         byoa_agent_name = self._byoa.agent_name_for(ship_character_id)
-        byoa_ctx = self._byoa_active_agents.get(byoa_agent_name)
+        byoa_ctx = self._byoa.get_active(byoa_agent_name)
         if byoa_ctx is not None and str(byoa_ctx.get("task_id") or "") == framework_task_id:
             return _SteerTarget(
                 framework_task_id=framework_task_id,
@@ -1840,7 +1835,7 @@ class VoiceAgent(LLMAgent):
                     ship_character_id=child._character_id,
                 )
 
-            byoa_ctx = self._byoa_active_agents.get(name)
+            byoa_ctx = self._byoa.get_active(name)
             if byoa_ctx is not None and str(byoa_ctx.get("task_id") or "") == framework_task_id:
                 character_id = str(byoa_ctx.get("character_id") or "")
                 if character_id:
@@ -2016,12 +2011,13 @@ class VoiceAgent(LLMAgent):
             task_metadata = payload.get("task_metadata") if isinstance(payload, dict) else None
             task_metadata = task_metadata if isinstance(task_metadata, dict) else {}
             actor = task_metadata.get("actor_character_id")
-            self._byoa_active_agents[data.agent_name] = {
-                "task_id": framework_task_id,
-                "character_id": target_character_id,
-                "actor_character_id": actor if isinstance(actor, str) else "",
-                "task_metadata": task_metadata,
-            }
+            self._byoa.register_active(
+                data.agent_name,
+                framework_task_id=framework_task_id,
+                character_id=target_character_id,
+                actor_character_id=actor if isinstance(actor, str) else "",
+                task_metadata=task_metadata,
+            )
         try:
             await self._dispatch_task_with_id(
                 data.agent_name,
@@ -2030,7 +2026,7 @@ class VoiceAgent(LLMAgent):
                 timeout=self._task_agent_timeout,
             )
         except Exception:
-            self._byoa_active_agents.pop(data.agent_name, None)
+            self._byoa.deactivate(data.agent_name)
             raise
         self._update_polling_scope()
         logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.agent_name)
@@ -2055,7 +2051,7 @@ class VoiceAgent(LLMAgent):
         # Local map first so a concurrent acquire doesn't see a phantom lock.
         if target_character_id:
             self._locked_ships.pop(target_character_id, None)
-        self._byoa_active_agents.pop(agent_name, None)
+        self._byoa.deactivate(agent_name)
         # Server-side release.
         try:
             await self._game_client.task_cancel(
@@ -2110,7 +2106,7 @@ class VoiceAgent(LLMAgent):
     # ── Bus task protocol ─────────────────────────────────────────────
 
     async def on_task_update(self, message: BusTaskUpdateMessage) -> None:
-        byoa_ctx = self._byoa_active_agents.get(message.source)
+        byoa_ctx = self._byoa.get_active(message.source)
         if byoa_ctx is not None and message.task_id != str(byoa_ctx.get("task_id") or ""):
             logger.warning(
                 f"ignoring BYOA task update from {message.source!r} "
@@ -2150,7 +2146,7 @@ class VoiceAgent(LLMAgent):
         child = next(
             (c for c in self.children if isinstance(c, TaskAgent) and c.name == agent_name), None
         )
-        byoa_ctx = self._byoa_active_agents.get(agent_name)
+        byoa_ctx = self._byoa.get_active(agent_name)
         if byoa_ctx is not None and message.task_id != str(byoa_ctx.get("task_id") or ""):
             logger.warning(
                 f"ignoring BYOA task response from {agent_name!r} "
@@ -2234,7 +2230,7 @@ class VoiceAgent(LLMAgent):
                     logger.error(f"Failed to end task agent '{agent_name}': {e}")
                 self._children = [c for c in self._children if c.name != agent_name]
             if byoa_ctx is not None:
-                self._byoa_active_agents.pop(agent_name, None)
+                self._byoa.deactivate(agent_name)
                 self._invalidate_byoa_registry_entry(agent_name)
 
             self._update_polling_scope()
@@ -2272,17 +2268,7 @@ class VoiceAgent(LLMAgent):
             raise PermissionError("unauthorized_byoa_source")
 
         if self._byoa.is_agent_name(source):
-            ctx = self._byoa_active_agents.get(source)
-            if not ctx:
-                raise PermissionError("unauthorized_byoa_source")
-            expected_task_id = str(ctx.get("task_id") or "")
-            if not incoming_task_id or str(incoming_task_id) != expected_task_id:
-                raise PermissionError("unauthorized_byoa_task")
-            return (
-                str(ctx.get("character_id") or ""),
-                str(ctx.get("actor_character_id") or "") or None,
-                expected_task_id,
-            )
+            return self._byoa.resolve_identity(source, incoming_task_id)
 
         child = next(
             (c for c in self.children if isinstance(c, TaskAgent) and c.name == source),

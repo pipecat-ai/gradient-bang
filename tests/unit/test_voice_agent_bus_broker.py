@@ -356,7 +356,7 @@ class TestGameToolCallBroker:
         )
 
         agent = _make_voice_agent()
-        agent._byoa_active_agents["byoa_ship-123"] = {
+        agent._byoa._active_agents["byoa_ship-123"] = {
             "task_id": "task-real",
             "character_id": "ship-real",
             "actor_character_id": "actor-real",
@@ -400,7 +400,7 @@ class TestGameToolCallBroker:
     @pytest.mark.asyncio
     async def test_byoa_wrong_task_id_rejected(self):
         agent = _make_voice_agent()
-        agent._byoa_active_agents["byoa_ship-123"] = {
+        agent._byoa._active_agents["byoa_ship-123"] = {
             "task_id": "task-real",
             "character_id": "ship-real",
             "actor_character_id": "actor-real",
@@ -434,7 +434,7 @@ class TestByoaTaskLifecycleAuthorization:
     @pytest.mark.asyncio
     async def test_byoa_task_response_wrong_task_id_is_ignored(self):
         agent = _make_voice_agent()
-        agent._byoa_active_agents["byoa_ship-123"] = {
+        agent._byoa._active_agents["byoa_ship-123"] = {
             "task_id": "task-real",
             "character_id": "ship-real",
             "actor_character_id": "actor-real",
@@ -457,12 +457,12 @@ class TestByoaTaskLifecycleAuthorization:
         agent._task_output_handler.assert_not_awaited()
         agent._enqueue_deferred_update.assert_not_called()
         assert agent._locked_ships["ship-real"] == "task-real"
-        assert "byoa_ship-123" in agent._byoa_active_agents
+        assert "byoa_ship-123" in agent._byoa._active_agents
 
     @pytest.mark.asyncio
     async def test_byoa_task_update_wrong_task_id_is_ignored(self):
         agent = _make_voice_agent()
-        agent._byoa_active_agents["byoa_ship-123"] = {
+        agent._byoa._active_agents["byoa_ship-123"] = {
             "task_id": "task-real",
             "character_id": "ship-real",
             "actor_character_id": "actor-real",
