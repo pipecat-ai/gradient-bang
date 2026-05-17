@@ -442,8 +442,8 @@ class TestByoaTaskLifecycleAuthorization:
         }
         agent._locked_ships["ship-real"] = "task-real"
         agent._task_output_handler = AsyncMock()
-        agent._enqueue_deferred_update = MagicMock()
-        agent._update_polling_scope = MagicMock()
+        agent.enqueue_deferred_update = MagicMock()
+        agent.update_polling_scope = MagicMock()
 
         msg = BusTaskResponseMessage(
             source="byoa_ship-123",
@@ -455,7 +455,7 @@ class TestByoaTaskLifecycleAuthorization:
         await agent.on_task_response(msg)
 
         agent._task_output_handler.assert_not_awaited()
-        agent._enqueue_deferred_update.assert_not_called()
+        agent.enqueue_deferred_update.assert_not_called()
         assert agent._locked_ships["ship-real"] == "task-real"
         assert "byoa_ship-123" in agent._byoa._active_agents
 

@@ -484,7 +484,7 @@ class ByoaCoordinator:
             watchdog.cancel()
         self._host.clear_pending_task(agent_name)
         self._host.release_ship_lock(target_character_id)
-        self._host._update_polling_scope()
+        self._host.update_polling_scope()
 
         event_xml = (
             f'<event name="task.cancelled" task_id="{game_task_id[:8]}" '
@@ -492,7 +492,7 @@ class ByoaCoordinator:
             f"{summary}\n"
             "</event>"
         )
-        self._host._enqueue_deferred_update(event_xml, ship_id=target_character_id)
+        self._host.enqueue_deferred_update(event_xml, ship_id=target_character_id)
         logger.info(
             f"byoa.pending_wake_cancelled ship={target_character_id[:8]} task={game_task_id[:8]}"
         )
@@ -592,7 +592,7 @@ class ByoaCoordinator:
             )
         except Exception as release_exc:
             logger.warning(f"byoa.wake_agent.rejected.release error={release_exc!r}")
-        self._host._enqueue_deferred_update(
+        self._host.enqueue_deferred_update(
             (
                 f'<event name="task.cancelled" task_id="{framework_task_id[:8]}" '
                 'task_type="corp_ship">\n'
@@ -648,7 +648,7 @@ class ByoaCoordinator:
             logger.warning(
                 f"byoa.wake_timeout.release_failed task={framework_task_id[:8]} error={exc!r}"
             )
-        self._host._enqueue_deferred_update(
+        self._host.enqueue_deferred_update(
             (
                 f'<event name="task.cancelled" task_id="{framework_task_id[:8]}" '
                 'task_type="corp_ship">\n'

@@ -683,7 +683,7 @@ class VoiceAgent(LLMAgent):
 
     # ── Deferred-update queue ──────────────────────────────────────────
 
-    def _enqueue_deferred_update(self, event_xml: str, *, ship_id: Optional[str] = None) -> None:
+    def enqueue_deferred_update(self, event_xml: str, *, ship_id: Optional[str] = None) -> None:
         """Append an update to the deferred queue and ensure a drain task is running.
 
         The drain task is bounded by the queue contents — it exits as soon as
@@ -1840,9 +1840,6 @@ class VoiceAgent(LLMAgent):
             ship_ids=self._polling_scope_ship_ids(),
         )
 
-    # Keep private alias for internal callers
-    _update_polling_scope = update_polling_scope
-
     async def _sync_polling_scope_for_task_start(self, target_character_id: str) -> None:
         if target_character_id == self._character_id:
             return
@@ -1991,7 +1988,7 @@ class VoiceAgent(LLMAgent):
         except Exception:
             self._byoa.deactivate(data.agent_name)
             raise
-        self._update_polling_scope()
+        self.update_polling_scope()
         logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.agent_name)
 
     async def _rollback_failed_spawn(
@@ -2031,7 +2028,7 @@ class VoiceAgent(LLMAgent):
         except Exception as exc:
             logger.warning(f"rollback: BusEndAgentMessage send failed: {exc}")
         self._children = [c for c in self._children if c.name != agent_name]
-        self._update_polling_scope()
+        self.update_polling_scope()
 
     async def _dispatch_task_with_id(
         self,
@@ -2167,7 +2164,7 @@ class VoiceAgent(LLMAgent):
             # Hand off to the deferred-update queue. The drain coordinator
             # batches close-together completions, gates on bot/user speech state,
             # and silently folds in entries once the topic has clearly moved on.
-            self._enqueue_deferred_update(event_xml, ship_id=ship_character_id)
+            self.enqueue_deferred_update(event_xml, ship_id=ship_character_id)
         except Exception as exc:
             logger.exception(
                 f"VoiceAgent: task response notification failed for "
@@ -2196,7 +2193,7 @@ class VoiceAgent(LLMAgent):
                 self._byoa.deactivate(agent_name)
                 self._byoa.invalidate_registry_entry(agent_name)
 
-            self._update_polling_scope()
+            self.update_polling_scope()
 
     # ── BYOA broker ────────────────────────────────────────────────────
     #
@@ -2713,7 +2710,7 @@ class VoiceAgent(LLMAgent):
                                     f"task_cancel after reuse dispatch failure errored: {exc}"
                                 )
                             raise
-                        self._update_polling_scope()
+                        self.update_polling_scope()
                         return {
                             "success": True,
                             "message": "Task started",
