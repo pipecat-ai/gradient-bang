@@ -3,10 +3,24 @@
 LLMAgent that handles the player's voice conversation. Receives frames from
 MainAgent via the bus, runs an LLM pipeline, and sends responses back.
 
-Owns request ID tracking, deferred event batching, and task lifecycle.
-Task management state is derived from child TaskAgent instances and the
-framework's _task_groups dict. Implements the TaskStateProvider protocol
-so EventRelay can query task state during event routing.
+What lives here:
+
+- Pipeline wiring + speech-cycle gating (assistant_cycle, speech-start grace,
+  bot/user speaking state).
+- Deferred-update coalescer: batches close-together task.completed/etc.
+  narrations and gates them on speech state so they don't step on the bot's
+  reply to the user.
+- Game tool handlers (event-generating, fire-and-forget, direct-response),
+  plus the bus broker that resolves typed BusGameToolCallRequest etc. into
+  AsyncGameClient calls.
+- Task lifecycle: start/stop/steer/query_progress handlers, child TaskAgent
+  supervision, server-side task.start emit, hello handshake.
+- TaskStateProvider protocol implementation for EventRelay.
+- Narrow host facade methods that ByoaCoordinator depends on
+  (release_ship_lock, clear_pending_task, ship_for_locked_task, etc.).
+
+BYOA wake, presence, broker auth, and registry handling live in
+ByoaCoordinator — see ``pipecat_server/byoa_coordinator.py``.
 """
 
 from __future__ import annotations
@@ -188,14 +202,11 @@ class VoiceAgent(LLMAgent):
         self._assistant_cycle_active: bool = False
         self._speech_start_grace_task: Optional[asyncio.Task] = None
         self._start_task_lock: asyncio.Lock = asyncio.Lock()
-        # Maps ship/character_id of the held lock → framework_task_id. The
-        # server-side mutex on ship_instances.current_task_id is authoritative
-        # Per-bot in-memory authority on "ship is busy". Each entry maps
-        # ship_character_id → framework_task_id for the active task on that
-        # ship. The bot is the only authority; there is no DB-side persistent
-        # lock. Entries are cleared on task finish/error/timeout, on BYOA
-        # presence timeout (see ByoaCoordinator._sweep_loop), and on session
-        # teardown (close_tasks).
+        # Per-bot in-memory authority on "ship is busy" — there is no
+        # DB-side persistent lock. Maps ship_character_id → framework_task_id
+        # for the active task on that ship. Entries are cleared on task
+        # finish/error/timeout, on BYOA presence timeout (see
+        # ByoaCoordinator._sweep_loop), and on session teardown (close_tasks).
         self._locked_ships: Dict[str, str] = {}
         # PendingRequests tracks outbound BusAgentHelloRequest correlation_ids;
         # the broker's hello-response handler resolves the awaiting future
@@ -243,7 +254,7 @@ class VoiceAgent(LLMAgent):
             return
         await super().queue_frame(frame, direction)
 
-    # ── Lifecycle ───────────────────────────────────────────────────────
+    # ── Speech-cycle gating ───────────────────────────────────────────
 
     async def on_activated(self, args: Optional[dict]) -> None:
         """Activate the LLM agent. Initial messages (start_of_session,
@@ -543,6 +554,10 @@ class VoiceAgent(LLMAgent):
             return False
         self._prune_request_ids()
         return request_id in self._voice_agent_request_ids
+
+    def is_our_task(self, task_id: str) -> bool:
+        """Check if a task_id belongs to one of our active task groups."""
+        return task_id in self._task_groups
 
     # ── Deferred frame processing ────────────────────────────────────
 
@@ -1681,6 +1696,10 @@ class VoiceAgent(LLMAgent):
                     logger.error(f"Failed to cancel task {tid} via client cancel: {e}")
                 return
 
+    # ── Host facade for ByoaCoordinator ───────────────────────────────
+    # Narrow VoiceAgent surface that the coordinator depends on. Keeping
+    # these in one cluster makes the seam easy to inspect and change.
+
     def ship_for_locked_task(self, task_id: str) -> Optional[str]:
         """Find the ship currently holding a lock for `task_id`, or None."""
         return next(
@@ -1695,9 +1714,26 @@ class VoiceAgent(LLMAgent):
     def has_pending_task(self, agent_name: str) -> bool:
         return agent_name in self._pending_tasks
 
-    def is_our_task(self, task_id: str) -> bool:
-        """Check if a task_id belongs to one of our active task groups."""
-        return task_id in self._task_groups
+    def release_ship_lock(
+        self,
+        ship_character_id: str,
+        *,
+        expected_task_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Release the local ship lock for ``ship_character_id``, if held.
+
+        When ``expected_task_id`` is provided, the release only happens if
+        the current lock matches — prevents racing a concurrent acquire.
+        Returns the framework_task_id that was released, or None.
+        """
+        if expected_task_id is not None:
+            if self._locked_ships.get(ship_character_id) != expected_task_id:
+                return None
+        return self._locked_ships.pop(ship_character_id, None)
+
+    def get_agent_registry(self) -> Any:
+        """Expose the pipecat AgentRegistry to ByoaCoordinator for entry invalidation."""
+        return getattr(self, "_registry", None)
 
     # ── Child agent helpers ───────────────────────────────────────────
 
@@ -1936,7 +1972,7 @@ class VoiceAgent(LLMAgent):
                 return True, (name if isinstance(name, str) and name.strip() else None)
         return False, None
 
-    # ── Agent lifecycle ────────────────────────────────────────────────
+    # ── Subagent spawn handshake ──────────────────────────────────────
 
     async def on_agent_ready(self, data) -> None:
         await super().on_agent_ready(data)
@@ -2270,27 +2306,6 @@ class VoiceAgent(LLMAgent):
             self._resolve_hello_response(message)
 
         await super().on_bus_message(message)
-
-    def release_ship_lock(
-        self,
-        ship_character_id: str,
-        *,
-        expected_task_id: Optional[str] = None,
-    ) -> Optional[str]:
-        """Release the local ship lock for ``ship_character_id``, if held.
-
-        When ``expected_task_id`` is provided, the release only happens if
-        the current lock matches — prevents racing a concurrent acquire.
-        Returns the framework_task_id that was released, or None.
-        """
-        if expected_task_id is not None:
-            if self._locked_ships.get(ship_character_id) != expected_task_id:
-                return None
-        return self._locked_ships.pop(ship_character_id, None)
-
-    def get_agent_registry(self) -> Any:
-        """Expose the pipecat AgentRegistry to ByoaCoordinator for entry invalidation."""
-        return getattr(self, "_registry", None)
 
     def _resolve_hello_response(self, message: BusAgentHelloResponse) -> None:
         """Resolve the awaiting hello future for ``correlation_id``.
