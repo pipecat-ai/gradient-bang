@@ -2,14 +2,14 @@
 
 Covers:
 
-- ``_lookup_byoa_owner`` extracts the BYOA owner prefix from the
+- ``ByoaCoordinator.lookup_owner`` extracts the BYOA owner prefix from the
   ``my_corporation`` payload, returning None on any miss.
-- ``byoa_agent_name`` is the documented convention used by both sides.
+- ``ByoaCoordinator.agent_name_for`` is the documented convention used by both sides.
 - ``_resolve_hello_response`` treats ``correlation_id=""`` as an unsolicited
   online signal — no crash, no resolution of unrelated pending requests.
-- ``_watch_wake_timeout`` releases the server lock + clears local state when
-  the timer expires, and is a no-op when cancelled (the happy path on
-  ``on_agent_ready``).
+- ``ByoaCoordinator._watch_wake_timeout`` releases the server lock + clears
+  local state when the timer expires, and is a no-op when cancelled (the
+  happy path on ``on_agent_ready``).
 - The wake-flow branch in ``_handle_start_task``:
   - returns ``status="waking"`` immediately
   - registers a watchdog + pending-task entry keyed by the BYOA agent name
@@ -60,7 +60,7 @@ def _make_voice_agent(**overrides) -> VoiceAgent:
 class TestByoaAgentName:
     def test_documented_format(self):
         agent = _make_voice_agent()
-        assert agent.byoa_agent_name("ship-uuid-123") == "byoa_ship-uuid-123"
+        assert agent._byoa.agent_name_for("ship-uuid-123") == "byoa_ship-uuid-123"
 
 
 @pytest.mark.unit
@@ -83,7 +83,7 @@ class TestLookupByoaOwner:
                 }
             }
         )
-        assert await agent._lookup_byoa_owner("ship-1") == "abc123def456"
+        assert await agent._byoa.lookup_owner("ship-1") == "abc123def456"
 
     async def test_returns_none_for_non_byoa_ship(self):
         agent = _make_voice_agent()
@@ -92,19 +92,19 @@ class TestLookupByoaOwner:
                 "corporation": {"ships": [{"ship_id": "ship-1", "byoa": None}]}
             }
         )
-        assert await agent._lookup_byoa_owner("ship-1") is None
+        assert await agent._byoa.lookup_owner("ship-1") is None
 
     async def test_returns_none_when_my_corporation_fails(self):
         agent = _make_voice_agent()
         agent._game_client._request = AsyncMock(side_effect=RuntimeError("network"))
-        assert await agent._lookup_byoa_owner("ship-1") is None
+        assert await agent._byoa.lookup_owner("ship-1") is None
 
     async def test_returns_none_when_ship_not_in_corp_response(self):
         agent = _make_voice_agent()
         agent._game_client._request = AsyncMock(
             return_value={"corporation": {"ships": []}}
         )
-        assert await agent._lookup_byoa_owner("ship-1") is None
+        assert await agent._byoa.lookup_owner("ship-1") is None
 
 
 @pytest.mark.unit
@@ -142,9 +142,9 @@ class TestUnsolicitedHello:
 class TestByoaPresence:
     async def test_presence_online_updates_map_and_pushes_rtvi(self):
         agent = _make_voice_agent()
-        agent._lookup_byoa_owner = AsyncMock(return_value="ownerprefix12")
+        agent._byoa.lookup_owner = AsyncMock(return_value="ownerprefix12")
 
-        await agent._on_byoa_presence(
+        await agent._byoa.on_presence(
             BusByoaPresenceMessage(
                 source="byoa_ship-1",
                 ship_id="ship-1",
@@ -154,19 +154,19 @@ class TestByoaPresence:
             )
         )
 
-        assert agent._byoa_presence["ship-1"].online is True
+        assert agent._byoa._presence["ship-1"].online is True
         pushed = agent._rtvi.push_frame.await_args.args[0]
         assert pushed.data["event"] == "byoa.presence"
         assert pushed.data["payload"]["ship_id"] == "ship-1"
         assert pushed.data["payload"]["online"] is True
-        if agent._byoa_presence_sweep_task:
-            agent._byoa_presence_sweep_task.cancel()
+        if agent._byoa._sweep_task:
+            agent._byoa._sweep_task.cancel()
 
     async def test_presence_ignores_non_byoa_ship(self):
         agent = _make_voice_agent()
-        agent._lookup_byoa_owner = AsyncMock(return_value=None)
+        agent._byoa.lookup_owner = AsyncMock(return_value=None)
 
-        await agent._on_byoa_presence(
+        await agent._byoa.on_presence(
             BusByoaPresenceMessage(
                 source="byoa_ship-1",
                 ship_id="ship-1",
@@ -175,36 +175,36 @@ class TestByoaPresence:
             )
         )
 
-        assert agent._byoa_presence == {}
+        assert agent._byoa._presence == {}
         agent._rtvi.push_frame.assert_not_awaited()
 
     async def test_stale_presence_marks_offline(self):
         agent = _make_voice_agent()
-        agent._lookup_byoa_owner = AsyncMock(return_value="ownerprefix12")
-        await agent._on_byoa_presence(
+        agent._byoa.lookup_owner = AsyncMock(return_value="ownerprefix12")
+        await agent._byoa.on_presence(
             BusByoaPresenceMessage(source="byoa_ship-1", ship_id="ship-1", online=True)
         )
         agent._rtvi.push_frame.reset_mock()
-        agent._byoa_presence["ship-1"].last_seen_monotonic -= 999
+        agent._byoa._presence["ship-1"].last_seen_monotonic -= 999
 
-        await agent._mark_stale_byoa_presence_offline()
+        await agent._byoa._mark_stale_offline()
 
-        assert agent._byoa_presence["ship-1"].online is False
+        assert agent._byoa._presence["ship-1"].online is False
         pushed = agent._rtvi.push_frame.await_args.args[0]
         assert pushed.data["payload"]["online"] is False
-        if agent._byoa_presence_sweep_task:
-            agent._byoa_presence_sweep_task.cancel()
+        if agent._byoa._sweep_task:
+            agent._byoa._sweep_task.cancel()
 
 
 @pytest.mark.unit
 class TestWatchWakeTimeout:
     async def test_cancellation_is_happy_path(self):
         agent = _make_voice_agent()
-        agent._byoa_config = MagicMock(agent_wake_timeout_seconds=10.0)
+        agent._byoa._config = MagicMock(agent_wake_timeout_seconds=10.0)
         agent._locked_ships["ship-1"] = "task-1"
 
         watchdog = asyncio.create_task(
-            agent._watch_wake_timeout(
+            agent._byoa._watch_wake_timeout(
                 target_character_id="ship-1",
                 framework_task_id="task-1",
                 agent_name="byoa_ship-1",
@@ -219,13 +219,13 @@ class TestWatchWakeTimeout:
 
     async def test_expiry_releases_lock_and_cleans_state(self):
         agent = _make_voice_agent()
-        agent._byoa_config = MagicMock(agent_wake_timeout_seconds=0.05)
-        agent._enqueue_deferred_update = MagicMock()
+        agent._byoa._config = MagicMock(agent_wake_timeout_seconds=0.05)
+        agent.enqueue_deferred_update = MagicMock()
         agent._locked_ships["ship-1"] = "task-1"
         agent._pending_tasks["byoa_ship-1"] = ("task-1", {})
-        agent._pending_wakes["ship-1"] = MagicMock()
+        agent._byoa._pending_wakes["ship-1"] = MagicMock()
 
-        await agent._watch_wake_timeout(
+        await agent._byoa._watch_wake_timeout(
             target_character_id="ship-1",
             framework_task_id="task-1",
             agent_name="byoa_ship-1",
@@ -238,48 +238,48 @@ class TestWatchWakeTimeout:
         )
         assert "ship-1" not in agent._locked_ships
         assert "byoa_ship-1" not in agent._pending_tasks
-        assert "ship-1" not in agent._pending_wakes
-        event_xml = agent._enqueue_deferred_update.call_args.args[0]
+        assert "ship-1" not in agent._byoa._pending_wakes
+        event_xml = agent.enqueue_deferred_update.call_args.args[0]
         assert 'event name="task.cancelled"' in event_xml
         assert "did not come online" in event_xml
-        assert agent._enqueue_deferred_update.call_args.kwargs["ship_id"] == "ship-1"
+        assert agent.enqueue_deferred_update.call_args.kwargs["ship_id"] == "ship-1"
 
 
 @pytest.mark.unit
 class TestCancelPendingByoaWake:
     async def test_client_cancel_clears_pending_wake_without_bus_dispatch(self):
         agent = _make_voice_agent()
-        agent._enqueue_deferred_update = MagicMock()
-        agent._update_polling_scope = MagicMock()
+        agent.enqueue_deferred_update = MagicMock()
+        agent.update_polling_scope = MagicMock()
         watchdog = asyncio.create_task(asyncio.sleep(30))
         await asyncio.sleep(0)
         agent._locked_ships["ship-uuid-123"] = "task-1"
         agent._pending_tasks["byoa_ship-uuid-123"] = ("task-1", {"task": "payload"})
-        agent._pending_wakes["ship-uuid-123"] = watchdog
+        agent._byoa._pending_wakes["ship-uuid-123"] = watchdog
 
         await agent._cancel_task_by_game_id("task-1")
         await asyncio.sleep(0)
 
         assert "ship-uuid-123" not in agent._locked_ships
         assert "byoa_ship-uuid-123" not in agent._pending_tasks
-        assert "ship-uuid-123" not in agent._pending_wakes
+        assert "ship-uuid-123" not in agent._byoa._pending_wakes
         assert watchdog.cancelled()
-        agent._update_polling_scope.assert_called_once()
-        event_xml = agent._enqueue_deferred_update.call_args.args[0]
+        agent.update_polling_scope.assert_called_once()
+        event_xml = agent.enqueue_deferred_update.call_args.args[0]
         assert 'event name="task.cancelled"' in event_xml
         assert "before the BYOA agent came online" in event_xml
-        assert agent._enqueue_deferred_update.call_args.kwargs["ship_id"] == "ship-uuid-123"
+        assert agent.enqueue_deferred_update.call_args.kwargs["ship_id"] == "ship-uuid-123"
 
 
 @pytest.mark.unit
 class TestStartTaskWakeBranch:
     def _wire_byoa_corp_ship(self, agent: VoiceAgent, byoa_owner_id: str | None) -> None:
         """Wire up enough state on the agent so the BYOA branch is reachable."""
-        agent._byoa_config = MagicMock(agent_wake_timeout_seconds=30.0)
+        agent._byoa._config = MagicMock(agent_wake_timeout_seconds=30.0)
         agent._is_valid_uuid = MagicMock(return_value=True)
         agent._resolve_ship_id_prefix = AsyncMock(return_value=None)
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Corp Ship"))
-        agent._lookup_byoa_owner = AsyncMock(return_value=byoa_owner_id)
+        agent._byoa.lookup_owner = AsyncMock(return_value=byoa_owner_id)
         agent._acquire_server_ship_lock = AsyncMock(return_value=None)
         agent._count_active_corp_tasks = MagicMock(return_value=0)
         agent._get_task_type = MagicMock(return_value="corp_ship")
@@ -294,7 +294,7 @@ class TestStartTaskWakeBranch:
         registers a wake watchdog before yielding."""
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
-        agent._byoa_bus_channel = "bot_session_abc"
+        agent._byoa._bus_channel = "bot_session_abc"
 
         params = MagicMock()
         params.arguments = {
@@ -311,8 +311,8 @@ class TestStartTaskWakeBranch:
         assert result["ship_character_id"] == "ship-uuid-123"
 
         # Watchdog + pending-task entry keyed by byoa_<ship_id>
-        assert "ship-uuid-123" in agent._pending_wakes
-        watchdog = agent._pending_wakes["ship-uuid-123"]
+        assert "ship-uuid-123" in agent._byoa._pending_wakes
+        watchdog = agent._byoa._pending_wakes["ship-uuid-123"]
         assert isinstance(watchdog, asyncio.Task)
         watchdog.cancel()
 
@@ -333,8 +333,8 @@ class TestStartTaskWakeBranch:
         """Without a session channel, start returns waking and cleanup follows async."""
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
-        agent._enqueue_deferred_update = MagicMock()
-        agent._byoa_bus_channel = ""
+        agent.enqueue_deferred_update = MagicMock()
+        agent._byoa._bus_channel = ""
 
         params = MagicMock()
         params.arguments = {
@@ -348,16 +348,16 @@ class TestStartTaskWakeBranch:
         assert result["status"] == "waking"
         assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
         agent._game_client.wake_agent.assert_not_awaited()
-        assert agent._pending_wakes == {}
+        assert agent._byoa._pending_wakes == {}
         assert agent._pending_tasks == {}
         agent._game_client.task_cancel.assert_awaited_once()
-        assert "missing_bus_channel" in agent._enqueue_deferred_update.call_args.args[0]
+        assert "missing_bus_channel" in agent.enqueue_deferred_update.call_args.args[0]
 
     async def test_byoa_dispatch_noop_without_presence_cleans_up_async(self):
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
-        agent._enqueue_deferred_update = MagicMock()
-        agent._byoa_bus_channel = "bot_session_abc"
+        agent.enqueue_deferred_update = MagicMock()
+        agent._byoa._bus_channel = "bot_session_abc"
         agent._game_client.wake_agent = AsyncMock(
             return_value={"spawn_target": "noop", "spawn_status": "noop"}
         )
@@ -373,16 +373,16 @@ class TestStartTaskWakeBranch:
         assert result["success"] is True
         assert result["status"] == "waking"
         assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
-        assert agent._pending_wakes == {}
+        assert agent._byoa._pending_wakes == {}
         assert agent._pending_tasks == {}
         agent._game_client.task_cancel.assert_awaited_once()
-        assert "BYOA_WAKE_TARGET=http" in agent._enqueue_deferred_update.call_args.args[0]
+        assert "BYOA_WAKE_TARGET=http" in agent.enqueue_deferred_update.call_args.args[0]
 
     async def test_byoa_dispatch_preserves_structured_wake_failure(self):
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
-        agent._enqueue_deferred_update = MagicMock()
-        agent._byoa_bus_channel = "bot_session_abc"
+        agent.enqueue_deferred_update = MagicMock()
+        agent._byoa._bus_channel = "bot_session_abc"
         agent._game_client.wake_agent = AsyncMock(
             side_effect=RPCError(
                 "wake.agent",
@@ -406,16 +406,16 @@ class TestStartTaskWakeBranch:
 
         assert result["success"] is True
         assert result["status"] == "waking"
-        assert agent._pending_wakes == {}
+        assert agent._byoa._pending_wakes == {}
         assert agent._pending_tasks == {}
         agent._game_client.task_cancel.assert_awaited_once()
-        assert "(http/http_503)" in agent._enqueue_deferred_update.call_args.args[0]
+        assert "(http/http_503)" in agent.enqueue_deferred_update.call_args.args[0]
 
     async def test_byoa_dispatch_with_fresh_presence_still_wakes(self):
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="charplayer")
-        agent._byoa_bus_channel = "bot_session_abc"
-        agent._byoa_presence["ship-uuid-123"] = SimpleNamespace(
+        agent._byoa._bus_channel = "bot_session_abc"
+        agent._byoa._presence["ship-uuid-123"] = SimpleNamespace(
             online=True,
             last_seen_monotonic=time.monotonic(),
         )
@@ -437,14 +437,14 @@ class TestStartTaskWakeBranch:
             task_id=result["task_id"],
         )
         agent.watch_agent.assert_awaited_once_with("byoa_ship-uuid-123")
-        watchdog = agent._pending_wakes.get("ship-uuid-123")
+        watchdog = agent._byoa._pending_wakes.get("ship-uuid-123")
         if watchdog:
             watchdog.cancel()
 
     async def test_byoa_ship_owned_by_another_member_fails_before_lock(self):
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id="othermember1")
-        agent._byoa_bus_channel = "bot_session_abc"
+        agent._byoa._bus_channel = "bot_session_abc"
 
         params = MagicMock()
         params.arguments = {
@@ -462,7 +462,7 @@ class TestStartTaskWakeBranch:
         """A corp ship without BYOA claim spawns a local TaskAgent."""
         agent = _make_voice_agent()
         self._wire_byoa_corp_ship(agent, byoa_owner_id=None)
-        agent._byoa_bus_channel = "bot_session_abc"
+        agent._byoa._bus_channel = "bot_session_abc"
 
         params = MagicMock()
         params.arguments = {
@@ -475,5 +475,5 @@ class TestStartTaskWakeBranch:
         assert result.get("status") != "waking"
         assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] is None
         agent.add_agent.assert_awaited_once()
-        assert agent._pending_wakes == {}
+        assert agent._byoa._pending_wakes == {}
         agent._game_client.wake_agent.assert_not_awaited()

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Internal: BYOA wake, presence, broker auth, and registry handling extracted from `VoiceAgent` into a new `ByoaCoordinator` collaborator (`pipecat_server/byoa_coordinator.py`). No behavior change; `voice_agent.py` shrinks by ~12%.
+
 ### Fixed
 
 - EventRelay and TaskAgent now process game events through ordered mailboxes.
