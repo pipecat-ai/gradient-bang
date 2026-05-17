@@ -4,9 +4,6 @@ BYOA (Bring-Your-Own-Agent) is a cold path: per-corp-ship operator setup,
 not per-conversation. Keeping it out of VoiceAgent makes the speech/task
 flow easier to grok and lets BYOA evolve independently. VoiceAgent
 constructs one of these and delegates BYOA concerns to it.
-
-This file is built incrementally — see the plan in
-``/Users/jontaylor/.claude/plans/take-a-look-the-magical-feigenbaum.md``.
 """
 
 from __future__ import annotations
