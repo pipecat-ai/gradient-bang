@@ -7,9 +7,9 @@ Covers:
 - ``ByoaCoordinator.agent_name_for`` is the documented convention used by both sides.
 - ``_resolve_hello_response`` treats ``correlation_id=""`` as an unsolicited
   online signal — no crash, no resolution of unrelated pending requests.
-- ``_watch_wake_timeout`` releases the server lock + clears local state when
-  the timer expires, and is a no-op when cancelled (the happy path on
-  ``on_agent_ready``).
+- ``ByoaCoordinator._watch_wake_timeout`` releases the server lock + clears
+  local state when the timer expires, and is a no-op when cancelled (the
+  happy path on ``on_agent_ready``).
 - The wake-flow branch in ``_handle_start_task``:
   - returns ``status="waking"`` immediately
   - registers a watchdog + pending-task entry keyed by the BYOA agent name
