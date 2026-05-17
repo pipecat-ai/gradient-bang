@@ -20,17 +20,17 @@ import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
   apiOk,
+  assertNoEventsOfType,
   characterIdFor,
-  shipIdFor,
   eventsOfType,
   eventsSince,
   getEventCursor,
-  setShipSector,
-  setShipFighters,
-  setShipWarpPower,
-  setShipCredits,
   insertGarrisonDirect,
-  assertNoEventsOfType,
+  setShipCredits,
+  setShipFighters,
+  setShipSector,
+  setShipWarpPower,
+  shipIdFor,
   withPg,
 } from "./helpers.ts";
 
@@ -88,7 +88,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "garrison_visibility — garrison owner receives events when not in sector",
+  name:
+    "garrison_visibility — garrison owner receives events when not in sector",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -145,90 +146,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 2: Corp member of garrison owner receives garrison.character_moved
-// P1 creates corp with P3. P1 deploys garrison in sector 3, moves away.
-// P2 moves into sector 3. P3 (corp member, in a different sector) should
-// receive garrison.character_moved.
-// ============================================================================
-
-// SKIPPED — BUG: record_event_with_recipients (20260302 migration) filters out
-// all active corp members from individual recipient rows when p_corp_id is set.
-// The garrison observer explicitly enumerates recipients (owner + corp members)
-// and passes corpId as metadata, but the SQL function interprets corpId as a
-// delivery channel and strips the individual rows. The corp row it creates has
-// recipient_character_id = NULL (because p_character_id isn't set for garrison
-// events), so corp members polling without corp_id in events_since get 0 results.
-// Fix: garrison observer should not pass corpId to pgRecordEvent, since
-// recipients are already explicitly listed.
-Deno.test({
-  name: "garrison_visibility — corp member receives garrison events",
-  ignore: true,
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and create corp", async () => {
-      await resetDatabase([P1, P2, P3]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await apiOk("join", { character_id: p3Id });
-      // Move to mega-port for corp creation
-      await setShipSector(p1ShipId, 0);
-      await setShipSector(p3ShipId, 0);
-      await setShipCredits(p1ShipId, 50000);
-      const corpResult = await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "Vis Test Corp",
-      });
-      const corpBody = corpResult as Record<string, unknown>;
-      await apiOk("corporation_join", {
-        character_id: p3Id,
-        corp_id: corpBody.corp_id as string,
-        invite_code: corpBody.invite_code as string,
-      });
-    });
-
-    await t.step("P1 deploys garrison and moves away", async () => {
-      await setShipSector(p1ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-      await apiOk("combat_leave_fighters", {
-        character_id: p1Id,
-        sector: 3,
-        quantity: 50,
-        mode: "defensive",
-      });
-      // Move P1 away — neither P1 nor P3 are in sector 3
-      await setShipSector(p1ShipId, 7);
-      await setShipSector(p3ShipId, 7);
-    });
-
-    let cursorP3: number;
-
-    await t.step("capture P3 cursor", async () => {
-      cursorP3 = await getEventCursor(p3Id);
-    });
-
-    await t.step("P2 moves into sector 3", async () => {
-      await setShipSector(p2ShipId, 4);
-      await setShipWarpPower(p2ShipId, 500);
-      await apiOk("move", { character_id: p2Id, to_sector: 3 });
-    });
-
-    await t.step("P3 (corp member) receives garrison.character_moved", async () => {
-      const events = await eventsOfType(
-        p3Id,
-        "garrison.character_moved",
-        cursorP3,
-      );
-      assert(
-        events.length >= 1,
-        `Expected garrison.character_moved for P3 (corp member), got ${events.length}`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 3: Deduplication — same-sector occupant + garrison owner
+// Group 2: Deduplication — same-sector occupant + garrison owner
 // P1 is both IN sector 3 (ship observer) and has a garrison there.
 // They should NOT get duplicate events.
 // ============================================================================
@@ -265,22 +183,25 @@ Deno.test({
       await apiOk("move", { character_id: p2Id, to_sector: 3 });
     });
 
-    await t.step("P1 gets character.moved events without duplicates", async () => {
-      // P1 is a sector observer (ship in sector 3) and garrison owner.
-      // Should receive character.moved events for P2's arrival.
-      // Check there's exactly 1 arrive character.moved (not 2).
-      const { events } = await eventsSince(p1Id, cursorP1);
-      const arrivals = events.filter(
-        (e) =>
-          e.event_type === "character.moved" &&
-          (e.payload as Record<string, unknown>)?.movement === "arrive",
-      );
-      assertEquals(
-        arrivals.length,
-        1,
-        `Expected exactly 1 arrive event for P1, got ${arrivals.length}`,
-      );
-    });
+    await t.step(
+      "P1 gets character.moved events without duplicates",
+      async () => {
+        // P1 is a sector observer (ship in sector 3) and garrison owner.
+        // Should receive character.moved events for P2's arrival.
+        // Check there's exactly 1 arrive character.moved (not 2).
+        const { events } = await eventsSince(p1Id, cursorP1);
+        const arrivals = events.filter(
+          (e) =>
+            e.event_type === "character.moved" &&
+            (e.payload as Record<string, unknown>)?.movement === "arrive",
+        );
+        assertEquals(
+          arrivals.length,
+          1,
+          `Expected exactly 1 arrive event for P1, got ${arrivals.length}`,
+        );
+      },
+    );
   },
 });
 
@@ -326,9 +247,12 @@ Deno.test({
       );
     });
 
-    await t.step("P3 (not in sector, no garrison) gets no garrison events", async () => {
-      await assertNoEventsOfType(p3Id, "garrison.character_moved", cursorP3);
-    });
+    await t.step(
+      "P3 (not in sector, no garrison) gets no garrison events",
+      async () => {
+        await assertNoEventsOfType(p3Id, "garrison.character_moved", cursorP3);
+      },
+    );
   },
 });
 
@@ -378,16 +302,19 @@ Deno.test({
       await apiOk("combat_initiate", { character_id: p2Id });
     });
 
-    await t.step("P1 (garrison owner, not in sector) receives combat.round_waiting", async () => {
-      const events = await eventsOfType(
-        p1Id,
-        "combat.round_waiting",
-        cursorP1,
-      );
-      assert(
-        events.length >= 1,
-        `Expected combat.round_waiting for P1, got ${events.length}`,
-      );
-    });
+    await t.step(
+      "P1 (garrison owner, not in sector) receives combat.round_waiting",
+      async () => {
+        const events = await eventsOfType(
+          p1Id,
+          "combat.round_waiting",
+          cursorP1,
+        );
+        assert(
+          events.length >= 1,
+          `Expected combat.round_waiting for P1, got ${events.length}`,
+        );
+      },
+    );
   },
 });

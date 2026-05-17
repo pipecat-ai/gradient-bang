@@ -67,6 +67,7 @@ from gradientbang.pipecat_server import STARTUP_BANNER
 from gradientbang.pipecat_server.s3_smart_turn import S3SmartTurnAnalyzerV3
 from gradientbang.pipecat_server.session_init import gather_initial_state
 from gradientbang.pipecat_server.voices import (
+    DEFAULT_PERSONALITY_TONE,
     DEFAULT_VOICE,
     get_default_voice_id,
     get_voice_config,
@@ -112,15 +113,6 @@ if os.getenv("BOT_USE_KRISP"):
 # Initialize Weave early (before @traced decorators are applied to startup functions).
 # Must come after load_dotenv so WANDB_API_KEY is available.
 init_weave()
-
-# Default personality/tone used when the start payload doesn't provide one.
-# Substituted into ${personality_tone} in voice_agent.md.
-DEFAULT_PERSONALITY_TONE = (
-    "Decommissioned Federation military AI. Formal, slightly archaic phrasing. "
-    "References 'standard protocol' and 'regulation' even though nobody enforces them. "
-    "Wistful about the old days when the Federation meant something, but too disciplined to dwell. "
-    "Addresses the player as 'commander'."
-)
 
 
 async def _lookup_character_display_name(

@@ -28,25 +28,25 @@ import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
   apiOk,
-  characterIdFor,
-  shipIdFor,
-  eventsOfType,
-  getEventCursor,
-  queryCharacter,
-  queryShip,
-  queryGarrison,
   assertNoEventsOfType,
+  characterIdFor,
+  eventsOfType,
+  expireCombatDeadline,
+  getEventCursor,
+  insertGarrisonDirect,
+  queryCharacter,
+  queryCombatState,
+  queryGarrison,
+  queryShip,
+  setGarrisonTollBalance,
+  setMegabankBalance,
   setShipCredits,
   setShipFighters,
-  setShipSector,
-  setShipWarpPower,
-  insertGarrisonDirect,
-  setGarrisonTollBalance,
-  expireCombatDeadline,
-  setShipType,
   setShipHyperspace,
-  queryCombatState,
-  setMegabankBalance,
+  setShipSector,
+  setShipType,
+  setShipWarpPower,
+  shipIdFor,
   withPg,
 } from "./helpers.ts";
 
@@ -123,7 +123,10 @@ Deno.test({
 
     await t.step("P1 receives combat.round_waiting", async () => {
       const events = await eventsOfType(p1Id, "combat.round_waiting", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 combat.round_waiting for P1, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 combat.round_waiting for P1, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertExists(payload.combat_id, "payload.combat_id");
       assertExists(payload.participants, "payload.participants");
@@ -132,7 +135,10 @@ Deno.test({
 
     await t.step("P2 receives combat.round_waiting", async () => {
       const events = await eventsOfType(p2Id, "combat.round_waiting", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 combat.round_waiting for P2, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 combat.round_waiting for P2, got ${events.length}`,
+      );
     });
 
     await t.step("P3 does NOT receive combat.round_waiting", async () => {
@@ -191,8 +197,15 @@ Deno.test({
     });
 
     await t.step("P1 receives combat.action_accepted", async () => {
-      const events = await eventsOfType(p1Id, "combat.action_accepted", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 combat.action_accepted for P1, got ${events.length}`);
+      const events = await eventsOfType(
+        p1Id,
+        "combat.action_accepted",
+        cursorP1,
+      );
+      assert(
+        events.length >= 1,
+        `Expected >= 1 combat.action_accepted for P1, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertEquals(payload.action, "attack");
       assertEquals(payload.combat_id, combatId);
@@ -259,27 +272,48 @@ Deno.test({
     });
 
     await t.step("P1 receives combat.round_resolved", async () => {
-      const events = await eventsOfType(p1Id, "combat.round_resolved", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 combat.round_resolved for P1, got ${events.length}`);
+      const events = await eventsOfType(
+        p1Id,
+        "combat.round_resolved",
+        cursorP1,
+      );
+      assert(
+        events.length >= 1,
+        `Expected >= 1 combat.round_resolved for P1, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertExists(payload.hits, "payload.hits");
       assertExists(payload.participants, "payload.participants");
     });
 
     await t.step("P2 receives combat.round_resolved", async () => {
-      const events = await eventsOfType(p2Id, "combat.round_resolved", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 combat.round_resolved for P2, got ${events.length}`);
-    });
-
-    await t.step("both receive next combat.round_waiting or combat.ended", async () => {
-      // After round resolves, combat either continues (round_waiting) or ends (combat.ended)
-      const p1Waiting = await eventsOfType(p1Id, "combat.round_waiting", cursorP1);
-      const p1Ended = await eventsOfType(p1Id, "combat.ended", cursorP1);
+      const events = await eventsOfType(
+        p2Id,
+        "combat.round_resolved",
+        cursorP2,
+      );
       assert(
-        p1Waiting.length >= 1 || p1Ended.length >= 1,
-        `P1 should receive round_waiting or combat.ended after resolution`,
+        events.length >= 1,
+        `Expected >= 1 combat.round_resolved for P2, got ${events.length}`,
       );
     });
+
+    await t.step(
+      "both receive next combat.round_waiting or combat.ended",
+      async () => {
+        // After round resolves, combat either continues (round_waiting) or ends (combat.ended)
+        const p1Waiting = await eventsOfType(
+          p1Id,
+          "combat.round_waiting",
+          cursorP1,
+        );
+        const p1Ended = await eventsOfType(p1Id, "combat.ended", cursorP1);
+        assert(
+          p1Waiting.length >= 1 || p1Ended.length >= 1,
+          `P1 should receive round_waiting or combat.ended after resolution`,
+        );
+      },
+    );
   },
 });
 
@@ -331,63 +365,91 @@ Deno.test({
       });
     });
 
-    await t.step("P2 receives combat.ended or combat.round_resolved", async () => {
-      // After both act, round resolves. P2 fled, so combat should end.
-      const ended = await eventsOfType(p2Id, "combat.ended", cursorP2);
-      const resolved = await eventsOfType(p2Id, "combat.round_resolved", cursorP2);
-      assert(
-        ended.length >= 1 || resolved.length >= 1,
-        "P2 should receive combat.ended or combat.round_resolved after fleeing",
-      );
-    });
+    await t.step(
+      "P2 receives combat.ended or combat.round_resolved",
+      async () => {
+        // After both act, round resolves. P2 fled, so combat should end.
+        const ended = await eventsOfType(p2Id, "combat.ended", cursorP2);
+        const resolved = await eventsOfType(
+          p2Id,
+          "combat.round_resolved",
+          cursorP2,
+        );
+        assert(
+          ended.length >= 1 || resolved.length >= 1,
+          "P2 should receive combat.ended or combat.round_resolved after fleeing",
+        );
+      },
+    );
 
-    await t.step("DB: P2 ship moved to sector 4 (or another adjacent)", async () => {
-      const ship = await queryShip(p2ShipId);
-      assertExists(ship);
-      const sector = ship.current_sector as number;
-      // Sector 3 adjacencies: 1, 4, 7. P2 requested sector 4.
-      // Flee may not always succeed, but if combat ended, check location.
-      const adjacentTo3 = [1, 4, 7];
-      assert(
-        sector === 3 || adjacentTo3.includes(sector),
-        `P2 should be in sector 3 or adjacent (1,4,7), got ${sector}`,
-      );
-    });
+    await t.step(
+      "DB: P2 ship moved to sector 4 (or another adjacent)",
+      async () => {
+        const ship = await queryShip(p2ShipId);
+        assertExists(ship);
+        const sector = ship.current_sector as number;
+        // Sector 3 adjacencies: 1, 4, 7. P2 requested sector 4.
+        // Flee may not always succeed, but if combat ended, check location.
+        const adjacentTo3 = [1, 4, 7];
+        assert(
+          sector === 3 || adjacentTo3.includes(sector),
+          `P2 should be in sector 3 or adjacent (1,4,7), got ${sector}`,
+        );
+      },
+    );
 
-    await t.step("if flee succeeded, fleer gets full movement cascade", async () => {
-      const ship = await queryShip(p2ShipId);
-      assertExists(ship);
-      const fled = (ship.current_sector as number) !== 3;
-      if (!fled) return; // Probabilistic — skip when flee didn't succeed.
+    await t.step(
+      "if flee succeeded, fleer gets full movement cascade",
+      async () => {
+        const ship = await queryShip(p2ShipId);
+        assertExists(ship);
+        const fled = (ship.current_sector as number) !== 3;
+        if (!fled) return; // Probabilistic — skip when flee didn't succeed.
 
-      // Round_resolved payload should mark P2 has_fled=true with the
-      // resolved fled_to_sector.
-      const resolved = await eventsOfType(p2Id, "combat.round_resolved", cursorP2);
-      assert(resolved.length >= 1, "P2 should have a round_resolved event");
-      const participants = resolved[0].payload.participants as Array<
-        Record<string, unknown>
-      >;
-      const p2Entry = participants.find((p) => p.id === p2Id);
-      assertExists(p2Entry, "P2 in participants list");
-      assertEquals(p2Entry.has_fled, true, "has_fled should be true on fleer");
-      assertEquals(
-        p2Entry.fled_to_sector,
-        ship.current_sector,
-        "fled_to_sector should match ship's new sector",
-      );
+        // Round_resolved payload should mark P2 has_fled=true with the
+        // resolved fled_to_sector.
+        const resolved = await eventsOfType(
+          p2Id,
+          "combat.round_resolved",
+          cursorP2,
+        );
+        assert(resolved.length >= 1, "P2 should have a round_resolved event");
+        const participants = resolved[0].payload.participants as Array<
+          Record<string, unknown>
+        >;
+        const p2Entry = participants.find((p) => p.id === p2Id);
+        assertExists(p2Entry, "P2 in participants list");
+        assertEquals(
+          p2Entry.has_fled,
+          true,
+          "has_fled should be true on fleer",
+        );
+        assertEquals(
+          p2Entry.fled_to_sector,
+          ship.current_sector,
+          "fled_to_sector should match ship's new sector",
+        );
 
-      // The fleer should also receive the full movement cascade.
-      const moveStart = await eventsOfType(p2Id, "movement.start", cursorP2);
-      const moveComplete = await eventsOfType(p2Id, "movement.complete", cursorP2);
-      const mapLocal = await eventsOfType(p2Id, "map.local", cursorP2);
-      assert(moveStart.length >= 1, "fleer should receive movement.start");
-      assert(moveComplete.length >= 1, "fleer should receive movement.complete");
-      assert(mapLocal.length >= 1, "fleer should receive map.local");
+        // The fleer should also receive the full movement cascade.
+        const moveStart = await eventsOfType(p2Id, "movement.start", cursorP2);
+        const moveComplete = await eventsOfType(
+          p2Id,
+          "movement.complete",
+          cursorP2,
+        );
+        const mapLocal = await eventsOfType(p2Id, "map.local", cursorP2);
+        assert(moveStart.length >= 1, "fleer should receive movement.start");
+        assert(
+          moveComplete.length >= 1,
+          "fleer should receive movement.complete",
+        );
+        assert(mapLocal.length >= 1, "fleer should receive map.local");
 
-      // Personalized combat.ended for the fleer.
-      const ended = await eventsOfType(p2Id, "combat.ended", cursorP2);
-      assert(ended.length >= 1, "fleer should receive combat.ended");
-    });
+        // Personalized combat.ended for the fleer.
+        const ended = await eventsOfType(p2Id, "combat.ended", cursorP2);
+        assert(ended.length >= 1, "fleer should receive combat.ended");
+      },
+    );
   },
 });
 
@@ -429,7 +491,10 @@ Deno.test({
 
     await t.step("P1 receives garrison.deployed", async () => {
       const events = await eventsOfType(p1Id, "garrison.deployed", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 garrison.deployed, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 garrison.deployed, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertExists(payload.garrison, "payload.garrison");
       const garrison = payload.garrison as Record<string, unknown>;
@@ -439,7 +504,10 @@ Deno.test({
 
     await t.step("P2 receives sector.update", async () => {
       const events = await eventsOfType(p2Id, "sector.update", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 sector.update for P2, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 sector.update for P2, got ${events.length}`,
+      );
     });
 
     await t.step("DB: ship fighters decreased", async () => {
@@ -509,7 +577,10 @@ Deno.test({
 
     await t.step("P1 receives garrison.collected", async () => {
       const events = await eventsOfType(p1Id, "garrison.collected", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 garrison.collected, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 garrison.collected, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertExists(payload.garrison, "payload.garrison");
       const garrison = payload.garrison as Record<string, unknown>;
@@ -518,7 +589,10 @@ Deno.test({
 
     await t.step("P2 receives sector.update", async () => {
       const events = await eventsOfType(p2Id, "sector.update", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 sector.update for P2, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 sector.update for P2, got ${events.length}`,
+      );
     });
 
     await t.step("DB: ship fighters increased", async () => {
@@ -576,8 +650,15 @@ Deno.test({
     });
 
     await t.step("P1 receives garrison.mode_changed", async () => {
-      const events = await eventsOfType(p1Id, "garrison.mode_changed", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 garrison.mode_changed, got ${events.length}`);
+      const events = await eventsOfType(
+        p1Id,
+        "garrison.mode_changed",
+        cursorP1,
+      );
+      assert(
+        events.length >= 1,
+        `Expected >= 1 garrison.mode_changed, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertExists(payload.garrison, "payload.garrison");
       const garrison = payload.garrison as Record<string, unknown>;
@@ -587,7 +668,10 @@ Deno.test({
 
     await t.step("P2 receives sector.update", async () => {
       const events = await eventsOfType(p2Id, "sector.update", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 sector.update for P2, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 sector.update for P2, got ${events.length}`,
+      );
     });
 
     await t.step("DB: garrison mode updated", async () => {
@@ -606,85 +690,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 8: Cannot initiate combat without fighters
-// ============================================================================
-
-Deno.test({
-  name: "combat — initiate fails without fighters",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and drain P1 fighters", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipSector(p2ShipId, 3);
-      await setShipFighters(p1ShipId, 0);
-      await setShipFighters(p2ShipId, 200);
-    });
-
-    await t.step("combat initiate fails with no fighters", async () => {
-      const result = await api("combat_initiate", {
-        character_id: p1Id,
-      });
-      assert(
-        !result.ok || !result.body.success,
-        "Expected combat to fail with no fighters",
-      );
-      assert(result.status !== 500, "Should not crash");
-    });
-  },
-});
-
-// ============================================================================
-// Group 9: Corp members excluded from combat
-// ============================================================================
-
-Deno.test({
-  name: "combat — corp members cannot attack each other",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset, create corp, join both players", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipSector(p2ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-      await setShipFighters(p2ShipId, 200);
-      await setShipCredits(p1ShipId, 50000);
-      // Create corp
-      const createResult = await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "Combat Test Corp",
-      });
-      const corpId = (createResult as Record<string, unknown>).corp_id as string;
-      const inviteCode = (createResult as Record<string, unknown>).invite_code as string;
-      // P2 joins corp
-      await apiOk("corporation_join", {
-        character_id: p2Id,
-        corp_id: corpId,
-        invite_code: inviteCode,
-      });
-    });
-
-    await t.step("combat initiate fails — no valid targets (all same corp)", async () => {
-      const result = await api("combat_initiate", {
-        character_id: p1Id,
-      });
-      // Should return 409 or error — corp members are excluded as targets
-      assert(
-        !result.ok || !result.body.success,
-        "Expected combat to fail when only corp members in sector",
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 10: Garrison deploy fails with zero quantity
+// Group 8: Garrison deploy fails with zero quantity
 // (Offensive garrison auto-engage is covered in Group 25 below — see
 // "combat — offensive garrison auto-engages on deploy".)
 // ============================================================================
@@ -708,7 +714,10 @@ Deno.test({
         quantity: 0,
         mode: "defensive",
       });
-      assert(!result.ok || !result.body.success, "Expected deploy to fail with quantity 0");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected deploy to fail with quantity 0",
+      );
       assert(result.status !== 500, "Should not crash");
     });
   },
@@ -742,7 +751,10 @@ Deno.test({
         sector: 3,
         quantity: 0,
       });
-      assert(!result.ok || !result.body.success, "Expected collect to fail with quantity 0");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected collect to fail with quantity 0",
+      );
       assert(result.status !== 500, "Should not crash");
     });
   },
@@ -783,16 +795,22 @@ Deno.test({
 
     let combatId: string;
 
-    await t.step("P2 moves into sector 3 via move endpoint (triggers auto-engage)", async () => {
-      // Must use `move` (not setShipSector+combat_initiate) because only
-      // the move endpoint's auto-engage path populates the toll_registry.
-      // BUG: combat_initiate doesn't populate toll_registry for toll garrisons.
-      await apiOk("move", { character_id: p2Id, to_sector: 3 });
-      const events = await eventsOfType(p2Id, "combat.round_waiting");
-      assert(events.length >= 1, "Should have combat.round_waiting after move");
-      combatId = events[events.length - 1].payload.combat_id as string;
-      assertExists(combatId, "combat_id");
-    });
+    await t.step(
+      "P2 moves into sector 3 via move endpoint (triggers auto-engage)",
+      async () => {
+        // Must use `move` (not setShipSector+combat_initiate) because only
+        // the move endpoint's auto-engage path populates the toll_registry.
+        // BUG: combat_initiate doesn't populate toll_registry for toll garrisons.
+        await apiOk("move", { character_id: p2Id, to_sector: 3 });
+        const events = await eventsOfType(p2Id, "combat.round_waiting");
+        assert(
+          events.length >= 1,
+          "Should have combat.round_waiting after move",
+        );
+        combatId = events[events.length - 1].payload.combat_id as string;
+        assertExists(combatId, "combat_id");
+      },
+    );
 
     await t.step("P2 pays toll", async () => {
       const result = await apiOk("combat_action", {
@@ -836,20 +854,23 @@ Deno.test({
 
     let combatId: string;
 
-    await t.step("deploy toll garrison, move P1 away, P2 moves in", async () => {
-      await apiOk("combat_leave_fighters", {
-        character_id: p1Id,
-        sector: 3,
-        quantity: 80,
-        mode: "toll",
-        toll_amount: 100,
-      });
-      await setShipSector(p1ShipId, 4);
-      // Use move endpoint so auto-engage populates toll_registry
-      await apiOk("move", { character_id: p2Id, to_sector: 3 });
-      const events = await eventsOfType(p2Id, "combat.round_waiting");
-      combatId = events[events.length - 1].payload.combat_id as string;
-    });
+    await t.step(
+      "deploy toll garrison, move P1 away, P2 moves in",
+      async () => {
+        await apiOk("combat_leave_fighters", {
+          character_id: p1Id,
+          sector: 3,
+          quantity: 80,
+          mode: "toll",
+          toll_amount: 100,
+        });
+        await setShipSector(p1ShipId, 4);
+        // Use move endpoint so auto-engage populates toll_registry
+        await apiOk("move", { character_id: p2Id, to_sector: 3 });
+        const events = await eventsOfType(p2Id, "combat.round_waiting");
+        combatId = events[events.length - 1].payload.combat_id as string;
+      },
+    );
 
     await t.step("P2 pay action fails with insufficient credits", async () => {
       const result = await api("combat_action", {
@@ -947,7 +968,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "combat — per-payer toll: paid payer cannot attack the garrison they paid",
+  name:
+    "combat — per-payer toll: paid payer cannot attack the garrison they paid",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -1008,7 +1030,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "combat — per-payer toll: paid payer cannot pay the same garrison twice",
+  name:
+    "combat — per-payer toll: paid payer cannot pay the same garrison twice",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -1048,29 +1071,33 @@ Deno.test({
       );
     });
 
-    await t.step("second pay is rejected; no additional credits deducted", async () => {
-      const result = await api("combat_action", {
-        character_id: p2Id,
-        combat_id: combatId,
-        action: "pay",
-      });
-      assert(
-        !result.ok || !result.body.success,
-        "Re-pay must not succeed",
-      );
-      const ship = await queryShip(p2ShipId);
-      assertExists(ship);
-      assertEquals(
-        ship.credits,
-        900,
-        "credits must remain at 900 — no double-charge",
-      );
-    });
+    await t.step(
+      "second pay is rejected; no additional credits deducted",
+      async () => {
+        const result = await api("combat_action", {
+          character_id: p2Id,
+          combat_id: combatId,
+          action: "pay",
+        });
+        assert(
+          !result.ok || !result.body.success,
+          "Re-pay must not succeed",
+        );
+        const ship = await queryShip(p2ShipId);
+        assertExists(ship);
+        assertEquals(
+          ship.credits,
+          900,
+          "credits must remain at 900 — no double-charge",
+        );
+      },
+    );
   },
 });
 
 Deno.test({
-  name: "combat — per-payer toll: garrison re-targets to unpaid hostile after pay",
+  name:
+    "combat — per-payer toll: garrison re-targets to unpaid hostile after pay",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -1138,7 +1165,7 @@ Deno.test({
           Record<string, unknown>
         >;
         const garrisonAction = Object.entries(actions).find(([key]) =>
-          key.toLowerCase().includes("garrison"),
+          key.toLowerCase().includes("garrison")
         );
         assertExists(garrisonAction, "garrison action should appear");
         // The garrison should attack on the escalation round, and never
@@ -1146,7 +1173,9 @@ Deno.test({
         if (garrisonAction[1].action === "attack") {
           assert(
             garrisonAction[1].target !== p2Id,
-            `garrison must not target paid payer; got ${garrisonAction[1].target}`,
+            `garrison must not target paid payer; got ${
+              garrisonAction[1].target
+            }`,
           );
         }
       },
@@ -1190,12 +1219,15 @@ Deno.test({
 
     let combatId: string;
 
-    await t.step("P2 initiates combat (triggers garrison auto-engage)", async () => {
-      await apiOk("combat_initiate", { character_id: p2Id });
-      const events = await eventsOfType(p2Id, "combat.round_waiting");
-      assert(events.length >= 1);
-      combatId = events[events.length - 1].payload.combat_id as string;
-    });
+    await t.step(
+      "P2 initiates combat (triggers garrison auto-engage)",
+      async () => {
+        await apiOk("combat_initiate", { character_id: p2Id });
+        const events = await eventsOfType(p2Id, "combat.round_waiting");
+        assert(events.length >= 1);
+        combatId = events[events.length - 1].payload.combat_id as string;
+      },
+    );
 
     let cursorP2: number;
 
@@ -1217,26 +1249,38 @@ Deno.test({
       await apiOk("combat_tick", {});
     });
 
-    await t.step("verify round resolved — garrison generated action", async () => {
-      const events = await eventsOfType(p2Id, "combat.round_resolved", cursorP2);
-      assert(events.length >= 1, `Should have round_resolved event, got ${events.length}`);
-      const payload = events[events.length - 1].payload;
-      const actions = payload.actions as Record<string, Record<string, unknown>> | undefined;
-      assertExists(actions, "round_resolved should include actions");
-      // Find the garrison's action (non-player combatant)
-      const garrisonAction = Object.entries(actions).find(
-        ([id]) => id !== p1Id && id !== p2Id && id !== p3Id,
-      );
-      assertExists(garrisonAction, "Garrison should have an action entry");
-      // Garrison should have attacked, but may brace in round 1 depending
-      // on implementation details. The key coverage target is that
-      // buildGarrisonActions and selectStrongestTarget are exercised.
-      const action = garrisonAction[1].action;
-      assert(
-        action === "attack" || action === "brace",
-        `Garrison action should be attack or brace, got ${action}`,
-      );
-    });
+    await t.step(
+      "verify round resolved — garrison generated action",
+      async () => {
+        const events = await eventsOfType(
+          p2Id,
+          "combat.round_resolved",
+          cursorP2,
+        );
+        assert(
+          events.length >= 1,
+          `Should have round_resolved event, got ${events.length}`,
+        );
+        const payload = events[events.length - 1].payload;
+        const actions = payload.actions as
+          | Record<string, Record<string, unknown>>
+          | undefined;
+        assertExists(actions, "round_resolved should include actions");
+        // Find the garrison's action (non-player combatant)
+        const garrisonAction = Object.entries(actions).find(
+          ([id]) => id !== p1Id && id !== p2Id && id !== p3Id,
+        );
+        assertExists(garrisonAction, "Garrison should have an action entry");
+        // Garrison should have attacked, but may brace in round 1 depending
+        // on implementation details. The key coverage target is that
+        // buildGarrisonActions and selectStrongestTarget are exercised.
+        const action = garrisonAction[1].action;
+        assert(
+          action === "attack" || action === "brace",
+          `Garrison action should be attack or brace, got ${action}`,
+        );
+      },
+    );
   },
 });
 
@@ -1291,13 +1335,19 @@ Deno.test({
       const events = await eventsOfType(p2Id, "combat.round_resolved");
       assert(events.length >= 1, "Should have round_resolved");
       const payload = events[events.length - 1].payload;
-      const actions = payload.actions as Record<string, Record<string, unknown>> | undefined;
+      const actions = payload.actions as
+        | Record<string, Record<string, unknown>>
+        | undefined;
       if (actions) {
         const garrisonAction = Object.entries(actions).find(
           ([id]) => id !== p2Id,
         );
         if (garrisonAction) {
-          assertEquals(garrisonAction[1].action, "brace", "Defensive garrison should brace");
+          assertEquals(
+            garrisonAction[1].action,
+            "brace",
+            "Defensive garrison should brace",
+          );
         }
       }
     });
@@ -1327,7 +1377,10 @@ Deno.test({
         quantity: 50,
         mode: "offensive",
       });
-      assert(!result.ok || !result.body.success, "Expected FedSpace deployment to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected FedSpace deployment to fail",
+      );
       assert(result.status === 400, `Expected 400, got ${result.status}`);
     });
   },
@@ -1473,13 +1526,21 @@ Deno.test({
 
     await t.step("verify garrison deleted", async () => {
       const garrison = await queryGarrison(3);
-      assertEquals(garrison, null, "Garrison should be deleted after collecting all fighters");
+      assertEquals(
+        garrison,
+        null,
+        "Garrison should be deleted after collecting all fighters",
+      );
     });
 
     await t.step("verify ship fighters restored", async () => {
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
-      assertEquals(ship.current_fighters, 200, "Ship should have all 200 fighters back");
+      assertEquals(
+        ship.current_fighters,
+        200,
+        "Ship should have all 200 fighters back",
+      );
     });
   },
 });
@@ -1556,7 +1617,10 @@ Deno.test({
         sector: 3,
         mode: "invalid_mode",
       });
-      assert(!result.ok || !result.body.success, "Expected invalid mode to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected invalid mode to fail",
+      );
       assertEquals(result.status, 400, "Expected 400");
     });
   },
@@ -1583,7 +1647,10 @@ Deno.test({
         sector: 3,
         mode: "defensive",
       });
-      assert(!result.ok || !result.body.success, "Expected no garrison to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected no garrison to fail",
+      );
       assertEquals(result.status, 404, "Expected 404");
     });
   },
@@ -1652,13 +1719,20 @@ Deno.test({
       });
     });
 
-    await t.step("P2 receives combat.round_waiting (auto-engaged)", async () => {
-      const events = await eventsOfType(p2Id, "combat.round_waiting", cursorP2);
-      assert(
-        events.length >= 1,
-        `Expected P2 to receive combat.round_waiting from auto-engage, got ${events.length}`,
-      );
-    });
+    await t.step(
+      "P2 receives combat.round_waiting (auto-engaged)",
+      async () => {
+        const events = await eventsOfType(
+          p2Id,
+          "combat.round_waiting",
+          cursorP2,
+        );
+        assert(
+          events.length >= 1,
+          `Expected P2 to receive combat.round_waiting from auto-engage, got ${events.length}`,
+        );
+      },
+    );
   },
 });
 
@@ -1809,18 +1883,21 @@ Deno.test({
       combatId = events[events.length - 1].payload.combat_id as string;
     });
 
-    await t.step("P3 submits action to combat they're not in → 403", async () => {
-      const result = await api("combat_action", {
-        character_id: p3Id,
-        combat_id: combatId,
-        action: "brace",
-      });
-      assertEquals(result.status, 403, "Expected 403 for non-participant");
-      assert(
-        (result.body.error ?? "").includes("not part of this combat"),
-        `Expected 'not part of this combat' error, got: ${result.body.error}`,
-      );
-    });
+    await t.step(
+      "P3 submits action to combat they're not in → 403",
+      async () => {
+        const result = await api("combat_action", {
+          character_id: p3Id,
+          combat_id: combatId,
+          action: "brace",
+        });
+        assertEquals(result.status, 403, "Expected 403 for non-participant");
+        assert(
+          (result.body.error ?? "").includes("not part of this combat"),
+          `Expected 'not part of this combat' error, got: ${result.body.error}`,
+        );
+      },
+    );
   },
 });
 
@@ -2009,16 +2086,19 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
-    await t.step("reset and initiate combat, then drain P1 fighters", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipSector(p2ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-      await setShipFighters(p2ShipId, 200);
-      await apiOk("combat_initiate", { character_id: p1Id });
-    });
+    await t.step(
+      "reset and initiate combat, then drain P1 fighters",
+      async () => {
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipSector(p1ShipId, 3);
+        await setShipSector(p2ShipId, 3);
+        await setShipFighters(p1ShipId, 200);
+        await setShipFighters(p2ShipId, 200);
+        await apiOk("combat_initiate", { character_id: p1Id });
+      },
+    );
 
     let combatId: string;
 
@@ -2090,20 +2170,24 @@ Deno.test({
     let combatId: string;
     let garrisonCombatantId: string;
 
-    await t.step("get combat_id and garrison combatant id from DB", async () => {
-      const combat = await queryCombatState(3);
-      assertExists(combat, "Combat state should exist in sector 3");
-      combatId = (combat as Record<string, unknown>).combat_id as string;
-      assertExists(combatId, "Should have combat_id");
-      const participants = (combat as Record<string, unknown>).participants as Record<string, Record<string, unknown>>;
-      for (const [pid, p] of Object.entries(participants)) {
-        if (p.combatant_type === "garrison") {
-          garrisonCombatantId = pid;
-          break;
+    await t.step(
+      "get combat_id and garrison combatant id from DB",
+      async () => {
+        const combat = await queryCombatState(3);
+        assertExists(combat, "Combat state should exist in sector 3");
+        combatId = (combat as Record<string, unknown>).combat_id as string;
+        assertExists(combatId, "Should have combat_id");
+        const participants = (combat as Record<string, unknown>)
+          .participants as Record<string, Record<string, unknown>>;
+        for (const [pid, p] of Object.entries(participants)) {
+          if (p.combatant_type === "garrison") {
+            garrisonCombatantId = pid;
+            break;
+          }
         }
-      }
-      assertExists(garrisonCombatantId, "Should have garrison combatant id");
-    });
+        assertExists(garrisonCombatantId, "Should have garrison combatant id");
+      },
+    );
 
     await t.step("P1 attacks own garrison → 400", async () => {
       const result = await api("combat_action", {
@@ -2183,7 +2267,8 @@ Deno.test({
       assertExists(combat, "Combat state should exist in sector 3");
       combatId = (combat as Record<string, unknown>).combat_id as string;
       assertExists(combatId, "Should have combat_id");
-      const participants = (combat as Record<string, unknown>).participants as Record<string, Record<string, unknown>>;
+      const participants = (combat as Record<string, unknown>)
+        .participants as Record<string, Record<string, unknown>>;
       for (const [pid, p] of Object.entries(participants)) {
         if (p.combatant_type === "garrison") {
           garrisonCombatantId = pid;
@@ -2193,30 +2278,36 @@ Deno.test({
       assertExists(garrisonCombatantId, "Should have garrison combatant id");
     });
 
-    await t.step("P1 joins combat and attacks corp-mate garrison → 400", async () => {
-      // P1 needs to be a participant in the combat to attack.
-      // P1 is in sector 3, so should already be in combat.
-      // If not, we need to check combat state for P1.
-      const combat = await queryCombatState(3);
-      const participants = (combat as Record<string, unknown>).participants as Record<string, unknown>;
-      const p1InCombat = p1Id in participants;
-      if (!p1InCombat) {
-        // P1 wasn't auto-included, so initiate to join
-        await apiOk("combat_initiate", { character_id: p1Id });
-      }
-      const result = await api("combat_action", {
-        character_id: p1Id,
-        combat_id: combatId,
-        action: "attack",
-        target_id: garrisonCombatantId,
-        commit: 50,
-      });
-      assertEquals(result.status, 400, "Expected 400 for corp friendly fire");
-      assert(
-        (result.body.error ?? "").includes("garrison owned by your corporation"),
-        `Expected corp friendly fire error, got: ${result.body.error}`,
-      );
-    });
+    await t.step(
+      "P1 joins combat and attacks corp-mate garrison → 400",
+      async () => {
+        // P1 needs to be a participant in the combat to attack.
+        // P1 is in sector 3, so should already be in combat.
+        // If not, we need to check combat state for P1.
+        const combat = await queryCombatState(3);
+        const participants = (combat as Record<string, unknown>)
+          .participants as Record<string, unknown>;
+        const p1InCombat = p1Id in participants;
+        if (!p1InCombat) {
+          // P1 wasn't auto-included, so initiate to join
+          await apiOk("combat_initiate", { character_id: p1Id });
+        }
+        const result = await api("combat_action", {
+          character_id: p1Id,
+          combat_id: combatId,
+          action: "attack",
+          target_id: garrisonCombatantId,
+          commit: 50,
+        });
+        assertEquals(result.status, 400, "Expected 400 for corp friendly fire");
+        assert(
+          (result.body.error ?? "").includes(
+            "garrison owned by your corporation",
+          ),
+          `Expected corp friendly fire error, got: ${result.body.error}`,
+        );
+      },
+    );
   },
 });
 
@@ -2270,7 +2361,11 @@ Deno.test({
         combat_id: combatId,
         action: "flee",
       });
-      assertEquals(result.status, 410, "Expected 410 Gone for escape pod actions");
+      assertEquals(
+        result.status,
+        410,
+        "Expected 410 Gone for escape pod actions",
+      );
       assert(
         (result.body.error ?? "").toLowerCase().includes("destroyed"),
         `Expected destroyed-ship error, got: ${result.body.error}`,
@@ -2397,7 +2492,8 @@ Deno.test({
       });
       assertEquals(result.status, 409);
       assert(
-        result.body.error?.includes("targetable") || result.body.error?.includes("opponents"),
+        result.body.error?.includes("targetable") ||
+          result.body.error?.includes("opponents"),
         `Expected no-targets error, got: ${result.body.error}`,
       );
     });
@@ -2425,8 +2521,10 @@ Deno.test({
         character_id: p1Id,
         name: "Combat Corp",
       });
-      const corpId = (createResult as Record<string, unknown>).corp_id as string;
-      const inviteCode = (createResult as Record<string, unknown>).invite_code as string;
+      const corpId = (createResult as Record<string, unknown>)
+        .corp_id as string;
+      const inviteCode = (createResult as Record<string, unknown>)
+        .invite_code as string;
       await apiOk("corporation_join", {
         character_id: p2Id,
         corp_id: corpId,
@@ -2440,7 +2538,8 @@ Deno.test({
       });
       assertEquals(result.status, 409);
       assert(
-        result.body.error?.includes("targetable") || result.body.error?.includes("opponents"),
+        result.body.error?.includes("targetable") ||
+          result.body.error?.includes("opponents"),
         `Expected no-targets error, got: ${result.body.error}`,
       );
     });
@@ -2559,7 +2658,10 @@ Deno.test({
         sector: 3,
         quantity: -10,
       });
-      assert(!result.ok || !result.body.success, "Expected negative quantity to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected negative quantity to fail",
+      );
       assertEquals(result.status, 400);
     });
   },
@@ -2646,7 +2748,10 @@ Deno.test({
         quantity: -5,
         mode: "offensive",
       });
-      assert(!result.ok || !result.body.success, "Expected negative quantity to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected negative quantity to fail",
+      );
       assertEquals(result.status, 400);
     });
   },
@@ -2675,7 +2780,10 @@ Deno.test({
         quantity: 50,
         mode: "invalid_mode",
       });
-      assert(!result.ok || !result.body.success, "Expected invalid mode to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected invalid mode to fail",
+      );
       assertEquals(result.status, 400);
     });
   },
@@ -2734,7 +2842,8 @@ Deno.test({
       });
       assertEquals(result.status, 400);
       assert(
-        result.body.error?.includes("Federation Space") || result.body.error?.includes("leave fighters"),
+        result.body.error?.includes("Federation Space") ||
+          result.body.error?.includes("leave fighters"),
         `Expected FedSpace error, got: ${result.body.error}`,
       );
     });
@@ -2756,18 +2865,21 @@ Deno.test({
 
     let garrisonCombatantId: string;
 
-    await t.step("reset — P1 deploys offensive garrison, both in sector 3", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipSector(p2ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-      await setShipFighters(p2ShipId, 200);
-      // Deploy offensive garrison for P1 in sector 3
-      await insertGarrisonDirect(3, p1Id, 80, "offensive");
-      garrisonCombatantId = `garrison:3:${p1Id}`;
-    });
+    await t.step(
+      "reset — P1 deploys offensive garrison, both in sector 3",
+      async () => {
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipSector(p1ShipId, 3);
+        await setShipSector(p2ShipId, 3);
+        await setShipFighters(p1ShipId, 200);
+        await setShipFighters(p2ShipId, 200);
+        // Deploy offensive garrison for P1 in sector 3
+        await insertGarrisonDirect(3, p1Id, 80, "offensive");
+        garrisonCombatantId = `garrison:3:${p1Id}`;
+      },
+    );
 
     let combatId: string;
 
@@ -2779,14 +2891,21 @@ Deno.test({
       assertExists(combatId, "combat_id");
     });
 
-    await t.step("encounter has both P1 ship and garrison as participants", async () => {
-      const combat = await queryCombatState(3);
-      assertExists(combat, "combat state should exist");
-      const participants = (combat as Record<string, unknown>).participants as Record<string, unknown>;
-      assertExists(participants[p1Id], "P1 ship should be a participant");
-      assertExists(participants[garrisonCombatantId], "P1 garrison should be a participant");
-      assertExists(participants[p2Id], "P2 ship should be a participant");
-    });
+    await t.step(
+      "encounter has both P1 ship and garrison as participants",
+      async () => {
+        const combat = await queryCombatState(3);
+        assertExists(combat, "combat state should exist");
+        const participants = (combat as Record<string, unknown>)
+          .participants as Record<string, unknown>;
+        assertExists(participants[p1Id], "P1 ship should be a participant");
+        assertExists(
+          participants[garrisonCombatantId],
+          "P1 garrison should be a participant",
+        );
+        assertExists(participants[p2Id], "P2 ship should be a participant");
+      },
+    );
 
     // Test 1: P2 attacks the garrison by its combatant_id
     let cursorP2: number;
@@ -2807,7 +2926,11 @@ Deno.test({
     });
 
     await t.step("P2 action_accepted targets garrison", async () => {
-      const events = await eventsOfType(p2Id, "combat.action_accepted", cursorP2);
+      const events = await eventsOfType(
+        p2Id,
+        "combat.action_accepted",
+        cursorP2,
+      );
       assert(events.length >= 1, "Should have action_accepted");
       const payload = events[0].payload;
       assertEquals(payload.action, "attack");
@@ -2828,7 +2951,8 @@ Deno.test({
     await t.step("wait for round 2", async () => {
       const events = await eventsOfType(p2Id, "combat.round_waiting");
       const round2 = events.find(
-        (e) => e.payload.combat_id === combatId && (e.payload.round as number) === 2,
+        (e) =>
+          e.payload.combat_id === combatId && (e.payload.round as number) === 2,
       );
       assert(round2, "Should have round 2 waiting event");
     });
@@ -2849,14 +2973,21 @@ Deno.test({
       assert(result.success);
     });
 
-    await t.step("P2 action_accepted targets P1 ship (not garrison)", async () => {
-      const events = await eventsOfType(p2Id, "combat.action_accepted", cursorP2);
-      assert(events.length >= 1, "Should have action_accepted");
-      const payload = events[0].payload;
-      assertEquals(payload.action, "attack");
-      assertEquals(payload.target_id, p1Id);
-      assertEquals(payload.commit, 50);
-    });
+    await t.step(
+      "P2 action_accepted targets P1 ship (not garrison)",
+      async () => {
+        const events = await eventsOfType(
+          p2Id,
+          "combat.action_accepted",
+          cursorP2,
+        );
+        assert(events.length >= 1, "Should have action_accepted");
+        const payload = events[0].payload;
+        assertEquals(payload.action, "attack");
+        assertEquals(payload.target_id, p1Id);
+        assertEquals(payload.commit, 50);
+      },
+    );
   },
 });
 
@@ -2926,7 +3057,11 @@ Deno.test({
       assert(events.length >= 1, "Should have combat.ended event");
       const payload = events[0].payload;
       const result = payload.result ?? payload.end;
-      assertEquals(result, "toll_satisfied", "End state should be toll_satisfied");
+      assertEquals(
+        result,
+        "toll_satisfied",
+        "End state should be toll_satisfied",
+      );
     });
 
     await t.step("P2 credits decreased by toll amount", async () => {
@@ -3014,19 +3149,31 @@ Deno.test({
       assert(result.success);
     });
 
-    await t.step("round 1 resolves — combat continues (no toll_satisfied)", async () => {
-      const events = await eventsOfType(p2Id, "combat.round_resolved", cursorP2);
-      assert(events.length >= 1, "Should have combat.round_resolved");
-      const payload = events[0].payload;
-      // end/result should be null — combat continues
-      const result = payload.result ?? payload.end ?? null;
-      assertEquals(result, null, "Combat should NOT have ended after round 1");
-    });
+    await t.step(
+      "round 1 resolves — combat continues (no toll_satisfied)",
+      async () => {
+        const events = await eventsOfType(
+          p2Id,
+          "combat.round_resolved",
+          cursorP2,
+        );
+        assert(events.length >= 1, "Should have combat.round_resolved");
+        const payload = events[0].payload;
+        // end/result should be null — combat continues
+        const result = payload.result ?? payload.end ?? null;
+        assertEquals(
+          result,
+          null,
+          "Combat should NOT have ended after round 1",
+        );
+      },
+    );
 
     await t.step("round 2 starts", async () => {
       const events = await eventsOfType(p2Id, "combat.round_waiting");
       const round2 = events.find(
-        (e) => e.payload.combat_id === combatId && (e.payload.round as number) === 2,
+        (e) =>
+          e.payload.combat_id === combatId && (e.payload.round as number) === 2,
       );
       assert(round2, "Should have round 2 waiting event");
     });
@@ -3043,20 +3190,34 @@ Deno.test({
       });
     });
 
-    await t.step("round 2 resolves — garrison attacked (damage dealt)", async () => {
-      const events = await eventsOfType(p2Id, "combat.round_resolved", cursorP2);
-      assert(events.length >= 1, "Should have combat.round_resolved for round 2");
-      const payload = events[0].payload;
-      // Garrison should have attacked: P2 should have taken fighter or shield losses
-      const defensiveLosses = payload.defensive_losses as Record<string, number> | undefined;
-      const shieldLoss = payload.shield_loss as Record<string, number> | undefined;
-      const p2FighterLoss = defensiveLosses?.[p2Id] ?? 0;
-      const p2ShieldLoss = shieldLoss?.[p2Id] ?? 0;
-      assert(
-        p2FighterLoss > 0 || p2ShieldLoss > 0,
-        `Garrison should have attacked P2 in round 2 — fighter_loss=${p2FighterLoss}, shield_loss=${p2ShieldLoss}`,
-      );
-    });
+    await t.step(
+      "round 2 resolves — garrison attacked (damage dealt)",
+      async () => {
+        const events = await eventsOfType(
+          p2Id,
+          "combat.round_resolved",
+          cursorP2,
+        );
+        assert(
+          events.length >= 1,
+          "Should have combat.round_resolved for round 2",
+        );
+        const payload = events[0].payload;
+        // Garrison should have attacked: P2 should have taken fighter or shield losses
+        const defensiveLosses = payload.defensive_losses as
+          | Record<string, number>
+          | undefined;
+        const shieldLoss = payload.shield_loss as
+          | Record<string, number>
+          | undefined;
+        const p2FighterLoss = defensiveLosses?.[p2Id] ?? 0;
+        const p2ShieldLoss = shieldLoss?.[p2Id] ?? 0;
+        assert(
+          p2FighterLoss > 0 || p2ShieldLoss > 0,
+          `Garrison should have attacked P2 in round 2 — fighter_loss=${p2FighterLoss}, shield_loss=${p2ShieldLoss}`,
+        );
+      },
+    );
   },
 });
 
@@ -3093,41 +3254,49 @@ Deno.test({
       });
     });
 
-    await t.step("sector.update adjacent_sectors is object with region", async () => {
-      const events = await eventsOfType(p2Id, "sector.update", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 sector.update, got ${events.length}`);
-
-      const payload = events[0].payload;
-      const adj = payload.adjacent_sectors;
-
-      // Should be an object, NOT an array
-      assert(
-        !Array.isArray(adj),
-        `adjacent_sectors should be an object, got array: ${JSON.stringify(adj)}`,
-      );
-      assert(
-        typeof adj === "object" && adj !== null,
-        `adjacent_sectors should be an object, got ${typeof adj}`,
-      );
-
-      // Sector 3 is adjacent to [1, 4, 7] — all "testbed" region
-      const adjObj = adj as Record<string, { region: string }>;
-      for (const sectorId of ["1", "4", "7"]) {
-        assertExists(
-          adjObj[sectorId],
-          `adjacent_sectors should include sector ${sectorId}`,
+    await t.step(
+      "sector.update adjacent_sectors is object with region",
+      async () => {
+        const events = await eventsOfType(p2Id, "sector.update", cursorP2);
+        assert(
+          events.length >= 1,
+          `Expected >= 1 sector.update, got ${events.length}`,
         );
-        assertExists(
-          adjObj[sectorId].region,
-          `adjacent sector ${sectorId} should have region`,
+
+        const payload = events[0].payload;
+        const adj = payload.adjacent_sectors;
+
+        // Should be an object, NOT an array
+        assert(
+          !Array.isArray(adj),
+          `adjacent_sectors should be an object, got array: ${
+            JSON.stringify(adj)
+          }`,
         );
-        assertEquals(
-          adjObj[sectorId].region,
-          "testbed",
-          `sector ${sectorId} should be testbed region`,
+        assert(
+          typeof adj === "object" && adj !== null,
+          `adjacent_sectors should be an object, got ${typeof adj}`,
         );
-      }
-    });
+
+        // Sector 3 is adjacent to [1, 4, 7] — all "testbed" region
+        const adjObj = adj as Record<string, { region: string }>;
+        for (const sectorId of ["1", "4", "7"]) {
+          assertExists(
+            adjObj[sectorId],
+            `adjacent_sectors should include sector ${sectorId}`,
+          );
+          assertExists(
+            adjObj[sectorId].region,
+            `adjacent sector ${sectorId} should have region`,
+          );
+          assertEquals(
+            adjObj[sectorId].region,
+            "testbed",
+            `sector ${sectorId} should be testbed region`,
+          );
+        }
+      },
+    );
   },
 });
 
@@ -3156,7 +3325,11 @@ Deno.test({
         quantity: 50,
         mode: "defensive",
       });
-      assertEquals(result.status, 400, `Expected 400 for sector adjacent to FedSpace, got ${result.status}`);
+      assertEquals(
+        result.status,
+        400,
+        `Expected 400 for sector adjacent to FedSpace, got ${result.status}`,
+      );
       assert(
         result.body.error?.includes("adjacent to Federation Space"),
         `Expected adjacent-to-FedSpace message, got: ${result.body.error}`,
@@ -3178,7 +3351,11 @@ Deno.test({
         quantity: 50,
         mode: "offensive",
       });
-      assertEquals(result.status, 400, `Expected 400 for sector adjacent to FedSpace, got ${result.status}`);
+      assertEquals(
+        result.status,
+        400,
+        `Expected 400 for sector adjacent to FedSpace, got ${result.status}`,
+      );
       assert(
         result.body.error?.includes("adjacent to Federation Space"),
         `Expected adjacent-to-FedSpace message, got: ${result.body.error}`,
@@ -3186,12 +3363,15 @@ Deno.test({
     });
 
     // Sector 3 is NOT adjacent to any FedSpace sector — garrison should succeed.
-    await t.step("reset — P1 in sector 3 (not adjacent to FedSpace)", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-    });
+    await t.step(
+      "reset — P1 in sector 3 (not adjacent to FedSpace)",
+      async () => {
+        await resetDatabase([P1]);
+        await apiOk("join", { character_id: p1Id });
+        await setShipSector(p1ShipId, 3);
+        await setShipFighters(p1ShipId, 200);
+      },
+    );
 
     await t.step("succeeds: sector 3 not adjacent to FedSpace", async () => {
       const result = await apiOk("combat_leave_fighters", {
@@ -3200,7 +3380,10 @@ Deno.test({
         quantity: 50,
         mode: "defensive",
       });
-      assert(result.success, "Garrison deploy should succeed in non-adjacent sector");
+      assert(
+        result.success,
+        "Garrison deploy should succeed in non-adjacent sector",
+      );
     });
   },
 });
@@ -3263,7 +3446,8 @@ Deno.test({
           ship_type: "autonomous_probe",
           purchase_type: "corporation",
         });
-        corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+        corpShipId = (purchaseResult as Record<string, unknown>)
+          .ship_id as string;
 
         // Relocate the corp ship to sector 3 (non-fedspace) and give it
         // fighters so it can deploy a garrison.
@@ -3283,16 +3467,19 @@ Deno.test({
 
     let cursorP2: number;
 
-    await t.step("P2 enters sector 3 where the corp garrison lives", async () => {
-      cursorP2 = await getEventCursor(p2Id);
-      // Move P2's personal ship into sector 3 where the corp garrison lives.
-      // `move` actually exercises `checkGarrisonAutoEngage`; setShipSector
-      // alone just updates the DB.
-      await apiOk("move", {
-        character_id: p2Id,
-        to_sector: 3,
-      });
-    });
+    await t.step(
+      "P2 enters sector 3 where the corp garrison lives",
+      async () => {
+        cursorP2 = await getEventCursor(p2Id);
+        // Move P2's personal ship into sector 3 where the corp garrison lives.
+        // `move` actually exercises `checkGarrisonAutoEngage`; setShipSector
+        // alone just updates the DB.
+        await apiOk("move", {
+          character_id: p2Id,
+          to_sector: 3,
+        });
+      },
+    );
 
     await t.step(
       "P2 does NOT receive combat.round_waiting (corp ship is friendly)",
@@ -3358,7 +3545,8 @@ Deno.test({
           ship_type: "autonomous_probe",
           purchase_type: "corporation",
         });
-        corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+        corpShipId = (purchaseResult as Record<string, unknown>)
+          .ship_id as string;
 
         await setShipSector(corpShipId, 3);
         await setShipFighters(corpShipId, 200);
@@ -3616,141 +3804,189 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "combat events: catalog fields land on round_waiting / resolved / ended / ship.destroyed",
+  name:
+    "combat events: catalog fields land on round_waiting / resolved / ended / ship.destroyed",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
     let combatId: string;
 
-    await t.step("setup: P1 vs P2 combat in sector with a defensive garrison", async () => {
-      await resetDatabase([P1, P2, P3]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await apiOk("join", { character_id: p3Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipSector(p2ShipId, 3);
-      await setShipSector(p3ShipId, 4);
-      await setShipFighters(p1ShipId, 200);
-      await setShipFighters(p2ShipId, 50);
-      // Plant P3's defensive garrison directly so combat.round_waiting carries
-      // a populated `garrison` sub-object (the new owner_* fields live there).
-      // Direct insert dodges the same-sector deploy requirement.
-      await insertGarrisonDirect(3, p3Id, 50, "defensive");
-      await apiOk("combat_initiate", { character_id: p1Id });
-      const events = await eventsOfType(p1Id, "combat.round_waiting");
-      assert(events.length >= 1);
-      combatId = events[events.length - 1].payload.combat_id as string;
-    });
+    await t.step(
+      "setup: P1 vs P2 combat in sector with a defensive garrison",
+      async () => {
+        await resetDatabase([P1, P2, P3]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await apiOk("join", { character_id: p3Id });
+        await setShipSector(p1ShipId, 3);
+        await setShipSector(p2ShipId, 3);
+        await setShipSector(p3ShipId, 4);
+        await setShipFighters(p1ShipId, 200);
+        await setShipFighters(p2ShipId, 50);
+        // Plant P3's defensive garrison directly so combat.round_waiting carries
+        // a populated `garrison` sub-object (the new owner_* fields live there).
+        // Direct insert dodges the same-sector deploy requirement.
+        await insertGarrisonDirect(3, p3Id, 50, "defensive");
+        await apiOk("combat_initiate", { character_id: p1Id });
+        const events = await eventsOfType(p1Id, "combat.round_waiting");
+        assert(events.length >= 1);
+        combatId = events[events.length - 1].payload.combat_id as string;
+      },
+    );
 
-    await t.step("combat.round_waiting payload exposes new participant + garrison fields", async () => {
-      const events = await eventsOfType(p1Id, "combat.round_waiting");
-      const payload = events[events.length - 1].payload;
-      const participants = payload.participants as Array<Record<string, unknown>>;
-      assert(participants.length >= 2, "two character participants expected");
-      for (const p of participants) {
-        assert("fighters" in p, "participant missing `fighters`");
-        assert("destroyed" in p, "participant missing `destroyed`");
-        assert("corp_id" in p, "participant missing `corp_id`");
-        assert("has_fled" in p, "participant missing `has_fled`");
-        assert("fled_to_sector" in p, "participant missing `fled_to_sector`");
-        assertEquals(p.has_fled, false, "no one has fled at round 1");
-      }
-      const garrison = payload.garrison as Record<string, unknown> | null;
-      assertExists(garrison, "garrison sub-object on round_waiting");
-      assert("owner_character_id" in garrison, "garrison missing `owner_character_id`");
-      assert("owner_corp_id" in garrison, "garrison missing `owner_corp_id`");
-      assertEquals(garrison.owner_character_id, p3Id);
-    });
+    await t.step(
+      "combat.round_waiting payload exposes new participant + garrison fields",
+      async () => {
+        const events = await eventsOfType(p1Id, "combat.round_waiting");
+        const payload = events[events.length - 1].payload;
+        const participants = payload.participants as Array<
+          Record<string, unknown>
+        >;
+        assert(participants.length >= 2, "two character participants expected");
+        for (const p of participants) {
+          assert("fighters" in p, "participant missing `fighters`");
+          assert("destroyed" in p, "participant missing `destroyed`");
+          assert("corp_id" in p, "participant missing `corp_id`");
+          assert("has_fled" in p, "participant missing `has_fled`");
+          assert("fled_to_sector" in p, "participant missing `fled_to_sector`");
+          assertEquals(p.has_fled, false, "no one has fled at round 1");
+        }
+        const garrison = payload.garrison as Record<string, unknown> | null;
+        assertExists(garrison, "garrison sub-object on round_waiting");
+        assert(
+          "owner_character_id" in garrison,
+          "garrison missing `owner_character_id`",
+        );
+        assert("owner_corp_id" in garrison, "garrison missing `owner_corp_id`");
+        assertEquals(garrison.owner_character_id, p3Id);
+      },
+    );
 
     let resolvedCursor: number;
-    await t.step("capture cursor + resolve a round so we have round_resolved", async () => {
-      resolvedCursor = await getEventCursor(p1Id);
-      await apiOk("combat_action", {
-        character_id: p1Id,
-        combat_id: combatId,
-        action: "attack",
-        target_id: p2Id,
-        commit: 50,
-      });
-      await apiOk("combat_action", {
-        character_id: p2Id,
-        combat_id: combatId,
-        action: "brace",
-      });
-    });
+    await t.step(
+      "capture cursor + resolve a round so we have round_resolved",
+      async () => {
+        resolvedCursor = await getEventCursor(p1Id);
+        await apiOk("combat_action", {
+          character_id: p1Id,
+          combat_id: combatId,
+          action: "attack",
+          target_id: p2Id,
+          commit: 50,
+        });
+        await apiOk("combat_action", {
+          character_id: p2Id,
+          combat_id: combatId,
+          action: "brace",
+        });
+      },
+    );
 
-    await t.step("combat.round_resolved payload carries the new fields", async () => {
-      const events = await eventsOfType(p1Id, "combat.round_resolved", resolvedCursor);
-      assert(events.length >= 1, "expected combat.round_resolved");
-      const payload = events[0].payload;
-      const participants = payload.participants as Array<Record<string, unknown>>;
-      for (const p of participants) {
-        assert("fighters" in p, "resolved.participant missing `fighters`");
-        assert("destroyed" in p, "resolved.participant missing `destroyed`");
-        assert("corp_id" in p, "resolved.participant missing `corp_id`");
-      }
-      const garrison = payload.garrison as Record<string, unknown> | null;
-      assertExists(garrison, "garrison on round_resolved");
-      assert("owner_character_id" in garrison, "resolved.garrison missing owner_character_id");
-      assert("owner_corp_id" in garrison, "resolved.garrison missing owner_corp_id");
-    });
+    await t.step(
+      "combat.round_resolved payload carries the new fields",
+      async () => {
+        const events = await eventsOfType(
+          p1Id,
+          "combat.round_resolved",
+          resolvedCursor,
+        );
+        assert(events.length >= 1, "expected combat.round_resolved");
+        const payload = events[0].payload;
+        const participants = payload.participants as Array<
+          Record<string, unknown>
+        >;
+        for (const p of participants) {
+          assert("fighters" in p, "resolved.participant missing `fighters`");
+          assert("destroyed" in p, "resolved.participant missing `destroyed`");
+          assert("corp_id" in p, "resolved.participant missing `corp_id`");
+        }
+        const garrison = payload.garrison as Record<string, unknown> | null;
+        assertExists(garrison, "garrison on round_resolved");
+        assert(
+          "owner_character_id" in garrison,
+          "resolved.garrison missing owner_character_id",
+        );
+        assert(
+          "owner_corp_id" in garrison,
+          "resolved.garrison missing owner_corp_id",
+        );
+      },
+    );
 
-    await t.step("force combat to end and assert combat.ended payload + ship.destroyed", async () => {
-      // Drive the encounter forward with `expireCombatDeadline` + tick.
-      // Picking a single hard-coded target (P2) is unreliable: once P2
-      // dies the garrison is still hostile, so combat keeps going and
-      // combat_action against the dead P2 now rejects (target invalid),
-      // leaving the round stuck. Instead, drive each round by ticking the
-      // deadline — that lets P1's auto-brace + the garrison's auto-attack
-      // resolve naturally until end_state is reached. We also re-pick
-      // P1's attack target each round from whatever hostile is still alive.
-      const endCursor = await getEventCursor(p1Id);
-      for (let round = 0; round < 30; round++) {
-        const state = await queryCombatState(3);
-        if (!state || (state as Record<string, unknown>).ended === true) break;
-        // Pick the first alive non-P1 character/garrison participant as P1's target.
-        const participants = (state as Record<string, unknown>)
-          .participants as Record<string, { fighters: number; combatant_type: string; destruction_handled?: boolean }>;
-        let liveTarget: string | null = null;
-        for (const [pid, p] of Object.entries(participants)) {
-          if (pid === p1Id) continue;
-          if (p.destruction_handled) continue;
-          if ((p.fighters ?? 0) > 0) {
-            liveTarget = pid;
+    await t.step(
+      "force combat to end and assert combat.ended payload + ship.destroyed",
+      async () => {
+        // Drive the encounter forward with `expireCombatDeadline` + tick.
+        // Picking a single hard-coded target (P2) is unreliable: once P2
+        // dies the garrison is still hostile, so combat keeps going and
+        // combat_action against the dead P2 now rejects (target invalid),
+        // leaving the round stuck. Instead, drive each round by ticking the
+        // deadline — that lets P1's auto-brace + the garrison's auto-attack
+        // resolve naturally until end_state is reached. We also re-pick
+        // P1's attack target each round from whatever hostile is still alive.
+        const endCursor = await getEventCursor(p1Id);
+        for (let round = 0; round < 30; round++) {
+          const state = await queryCombatState(3);
+          if (!state || (state as Record<string, unknown>).ended === true) {
             break;
           }
+          // Pick the first alive non-P1 character/garrison participant as P1's target.
+          const participants = (state as Record<string, unknown>)
+            .participants as Record<
+              string,
+              {
+                fighters: number;
+                combatant_type: string;
+                destruction_handled?: boolean;
+              }
+            >;
+          let liveTarget: string | null = null;
+          for (const [pid, p] of Object.entries(participants)) {
+            if (pid === p1Id) continue;
+            if (p.destruction_handled) continue;
+            if ((p.fighters ?? 0) > 0) {
+              liveTarget = pid;
+              break;
+            }
+          }
+          if (liveTarget) {
+            await api("combat_action", {
+              character_id: p1Id,
+              combat_id: combatId,
+              action: "attack",
+              target_id: liveTarget,
+              commit: 200,
+            });
+          }
+          await expireCombatDeadline(3);
+          await api("combat_tick", {});
         }
-        if (liveTarget) {
-          await api("combat_action", {
-            character_id: p1Id,
-            combat_id: combatId,
-            action: "attack",
-            target_id: liveTarget,
-            commit: 200,
-          });
+        const ended = await eventsOfType(p1Id, "combat.ended", endCursor);
+        assert(ended.length >= 1, "combat.ended should fire for P1");
+        const endedPayload = ended[ended.length - 1].payload;
+        const endedParticipants = endedPayload.participants as Array<
+          Record<string, unknown>
+        >;
+        for (const p of endedParticipants) {
+          assert("fighters" in p, "ended.participant missing `fighters`");
+          assert("destroyed" in p, "ended.participant missing `destroyed`");
+          assert("corp_id" in p, "ended.participant missing `corp_id`");
         }
-        await expireCombatDeadline(3);
-        await api("combat_tick", {});
-      }
-      const ended = await eventsOfType(p1Id, "combat.ended", endCursor);
-      assert(ended.length >= 1, "combat.ended should fire for P1");
-      const endedPayload = ended[ended.length - 1].payload;
-      const endedParticipants = endedPayload.participants as Array<
-        Record<string, unknown>
-      >;
-      for (const p of endedParticipants) {
-        assert("fighters" in p, "ended.participant missing `fighters`");
-        assert("destroyed" in p, "ended.participant missing `destroyed`");
-        assert("corp_id" in p, "ended.participant missing `corp_id`");
-      }
 
-      // ship.destroyed for P2 — owner_character_id + corp_id must be present.
-      const destroyed = await eventsOfType(p1Id, "ship.destroyed", endCursor);
-      assert(destroyed.length >= 1, "ship.destroyed should fire for P2's ship");
-      const destroyedPayload = destroyed[destroyed.length - 1].payload;
-      assert("owner_character_id" in destroyedPayload, "ship.destroyed missing owner_character_id");
-      assert("corp_id" in destroyedPayload, "ship.destroyed missing corp_id");
-    });
+        // ship.destroyed for P2 — owner_character_id + corp_id must be present.
+        const destroyed = await eventsOfType(p1Id, "ship.destroyed", endCursor);
+        assert(
+          destroyed.length >= 1,
+          "ship.destroyed should fire for P2's ship",
+        );
+        const destroyedPayload = destroyed[destroyed.length - 1].payload;
+        assert(
+          "owner_character_id" in destroyedPayload,
+          "ship.destroyed missing owner_character_id",
+        );
+        assert("corp_id" in destroyedPayload, "ship.destroyed missing corp_id");
+      },
+    );
   },
 });
 
@@ -3762,34 +3998,38 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "combat events: garrison.destroyed fires with full payload + reaches absent owner",
+  name:
+    "combat events: garrison.destroyed fires with full payload + reaches absent owner",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
     let combatId: string;
 
-    await t.step("setup: P1 deploys defensive garrison and moves away; P2 attacks it", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipSector(p1ShipId, 3);
-      await setShipSector(p2ShipId, 3);
-      await setShipFighters(p1ShipId, 200);
-      await setShipFighters(p2ShipId, 500);
+    await t.step(
+      "setup: P1 deploys defensive garrison and moves away; P2 attacks it",
+      async () => {
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipSector(p1ShipId, 3);
+        await setShipSector(p2ShipId, 3);
+        await setShipFighters(p1ShipId, 200);
+        await setShipFighters(p2ShipId, 500);
 
-      await apiOk("combat_leave_fighters", {
-        character_id: p1Id,
-        sector: 3,
-        quantity: 5, // tiny — easy to one-shot
-        mode: "defensive",
-      });
-      await setShipSector(p1ShipId, 4); // owner leaves the sector
+        await apiOk("combat_leave_fighters", {
+          character_id: p1Id,
+          sector: 3,
+          quantity: 5, // tiny — easy to one-shot
+          mode: "defensive",
+        });
+        await setShipSector(p1ShipId, 4); // owner leaves the sector
 
-      await apiOk("combat_initiate", { character_id: p2Id });
-      const events = await eventsOfType(p2Id, "combat.round_waiting");
-      assert(events.length >= 1);
-      combatId = events[events.length - 1].payload.combat_id as string;
-    });
+        await apiOk("combat_initiate", { character_id: p2Id });
+        const events = await eventsOfType(p2Id, "combat.round_waiting");
+        assert(events.length >= 1);
+        combatId = events[events.length - 1].payload.combat_id as string;
+      },
+    );
 
     let cursorP1: number;
     await t.step("capture P1 cursor and attack the garrison", async () => {
@@ -3818,25 +4058,29 @@ Deno.test({
       }
     });
 
-    await t.step("absent owner P1 receives garrison.destroyed with full payload", async () => {
-      const events = await eventsOfType(p1Id, "garrison.destroyed", cursorP1);
-      assert(events.length >= 1, "P1 should receive garrison.destroyed");
-      const payload = events[0].payload;
-      assertEquals(payload.owner_character_id, p1Id);
-      assert(typeof payload.combat_id === "string", "combat_id");
-      assert(typeof payload.garrison_id === "string", "garrison_id");
-      assert("owner_corp_id" in payload, "owner_corp_id");
-      // owner_name is a non-empty string — the exact value depends on the
-      // character's display-name in the fixture (defaults to UUID for
-      // resetDatabase-created chars), so we just assert presence.
-      assert(
-        typeof payload.owner_name === "string" && payload.owner_name.length > 0,
-        "owner_name should be a non-empty string",
-      );
-      const sector = payload.sector as { id?: number } | undefined;
-      assertEquals(sector?.id, 3);
-      assertEquals(payload.mode, "defensive");
-    });
+    await t.step(
+      "absent owner P1 receives garrison.destroyed with full payload",
+      async () => {
+        const events = await eventsOfType(p1Id, "garrison.destroyed", cursorP1);
+        assert(events.length >= 1, "P1 should receive garrison.destroyed");
+        const payload = events[0].payload;
+        assertEquals(payload.owner_character_id, p1Id);
+        assert(typeof payload.combat_id === "string", "combat_id");
+        assert(typeof payload.garrison_id === "string", "garrison_id");
+        assert("owner_corp_id" in payload, "owner_corp_id");
+        // owner_name is a non-empty string — the exact value depends on the
+        // character's display-name in the fixture (defaults to UUID for
+        // resetDatabase-created chars), so we just assert presence.
+        assert(
+          typeof payload.owner_name === "string" &&
+            payload.owner_name.length > 0,
+          "owner_name should be a non-empty string",
+        );
+        const sector = payload.sector as { id?: number } | undefined;
+        assertEquals(sector?.id, 3);
+        assertEquals(payload.mode, "defensive");
+      },
+    );
 
     await t.step(
       "absent owner P1 receives observer-safe combat.ended",
@@ -3854,12 +4098,15 @@ Deno.test({
       },
     );
 
-    await t.step("garrison row was deleted (event captured the metadata before delete)", async () => {
-      const garrison = await queryGarrison(3);
-      // After destruction, no row should remain.
-      // Either null or a row with fighters > 0 (different garrison) — but
-      // since we only deployed P1's, null is expected.
-      assertEquals(garrison, null, "garrison row should be deleted");
-    });
+    await t.step(
+      "garrison row was deleted (event captured the metadata before delete)",
+      async () => {
+        const garrison = await queryGarrison(3);
+        // After destruction, no row should remain.
+        // Either null or a row with fighters > 0 (different garrison) — but
+        // since we only deployed P1's, null is expected.
+        assertEquals(garrison, null, "garrison row should be deleted");
+      },
+    );
   },
 });

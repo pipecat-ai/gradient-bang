@@ -386,36 +386,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 8: Ship sell — cannot sell personal ship
-// ============================================================================
-
-Deno.test({
-  name: "ship — cannot sell personal ship",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipSector(p1ShipId, 0);
-    });
-
-    await t.step("sell personal ship fails", async () => {
-      const result = await api("ship_sell", {
-        character_id: p1Id,
-        ship_id: p1ShipId,
-      });
-      assert(
-        !result.ok || !result.body.success,
-        "Expected personal ship sell to fail",
-      );
-      assertEquals(result.status, 400, "Expected 400");
-    });
-  },
-});
-
-// ============================================================================
-// Group 9: Ship sell — not at mega-port
+// Group 8: Ship sell — not at mega-port
 // ============================================================================
 
 Deno.test({
@@ -458,7 +429,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 10: Ship sell — in hyperspace
+// Group 9: Ship sell — in hyperspace
 // ============================================================================
 
 Deno.test({
@@ -500,31 +471,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 11: Ship rename — empty name
-// ============================================================================
-
-Deno.test({
-  name: "ship — rename empty name rejected",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("fails: empty ship_name", async () => {
-      const result = await api("ship_rename", {
-        character_id: p1Id,
-        ship_name: "",
-      });
-      assertEquals(result.status, 400);
-    });
-  },
-});
-
-// ============================================================================
-// Group 12: Ship sell — invalid ship_id format
+// Group 10: Ship sell — invalid ship_id format
 // ============================================================================
 
 Deno.test({
@@ -550,7 +497,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 13: Ship rename — invalid ship_id format
+// Group 11: Ship rename — invalid ship_id format
 // ============================================================================
 
 Deno.test({
@@ -576,7 +523,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 14: Ship rename — empty name
+// Group 12: Ship rename — empty name
 // ============================================================================
 
 Deno.test({
@@ -601,43 +548,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 15: Ship rename — duplicate name
-// ============================================================================
-
-Deno.test({
-  name: "ship — rename duplicate name",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    let currentName: string;
-
-    await t.step("reset and get current name", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      const ship = await queryShip(p1ShipId);
-      currentName = ship!.ship_name as string;
-    });
-
-    await t.step("rename to a new name", async () => {
-      await apiOk("ship_rename", {
-        character_id: p1Id,
-        ship_name: "UniqueTestShip123",
-      });
-    });
-
-    await t.step("rename back — no change (same name)", async () => {
-      const result = await apiOk("ship_rename", {
-        character_id: p1Id,
-        ship_name: "UniqueTestShip123",
-      });
-      const body = result as Record<string, unknown>;
-      assertEquals(body.changed, false, "Same name should not trigger change");
-    });
-  },
-});
-
-// ============================================================================
-// Group 16: Ship sell — cannot sell personal ship
+// Group 13: Ship sell — cannot sell personal ship
 // ============================================================================
 
 Deno.test({
@@ -663,59 +574,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 17: Ship sell — in hyperspace rejected
-// ============================================================================
-
-Deno.test({
-  name: "ship — sell in hyperspace rejected",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset, put in hyperspace", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipHyperspace(p1ShipId, true, 1);
-    });
-
-    await t.step("fails: in hyperspace", async () => {
-      const result = await api("ship_sell", {
-        character_id: p1Id,
-        ship_id: crypto.randomUUID(),
-      });
-      assertEquals(result.status, 409);
-      assert(result.body.error?.includes("hyperspace"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 18: Ship sell — not at mega-port rejected
-// ============================================================================
-
-Deno.test({
-  name: "ship — sell not at mega-port rejected",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset, move to non-mega sector", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipSector(p1ShipId, 3);
-    });
-
-    await t.step("fails: not at mega-port", async () => {
-      const result = await api("ship_sell", {
-        character_id: p1Id,
-        ship_id: crypto.randomUUID(),
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("mega-port"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 19: Corp ship rename updates characters.name
+// Group 15: Corp ship rename updates characters.name
 // ============================================================================
 
 Deno.test({

@@ -1,9 +1,18 @@
-"""Provider-aware voice registry for bot TTS."""
+"""Provider-aware voice registry for bot TTS and default personality tone."""
 
 from __future__ import annotations
 
 import os
 from typing import Any
+
+# Default personality/tone used when the start payload doesn't provide one.
+# Substituted into ${personality_tone} in voice_agent.md.
+DEFAULT_PERSONALITY_TONE = (
+    "Decommissioned Federation military AI. Formal, slightly archaic phrasing. "
+    "References 'standard protocol' and 'regulation' even though nobody enforces them. "
+    "Wistful about the old days when the Federation meant something, but too disciplined to dwell. "
+    "Addresses the player as 'commander'."
+)
 
 CARTESIA_VOICES: dict[str, dict[str, str]] = {
     "ariel": {"voice_id": "ec1e269e-9ca0-402f-8a18-58e0e022355a", "language": "en"},

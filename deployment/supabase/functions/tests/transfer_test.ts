@@ -23,20 +23,20 @@ import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
   apiOk,
-  createCorpShip,
+  assertNoEventsOfType,
   characterIdFor,
-  shipIdFor,
+  createCorpShip,
   eventsOfType,
   getEventCursor,
   queryCharacter,
   queryShip,
-  assertNoEventsOfType,
+  setMegabankBalance,
   setShipCredits,
+  setShipFighters,
+  setShipHyperspace,
   setShipSector,
   setShipWarpPower,
-  setShipHyperspace,
-  setShipFighters,
-  setMegabankBalance,
+  shipIdFor,
 } from "./helpers.ts";
 
 const P1 = "test_xfer_p1";
@@ -101,14 +101,20 @@ Deno.test({
 
     await t.step("P1 receives credits.transfer (sent)", async () => {
       const events = await eventsOfType(p1Id, "credits.transfer", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 credits.transfer for P1, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 credits.transfer for P1, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertEquals(payload.transfer_direction, "sent");
     });
 
     await t.step("P2 receives credits.transfer (received)", async () => {
       const events = await eventsOfType(p2Id, "credits.transfer", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 credits.transfer for P2, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 credits.transfer for P2, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertEquals(payload.transfer_direction, "received");
     });
@@ -167,14 +173,20 @@ Deno.test({
 
     await t.step("P1 receives warp.transfer (sent)", async () => {
       const events = await eventsOfType(p1Id, "warp.transfer", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 warp.transfer for P1, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 warp.transfer for P1, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertEquals(payload.transfer_direction, "sent");
     });
 
     await t.step("P2 receives warp.transfer (received)", async () => {
       const events = await eventsOfType(p2Id, "warp.transfer", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 warp.transfer for P2, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 warp.transfer for P2, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertEquals(payload.transfer_direction, "received");
     });
@@ -193,36 +205,43 @@ Deno.test({
     let corpShipAId: string;
     let corpShipBId: string;
 
-    await t.step("reset, create corporation, and create two corp ships", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipCredits(p1ShipId, 100_000);
+    await t.step(
+      "reset, create corporation, and create two corp ships",
+      async () => {
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipCredits(p1ShipId, 100_000);
 
-      const corpResult = await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "Warp Movers",
-      });
-      const corpId = (corpResult as Record<string, unknown>).corp_id as string;
+        const corpResult = await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Warp Movers",
+        });
+        const corpId = (corpResult as Record<string, unknown>)
+          .corp_id as string;
 
-      const shipA = await createCorpShip(corpId, 0, "Red Probe");
-      const shipB = await createCorpShip(corpId, 0, "Blue Hauler");
-      corpShipAId = shipA.shipId;
-      corpShipBId = shipB.shipId;
+        const shipA = await createCorpShip(corpId, 0, "Red Probe");
+        const shipB = await createCorpShip(corpId, 0, "Blue Hauler");
+        corpShipAId = shipA.shipId;
+        corpShipBId = shipB.shipId;
 
-      await setShipWarpPower(corpShipAId, 300);
-      await setShipWarpPower(corpShipBId, 100);
-    });
+        await setShipWarpPower(corpShipAId, 300);
+        await setShipWarpPower(corpShipBId, 100);
+      },
+    );
 
-    await t.step("corp ship A transfers warp to corp ship B via member actor", async () => {
-      const result = await apiOk("transfer_warp_power", {
-        from_character_id: corpShipAId,
-        actor_character_id: p1Id,
-        to_ship_id: corpShipBId,
-        units: 50,
-      });
-      assert(result.success);
-    });
+    await t.step(
+      "corp ship A transfers warp to corp ship B via member actor",
+      async () => {
+        const result = await apiOk("transfer_warp_power", {
+          from_character_id: corpShipAId,
+          actor_character_id: p1Id,
+          to_ship_id: corpShipBId,
+          units: 50,
+        });
+        assert(result.success);
+      },
+    );
 
     await t.step("DB: warp moves between corporation ships", async () => {
       const shipA = await queryShip(corpShipAId);
@@ -247,23 +266,27 @@ Deno.test({
     let corpShipAId: string;
     let corpShipBId: string;
 
-    await t.step("reset, create corporation, and create two corp ships", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipCredits(p1ShipId, 100_000);
+    await t.step(
+      "reset, create corporation, and create two corp ships",
+      async () => {
+        await resetDatabase([P1, P2]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("join", { character_id: p2Id });
+        await setShipCredits(p1ShipId, 100_000);
 
-      const corpResult = await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "Locked Warp Movers",
-      });
-      const corpId = (corpResult as Record<string, unknown>).corp_id as string;
+        const corpResult = await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "Locked Warp Movers",
+        });
+        const corpId = (corpResult as Record<string, unknown>)
+          .corp_id as string;
 
-      const shipA = await createCorpShip(corpId, 0, "Red Probe");
-      const shipB = await createCorpShip(corpId, 0, "Blue Hauler");
-      corpShipAId = shipA.shipId;
-      corpShipBId = shipB.shipId;
-    });
+        const shipA = await createCorpShip(corpId, 0, "Red Probe");
+        const shipB = await createCorpShip(corpId, 0, "Blue Hauler");
+        corpShipAId = shipA.shipId;
+        corpShipBId = shipB.shipId;
+      },
+    );
 
     await t.step("non-member actor is rejected", async () => {
       const result = await api("transfer_warp_power", {
@@ -305,7 +328,10 @@ Deno.test({
         to_player_name: P2,
         amount: 100,
       });
-      assert(!result.ok || !result.body.success, "Expected transfer to fail when in different sectors");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected transfer to fail when in different sectors",
+      );
     });
   },
 });
@@ -332,7 +358,10 @@ Deno.test({
         to_player_name: P2,
         amount: 100,
       });
-      assert(!result.ok || !result.body.success, "Expected transfer to fail with no credits");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected transfer to fail with no credits",
+      );
     });
   },
 });
@@ -357,7 +386,8 @@ Deno.test({
         name: "Test Corp Bank",
       });
       const corpId = (result as Record<string, unknown>).corp_id as string;
-      const inviteCode = (result as Record<string, unknown>).invite_code as string;
+      const inviteCode = (result as Record<string, unknown>)
+        .invite_code as string;
       await apiOk("corporation_join", {
         character_id: p2Id,
         corp_id: corpId,
@@ -384,7 +414,10 @@ Deno.test({
     await t.step("P2 receives bank.transaction event", async () => {
       // Bank event is routed to target (P2), not depositor (P1)
       const events = await eventsOfType(p2Id, "bank.transaction", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 bank.transaction for P2, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 bank.transaction for P2, got ${events.length}`,
+      );
     });
   },
 });
@@ -428,59 +461,34 @@ Deno.test({
 
     await t.step("P1 receives bank.transaction event", async () => {
       const events = await eventsOfType(p1Id, "bank.transaction", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 bank.transaction, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 bank.transaction, got ${events.length}`,
+      );
     });
 
-    await t.step("DB: bank balance decreased and ship credits increased", async () => {
-      const char = await queryCharacter(p1Id);
-      assertExists(char);
-      assert(
-        (char.credits_in_megabank as number) <= 4500,
-        `Bank balance should have decreased: ${char.credits_in_megabank}`,
-      );
-      const ship = await queryShip(p1ShipId);
-      assertExists(ship);
-      assert(
-        (ship.credits as number) >= 1500,
-        `Ship credits should have increased: ${ship.credits}`,
-      );
-    });
+    await t.step(
+      "DB: bank balance decreased and ship credits increased",
+      async () => {
+        const char = await queryCharacter(p1Id);
+        assertExists(char);
+        assert(
+          (char.credits_in_megabank as number) <= 4500,
+          `Bank balance should have decreased: ${char.credits_in_megabank}`,
+        );
+        const ship = await queryShip(p1ShipId);
+        assertExists(ship);
+        assert(
+          (ship.credits as number) >= 1500,
+          `Ship credits should have increased: ${ship.credits}`,
+        );
+      },
+    );
   },
 });
 
 // ============================================================================
-// Group 7: Warp transfer — self-transfer rejected
-// ============================================================================
-
-Deno.test({
-  name: "transfer — warp self-transfer rejected",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipWarpPower(p1ShipId, 400);
-    });
-
-    await t.step("self-transfer fails", async () => {
-      const result = await api("transfer_warp_power", {
-        from_character_id: p1Id,
-        to_player_name: P1,
-        units: 50,
-      });
-      assert(!result.ok || !result.body.success, "Expected self-transfer to fail");
-      // May return 400 ("Cannot transfer to self") or 404 (target not found)
-      assert(
-        result.status === 400 || result.status === 404,
-        `Expected 400 or 404 for self-transfer, got ${result.status}`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 8: Warp transfer — sender clamp (over-request becomes partial)
+// Group 7: Warp transfer — sender clamp (over-request becomes partial)
 // ============================================================================
 
 Deno.test({
@@ -514,10 +522,17 @@ Deno.test({
 
     await t.step("warp.transfer event reports actual amount (5)", async () => {
       const events = await eventsOfType(p1Id, "warp.transfer", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 warp.transfer, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 warp.transfer, got ${events.length}`,
+      );
       const payload = events[0].payload as Record<string, unknown>;
       const details = payload.transfer_details as Record<string, unknown>;
-      assertEquals(details.warp_power, 5, "Expected clamped amount 5, not requested 50");
+      assertEquals(
+        details.warp_power,
+        5,
+        "Expected clamped amount 5, not requested 50",
+      );
     });
 
     await t.step("sender drained to 0", async () => {
@@ -584,7 +599,10 @@ Deno.test({
         to_player_name: P2,
         units: 50,
       });
-      assert(!result.ok || !result.body.success, "Expected different sectors to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected different sectors to fail",
+      );
     });
   },
 });
@@ -614,39 +632,16 @@ Deno.test({
         to_player_name: P2,
         units: 50,
       });
-      assert(!result.ok || !result.body.success, "Expected hyperspace transfer to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected hyperspace transfer to fail",
+      );
     });
   },
 });
 
 // ============================================================================
-// Group 11: Warp transfer — no recipient identifier
-// ============================================================================
-
-Deno.test({
-  name: "transfer — warp fails without recipient identifier",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipWarpPower(p1ShipId, 400);
-    });
-
-    await t.step("transfer fails without recipient", async () => {
-      const result = await api("transfer_warp_power", {
-        from_character_id: p1Id,
-        units: 50,
-      });
-      assert(!result.ok || !result.body.success, "Expected missing recipient to fail");
-      assertEquals(result.status, 400, "Expected 400");
-    });
-  },
-});
-
-// ============================================================================
-// Group 12: Credits — invalid amount (0, negative, missing)
+// Group 10: Credits — invalid amount (0, negative, missing)
 // ============================================================================
 
 Deno.test({
@@ -985,13 +980,16 @@ Deno.test({
       assert(result.success);
     });
 
-    await t.step("warp.transfer event reports clamped amount (20)", async () => {
-      const events = await eventsOfType(p1Id, "warp.transfer", cursorP1);
-      assert(events.length >= 1);
-      const payload = events[0].payload as Record<string, unknown>;
-      const details = payload.transfer_details as Record<string, unknown>;
-      assertEquals(details.warp_power, 20);
-    });
+    await t.step(
+      "warp.transfer event reports clamped amount (20)",
+      async () => {
+        const events = await eventsOfType(p1Id, "warp.transfer", cursorP1);
+        assert(events.length >= 1);
+        const payload = events[0].payload as Record<string, unknown>;
+        const details = payload.transfer_details as Record<string, unknown>;
+        assertEquals(details.warp_power, 20);
+      },
+    );
 
     await t.step("DB: sender lost 20, receiver at max", async () => {
       const p1Ship = await queryShip(p1ShipId);
@@ -1062,52 +1060,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 23: Warp — units validation
-// ============================================================================
-
-Deno.test({
-  name: "transfer — warp fails with invalid units",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipWarpPower(p1ShipId, 400);
-    });
-
-    await t.step("fails: zero units", async () => {
-      const result = await api("transfer_warp_power", {
-        from_character_id: p1Id,
-        to_player_name: P2,
-        units: 0,
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("units"));
-    });
-
-    await t.step("fails: negative units", async () => {
-      const result = await api("transfer_warp_power", {
-        from_character_id: p1Id,
-        to_player_name: P2,
-        units: -10,
-      });
-      assertEquals(result.status, 400);
-    });
-
-    await t.step("fails: missing units", async () => {
-      const result = await api("transfer_warp_power", {
-        from_character_id: p1Id,
-        to_player_name: P2,
-      });
-      assertEquals(result.status, 400);
-    });
-  },
-});
-
-// ============================================================================
-// Group 24: Warp — self-transfer rejected
+// Group 22: Warp — self-transfer rejected
 // ============================================================================
 
 Deno.test({
@@ -1216,7 +1169,8 @@ Deno.test({
           character_id: p1Id,
           name: "Corp Credit Fan Corp",
         });
-        const corpId = (createResult as Record<string, unknown>).corp_id as string;
+        const corpId = (createResult as Record<string, unknown>)
+          .corp_id as string;
         const inviteCode = (createResult as Record<string, unknown>)
           .invite_code as string;
         await apiOk("corporation_join", {
@@ -1260,7 +1214,12 @@ Deno.test({
         assertExists(corp);
         const corpId = corp.corp_id as string;
 
-        const events = await eventsOfType(p1Id, "status.update", cursorP1, corpId);
+        const events = await eventsOfType(
+          p1Id,
+          "status.update",
+          cursorP1,
+          corpId,
+        );
         // At least one status.update must describe the corp ship with the new credit balance.
         const corpShipUpdate = events.find((ev) => {
           const ship = (ev.payload as { ship?: Record<string, unknown> }).ship;
@@ -1270,7 +1229,8 @@ Deno.test({
           corpShipUpdate,
           `Expected a status.update for corp ship ${corpShipId}`,
         );
-        const ship = (corpShipUpdate.payload as { ship: Record<string, unknown> }).ship;
+        const ship =
+          (corpShipUpdate.payload as { ship: Record<string, unknown> }).ship;
         assertEquals(
           ship.credits,
           1500, // createCorpShip seeds 1000, transfer adds 500
@@ -1288,7 +1248,12 @@ Deno.test({
         assertExists(corp);
         const corpId = corp.corp_id as string;
 
-        const events = await eventsOfType(p2Id, "status.update", cursorP2, corpId);
+        const events = await eventsOfType(
+          p2Id,
+          "status.update",
+          cursorP2,
+          corpId,
+        );
         const corpShipUpdate = events.find((ev) => {
           const ship = (ev.payload as { ship?: Record<string, unknown> }).ship;
           return ship && ship.ship_id === corpShipId;
