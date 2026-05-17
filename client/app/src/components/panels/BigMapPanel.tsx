@@ -14,7 +14,7 @@ import SectorMap, { type MapConfig } from "@/components/SectorMap"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
-import { getFetchBounds } from "@/utils/map"
+import { getFetchBounds, mapShipsForViewer } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -158,16 +158,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
     return { ...base, coursePlotZoomEnabled }
   }, [config, coursePlotZoomEnabled])
 
-  const shipSectors = ships?.data
-    ?.filter((s: ShipSelf) => s.owner_type !== "personal")
-    .map((s: ShipSelf) => ({
-      sector: s.sector ?? 0,
-      ship_name: s.ship_name,
-      ship_type: s.ship_type,
-      owner_kind: (s.owner_character_id && s.owner_character_id === viewerCharacterId ?
-        "self"
-      : "corp_mate") as "self" | "corp_mate",
-    }))
+  const shipSectors = mapShipsForViewer(ships?.data, viewerCharacterId)
 
   const combatSectorsSet = useMemo(() => {
     const ids = new Set<number>()

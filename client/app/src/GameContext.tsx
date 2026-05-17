@@ -1019,13 +1019,6 @@ export function GameProvider({ children }: GameProviderProps) {
                   .applyMapDelta({ kind: "garrison_cleared", sector_id: data.id })
               }
 
-              // Note: not updating activity log as redundant from other logs
-
-              //useGameStore.getState().addActivityLogEntry({
-              //  type: "sector.update",
-              //  message: `Sector ${data.id} updated`,
-              //});
-
               break
             }
 

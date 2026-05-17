@@ -44,6 +44,28 @@ export const normalizePort = (port: PortLike): PortBase | null => {
 export const normalizeMapData = (mapData: MapData): MapData =>
   mapData.map((sector) => ({ ...sector, port: normalizePort(sector.port as PortLike) }))
 
+export interface MapShipMarker {
+  sector: number
+  ship_name: string
+  ship_type: string
+  owner_kind: "self" | "corp_mate"
+}
+
+/** Project corp ships into the shape SectorMap expects, tagging viewer-owned vs corp-mate. */
+export const mapShipsForViewer = (
+  ships: ShipSelf[] | undefined,
+  viewerCharacterId: string | undefined
+): MapShipMarker[] | undefined =>
+  ships
+    ?.filter((s) => s.owner_type !== "personal")
+    .map((s) => ({
+      sector: s.sector ?? 0,
+      ship_name: s.ship_name,
+      ship_type: s.ship_type,
+      owner_kind:
+        s.owner_character_id && s.owner_character_id === viewerCharacterId ? "self" : "corp_mate",
+    }))
+
 export const normalizeSector = <T extends Sector>(sector: T): T => ({
   ...sector,
   port: normalizePort(sector.port as PortLike),

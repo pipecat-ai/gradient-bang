@@ -117,7 +117,6 @@ export interface NodeStyles {
   unvisited: NodeStyle
   muted: NodeStyle
   megaPort: NodeStyle
-  garrison: NodeStyle
   garrisonDefensive: NodeStyle
   garrisonOffensive: NodeStyle
   garrisonToll: NodeStyle
@@ -192,19 +191,6 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     glow: true,
     glowRadius: 100,
     glowColor: "rgba(255,255,255,0.15)",
-    glowFalloff: 0.3,
-  },
-  garrison: {
-    fill: "rgba(70,8,9,0.8)",
-    border: "rgba(239,68,68,1)",
-    borderWidth: 3,
-    borderStyle: "solid",
-    outline: "rgba(239,68,68,0.5)",
-    outlineWidth: 2,
-    iconColor: "#fecaca",
-    glow: true,
-    glowRadius: 100,
-    glowColor: "rgba(239,68,68,0.2)",
     glowFalloff: 0.3,
   },
   garrisonOffensive: {
@@ -1244,12 +1230,11 @@ function getNodeStyle(
     const mode = node.garrison?.mode
     if (mode === "defensive") {
       baseStyle = config.nodeStyles.garrisonDefensive
-    } else if (mode === "offensive") {
-      baseStyle = config.nodeStyles.garrisonOffensive
     } else if (mode === "toll") {
       baseStyle = config.nodeStyles.garrisonToll
     } else {
-      baseStyle = config.nodeStyles.garrison
+      // offensive or unknown — offensive is the visual default.
+      baseStyle = config.nodeStyles.garrisonOffensive
     }
   } else if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
@@ -2241,10 +2226,7 @@ function renderShipLabels(
   const labelStyle = config.labelStyles.shipCount
   const iconSize = 14
   const combatColor = "#ff3344"
-  // Distinct fill for corp-mate ship sectors so the viewer can tell their
-  // own corp ships apart from teammates' at a glance. A sector with any
-  // self-owned ship keeps the default label color (blue feel via shipCount
-  // style); a sector containing only corp-mate ships uses this purple.
+  // Used when a sector contains only corp-mate ships (no self-owned ship).
   const corpMateColor = "rgba(168,85,247,0.85)"
 
   ctx.save()

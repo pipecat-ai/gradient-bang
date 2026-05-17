@@ -45,13 +45,8 @@ export interface MapUIActionPayload {
   clearCoursePlot?: boolean
 }
 
-/**
- * Discriminated union of map-relevant deltas produced by GameContext from
- * incoming server events. Client-internal type, never appears on the wire.
- * Single merge function in the slice (`applyMapDelta`) consumes these and
- * mutates `local_map_data` + `regional_map_data`, so every overlay change
- * funnels through one code path.
- */
+// Client-internal delta produced by GameContext from incoming server events.
+// Never appears on the wire; `applyMapDelta` is the only consumer.
 export type MapDelta =
   | {
       kind: "sector_upsert"
@@ -85,11 +80,6 @@ export interface MapSlice {
   handleMapCenterFallback: () => void
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
-  /**
-   * Single entry point for all map-relevant mutations from server events
-   * (sector.update, map.update, garrison.*, combat.*). Idempotent on
-   * (sector_id, field). Replaces the fan-in of bespoke per-event setters.
-   */
   applyMapDelta: (delta: MapDelta) => void
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
