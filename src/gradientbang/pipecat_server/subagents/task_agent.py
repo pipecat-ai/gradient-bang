@@ -103,7 +103,7 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
-EVENT_BATCH_INFERENCE_DELAY = max(0.0, _float_env("TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS", 0.25))
+EVENT_BATCH_INFERENCE_DELAY = max(0.0, _float_env("TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS", 1.0))
 ASYNC_COMPLETION_TIMEOUT = 5.0
 MAX_NO_TOOL_NUDGES = 3
 MAX_CONSECUTIVE_ERRORS = 3
