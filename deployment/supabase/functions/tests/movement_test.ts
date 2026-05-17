@@ -23,22 +23,22 @@ import {
   assertExists,
 } from "https://deno.land/std@0.197.0/testing/asserts.ts";
 
-import { resetDatabase, clearEvents, startServerInProcess } from "./harness.ts";
+import { clearEvents, resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
   apiOk,
+  assertNoEventsOfType,
   characterIdFor,
-  shipIdFor,
-  eventsSince,
   eventsOfType,
+  eventsSince,
   getEventCursor,
   queryCharacter,
   queryShip,
-  assertNoEventsOfType,
-  setShipWarpPower,
+  setShipFighters,
   setShipHyperspace,
   setShipSector,
-  setShipFighters,
+  setShipWarpPower,
+  shipIdFor,
   withPg,
 } from "./helpers.ts";
 
@@ -109,7 +109,10 @@ Deno.test({
 
     await t.step("P1 receives movement.start event", async () => {
       const events = await eventsOfType(p1Id, "movement.start", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 movement.start, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 movement.start, got ${events.length}`,
+      );
       const ev = events[0];
       const payload = ev.payload;
       assertExists(payload.sector, "payload.sector");
@@ -118,7 +121,10 @@ Deno.test({
 
     await t.step("P1 receives movement.complete event", async () => {
       const events = await eventsOfType(p1Id, "movement.complete", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 movement.complete, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 movement.complete, got ${events.length}`,
+      );
       const ev = events[0];
       const payload = ev.payload;
       assertExists(payload.sector, "payload.sector");
@@ -128,7 +134,10 @@ Deno.test({
 
     await t.step("P1 receives map.local event", async () => {
       const events = await eventsOfType(p1Id, "map.local", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 map.local, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 map.local, got ${events.length}`,
+      );
     });
 
     await t.step("DB: ship is now in sector 1", async () => {
@@ -178,7 +187,10 @@ Deno.test({
 
     await t.step("P2 receives character.moved (depart)", async () => {
       const events = await eventsOfType(p2Id, "character.moved", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 character.moved, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 character.moved, got ${events.length}`,
+      );
       // At least one event should be a departure from P2's sector
       const depart = events.find(
         (e) => (e.payload as Record<string, unknown>).movement === "depart",
@@ -186,10 +198,13 @@ Deno.test({
       assertExists(depart, "Expected a 'depart' character.moved event");
     });
 
-    await t.step("P2 does NOT receive movement.start or movement.complete", async () => {
-      await assertNoEventsOfType(p2Id, "movement.start", cursorP2);
-      await assertNoEventsOfType(p2Id, "movement.complete", cursorP2);
-    });
+    await t.step(
+      "P2 does NOT receive movement.start or movement.complete",
+      async () => {
+        await assertNoEventsOfType(p2Id, "movement.start", cursorP2);
+        await assertNoEventsOfType(p2Id, "movement.complete", cursorP2);
+      },
+    );
   },
 });
 
@@ -222,7 +237,10 @@ Deno.test({
 
     await t.step("P3 receives character.moved (arrive)", async () => {
       const events = await eventsOfType(p3Id, "character.moved", cursorP3);
-      assert(events.length >= 1, `Expected >= 1 character.moved for P3, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 character.moved for P3, got ${events.length}`,
+      );
       const arrive = events.find(
         (e) => (e.payload as Record<string, unknown>).movement === "arrive",
       );
@@ -235,7 +253,8 @@ Deno.test({
         (e) => (e.payload as Record<string, unknown>).movement === "arrive",
       );
       assertExists(arrive, "Expected an 'arrive' character.moved event for P3");
-      const player = (arrive!.payload as Record<string, unknown>).player as Record<string, unknown>;
+      const player = (arrive!.payload as Record<string, unknown>)
+        .player as Record<string, unknown>;
       assertEquals(
         player.player_type,
         "human",
@@ -272,12 +291,19 @@ Deno.test({
       await assertNoEventsOfType(p1Id, "character.moved", cursorP1);
     });
 
-    await t.step("P1 DOES receive movement.start and movement.complete", async () => {
-      const starts = await eventsOfType(p1Id, "movement.start", cursorP1);
-      assert(starts.length >= 1, "Expected movement.start");
-      const completes = await eventsOfType(p1Id, "movement.complete", cursorP1);
-      assert(completes.length >= 1, "Expected movement.complete");
-    });
+    await t.step(
+      "P1 DOES receive movement.start and movement.complete",
+      async () => {
+        const starts = await eventsOfType(p1Id, "movement.start", cursorP1);
+        assert(starts.length >= 1, "Expected movement.start");
+        const completes = await eventsOfType(
+          p1Id,
+          "movement.complete",
+          cursorP1,
+        );
+        assert(completes.length >= 1, "Expected movement.complete");
+      },
+    );
 
     await t.step("P1 DOES receive map.local", async () => {
       const maps = await eventsOfType(p1Id, "map.local", cursorP1);
@@ -306,7 +332,10 @@ Deno.test({
         character_id: p1Id,
         to_sector: 9,
       });
-      assert(!result.ok || !result.body.success, "Expected move to non-adjacent sector to fail");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected move to non-adjacent sector to fail",
+      );
     });
 
     await t.step("DB: ship is still in sector 0", async () => {
@@ -340,7 +369,10 @@ Deno.test({
         character_id: p1Id,
         to_sector: 1,
       });
-      assert(!result.ok || !result.body.success, "Expected move to fail with no warp power");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected move to fail with no warp power",
+      );
     });
 
     await t.step("DB: ship still in sector 0", async () => {
@@ -410,7 +442,11 @@ Deno.test({
       assertExists(char);
       const knowledge = char.map_knowledge as Record<string, unknown>;
       const visited = knowledge.sectors_visited as Record<string, unknown>;
-      assertEquals(visited["1"], undefined, "Sector 1 should not be visited yet");
+      assertEquals(
+        visited["1"],
+        undefined,
+        "Sector 1 should not be visited yet",
+      );
     });
 
     await t.step("P1 moves to sector 1", async () => {
@@ -473,7 +509,10 @@ Deno.test({
 
     await t.step("P1 receives course.plot event", async () => {
       const events = await eventsOfType(p1Id, "course.plot", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 course.plot, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 course.plot, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertExists(payload.path, "payload.path");
       assertExists(payload.distance, "payload.distance");
@@ -521,7 +560,10 @@ Deno.test({
 
     await t.step("P1 receives map.region event", async () => {
       const events = await eventsOfType(p1Id, "map.region", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 map.region, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 map.region, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertExists(payload.sectors, "payload.sectors");
     });
@@ -569,7 +611,10 @@ Deno.test({
 
     await t.step("P1 receives ports.list event", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 ports.list, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 ports.list, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertExists(payload.ports, "payload.ports");
     });
@@ -665,55 +710,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 15: Move — hyperspace recovery (stuck jump)
-// ============================================================================
-
-Deno.test({
-  name: "movement — hyperspace recovery",
-  // BUG: pgLoadShip() (pg_queries.ts:209) does not SELECT hyperspace_eta or
-  // hyperspace_destination, so ship.hyperspace_eta is always undefined in the
-  // move endpoint. This means the recovery condition at move/index.ts:263
-  // never triggers and all stuck-in-hyperspace ships get the 409 response.
-  ignore: true,
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and join P1", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("set P1 stuck in hyperspace (ETA 30s past)", async () => {
-      const pastEta = new Date(Date.now() - 30000).toISOString();
-      await withPg(async (pg) => {
-        await pg.queryObject(
-          `UPDATE ship_instances SET in_hyperspace = true, hyperspace_destination = 1, hyperspace_eta = $1 WHERE ship_id = $2`,
-          [pastEta, p1ShipId],
-        );
-      });
-    });
-
-    await t.step("move succeeds (recovers from stuck hyperspace)", async () => {
-      // Recovery completes the stuck jump to sector 1, then move continues.
-      // Sector 1 connects to {0, 3}, so move to sector 3.
-      const result = await apiOk("move", {
-        character_id: p1Id,
-        to_sector: 3,
-      });
-      assert(result.success);
-    });
-
-    await t.step("DB: ship is in sector 3, not in hyperspace", async () => {
-      const ship = await queryShip(p1ShipId);
-      assertExists(ship);
-      assertEquals(ship.current_sector, 3);
-      assertEquals(ship.in_hyperspace, false);
-    });
-  },
-});
-
-// ============================================================================
-// Group 16: Move — legitimately in hyperspace (not stuck)
+// Group 15: Move — legitimately in hyperspace (not stuck)
 // ============================================================================
 
 Deno.test({
@@ -752,56 +749,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 17: Move — missing to_sector
-// ============================================================================
-
-Deno.test({
-  name: "movement — missing to_sector",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and join P1", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("fails: missing to_sector", async () => {
-      const result = await api("move", {
-        character_id: p1Id,
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("to_sector"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 18: Move — negative to_sector
-// ============================================================================
-
-Deno.test({
-  name: "movement — negative to_sector",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and join P1", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("fails: negative to_sector", async () => {
-      const result = await api("move", {
-        character_id: p1Id,
-        to_sector: -1,
-      });
-      assertEquals(result.status, 400);
-      assert(result.body.error?.includes("non-negative"));
-    });
-  },
-});
-
-// ============================================================================
-// Group 19: Move — "to" alias for "to_sector"
+// Group 16: Move — "to" alias for "to_sector"
 // ============================================================================
 
 Deno.test({

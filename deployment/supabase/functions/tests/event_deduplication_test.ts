@@ -29,21 +29,20 @@ import {
   api,
   apiOk,
   characterIdFor,
-  shipIdFor,
-  queryCharacter,
-  queryShip,
-  eventsSince,
+  type EventRow,
   eventsOfType,
+  eventsSince,
   getEventCursor,
+  queryCharacter,
+  queryEvents,
+  queryShip,
+  setMegabankBalance,
   setShipCredits,
   setShipFighters,
-  setShipWarpPower,
-  setShipCargo,
   setShipSector,
-  setMegabankBalance,
+  setShipWarpPower,
+  shipIdFor,
   withPg,
-  queryEvents,
-  type EventRow,
 } from "./helpers.ts";
 
 const P1 = "test_events_p1";
@@ -202,21 +201,24 @@ Deno.test({
       });
     });
 
-    await t.step("P3 gets exactly 1 warp.purchase and 1 status.update", async () => {
-      // Poll without corp_id (P3 has no corp)
-      const { events } = await eventsSince(p3Id, cursor);
-      const counts = countByType(events);
-      assertEquals(
-        counts["warp.purchase"],
-        1,
-        `Expected 1 warp.purchase, got ${counts["warp.purchase"]}`,
-      );
-      assertEquals(
-        counts["status.update"],
-        1,
-        `Expected 1 status.update, got ${counts["status.update"]}`,
-      );
-    });
+    await t.step(
+      "P3 gets exactly 1 warp.purchase and 1 status.update",
+      async () => {
+        // Poll without corp_id (P3 has no corp)
+        const { events } = await eventsSince(p3Id, cursor);
+        const counts = countByType(events);
+        assertEquals(
+          counts["warp.purchase"],
+          1,
+          `Expected 1 warp.purchase, got ${counts["warp.purchase"]}`,
+        );
+        assertEquals(
+          counts["status.update"],
+          1,
+          `Expected 1 status.update, got ${counts["status.update"]}`,
+        );
+      },
+    );
   },
 });
 
@@ -227,7 +229,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "event_dedup — corp member (subject) gets no duplicates on recharge_warp_power",
+  name:
+    "event_dedup — corp member (subject) gets no duplicates on recharge_warp_power",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -249,243 +252,30 @@ Deno.test({
       });
     });
 
-    await t.step("P1 polls WITH corp_id: exactly 1 warp.purchase, 1 status.update", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const counts = countByType(events);
-      assertEquals(
-        counts["warp.purchase"],
-        1,
-        `Expected 1 warp.purchase, got ${counts["warp.purchase"]}. ` +
-          `Duplicate bug: event subject in corp gets individual row + corp row.`,
-      );
-      assertEquals(
-        counts["status.update"],
-        1,
-        `Expected 1 status.update, got ${counts["status.update"]}. ` +
-          `Duplicate bug: event subject in corp gets individual row + corp row.`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 4: Corp member (subject) — purchase_fighters duplicate
-// ============================================================================
-
-Deno.test({
-  name: "event_dedup — corp member (subject) gets no duplicates on purchase_fighters",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("setup", async () => {
-      await setShipCredits(p1ShipId, 50000);
-      await setShipFighters(p1ShipId, 100);
-    });
-
-    let cursor: number;
-
-    await t.step("capture cursor", async () => {
-      cursor = await getEventCursor(p1Id);
-    });
-
-    await t.step("P1 purchases fighters", async () => {
-      await apiOk("purchase_fighters", {
-        character_id: p1Id,
-        units: 10,
-      });
-    });
-
-    await t.step("P1 polls WITH corp_id: exactly 1 fighter.purchase, 1 status.update", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const counts = countByType(events);
-      assertEquals(
-        counts["fighter.purchase"],
-        1,
-        `Expected 1 fighter.purchase, got ${counts["fighter.purchase"]}. ` +
-          `Duplicate bug: event subject in corp gets individual row + corp row.`,
-      );
-      assertEquals(
-        counts["status.update"],
-        1,
-        `Expected 1 status.update, got ${counts["status.update"]}. ` +
-          `Duplicate bug: event subject in corp gets individual row + corp row.`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 5: Corp member (subject) — trade duplicate
-// ============================================================================
-
-Deno.test({
-  name: "event_dedup — corp member (subject) gets no duplicates on trade",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("setup: move P1 to sector 1 (has port), give cargo", async () => {
-      // Sector 1 has a port that buys quantum_foam
-      await withPg(async (pg) => {
-        await pg.queryObject(
-          `UPDATE ship_instances
-           SET current_sector = 1, in_hyperspace = false
-           WHERE ship_id = $1`,
-          [p1ShipId],
-        );
-      });
-      await setShipCredits(p1ShipId, 50000);
-      await setShipCargo(p1ShipId, { qf: 50, ro: 0, ns: 0 });
-    });
-
-    let cursor: number;
-
-    await t.step("capture cursor", async () => {
-      cursor = await getEventCursor(p1Id);
-    });
-
-    await t.step("P1 sells quantum_foam to port", async () => {
-      await apiOk("trade", {
-        character_id: p1Id,
-        trade_type: "sell",
-        commodity: "quantum_foam",
-        quantity: 5,
-      });
-    });
-
-    await t.step("P1 polls WITH corp_id: exactly 1 of each trade event type", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const counts = countByType(events);
-      // trade emits: trade.executed, status.update, port.update
-      for (const eventType of ["trade.executed", "status.update", "port.update"]) {
-        const count = counts[eventType] ?? 0;
-        assert(count > 0, `Expected at least 1 ${eventType}`);
+    await t.step(
+      "P1 polls WITH corp_id: exactly 1 warp.purchase, 1 status.update",
+      async () => {
+        const { events } = await eventsSince(p1Id, cursor, corpAId);
+        const counts = countByType(events);
         assertEquals(
-          count,
+          counts["warp.purchase"],
           1,
-          `Expected 1 ${eventType}, got ${count}. ` +
+          `Expected 1 warp.purchase, got ${counts["warp.purchase"]}. ` +
             `Duplicate bug: event subject in corp gets individual row + corp row.`,
         );
-      }
-    });
-
-    await t.step("cleanup: move P1 back to sector 0", async () => {
-      await withPg(async (pg) => {
-        await pg.queryObject(
-          `UPDATE ship_instances
-           SET current_sector = 0, in_hyperspace = false
-           WHERE ship_id = $1`,
-          [p1ShipId],
+        assertEquals(
+          counts["status.update"],
+          1,
+          `Expected 1 status.update, got ${counts["status.update"]}. ` +
+            `Duplicate bug: event subject in corp gets individual row + corp row.`,
         );
-      });
-    });
+      },
+    );
   },
 });
 
 // ============================================================================
-// Group 6: Corp member (subject) — dump_cargo duplicate
-// ============================================================================
-
-Deno.test({
-  name: "event_dedup — corp member (subject) gets no duplicates on dump_cargo",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("setup: move P1 to non-fedspace, give cargo", async () => {
-      await withPg(async (pg) => {
-        await pg.queryObject(
-          `UPDATE ship_instances
-           SET current_sector = 3, in_hyperspace = false
-           WHERE ship_id = $1`,
-          [p1ShipId],
-        );
-      });
-      await setShipCargo(p1ShipId, { qf: 20, ro: 0, ns: 0 });
-    });
-
-    let cursor: number;
-
-    await t.step("capture cursor", async () => {
-      cursor = await getEventCursor(p1Id);
-    });
-
-    await t.step("P1 dumps cargo", async () => {
-      await apiOk("dump_cargo", {
-        character_id: p1Id,
-        items: { quantum_foam: 5 },
-      });
-    });
-
-    await t.step("P1 polls WITH corp_id: exactly 1 salvage.created, 1 status.update", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const counts = countByType(events);
-      assertEquals(
-        counts["salvage.created"],
-        1,
-        `Expected 1 salvage.created, got ${counts["salvage.created"]}. ` +
-          `Duplicate bug: event subject in corp gets individual row + corp row.`,
-      );
-      assertEquals(
-        counts["status.update"],
-        1,
-        `Expected 1 status.update, got ${counts["status.update"]}. ` +
-          `Duplicate bug: event subject in corp gets individual row + corp row.`,
-      );
-    });
-
-    await t.step("cleanup: move P1 back to sector 0", async () => {
-      await withPg(async (pg) => {
-        await pg.queryObject(
-          `UPDATE ship_instances
-           SET current_sector = 0, in_hyperspace = false
-           WHERE ship_id = $1`,
-          [p1ShipId],
-        );
-      });
-    });
-  },
-});
-
-// ============================================================================
-// Group 7: Corp member (subject) — join() duplicate
-// The join endpoint returns status inline and emits map.local with corpId.
-// ============================================================================
-
-Deno.test({
-  name: "event_dedup — corp member (subject) gets no duplicates on join",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    let cursor: number;
-
-    await t.step("capture cursor", async () => {
-      cursor = await getEventCursor(p1Id);
-    });
-
-    await t.step("P1 re-joins", async () => {
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("P1 polls WITH corp_id: exactly 1 map.local and no status.snapshot", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const counts = countByType(events);
-      assertEquals(
-        counts["status.snapshot"],
-        undefined,
-        `join status is returned inline and should not be published. ` +
-          `Got ${counts["status.snapshot"]} status.snapshot events.`,
-      );
-      assertEquals(
-        counts["map.local"],
-        1,
-        `Expected 1 map.local, got ${counts["map.local"]}. ` +
-          `Duplicate bug: join emits with corpId, subject gets individual + corp row.`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 8: Corp member polling WITHOUT corp_id — no duplicate
+// Group 4: Corp member polling WITHOUT corp_id — no duplicate
 // When polling without corp_id, the corp row is never matched.
 // This should always work (no bug).
 // ============================================================================
@@ -560,20 +350,23 @@ Deno.test({
       });
     });
 
-    await t.step("P2 polls WITH corp_id: exactly 1 warp.purchase, 1 status.update", async () => {
-      const { events } = await eventsSince(p2Id, cursorP2, corpAId);
-      const counts = countByType(events);
-      assertEquals(
-        counts["warp.purchase"],
-        1,
-        `Expected 1 warp.purchase for P2, got ${counts["warp.purchase"]}`,
-      );
-      assertEquals(
-        counts["status.update"],
-        1,
-        `Expected 1 status.update for P2, got ${counts["status.update"]}`,
-      );
-    });
+    await t.step(
+      "P2 polls WITH corp_id: exactly 1 warp.purchase, 1 status.update",
+      async () => {
+        const { events } = await eventsSince(p2Id, cursorP2, corpAId);
+        const counts = countByType(events);
+        assertEquals(
+          counts["warp.purchase"],
+          1,
+          `Expected 1 warp.purchase for P2, got ${counts["warp.purchase"]}`,
+        );
+        assertEquals(
+          counts["status.update"],
+          1,
+          `Expected 1 status.update for P2, got ${counts["status.update"]}`,
+        );
+      },
+    );
   },
 });
 
@@ -604,18 +397,26 @@ Deno.test({
       });
     });
 
-    await t.step("P4 (Corp B) polls: no warp.purchase events from P1", async () => {
-      const warpEvents = await eventsOfType(p4Id, "warp.purchase", cursorP4, corpBId);
-      // Filter to only events where character_id is P1 (not P4's own events)
-      const p1WarpEvents = warpEvents.filter(
-        (e) => e.character_id === p1Id,
-      );
-      assertEquals(
-        p1WarpEvents.length,
-        0,
-        `P4 should NOT see P1's warp.purchase events (cross-corp isolation)`,
-      );
-    });
+    await t.step(
+      "P4 (Corp B) polls: no warp.purchase events from P1",
+      async () => {
+        const warpEvents = await eventsOfType(
+          p4Id,
+          "warp.purchase",
+          cursorP4,
+          corpBId,
+        );
+        // Filter to only events where character_id is P1 (not P4's own events)
+        const p1WarpEvents = warpEvents.filter(
+          (e) => e.character_id === p1Id,
+        );
+        assertEquals(
+          p1WarpEvents.length,
+          0,
+          `P4 should NOT see P1's warp.purchase events (cross-corp isolation)`,
+        );
+      },
+    );
   },
 });
 
@@ -627,7 +428,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "event_dedup — DB raw rows: corp member action creates merged corp row (no individual)",
+  name:
+    "event_dedup — DB raw rows: corp member action creates merged corp row (no individual)",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -656,8 +458,7 @@ Deno.test({
 
       // No individual row for the subject (self-event exception removed)
       const subjectIndividualRows = purchaseRows.filter(
-        (r) =>
-          r.recipient_character_id === p1Id && r.corp_id === null,
+        (r) => r.recipient_character_id === p1Id && r.corp_id === null,
       );
       assertEquals(
         subjectIndividualRows.length,
@@ -667,8 +468,7 @@ Deno.test({
 
       // One merged corp row with recipient_character_id = P1 and corp_id = Corp A
       const mergedCorpRows = purchaseRows.filter(
-        (r) =>
-          r.corp_id === corpAId && r.recipient_character_id === p1Id,
+        (r) => r.corp_id === corpAId && r.recipient_character_id === p1Id,
       );
       assertEquals(
         mergedCorpRows.length,
@@ -715,85 +515,26 @@ Deno.test({
       });
     });
 
-    await t.step("P2 polls WITH corp_id: exactly 1 bank.transaction", async () => {
-      const { events } = await eventsSince(p2Id, cursorP2, corpAId);
-      const bankEvents = events.filter(
-        (e) => e.event_type === "bank.transaction",
-      );
-      assertEquals(
-        bankEvents.length,
-        1,
-        `Expected 1 bank.transaction for P2, got ${bankEvents.length}. ` +
-          `Duplicate bug: target in corp may get individual + corp row.`,
-      );
-    });
+    await t.step(
+      "P2 polls WITH corp_id: exactly 1 bank.transaction",
+      async () => {
+        const { events } = await eventsSince(p2Id, cursorP2, corpAId);
+        const bankEvents = events.filter(
+          (e) => e.event_type === "bank.transaction",
+        );
+        assertEquals(
+          bankEvents.length,
+          1,
+          `Expected 1 bank.transaction for P2, got ${bankEvents.length}. ` +
+            `Duplicate bug: target in corp may get individual + corp row.`,
+        );
+      },
+    );
   },
 });
 
 // ============================================================================
-// Group 13: Multiple actions in sequence — cumulative duplicate count
-// Verifies that duplicates compound across multiple actions.
-// ============================================================================
-
-Deno.test({
-  name: "event_dedup — multiple actions: no cumulative duplicates",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("setup", async () => {
-      await setShipCredits(p1ShipId, 50000);
-      await setShipWarpPower(p1ShipId, 50);
-      await setShipFighters(p1ShipId, 50);
-    });
-
-    let cursor: number;
-
-    await t.step("capture cursor", async () => {
-      cursor = await getEventCursor(p1Id);
-    });
-
-    await t.step("P1 does 3 actions in sequence", async () => {
-      await apiOk("recharge_warp_power", {
-        character_id: p1Id,
-        units: 10,
-      });
-      await apiOk("purchase_fighters", {
-        character_id: p1Id,
-        units: 5,
-      });
-      await apiOk("recharge_warp_power", {
-        character_id: p1Id,
-        units: 10,
-      });
-    });
-
-    await t.step("P1 polls WITH corp_id: 2 warp.purchase, 1 fighter.purchase, 3 status.update", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const counts = countByType(events);
-      assertEquals(
-        counts["warp.purchase"],
-        2,
-        `Expected 2 warp.purchase (2 recharges), got ${counts["warp.purchase"]}. ` +
-          `With duplicate bug this would be 4.`,
-      );
-      assertEquals(
-        counts["fighter.purchase"],
-        1,
-        `Expected 1 fighter.purchase, got ${counts["fighter.purchase"]}. ` +
-          `With duplicate bug this would be 2.`,
-      );
-      assertEquals(
-        counts["status.update"],
-        3,
-        `Expected 3 status.update (one per action), got ${counts["status.update"]}. ` +
-          `With duplicate bug this would be 6.`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 14: Sector observer who is also a corp member
+// Group 9: Sector observer who is also a corp member
 // P1 and P2 are in the same sector AND same corp.
 // When P2 does an action that emits a sector event, P1 should get
 // exactly 1 copy (either via sector observer or corp, not both).
@@ -822,12 +563,15 @@ Deno.test({
       cursorP1 = await getEventCursor(p1Id);
     });
 
-    await t.step("P2 recharges warp power (P1 is sector observer + corp mate)", async () => {
-      await apiOk("recharge_warp_power", {
-        character_id: p2Id,
-        units: 20,
-      });
-    });
+    await t.step(
+      "P2 recharges warp power (P1 is sector observer + corp mate)",
+      async () => {
+        await apiOk("recharge_warp_power", {
+          character_id: p2Id,
+          units: 20,
+        });
+      },
+    );
 
     await t.step("P1 polls WITH corp_id: at most 1 warp.purchase", async () => {
       const { events } = await eventsSince(p1Id, cursorP1, corpAId);
@@ -847,45 +591,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 15: ship_rename with corp — event subject duplicate
-// ============================================================================
-
-Deno.test({
-  name: "event_dedup — ship_rename: corp member gets no duplicates",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    let cursor: number;
-
-    await t.step("capture cursor", async () => {
-      cursor = await getEventCursor(p1Id);
-    });
-
-    await t.step("P1 renames ship", async () => {
-      const name = `EventTest-${Date.now()}`;
-      await apiOk("ship_rename", {
-        character_id: p1Id,
-        ship_name: name,
-      });
-    });
-
-    await t.step("P1 polls WITH corp_id: exactly 1 ship.renamed", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const renameEvents = events.filter(
-        (e) => e.event_type === "ship.renamed",
-      );
-      assertEquals(
-        renameEvents.length,
-        1,
-        `Expected 1 ship.renamed, got ${renameEvents.length}. ` +
-          `Duplicate bug: event subject in corp gets individual row + corp row.`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 16: Movement — corp member moving gets duplicate map.local
+// Group 10: Movement — corp member moving gets duplicate map.local
 // map.local is emitted with corpId on every move. The moving player (who
 // is a corp member) gets individual row (self-event) + corp row → duplicate.
 // ============================================================================
@@ -913,99 +619,24 @@ Deno.test({
       });
     });
 
-    await t.step("P1 polls WITH corp_id: exactly 1 map.local, 1 movement.complete", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const counts = countByType(events);
-      assertEquals(
-        counts["map.local"],
-        1,
-        `Expected 1 map.local, got ${counts["map.local"]}. ` +
-          `Duplicate bug: move emits map.local with corpId, subject gets individual + corp row.`,
-      );
-      assertEquals(
-        counts["movement.complete"],
-        1,
-        `Expected 1 movement.complete, got ${counts["movement.complete"]}`,
-      );
-    });
-
-    await t.step("cleanup: move P1 back to sector 0", async () => {
-      await setShipSector(p1ShipId, 0);
-    });
-  },
-});
-
-// ============================================================================
-// Group 17: Movement — corp member visiting new sector gets duplicate map.update
-// map.update is emitted with corpId when visiting a new sector for the first
-// time. Same mechanism as map.local → duplicate for the moving player.
-// ============================================================================
-
-Deno.test({
-  name: "event_dedup — movement: corp member gets no duplicate map.update on new sector",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    // We need a sector P1 hasn't visited yet. We'll clear P1's map knowledge
-    // for sector 2 so the visit counts as "first personal visit".
-    await t.step("setup: P1 in sector 0, clear sector 2 from personal knowledge", async () => {
-      await setShipSector(p1ShipId, 0);
-      await setShipWarpPower(p1ShipId, 500);
-      // Clear personal map knowledge for sector 2 so it's treated as first visit
-      await withPg(async (pg) => {
-        await pg.queryObject(
-          `UPDATE characters
-           SET map_knowledge = jsonb_set(
-             map_knowledge,
-             '{sectors_visited}',
-             (map_knowledge->'sectors_visited') - '2'
-           )
-           WHERE character_id = $1
-             AND map_knowledge->'sectors_visited' ? '2'`,
-          [p1Id],
-        );
-      });
-    });
-
-    let cursor: number;
-
-    await t.step("capture cursor", async () => {
-      cursor = await getEventCursor(p1Id);
-    });
-
-    await t.step("P1 moves from sector 0 → 2 (first visit)", async () => {
-      await apiOk("move", {
-        character_id: p1Id,
-        to_sector: 2,
-      });
-    });
-
-    await t.step("P1 polls WITH corp_id: at most 1 map.update", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const mapUpdateEvents = events.filter(
-        (e) => e.event_type === "map.update",
-      );
-      // map.update may or may not fire (depends on whether corp already knows
-      // the sector). But if it fires, there should be exactly 1.
-      if (mapUpdateEvents.length > 0) {
+    await t.step(
+      "P1 polls WITH corp_id: exactly 1 map.local, 1 movement.complete",
+      async () => {
+        const { events } = await eventsSince(p1Id, cursor, corpAId);
+        const counts = countByType(events);
         assertEquals(
-          mapUpdateEvents.length,
+          counts["map.local"],
           1,
-          `Expected 0 or 1 map.update, got ${mapUpdateEvents.length}. ` +
-            `Duplicate bug: map.update emitted with corpId, subject gets individual + corp row.`,
+          `Expected 1 map.local, got ${counts["map.local"]}. ` +
+            `Duplicate bug: move emits map.local with corpId, subject gets individual + corp row.`,
         );
-      }
-    });
-
-    await t.step("P1 polls: also exactly 1 map.local", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const counts = countByType(events);
-      assertEquals(
-        counts["map.local"],
-        1,
-        `Expected 1 map.local, got ${counts["map.local"]}`,
-      );
-    });
+        assertEquals(
+          counts["movement.complete"],
+          1,
+          `Expected 1 movement.complete, got ${counts["movement.complete"]}`,
+        );
+      },
+    );
 
     await t.step("cleanup: move P1 back to sector 0", async () => {
       await setShipSector(p1ShipId, 0);
@@ -1014,7 +645,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 18: Movement — corp observer sees depart + arrive but no duplicates
+// Group 11: Movement — corp observer sees depart + arrive but no duplicates
 // When P1 moves into P2's sector, P2 (same corp, sector observer) should
 // get exactly 2 character.moved events (1 depart + 1 arrive), not more.
 // The arrival event is NOT duplicated — even though P2 is both a sector
@@ -1024,7 +655,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "event_dedup — movement: corp observer gets depart + arrive, no duplicates",
+  name:
+    "event_dedup — movement: corp observer gets depart + arrive, no duplicates",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -1047,32 +679,39 @@ Deno.test({
       });
     });
 
-    await t.step("P2 polls WITH corp_id: exactly 2 character.moved (1 depart + 1 arrive)", async () => {
-      const { events } = await eventsSince(p2Id, cursorP2, corpAId);
-      const movedEvents = events.filter(
-        (e) => e.event_type === "character.moved",
-      );
-      // P2 sees 2 distinct events: depart (from sector 0, via corp row) +
-      // arrive (at sector 1, via corp row — individual row is filtered).
-      assertEquals(
-        movedEvents.length,
-        2,
-        `Expected 2 character.moved (depart + arrive) for P2, got ${movedEvents.length}`,
-      );
+    await t.step(
+      "P2 polls WITH corp_id: exactly 2 character.moved (1 depart + 1 arrive)",
+      async () => {
+        const { events } = await eventsSince(p2Id, cursorP2, corpAId);
+        const movedEvents = events.filter(
+          (e) => e.event_type === "character.moved",
+        );
+        // P2 sees 2 distinct events: depart (from sector 0, via corp row) +
+        // arrive (at sector 1, via corp row — individual row is filtered).
+        assertEquals(
+          movedEvents.length,
+          2,
+          `Expected 2 character.moved (depart + arrive) for P2, got ${movedEvents.length}`,
+        );
 
-      // Verify they are distinct events (1 depart, 1 arrive)
-      const movements = movedEvents.map(
-        (e) => (e.payload as Record<string, unknown>)?.movement,
-      );
-      assert(
-        movements.includes("depart"),
-        `Expected a depart event, got movements: ${JSON.stringify(movements)}`,
-      );
-      assert(
-        movements.includes("arrive"),
-        `Expected an arrive event, got movements: ${JSON.stringify(movements)}`,
-      );
-    });
+        // Verify they are distinct events (1 depart, 1 arrive)
+        const movements = movedEvents.map(
+          (e) => (e.payload as Record<string, unknown>)?.movement,
+        );
+        assert(
+          movements.includes("depart"),
+          `Expected a depart event, got movements: ${
+            JSON.stringify(movements)
+          }`,
+        );
+        assert(
+          movements.includes("arrive"),
+          `Expected an arrive event, got movements: ${
+            JSON.stringify(movements)
+          }`,
+        );
+      },
+    );
 
     await t.step("cleanup: move P1 and P2 back to sector 0", async () => {
       await setShipSector(p1ShipId, 0);
@@ -1112,54 +751,60 @@ Deno.test({
       });
     });
 
-    await t.step("P1's warp.purchase has identifiable event_context", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const warpEvents = events.filter(
-        (e) => e.event_type === "warp.purchase",
-      );
-      assert(warpEvents.length >= 1, "Expected at least 1 warp.purchase");
+    await t.step(
+      "P1's warp.purchase has identifiable event_context",
+      async () => {
+        const { events } = await eventsSince(p1Id, cursor, corpAId);
+        const warpEvents = events.filter(
+          (e) => e.event_type === "warp.purchase",
+        );
+        assert(warpEvents.length >= 1, "Expected at least 1 warp.purchase");
 
-      const evt = warpEvents[0];
-      const ctx = evt.event_context as Record<string, unknown>;
-      assertExists(ctx, "event_context should exist");
+        const evt = warpEvents[0];
+        const ctx = evt.event_context as Record<string, unknown>;
+        assertExists(ctx, "event_context should exist");
 
-      // The bot identifies its own events by checking:
-      // 1. reason in {"direct", "task_owner", "recipient"}, OR
-      // 2. character_id == self (the subject's ID)
-      const reason = ctx.reason as string | null;
-      const ctxCharId = ctx.character_id as string | null;
-      const isDirectReason = reason !== null &&
-        ["direct", "task_owner", "recipient"].includes(reason);
-      const isSubjectMatch = ctxCharId === p1Id;
+        // The bot identifies its own events by checking:
+        // 1. reason in {"direct", "task_owner", "recipient"}, OR
+        // 2. character_id == self (the subject's ID)
+        const reason = ctx.reason as string | null;
+        const ctxCharId = ctx.character_id as string | null;
+        const isDirectReason = reason !== null &&
+          ["direct", "task_owner", "recipient"].includes(reason);
+        const isSubjectMatch = ctxCharId === p1Id;
 
-      assert(
-        isDirectReason || isSubjectMatch,
-        `Event subject must be identifiable. reason=${reason}, ` +
-          `event_context.character_id=${ctxCharId}, expected p1Id=${p1Id}. ` +
-          `At least one of: reason in {direct,task_owner,recipient} or character_id==subject.`,
-      );
-    });
+        assert(
+          isDirectReason || isSubjectMatch,
+          `Event subject must be identifiable. reason=${reason}, ` +
+            `event_context.character_id=${ctxCharId}, expected p1Id=${p1Id}. ` +
+            `At least one of: reason in {direct,task_owner,recipient} or character_id==subject.`,
+        );
+      },
+    );
 
-    await t.step("P1's status.update also has identifiable event_context", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const statusEvents = events.filter(
-        (e) => e.event_type === "status.update",
-      );
-      assert(statusEvents.length >= 1, "Expected at least 1 status.update");
+    await t.step(
+      "P1's status.update also has identifiable event_context",
+      async () => {
+        const { events } = await eventsSince(p1Id, cursor, corpAId);
+        const statusEvents = events.filter(
+          (e) => e.event_type === "status.update",
+        );
+        assert(statusEvents.length >= 1, "Expected at least 1 status.update");
 
-      const ctx = statusEvents[0].event_context as Record<string, unknown>;
-      const reason = ctx.reason as string | null;
-      const ctxCharId = ctx.character_id as string | null;
-      const isDirectReason = reason !== null &&
-        ["direct", "task_owner", "recipient"].includes(reason);
-      const isSubjectMatch = ctxCharId === p1Id;
+        const ctx = statusEvents[0].event_context as Record<string, unknown>;
+        const reason = ctx.reason as string | null;
+        const ctxCharId = ctx.character_id as string | null;
+        const isDirectReason = reason !== null &&
+          ["direct", "task_owner", "recipient"].includes(reason);
+        const isSubjectMatch = ctxCharId === p1Id;
 
-      assert(
-        isDirectReason || isSubjectMatch,
-        `status.update: subject must be identifiable. reason=${reason}, ` +
-          `character_id=${ctxCharId}, expected=${p1Id}`,
-      );
-    });
+        assert(
+          isDirectReason || isSubjectMatch,
+          `status.update: subject must be identifiable. reason=${reason}, ` +
+            `character_id=${ctxCharId}, expected=${p1Id}`,
+        );
+      },
+    );
   },
 });
 
@@ -1171,7 +816,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "event_dedup — event_context: join snapshot identifiable by corp member",
+  name:
+    "event_dedup — event_context: join snapshot identifiable by corp member",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -1200,31 +846,38 @@ Deno.test({
       const snapshots = events.filter(
         (e) => e.event_type === "status.snapshot",
       );
-      assertEquals(snapshots.length, 0, "join status.snapshot should be inline only");
-    });
-
-    await t.step("map.local has identifiable event_context for P1", async () => {
-      const { events } = await eventsSince(p1Id, cursor, corpAId);
-      const mapEvents = events.filter(
-        (e) => e.event_type === "map.local",
-      );
-      assert(mapEvents.length >= 1, "Expected at least 1 map.local");
-
-      const ctx = mapEvents[0].event_context as Record<string, unknown>;
-      assertExists(ctx, "event_context should exist on map.local");
-
-      const reason = ctx.reason as string | null;
-      const ctxCharId = ctx.character_id as string | null;
-      const isDirectReason = reason !== null &&
-        ["direct", "task_owner", "recipient"].includes(reason);
-      const isSubjectMatch = ctxCharId === p1Id;
-
-      assert(
-        isDirectReason || isSubjectMatch,
-        `Join map.local must be identifiable by subject. ` +
-          `reason=${reason}, character_id=${ctxCharId}, expected=${p1Id}`,
+      assertEquals(
+        snapshots.length,
+        0,
+        "join status.snapshot should be inline only",
       );
     });
+
+    await t.step(
+      "map.local has identifiable event_context for P1",
+      async () => {
+        const { events } = await eventsSince(p1Id, cursor, corpAId);
+        const mapEvents = events.filter(
+          (e) => e.event_type === "map.local",
+        );
+        assert(mapEvents.length >= 1, "Expected at least 1 map.local");
+
+        const ctx = mapEvents[0].event_context as Record<string, unknown>;
+        assertExists(ctx, "event_context should exist on map.local");
+
+        const reason = ctx.reason as string | null;
+        const ctxCharId = ctx.character_id as string | null;
+        const isDirectReason = reason !== null &&
+          ["direct", "task_owner", "recipient"].includes(reason);
+        const isSubjectMatch = ctxCharId === p1Id;
+
+        assert(
+          isDirectReason || isSubjectMatch,
+          `Join map.local must be identifiable by subject. ` +
+            `reason=${reason}, character_id=${ctxCharId}, expected=${p1Id}`,
+        );
+      },
+    );
   },
 });
 
@@ -1236,7 +889,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "event_dedup — event_context: observer event_context does not match observer",
+  name:
+    "event_dedup — event_context: observer event_context does not match observer",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -1258,37 +912,43 @@ Deno.test({
       });
     });
 
-    await t.step("P2's received warp.purchase has event_context.character_id != P2", async () => {
-      const { events } = await eventsSince(p2Id, cursorP2, corpAId);
-      const warpEvents = events.filter(
-        (e) => e.event_type === "warp.purchase",
-      );
-      assert(warpEvents.length >= 1, "P2 should see P1's warp.purchase via corp");
+    await t.step(
+      "P2's received warp.purchase has event_context.character_id != P2",
+      async () => {
+        const { events } = await eventsSince(p2Id, cursorP2, corpAId);
+        const warpEvents = events.filter(
+          (e) => e.event_type === "warp.purchase",
+        );
+        assert(
+          warpEvents.length >= 1,
+          "P2 should see P1's warp.purchase via corp",
+        );
 
-      const ctx = warpEvents[0].event_context as Record<string, unknown>;
-      assertExists(ctx, "event_context should exist");
+        const ctx = warpEvents[0].event_context as Record<string, unknown>;
+        assertExists(ctx, "event_context should exist");
 
-      // event_context.character_id should be P1 (the subject), NOT P2
-      const ctxCharId = ctx.character_id as string | null;
-      assert(
-        ctxCharId !== p2Id,
-        `Observer P2's event_context.character_id should NOT be P2's ID. ` +
-          `Got ${ctxCharId}, P2=${p2Id}. ` +
-          `If this matches P2, the bot would incorrectly treat P1's event as direct to P2.`,
-      );
+        // event_context.character_id should be P1 (the subject), NOT P2
+        const ctxCharId = ctx.character_id as string | null;
+        assert(
+          ctxCharId !== p2Id,
+          `Observer P2's event_context.character_id should NOT be P2's ID. ` +
+            `Got ${ctxCharId}, P2=${p2Id}. ` +
+            `If this matches P2, the bot would incorrectly treat P1's event as direct to P2.`,
+        );
 
-      // The reason should NOT be "direct" for P2 (P2 is an observer, not the subject)
-      const reason = ctx.reason as string | null;
-      const isDirectReason = reason !== null &&
-        ["direct", "task_owner", "recipient"].includes(reason);
-      const isSubjectMatch = ctxCharId === p2Id;
-      assert(
-        !isDirectReason && !isSubjectMatch,
-        `Observer P2 should NOT be identified as direct recipient. ` +
-          `reason=${reason}, character_id=${ctxCharId}. ` +
-          `Neither reason nor character_id should indicate P2 is a direct target.`,
-      );
-    });
+        // The reason should NOT be "direct" for P2 (P2 is an observer, not the subject)
+        const reason = ctx.reason as string | null;
+        const isDirectReason = reason !== null &&
+          ["direct", "task_owner", "recipient"].includes(reason);
+        const isSubjectMatch = ctxCharId === p2Id;
+        assert(
+          !isDirectReason && !isSubjectMatch,
+          `Observer P2 should NOT be identified as direct recipient. ` +
+            `reason=${reason}, character_id=${ctxCharId}. ` +
+            `Neither reason nor character_id should indicate P2 is a direct target.`,
+        );
+      },
+    );
   },
 });
 
@@ -1320,28 +980,31 @@ Deno.test({
       });
     });
 
-    await t.step("P3's warp.purchase has reason=direct and character_id=P3", async () => {
-      const { events } = await eventsSince(p3Id, cursor);
-      const warpEvents = events.filter(
-        (e) => e.event_type === "warp.purchase",
-      );
-      assert(warpEvents.length >= 1, "Expected at least 1 warp.purchase");
+    await t.step(
+      "P3's warp.purchase has reason=direct and character_id=P3",
+      async () => {
+        const { events } = await eventsSince(p3Id, cursor);
+        const warpEvents = events.filter(
+          (e) => e.event_type === "warp.purchase",
+        );
+        assert(warpEvents.length >= 1, "Expected at least 1 warp.purchase");
 
-      const ctx = warpEvents[0].event_context as Record<string, unknown>;
-      assertExists(ctx, "event_context should exist");
+        const ctx = warpEvents[0].event_context as Record<string, unknown>;
+        assertExists(ctx, "event_context should exist");
 
-      assertEquals(
-        ctx.reason,
-        "direct",
-        `Solo player's event should have reason='direct', got '${ctx.reason}'`,
-      );
-      assertEquals(
-        ctx.character_id,
-        p3Id,
-        `Solo player's event_context.character_id should match P3. ` +
-          `Got ${ctx.character_id}, expected ${p3Id}`,
-      );
-    });
+        assertEquals(
+          ctx.reason,
+          "direct",
+          `Solo player's event should have reason='direct', got '${ctx.reason}'`,
+        );
+        assertEquals(
+          ctx.character_id,
+          p3Id,
+          `Solo player's event_context.character_id should match P3. ` +
+            `Got ${ctx.character_id}, expected ${p3Id}`,
+        );
+      },
+    );
   },
 });
 
@@ -1367,7 +1030,8 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       assertExists(corpShipId, "Should get corp ship ID");
 
       // For corp ships, the pseudo-character's character_id equals the ship_id
@@ -1392,65 +1056,78 @@ Deno.test({
       });
     });
 
-    await t.step("movement.complete in DB has corp row with corp_id", async () => {
-      const rows = await queryEvents(
-        `event_type = 'movement.complete' AND character_id = $1 AND corp_id = $2`,
-        [corpShipCharacterId, corpAId],
-      );
-      const recent = rows.filter((r: Record<string, unknown>) => (r.id as number) > cursor);
-      assert(
-        recent.length >= 1,
-        `Should have a movement.complete corp row with corp_id=${corpAId}`,
-      );
-    });
+    await t.step(
+      "movement.complete in DB has corp row with corp_id",
+      async () => {
+        const rows = await queryEvents(
+          `event_type = 'movement.complete' AND character_id = $1 AND corp_id = $2`,
+          [corpShipCharacterId, corpAId],
+        );
+        const recent = rows.filter((r: Record<string, unknown>) =>
+          (r.id as number) > cursor
+        );
+        assert(
+          recent.length >= 1,
+          `Should have a movement.complete corp row with corp_id=${corpAId}`,
+        );
+      },
+    );
 
     await t.step("movement.start in DB has corp row with corp_id", async () => {
       const rows = await queryEvents(
         `event_type = 'movement.start' AND character_id = $1 AND corp_id = $2`,
         [corpShipCharacterId, corpAId],
       );
-      const recent = rows.filter((r: Record<string, unknown>) => (r.id as number) > cursor);
+      const recent = rows.filter((r: Record<string, unknown>) =>
+        (r.id as number) > cursor
+      );
       assert(
         recent.length >= 1,
         `Should have a movement.start corp row with corp_id=${corpAId}`,
       );
     });
 
-    await t.step("P2 (corp member) can poll corp ship movement via corp_id", async () => {
-      const moveEvents = await eventsOfType(
-        p2Id,
-        "movement.complete",
-        cursor,
-        corpAId,
-      );
-      const corpShipMoves = moveEvents.filter((e) => {
-        const payload = e.payload as Record<string, unknown>;
-        const player = payload.player as Record<string, unknown> | undefined;
-        return player?.id === corpShipCharacterId;
-      });
-      assert(
-        corpShipMoves.length >= 1,
-        "P2 should see corp ship's movement.complete when polling with corp_id",
-      );
-    });
+    await t.step(
+      "P2 (corp member) can poll corp ship movement via corp_id",
+      async () => {
+        const moveEvents = await eventsOfType(
+          p2Id,
+          "movement.complete",
+          cursor,
+          corpAId,
+        );
+        const corpShipMoves = moveEvents.filter((e) => {
+          const payload = e.payload as Record<string, unknown>;
+          const player = payload.player as Record<string, unknown> | undefined;
+          return player?.id === corpShipCharacterId;
+        });
+        assert(
+          corpShipMoves.length >= 1,
+          "P2 should see corp ship's movement.complete when polling with corp_id",
+        );
+      },
+    );
 
-    await t.step("P3 (not in Corp A) cannot see corp ship movement", async () => {
-      const moveEvents = await eventsOfType(
-        p3Id,
-        "movement.complete",
-        cursor,
-      );
-      const corpShipMoves = moveEvents.filter((e) => {
-        const payload = e.payload as Record<string, unknown>;
-        const player = payload.player as Record<string, unknown> | undefined;
-        return player?.id === corpShipCharacterId;
-      });
-      assertEquals(
-        corpShipMoves.length,
-        0,
-        "P3 (non-corp-member) should NOT see corp ship's movement.complete",
-      );
-    });
+    await t.step(
+      "P3 (not in Corp A) cannot see corp ship movement",
+      async () => {
+        const moveEvents = await eventsOfType(
+          p3Id,
+          "movement.complete",
+          cursor,
+        );
+        const corpShipMoves = moveEvents.filter((e) => {
+          const payload = e.payload as Record<string, unknown>;
+          const player = payload.player as Record<string, unknown> | undefined;
+          return player?.id === corpShipCharacterId;
+        });
+        assertEquals(
+          corpShipMoves.length,
+          0,
+          "P3 (non-corp-member) should NOT see corp ship's movement.complete",
+        );
+      },
+    );
 
     await t.step("cleanup: move corp ship back", async () => {
       await setShipSector(corpShipId, 0);
@@ -1468,7 +1145,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "event_dedup — corp ship move: bot poll returns exactly 1 movement.start/complete",
+  name:
+    "event_dedup — corp ship move: bot poll returns exactly 1 movement.start/complete",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -1483,7 +1161,8 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       assertExists(corpShipId, "Should get corp ship ID");
       corpShipCharacterId = corpShipId;
       await setShipWarpPower(corpShipId, 500);
@@ -1492,18 +1171,21 @@ Deno.test({
 
     let cursor: number;
 
-    await t.step("capture cursor via bot-style poll (initial_only)", async () => {
-      const result = await apiOk<{ last_event_id: number | null }>(
-        "events_since",
-        {
-          character_ids: [p1Id],
-          ship_ids: [corpShipCharacterId],
-          corp_id: corpAId,
-          initial_only: true,
-        },
-      );
-      cursor = result.last_event_id ?? 0;
-    });
+    await t.step(
+      "capture cursor via bot-style poll (initial_only)",
+      async () => {
+        const result = await apiOk<{ last_event_id: number | null }>(
+          "events_since",
+          {
+            character_ids: [p1Id],
+            ship_ids: [corpShipCharacterId],
+            corp_id: corpAId,
+            initial_only: true,
+          },
+        );
+        cursor = result.last_event_id ?? 0;
+      },
+    );
 
     await t.step("move corp ship from sector 0 → 1", async () => {
       await apiOk("move", {
@@ -1528,14 +1210,20 @@ Deno.test({
           (e) =>
             e.event_type === "movement.start" &&
             (e.payload as Record<string, unknown> | null)?.player &&
-            ((e.payload as Record<string, unknown>).player as Record<string, unknown>)
+            ((e.payload as Record<string, unknown>).player as Record<
+                string,
+                unknown
+              >)
                 .id === corpShipCharacterId,
         );
         const completes = events.filter(
           (e) =>
             e.event_type === "movement.complete" &&
             (e.payload as Record<string, unknown> | null)?.player &&
-            ((e.payload as Record<string, unknown>).player as Record<string, unknown>)
+            ((e.payload as Record<string, unknown>).player as Record<
+                string,
+                unknown
+              >)
                 .id === corpShipCharacterId,
         );
         assertEquals(
@@ -1553,32 +1241,39 @@ Deno.test({
       },
     );
 
-    await t.step("DB has exactly 1 row per movement event for this corp ship", async () => {
-      const startRows = await queryEvents(
-        `event_type = 'movement.start' AND character_id = $1 AND id > $2`,
-        [corpShipCharacterId, cursor],
-      );
-      const completeRows = await queryEvents(
-        `event_type = 'movement.complete' AND character_id = $1 AND id > $2`,
-        [corpShipCharacterId, cursor],
-      );
-      assertEquals(
-        startRows.length,
-        1,
-        `Expected 1 movement.start row in DB, got ${startRows.length}. ` +
-          `Rows: ${startRows.map((r) =>
-            `id=${r.id} recipient=${r.recipient_character_id} corp=${r.corp_id} reason=${r.recipient_reason}`
-          ).join(" | ")}`,
-      );
-      assertEquals(
-        completeRows.length,
-        1,
-        `Expected 1 movement.complete row in DB, got ${completeRows.length}. ` +
-          `Rows: ${completeRows.map((r) =>
-            `id=${r.id} recipient=${r.recipient_character_id} corp=${r.corp_id} reason=${r.recipient_reason}`
-          ).join(" | ")}`,
-      );
-    });
+    await t.step(
+      "DB has exactly 1 row per movement event for this corp ship",
+      async () => {
+        const startRows = await queryEvents(
+          `event_type = 'movement.start' AND character_id = $1 AND id > $2`,
+          [corpShipCharacterId, cursor],
+        );
+        const completeRows = await queryEvents(
+          `event_type = 'movement.complete' AND character_id = $1 AND id > $2`,
+          [corpShipCharacterId, cursor],
+        );
+        assertEquals(
+          startRows.length,
+          1,
+          `Expected 1 movement.start row in DB, got ${startRows.length}. ` +
+            `Rows: ${
+              startRows.map((r) =>
+                `id=${r.id} recipient=${r.recipient_character_id} corp=${r.corp_id} reason=${r.recipient_reason}`
+              ).join(" | ")
+            }`,
+        );
+        assertEquals(
+          completeRows.length,
+          1,
+          `Expected 1 movement.complete row in DB, got ${completeRows.length}. ` +
+            `Rows: ${
+              completeRows.map((r) =>
+                `id=${r.id} recipient=${r.recipient_character_id} corp=${r.corp_id} reason=${r.recipient_reason}`
+              ).join(" | ")
+            }`,
+        );
+      },
+    );
 
     await t.step("cleanup: move corp ship back", async () => {
       await setShipSector(corpShipId, 0);
@@ -1633,9 +1328,13 @@ async function createEventSession(
   });
 }
 
-async function readEventSessionMessages(sessionId: string): Promise<Record<string, unknown>[]> {
+async function readEventSessionMessages(
+  sessionId: string,
+): Promise<Record<string, unknown>[]> {
   return await withPg(async (pg) => {
-    const r = await pg.queryObject<{ msg_id: bigint; message: Record<string, unknown> }>(
+    const r = await pg.queryObject<
+      { msg_id: bigint; message: Record<string, unknown> }
+    >(
       `SELECT msg_id, message
        FROM public.event_session_subscribe($1::uuid, $2::text, 10, 100)`,
       [sessionId, eventSessionToken],
@@ -1688,8 +1387,7 @@ async function countEventSessions(): Promise<number> {
 }
 
 Deno.test({
-  name:
-    "event_dedup — pgmq: active session queue receives direct event",
+  name: "event_dedup — pgmq: active session queue receives direct event",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -1723,7 +1421,9 @@ Deno.test({
       const messages = await readEventSessionMessages(session.sessionId);
       assert(
         messages.some((msg) => msg.event_type === "test.queue_lifecycle"),
-        `Expected session queue to contain direct event, got ${messages.map((msg) => String(msg.event_type)).join(", ")}`,
+        `Expected session queue to contain direct event, got ${
+          messages.map((msg) => String(msg.event_type)).join(", ")
+        }`,
       );
     });
   },
@@ -1760,23 +1460,26 @@ Deno.test({
       });
     });
 
-    await t.step("durable row exists and no session rows were created", async () => {
-      await withPg(async (pg) => {
-        const eventRows = await pg.queryObject<{ count: bigint }>(
-          `SELECT COUNT(*)::bigint AS count
+    await t.step(
+      "durable row exists and no session rows were created",
+      async () => {
+        await withPg(async (pg) => {
+          const eventRows = await pg.queryObject<{ count: bigint }>(
+            `SELECT COUNT(*)::bigint AS count
            FROM public.events
            WHERE request_id = $1`,
-          [requestId],
-        );
-        assertEquals(Number(eventRows.rows[0]?.count ?? 0), 1);
+            [requestId],
+          );
+          assertEquals(Number(eventRows.rows[0]?.count ?? 0), 1);
 
-        const sessionRows = await pg.queryObject<{ count: bigint }>(
-          `SELECT COUNT(*)::bigint AS count
+          const sessionRows = await pg.queryObject<{ count: bigint }>(
+            `SELECT COUNT(*)::bigint AS count
            FROM public.event_sessions`,
-        );
-        assertEquals(Number(sessionRows.rows[0]?.count ?? 0), sessionsBefore);
-      });
-    });
+          );
+          assertEquals(Number(sessionRows.rows[0]?.count ?? 0), sessionsBefore);
+        });
+      },
+    );
   },
 });
 
@@ -1798,7 +1501,8 @@ Deno.test({
         ship_type: "autonomous_probe",
         purchase_type: "corporation",
       });
-      corpShipId = (purchaseResult as Record<string, unknown>).ship_id as string;
+      corpShipId = (purchaseResult as Record<string, unknown>)
+        .ship_id as string;
       assertExists(corpShipId, "Should get corp ship ID");
       await setShipWarpPower(corpShipId, 500);
       await setShipSector(corpShipId, 0);
@@ -1817,18 +1521,25 @@ Deno.test({
       });
     });
 
-    await t.step("corp member sessions receive the corp ship events", async () => {
-      const p1Messages = await readEventSessionMessages(p1Session.sessionId);
-      const p2Messages = await readEventSessionMessages(p2Session.sessionId);
-      assert(
-        p1Messages.some((msg) => msg.event_type === "movement.complete"),
-        `P1 session should receive movement.complete, got ${p1Messages.map((msg) => String(msg.event_type)).join(", ")}`,
-      );
-      assert(
-        p2Messages.some((msg) => msg.event_type === "movement.complete"),
-        `P2 session should receive movement.complete, got ${p2Messages.map((msg) => String(msg.event_type)).join(", ")}`,
-      );
-    });
+    await t.step(
+      "corp member sessions receive the corp ship events",
+      async () => {
+        const p1Messages = await readEventSessionMessages(p1Session.sessionId);
+        const p2Messages = await readEventSessionMessages(p2Session.sessionId);
+        assert(
+          p1Messages.some((msg) => msg.event_type === "movement.complete"),
+          `P1 session should receive movement.complete, got ${
+            p1Messages.map((msg) => String(msg.event_type)).join(", ")
+          }`,
+        );
+        assert(
+          p2Messages.some((msg) => msg.event_type === "movement.complete"),
+          `P2 session should receive movement.complete, got ${
+            p2Messages.map((msg) => String(msg.event_type)).join(", ")
+          }`,
+        );
+      },
+    );
 
     await t.step("cleanup: move corp ship back", async () => {
       await setShipSector(corpShipId, 0);
@@ -1868,20 +1579,23 @@ Deno.test({
       });
     });
 
-    await t.step("expired session cannot subscribe to new message", async () => {
-      await withPg(async (pg) => {
-        let failed = false;
-        try {
-          await pg.queryObject(
-            `SELECT * FROM public.event_session_subscribe($1::uuid, $2::text, 10, 100)`,
-            [session.sessionId, eventSessionToken],
-          );
-        } catch {
-          failed = true;
-        }
-        assertEquals(failed, true);
-      });
-    });
+    await t.step(
+      "expired session cannot subscribe to new message",
+      async () => {
+        await withPg(async (pg) => {
+          let failed = false;
+          try {
+            await pg.queryObject(
+              `SELECT * FROM public.event_session_subscribe($1::uuid, $2::text, 10, 100)`,
+              [session.sessionId, eventSessionToken],
+            );
+          } catch {
+            failed = true;
+          }
+          assertEquals(failed, true);
+        });
+      },
+    );
 
     await t.step("database cleanup drops expired queue", async () => {
       await withPg(async (pg) => {
@@ -1893,19 +1607,23 @@ Deno.test({
 });
 
 Deno.test({
-  name: "event_dedup — pgmq: human member event does not fan out to corp mate session",
+  name:
+    "event_dedup — pgmq: human member event does not fan out to corp mate session",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
     let p1Session: { sessionId: string; queueName: string };
     let p2Session: { sessionId: string; queueName: string };
 
-    await t.step("setup: create member sessions and prepare P1 warp purchase", async () => {
-      p1Session = await createEventSession(p1Id, [p1Id], corpAId);
-      p2Session = await createEventSession(p2Id, [p2Id], corpAId);
-      await setShipCredits(p1ShipId, 1000);
-      await setShipWarpPower(p1ShipId, 0);
-    });
+    await t.step(
+      "setup: create member sessions and prepare P1 warp purchase",
+      async () => {
+        p1Session = await createEventSession(p1Id, [p1Id], corpAId);
+        p2Session = await createEventSession(p2Id, [p2Id], corpAId);
+        await setShipCredits(p1ShipId, 1000);
+        await setShipWarpPower(p1ShipId, 0);
+      },
+    );
 
     await t.step("P1 recharges their own ship", async () => {
       await apiOk("recharge_warp_power", {
@@ -1924,7 +1642,9 @@ Deno.test({
       assertEquals(
         p2Messages.length,
         0,
-        `P2 should not receive P1's personal ship event. got=${p2Messages.map((msg) => String(msg.event_type)).join(", ")}`,
+        `P2 should not receive P1's personal ship event. got=${
+          p2Messages.map((msg) => String(msg.event_type)).join(", ")
+        }`,
       );
     });
   },

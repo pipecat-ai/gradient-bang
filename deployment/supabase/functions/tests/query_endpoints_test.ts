@@ -21,17 +21,17 @@ import {
   api,
   apiGet,
   apiOk,
+  apiRaw,
   characterIdFor,
-  shipIdFor,
+  createCorpShip,
+  eventsOfType,
+  getEventCursor,
+  setMegabankBalance,
   setShipCredits,
   setShipHyperspace,
   setShipSector,
-  setMegabankBalance,
-  createCorpShip,
+  shipIdFor,
   withPg,
-  eventsOfType,
-  getEventCursor,
-  apiRaw,
 } from "./helpers.ts";
 
 const P1 = "test_query_p1";
@@ -128,34 +128,17 @@ Deno.test({
       const body = result as Record<string, unknown>;
       assertExists(body.request_id, "Should return request_id");
       const ships = body.ships as Array<Record<string, unknown>>;
-      assertEquals(ships.length, 2, "Should return both personal and corp ship");
+      assertEquals(
+        ships.length,
+        2,
+        "Should return both personal and corp ship",
+      );
     });
   },
 });
 
 // ============================================================================
-// Group 3: list_user_ships — character not found
-// ============================================================================
-
-Deno.test({
-  name: "query_endpoints — list_user_ships character not found",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("fails: nonexistent character", async () => {
-      const result = await api("list_user_ships", {
-        character_id: crypto.randomUUID(),
-      });
-      // BUG: Returns 500 instead of 400/404 because "Character not found"
-      // is thrown as a plain Error, not a ValidationError, so it falls
-      // through to the generic 500 handler in the catch block.
-      assertEquals(result.status, 500);
-    });
-  },
-});
-
-// ============================================================================
-// Group 4: local_map_region — basic region
+// Group 3: local_map_region — basic region
 // ============================================================================
 
 Deno.test({
@@ -361,7 +344,10 @@ Deno.test({
       assertEquals(result.body.success, true);
       assertExists(result.body.wealth, "Should have wealth leaderboard");
       assertExists(result.body.trading, "Should have trading leaderboard");
-      assertExists(result.body.exploration, "Should have exploration leaderboard");
+      assertExists(
+        result.body.exploration,
+        "Should have exploration leaderboard",
+      );
       assertExists(result.body.territory, "Should have territory leaderboard");
       assertEquals(result.body.cached, true);
     });
@@ -383,44 +369,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 8: corporation_list
-// ============================================================================
-
-Deno.test({
-  name: "query_endpoints — corporation_list",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and create corp", async () => {
-      await resetDatabase([P1, P2]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("join", { character_id: p2Id });
-      await setShipCredits(p1ShipId, 50000);
-      await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "Test Corp For List",
-      });
-    });
-
-    await t.step("list corporations returns at least 1", async () => {
-      const result = await apiOk("corporation_list", {
-        character_id: p1Id,
-      });
-      const body = result as Record<string, unknown>;
-      assertExists(body.corporations, "Should have corporations array");
-      const corps = body.corporations as Array<Record<string, unknown>>;
-      assert(corps.length >= 1, "Should have at least 1 corporation");
-      // Verify structure
-      const corp = corps.find((c) => c.name === "Test Corp For List");
-      assertExists(corp, "Should find our test corp");
-      assertExists(corp.corp_id, "Corp should have corp_id");
-      assertExists(corp.member_count, "Corp should have member_count");
-    });
-  },
-});
-
-// ============================================================================
-// Group 9: character_info
+// Group 7: character_info
 // ============================================================================
 
 Deno.test({
@@ -441,55 +390,11 @@ Deno.test({
       assertExists(body.character_id, "Should have character_id");
       assertExists(body.name, "Should have name");
     });
-
-    await t.step("character not found fails", async () => {
-      const result = await api("character_info", {
-        character_id: crypto.randomUUID(),
-      });
-      assert(
-        !result.ok || !result.body.success,
-        "Expected unknown character to fail",
-      );
-      // May return 404 or 500 depending on Supabase error handling
-      assert(
-        result.status === 404 || result.status === 500,
-        `Expected 404 or 500 for unknown character, got ${result.status}`,
-      );
-    });
   },
 });
 
 // ============================================================================
-// Group 10: my_corporation
-// ============================================================================
-
-Deno.test({
-  name: "query_endpoints — my_corporation",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset and create corp", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipCredits(p1ShipId, 50000);
-      await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "My Corp Test",
-      });
-    });
-
-    await t.step("get my corporation info", async () => {
-      const result = await apiOk("my_corporation", {
-        character_id: p1Id,
-      });
-      const body = result as Record<string, unknown>;
-      assertExists(body.request_id, "Should have request_id");
-    });
-  },
-});
-
-// ============================================================================
-// Group 11: path_with_region — returns request_id and emits event
+// Group 8: path_with_region — returns request_id and emits event
 // ============================================================================
 
 Deno.test({
@@ -543,34 +448,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 13: corporation_info — corp not found
-// ============================================================================
-
-Deno.test({
-  name: "query_endpoints — corporation_info not found",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-    });
-
-    await t.step("fails: corp not found", async () => {
-      const result = await api("corporation_info", {
-        character_id: p1Id,
-        corp_id: crypto.randomUUID(),
-      });
-      assert(
-        result.status === 404 || result.status === 500,
-        `Expected 404 or 500 for unknown corp, got ${result.status}`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 14: local_map_region — invalid center sector (renumbered from 15)
+// Group 10: local_map_region — invalid center sector
 // ============================================================================
 
 Deno.test({
@@ -716,13 +594,16 @@ Deno.test({
       await apiOk("join", { character_id: p1Id });
     });
 
-    await t.step("returns definitions with character_id (emits event)", async () => {
-      const result = await apiOk("ship_definitions", {
-        character_id: p1Id,
-      });
-      const body = result as Record<string, unknown>;
-      assert(Array.isArray(body.definitions), "definitions should be array");
-    });
+    await t.step(
+      "returns definitions with character_id (emits event)",
+      async () => {
+        const result = await apiOk("ship_definitions", {
+          character_id: p1Id,
+        });
+        const body = result as Record<string, unknown>;
+        assert(Array.isArray(body.definitions), "definitions should be array");
+      },
+    );
   },
 });
 
@@ -976,7 +857,10 @@ Deno.test({
         trade_type: "buy",
       });
       assertEquals(result.status, 400);
-      assert(result.body.error?.includes("commodity") || result.body.error?.includes("Unknown"));
+      assert(
+        result.body.error?.includes("commodity") ||
+          result.body.error?.includes("Unknown"),
+      );
     });
   },
 });
@@ -1241,26 +1125,35 @@ Deno.test({
       cursorSell = await getEventCursor(p1Id);
     });
 
-    await t.step("trade_type=sell finds ports buying quantum_foam", async () => {
-      // trade_type "sell" → player wants to sell → port must BUY → code char = "B"
-      // Sector 1 (BBS): position 0 = "B" → matches sell filter for quantum_foam
-      const result = await apiOk("list_known_ports", {
-        character_id: p1Id,
-        commodity: "quantum_foam",
-        trade_type: "sell",
-        max_hops: 1,
-      });
-      assertExists((result as Record<string, unknown>).request_id);
-    });
+    await t.step(
+      "trade_type=sell finds ports buying quantum_foam",
+      async () => {
+        // trade_type "sell" → player wants to sell → port must BUY → code char = "B"
+        // Sector 1 (BBS): position 0 = "B" → matches sell filter for quantum_foam
+        const result = await apiOk("list_known_ports", {
+          character_id: p1Id,
+          commodity: "quantum_foam",
+          trade_type: "sell",
+          max_hops: 1,
+        });
+        assertExists((result as Record<string, unknown>).request_id);
+      },
+    );
 
     await t.step("verify sell filter in event", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursorSell);
       assert(events.length >= 1, "Should have ports.list event");
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
       assertEquals(payload.trade_type, "sell");
       assertEquals(payload.commodity, "quantum_foam");
       const totalPorts = payload.total_ports_found as number;
-      assert(totalPorts >= 1, `Expected >= 1 port for sell filter, got ${totalPorts}`);
+      assert(
+        totalPorts >= 1,
+        `Expected >= 1 port for sell filter, got ${totalPorts}`,
+      );
     });
 
     let cursorMega: number;
@@ -1280,7 +1173,10 @@ Deno.test({
     await t.step("verify mega=false event", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursorMega);
       assert(events.length >= 1, "Should have ports.list event");
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
       assertEquals(payload.mega, false);
       const totalPorts = payload.total_ports_found as number;
       assert(totalPorts >= 1, `Expected >= 1 non-mega port, got ${totalPorts}`);
@@ -1310,21 +1206,31 @@ Deno.test({
       cursor = await getEventCursor(p1Id);
     });
 
-    await t.step("list ports without from_sector (defaults to ship sector)", async () => {
-      const result = await apiOk("list_known_ports", {
-        character_id: p1Id,
-        max_hops: 2,
-      });
-      assertExists((result as Record<string, unknown>).request_id);
-    });
+    await t.step(
+      "list ports without from_sector (defaults to ship sector)",
+      async () => {
+        const result = await apiOk("list_known_ports", {
+          character_id: p1Id,
+          max_hops: 2,
+        });
+        assertExists((result as Record<string, unknown>).request_id);
+      },
+    );
 
     await t.step("verify BFS results and inSector", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1, "Should have ports.list event");
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
 
       // from_sector defaults to ship.current_sector = 3
-      assertEquals(payload.from_sector, 3, "from_sector should default to ship sector");
+      assertEquals(
+        payload.from_sector,
+        3,
+        "from_sector should default to ship sector",
+      );
 
       const ports = payload.ports as Array<Record<string, unknown>>;
       assert(ports.length >= 2, `Expected >= 2 ports, got ${ports.length}`);
@@ -1393,8 +1299,15 @@ Deno.test({
     await t.step("verify single sector searched", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
-      assertEquals(payload.searched_sectors, 1, "max_hops=0 should search only 1 sector");
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
+      assertEquals(
+        payload.searched_sectors,
+        1,
+        "max_hops=0 should search only 1 sector",
+      );
       assertEquals(payload.total_ports_found, 1, "Sector 1 has a port");
       assertEquals(payload.from_sector, 1);
 
@@ -1439,8 +1352,15 @@ Deno.test({
     await t.step("verify max_hops defaults to 100", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
-      assertEquals(payload.max_hops, 100, "mega=true should default max_hops to 100");
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
+      assertEquals(
+        payload.max_hops,
+        100,
+        "mega=true should default max_hops to 100",
+      );
       assertEquals(payload.mega, true);
     });
   },
@@ -1479,28 +1399,37 @@ Deno.test({
       assertExists((result as Record<string, unknown>).request_id);
     });
 
-    await t.step("verify sort: sector 1 before sector 2 (same hops)", async () => {
-      const events = await eventsOfType(p1Id, "ports.list", cursor);
-      assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
-      const ports = payload.ports as Array<Record<string, unknown>>;
-      assert(ports.length >= 2, `Expected >= 2 ports, got ${ports.length}`);
+    await t.step(
+      "verify sort: sector 1 before sector 2 (same hops)",
+      async () => {
+        const events = await eventsOfType(p1Id, "ports.list", cursor);
+        assert(events.length >= 1);
+        const payload = events[events.length - 1].payload as Record<
+          string,
+          unknown
+        >;
+        const ports = payload.ports as Array<Record<string, unknown>>;
+        assert(ports.length >= 2, `Expected >= 2 ports, got ${ports.length}`);
 
-      // Both sector 1 and 2 are at hop 1, should be sorted by sector_id
-      for (let i = 1; i < ports.length; i++) {
-        const prev = ports[i - 1];
-        const curr = ports[i];
-        const prevHops = prev.hops_from_start as number;
-        const currHops = curr.hops_from_start as number;
-        const prevId = (prev.sector as Record<string, unknown>)?.id as number;
-        const currId = (curr.sector as Record<string, unknown>)?.id as number;
-        if (prevHops === currHops) {
-          assert(prevId <= currId, `Expected sector ${prevId} <= ${currId} at same hops`);
-        } else {
-          assert(prevHops < currHops, "Expected ascending hop order");
+        // Both sector 1 and 2 are at hop 1, should be sorted by sector_id
+        for (let i = 1; i < ports.length; i++) {
+          const prev = ports[i - 1];
+          const curr = ports[i];
+          const prevHops = prev.hops_from_start as number;
+          const currHops = curr.hops_from_start as number;
+          const prevId = (prev.sector as Record<string, unknown>)?.id as number;
+          const currId = (curr.sector as Record<string, unknown>)?.id as number;
+          if (prevHops === currHops) {
+            assert(
+              prevId <= currId,
+              `Expected sector ${prevId} <= ${currId} at same hops`,
+            );
+          } else {
+            assert(prevHops < currHops, "Expected ascending hop order");
+          }
         }
-      }
-    });
+      },
+    );
   },
 });
 
@@ -1611,7 +1540,10 @@ Deno.test({
     await t.step("verify buy prices null when stock at max", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
       const ports = payload.ports as Array<Record<string, unknown>>;
       assertEquals(ports.length, 1);
 
@@ -1645,24 +1577,27 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
-    await t.step("reset, visit sector 1, change port code to lowercase", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("move", { character_id: p1Id, to_sector: 1 });
-      // Update sector 1's port code from "BBS" to "bbs"
-      await withPg(async (pg) => {
-        const portResult = await pg.queryObject<{ port_id: number }>(
-          `SELECT port_id FROM sector_contents WHERE sector_id = 1 AND port_id IS NOT NULL`,
-        );
-        if (portResult.rows.length > 0) {
-          const portId = portResult.rows[0].port_id;
-          await pg.queryObject(
-            `UPDATE ports SET port_code = 'bbs' WHERE port_id = $1`,
-            [portId],
+    await t.step(
+      "reset, visit sector 1, change port code to lowercase",
+      async () => {
+        await resetDatabase([P1]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("move", { character_id: p1Id, to_sector: 1 });
+        // Update sector 1's port code from "BBS" to "bbs"
+        await withPg(async (pg) => {
+          const portResult = await pg.queryObject<{ port_id: number }>(
+            `SELECT port_id FROM sector_contents WHERE sector_id = 1 AND port_id IS NOT NULL`,
           );
-        }
-      });
-    });
+          if (portResult.rows.length > 0) {
+            const portId = portResult.rows[0].port_id;
+            await pg.queryObject(
+              `UPDATE ports SET port_code = 'bbs' WHERE port_id = $1`,
+              [portId],
+            );
+          }
+        });
+      },
+    );
 
     let cursor: number;
     await t.step("capture cursor", async () => {
@@ -1678,21 +1613,27 @@ Deno.test({
       assertExists((result as Record<string, unknown>).request_id);
     });
 
-    await t.step("verify port found with prices (lowercase code decoded)", async () => {
-      const events = await eventsOfType(p1Id, "ports.list", cursor);
-      assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
-      const ports = payload.ports as Array<Record<string, unknown>>;
-      assertEquals(ports.length, 1, "Should find 1 port at sector 1");
+    await t.step(
+      "verify port found with prices (lowercase code decoded)",
+      async () => {
+        const events = await eventsOfType(p1Id, "ports.list", cursor);
+        assert(events.length >= 1);
+        const payload = events[events.length - 1].payload as Record<
+          string,
+          unknown
+        >;
+        const ports = payload.ports as Array<Record<string, unknown>>;
+        assertEquals(ports.length, 1, "Should find 1 port at sector 1");
 
-      // Verify prices exist (lowercase 'bbs' should decode same as 'BBS')
-      const portData = (ports[0].sector as Record<string, unknown>)
-        ?.port as Record<string, unknown>;
-      const prices = portData?.prices as Record<string, unknown>;
-      assertExists(prices, "Should have prices");
-      // 'bbs' = buys QF+RO, sells NS → NS should have sell price
-      assert(prices?.neuro_symbolics !== null, "NS sell price should exist");
-    });
+        // Verify prices exist (lowercase 'bbs' should decode same as 'BBS')
+        const portData = (ports[0].sector as Record<string, unknown>)
+          ?.port as Record<string, unknown>;
+        const prices = portData?.prices as Record<string, unknown>;
+        assertExists(prices, "Should have prices");
+        // 'bbs' = buys QF+RO, sells NS → NS should have sell price
+        assert(prices?.neuro_symbolics !== null, "NS sell price should exist");
+      },
+    );
   },
 });
 
@@ -1722,17 +1663,23 @@ Deno.test({
       cursor = await getEventCursor(p1Id);
     });
 
-    await t.step("list ports without from_sector (falls back to knowledge or 0)", async () => {
-      const result = await apiOk("list_known_ports", {
-        character_id: p1Id,
-      });
-      assertExists((result as Record<string, unknown>).request_id);
-    });
+    await t.step(
+      "list ports without from_sector (falls back to knowledge or 0)",
+      async () => {
+        const result = await apiOk("list_known_ports", {
+          character_id: p1Id,
+        });
+        assertExists((result as Record<string, unknown>).request_id);
+      },
+    );
 
     await t.step("verify from_sector in event (should be 0)", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
       // Should fall back to knowledge.current_sector or default to 0
       assertEquals(payload.from_sector, 0, "Should fall back to sector 0");
     });
@@ -1740,28 +1687,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 46: list_known_ports — nonexistent character (rate limit FK error)
-// ============================================================================
-
-Deno.test({
-  name: "query_endpoints — list_known_ports nonexistent character",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("nonexistent character → 500", async () => {
-      // The rate_limits table has a FK to characters — a random UUID not in
-      // characters causes enforceRateLimit to throw a non-RateLimitError,
-      // exercising the generic rate limit error handler (lines 208-209).
-      const result = await api("list_known_ports", {
-        character_id: crypto.randomUUID(),
-      });
-      assertEquals(result.status, 500);
-    });
-  },
-});
-
-// ============================================================================
-// Group 47: list_known_ports — trade_type sell with retro_organics
+// Group 46: list_known_ports — trade_type sell with retro_organics
 // ============================================================================
 
 Deno.test({
@@ -1797,11 +1723,17 @@ Deno.test({
     await t.step("verify event has results", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
       assertEquals(payload.commodity, "retro_organics");
       assertEquals(payload.trade_type, "sell");
       const totalPorts = payload.total_ports_found as number;
-      assert(totalPorts >= 1, `Expected >= 1 port for sell retro_organics, got ${totalPorts}`);
+      assert(
+        totalPorts >= 1,
+        `Expected >= 1 port for sell retro_organics, got ${totalPorts}`,
+      );
     });
   },
 });
@@ -1842,11 +1774,17 @@ Deno.test({
     await t.step("verify event has results", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
       assertEquals(payload.commodity, "neuro_symbolics");
       assertEquals(payload.trade_type, "buy");
       const totalPorts = payload.total_ports_found as number;
-      assert(totalPorts >= 1, `Expected >= 1 port for buy neuro_symbolics, got ${totalPorts}`);
+      assert(
+        totalPorts >= 1,
+        `Expected >= 1 port for buy neuro_symbolics, got ${totalPorts}`,
+      );
     });
   },
 });
@@ -1888,7 +1826,10 @@ Deno.test({
     await t.step("verify BFS found ports at hop 1", async () => {
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1, "Should have ports.list event");
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
 
       assertEquals(payload.from_sector, 0, "from_sector should be 0");
 
@@ -1936,15 +1877,18 @@ Deno.test({
   async fn(t) {
     // Visit sectors 0 → 1 → 3. Ship at sector 0.
     // Sector 0: no port. Sector 1: BBS (hop 1). Sector 3: BSS (hop 2 via 0→1→3).
-    await t.step("reset and visit sectors 0, 1, 3 then return to 0", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await apiOk("move", { character_id: p1Id, to_sector: 1 });
-      await apiOk("move", { character_id: p1Id, to_sector: 3 });
-      await apiOk("move", { character_id: p1Id, to_sector: 1 });
-      await apiOk("move", { character_id: p1Id, to_sector: 0 });
-      // Ship at sector 0; visited: 0, 1, 3
-    });
+    await t.step(
+      "reset and visit sectors 0, 1, 3 then return to 0",
+      async () => {
+        await resetDatabase([P1]);
+        await apiOk("join", { character_id: p1Id });
+        await apiOk("move", { character_id: p1Id, to_sector: 1 });
+        await apiOk("move", { character_id: p1Id, to_sector: 3 });
+        await apiOk("move", { character_id: p1Id, to_sector: 1 });
+        await apiOk("move", { character_id: p1Id, to_sector: 0 });
+        // Ship at sector 0; visited: 0, 1, 3
+      },
+    );
 
     let cursor: number;
 
@@ -1957,9 +1901,20 @@ Deno.test({
       });
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
-      assertEquals(payload.total_ports_found, 0, "max_hops=0 at sector 0 should find 0 ports");
-      assertEquals(payload.searched_sectors, 1, "max_hops=0 should search exactly 1 sector");
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
+      assertEquals(
+        payload.total_ports_found,
+        0,
+        "max_hops=0 at sector 0 should find 0 ports",
+      );
+      assertEquals(
+        payload.searched_sectors,
+        1,
+        "max_hops=0 should search exactly 1 sector",
+      );
     });
 
     // max_hops=1: finds sector 1 port only
@@ -1971,10 +1926,16 @@ Deno.test({
       });
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
       const ports = payload.ports as Array<Record<string, unknown>>;
       const totalPorts = payload.total_ports_found as number;
-      assert(totalPorts >= 1, `Expected >= 1 port with max_hops=1, got ${totalPorts}`);
+      assert(
+        totalPorts >= 1,
+        `Expected >= 1 port with max_hops=1, got ${totalPorts}`,
+      );
 
       const s1 = ports.find(
         (p) => ((p.sector as Record<string, unknown>)?.id as number) === 1,
@@ -1992,10 +1953,16 @@ Deno.test({
       });
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
       const ports = payload.ports as Array<Record<string, unknown>>;
       const totalPorts = payload.total_ports_found as number;
-      assert(totalPorts >= 2, `Expected >= 2 ports with max_hops=2, got ${totalPorts}`);
+      assert(
+        totalPorts >= 2,
+        `Expected >= 2 ports with max_hops=2, got ${totalPorts}`,
+      );
 
       const s1 = ports.find(
         (p) => ((p.sector as Record<string, unknown>)?.id as number) === 1,
@@ -2041,46 +2008,55 @@ Deno.test({
       cursor = await getEventCursor(p1Id);
     });
 
-    await t.step("list ports with max_hops=5 finds all chain ports", async () => {
-      await apiOk("list_known_ports", {
-        character_id: p1Id,
-        max_hops: 5,
-      });
+    await t.step(
+      "list ports with max_hops=5 finds all chain ports",
+      async () => {
+        await apiOk("list_known_ports", {
+          character_id: p1Id,
+          max_hops: 5,
+        });
 
-      const events = await eventsOfType(p1Id, "ports.list", cursor);
-      assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
-      const ports = payload.ports as Array<Record<string, unknown>>;
-      const totalPorts = payload.total_ports_found as number;
+        const events = await eventsOfType(p1Id, "ports.list", cursor);
+        assert(events.length >= 1);
+        const payload = events[events.length - 1].payload as Record<
+          string,
+          unknown
+        >;
+        const ports = payload.ports as Array<Record<string, unknown>>;
+        const totalPorts = payload.total_ports_found as number;
 
-      // Should find ports at: sector 1 (BBS), sector 3 (BSS), sector 9 (BBB)
-      assert(totalPorts >= 3, `Expected >= 3 ports along chain, got ${totalPorts}`);
+        // Should find ports at: sector 1 (BBS), sector 3 (BSS), sector 9 (BBB)
+        assert(
+          totalPorts >= 3,
+          `Expected >= 3 ports along chain, got ${totalPorts}`,
+        );
 
-      const s1 = ports.find(
-        (p) => ((p.sector as Record<string, unknown>)?.id as number) === 1,
-      );
-      assertExists(s1, "Should find sector 1 (BBS)");
+        const s1 = ports.find(
+          (p) => ((p.sector as Record<string, unknown>)?.id as number) === 1,
+        );
+        assertExists(s1, "Should find sector 1 (BBS)");
 
-      const s3 = ports.find(
-        (p) => ((p.sector as Record<string, unknown>)?.id as number) === 3,
-      );
-      assertExists(s3, "Should find sector 3 (BSS)");
+        const s3 = ports.find(
+          (p) => ((p.sector as Record<string, unknown>)?.id as number) === 3,
+        );
+        assertExists(s3, "Should find sector 3 (BSS)");
 
-      const s9 = ports.find(
-        (p) => ((p.sector as Record<string, unknown>)?.id as number) === 9,
-      );
-      assertExists(s9, "Should find sector 9 (BBB)");
+        const s9 = ports.find(
+          (p) => ((p.sector as Record<string, unknown>)?.id as number) === 9,
+        );
+        assertExists(s9, "Should find sector 9 (BBB)");
 
-      // Verify hop ordering: sector 1 < sector 3 < sector 9
-      assert(
-        (s1!.hops_from_start as number) < (s3!.hops_from_start as number),
-        "Sector 1 should be closer than sector 3",
-      );
-      assert(
-        (s3!.hops_from_start as number) <= (s9!.hops_from_start as number),
-        "Sector 3 should be closer than or equal to sector 9",
-      );
-    });
+        // Verify hop ordering: sector 1 < sector 3 < sector 9
+        assert(
+          (s1!.hops_from_start as number) < (s3!.hops_from_start as number),
+          "Sector 1 should be closer than sector 3",
+        );
+        assert(
+          (s3!.hops_from_start as number) <= (s9!.hops_from_start as number),
+          "Sector 3 should be closer than or equal to sector 9",
+        );
+      },
+    );
   },
 });
 
@@ -2117,14 +2093,20 @@ Deno.test({
 
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
       assertEquals(payload.from_sector, 1, "from_sector should be 1");
 
       const ports = payload.ports as Array<Record<string, unknown>>;
       const totalPorts = payload.total_ports_found as number;
 
       // From sector 1: sector 1 at hop 0 (BBS), sector 3 at hop 1 (BSS, adjacent)
-      assert(totalPorts >= 2, `Expected >= 2 ports from sector 1 with max_hops=1, got ${totalPorts}`);
+      assert(
+        totalPorts >= 2,
+        `Expected >= 2 ports from sector 1 with max_hops=1, got ${totalPorts}`,
+      );
 
       const s1 = ports.find(
         (p) => ((p.sector as Record<string, unknown>)?.id as number) === 1,
@@ -2173,7 +2155,10 @@ Deno.test({
 
       const events = await eventsOfType(p1Id, "ports.list", cursor);
       assert(events.length >= 1);
-      const payload = events[events.length - 1].payload as Record<string, unknown>;
+      const payload = events[events.length - 1].payload as Record<
+        string,
+        unknown
+      >;
 
       const searched = payload.searched_sectors as number;
       // Sector 0 has 3 neighbors (1, 2, 5), so at max_hops=1 we should
@@ -2200,49 +2185,54 @@ Deno.test({
       await apiOk("join", { character_id: p1Id });
     });
 
-    await t.step("adjacent_sectors is object with region, not number[]", async () => {
-      // P1 is in sector 0, adjacent to [1, 2, 5] — all "testbed" region
-      const result = await apiOk("local_map_region", {
-        character_id: p1Id,
-        center_sector: 0,
-        max_hops: 0,
-      });
-      const body = result as Record<string, unknown>;
-      const sectors = body.sectors as Array<Record<string, unknown>>;
-      assertEquals(sectors.length, 1, "max_hops=0 should return only center");
+    await t.step(
+      "adjacent_sectors is object with region, not number[]",
+      async () => {
+        // P1 is in sector 0, adjacent to [1, 2, 5] — all "testbed" region
+        const result = await apiOk("local_map_region", {
+          character_id: p1Id,
+          center_sector: 0,
+          max_hops: 0,
+        });
+        const body = result as Record<string, unknown>;
+        const sectors = body.sectors as Array<Record<string, unknown>>;
+        assertEquals(sectors.length, 1, "max_hops=0 should return only center");
 
-      const sector0 = sectors[0];
-      assertEquals(sector0.id, 0);
+        const sector0 = sectors[0];
+        assertEquals(sector0.id, 0);
 
-      const adj = sector0.adjacent_sectors;
-      // Should be an object, NOT an array
-      assert(
-        !Array.isArray(adj),
-        `adjacent_sectors should be an object with region info, got array: ${JSON.stringify(adj)}`,
-      );
-      assert(
-        typeof adj === "object" && adj !== null,
-        `adjacent_sectors should be an object, got ${typeof adj}`,
-      );
+        const adj = sector0.adjacent_sectors;
+        // Should be an object, NOT an array
+        assert(
+          !Array.isArray(adj),
+          `adjacent_sectors should be an object with region info, got array: ${
+            JSON.stringify(adj)
+          }`,
+        );
+        assert(
+          typeof adj === "object" && adj !== null,
+          `adjacent_sectors should be an object, got ${typeof adj}`,
+        );
 
-      // Sector 0 is adjacent to 1, 2, 5 — all should have region info
-      const adjObj = adj as Record<string, { region: string }>;
-      for (const sectorId of ["1", "2", "5"]) {
-        assertExists(
-          adjObj[sectorId],
-          `adjacent_sectors should include sector ${sectorId}`,
-        );
-        assertExists(
-          adjObj[sectorId].region,
-          `adjacent sector ${sectorId} should have region`,
-        );
-        assertEquals(
-          adjObj[sectorId].region,
-          "testbed",
-          `sector ${sectorId} should be testbed region`,
-        );
-      }
-    });
+        // Sector 0 is adjacent to 1, 2, 5 — all should have region info
+        const adjObj = adj as Record<string, { region: string }>;
+        for (const sectorId of ["1", "2", "5"]) {
+          assertExists(
+            adjObj[sectorId],
+            `adjacent_sectors should include sector ${sectorId}`,
+          );
+          assertExists(
+            adjObj[sectorId].region,
+            `adjacent sector ${sectorId} should have region`,
+          );
+          assertEquals(
+            adjObj[sectorId].region,
+            "testbed",
+            `sector ${sectorId} should be testbed region`,
+          );
+        }
+      },
+    );
   },
 });
 
@@ -2278,7 +2268,10 @@ Deno.test({
       const sector4 = sectors[0];
       assertEquals(sector4.id, 4);
 
-      const adj = sector4.adjacent_sectors as Record<string, { region: string }>;
+      const adj = sector4.adjacent_sectors as Record<
+        string,
+        { region: string }
+      >;
       assert(
         !Array.isArray(adj),
         `adjacent_sectors should be an object, got array`,

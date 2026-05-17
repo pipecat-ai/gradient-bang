@@ -19,18 +19,17 @@ import {
   assertExists,
 } from "https://deno.land/std@0.197.0/testing/asserts.ts";
 
-import { resetDatabase, clearEvents, startServerInProcess } from "./harness.ts";
+import { clearEvents, resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
   apiOk,
-  apiRaw,
   characterIdFor,
-  shipIdFor,
-  eventsSince,
   eventsOfType,
+  eventsSince,
   getEventCursor,
   queryCharacter,
   queryShip,
+  shipIdFor,
   withPg,
 } from "./helpers.ts";
 
@@ -91,39 +90,42 @@ Deno.test({
 
     // ── Response data and events emitted by join ──────────────────────
 
-    await t.step("inline status payload has player, ship, sector, source", async () => {
-      const payload = joinResult.status as Record<string, unknown>;
-      assertExists(payload, "join response status");
+    await t.step(
+      "inline status payload has player, ship, sector, source",
+      async () => {
+        const payload = joinResult.status as Record<string, unknown>;
+        assertExists(payload, "join response status");
 
-      // Player fields
-      const player = payload.player as Record<string, unknown>;
-      assertExists(player, "payload.player");
-      assertEquals(player.id, player1Id);
-      assertEquals(player.name, PLAYER_1);
-      assert(typeof player.credits_in_bank === "number");
-      assert(typeof player.sectors_visited === "number");
-      assert(typeof player.universe_size === "number");
+        // Player fields
+        const player = payload.player as Record<string, unknown>;
+        assertExists(player, "payload.player");
+        assertEquals(player.id, player1Id);
+        assertEquals(player.name, PLAYER_1);
+        assert(typeof player.credits_in_bank === "number");
+        assert(typeof player.sectors_visited === "number");
+        assert(typeof player.universe_size === "number");
 
-      // Ship fields
-      const ship = payload.ship as Record<string, unknown>;
-      assertExists(ship, "payload.ship");
-      assertEquals(ship.ship_id, player1ShipId);
-      assert(typeof ship.ship_type === "string");
-      assert(typeof ship.credits === "number");
-      assertExists(ship.cargo, "payload.ship.cargo");
-      assert(typeof ship.warp_power === "number");
-      assert(typeof ship.cargo_capacity === "number");
+        // Ship fields
+        const ship = payload.ship as Record<string, unknown>;
+        assertExists(ship, "payload.ship");
+        assertEquals(ship.ship_id, player1ShipId);
+        assert(typeof ship.ship_type === "string");
+        assert(typeof ship.credits === "number");
+        assertExists(ship.cargo, "payload.ship.cargo");
+        assert(typeof ship.warp_power === "number");
+        assert(typeof ship.cargo_capacity === "number");
 
-      // Sector fields
-      const sector = payload.sector as Record<string, unknown>;
-      assertExists(sector, "payload.sector");
-      assertEquals(sector.id, 0); // pinned to sector 0
+        // Sector fields
+        const sector = payload.sector as Record<string, unknown>;
+        assertExists(sector, "payload.sector");
+        assertEquals(sector.id, 0); // pinned to sector 0
 
-      // Source
-      const source = payload.source as Record<string, unknown>;
-      assertExists(source, "payload.source");
-      assertEquals(source.method, "join");
-    });
+        // Source
+        const source = payload.source as Record<string, unknown>;
+        assertExists(source, "payload.source");
+        assertEquals(source.method, "join");
+      },
+    );
 
     await t.step("player 1 receives map.local event", async () => {
       const maps = await eventsOfType(player1Id, "map.local");
@@ -134,7 +136,10 @@ Deno.test({
 
       const payload = ev.payload;
       assertEquals(payload.center_sector, 0);
-      assert(Array.isArray(payload.sectors), "payload.sectors should be an array");
+      assert(
+        Array.isArray(payload.sectors),
+        "payload.sectors should be an array",
+      );
       assert(
         (payload.sectors as unknown[]).length > 0,
         "sectors array should not be empty",
@@ -196,26 +201,33 @@ Deno.test({
       assert(result.success);
 
       // my_status emits a status.snapshot
-      const snapshots = await eventsOfType(player1Id, "status.snapshot", cursor);
+      const snapshots = await eventsOfType(
+        player1Id,
+        "status.snapshot",
+        cursor,
+      );
       assert(snapshots.length >= 1, "my_status should emit status.snapshot");
     });
 
-    await t.step("my_status snapshot has same structure as join snapshot", async () => {
-      const snapshots = await eventsOfType(player1Id, "status.snapshot");
-      // Take the last one (from my_status)
-      const payload = snapshots[snapshots.length - 1].payload;
+    await t.step(
+      "my_status snapshot has same structure as join snapshot",
+      async () => {
+        const snapshots = await eventsOfType(player1Id, "status.snapshot");
+        // Take the last one (from my_status)
+        const payload = snapshots[snapshots.length - 1].payload;
 
-      const player = payload.player as Record<string, unknown>;
-      assertExists(player, "payload.player");
-      assertEquals(player.id, player1Id);
+        const player = payload.player as Record<string, unknown>;
+        assertExists(player, "payload.player");
+        assertEquals(player.id, player1Id);
 
-      const ship = payload.ship as Record<string, unknown>;
-      assertExists(ship, "payload.ship");
-      assertEquals(ship.ship_id, player1ShipId);
+        const ship = payload.ship as Record<string, unknown>;
+        assertExists(ship, "payload.ship");
+        assertEquals(ship.ship_id, player1ShipId);
 
-      const sector = payload.sector as Record<string, unknown>;
-      assertExists(sector, "payload.sector");
-    });
+        const sector = payload.sector as Record<string, unknown>;
+        assertExists(sector, "payload.sector");
+      },
+    );
   },
 });
 
@@ -264,36 +276,44 @@ Deno.test({
       assert(maps.length >= 1, "Player 2 should receive map.local");
     });
 
-    await t.step("player 2 inline status shows player 1 in sector", async () => {
-      const payload = p2JoinResult.status as Record<string, unknown>;
-      const sector = payload.sector as Record<string, unknown>;
-      const players = sector.players as Array<Record<string, unknown>>;
-      assertExists(players, "sector.players should exist");
+    await t.step(
+      "player 2 inline status shows player 1 in sector",
+      async () => {
+        const payload = p2JoinResult.status as Record<string, unknown>;
+        const sector = payload.sector as Record<string, unknown>;
+        const players = sector.players as Array<Record<string, unknown>>;
+        assertExists(players, "sector.players should exist");
 
-      // Player 1 should appear in the players list (they joined first)
-      const p1Entry = players.find(
-        (p) => p.id === player1Id || p.name === PLAYER_1,
-      );
-      assertExists(
-        p1Entry,
-        `Player 1 should be in sector.players. Found: ${JSON.stringify(players.map((p) => p.name ?? p.id))}`,
-      );
-    });
+        // Player 1 should appear in the players list (they joined first)
+        const p1Entry = players.find(
+          (p) => p.id === player1Id || p.name === PLAYER_1,
+        );
+        assertExists(
+          p1Entry,
+          `Player 1 should be in sector.players. Found: ${
+            JSON.stringify(players.map((p) => p.name ?? p.id))
+          }`,
+        );
+      },
+    );
 
-    await t.step("no character.moved events when both start in same sector", async () => {
-      // Both players are pinned to sector 0. When player 2 joins sector 0
-      // and previousSector === targetSector (both 0), join() skips movement
-      // observer events. This is correct behavior.
-      const p1Events = await eventsSince(player1Id, cursorBeforeP2);
-      const movedEvents = p1Events.events.filter(
-        (e) => e.event_type === "character.moved",
-      );
-      assertEquals(
-        movedEvents.length,
-        0,
-        "No character.moved when previous === target sector",
-      );
-    });
+    await t.step(
+      "no character.moved events when both start in same sector",
+      async () => {
+        // Both players are pinned to sector 0. When player 2 joins sector 0
+        // and previousSector === targetSector (both 0), join() skips movement
+        // observer events. This is correct behavior.
+        const p1Events = await eventsSince(player1Id, cursorBeforeP2);
+        const movedEvents = p1Events.events.filter(
+          (e) => e.event_type === "character.moved",
+        );
+        assertEquals(
+          movedEvents.length,
+          0,
+          "No character.moved when previous === target sector",
+        );
+      },
+    );
   },
 });
 
@@ -319,17 +339,20 @@ Deno.test({
 
     let cursorP1: number;
 
-    await t.step("capture cursor, then player 2 arrives in sector 0", async () => {
-      cursorP1 = await getEventCursor(player1Id);
+    await t.step(
+      "capture cursor, then player 2 arrives in sector 0",
+      async () => {
+        cursorP1 = await getEventCursor(player1Id);
 
-      // Player 2 joins sector 0 — arrives from sector 1
-      const result = await apiOk("join", {
-        character_id: player2Id,
-        sector: 0,
-        request_id: "test-p2-arrive",
-      });
-      assert(result.success);
-    });
+        // Player 2 joins sector 0 — arrives from sector 1
+        const result = await apiOk("join", {
+          character_id: player2Id,
+          sector: 0,
+          request_id: "test-p2-arrive",
+        });
+        assert(result.success);
+      },
+    );
 
     await t.step("player 1 receives character.moved arrive event", async () => {
       const { events } = await eventsSince(player1Id, cursorP1);
@@ -341,7 +364,9 @@ Deno.test({
 
       assert(
         arrivals.length >= 1,
-        `Expected player 1 to receive arrive event. Events: ${JSON.stringify(events.map((e) => e.event_type))}`,
+        `Expected player 1 to receive arrive event. Events: ${
+          JSON.stringify(events.map((e) => e.event_type))
+        }`,
       );
 
       const arrival = arrivals[0];
@@ -363,16 +388,19 @@ Deno.test({
       assertEquals(payload.move_type, "teleport");
     });
 
-    await t.step("arrival event recipient_reason is sector_snapshot", async () => {
-      const { events } = await eventsSince(player1Id, cursorP1);
-      const arrivals = events.filter(
-        (e) =>
-          e.event_type === "character.moved" &&
-          e.payload?.movement === "arrive",
-      );
-      assert(arrivals.length >= 1);
-      assertEquals(arrivals[0].recipient_reasons[0], "sector_snapshot");
-    });
+    await t.step(
+      "arrival event recipient_reason is sector_snapshot",
+      async () => {
+        const { events } = await eventsSince(player1Id, cursorP1);
+        const arrivals = events.filter(
+          (e) =>
+            e.event_type === "character.moved" &&
+            e.payload?.movement === "arrive",
+        );
+        assert(arrivals.length >= 1);
+        assertEquals(arrivals[0].recipient_reasons[0], "sector_snapshot");
+      },
+    );
 
     await t.step("player 2 does not receive own character.moved", async () => {
       // Player 2's events should only be status.snapshot and map.local,
@@ -411,17 +439,20 @@ Deno.test({
 
     let cursorP1: number;
 
-    await t.step("capture cursor, then player 2 departs to sector 1", async () => {
-      cursorP1 = await getEventCursor(player1Id);
+    await t.step(
+      "capture cursor, then player 2 departs to sector 1",
+      async () => {
+        cursorP1 = await getEventCursor(player1Id);
 
-      // Player 2 joins sector 1 — departs sector 0
-      const result = await apiOk("join", {
-        character_id: player2Id,
-        sector: 1,
-        request_id: "test-p2-depart",
-      });
-      assert(result.success);
-    });
+        // Player 2 joins sector 1 — departs sector 0
+        const result = await apiOk("join", {
+          character_id: player2Id,
+          sector: 1,
+          request_id: "test-p2-depart",
+        });
+        assert(result.success);
+      },
+    );
 
     await t.step("player 1 receives character.moved depart event", async () => {
       const { events } = await eventsSince(player1Id, cursorP1);
@@ -433,7 +464,14 @@ Deno.test({
 
       assert(
         departures.length >= 1,
-        `Expected depart event. Events: ${JSON.stringify(events.map((e) => ({ type: e.event_type, movement: e.payload?.movement })))}`,
+        `Expected depart event. Events: ${
+          JSON.stringify(
+            events.map((e) => ({
+              type: e.event_type,
+              movement: e.payload?.movement,
+            })),
+          )
+        }`,
       );
 
       const departure = departures[0];
@@ -448,21 +486,24 @@ Deno.test({
       assertEquals(player.name, PLAYER_2);
     });
 
-    await t.step("player 1 does NOT receive arrive event (not in target sector)", async () => {
-      // Player 1 is in sector 0, player 2 moved to sector 1.
-      // Player 1 should only see the departure, not the arrival.
-      const { events } = await eventsSince(player1Id, cursorP1);
-      const arrivals = events.filter(
-        (e) =>
-          e.event_type === "character.moved" &&
-          e.payload?.movement === "arrive",
-      );
-      assertEquals(
-        arrivals.length,
-        0,
-        "Player 1 should not see arrive event in a different sector",
-      );
-    });
+    await t.step(
+      "player 1 does NOT receive arrive event (not in target sector)",
+      async () => {
+        // Player 1 is in sector 0, player 2 moved to sector 1.
+        // Player 1 should only see the departure, not the arrival.
+        const { events } = await eventsSince(player1Id, cursorP1);
+        const arrivals = events.filter(
+          (e) =>
+            e.event_type === "character.moved" &&
+            e.payload?.movement === "arrive",
+        );
+        assertEquals(
+          arrivals.length,
+          0,
+          "Player 1 should not see arrive event in a different sector",
+        );
+      },
+    );
   },
 });
 
@@ -478,59 +519,73 @@ Deno.test({
     player1Id = await characterIdFor(PLAYER_1);
     player2Id = await characterIdFor(PLAYER_2);
 
-    await t.step("reset and set up: player 2 in sector 0, player 1 in sector 1", async () => {
-      await resetDatabase([PLAYER_1, PLAYER_2]);
-      // Player 2 in sector 0 as observer
-      await apiOk("join", { character_id: player2Id, sector: 0 });
-      // Player 1 starts in sector 1
-      await apiOk("join", { character_id: player1Id, sector: 1 });
-    });
+    await t.step(
+      "reset and set up: player 2 in sector 0, player 1 in sector 1",
+      async () => {
+        await resetDatabase([PLAYER_1, PLAYER_2]);
+        // Player 2 in sector 0 as observer
+        await apiOk("join", { character_id: player2Id, sector: 0 });
+        // Player 1 starts in sector 1
+        await apiOk("join", { character_id: player1Id, sector: 1 });
+      },
+    );
 
-    await t.step("player 1 joining sector 0: gets inline status and no own character.moved", async () => {
-      await clearEvents();
-      const cursor = await getEventCursor(player1Id);
+    await t.step(
+      "player 1 joining sector 0: gets inline status and no own character.moved",
+      async () => {
+        await clearEvents();
+        const cursor = await getEventCursor(player1Id);
 
-      // Player 1 joins sector 0 (from sector 1)
-      const result = await apiOk("join", { character_id: player1Id, sector: 0 });
-      assertExists(result.status, "join should return inline status");
+        // Player 1 joins sector 0 (from sector 1)
+        const result = await apiOk("join", {
+          character_id: player1Id,
+          sector: 0,
+        });
+        assertExists(result.status, "join should return inline status");
 
-      const { events } = await eventsSince(player1Id, cursor);
-      const eventTypes = events.map((e) => e.event_type);
+        const { events } = await eventsSince(player1Id, cursor);
+        const eventTypes = events.map((e) => e.event_type);
 
-      // Should receive map.local (self-directed); status is inline in response.
-      assert(
-        eventTypes.includes("map.local"),
-        `Expected map.local in: ${JSON.stringify(eventTypes)}`,
-      );
+        // Should receive map.local (self-directed); status is inline in response.
+        assert(
+          eventTypes.includes("map.local"),
+          `Expected map.local in: ${JSON.stringify(eventTypes)}`,
+        );
 
-      // Should NOT receive character.moved for self
-      const selfMoved = events.filter(
-        (e) => e.event_type === "character.moved",
-      );
-      assertEquals(
-        selfMoved.length,
-        0,
-        "Player should not receive own character.moved from join",
-      );
-    });
+        // Should NOT receive character.moved for self
+        const selfMoved = events.filter(
+          (e) => e.event_type === "character.moved",
+        );
+        assertEquals(
+          selfMoved.length,
+          0,
+          "Player should not receive own character.moved from join",
+        );
+      },
+    );
 
-    await t.step("but observer (player 2) DOES get character.moved for player 1", async () => {
-      // Player 2 was in sector 0, should have seen player 1 arrive
-      // We cleared events earlier, so need to look at events since the clear
-      const { events } = await eventsSince(player2Id, 0);
-      const arrivals = events.filter(
-        (e) =>
-          e.event_type === "character.moved" &&
-          e.payload?.movement === "arrive",
-      );
-      assert(
-        arrivals.length >= 1,
-        `Player 2 should see player 1's arrival. Events: ${JSON.stringify(events.map((e) => e.event_type))}`,
-      );
-      const payload = arrivals[0].payload;
-      const player = payload.player as Record<string, unknown>;
-      assertEquals(player.id, player1Id);
-    });
+    await t.step(
+      "but observer (player 2) DOES get character.moved for player 1",
+      async () => {
+        // Player 2 was in sector 0, should have seen player 1 arrive
+        // We cleared events earlier, so need to look at events since the clear
+        const { events } = await eventsSince(player2Id, 0);
+        const arrivals = events.filter(
+          (e) =>
+            e.event_type === "character.moved" &&
+            e.payload?.movement === "arrive",
+        );
+        assert(
+          arrivals.length >= 1,
+          `Player 2 should see player 1's arrival. Events: ${
+            JSON.stringify(events.map((e) => e.event_type))
+          }`,
+        );
+        const payload = arrivals[0].payload;
+        const player = payload.player as Record<string, unknown>;
+        assertEquals(player.id, player1Id);
+      },
+    );
   },
 });
 
@@ -550,28 +605,34 @@ Deno.test({
       await apiOk("join", { character_id: player1Id });
     });
 
-    await t.step("initial_only returns last_event_id with empty events", async () => {
-      const result = await apiOk<{
-        events: unknown[];
-        last_event_id: number | null;
-        has_more: boolean;
-      }>("events_since", {
-        character_id: player1Id,
-        initial_only: true,
-      });
-      assert(result.success);
-      assertEquals(result.events.length, 0);
-      assert(
-        typeof result.last_event_id === "number" && result.last_event_id > 0,
-        "last_event_id should be a positive number",
-      );
-      assertEquals(result.has_more, false);
-    });
+    await t.step(
+      "initial_only returns last_event_id with empty events",
+      async () => {
+        const result = await apiOk<{
+          events: unknown[];
+          last_event_id: number | null;
+          has_more: boolean;
+        }>("events_since", {
+          character_id: player1Id,
+          initial_only: true,
+        });
+        assert(result.success);
+        assertEquals(result.events.length, 0);
+        assert(
+          typeof result.last_event_id === "number" && result.last_event_id > 0,
+          "last_event_id should be a positive number",
+        );
+        assertEquals(result.has_more, false);
+      },
+    );
 
-    await t.step("events_since with high cursor returns no events", async () => {
-      const { events } = await eventsSince(player1Id, 999999);
-      assertEquals(events.length, 0);
-    });
+    await t.step(
+      "events_since with high cursor returns no events",
+      async () => {
+        const { events } = await eventsSince(player1Id, 999999);
+        assertEquals(events.length, 0);
+      },
+    );
 
     await t.step("events_since with cursor 0 returns all events", async () => {
       const { events, lastEventId } = await eventsSince(player1Id, 0);
@@ -585,51 +646,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 8: Error cases
-// ============================================================================
-
-Deno.test({
-  name: "join lifecycle — error cases",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    await t.step("reset database", async () => {
-      await resetDatabase([]);
-    });
-
-    await t.step("join with non-existent character returns error", async () => {
-      const result = await api("join", {
-        character_id: "00000000-0000-0000-0000-000000000099",
-        request_id: "test-join-invalid",
-      });
-      assert(!result.body.success);
-      assert(
-        result.status === 404 || result.status === 500,
-        `Expected 404 or 500, got ${result.status}: ${result.body.error}`,
-      );
-    });
-
-    await t.step("events_since without character_id returns 400", async () => {
-      const result = await api("events_since", {
-        since_event_id: 0,
-      });
-      assert(!result.body.success);
-      assertEquals(result.status, 400);
-    });
-
-    await t.step("join with empty body returns error", async () => {
-      const result = await api("join", {});
-      assert(!result.body.success);
-      assert(
-        result.status === 400 || result.status === 500,
-        `Expected 400 or 500, got ${result.status}`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 9: Healthcheck branch
+// Group 8: Healthcheck branch
 // ============================================================================
 
 Deno.test({
@@ -647,25 +664,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 10: Invalid JSON body
-// ============================================================================
-
-Deno.test({
-  name: "join — invalid JSON body",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const result = await apiRaw("join", "not valid json!!");
-    assert(!result.body.success);
-    assert(
-      result.status === 400 || result.status === 500,
-      `Expected 400 or 500 for invalid JSON, got ${result.status}`,
-    );
-  },
-});
-
-// ============================================================================
-// Group 11: Rate limiting (429)
+// Group 10: Rate limiting (429)
 // ============================================================================
 
 Deno.test({
@@ -700,42 +699,7 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 12: Character with no ship
-// ============================================================================
-
-Deno.test({
-  name: "join — character with no ship",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    player1Id = await characterIdFor(PLAYER_1);
-
-    await t.step("reset and create player 1", async () => {
-      await resetDatabase([PLAYER_1]);
-    });
-
-    await t.step("remove ship link from character", async () => {
-      await withPg(async (pg) => {
-        await pg.queryObject(
-          `UPDATE characters SET current_ship_id = NULL WHERE character_id = $1`,
-          [player1Id],
-        );
-      });
-    });
-
-    await t.step("join returns error about no ship", async () => {
-      const result = await api("join", { character_id: player1Id });
-      assert(!result.body.success);
-      assert(
-        result.status === 500 || result.status === 404,
-        `Expected 500 or 404, got ${result.status}`,
-      );
-    });
-  },
-});
-
-// ============================================================================
-// Group 13: Actor character_id (matching — success path)
+// Group 11: Actor character_id (matching — success path)
 // ============================================================================
 
 Deno.test({
@@ -775,14 +739,17 @@ Deno.test({
       await resetDatabase([PLAYER_1, PLAYER_2]);
     });
 
-    await t.step("join player 1 with player 2 as actor returns 403", async () => {
-      const result = await api("join", {
-        character_id: player1Id,
-        actor_character_id: player2Id,
-      });
-      assert(!result.body.success);
-      assertEquals(result.status, 403);
-    });
+    await t.step(
+      "join player 1 with player 2 as actor returns 403",
+      async () => {
+        const result = await api("join", {
+          character_id: player1Id,
+          actor_character_id: player2Id,
+        });
+        assert(!result.body.success);
+        assertEquals(result.status, 403);
+      },
+    );
   },
 });
 
@@ -847,83 +814,96 @@ Deno.test({
       await apiOk("join", { character_id: player2Id, sector: 0 });
     });
 
-    await t.step("insert combat state with player 1 as participant", async () => {
-      await withPg(async (pg) => {
-        const combatState = JSON.stringify({
-          combat_id: "test-combat-001",
-          sector_id: 0,
-          round: 1,
-          deadline: null,
-          participants: {
-            [player1Id]: {
-              combatant_id: player1Id,
-              combatant_type: "character",
-              name: PLAYER_1,
-              fighters: 10,
-              shields: 100,
-              turns_per_warp: 3,
-              max_fighters: 50,
-              max_shields: 100,
-              is_escape_pod: false,
-              owner_character_id: player1Id,
-              ship_type: "merchant_cruiser",
+    await t.step(
+      "insert combat state with player 1 as participant",
+      async () => {
+        await withPg(async (pg) => {
+          const combatState = JSON.stringify({
+            combat_id: "test-combat-001",
+            sector_id: 0,
+            round: 1,
+            deadline: null,
+            participants: {
+              [player1Id]: {
+                combatant_id: player1Id,
+                combatant_type: "character",
+                name: PLAYER_1,
+                fighters: 10,
+                shields: 100,
+                turns_per_warp: 3,
+                max_fighters: 50,
+                max_shields: 100,
+                is_escape_pod: false,
+                owner_character_id: player1Id,
+                ship_type: "merchant_cruiser",
+              },
             },
-          },
-          pending_actions: {},
-          logs: [],
-          context: {},
-          awaiting_resolution: false,
-          ended: false,
-          end_state: null,
-          base_seed: 42,
-          last_updated: new Date().toISOString(),
+            pending_actions: {},
+            logs: [],
+            context: {},
+            awaiting_resolution: false,
+            ended: false,
+            end_state: null,
+            base_seed: 42,
+            last_updated: new Date().toISOString(),
+          });
+          await pg.queryObject(
+            `UPDATE sector_contents SET combat = $1::jsonb WHERE sector_id = 0`,
+            [combatState],
+          );
         });
-        await pg.queryObject(
-          `UPDATE sector_contents SET combat = $1::jsonb WHERE sector_id = 0`,
-          [combatState],
+      },
+    );
+
+    await t.step(
+      "player 2 re-joins and receives combat.round_waiting",
+      async () => {
+        await clearEvents();
+        const cursor = await getEventCursor(player2Id);
+
+        await apiOk("join", { character_id: player2Id, sector: 0 });
+
+        const { events } = await eventsSince(player2Id, cursor);
+        const combatEvents = events.filter(
+          (e) => e.event_type === "combat.round_waiting",
         );
-      });
-    });
 
-    await t.step("player 2 re-joins and receives combat.round_waiting", async () => {
-      await clearEvents();
-      const cursor = await getEventCursor(player2Id);
+        assert(
+          combatEvents.length >= 1,
+          `Expected combat.round_waiting event. Events: ${
+            JSON.stringify(events.map((e) => e.event_type))
+          }`,
+        );
 
-      await apiOk("join", { character_id: player2Id, sector: 0 });
+        const payload = combatEvents[0].payload;
+        assertEquals(payload.combat_id, "test-combat-001");
+        assertEquals(payload.round, 1);
+        assertExists(payload.participants, "payload should have participants");
+      },
+    );
 
-      const { events } = await eventsSince(player2Id, cursor);
-      const combatEvents = events.filter(
-        (e) => e.event_type === "combat.round_waiting",
-      );
+    await t.step(
+      "player 1 re-joins: already in combat, still gets combat.round_waiting",
+      async () => {
+        // Player 1 is already a participant in the combat — covers autoJoinExistingCombat
+        // "Character already in combat" path (lines 413-416)
+        await clearEvents();
+        const cursor = await getEventCursor(player1Id);
 
-      assert(
-        combatEvents.length >= 1,
-        `Expected combat.round_waiting event. Events: ${JSON.stringify(events.map((e) => e.event_type))}`,
-      );
+        await apiOk("join", { character_id: player1Id, sector: 0 });
 
-      const payload = combatEvents[0].payload;
-      assertEquals(payload.combat_id, "test-combat-001");
-      assertEquals(payload.round, 1);
-      assertExists(payload.participants, "payload should have participants");
-    });
-
-    await t.step("player 1 re-joins: already in combat, still gets combat.round_waiting", async () => {
-      // Player 1 is already a participant in the combat — covers autoJoinExistingCombat
-      // "Character already in combat" path (lines 413-416)
-      await clearEvents();
-      const cursor = await getEventCursor(player1Id);
-
-      await apiOk("join", { character_id: player1Id, sector: 0 });
-
-      const { events } = await eventsSince(player1Id, cursor);
-      const combatEvents = events.filter(
-        (e) => e.event_type === "combat.round_waiting",
-      );
-      assert(
-        combatEvents.length >= 1,
-        `Player already in combat should still get combat.round_waiting. Events: ${JSON.stringify(events.map((e) => e.event_type))}`,
-      );
-    });
+        const { events } = await eventsSince(player1Id, cursor);
+        const combatEvents = events.filter(
+          (e) => e.event_type === "combat.round_waiting",
+        );
+        assert(
+          combatEvents.length >= 1,
+          `Player already in combat should still get combat.round_waiting. Events: ${
+            JSON.stringify(events.map((e) => e.event_type))
+          }`,
+        );
+      },
+    );
 
     await t.step("clean up combat state", async () => {
       await withPg(async (pg) => {
@@ -946,13 +926,16 @@ Deno.test({
   async fn(t) {
     const originalToken = Deno.env.get("EDGE_API_TOKEN");
 
-    await t.step("set EDGE_API_TOKEN and send unauthenticated request", async () => {
-      Deno.env.set("EDGE_API_TOKEN", "test-secret-123");
+    await t.step(
+      "set EDGE_API_TOKEN and send unauthenticated request",
+      async () => {
+        Deno.env.set("EDGE_API_TOKEN", "test-secret-123");
 
-      const result = await api("join", { character_id: "anything" });
-      assert(!result.body.success);
-      assertEquals(result.status, 401);
-    });
+        const result = await api("join", { character_id: "anything" });
+        assert(!result.body.success);
+        assertEquals(result.status, 401);
+      },
+    );
 
     await t.step("restore original env", () => {
       if (originalToken) {
