@@ -190,7 +190,7 @@ class ByoaCoordinator:
             # Child harness reported on_finished — invalidate its registry
             # entry so the next watch_agent waits for a fresh ready event
             # instead of synchronously dispatching against a dead child.
-            self._host._invalidate_byoa_registry_entry(self.agent_name_for(ship_id))
+            self.invalidate_registry_entry(self.agent_name_for(ship_id))
 
         changed = previous is None or previous.online != online or previous.status != status
         if changed:
@@ -253,7 +253,7 @@ class ByoaCoordinator:
                     online=False,
                     status="offline",
                 )
-                self._host._invalidate_byoa_registry_entry(self.agent_name_for(ship_id))
+                self.invalidate_registry_entry(self.agent_name_for(ship_id))
                 await self._push_presence(
                     ship_id=ship_id,
                     online=False,
@@ -330,6 +330,32 @@ class ByoaCoordinator:
 
     def get_active(self, agent_name: str) -> Optional[Dict[str, Any]]:
         return self._active_agents.get(agent_name)
+
+    def invalidate_registry_entry(self, agent_name: str) -> None:
+        """Pop a BYOA agent from pipecat's AgentRegistry.
+
+        BYOA agents are one-shot: each wake spawns a fresh child that
+        advertises ready, runs one task, and exits. The framework
+        registry is sticky (no public deregister API) so without this
+        helper a subsequent ``watch_agent`` synchronously fires
+        ``on_agent_ready`` against a dead child and blocks on its
+        unanswerable hello handshake.
+
+        Reaches into private state because pipecat-subagents 0.4's
+        AgentRegistry exposes ``register``/``watch``/``get`` but no
+        removal — swap for a public API once the library grows one.
+        """
+        registry = self._host.get_agent_registry()
+        if registry is None:
+            return
+        local_agents = getattr(registry, "_local_agents", None)
+        if isinstance(local_agents, dict):
+            local_agents.pop(agent_name, None)
+        remote_runners = getattr(registry, "_remote_runners", None)
+        if isinstance(remote_runners, dict):
+            for remote_agents in remote_runners.values():
+                if isinstance(remote_agents, dict):
+                    remote_agents.pop(agent_name, None)
 
     def resolve_identity(
         self,

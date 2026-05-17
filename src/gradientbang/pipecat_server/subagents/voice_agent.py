@@ -2231,7 +2231,7 @@ class VoiceAgent(LLMAgent):
                 self._children = [c for c in self._children if c.name != agent_name]
             if byoa_ctx is not None:
                 self._byoa.deactivate(agent_name)
-                self._invalidate_byoa_registry_entry(agent_name)
+                self._byoa.invalidate_registry_entry(agent_name)
 
             self._update_polling_scope()
 
@@ -2328,31 +2328,9 @@ class VoiceAgent(LLMAgent):
                 return None
         return self._locked_ships.pop(ship_character_id, None)
 
-    def _invalidate_byoa_registry_entry(self, agent_name: str) -> None:
-        """Pop a BYOA agent from pipecat's AgentRegistry.
-
-        BYOA agents are one-shot: each wake spawns a fresh child that
-        advertises ready, runs one task, and exits. The framework
-        registry is sticky (no public deregister API) so without this
-        helper a subsequent ``watch_agent`` synchronously fires
-        ``on_agent_ready`` against a dead child and blocks on its
-        unanswerable hello handshake.
-
-        Reaches into private state because pipecat-subagents 0.4's
-        AgentRegistry exposes ``register``/``watch``/``get`` but no
-        removal — swap for a public API once the library grows one.
-        """
-        registry = getattr(self, "_registry", None)
-        if registry is None:
-            return
-        local_agents = getattr(registry, "_local_agents", None)
-        if isinstance(local_agents, dict):
-            local_agents.pop(agent_name, None)
-        remote_runners = getattr(registry, "_remote_runners", None)
-        if isinstance(remote_runners, dict):
-            for remote_agents in remote_runners.values():
-                if isinstance(remote_agents, dict):
-                    remote_agents.pop(agent_name, None)
+    def get_agent_registry(self) -> Any:
+        """Expose the pipecat AgentRegistry to ByoaCoordinator for entry invalidation."""
+        return getattr(self, "_registry", None)
 
     def _resolve_hello_response(self, message: BusAgentHelloResponse) -> None:
         """Resolve the awaiting hello future for ``correlation_id``.
@@ -3336,7 +3314,7 @@ class VoiceAgent(LLMAgent):
         self._pending_tasks.pop(agent_name, None)
         if self._locked_ships.get(target_character_id) == framework_task_id:
             self._locked_ships.pop(target_character_id, None)
-        self._invalidate_byoa_registry_entry(agent_name)
+        self._byoa.invalidate_registry_entry(agent_name)
         try:
             await self._game_client.task_cancel(
                 task_id=framework_task_id,
@@ -3387,7 +3365,7 @@ class VoiceAgent(LLMAgent):
         self._pending_tasks.pop(agent_name, None)
         self._pending_wakes.pop(target_character_id, None)
         self._locked_ships.pop(target_character_id, None)
-        self._invalidate_byoa_registry_entry(agent_name)
+        self._byoa.invalidate_registry_entry(agent_name)
 
         # Force-cancel the task so the BYOA-owner check is bypassed when the
         # bot cleans up a failed wake.
