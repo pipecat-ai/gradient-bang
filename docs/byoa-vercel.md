@@ -108,6 +108,7 @@ Optional:
 | `BYOA_PROMPT_FILE` | Prompt file path inside the sandbox checkout, for example `./prompt.md`. |
 | `TASK_LLM_THINKING_BUDGET` | Model thinking budget. |
 | `BYOA_TOOL_CALL_TIMEOUT_SECONDS` | Tool-call timeout. |
+| `TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS` | Task-agent event inference drain grace, default `1.0`. |
 | `BYOA_REPO_URL` / `BYOA_REPO_REVISION` | Run from a fork or pinned revision. |
 | `GITHUB_TOKEN` | Clone a private fork or avoid public rate limits. |
 

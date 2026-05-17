@@ -728,6 +728,7 @@ pnpm run dev
 | `TASK_LLM_THINKING_BUDGET`             | No       | `4096`  | Token budget for task agent extended thinking                                    |
 | `TASK_LLM_FUNCTION_CALL_TIMEOUT_SECS`  | No       | `20`    | Task agent tool call timeout (seconds)                                           |
 | `TASK_AGENT_TIMEOUT`                   | No       | —       | Max task agent lifetime in seconds; cancelled on expiry (e.g. `1800` for 30 min) |
+| `TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS` | No       | `1.0`   | Delay before event-triggered task-agent inference so already-delivered sibling events drain through the ordered mailbox. Set `0` to disable. |
 | `UI_AGENT_LLM_PROVIDER`                | Yes      | —       | UI agent LLM provider                                                            |
 | `UI_AGENT_LLM_MODEL`                   | Yes      | —       | UI agent LLM model name                                                          |
 | `UI_AGENT_LLM_THINKING_BUDGET`         | No       | `0`     | Token budget for UI agent thinking                                               |
