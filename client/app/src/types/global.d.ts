@@ -258,6 +258,11 @@ declare global {
   interface MapSectorGarrison {
     player_id: string
     corporation_id: string | null
+    mode: "offensive" | "defensive" | "toll" | null
+  }
+
+  interface MapSectorCombat {
+    combat_id: string
   }
 
   interface MapSectorNode {
@@ -272,6 +277,7 @@ declare global {
     adjacent_sectors?: Record<string, AdjacentSectorInfo>
     hops_from_center?: number
     garrison?: MapSectorGarrison | null
+    combat?: MapSectorCombat | null
   }
 
   interface MapLane {
