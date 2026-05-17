@@ -133,6 +133,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const mapData = useGameStore.use.regional_map_data?.()
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
+  const viewerCharacterId = useGameStore((state) => state.player?.id)
   const combatSectorsRecord = useGameStore((state) => state.combat_sectors)
   const mapCenterSector = useGameStore((state) => state.mapCenterSector)
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
@@ -164,6 +165,9 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
       sector: s.sector ?? 0,
       ship_name: s.ship_name,
       ship_type: s.ship_type,
+      owner_kind: (s.owner_character_id && s.owner_character_id === viewerCharacterId ?
+        "self"
+      : "corp_mate") as "self" | "corp_mate",
     }))
 
   const combatSectorsSet = useMemo(() => {

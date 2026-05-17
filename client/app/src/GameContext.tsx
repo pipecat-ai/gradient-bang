@@ -1008,6 +1008,7 @@ export function GameProvider({ children }: GameProviderProps) {
                   {
                     player_id: sectorData.garrison.owner_id,
                     corporation_id: null as string | null,
+                    mode: sectorData.garrison.mode ?? null,
                   }
                 : null
               useGameStore.getState().updateMapSectors([

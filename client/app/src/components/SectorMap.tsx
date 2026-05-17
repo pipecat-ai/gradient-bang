@@ -59,7 +59,12 @@ interface MapProps {
   maxDistance?: number
   showLegend?: boolean
   coursePlot?: CoursePlot | null
-  ships?: Array<{ sector: number; ship_name: string; ship_type: string }>
+  ships?: Array<{
+    sector: number
+    ship_name: string
+    ship_type: string
+    owner_kind?: "self" | "corp_mate"
+  }>
   /**
    * Sectors with active combat, drawn as an additive dotted overlay. Toggling
    * this set never alters topology or camera state — it triggers a cheap
@@ -150,13 +155,21 @@ const MapComponent = ({
   const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
 
   // Stabilize ships data - convert flat array to Map<sectorId, shipInfo[]>
-  const shipsKey = ships?.map((s) => `${s.sector}:${s.ship_name}`).join(",") ?? ""
+  const shipsKey =
+    ships?.map((s) => `${s.sector}:${s.ship_name}:${s.owner_kind ?? ""}`).join(",") ?? ""
   const shipsMap = useMemo(() => {
     if (!ships || ships.length === 0) return undefined
-    const map = new Map<number, Array<{ ship_name: string; ship_type: string }>>()
+    const map = new Map<
+      number,
+      Array<{ ship_name: string; ship_type: string; owner_kind?: "self" | "corp_mate" }>
+    >()
     for (const ship of ships) {
       const existing = map.get(ship.sector) ?? []
-      existing.push({ ship_name: ship.ship_name, ship_type: ship.ship_type })
+      existing.push({
+        ship_name: ship.ship_name,
+        ship_type: ship.ship_type,
+        owner_kind: ship.owner_kind,
+      })
       map.set(ship.sector, existing)
     }
     return map
@@ -664,8 +677,12 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
 
   // Ships - use serialized key for comparison
   if (prevProps.ships !== nextProps.ships) {
-    const prevKey = prevProps.ships?.map((s) => `${s.sector}:${s.ship_name}`).join(",") ?? ""
-    const nextKey = nextProps.ships?.map((s) => `${s.sector}:${s.ship_name}`).join(",") ?? ""
+    const prevKey =
+      prevProps.ships?.map((s) => `${s.sector}:${s.ship_name}:${s.owner_kind ?? ""}`).join(",") ??
+      ""
+    const nextKey =
+      nextProps.ships?.map((s) => `${s.sector}:${s.ship_name}:${s.owner_kind ?? ""}`).join(",") ??
+      ""
     if (prevKey !== nextKey) {
       return false
     }

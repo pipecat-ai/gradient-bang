@@ -89,6 +89,7 @@ declare global {
     max_shields?: number
     max_fighters?: number
     owner_type?: "personal" | "corporation" | "unowned"
+    owner_character_id?: string | null
     current_task_id?: string | null
     current_task_actor_name?: string | null
     // Truncated actor identity for the active task (12 hex chars, no dashes).

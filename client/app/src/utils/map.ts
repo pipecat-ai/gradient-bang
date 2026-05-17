@@ -128,7 +128,16 @@ const garrisonsEquivalent = (
 ): boolean => {
   if (a === b) return true
   if (!a || !b) return false
-  return a.player_id === b.player_id && a.corporation_id === b.corporation_id
+  return a.player_id === b.player_id && a.corporation_id === b.corporation_id && a.mode === b.mode
+}
+
+const combatsEquivalent = (
+  a: MapSectorNode["combat"] | undefined,
+  b: MapSectorNode["combat"] | undefined
+): boolean => {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.combat_id === b.combat_id
 }
 
 export const isBorderSector = (node: MapSectorNode): boolean => {
@@ -148,6 +157,7 @@ export const sectorsEquivalentForRender = (a: MapSectorNode, b: MapSectorNode): 
   if (a.hops_from_center !== b.hops_from_center) return false
   if (a.last_visited !== b.last_visited) return false
   if (!garrisonsEquivalent(a.garrison, b.garrison)) return false
+  if (!combatsEquivalent(a.combat, b.combat)) return false
   if (getPortCode(a.port) !== getPortCode(b.port)) return false
   if (Boolean((a.port as PortBase | null)?.mega) !== Boolean((b.port as PortBase | null)?.mega))
     return false
