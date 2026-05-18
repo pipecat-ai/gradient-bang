@@ -44,6 +44,28 @@ export const normalizePort = (port: PortLike): PortBase | null => {
 export const normalizeMapData = (mapData: MapData): MapData =>
   mapData.map((sector) => ({ ...sector, port: normalizePort(sector.port as PortLike) }))
 
+export interface MapShipMarker {
+  sector: number
+  ship_name: string
+  ship_type: string
+  owner_kind: "self" | "corp_mate"
+}
+
+/** Project corp ships into the shape SectorMap expects, tagging viewer-owned vs corp-mate. */
+export const mapShipsForViewer = (
+  ships: ShipSelf[] | undefined,
+  viewerCharacterId: string | undefined
+): MapShipMarker[] | undefined =>
+  ships
+    ?.filter((s) => s.owner_type !== "personal")
+    .map((s) => ({
+      sector: s.sector ?? 0,
+      ship_name: s.ship_name,
+      ship_type: s.ship_type,
+      owner_kind:
+        s.owner_character_id && s.owner_character_id === viewerCharacterId ? "self" : "corp_mate",
+    }))
+
 export const normalizeSector = <T extends Sector>(sector: T): T => ({
   ...sector,
   port: normalizePort(sector.port as PortLike),
@@ -128,7 +150,16 @@ const garrisonsEquivalent = (
 ): boolean => {
   if (a === b) return true
   if (!a || !b) return false
-  return a.player_id === b.player_id && a.corporation_id === b.corporation_id
+  return a.player_id === b.player_id && a.corporation_id === b.corporation_id && a.mode === b.mode
+}
+
+const combatsEquivalent = (
+  a: MapSectorNode["combat"] | undefined,
+  b: MapSectorNode["combat"] | undefined
+): boolean => {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.combat_id === b.combat_id
 }
 
 export const isBorderSector = (node: MapSectorNode): boolean => {
@@ -148,6 +179,7 @@ export const sectorsEquivalentForRender = (a: MapSectorNode, b: MapSectorNode): 
   if (a.hops_from_center !== b.hops_from_center) return false
   if (a.last_visited !== b.last_visited) return false
   if (!garrisonsEquivalent(a.garrison, b.garrison)) return false
+  if (!combatsEquivalent(a.combat, b.combat)) return false
   if (getPortCode(a.port) !== getPortCode(b.port)) return false
   if (Boolean((a.port as PortBase | null)?.mega) !== Boolean((b.port as PortBase | null)?.mega))
     return false

@@ -244,6 +244,9 @@ class TaskAgentHarness:
             event["task_id"] = task_id
         msg = BusGameEventMessage(source="relay", event=event)
         await self.agent.on_bus_message(msg)
+        # Drain the agent's internal game-event mailbox before returning
+        # so callers can assert on post-handle state synchronously.
+        await self.agent._game_event_queue.join()
 
     async def send_steering(self, text: str, task_id: str = "task-001"):
         """Send a steering instruction through the bus."""

@@ -228,6 +228,7 @@ function buildShipSnapshot(
     ship_type: ship.ship_type,
     ship_name: ship.ship_name ?? definition.display_name,
     owner_type: ship.owner_type === "character" ? "personal" : ship.owner_type,
+    owner_character_id: ship.owner_character_id,
     owner_corporation_id: ship.owner_corporation_id,
     credits: ship.credits ?? 0,
     cargo,

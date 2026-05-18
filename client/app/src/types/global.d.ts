@@ -89,6 +89,7 @@ declare global {
     max_shields?: number
     max_fighters?: number
     owner_type?: "personal" | "corporation" | "unowned"
+    owner_character_id?: string | null
     current_task_id?: string | null
     current_task_actor_name?: string | null
     // Truncated actor identity for the active task (12 hex chars, no dashes).
@@ -258,6 +259,11 @@ declare global {
   interface MapSectorGarrison {
     player_id: string
     corporation_id: string | null
+    mode: "offensive" | "defensive" | "toll" | null
+  }
+
+  interface MapSectorCombat {
+    combat_id: string
   }
 
   interface MapSectorNode {
@@ -272,6 +278,7 @@ declare global {
     adjacent_sectors?: Record<string, AdjacentSectorInfo>
     hops_from_center?: number
     garrison?: MapSectorGarrison | null
+    combat?: MapSectorCombat | null
   }
 
   interface MapLane {

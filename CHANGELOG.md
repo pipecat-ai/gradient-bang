@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Map: garrisons render in mode-specific colors (defensive/offensive/toll) for both own and enemy garrisons.
+- Map: corp-mate ships render in a distinct color from self-owned corp ships.
+- `local_map_region` response carries garrison `mode` and active `combat` per visited sector, so first-paint renders are complete without waiting for follow-up events.
+- Ship payload includes `owner_character_id` so the client can classify self vs corp-mate without a separate lookup.
+
+### Changed
+
+- Internal: BYOA wake, presence, broker auth, and registry handling extracted from `VoiceAgent` into a new `ByoaCoordinator` collaborator (`pipecat_server/byoa_coordinator.py`). No behavior change; `voice_agent.py` shrinks by ~12%.
+- Client map mutations consolidated behind a single `applyMapDelta(delta)` switch in `mapSlice`. Replaces `updateMapSectors` and the separate `combat_sectors` record; combat is now a flag on the sector node.
+
+### Fixed
+
+- EventRelay and TaskAgent now process game events through ordered mailboxes.
+- Task-agent event inference drain grace is configurable via `TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS`.
+- Map sector icons (port, mega-port, garrison) reliably render on first paint after moving sector — previously required a hover to refresh. Memo equality now covers `garrison.mode` and `combat`.
+
 ## [0.5.4] - 2026-05-16
 
 ### Fixed

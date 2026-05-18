@@ -21,6 +21,12 @@ Environment Variables:
     UI_AGENT_LLM_MODEL: Model name (default: gemini-2.5-flash)
     UI_AGENT_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
 
+    # SMS Agent LLM (single-turn text/WhatsApp POC)
+    SMS_AGENT_LLM_PROVIDER: google, anthropic, openai, minimax (default: google)
+    SMS_AGENT_LLM_MODEL: Model name (default: gemini-2.5-flash)
+    SMS_AGENT_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
+    SMS_AGENT_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
+
     # API keys (used based on provider)
     GOOGLE_API_KEY
     ANTHROPIC_API_KEY
@@ -624,6 +630,76 @@ def get_ui_agent_llm_config() -> LLMServiceConfig:
         provider=provider,
         model=model,
         thinking=thinking,
+        run_in_parallel=False,
+        cache_system_prompt=True,
+    )
+
+
+def get_sms_agent_llm_config() -> LLMServiceConfig:
+    """Read SMS_AGENT_LLM_* environment variables and return config.
+
+    Environment Variables:
+        SMS_AGENT_LLM_PROVIDER: google, anthropic, openai, minimax (default: google)
+        SMS_AGENT_LLM_MODEL: Model name (default: gemini-2.5-flash)
+        SMS_AGENT_LLM_THINKING_BUDGET: Token budget for thinking (default: 0)
+        SMS_AGENT_LLM_FUNCTION_CALL_TIMEOUT_SECS: Tool call timeout in seconds (default: 20)
+
+    Returns:
+        LLMServiceConfig for the single-turn SMS/WhatsApp agent.
+    """
+    provider_str = os.getenv("SMS_AGENT_LLM_PROVIDER", "google").lower()
+    try:
+        provider = LLMProvider(provider_str)
+    except ValueError:
+        logger.warning(
+            f"Unknown SMS_AGENT_LLM_PROVIDER '{provider_str}', defaulting to google"
+        )
+        provider = LLMProvider.GOOGLE
+
+    default_models = {
+        LLMProvider.GOOGLE: "gemini-2.5-flash",
+        LLMProvider.ANTHROPIC: "claude-haiku-4-5-20251001",
+        LLMProvider.OPENAI: "gpt-4.1",
+        LLMProvider.MINIMAX: "MiniMax-M2.7",
+    }
+    model = os.getenv("SMS_AGENT_LLM_MODEL", default_models[provider])
+
+    thinking_budget_str = os.getenv("SMS_AGENT_LLM_THINKING_BUDGET", "0")
+    try:
+        thinking_budget = int(thinking_budget_str)
+    except ValueError:
+        logger.warning(
+            f"Invalid SMS_AGENT_LLM_THINKING_BUDGET '{thinking_budget_str}', using default 0"
+        )
+        thinking_budget = 0
+
+    thinking = None
+    if thinking_budget > 0:
+        thinking = UnifiedThinkingConfig(
+            enabled=True,
+            budget_tokens=thinking_budget,
+            include_thoughts=False,
+        )
+
+    timeout_str = os.getenv("SMS_AGENT_LLM_FUNCTION_CALL_TIMEOUT_SECS", "20")
+    try:
+        function_call_timeout_secs = float(timeout_str)
+    except ValueError:
+        logger.warning(
+            f"Invalid SMS_AGENT_LLM_FUNCTION_CALL_TIMEOUT_SECS '{timeout_str}', using default 20"
+        )
+        function_call_timeout_secs = 20.0
+
+    logger.info(
+        f"SMS agent LLM config: provider={provider.value}, model={model}, "
+        f"thinking_budget={thinking_budget}"
+    )
+
+    return LLMServiceConfig(
+        provider=provider,
+        model=model,
+        thinking=thinking,
+        function_call_timeout_secs=function_call_timeout_secs,
         run_in_parallel=False,
         cache_system_prompt=True,
     )

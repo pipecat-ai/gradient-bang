@@ -14,7 +14,7 @@ import SectorMap, { type MapConfig } from "@/components/SectorMap"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
-import { getFetchBounds } from "@/utils/map"
+import { getFetchBounds, mapShipsForViewer } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -133,7 +133,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const mapData = useGameStore.use.regional_map_data?.()
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
-  const combatSectorsRecord = useGameStore((state) => state.combat_sectors)
+  const viewerCharacterId = useGameStore((state) => state.player?.id)
   const mapCenterSector = useGameStore((state) => state.mapCenterSector)
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const mapCenterWorld = useGameStore((state) => state.mapCenterWorld)
@@ -158,19 +158,15 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
     return { ...base, coursePlotZoomEnabled }
   }, [config, coursePlotZoomEnabled])
 
-  const shipSectors = ships?.data
-    ?.filter((s: ShipSelf) => s.owner_type !== "personal")
-    .map((s: ShipSelf) => ({
-      sector: s.sector ?? 0,
-      ship_name: s.ship_name,
-      ship_type: s.ship_type,
-    }))
+  const shipSectors = mapShipsForViewer(ships?.data, viewerCharacterId)
 
   const combatSectorsSet = useMemo(() => {
     const ids = new Set<number>()
-    for (const id of Object.values(combatSectorsRecord)) ids.add(id)
+    for (const sectorNode of mapData ?? []) {
+      if (sectorNode.combat) ids.add(sectorNode.id)
+    }
     return ids
-  }, [combatSectorsRecord])
+  }, [mapData])
 
   // Initial fetch of map data
   useEffect(() => {
