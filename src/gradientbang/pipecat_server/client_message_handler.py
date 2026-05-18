@@ -22,6 +22,7 @@ from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
 from gradientbang.pipecat_server.frames import UserTextInputFrame
+from gradientbang.utils.api_client import RPCError
 
 
 def _language_instruction(language: Language) -> str:
@@ -471,6 +472,22 @@ class ClientMessageHandler:
                         }
                     )
                 )
+        except RPCError as exc:
+            # Routine validation errors (e.g. "Center sector N must be a
+            # visited sector" when the client requests an unvisited center)
+            # surface as 4xx; log without a traceback. Anything else is a
+            # genuine server failure and stays loud.
+            if 400 <= exc.status < 500:
+                logger.warning(
+                    "client.get_my_map.rejected status={} detail={}",
+                    exc.status,
+                    exc.detail,
+                )
+            else:
+                logger.exception("Failed to fetch local map region via client message")
+            await self._rtvi.push_frame(
+                RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed to fetch local map region via client message")
             await self._rtvi.push_frame(

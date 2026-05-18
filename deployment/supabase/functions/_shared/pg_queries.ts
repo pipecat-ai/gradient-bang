@@ -8,6 +8,7 @@ import type { WeaveSpan } from "./weave.ts";
 import { RATE_LIMITS } from "./constants.ts";
 import type { CharacterRow, ShipRow, ShipDefinitionRow } from "./status.ts";
 import type {
+  GarrisonMode,
   MapKnowledge,
   WarpEdge,
   SectorSnapshot,
@@ -1823,6 +1824,7 @@ async function pgLoadSectorGarrisons(
     sector_id: number;
     player_id: string;
     corporation_id: string | null;
+    mode: string | null;
     garrison_count: number;
   }>(
     `WITH ranked AS (
@@ -1830,6 +1832,7 @@ async function pgLoadSectorGarrisons(
         g.sector_id::int AS sector_id,
         g.owner_id::text AS player_id,
         c.corporation_id::text AS corporation_id,
+        g.mode::text AS mode,
         COUNT(*) OVER (PARTITION BY g.sector_id) AS garrison_count,
         ROW_NUMBER() OVER (
           PARTITION BY g.sector_id
@@ -1839,7 +1842,7 @@ async function pgLoadSectorGarrisons(
       LEFT JOIN characters c ON c.character_id = g.owner_id
       WHERE g.sector_id = ANY($1::int[])
     )
-    SELECT sector_id, player_id, corporation_id, garrison_count::int
+    SELECT sector_id, player_id, corporation_id, mode, garrison_count::int
     FROM ranked
     WHERE row_num = 1`,
     [uniqueIds],
@@ -1851,9 +1854,15 @@ async function pgLoadSectorGarrisons(
     if (row.garrison_count > 1) {
       duplicateSectors.push(row.sector_id);
     }
+    const mode: GarrisonMode | null = row.mode === "offensive" ||
+        row.mode === "defensive" ||
+        row.mode === "toll"
+      ? row.mode
+      : null;
     garrisonBySector[row.sector_id] = {
       player_id: row.player_id,
       corporation_id: row.corporation_id ?? null,
+      mode,
     };
   }
   if (duplicateSectors.length > 0) {

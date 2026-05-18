@@ -2,19 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { deepmerge } from "deepmerge-ts"
 import { motion } from "motion/react"
-import { XIcon } from "@phosphor-icons/react"
+import { ArrowClockwiseIcon, XIcon } from "@phosphor-icons/react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
 import { DottedTitle } from "@/components/DottedTitle"
 import { FillCrossLoader } from "@/components/FullScreenLoader"
 import { MapLegend } from "@/components/MapLegends"
 import { MapZoomControls } from "@/components/MapZoomControls"
+import { Button } from "@/components/primitives/Button"
 import { Divider } from "@/components/primitives/Divider"
 import SectorMap, { type MapConfig } from "@/components/SectorMap"
 import { NeuroSymbolicsIcon, QuantumFoamIcon, RetroOrganicsIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { formatTimeAgoOrDate } from "@/utils/date"
-import { getFetchBounds } from "@/utils/map"
+import { getFetchBounds, mapShipsForViewer } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 import { cn } from "@/utils/tailwind"
 
@@ -133,17 +134,22 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const mapData = useGameStore.use.regional_map_data?.()
   const coursePlot = useGameStore.use.course_plot?.()
   const ships = useGameStore.use.ships?.()
-  const combatSectorsRecord = useGameStore((state) => state.combat_sectors)
+  const viewerCharacterId = useGameStore((state) => state.player?.id)
   const mapCenterSector = useGameStore((state) => state.mapCenterSector)
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const mapCenterWorld = useGameStore((state) => state.mapCenterWorld)
   const mapFitBoundsWorld = useGameStore((state) => state.mapFitBoundsWorld)
   const mapFitEpoch = useGameStore((state) => state.mapFitEpoch)
   const mapResetEpoch = useGameStore((state) => state.mapResetEpoch)
+  const mapMode = useGameStore((state) => state.mapMode)
+  const mapZoomUpdateSource = useGameStore((state) => state.mapZoomUpdateSource)
   const dispatchAction = useGameStore.use.dispatchAction?.()
   const setMapCenterSector = useGameStore.use.setMapCenterSector?.()
   const setMapCenterWorld = useGameStore.use.setMapCenterWorld?.()
   const requestMapFetch = useGameStore.use.requestMapFetch?.()
+  const enterFreeroamFromGesture = useGameStore.use.enterFreeroamFromGesture?.()
+  const syncMapZoomLevelFromViewport = useGameStore.use.syncMapZoomLevelFromViewport?.()
+  const recenterMap = useGameStore.use.recenterMap?.()
 
   const [hoveredNode, setHoveredNode] = useState<MapSectorNode | null>(null)
   const [isFetching, setIsFetching] = useState(false)
@@ -151,26 +157,20 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
   const initialFetchRef = useRef(false)
   const [hadMapDataOnMount] = useState(() => mapData !== undefined)
 
-  const coursePlotZoomEnabled = useGameStore((state) => state.coursePlotZoomEnabled)
-
   const mapConfig = useMemo(() => {
     const base = config ? (deepmerge(MAP_CONFIG, config) as MapConfig) : MAP_CONFIG
-    return { ...base, coursePlotZoomEnabled }
-  }, [config, coursePlotZoomEnabled])
+    return { ...base, coursePlotZoomEnabled: mapMode === "follow" }
+  }, [config, mapMode])
 
-  const shipSectors = ships?.data
-    ?.filter((s: ShipSelf) => s.owner_type !== "personal")
-    .map((s: ShipSelf) => ({
-      sector: s.sector ?? 0,
-      ship_name: s.ship_name,
-      ship_type: s.ship_type,
-    }))
+  const shipSectors = mapShipsForViewer(ships?.data, viewerCharacterId)
 
   const combatSectorsSet = useMemo(() => {
     const ids = new Set<number>()
-    for (const id of Object.values(combatSectorsRecord)) ids.add(id)
+    for (const sectorNode of mapData ?? []) {
+      if (sectorNode.combat) ids.add(sectorNode.id)
+    }
     return ids
-  }, [combatSectorsRecord])
+  }, [mapData])
 
   // Initial fetch of map data
   useEffect(() => {
@@ -222,6 +222,26 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
     [requestMapFetch, setIsFetching]
   )
 
+  const handleViewportChange = useCallback(
+    (centerSectorId: number, bounds: number) => {
+      if (!initialFetchRef.current) return
+
+      enterFreeroamFromGesture?.(centerSectorId)
+      const didFetch = requestMapFetch?.(centerSectorId, bounds)
+      if (didFetch) {
+        setIsFetching(true)
+      }
+    },
+    [enterFreeroamFromGesture, requestMapFetch, setIsFetching]
+  )
+
+  const handleZoomLevelChange = useCallback(
+    (zoomLevel: number) => {
+      syncMapZoomLevelFromViewport?.(zoomLevel)
+    },
+    [syncMapZoomLevelFromViewport]
+  )
+
   // When map data mutates after a fetch, set loading to false
   useEffect(() => {
     if (mapData !== undefined) {
@@ -242,6 +262,21 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
     <div className="group relative flex flex-row gap-3 w-full h-full">
       <div className="flex-1 relative">
         <MapNodeDetails node={hoveredNode} />
+        <Button
+          variant="bland"
+          size="sm"
+          aria-label="Recenter map"
+          aria-hidden={mapMode !== "freeroam"}
+          tabIndex={mapMode === "freeroam" ? 0 : -1}
+          onClick={() => recenterMap?.()}
+          className={cn(
+            "absolute top-ui-sm left-1/2 -translate-x-1/2 z-30 gap-2 bg-background/95 border outline-2 outline-background transition-opacity duration-200",
+            mapMode === "freeroam" ? "opacity-100" : "opacity-0 pointer-events-none"
+          )}
+        >
+          <ArrowClockwiseIcon weight="bold" />
+          Recenter
+        </Button>
         <header className="absolute top-ui-sm right-ui-sm flex flex-col gap-ui-xs w-fit h-fit z-20">
           <MapZoomControls disabled={isFetching || !mapData} />
         </header>
@@ -279,6 +314,8 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
                 setHoveredNode(null)
               }}
               onMapFetch={handleMapFetch}
+              onViewportChange={handleViewportChange}
+              onZoomLevelChange={handleZoomLevelChange}
               coursePlot={coursePlot ?? null}
               ships={shipSectors}
               combatSectors={combatSectorsSet}
@@ -286,6 +323,7 @@ export const BigMapPanel = ({ config }: { config?: MapConfig }) => {
               fit_bounds_world={mapFitBoundsWorld}
               mapFitEpoch={mapFitEpoch}
               mapResetEpoch={mapResetEpoch}
+              mapZoomUpdateSource={mapZoomUpdateSource}
             />
           </motion.div>
         : <div className="relative w-full h-full flex items-center justify-center cross-lines-white/50 cross-lines-offset-12">

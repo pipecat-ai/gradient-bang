@@ -4,6 +4,7 @@ import { ArrowRightIcon } from "@phosphor-icons/react"
 
 import useGameStore from "@/stores/game"
 import { calculateHopsRemaining } from "@/utils/game"
+import { mapShipsForViewer } from "@/utils/map"
 import { cn } from "@/utils/tailwind"
 
 import { PortBadge } from "../PortBadge"
@@ -42,13 +43,8 @@ export const MiniMapPanel = ({ className, paused }: { className?: string; paused
   const localMapData = useGameStore((state) => state.local_map_data)
   const ships = useGameStore.use.ships?.()
   const coursePlot = useGameStore.use.course_plot?.()
-  const shipSectors = ships?.data
-    ?.filter((s: ShipSelf) => s.owner_type !== "personal")
-    .map((s: ShipSelf) => ({
-      sector: s.sector ?? 0,
-      ship_name: s.ship_name,
-      ship_type: s.ship_type,
-    }))
+  const viewerCharacterId = useGameStore((state) => state.player?.id)
+  const shipSectors = mapShipsForViewer(ships?.data, viewerCharacterId)
 
   const hasRouteHighlight = Boolean(coursePlot?.path && coursePlot.path.length > 1)
   const hopsRemaining = useMemo(

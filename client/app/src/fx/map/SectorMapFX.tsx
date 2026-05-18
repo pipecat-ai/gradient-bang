@@ -1,4 +1,5 @@
-import { isBorderSector } from "@/utils/map"
+import type { MapZoomUpdateSource } from "@/stores/mapSlice"
+import { clampMapZoomLevel, isBorderSector } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 
 import { GARRISON_ICON, MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
@@ -117,7 +118,9 @@ export interface NodeStyles {
   unvisited: NodeStyle
   muted: NodeStyle
   megaPort: NodeStyle
-  garrison: NodeStyle
+  garrisonDefensive: NodeStyle
+  garrisonOffensive: NodeStyle
+  garrisonToll: NodeStyle
   coursePlotCurrent: NodeStyle
   coursePlotStart: NodeStyle
   coursePlotEnd: NodeStyle
@@ -191,7 +194,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     glowColor: "rgba(255,255,255,0.15)",
     glowFalloff: 0.3,
   },
-  garrison: {
+  garrisonOffensive: {
     fill: "rgba(70,8,9,0.8)",
     border: "rgba(239,68,68,1)",
     borderWidth: 3,
@@ -202,6 +205,32 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     glow: true,
     glowRadius: 100,
     glowColor: "rgba(239,68,68,0.2)",
+    glowFalloff: 0.3,
+  },
+  garrisonDefensive: {
+    fill: "rgba(8,47,52,0.8)",
+    border: "rgba(34,211,238,1)",
+    borderWidth: 3,
+    borderStyle: "solid",
+    outline: "rgba(34,211,238,0.5)",
+    outlineWidth: 2,
+    iconColor: "#cffafe",
+    glow: true,
+    glowRadius: 100,
+    glowColor: "rgba(34,211,238,0.2)",
+    glowFalloff: 0.3,
+  },
+  garrisonToll: {
+    fill: "rgba(66,42,4,0.8)",
+    border: "rgba(245,158,11,1)",
+    borderWidth: 3,
+    borderStyle: "solid",
+    outline: "rgba(245,158,11,0.5)",
+    outlineWidth: 2,
+    iconColor: "#fef3c7",
+    glow: true,
+    glowRadius: 100,
+    glowColor: "rgba(245,158,11,0.2)",
     glowFalloff: 0.3,
   },
   coursePlotCurrent: {
@@ -526,6 +555,8 @@ export interface SectorMapProps {
   data: MapData
   config: SectorMapConfigBase
   maxDistance?: number
+  mapZoomUpdateSource?: MapZoomUpdateSource
+  onZoomLevelChange?: (zoomLevel: number) => void
   coursePlot?: CoursePlot | null
   ships?: Map<number, Array<{ ship_name: string; ship_type: string }>>
   /** Sectors with active combat — drawn as a dotted red border overlay. */
@@ -1199,7 +1230,15 @@ function getNodeStyle(
     // Current sector always gets the current style (blue) regardless of port/garrison
     baseStyle = config.nodeStyles.current
   } else if (hasGarrison) {
-    baseStyle = config.nodeStyles.garrison
+    const mode = node.garrison?.mode
+    if (mode === "defensive") {
+      baseStyle = config.nodeStyles.garrisonDefensive
+    } else if (mode === "toll") {
+      baseStyle = config.nodeStyles.garrisonToll
+    } else {
+      // offensive or unknown — offensive is the visual default.
+      baseStyle = config.nodeStyles.garrisonOffensive
+    }
   } else if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
   } else if (isVisited) {
@@ -2161,7 +2200,12 @@ function truncateText(ctx: CanvasRenderingContext2D, text: string, maxWidth: num
   return text.slice(0, lo) + ellipsis
 }
 
-type ShipInfo = { ship_name: string; ship_type: string }
+type ShipOwnerKind = "self" | "corp_mate"
+type ShipInfo = {
+  ship_name: string
+  ship_type: string
+  owner_kind?: ShipOwnerKind
+}
 
 type ShipLabelHitBox = { sectorId: number; x: number; y: number; w: number; h: number }
 
@@ -2185,6 +2229,8 @@ function renderShipLabels(
   const labelStyle = config.labelStyles.shipCount
   const iconSize = 14
   const combatColor = "#ff3344"
+  // Used when a sector contains only corp-mate ships (no self-owned ship).
+  const corpMateColor = "rgba(168,85,247,0.85)"
 
   ctx.save()
   ctx.textAlign = "left"
@@ -2245,7 +2291,11 @@ function renderShipLabels(
 
     const labelOpacity = 1
     const isCombat = combatSectors?.has(node.id) ?? false
-    const bgColor = isCombat ? combatColor : labelStyle.backgroundColor
+    const hasSelfShip = shipList.some((s) => s.owner_kind !== "corp_mate")
+    const bgColor =
+      isCombat ? combatColor
+      : hasSelfShip ? labelStyle.backgroundColor
+      : corpMateColor
 
     ctx.save()
     ctx.translate(labelX, labelY)
@@ -2665,7 +2715,7 @@ function renderWithCameraStateAndInteraction(
 
   ctx.restore()
 
-  if (coursePlot && courseAnimationOffset !== undefined) {
+  if (coursePlot) {
     renderCoursePlotAnimation(canvas, props, cameraState, courseAnimationOffset)
   }
 
@@ -2728,7 +2778,6 @@ function renderWithCameraStateAndInteraction(
 export interface SectorMapController {
   render: () => void
   moveToSector: (newSectorId: number, newMapData?: MapData) => void
-  getCurrentState: () => CameraState | null
   updateProps: (newProps: Partial<SectorMapProps>) => void
   startCourseAnimation: () => void
   stopCourseAnimation: () => void
@@ -2736,6 +2785,7 @@ export interface SectorMapController {
   setOnNodeEnter: (callback: ((node: MapSectorNode) => void) | null) => void
   setOnNodeExit: (callback: ((node: MapSectorNode) => void) | null) => void
   setOnViewportChange: (callback: ((centerSectorId: number, bounds: number) => void) | null) => void
+  setOnZoomLevelChange: (callback: ((zoomLevel: number) => void) | null) => void
   resetView: () => void
   cleanup: () => void
 }
@@ -2758,6 +2808,8 @@ export function createSectorMapController(
   let onNodeEnterCallback: ((node: MapSectorNode) => void) | null = null
   let onNodeExitCallback: ((node: MapSectorNode) => void) | null = null
   let onViewportChangeCallback: ((centerSectorId: number, bounds: number) => void) | null = null
+  let onZoomLevelChangeCallback: ((zoomLevel: number) => void) | null =
+    props.onZoomLevelChange ?? null
   let viewportChangeTimeoutId: number | null = null
 
   let animatingSectorId: number | null = null
@@ -2785,6 +2837,22 @@ export function createSectorMapController(
     manualPanX = 0
     manualPanY = 0
     manualZoomFactor = 1
+  }
+
+  const resetManualZoom = () => {
+    manualZoomFactor = 1
+  }
+
+  const cancelCameraAnimation = () => {
+    if (animationCleanup) {
+      animationCleanup()
+      animationCleanup = null
+    }
+    if (animationCompletionTimeout !== null) {
+      window.clearTimeout(animationCompletionTimeout)
+      animationCompletionTimeout = null
+    }
+    isMovingToSector = false
   }
 
   /** Apply manual offsets to a computed camera state, expanding spatial
@@ -3110,6 +3178,11 @@ export function createSectorMapController(
     const maxZoom = currentProps.config.maxZoom ?? 5
     const newZoom = Math.max(minZoom, Math.min(oldEffective.zoom * zoomDelta, maxZoom))
     manualZoomFactor = newZoom / currentCameraState.zoom
+    const currentMaxDistance = currentProps.maxDistance ?? DEFAULT_MAX_BOUNDS
+    const nextZoomLevel = clampMapZoomLevel(
+      currentMaxDistance * (currentCameraState.zoom / newZoom)
+    )
+    onZoomLevelChangeCallback?.(Math.round(nextZoomLevel * 100) / 100)
 
     const { width, height } = currentProps
     const pos = getCanvasMousePosition(event as unknown as MouseEvent)
@@ -3417,10 +3490,9 @@ export function createSectorMapController(
     }
   }
 
-  const getCurrentState = () => currentCameraState
-
   const updateProps = (newProps: Partial<SectorMapProps>) => {
     const hadCoursePlot = currentProps.coursePlot !== undefined && currentProps.coursePlot !== null
+    const hadCoursePlotZoom = currentProps.config.coursePlotZoomEnabled !== false
     const wasClickable = currentProps.config.clickable
     const wasHoverable = currentProps.config.hoverable
     const prevMaxDistance = currentProps.maxDistance
@@ -3444,6 +3516,11 @@ export function createSectorMapController(
 
     // Start or stop animation based on coursePlot presence
     const coursePlotZoom = currentProps.config.coursePlotZoomEnabled !== false
+    if (hasCoursePlot && hadCoursePlotZoom && !coursePlotZoom) {
+      cancelCameraAnimation()
+      renderWithInteractionState()
+    }
+
     if (hasCoursePlot && !hadCoursePlot) {
       // Clear hover state when course plot becomes active
       if (hoveredSectorId !== null) {
@@ -3478,7 +3555,6 @@ export function createSectorMapController(
         render()
       }
     } else if (hasCoursePlot && hadCoursePlot) {
-      // Course plot already active - ensure animation is running (may have been stopped by panel close/reopen)
       if (courseAnimationFrameId === null) {
         render()
         startCourseAnimation()
@@ -3499,8 +3575,16 @@ export function createSectorMapController(
     }
 
     if (maxDistanceChanged && !coursePlotTransitioned && !isMovingToSector) {
-      resetManualOffsets()
-      animateCameraReframe()
+      const zoomUpdateSource = currentProps.mapZoomUpdateSource ?? "programmatic"
+      if (zoomUpdateSource === "viewport") {
+        render()
+      } else if (zoomUpdateSource === "control") {
+        resetManualZoom()
+        render()
+      } else {
+        resetManualOffsets()
+        animateCameraReframe()
+      }
     }
 
     // Handle clickable/hoverable config changes
@@ -3565,6 +3649,10 @@ export function createSectorMapController(
     callback: ((centerSectorId: number, bounds: number) => void) | null
   ) => {
     onViewportChangeCallback = callback
+  }
+
+  const setOnZoomLevelChange = (callback: ((zoomLevel: number) => void) | null) => {
+    onZoomLevelChangeCallback = callback
   }
 
   /** Find the sector in full data closest to a world-space point */
@@ -3661,7 +3749,6 @@ export function createSectorMapController(
   return {
     render,
     moveToSector,
-    getCurrentState,
     updateProps,
     startCourseAnimation,
     stopCourseAnimation,
@@ -3669,6 +3756,7 @@ export function createSectorMapController(
     setOnNodeEnter,
     setOnNodeExit,
     setOnViewportChange,
+    setOnZoomLevelChange,
     resetView: () => {
       userOverrodeCoursePlotZoom = false
       resetManualOffsets()
@@ -3678,35 +3766,8 @@ export function createSectorMapController(
   }
 }
 
-/** Render minimap canvas (stateless) */
-export function renderSectorMapCanvas(canvas: HTMLCanvasElement, props: SectorMapProps) {
-  const { width, height, data, config, maxDistance = 3, coursePlot } = props
-
-  const { hexSize, scale } = getGridMetrics(config, width, height)
-
-  const coursePlotForCamera = config.coursePlotZoomEnabled !== false ? coursePlot : undefined
-
-  const cameraState = calculateCameraState(
-    data,
-    config,
-    width,
-    height,
-    scale,
-    hexSize,
-    maxDistance,
-    coursePlotForCamera
-  )
-
-  if (!cameraState) {
-    renderEmptyState(canvas, props, width, height, scale, hexSize, config)
-    return
-  }
-
-  renderWithCameraStateAndInteraction(canvas, props, cameraState, null, null, 1)
-}
-
 /** Get current camera state for tracking between renders */
-export function getCurrentCameraState(props: SectorMapProps): CameraState | null {
+function getCurrentCameraState(props: SectorMapProps): CameraState | null {
   const { width, height, data, config, maxDistance = 3, coursePlot } = props
   const { hexSize, scale } = getGridMetrics(config, width, height)
   const coursePlotForCamera = config.coursePlotZoomEnabled !== false ? coursePlot : undefined
@@ -3723,7 +3784,7 @@ export function getCurrentCameraState(props: SectorMapProps): CameraState | null
 }
 
 /** Animate transition to new sector */
-export function updateCurrentSector(
+function updateCurrentSector(
   canvas: HTMLCanvasElement,
   props: SectorMapProps,
   newSectorId: number,

@@ -10,8 +10,8 @@ called from explicit phases in the router.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
 from typing import (
     TYPE_CHECKING,
@@ -102,12 +102,16 @@ class EventConfig:
     append: AppendRule = AppendRule.DIRECT  # How to decide LLM append
     inference: InferenceRule = InferenceRule.NEVER  # How to decide inference trigger
     priority: Priority = Priority.NORMAL  # Event priority level
-    task_summary: Optional[EventSummaryFn] = field(default=None, repr=False)  # Shared bus/task summary
+    task_summary: Optional[EventSummaryFn] = field(
+        default=None, repr=False
+    )  # Shared bus/task summary
     voice_summary: Optional[EventSummaryFn] = field(default=None, repr=False)  # Voice override
 
     # Append modifiers for DIRECT rule
     corp_scope_if_own_action: bool = False  # Also append corp-scoped events from our own tool calls
-    corp_scope_always_append: bool = False  # Append corp-scoped events for ANY corp member, not just the actor
+    corp_scope_always_append: bool = (
+        False  # Append corp-scoped events for ANY corp member, not just the actor
+    )
     task_scoped_allowlisted: bool = False  # Pass through task-scoped direct filter
 
     # Side-effect flags
@@ -350,11 +354,7 @@ def is_garrison_subject_for_viewer(relay: EventRelay, payload: Mapping[str, Any]
         return True
     viewer_corp = _viewer_corp_id(relay)
     owner_corp = payload.get("owner_corp_id")
-    return (
-        isinstance(owner_corp, str)
-        and viewer_corp is not None
-        and owner_corp == viewer_corp
-    )
+    return isinstance(owner_corp, str) and viewer_corp is not None and owner_corp == viewer_corp
 
 
 def _is_owned_subject(relay: EventRelay, payload: Mapping[str, Any]) -> bool:
@@ -367,11 +367,7 @@ def _is_owned_subject(relay: EventRelay, payload: Mapping[str, Any]) -> bool:
 
 
 def _sector_text(pov_info: CombatPOVInfo) -> str:
-    return (
-        f"sector {pov_info.sector_id}"
-        if isinstance(pov_info.sector_id, int)
-        else "the sector"
-    )
+    return f"sector {pov_info.sector_id}" if isinstance(pov_info.sector_id, int) else "the sector"
 
 
 def _combat_suffix(payload: Mapping[str, Any]) -> str:
@@ -422,9 +418,7 @@ def _round_waiting_pov_line(pov_info: CombatPOVInfo, payload: Mapping[str, Any])
     if pov_info.pov == CombatPOV.OBSERVED_VIA_GARRISON:
         owner_word = "Your" if pov_info.garrison_owned_by_self else "Your corp's"
         mode_text = (
-            f" It is currently in {pov_info.garrison_mode} mode."
-            if pov_info.garrison_mode
-            else ""
+            f" It is currently in {pov_info.garrison_mode} mode." if pov_info.garrison_mode else ""
         )
         return f"A new combat has begun. {owner_word} garrison in {sector_text} has engaged.{mode_text}"
     return f"A new combat has begun in {sector_text}."
@@ -437,7 +431,9 @@ def _round_resolved_pov_line(pov_info: CombatPOVInfo) -> str:
         return f"Combat state: your corp's {_ship_ref(pov_info)} is engaged in combat."
     if pov_info.pov == CombatPOV.OBSERVED_VIA_GARRISON:
         owner_word = "your" if pov_info.garrison_owned_by_self else "your corp's"
-        return f"Combat state: {owner_word} garrison in {_sector_text(pov_info)} is engaged in combat."
+        return (
+            f"Combat state: {owner_word} garrison in {_sector_text(pov_info)} is engaged in combat."
+        )
     return "Combat state: this combat event is not your fight."
 
 
@@ -445,19 +441,11 @@ def _combat_ended_pov_line(pov_info: CombatPOVInfo) -> str:
     if pov_info.pov == CombatPOV.DIRECT:
         return "Your combat has ended."
     if pov_info.pov == CombatPOV.OBSERVED_VIA_CORP_SHIP:
-        return (
-            f"Your corp's {_ship_ref(pov_info)} combat in {_sector_text(pov_info)} "
-            f"has ended."
-        )
+        return f"Your corp's {_ship_ref(pov_info)} combat in {_sector_text(pov_info)} has ended."
     if pov_info.pov == CombatPOV.OBSERVED_VIA_GARRISON:
         owner_word = "Your" if pov_info.garrison_owned_by_self else "Your corp's"
-        garrison_attr = (
-            f" (garrison_id={pov_info.garrison_id})" if pov_info.garrison_id else ""
-        )
-        return (
-            f"{owner_word} garrison in {_sector_text(pov_info)}{garrison_attr} "
-            f"combat has ended."
-        )
+        garrison_attr = f" (garrison_id={pov_info.garrison_id})" if pov_info.garrison_id else ""
+        return f"{owner_word} garrison in {_sector_text(pov_info)}{garrison_attr} combat has ended."
     return f"Observed combat in {_sector_text(pov_info)} has ended."
 
 
@@ -582,9 +570,7 @@ def _summarize_combat_round(relay: EventRelay, event: dict) -> Optional[str]:
     return "\n".join(lines)
 
 
-def _participant_id_for_ship(
-    payload: Mapping[str, Any], ship_id: str
-) -> Optional[str]:
+def _participant_id_for_ship(payload: Mapping[str, Any], ship_id: str) -> Optional[str]:
     participants = payload.get("participants")
     if not isinstance(participants, list):
         return None
@@ -662,49 +648,35 @@ def _viewer_action_line(
     return f"{label}: {_format_action_phrase(action)}."
 
 
-def _participant_role_tag(
-    relay: EventRelay, participant: Mapping[str, Any]
-) -> str:
+def _participant_role_tag(relay: EventRelay, participant: Mapping[str, Any]) -> str:
     """Viewer-relative role: 'you' / 'your corp' / 'opponent'."""
     pid = participant.get("id")
     if isinstance(pid, str) and pid == relay._character_id:
         return "you"
     viewer_corp = _viewer_corp_id(relay)
     pcorp = participant.get("corp_id")
-    if (
-        viewer_corp
-        and isinstance(pcorp, str)
-        and pcorp == viewer_corp
-    ):
+    if viewer_corp and isinstance(pcorp, str) and pcorp == viewer_corp:
         return "your corp"
     return "opponent"
 
 
-def _format_participant_line(
-    relay: EventRelay, participant: Mapping[str, Any]
-) -> Optional[str]:
+def _format_participant_line(relay: EventRelay, participant: Mapping[str, Any]) -> Optional[str]:
     name = participant.get("name")
     if not isinstance(name, str) or not name:
         return None
     role = _participant_role_tag(relay, participant)
     corp_name = participant.get("corp_name")
-    corp_label = (
-        corp_name if isinstance(corp_name, str) and corp_name else "no corp"
-    )
+    corp_label = corp_name if isinstance(corp_name, str) and corp_name else "no corp"
 
     fighters = participant.get("fighters")
     fighters_str = (
-        f"{int(fighters)} fighters"
-        if isinstance(fighters, (int, float))
-        else "fighters unknown"
+        f"{int(fighters)} fighters" if isinstance(fighters, (int, float)) else "fighters unknown"
     )
 
     ship = participant.get("ship") if isinstance(participant.get("ship"), Mapping) else {}
     integrity = ship.get("shield_integrity") if isinstance(ship, Mapping) else None
     shields_str = (
-        f"shields {float(integrity):.0f}%"
-        if isinstance(integrity, (int, float))
-        else None
+        f"shields {float(integrity):.0f}%" if isinstance(integrity, (int, float)) else None
     )
 
     extras: list[str] = []
@@ -718,13 +690,9 @@ def _format_participant_line(
         extras.append("destroyed")
     if participant.get("has_fled") is True:
         fled_to = participant.get("fled_to_sector")
-        extras.append(
-            f"fled to sector {fled_to}"
-            if isinstance(fled_to, int)
-            else "fled"
-        )
+        extras.append(f"fled to sector {fled_to}" if isinstance(fled_to, int) else "fled")
 
-    head = f'- {name} [{role}, {corp_label}]'
+    head = f"- {name} [{role}, {corp_label}]"
     body_parts = [fighters_str]
     if shields_str:
         body_parts.append(shields_str)
@@ -758,9 +726,7 @@ def _format_garrison_line(garrison: Mapping[str, Any]) -> Optional[str]:
 
     fighters = garrison.get("fighters")
     fighters_str = (
-        f"{int(fighters)} fighters"
-        if isinstance(fighters, (int, float))
-        else "fighters unknown"
+        f"{int(fighters)} fighters" if isinstance(fighters, (int, float)) else "fighters unknown"
     )
     extras: list[str] = []
     fighter_loss = garrison.get("fighter_loss")
@@ -772,9 +738,7 @@ def _format_garrison_line(garrison: Mapping[str, Any]) -> Optional[str]:
     return f"- {name}{qualifier}: {body}"
 
 
-def _participant_block(
-    relay: EventRelay, payload: Mapping[str, Any]
-) -> Optional[str]:
+def _participant_block(relay: EventRelay, payload: Mapping[str, Any]) -> Optional[str]:
     """Render a multi-line 'Participants:' section listing every combatant
     with their corp affiliation and per-round status. Includes the primary
     garrison if present in the payload."""
@@ -858,22 +822,16 @@ def _summarize_garrison_destroyed(relay: EventRelay, event: dict) -> Optional[st
     mode = payload.get("mode") if isinstance(payload.get("mode"), str) else "unknown"
     garrison_id = payload.get("garrison_id") or payload.get("combatant_id") or ""
     owner_character_id = payload.get("owner_character_id")
-    is_owner = (
-        isinstance(owner_character_id, str) and owner_character_id == relay._character_id
-    )
+    is_owner = isinstance(owner_character_id, str) and owner_character_id == relay._character_id
     sector_text = f"sector {sector_id}" if isinstance(sector_id, int) else "the sector"
     if is_owner:
         return (
-            f"Your garrison was destroyed in {sector_text} "
-            f"garrison_id={garrison_id}, mode={mode}."
+            f"Your garrison was destroyed in {sector_text} garrison_id={garrison_id}, mode={mode}."
         )
     owner_name = payload.get("owner_name")
-    owner_suffix = (
-        f" (owner: {owner_name})" if isinstance(owner_name, str) and owner_name else ""
-    )
+    owner_suffix = f" (owner: {owner_name})" if isinstance(owner_name, str) and owner_name else ""
     return (
-        f"Garrison destroyed in {sector_text} "
-        f"garrison_id={garrison_id}, mode={mode}{owner_suffix}."
+        f"Garrison destroyed in {sector_text} garrison_id={garrison_id}, mode={mode}{owner_suffix}."
     )
 
 
@@ -894,9 +852,7 @@ def _summarize_ship_destroyed(relay: EventRelay, event: dict) -> Optional[str]:
     sector_id = sector.get("id") if isinstance(sector, Mapping) else None
     sector_text = f"sector {sector_id}" if isinstance(sector_id, int) else "the sector"
     combat_id = payload.get("combat_id")
-    suffix = (
-        f" combat_id={combat_id}" if isinstance(combat_id, str) and combat_id.strip() else ""
-    )
+    suffix = f" combat_id={combat_id}" if isinstance(combat_id, str) and combat_id.strip() else ""
     if _is_owned_subject(relay, payload):
         return f"Your ship {ship_label} was destroyed in {sector_text}.{suffix}"
     if is_corp_ship_destroyed_for_viewer(relay, payload):
@@ -1060,7 +1016,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "port.update": EventConfig(append=AppendRule.LOCAL),
     "bank.transaction": EventConfig(task_scoped_allowlisted=True),
     "warp.purchase": EventConfig(task_scoped_allowlisted=True),
-    "map.local": EventConfig(task_scoped_allowlisted=True),
+    # map.local duplicates ~everything in movement.complete (sector, region,
+    # adjacents, exploration counts). The one bit voice actually used —
+    # "Nearest unvisited" — is now folded into movement.complete's payload
+    # as `nearest_unvisited`. Client still consumes this via RTVI, TaskAgents
+    # via the bus; only the voice LLM append is suppressed.
+    "map.local": EventConfig(append=AppendRule.NEVER, task_scoped_allowlisted=True),
     # Corp events (allow corp scope when voice agent)
     "corporation.created": EventConfig(corp_scope_if_own_action=True),
     "corporation.ship_purchased": EventConfig(corp_scope_always_append=True),
@@ -1111,7 +1072,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "path.region": EventConfig(),
     "movement.start": EventConfig(),
     "map.knowledge": EventConfig(),
-    "map.region": EventConfig(),
+    # Map region payloads are large and are emitted by client-driven fetches
+    # (e.g. BigMap follow-mode auto-fit) that can dispatch several in a row.
+    # The voice agent has no `local_map_region` tool, the task agent already
+    # suppresses these via SYNC_TOOL_EVENTS, and the client UI consumes the
+    # event directly off RTVI — so no LLM context needs the raw payload.
+    "map.region": EventConfig(append=AppendRule.NEVER),
     "fighter.purchase": EventConfig(),
     "warp.transfer": EventConfig(),
     "credits.transfer": EventConfig(),
@@ -1198,6 +1164,10 @@ class EventRelay:
         self._session_started_at: Optional[str] = None
         self._debounce_tasks: dict[str, asyncio.Task] = {}
         self._debounce_held_messages: dict[str, list[dict]] = {}
+        self._event_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+        self._event_worker_task: Optional[asyncio.Task] = None
+        self._last_event_id: Optional[int] = None
+        self._closed = False
         # Combat preamble tracking: combat.md is loaded at most once per
         # session; strategy is re-fetched on every DIRECT round-1 entry (may
         # have changed between combats).
@@ -1205,7 +1175,7 @@ class EventRelay:
 
         # Subscribe to game events from config registry
         for event_name in EVENT_CONFIGS:
-            game_client.on(event_name)(self._relay_event)
+            game_client.on(event_name)(self._enqueue_event)
 
     @property
     def character_id(self) -> str:
@@ -1257,12 +1227,105 @@ class EventRelay:
         logger.info(f"EventRelay session state attached for {display_name}")
 
     async def close(self) -> None:
+        # Set before cancelling so a late inbound event short-circuits
+        # in _enqueue_event instead of restarting the worker.
+        self._closed = True
+        if self._event_worker_task is not None:
+            self._event_worker_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._event_worker_task
+            self._event_worker_task = None
         for task in self._debounce_tasks.values():
             task.cancel()
         self._debounce_tasks.clear()
         self._debounce_held_messages.clear()
         self.is_new_player = None
         self._session_started_at = None
+
+    def _enqueue_event(self, event: Dict[str, Any]) -> None:
+        if self._closed:
+            return
+        self._event_queue.put_nowait(event)
+        if self._event_worker_task is None or self._event_worker_task.done():
+            self._event_worker_task = asyncio.create_task(
+                self._event_worker_loop(), name="event-relay-worker"
+            )
+
+    async def _event_worker_loop(self) -> None:
+        while True:
+            first = await self._event_queue.get()
+            batch = [first]
+            while True:
+                try:
+                    batch.append(self._event_queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            for event in self._sort_ready_events(batch):
+                try:
+                    self._record_event_order(event)
+                    await self._relay_event(event)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "event_relay.event_failed event_name={} event_id={}",
+                        event.get("event_name"),
+                        self._extract_event_id(event),
+                    )
+                finally:
+                    self._event_queue.task_done()
+
+    @classmethod
+    def _sort_ready_events(cls, events: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        # Id-bearing events sort by event_id; no-id events keep their
+        # original arrival positions.
+        extracted = [(idx, ev, cls._extract_event_id(ev)) for idx, ev in enumerate(events)]
+        ided = [(idx, ev, eid) for idx, ev, eid in extracted if eid is not None]
+        ided.sort(key=lambda t: (t[2], t[0]))
+
+        out: list[Optional[Dict[str, Any]]] = [None] * len(events)
+        for idx, ev, eid in extracted:
+            if eid is None:
+                out[idx] = ev
+        free_slots = [i for i, slot in enumerate(out) if slot is None]
+        for slot, (_idx, ev, _eid) in zip(free_slots, ided):
+            out[slot] = ev
+        return [ev for ev in out if ev is not None]
+
+    @staticmethod
+    def _extract_event_id(event: Mapping[str, Any]) -> Optional[int]:
+        ctx = event.get("event_context")
+        if not isinstance(ctx, Mapping):
+            payload = event.get("payload")
+            if isinstance(payload, Mapping):
+                ctx = payload.get("__event_context") or payload.get("event_context")
+        if not isinstance(ctx, Mapping):
+            return None
+        event_id = ctx.get("event_id")
+        if isinstance(event_id, int):
+            return event_id
+        if isinstance(event_id, str) and event_id.isdigit():
+            return int(event_id)
+        return None
+
+    def _record_event_order(self, event: Mapping[str, Any]) -> None:
+        # event.query is a backfill envelope — its ids don't belong
+        # on the live stream's high-water mark.
+        if event.get("event_name") == "event.query":
+            return
+        event_id = self._extract_event_id(event)
+        if event_id is None:
+            return
+        if self._last_event_id is not None and event_id < self._last_event_id:
+            logger.warning(
+                "event_relay.order_regression event_name={} event_id={} previous_event_id={} character_id={}",
+                event.get("event_name"),
+                event_id,
+                self._last_event_id,
+                self._character_id,
+            )
+        if self._last_event_id is None or event_id > self._last_event_id:
+            self._last_event_id = event_id
 
     async def _send_initial_chat_history(self) -> None:
         try:
@@ -1478,9 +1541,7 @@ class EventRelay:
                 )
                 self._combat_md_loaded = True
             except Exception:  # noqa: BLE001
-                logger.warning(
-                    "relay.combat_preamble.combat_md_failed", exc_info=True
-                )
+                logger.warning("relay.combat_preamble.combat_md_failed", exc_info=True)
 
         # ── ship strategy (every combat) ──
         ship_id = self._extract_own_ship_id_from_participants(payload)
@@ -1503,9 +1564,7 @@ class EventRelay:
         try:
             content = render_ship_doctrine_preamble_message(strategy)
         except Exception:  # noqa: BLE001
-            logger.warning(
-                "relay.combat_preamble.render_failed", exc_info=True
-            )
+            logger.warning("relay.combat_preamble.render_failed", exc_info=True)
             return
         await self._task_state.queue_frame(
             LLMMessagesAppendFrame(
@@ -1612,22 +1671,16 @@ class EventRelay:
                 if event_name == "combat.round_waiting":
                     if clean_payload.get("round") == 1:
                         return True
-                    return combat_for_player or has_observed_combat_stake(
-                        self, clean_payload
-                    )
+                    return combat_for_player or has_observed_combat_stake(self, clean_payload)
                 if event_name == "combat.round_resolved":
-                    return combat_for_player or has_observed_combat_stake(
-                        self, clean_payload
-                    )
+                    return combat_for_player or has_observed_combat_stake(self, clean_payload)
                 if event_name == "combat.ended":
                     # Same observer-aware shape as round_resolved. Pre-fix,
                     # observers got combat.ended via a per-recipient row that
                     # set recipient_character_id, which made it look "direct";
                     # the corp-merge partition routes via corp_id only, so we
                     # must explicitly admit observed-stake viewers here.
-                    return combat_for_player or has_observed_combat_stake(
-                        self, clean_payload
-                    )
+                    return combat_for_player or has_observed_combat_stake(self, clean_payload)
                 if event_name == "combat.action_accepted":
                     # Action confirmation is only meaningful to the actor.
                     # The bot polls for corp-ship pseudo-char ids (so the
@@ -1641,10 +1694,7 @@ class EventRelay:
                     if event_context is None:
                         return True
                     ctx_char = event_context.get("character_id")
-                    return (
-                        isinstance(ctx_char, str)
-                        and ctx_char == self._character_id
-                    )
+                    return isinstance(ctx_char, str) and ctx_char == self._character_id
                 if event_name == "garrison.destroyed":
                     return is_garrison_subject_for_viewer(self, clean_payload)
             return combat_for_player
@@ -1768,10 +1818,7 @@ class EventRelay:
                 # combat.round_resolved (terminal) event for the same combat,
                 # which already announces the destruction in its summary.
                 # Suppress inference here so the LLM doesn't speak twice.
-                if (
-                    result
-                    and event_name in ("ship.destroyed", "garrison.destroyed")
-                ):
+                if result and event_name in ("ship.destroyed", "garrison.destroyed"):
                     cid = clean_payload.get("combat_id")
                     if isinstance(cid, str) and cid.strip():
                         result = False
@@ -1822,7 +1869,14 @@ class EventRelay:
 
         event_for_summary = {**event, "payload": clean_payload}
         task_summary = self._resolve_task_summary(cfg, event_name, event_for_summary)
-        event_for_bus = dict(event_for_summary)
+
+        # Keep payload clean across the bus; lift event_context onto a
+        # top-level key so TaskAgent can still order by event_id without
+        # exposing internal metadata to the LLM.
+        event_for_bus = {**event, "payload": clean_payload}
+        bus_event_context = self._extract_event_context(payload)
+        if isinstance(bus_event_context, Mapping):
+            event_for_bus["event_context"] = dict(bus_event_context)
         if task_summary is not None:
             event_for_bus["summary"] = task_summary
 
@@ -1895,7 +1949,9 @@ class EventRelay:
             return
 
         # ── Phase 5: Summary, inference, delivery ──
-        summary = self._resolve_voice_summary(cfg, event_for_bus, task_summary)
+        # Voice path consumes the cleaned payload (event_for_summary),
+        # never event_for_bus.
+        summary = self._resolve_voice_summary(cfg, event_for_summary, task_summary)
 
         # Append current task slot usage to our own status.snapshot summaries
         # so the voice agent sees capacity info every time status refreshes.
@@ -1914,9 +1970,7 @@ class EventRelay:
         elif cfg.xml_context_key and isinstance(clean_payload, Mapping):
             ctx_val = clean_payload.get(cfg.xml_context_key)
             if isinstance(ctx_val, str) and ctx_val.strip():
-                attrs.append(
-                    f'{cfg.xml_context_key}="{_xml_escape_attr(ctx_val.strip())}"'
-                )
+                attrs.append(f'{cfg.xml_context_key}="{_xml_escape_attr(ctx_val.strip())}"')
         event_xml = f"<event {' '.join(attrs)}>\n{summary}\n</event>"
 
         should_run_llm = self._should_run_llm(

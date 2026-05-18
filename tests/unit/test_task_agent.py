@@ -79,9 +79,7 @@ def _make_task_agent(**overrides):
                     if message.character_id:
                         call_kwargs.setdefault("character_id", message.character_id)
                     if message.actor_character_id:
-                        call_kwargs.setdefault(
-                            "actor_character_id", message.actor_character_id
-                        )
+                        call_kwargs.setdefault("actor_character_id", message.actor_character_id)
                     raw = await method(**call_kwargs)
                     result = raw if isinstance(raw, dict) else {"result": raw}
                     response = BusGameToolCallResponse(
@@ -319,7 +317,9 @@ class TestCorpShipToolFiltering:
         """All PLAYER_ONLY_TOOLS actually exist in TASK_TOOLS."""
         all_tool_names = {t.name for t in TASK_TOOLS.standard_tools}
         for name in PLAYER_ONLY_TOOLS:
-            assert name in all_tool_names, f"PLAYER_ONLY_TOOLS has '{name}' which is not in TASK_TOOLS"
+            assert name in all_tool_names, (
+                f"PLAYER_ONLY_TOOLS has '{name}' which is not in TASK_TOOLS"
+            )
 
 
 @pytest.mark.unit
@@ -376,7 +376,110 @@ class TestBusEventReception:
             event={"event_name": "trade.executed", "task_id": "task-uuid-123", "payload": {}},
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
         agent._handle_event.assert_called_once()
+
+    async def test_event_with_event_id_is_processed_without_blocking(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+
+        agent = _make_task_agent()
+        agent._active_task_id = "task-uuid-123"
+        agent._handle_event = AsyncMock()
+
+        msg = BusGameEventMessage(
+            source="player",
+            event={
+                "event_name": "trade.executed",
+                "task_id": "task-uuid-123",
+                "event_context": {"event_id": 101},
+                "payload": {},
+            },
+        )
+        await agent.on_bus_message(msg)
+        await asyncio.wait_for(agent._game_event_queue.join(), timeout=0.5)
+        agent._handle_event.assert_called_once()
+
+    def test_sorts_ready_events_by_event_id_without_requiring_contiguous_ids(self):
+        ready = [
+            ({"event_name": "later", "event_context": {"event_id": 103}, "payload": {}}, False),
+            ({"event_name": "earlier", "event_context": {"event_id": 101}, "payload": {}}, False),
+        ]
+
+        ordered = TaskAgent._sort_ready_game_events(ready)
+
+        assert [event["event_name"] for event, _originated in ordered] == [
+            "earlier",
+            "later",
+        ]
+
+    def test_sorts_ready_events_preserves_arrival_order_for_no_id_events(self):
+        ready = [
+            ({"event_name": "no-id-A", "payload": {}}, False),
+            ({"event_name": "id-105", "event_context": {"event_id": 105}, "payload": {}}, False),
+            ({"event_name": "no-id-B", "payload": {}}, False),
+            ({"event_name": "id-101", "event_context": {"event_id": 101}, "payload": {}}, False),
+        ]
+
+        ordered = TaskAgent._sort_ready_game_events(ready)
+
+        assert [event["event_name"] for event, _originated in ordered] == [
+            "no-id-A",
+            "id-101",
+            "no-id-B",
+            "id-105",
+        ]
+
+    def test_extract_event_id_reads_top_level_event_context(self):
+        event = {"event_name": "x", "event_context": {"event_id": 42}, "payload": {}}
+        assert TaskAgent._extract_event_id(event) == 42
+
+    def test_extract_event_id_falls_back_to_payload_event_context(self):
+        event = {"event_name": "x", "payload": {"__event_context": {"event_id": 7}}}
+        assert TaskAgent._extract_event_id(event) == 7
+
+    def test_event_query_does_not_pollute_handled_high_water_mark(self):
+        agent = _make_task_agent()
+        agent._active_task_id = "task-1"
+        agent._last_handled_event_id = 100
+
+        agent._record_handled_event_order(
+            {"event_name": "event.query", "event_context": {"event_id": 50}, "payload": {}}
+        )
+        assert agent._last_handled_event_id == 100
+
+        agent._record_handled_event_order(
+            {"event_name": "trade.executed", "event_context": {"event_id": 110}, "payload": {}}
+        )
+        assert agent._last_handled_event_id == 110
+
+    async def test_bus_event_with_no_summary_does_not_leak_internal_metadata(self):
+        from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
+
+        agent = _make_task_agent(character_id="char-123")
+        agent._active_task_id = "task-uuid-123"
+        agent._llm_context = MagicMock()
+        agent._output = MagicMock()
+
+        msg = BusGameEventMessage(
+            source="player",
+            event={
+                "event_name": "trade.executed",
+                "task_id": "task-uuid-123",
+                "event_context": {"event_id": 200, "scope": "direct"},
+                "payload": {"trade": {"price": 42}},
+            },
+        )
+        await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
+
+        appended = agent._llm_context.add_message.call_args.args[0]["content"]
+        assert "__event_context" not in appended
+        assert "recipient_ids" not in appended
+        assert "recipient_reasons" not in appended
+
+        output_text = agent._output.call_args.args[0]
+        assert "__event_context" not in output_text
+        assert "recipient_ids" not in output_text
 
     async def test_ignores_event_for_other_task(self):
         from gradientbang.pipecat_server.subagents.bus_messages import BusGameEventMessage
@@ -390,6 +493,7 @@ class TestBusEventReception:
             event={"event_name": "trade.executed", "task_id": "other-task", "payload": {}},
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
         agent._handle_event.assert_not_called()
 
     async def test_processes_untagged_matching_character_event_when_awaited(self):
@@ -405,6 +509,7 @@ class TestBusEventReception:
             event={"event_name": "status.snapshot", "payload": {"player": {"id": "ship-456"}}},
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
         agent._handle_event.assert_called_once()
 
     async def test_ignores_unscoped_character_event_when_not_awaited(self):
@@ -420,6 +525,7 @@ class TestBusEventReception:
             event={"event_name": "status.snapshot", "payload": {"player": {"id": "ship-456"}}},
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
         agent._handle_event.assert_not_called()
 
     async def test_ignores_combat_event_for_other_ship(self):
@@ -437,6 +543,7 @@ class TestBusEventReception:
             },
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
         agent._handle_event.assert_not_called()
 
     async def test_processes_combat_event_for_own_ship(self):
@@ -454,6 +561,7 @@ class TestBusEventReception:
             },
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
         agent._handle_event.assert_called_once()
 
     async def test_ignores_destroyed_event_for_other_ship(self):
@@ -474,6 +582,7 @@ class TestBusEventReception:
             },
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
         agent._handle_event.assert_not_called()
 
     async def test_ignores_when_no_active_task(self):
@@ -504,6 +613,7 @@ class TestBusEventReception:
             event={"event_name": "event.query", "request_id": "req-123", "payload": {"count": 0}},
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
         agent._handle_event.assert_called_once()
 
     async def test_ignores_unmatched_event_query_request_id(self):
@@ -520,6 +630,7 @@ class TestBusEventReception:
             event={"event_name": "event.query", "request_id": "req-999", "payload": {"count": 0}},
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
         agent._handle_event.assert_not_called()
 
     async def test_bus_event_query_uses_summary_not_raw_payload(self):
@@ -542,10 +653,12 @@ class TestBusEventReception:
             },
         )
         await agent.on_bus_message(msg)
+        await agent._game_event_queue.join()
 
         context_message = agent._llm_context.add_message.call_args.args[0]["content"]
         assert "Query returned 8 events." in context_message
         assert "blob" not in context_message
+
 
 @pytest.mark.unit
 class TestSteering:
@@ -557,7 +670,9 @@ class TestSteering:
         agent._llm_context = MagicMock()
         agent._llm_inflight = True
 
-        msg = BusSteerTaskMessage(source="voice", target="test_task", task_id="task-1", text="Change direction")
+        msg = BusSteerTaskMessage(
+            source="voice", target="test_task", task_id="task-1", text="Change direction"
+        )
         await agent.on_bus_message(msg)
 
         agent._llm_context.add_message.assert_called_once()
@@ -590,7 +705,9 @@ class TestCancellation:
         agent.send_task_response = AsyncMock()
         agent._active_task_id = "task-1"
         agent._task_requester = "parent"
-        await agent.on_task_cancelled(BusTaskCancelMessage(source="parent", task_id="task-1", reason="test reason"))
+        await agent.on_task_cancelled(
+            BusTaskCancelMessage(source="parent", task_id="task-1", reason="test reason")
+        )
         assert agent._cancelled is True
 
 
@@ -730,7 +847,7 @@ class TestTaskOutputDelivery:
         agent._task_requester = "voice_agent"
         agent.send_message = AsyncMock()
 
-        agent._output("move({\"to_sector\": 5})", TaskOutputType.ACTION)
+        agent._output('move({"to_sector": 5})', TaskOutputType.ACTION)
         agent._active_task_id = None
         agent._task_requester = None
 
@@ -888,8 +1005,9 @@ class TestEventQueryCompletionCorrelation:
         )
         handler = AsyncMock(return_value={"request_id": "req-123", "count": 0})
 
-        with patch.object(agent, "_get_tool_handler", return_value=handler), patch.object(
-            agent, "_on_tool_call_completed", AsyncMock()
+        with (
+            patch.object(agent, "_get_tool_handler", return_value=handler),
+            patch.object(agent, "_on_tool_call_completed", AsyncMock()),
         ):
             await agent._handle_function_call(params)
 
@@ -908,9 +1026,11 @@ class TestEventQueryCompletionCorrelation:
         )
         handler = AsyncMock(return_value={"count": 0})
 
-        with patch.object(agent, "_get_tool_handler", return_value=handler), patch.object(
-            agent, "_on_tool_call_completed", AsyncMock()
-        ), patch("gradientbang.pipecat_server.subagents.task_agent.logger.warning") as warn:
+        with (
+            patch.object(agent, "_get_tool_handler", return_value=handler),
+            patch.object(agent, "_on_tool_call_completed", AsyncMock()),
+            patch("gradientbang.pipecat_server.subagents.task_agent.logger.warning") as warn,
+        ):
             await agent._handle_function_call(params)
 
         assert agent._awaiting_completion_event is None
@@ -1093,8 +1213,7 @@ class TestCombatPreamble:
         await agent._handle_event(self._round_waiting(round_num=1))
 
         contents = [
-            call.args[0]["content"]
-            for call in agent._llm_context.add_message.call_args_list
+            call.args[0]["content"] for call in agent._llm_context.add_message.call_args_list
         ]
         # Three messages, in fixed order.
         assert len(contents) == 3
@@ -1118,8 +1237,7 @@ class TestCombatPreamble:
         # but doctrine still re-fetches (strategy may have been edited).
         await agent._handle_event(self._round_waiting(round_num=1))
         contents = [
-            call.args[0]["content"]
-            for call in agent._llm_context.add_message.call_args_list
+            call.args[0]["content"] for call in agent._llm_context.add_message.call_args_list
         ]
         assert len(contents) == 2
         assert contents[0].startswith("# Your ship's combat strategy")
@@ -1131,8 +1249,7 @@ class TestCombatPreamble:
         await agent._handle_event(self._round_waiting(round_num=2))
 
         contents = [
-            call.args[0]["content"]
-            for call in agent._llm_context.add_message.call_args_list
+            call.args[0]["content"] for call in agent._llm_context.add_message.call_args_list
         ]
         # Only the event XML — no preamble pieces.
         assert len(contents) == 1
@@ -1147,8 +1264,7 @@ class TestCombatPreamble:
         await agent._handle_event(self._round_waiting(round_num=1))
 
         contents = [
-            call.args[0]["content"]
-            for call in agent._llm_context.add_message.call_args_list
+            call.args[0]["content"] for call in agent._llm_context.add_message.call_args_list
         ]
         assert len(contents) == 1
         assert "<event name=combat.round_waiting>" in contents[0]
@@ -1156,14 +1272,11 @@ class TestCombatPreamble:
 
     async def test_unset_strategy_falls_back_to_balanced_default(self):
         agent = self._agent_with_context()
-        agent._game_client.combat_get_strategy = AsyncMock(
-            return_value={"strategy": None}
-        )
+        agent._game_client.combat_get_strategy = AsyncMock(return_value={"strategy": None})
         await agent._handle_event(self._round_waiting(round_num=1))
 
         contents = [
-            call.args[0]["content"]
-            for call in agent._llm_context.add_message.call_args_list
+            call.args[0]["content"] for call in agent._llm_context.add_message.call_args_list
         ]
         assert len(contents) == 3
         doctrine_msg = contents[1]
@@ -1172,14 +1285,11 @@ class TestCombatPreamble:
 
     async def test_strategy_fetch_failure_skips_doctrine_but_keeps_combat_md(self):
         agent = self._agent_with_context()
-        agent._game_client.combat_get_strategy = AsyncMock(
-            side_effect=RuntimeError("network down")
-        )
+        agent._game_client.combat_get_strategy = AsyncMock(side_effect=RuntimeError("network down"))
         await agent._handle_event(self._round_waiting(round_num=1))
 
         contents = [
-            call.args[0]["content"]
-            for call in agent._llm_context.add_message.call_args_list
+            call.args[0]["content"] for call in agent._llm_context.add_message.call_args_list
         ]
         # combat.md still landed; doctrine got skipped; event still appended.
         # combat.md is now considered loaded — failed strategy fetch should

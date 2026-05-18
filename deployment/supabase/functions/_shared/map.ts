@@ -28,9 +28,16 @@ export interface LocalMapPort {
   mega?: boolean;
 }
 
+export type GarrisonMode = "offensive" | "defensive" | "toll";
+
 export interface LocalMapSectorGarrison {
   player_id: string;
   corporation_id: string | null;
+  mode: GarrisonMode | null;
+}
+
+export interface LocalMapSectorCombat {
+  combat_id: string;
 }
 
 export interface AdjacentSectorInfo {
@@ -62,6 +69,7 @@ export interface LocalMapSector {
   last_visited?: string;
   source?: "player" | "corp" | "both";
   garrison?: LocalMapSectorGarrison | null;
+  combat?: LocalMapSectorCombat | null;
 }
 
 export interface LocalMapRegionPayload {
@@ -954,7 +962,7 @@ async function loadSectorGarrisons(
   const uniqueIds = Array.from(new Set(sectorIds));
   const { data: garrisonRows, error: garrisonError } = await supabase
     .from("garrisons")
-    .select("sector_id, owner_id, updated_at, deployed_at, characters(corporation_id)")
+    .select("sector_id, owner_id, mode, updated_at, deployed_at, characters(corporation_id)")
     .in("sector_id", uniqueIds)
     .order("sector_id", { ascending: true })
     .order("updated_at", { ascending: false })
@@ -1009,9 +1017,15 @@ async function loadSectorGarrisons(
       continue;
     }
 
+    const rawMode = (row as { mode?: unknown }).mode;
+    const mode: GarrisonMode | null =
+      rawMode === "offensive" || rawMode === "defensive" || rawMode === "toll"
+        ? rawMode
+        : null;
     garrisonBySector[sectorId] = {
       player_id: ownerId,
       corporation_id: characterCorpMap.get(ownerId) ?? null,
+      mode,
     };
   }
 
@@ -1026,6 +1040,49 @@ async function loadSectorGarrisons(
   }
 
   return garrisonBySector;
+}
+
+async function loadActiveCombatSectors(
+  supabase: SupabaseClient,
+  sectorIds: number[],
+): Promise<Record<number, LocalMapSectorCombat>> {
+  if (sectorIds.length === 0) {
+    return {};
+  }
+
+  const uniqueIds = Array.from(new Set(sectorIds));
+  const { data, error } = await supabase
+    .from("sector_contents")
+    .select("sector_id, combat")
+    .in("sector_id", uniqueIds)
+    .not("combat", "is", null);
+  if (error) {
+    throw new Error(`failed to load active combat sectors: ${error.message}`);
+  }
+
+  const result: Record<number, LocalMapSectorCombat> = {};
+  for (const row of data ?? []) {
+    const combat = (row as { combat?: { combat_id?: unknown; ended?: unknown } }).combat;
+    if (!combat || combat.ended === true) {
+      continue;
+    }
+    const combatId = combat.combat_id;
+    if (typeof combatId !== "string" || combatId.length === 0) {
+      continue;
+    }
+    const sectorIdValue = (row as { sector_id?: unknown }).sector_id;
+    const sectorId =
+      typeof sectorIdValue === "number"
+        ? sectorIdValue
+        : typeof sectorIdValue === "string"
+          ? Number(sectorIdValue)
+          : null;
+    if (sectorId === null || !Number.isFinite(sectorId)) {
+      continue;
+    }
+    result[sectorId] = { combat_id: combatId };
+  }
+  return result;
 }
 
 function buildLocalMapPort(
@@ -1494,10 +1551,11 @@ export async function buildLocalMapRegion(
     }
   }
 
-  const [portCodes, universeMeta, garrisonsBySector] = await Promise.all([
+  const [portCodes, universeMeta, garrisonsBySector, combatBySector] = await Promise.all([
     needsPortCodes ? loadPortCodes(supabase, visitedSectorIds) : Promise.resolve({}),
     needsUniverseMeta ? loadUniverseMeta(supabase) : Promise.resolve(null),
     loadSectorGarrisons(supabase, visitedSectorIds),
+    loadActiveCombatSectors(supabase, visitedSectorIds),
   ]);
 
   const resultSectors: LocalMapSector[] = [];
@@ -1547,6 +1605,7 @@ export async function buildLocalMapRegion(
         last_visited: knowledgeEntry?.last_visited,
         source: knowledgeEntry?.source,
         garrison: garrisonsBySector[sectorId] ?? null,
+        combat: combatBySector[sectorId] ?? null,
       });
     } else {
       const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
@@ -1742,10 +1801,11 @@ export async function buildLocalMapRegionByBounds(
     }
   }
 
-  const [portCodes, universeMeta, garrisonsBySector] = await Promise.all([
+  const [portCodes, universeMeta, garrisonsBySector, combatBySector] = await Promise.all([
     needsPortCodes ? loadPortCodes(supabase, visitedSectorIds) : Promise.resolve({}),
     needsUniverseMeta ? loadUniverseMeta(supabase) : Promise.resolve(null),
     loadSectorGarrisons(supabase, visitedSectorIds),
+    loadActiveCombatSectors(supabase, visitedSectorIds),
   ]);
 
   const resultSectors: LocalMapSector[] = [];
@@ -1789,6 +1849,7 @@ export async function buildLocalMapRegionByBounds(
         last_visited: knowledgeEntry?.last_visited,
         source: knowledgeEntry?.source,
         garrison: garrisonsBySector[sectorId] ?? null,
+        combat: combatBySector[sectorId] ?? null,
       });
     } else {
       const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);

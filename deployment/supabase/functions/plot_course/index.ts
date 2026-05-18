@@ -221,23 +221,6 @@ async function handlePlotCourse(
   }
   toSector = Math.floor(toSector);
 
-  if (!adminOverride && fromSector !== ship.current_sector) {
-    const sMapKnowledge = ws.span("load_map_knowledge", { fromSector });
-    const knowledge = await loadMapKnowledge(
-      supabase,
-      characterId,
-      actorCharacterId,
-    );
-    const isDiscovered = Boolean(knowledge.sectors_visited[String(fromSector)]);
-    sMapKnowledge.end({ discovered: isDiscovered });
-    if (!isDiscovered) {
-      throw new PlotCourseError(
-        "from_sector must be a sector you or your corporation have discovered",
-        403,
-      );
-    }
-  }
-
   const sValidateDest = ws.span("validate_destination", { toSector });
   const destinationRow = await fetchSectorRow(supabase, toSector);
   if (!destinationRow) {
@@ -245,6 +228,39 @@ async function handlePlotCourse(
     throw new PlotCourseError(`Invalid to_sector: ${toSector}`, 400);
   }
   sValidateDest.end();
+
+  if (!adminOverride) {
+    const sMapKnowledge = ws.span("load_map_knowledge", {
+      fromSector,
+      toSector,
+    });
+    const knowledge = await loadMapKnowledge(
+      supabase,
+      characterId,
+      actorCharacterId,
+    );
+    const fromDiscovered = fromSector === ship.current_sector ||
+      Boolean(knowledge.sectors_visited[String(fromSector)]);
+    const toDiscovered = Boolean(
+      knowledge.sectors_visited[String(toSector)],
+    );
+    sMapKnowledge.end({
+      fromDiscovered,
+      toDiscovered,
+    });
+    if (!fromDiscovered) {
+      throw new PlotCourseError(
+        "from_sector must be a sector you or your corporation have discovered",
+        403,
+      );
+    }
+    if (!toDiscovered) {
+      throw new PlotCourseError(
+        "to_sector must be a sector you or your corporation have discovered",
+        403,
+      );
+    }
+  }
 
   const sPathfinding = ws.span("find_shortest_path", { fromSector, toSector });
   const { path, distance } = await findShortestPath(supabase, {

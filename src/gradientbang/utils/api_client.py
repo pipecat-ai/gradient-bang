@@ -85,9 +85,7 @@ class AsyncGameClient:
         actor_character_id: Optional[str] = None,
         entity_type: str = "character",
         allow_corp_actorless_control: bool = False,
-        websocket_frame_callback: Optional[
-            Callable[[str, Mapping[str, Any]], Any]
-        ] = None,
+        websocket_frame_callback: Optional[Callable[[str, Mapping[str, Any]], Any]] = None,
     ):
         """Initialize the async game client.
 
@@ -112,11 +110,11 @@ class AsyncGameClient:
         self._ws_reader_task: Optional[asyncio.Task] = None
         self._pending: Dict[str, asyncio.Future] = {}
         self._event_handlers: Dict[
-            str, List[Callable[[Dict[str, Any]], Awaitable[None]]]
+            str, List[Callable[[Dict[str, Any]], Awaitable[None] | None]]
         ] = {}
         self._event_handler_wrappers: Dict[
             Tuple[str, Callable[[Dict[str, Any]], Any]],
-            Callable[[Dict[str, Any]], Awaitable[None]],
+            Callable[[Dict[str, Any]], Awaitable[None] | None],
         ] = {}
         self._event_delivery_enabled: bool = True
         self._pending_events: List[Tuple[str, Dict[str, Any]]] = []
@@ -210,9 +208,7 @@ class AsyncGameClient:
         def map_local_wrapper(data: Dict[str, Any]) -> str:
             return map_local_summary(data)
 
-        def event_query_wrapper(
-            data: Dict[str, Any], client: "AsyncGameClient" = self
-        ) -> str:
+        def event_query_wrapper(data: Dict[str, Any], client: "AsyncGameClient" = self) -> str:
             def nested_summary(event_name: str, payload: Dict[str, Any]) -> Optional[str]:
                 if event_name == "event.query":
                     # Prevent recursive expansion - nested event.query gets single line
@@ -224,9 +220,7 @@ class AsyncGameClient:
 
             return event_query_summary(data, nested_summary)
 
-        def character_moved_wrapper(
-            data: Dict[str, Any], client: "AsyncGameClient" = self
-        ) -> str:
+        def character_moved_wrapper(data: Dict[str, Any], client: "AsyncGameClient" = self) -> str:
             return character_moved_summary(data, client._corporation_id)
 
         def garrison_character_moved_wrapper(
@@ -298,9 +292,7 @@ class AsyncGameClient:
         """
         return getattr(self, "_canonical_character_id", None) or self._character_id
 
-    def _maybe_update_current_sector(
-        self, event_name: str, payload: Mapping[str, Any]
-    ) -> None:
+    def _maybe_update_current_sector(self, event_name: str, payload: Mapping[str, Any]) -> None:
         """Extract and cache the bound character's current sector from incoming data.
 
         Events reaching this client's poller may describe other characters
@@ -333,9 +325,7 @@ class AsyncGameClient:
         if sector_id is not None:
             self._set_current_sector(sector_id)
 
-    def _maybe_update_corporation_id(
-        self, event_name: str, payload: Mapping[str, Any]
-    ) -> None:
+    def _maybe_update_corporation_id(self, event_name: str, payload: Mapping[str, Any]) -> None:
         """Extract and cache the bound character's corporation ID from status events.
 
         Corp ships of the bound character's corp share the same corp_id, so
@@ -393,7 +383,9 @@ class AsyncGameClient:
 
         return summary
 
-    def _format_event(self, event_name: str, payload: Any, request_id: Optional[str] = None) -> Dict[str, Any]:
+    def _format_event(
+        self, event_name: str, payload: Any, request_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Normalize an event payload and attach summary metadata when available."""
 
         if isinstance(payload, Mapping):
@@ -440,7 +432,7 @@ class AsyncGameClient:
         self,
         event_name: str,
         handler: Callable[[Dict[str, Any]], Awaitable[None] | None],
-    ) -> Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]:
+    ) -> Tuple[str, Callable[[Dict[str, Any]], Awaitable[None] | None]]:
         """Register an event handler and return a removable token."""
 
         if not callable(handler):
@@ -450,13 +442,15 @@ class AsyncGameClient:
             async_handler = handler  # type: ignore[assignment]
         else:
 
-            async def async_handler(payload: Dict[str, Any]) -> None:
+            def async_handler(payload: Dict[str, Any]) -> Awaitable[None] | None:
                 try:
                     result = handler(payload)
-                    if inspect.isawaitable(result):
-                        await result
                 except Exception:  # noqa: BLE001
                     logger.exception("Unhandled error in {} handler", event_name)
+                    return None
+                if inspect.isawaitable(result):
+                    return result
+                return None
 
         bucket = self._event_handlers.setdefault(event_name, [])
         bucket.append(async_handler)
@@ -475,14 +469,14 @@ class AsyncGameClient:
         self,
         event_name: str,
         handler: Callable[[Dict[str, Any]], Awaitable[None] | None],
-    ) -> Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]:
+    ) -> Tuple[str, Callable[[Dict[str, Any]], Awaitable[None] | None]]:
         """Register a handler programmatically and return a token for removal."""
 
         return self._register_event_handler(event_name, handler)
 
     def remove_event_handler(
         self,
-        token: Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]],
+        token: Tuple[str, Callable[[Dict[str, Any]], Awaitable[None] | None]],
     ) -> bool:
         """Remove a previously registered handler using its token."""
 
@@ -531,7 +525,7 @@ class AsyncGameClient:
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
-        token: Optional[Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]] = None
+        token: Optional[Tuple[str, Callable[[Dict[str, Any]], Awaitable[None] | None]]] = None
 
         async def _handler(event: Dict[str, Any]) -> None:
             nonlocal token
@@ -588,17 +582,11 @@ class AsyncGameClient:
                     event_name = msg.get("event")
                     payload = msg.get("payload", {})
                     if event_name:
-                        if (
-                            event_name == "character.moved"
-                            and self._character_id is not None
-                        ):
+                        if event_name == "character.moved" and self._character_id is not None:
                             player = payload.get("player") or {}
                             mover_id = player.get("id") or payload.get("character_id")
                             mover_name = player.get("name") or payload.get("name")
-                            if (
-                                mover_id == self._character_id
-                                or mover_name == self._character_id
-                            ):
+                            if mover_id == self._character_id or mover_name == self._character_id:
                                 continue
                         await self._process_event(event_name, payload)
                     continue
@@ -618,7 +606,9 @@ class AsyncGameClient:
                     fut.set_exception(RuntimeError("WebSocket connection lost"))
             self._pending.clear()
 
-    async def _process_event(self, event_name: str, payload: Dict[str, Any], request_id: Optional[str] = None) -> None:
+    async def _process_event(
+        self, event_name: str, payload: Dict[str, Any], request_id: Optional[str] = None
+    ) -> None:
         if event_name == "error" and isinstance(payload, Mapping):
             source = payload.get("source")
             if isinstance(source, Mapping):
@@ -636,7 +626,36 @@ class AsyncGameClient:
         queue.put_nowait(event_message)
         handlers = self._event_handlers.get(event_name, [])
         for handler in handlers:
-            asyncio.create_task(handler(event_message))
+            try:
+                result = handler(event_message)
+            except Exception:  # noqa: BLE001
+                logger.exception("Unhandled error in {} handler", event_name)
+                continue
+            if inspect.isawaitable(result):
+                task = asyncio.create_task(result)
+                task.add_done_callback(
+                    lambda done, *, event_name=event_name, handler=handler: (
+                        self._log_event_handler_task_result(done, event_name, handler)
+                    )
+                )
+
+    def _log_event_handler_task_result(
+        self,
+        task: asyncio.Task,
+        event_name: str,
+        handler: Callable[[Dict[str, Any]], Awaitable[None] | None],
+    ) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001
+            handler_name = getattr(handler, "__qualname__", repr(handler))
+            logger.exception(
+                "Unhandled async error in {} handler {}",
+                event_name,
+                handler_name,
+            )
 
     def get_event_queue(self, event_name: str) -> asyncio.Queue:
         """Return a per-event queue for consumers that prefer awaiting messages.
@@ -898,9 +917,7 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        ack = await self._request(
-            "move", {"character_id": character_id, "to_sector": to_sector}
-        )
+        ack = await self._request("move", {"character_id": character_id, "to_sector": to_sector})
         return ack
 
     async def my_status(self, character_id: str) -> Dict[str, Any]:
@@ -1127,11 +1144,7 @@ class AsyncGameClient:
         if include_broadcasts is not None:
             payload["include_broadcasts"] = include_broadcasts
 
-        actor_value = (
-            actor_character_id
-            or self._actor_character_id
-            or self._character_id
-        )
+        actor_value = actor_character_id or self._actor_character_id or self._character_id
         if actor_value:
             payload.setdefault("actor_character_id", actor_value)
 
@@ -1592,9 +1605,7 @@ class AsyncGameClient:
 
         return await self._request("ship.sell", payload)
 
-    async def get_ship_definitions(
-        self, *, include_description: bool = False
-    ) -> Dict[str, Any]:
+    async def get_ship_definitions(self, *, include_description: bool = False) -> Dict[str, Any]:
         """Return all ship definitions from the database."""
         payload: Dict[str, Any] = {}
         if include_description:
@@ -1858,9 +1869,7 @@ class AsyncGameClient:
         payload = {"character_id": character_id, "units": units}
         return await self._request("purchase_fighters", payload)
 
-    async def recharge_warp_power(
-        self, units: int, character_id: str
-    ) -> Dict[str, Any]:
+    async def recharge_warp_power(self, units: int, character_id: str) -> Dict[str, Any]:
         """Recharge warp power at a mega-port depot in Federation Space.
 
         Args:
@@ -2033,9 +2042,7 @@ class AsyncGameClient:
             payload["ship_name"] = ship_name
 
         if (ship_id is not None or ship_name is not None) and "actor_character_id" not in payload:
-            payload["actor_character_id"] = (
-                self._actor_character_id or self._character_id
-            )
+            payload["actor_character_id"] = self._actor_character_id or self._character_id
 
         return await self._request("bank_transfer", payload)
 
@@ -2440,7 +2447,9 @@ class AsyncGameClient:
         payload = {"character_id": character_id, "type": msg_type, "content": content}
         if msg_type == "direct":
             if not to_name and not to_ship_id and not to_ship_name:
-                raise ValueError("to_name, to_ship_id, or to_ship_name is required for direct messages")
+                raise ValueError(
+                    "to_name, to_ship_id, or to_ship_name is required for direct messages"
+                )
             if to_name:
                 payload["to_name"] = to_name
             if to_ship_id:
@@ -2483,9 +2492,7 @@ class AsyncGameClient:
         """Deprecated: Server auto-subscribes to status updates."""
         logger.debug("subscribe_my_status is deprecated; skipping explicit subscribe")
 
-    async def identify(
-        self, *, name: Optional[str] = None, character_id: Optional[str] = None
-    ):
+    async def identify(self, *, name: Optional[str] = None, character_id: Optional[str] = None):
         """Register identity for receiving direct messages.
 
         One of name or character_id must be provided.

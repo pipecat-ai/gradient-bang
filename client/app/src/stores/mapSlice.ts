@@ -4,12 +4,11 @@ import type { StateCreator } from "zustand"
 import {
   addCoverageRect,
   buildCoverageRect,
+  clampMapZoomLevel,
   computeMapFit,
-  computeWorldBounds,
   deduplicateMapNodes,
-  findNearestDiscoveredSector,
+  findNearestNode,
   getNextZoomLevel,
-  getVisibleNodes,
   hexToWorld,
   isRectCovered,
   normalizeMapData,
@@ -30,6 +29,13 @@ const PENDING_REQUEST_TIMEOUT_MS = 10_000
 const MAX_MAP_FIT_STALE_UPDATES = 5
 const SQRT3 = Math.sqrt(3)
 
+export type MapMode = "follow" | "freeroam"
+export type MapZoomUpdateSource = "viewport" | "control" | "programmatic"
+
+interface MapFitOptions {
+  forceFollow?: boolean
+}
+
 export interface MapCenterNode {
   centerSector: number
   bounds: number
@@ -45,6 +51,18 @@ export interface MapUIActionPayload {
   clearCoursePlot?: boolean
 }
 
+// Client-internal delta produced by GameContext from incoming server events.
+// Never appears on the wire; `applyMapDelta` is the only consumer.
+export type MapDelta =
+  | {
+      kind: "sector_upsert"
+      sectors: Array<Partial<MapSectorNode> & { id: number }>
+    }
+  | { kind: "garrison_set"; sector_id: number; garrison: MapSectorGarrison }
+  | { kind: "garrison_cleared"; sector_id: number }
+  | { kind: "combat_started"; sector_id: number; combat_id: string }
+  | { kind: "combat_ended"; combat_id: string }
+
 export interface MapSlice {
   // --- Map data ---
   pendingMapCenterRequestRef: MapCenterNode | null
@@ -57,22 +75,19 @@ export interface MapSlice {
   mapCenterWorld?: [number, number]
   mapFitBoundsWorld?: [number, number, number, number]
   mapZoomLevel?: number
+  mapZoomUpdateSource: MapZoomUpdateSource
+  mapMode: MapMode
   mapFitEpoch?: number
   mapResetEpoch: number
   pendingMapFitSectors?: number[]
   pendingMapFitMissingCount?: number
   coursePlotZoomEnabled: boolean
   mapLegendVisible: boolean
-  // Sectors with active combat the viewer can see, keyed by combat_id.
-  // Drives a dotted overlay on the big map; toggled by GameContext on
-  // combat.round_waiting (any flavor) and combat.ended (any flavor).
-  combat_sectors: Record<string, number>
   // --- Map data methods ---
-  setPendingMapCenterRequest: (centerNode: MapCenterNode) => void
   handleMapCenterFallback: () => void
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
-  updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) => void
+  applyMapDelta: (delta: MapDelta) => void
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
 
@@ -81,15 +96,15 @@ export interface MapSlice {
   setMapCenterWorld: (center: [number, number] | undefined) => void
   setMapFitBoundsWorld: (bounds: [number, number, number, number] | undefined) => void
   setMapZoomLevel: (zoomLevel: number) => void
+  setMapZoomLevelFromControl: (zoomLevel: number) => void
+  syncMapZoomLevelFromViewport: (zoomLevel: number) => void
+  enterFreeroamFromGesture: (gestureCenterSectorId?: number) => void
+  recenterMap: () => void
   requestMapFetch: (centerSectorId: number, bounds: number) => boolean
   clearPendingMapFit: () => void
-  fitMapToSectors: (sectorIds: number[]) => void
-  requestMapAutoRecenter: (reason: string) => void
+  fitMapToSectors: (sectorIds: number[], options?: MapFitOptions) => void
   setCoursePlotZoomEnabled: (enabled: boolean) => void
   setMapLegendVisible: (visible: boolean) => void
-  addCombatSector: (combatId: string, sectorId: number) => void
-  removeCombatSector: (combatId: string) => void
-  clearCombatSectors: () => void
   resetMapView: () => void
   invalidateMapCoverage: (resetCenterSector?: number) => void
 
@@ -101,15 +116,12 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
   // -----------------------------------------------------------------------
   // Closure state for fitMapToSectors retry logic
   // -----------------------------------------------------------------------
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  let _mapFitRetryCount = 0
   let _mapFitStaleUpdateCount = 0
   let _mapFitTrackedRequestKey: string | undefined
 
   const _getMapFitRequestKey = (sectorIds: number[]): string => sectorIds.join(",")
 
   const _resetMapFitRetryState = () => {
-    _mapFitRetryCount = 0
     _mapFitStaleUpdateCount = 0
     _mapFitTrackedRequestKey = undefined
   }
@@ -120,11 +132,14 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     const pending = state.pendingMapFitSectors
     const prevMissing = state.pendingMapFitMissingCount
     if (!pending || pending.length === 0 || prevMissing == null) return
+    if (state.mapMode === "freeroam") {
+      get().clearPendingMapFit()
+      return
+    }
 
     const requestKey = _getMapFitRequestKey(pending)
     if (_mapFitTrackedRequestKey !== requestKey) {
       _mapFitTrackedRequestKey = requestKey
-      _mapFitRetryCount = 0
       _mapFitStaleUpdateCount = 0
     }
 
@@ -144,74 +159,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     }
 
     _mapFitStaleUpdateCount = 0
-    _mapFitRetryCount++
     get().fitMapToSectors(pending)
-  }
-
-  // -----------------------------------------------------------------------
-  // Closure state for auto-recenter
-  // -----------------------------------------------------------------------
-  let autoRecenterRequested = false
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _maybeAutoRecenter = (_reason: string) => {
-    if (!autoRecenterRequested) return
-
-    const state = get()
-    if (state.mapFitBoundsWorld) {
-      autoRecenterRequested = false
-      return
-    }
-    if (state.pendingMapFitSectors && state.pendingMapFitSectors.length > 0) {
-      return
-    }
-
-    const nodes = deduplicateMapNodes(
-      state.regional_map_data ?? [],
-      state.local_map_data ?? []
-    ).filter((n) => n.position)
-    if (nodes.length === 0) return
-
-    // Resolve center from state
-    let centerWorld = state.mapCenterWorld
-    if (!centerWorld) {
-      const centerId = state.mapCenterSector ?? state.sector?.id
-      const centerNode = centerId !== undefined ? nodes.find((n) => n.id === centerId) : undefined
-      if (centerNode?.position) {
-        const w = hexToWorld(centerNode.position[0], centerNode.position[1])
-        centerWorld = [w.x, w.y]
-      } else {
-        const fallback = nodes.find((n) => n.position)
-        if (fallback?.position) {
-          const w = hexToWorld(fallback.position[0], fallback.position[1])
-          centerWorld = [w.x, w.y]
-        }
-      }
-    }
-    if (!centerWorld) return
-
-    // Compute new center from visible node bounds
-    const zoomLevel = state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
-    const visible = getVisibleNodes(nodes, centerWorld, zoomLevel)
-    if (visible.length === 0) return
-
-    const bounds = computeWorldBounds(visible)
-    if (!bounds) return
-
-    const dx = bounds.center[0] - centerWorld[0]
-    const dy = bounds.center[1] - centerWorld[1]
-    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
-      autoRecenterRequested = false
-      return
-    }
-
-    set(
-      produce((draft) => {
-        draft.mapCenterWorld = bounds.center
-        draft.mapFitBoundsWorld = undefined
-      })
-    )
-    autoRecenterRequested = false
   }
 
   // -----------------------------------------------------------------------
@@ -255,6 +203,43 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       _confirmedCoverage = addCoverageRect(_confirmedCoverage, request.rect)
     }
     _inFlightRequests = _inFlightRequests.filter((r) => r.key !== key)
+  }
+
+  const _clearInFlightRequest = (key: string) => {
+    _inFlightRequests = _inFlightRequests.filter((r) => r.key !== key)
+  }
+
+  const _getKnownMapData = (): MapData => {
+    const state = get()
+    return [...(state.local_map_data ?? []), ...(state.regional_map_data ?? [])]
+  }
+
+  const _isVisitedCenter = (sectorId: number, mapData: MapData): boolean => {
+    const state = get()
+    if (state.sector?.id === sectorId) return true
+    return mapData.some((n) => n.id === sectorId && n.visited)
+  }
+
+  const _findNearestVisitedSector = (
+    targetSectorId: number,
+    mapData: MapData
+  ): MapSectorNode | undefined => {
+    const visited = mapData.filter((node) => node.visited)
+    if (visited.length === 0) return undefined
+
+    const targetNode = mapData.find((node) => node.id === targetSectorId)
+    if (!targetNode?.position) return visited[0]
+
+    const targetWorld = hexToWorld(targetNode.position[0], targetNode.position[1])
+    return findNearestNode([targetWorld.x, targetWorld.y], visited)
+  }
+
+  const _resolveFetchCenterSector = (sectorId: number): number => {
+    const mapData = _getKnownMapData()
+    if (_isVisitedCenter(sectorId, mapData)) {
+      return sectorId
+    }
+    return _findNearestVisitedSector(sectorId, mapData)?.id ?? get().sector?.id ?? sectorId
   }
 
   const _resolveCenterWorld = (sectorId: number): [number, number] | undefined => {
@@ -305,24 +290,17 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     mapCenterWorld: undefined,
     mapFitBoundsWorld: undefined,
     mapZoomLevel: undefined,
+    mapZoomUpdateSource: "programmatic",
+    mapMode: "follow",
     mapFitEpoch: undefined,
     pendingMapFitSectors: undefined,
     pendingMapFitMissingCount: undefined,
     coursePlotZoomEnabled: true,
     mapLegendVisible: false,
-    combat_sectors: {},
     mapResetEpoch: 0,
     // =================================================================
     // Map data methods
     // =================================================================
-
-    setPendingMapCenterRequest: (centerNode: MapCenterNode) => {
-      set(
-        produce((state) => {
-          state.pendingMapCenterRequestRef = centerNode
-        })
-      )
-    },
 
     handleMapCenterFallback: () => {
       const state = get()
@@ -338,11 +316,12 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         return
       }
 
-      const mapData: MapData = [...(state.local_map_data ?? []), ...(state.regional_map_data ?? [])]
+      _clearInFlightRequest(`${pending.centerSector}:${pending.bounds}`)
 
+      const mapData = _getKnownMapData()
       let fallbackId = state.sector?.id
       if (fallbackId === undefined) {
-        const nearest = findNearestDiscoveredSector(pending.centerSector, mapData)
+        const nearest = _findNearestVisitedSector(pending.centerSector, mapData)
         fallbackId = nearest?.id
       }
 
@@ -350,13 +329,15 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         return
       }
 
-      set(
-        produce((s) => {
-          s.mapCenterWorld = undefined
-          s.mapFitBoundsWorld = undefined
-          s.mapCenterSector = fallbackId
-        })
-      )
+      if (state.mapMode !== "freeroam") {
+        set(
+          produce((s) => {
+            s.mapCenterWorld = undefined
+            s.mapFitBoundsWorld = undefined
+            s.mapCenterSector = fallbackId
+          })
+        )
+      }
 
       state.dispatchAction({
         type: "get-my-map",
@@ -408,7 +389,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         })
       )
       _maybeRetryMapFit()
-      _maybeAutoRecenter("map.local")
     },
 
     setRegionalMapData: (regionalMapData: MapData) => {
@@ -443,105 +423,71 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       }
 
       _maybeRetryMapFit()
-      _maybeAutoRecenter("map.region")
     },
 
-    updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) =>
+    applyMapDelta: (delta: MapDelta) =>
       set(
         produce((state) => {
-          const processMapUpdates = (
-            mapData: MapSectorNode[] | undefined,
-            ignoreLocal: boolean = false
-          ): void => {
+          const merge = (mapData: MapSectorNode[] | undefined): void => {
             if (!mapData) return
-
-            const updates =
-              ignoreLocal ?
-                sectorUpdates.filter((s) => (s as MapSectorNode).source !== "player")
-              : sectorUpdates
-
-            const existingIndex = new Map<number, number>()
-            mapData.forEach((s: MapSectorNode, idx: number) => existingIndex.set(s.id, idx))
-
-            const hasExistingMatch =
-              updates.length > 0 && updates.some((s) => existingIndex.has(s.id))
-            const hasNewSectors =
-              updates.length > 0 && updates.some((s) => !existingIndex.has(s.id))
-            const hasPortOnlyWork =
-              ignoreLocal &&
-              sectorUpdates.some(
-                (s) =>
-                  (s as MapSectorNode).source === "player" &&
-                  s.port !== undefined &&
-                  existingIndex.has(s.id)
-              )
-
-            if (!hasExistingMatch && !hasNewSectors && !hasPortOnlyWork) return
-
-            for (const sectorUpdate of updates) {
-              const existingIdx = existingIndex.get(sectorUpdate.id)
-              if (existingIdx !== undefined) {
-                // When ignoreLocal is set (local_map_data), skip Object.assign
-                // on player-visited sectors to prevent corp-sourced updates
-                // from overwriting the player's own sector data. Unvisited or
-                // corp-only sectors can still be updated (e.g. when a probe
-                // visits a previously gray sector).
-                const existingSource = (mapData[existingIdx] as MapSectorNode).source
-                const isPlayerVisited = existingSource === "player" || existingSource === "both"
-                const incomingSource = (sectorUpdate as MapSectorNode).source
-                if (!ignoreLocal || !isPlayerVisited) {
-                  Object.assign(mapData[existingIdx], sectorUpdate)
-                  // Don't downgrade source from player/both to corp
-                  if (isPlayerVisited && incomingSource === "corp") {
-                    mapData[existingIdx].source = existingSource
-                  }
-                  if (sectorUpdate.port !== undefined) {
-                    const normalizedPort = normalizePort(
-                      (sectorUpdate as MapSectorNode).port as PortLike
-                    )
-                    mapData[existingIdx].port = normalizedPort as MapSectorNode["port"]
+            switch (delta.kind) {
+              case "sector_upsert": {
+                const indexById = new Map<number, number>()
+                mapData.forEach((s, idx) => indexById.set(s.id, idx))
+                for (const u of delta.sectors) {
+                  const idx = indexById.get(u.id)
+                  if (idx !== undefined) {
+                    // Server re-tags all sectors as "corp" in the corp map.update
+                    // broadcast and relies on the client to keep its own higher-
+                    // priority "player"/"both" source. See move/index.ts comment.
+                    const existingSource = mapData[idx].source
+                    const isPlayerVisited = existingSource === "player" || existingSource === "both"
+                    const incomingSource = (u as MapSectorNode).source
+                    Object.assign(mapData[idx], u)
+                    if (isPlayerVisited && incomingSource === "corp") {
+                      mapData[idx].source = existingSource
+                    }
+                    if (u.port !== undefined) {
+                      mapData[idx].port = normalizePort(
+                        (u as MapSectorNode).port as PortLike
+                      ) as MapSectorNode["port"]
+                    }
+                  } else {
+                    mapData.push({
+                      ...u,
+                      port: normalizePort((u as MapSectorNode).port as PortLike),
+                    } as MapSectorNode)
                   }
                 }
-              } else {
-                const newSector = {
-                  ...sectorUpdate,
-                  port: normalizePort((sectorUpdate as MapSectorNode).port as PortLike),
-                } as MapSectorNode
-                mapData.push(newSector)
+                break
               }
-            }
-
-            // For local_map_data: merge ONLY port data from player-sourced
-            // updates that were filtered out above. This ensures port changes
-            // (e.g. mega flag) reach local_map_data without overwriting
-            // structural data like lanes.
-            if (ignoreLocal) {
-              for (const su of sectorUpdates) {
-                if ((su as MapSectorNode).source !== "player") continue
-                if (su.port === undefined) continue
-                const idx = existingIndex.get(su.id)
-                if (idx !== undefined) {
-                  mapData[idx].port = normalizePort(
-                    (su as MapSectorNode).port as PortLike
-                  ) as MapSectorNode["port"]
-                }
+              case "garrison_set": {
+                const idx = mapData.findIndex((s) => s.id === delta.sector_id)
+                if (idx >= 0) mapData[idx].garrison = delta.garrison
+                break
               }
-
-              // Also merge garrison data into player-visited sectors that
-              // were skipped above. Garrison placements/removals should
-              // always be reflected on the mini map.
-              for (const su of sectorUpdates) {
-                if (su.garrison === undefined) continue
-                const idx = existingIndex.get(su.id)
-                if (idx !== undefined) {
-                  mapData[idx].garrison = su.garrison
+              case "garrison_cleared": {
+                const idx = mapData.findIndex((s) => s.id === delta.sector_id)
+                if (idx >= 0) mapData[idx].garrison = null
+                break
+              }
+              case "combat_started": {
+                const idx = mapData.findIndex((s) => s.id === delta.sector_id)
+                if (idx >= 0) mapData[idx].combat = { combat_id: delta.combat_id }
+                break
+              }
+              case "combat_ended": {
+                for (const sector of mapData) {
+                  if (sector.combat?.combat_id === delta.combat_id) {
+                    sector.combat = null
+                  }
                 }
+                break
               }
             }
           }
-
-          processMapUpdates(state.local_map_data, true)
-          processMapUpdates(state.regional_map_data)
+          merge(state.local_map_data)
+          merge(state.regional_map_data)
         })
       ),
 
@@ -556,7 +502,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       set(
         produce((state) => {
           state.course_plot = undefined
-          if (state.coursePlotZoomEnabled !== false) {
+          if (state.mapMode === "follow" && state.coursePlotZoomEnabled !== false) {
             state.mapCenterSector = undefined
             state.mapCenterWorld = undefined
             state.mapFitBoundsWorld = undefined
@@ -593,7 +539,53 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     setMapZoomLevel: (zoomLevel: number) =>
       set(
         produce((state) => {
-          state.mapZoomLevel = zoomLevel
+          state.mapZoomLevel = clampMapZoomLevel(zoomLevel)
+          state.mapZoomUpdateSource = "programmatic"
+        })
+      ),
+
+    setMapZoomLevelFromControl: (zoomLevel: number) =>
+      set(
+        produce((state) => {
+          state.mapFitBoundsWorld = undefined
+          state.mapZoomLevel = clampMapZoomLevel(zoomLevel)
+          state.mapZoomUpdateSource = "control"
+        })
+      ),
+
+    syncMapZoomLevelFromViewport: (zoomLevel: number) =>
+      set(
+        produce((state) => {
+          state.mapFitBoundsWorld = undefined
+          state.mapZoomLevel = clampMapZoomLevel(zoomLevel)
+          state.mapZoomUpdateSource = "viewport"
+        })
+      ),
+
+    enterFreeroamFromGesture: (gestureCenterSectorId?: number) => {
+      _resetMapFitRetryState()
+      set(
+        produce((state) => {
+          state.pendingMapFitSectors = undefined
+          state.pendingMapFitMissingCount = undefined
+          if (state.mapMode === "freeroam") return
+          const pinnedSector = state.mapCenterSector ?? state.sector?.id ?? gestureCenterSectorId
+          state.mapMode = "freeroam"
+          if (pinnedSector !== undefined) {
+            state.mapCenterSector = pinnedSector
+          }
+        })
+      )
+    },
+
+    recenterMap: () =>
+      set(
+        produce((state) => {
+          state.mapMode = "follow"
+          state.mapCenterSector = undefined
+          state.mapCenterWorld = undefined
+          state.mapFitBoundsWorld = undefined
+          state.mapResetEpoch = (state.mapResetEpoch ?? 0) + 1
         })
       ),
 
@@ -611,36 +603,13 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         })
       ),
 
-    addCombatSector: (combatId: string, sectorId: number) =>
-      set(
-        produce((state) => {
-          if (state.combat_sectors[combatId] === sectorId) return
-          state.combat_sectors[combatId] = sectorId
-        })
-      ),
-
-    removeCombatSector: (combatId: string) =>
-      set(
-        produce((state) => {
-          if (!(combatId in state.combat_sectors)) return
-          delete state.combat_sectors[combatId]
-        })
-      ),
-
-    clearCombatSectors: () =>
-      set(
-        produce((state) => {
-          state.combat_sectors = {}
-        })
-      ),
-
     resetMapView: () =>
       set(
         produce((state) => {
+          state.mapMode = "follow"
           state.mapCenterSector = undefined
           state.mapCenterWorld = undefined
           state.mapFitBoundsWorld = undefined
-          state.combat_sectors = {}
           state.mapResetEpoch = (state.mapResetEpoch ?? 0) + 1
         })
       ),
@@ -665,19 +634,20 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     },
 
     requestMapFetch: (centerSectorId: number, bounds: number): boolean => {
-      const centerWorld = _resolveCenterWorld(centerSectorId)
+      const resolvedCenterId = _resolveFetchCenterSector(centerSectorId)
+      const centerWorld = _resolveCenterWorld(resolvedCenterId)
       const rect = centerWorld ? buildCoverageRect(centerWorld, bounds) : undefined
 
       if (_isAlreadyCovered(rect)) return false
 
-      const key = `${centerSectorId}:${bounds}`
+      const key = `${resolvedCenterId}:${bounds}`
       _registerInFlightRequest(key, rect)
 
       // Track so setRegionalMapData can confirm coverage when data arrives
       set(
         produce((draft) => {
           draft.pendingMapCenterRequestRef = {
-            centerSector: centerSectorId,
+            centerSector: resolvedCenterId,
             bounds,
             requestedAt: Date.now(),
           }
@@ -688,7 +658,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       state.dispatchAction({
         type: "get-my-map",
         payload: {
-          center_sector: centerSectorId,
+          center_sector: resolvedCenterId,
           bounds,
         },
       })
@@ -705,13 +675,19 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       )
     },
 
-    fitMapToSectors: (sectorIds: number[]) => {
+    fitMapToSectors: (sectorIds: number[], options?: MapFitOptions) => {
       const cleaned = Array.from(
         new Set(sectorIds.filter((id) => typeof id === "number" && Number.isFinite(id)))
       )
       if (cleaned.length === 0) return
 
       const state = get()
+      if (state.mapMode === "freeroam" && !options?.forceFollow) {
+        if (state.pendingMapFitSectors && state.pendingMapFitSectors.length > 0) {
+          get().clearPendingMapFit()
+        }
+        return
+      }
       const combinedMap = deduplicateMapNodes(
         state.regional_map_data ?? [],
         state.local_map_data ?? []
@@ -733,7 +709,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           pending.every((id, idx) => id === cleaned[idx])
         if (!samePending || _mapFitTrackedRequestKey !== requestKey) {
           _mapFitTrackedRequestKey = requestKey
-          _mapFitRetryCount = 0
           _mapFitStaleUpdateCount = 0
         }
         if (samePending && pendingMissing !== undefined && missing.length >= pendingMissing) {
@@ -741,6 +716,9 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         }
         set(
           produce((draft) => {
+            if (options?.forceFollow) {
+              draft.mapMode = "follow"
+            }
             draft.pendingMapFitSectors = cleaned
             draft.pendingMapFitMissingCount = missing.length
           })
@@ -764,21 +742,20 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
 
       set(
         produce((draft) => {
+          if (options?.forceFollow) {
+            draft.mapMode = "follow"
+          }
           draft.mapCenterSector = fit.centerNode.id
           draft.mapCenterWorld = fit.centerWorld
           draft.mapFitBoundsWorld = fit.fitBoundsWorld
           draft.mapZoomLevel = fit.zoomLevel
+          draft.mapZoomUpdateSource = "programmatic"
           draft.mapFitEpoch = (draft.mapFitEpoch ?? 0) + 1
           draft.pendingMapFitSectors = undefined
           draft.pendingMapFitMissingCount = undefined
         })
       )
       _resetMapFitRetryState()
-    },
-
-    requestMapAutoRecenter: (reason: string) => {
-      autoRecenterRequested = true
-      _maybeAutoRecenter(reason)
     },
 
     // =================================================================
@@ -823,6 +800,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
             produce((draft) => {
               draft.mapFitBoundsWorld = undefined
               draft.mapZoomLevel = nextZoom
+              draft.mapZoomUpdateSource = "programmatic"
             })
           )
         } else if (!zoomOnly) {
@@ -831,6 +809,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
             produce((draft) => {
               draft.mapFitBoundsWorld = undefined
               draft.mapZoomLevel = mapZoom
+              draft.mapZoomUpdateSource = "programmatic"
             })
           )
         }
@@ -842,6 +821,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           produce((draft) => {
             draft.mapFitBoundsWorld = undefined
             draft.mapZoomLevel = nextZoom
+            draft.mapZoomUpdateSource = "programmatic"
           })
         )
       }
@@ -852,6 +832,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       if (mapCenterSector !== undefined) {
         set(
           produce((draft) => {
+            draft.mapMode = "follow"
             draft.mapCenterWorld = undefined
             draft.mapFitBoundsWorld = undefined
             draft.mapCenterSector = mapCenterSector
@@ -861,30 +842,22 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
 
       // --- Highlight path (course plot) ---
       if (highlightPath && highlightPath.length > 0) {
-        set(
-          produce((draft) => {
-            draft.course_plot = {
-              path: highlightPath,
-              from_sector: highlightPath[0],
-              to_sector: highlightPath[highlightPath.length - 1],
-              distance: Math.max(0, highlightPath.length - 1),
-            }
-          })
-        )
+        get().setCoursePlot({
+          path: highlightPath,
+          from_sector: highlightPath[0],
+          to_sector: highlightPath[highlightPath.length - 1],
+          distance: Math.max(0, highlightPath.length - 1),
+        })
       }
 
       // --- Fit to sectors ---
       if (fitSectors && fitSectors.length > 0) {
-        get().fitMapToSectors(fitSectors)
+        get().fitMapToSectors(fitSectors, { forceFollow: !hasHighlight })
       }
 
       // --- Clear course plot ---
       if (shouldClearPlot) {
-        set(
-          produce((draft) => {
-            draft.course_plot = undefined
-          })
-        )
+        get().clearCoursePlot()
       }
     },
   }

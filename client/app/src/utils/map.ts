@@ -44,6 +44,36 @@ export const normalizePort = (port: PortLike): PortBase | null => {
 export const normalizeMapData = (mapData: MapData): MapData =>
   mapData.map((sector) => ({ ...sector, port: normalizePort(sector.port as PortLike) }))
 
+export interface MapShipMarker {
+  sector: number
+  ship_name: string
+  ship_type: string
+  owner_kind: "self" | "corp_mate"
+}
+
+/** Project corp ships into the shape SectorMap expects, tagging viewer-owned vs corp-mate.
+ *  Corp ships have owner_character_id = null (corp owns them), so we use the BYOA claim
+ *  prefix as the "this ship belongs to a specific human" signal. Server emits 12 hex chars,
+ *  no dashes — match that format here. */
+export const mapShipsForViewer = (
+  ships: ShipSelf[] | undefined,
+  viewerCharacterId: string | undefined
+): MapShipMarker[] | undefined => {
+  const viewerPrefix = viewerCharacterId?.replace(/-/g, "").slice(0, 12)
+  return ships
+    ?.filter((s) => s.owner_type !== "personal")
+    .map((s) => {
+      const claimerPrefix = s.byoa?.owner_character_id_prefix
+      const claimedByOther = !!claimerPrefix && claimerPrefix !== viewerPrefix
+      return {
+        sector: s.sector ?? 0,
+        ship_name: s.ship_name,
+        ship_type: s.ship_type,
+        owner_kind: claimedByOther ? "corp_mate" : "self",
+      }
+    })
+}
+
 export const normalizeSector = <T extends Sector>(sector: T): T => ({
   ...sector,
   port: normalizePort(sector.port as PortLike),
@@ -67,6 +97,27 @@ export const zoomLevels = (() => {
   }
   return Array.from(new Set(levels)).sort((a, b) => a - b)
 })()
+
+export const clampMapZoomLevel = (zoomLevel: number) =>
+  Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, zoomLevel))
+
+const MAP_ZOOM_SLIDER_MIN = 0
+const MAP_ZOOM_SLIDER_MAX = 100
+
+export const zoomLevelToSliderValue = (zoomLevel: number) => {
+  const clamped = clampMapZoomLevel(zoomLevel)
+  const logMin = Math.log(MIN_BOUNDS)
+  const logMax = Math.log(MAX_BOUNDS)
+  return ((Math.log(clamped) - logMin) / (logMax - logMin)) * MAP_ZOOM_SLIDER_MAX
+}
+
+export const sliderValueToZoomLevel = (value: number) => {
+  const sliderValue = Math.max(MAP_ZOOM_SLIDER_MIN, Math.min(MAP_ZOOM_SLIDER_MAX, value))
+  const logMin = Math.log(MIN_BOUNDS)
+  const logMax = Math.log(MAX_BOUNDS)
+  const zoomLevel = Math.exp(logMin + ((logMax - logMin) * sliderValue) / MAP_ZOOM_SLIDER_MAX)
+  return Math.round(clampMapZoomLevel(zoomLevel) * 100) / 100
+}
 
 export const clampZoomIndex = (index: number) => Math.max(0, Math.min(zoomLevels.length - 1, index))
 
@@ -128,7 +179,16 @@ const garrisonsEquivalent = (
 ): boolean => {
   if (a === b) return true
   if (!a || !b) return false
-  return a.player_id === b.player_id && a.corporation_id === b.corporation_id
+  return a.player_id === b.player_id && a.corporation_id === b.corporation_id && a.mode === b.mode
+}
+
+const combatsEquivalent = (
+  a: MapSectorNode["combat"] | undefined,
+  b: MapSectorNode["combat"] | undefined
+): boolean => {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.combat_id === b.combat_id
 }
 
 export const isBorderSector = (node: MapSectorNode): boolean => {
@@ -148,6 +208,7 @@ export const sectorsEquivalentForRender = (a: MapSectorNode, b: MapSectorNode): 
   if (a.hops_from_center !== b.hops_from_center) return false
   if (a.last_visited !== b.last_visited) return false
   if (!garrisonsEquivalent(a.garrison, b.garrison)) return false
+  if (!combatsEquivalent(a.combat, b.combat)) return false
   if (getPortCode(a.port) !== getPortCode(b.port)) return false
   if (Boolean((a.port as PortBase | null)?.mega) !== Boolean((b.port as PortBase | null)?.mega))
     return false
@@ -301,24 +362,6 @@ export const findNearestNode = (
   }
 
   return best
-}
-
-/**
- * Find the nearest discovered (visited or sourced) sector to a target sector
- * using hex-grid world-coordinate distance.
- */
-export const findNearestDiscoveredSector = (
-  targetSectorId: number,
-  mapData: MapData
-): MapSectorNode | undefined => {
-  const discovered = mapData.filter((node) => node.visited || node.source)
-  if (discovered.length === 0) return undefined
-
-  const targetNode = mapData.find((node) => node.id === targetSectorId)
-  if (!targetNode?.position) return discovered[0]
-
-  const targetWorld = hexToWorld(targetNode.position[0], targetNode.position[1])
-  return findNearestNode([targetWorld.x, targetWorld.y], discovered)
 }
 
 // =========================================================================
