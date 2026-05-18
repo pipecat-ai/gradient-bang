@@ -206,6 +206,60 @@ Deno.test({
 });
 
 // ============================================================================
+// Group 3: Movement map payload preserves garrison mode
+// `move` builds map.local through pgBuildLocalMapRegion; this guards the pg
+// garrison query shape used by the client map overlay.
+// ============================================================================
+
+Deno.test({
+  name: "garrison_visibility — movement map.local includes garrison mode",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and setup", async () => {
+      await resetDatabase([P1, P2]);
+      await apiOk("join", { character_id: p1Id });
+      await apiOk("join", { character_id: p2Id });
+      await setShipSector(p2ShipId, 4);
+      await setShipWarpPower(p2ShipId, 500);
+      await insertGarrisonDirect(3, p1Id, 50, "defensive");
+    });
+
+    let cursorP2: number;
+
+    await t.step("capture P2 cursor", async () => {
+      cursorP2 = await getEventCursor(p2Id);
+    });
+
+    await t.step("P2 moves into defensive garrison sector", async () => {
+      await apiOk("move", { character_id: p2Id, to_sector: 3 });
+    });
+
+    await t.step("P2 map.local sector carries defensive mode", async () => {
+      const events = await eventsOfType(p2Id, "map.local", cursorP2);
+      assert(
+        events.length >= 1,
+        `Expected map.local for P2, got ${events.length}`,
+      );
+
+      const payload = events[events.length - 1].payload as {
+        sectors?: Array<{
+          id?: number;
+          garrison?: { mode?: string | null } | null;
+        }>;
+      };
+      const sector3 = payload.sectors?.find((sector) => sector.id === 3);
+      assertExists(sector3, "map.local should include destination sector 3");
+      assertExists(
+        sector3.garrison,
+        "sector 3 should include garrison metadata",
+      );
+      assertEquals(sector3.garrison.mode, "defensive");
+    });
+  },
+});
+
+// ============================================================================
 // Group 4: No garrisons in sector — only ship observers get events
 // Sector has no garrisons. Only ships in the sector receive events.
 // ============================================================================

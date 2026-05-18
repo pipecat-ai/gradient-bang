@@ -284,6 +284,30 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     _inFlightRequests = _inFlightRequests.filter((r) => r.key !== key)
   }
 
+  const _clearInFlightRequest = (key: string) => {
+    _inFlightRequests = _inFlightRequests.filter((r) => r.key !== key)
+  }
+
+  const _getKnownMapData = (): MapData => {
+    const state = get()
+    return [...(state.local_map_data ?? []), ...(state.regional_map_data ?? [])]
+  }
+
+  const _isDiscoveredCenter = (sectorId: number, mapData: MapData): boolean => {
+    const state = get()
+    if (state.sector?.id === sectorId) return true
+    const node = mapData.find((n) => n.id === sectorId)
+    return Boolean(node?.visited || node?.source)
+  }
+
+  const _resolveFetchCenterSector = (sectorId: number): number => {
+    const mapData = _getKnownMapData()
+    if (_isDiscoveredCenter(sectorId, mapData)) {
+      return sectorId
+    }
+    return findNearestDiscoveredSector(sectorId, mapData)?.id ?? get().sector?.id ?? sectorId
+  }
+
   const _resolveCenterWorld = (sectorId: number): [number, number] | undefined => {
     const state = get()
     const allData = [...(state.regional_map_data ?? []), ...(state.local_map_data ?? [])]
@@ -365,12 +389,10 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       if (!pending || Date.now() - pending.requestedAt > PENDING_REQUEST_TIMEOUT_MS) {
         return
       }
-      if (state.mapMode === "freeroam") {
-        return
-      }
 
-      const mapData: MapData = [...(state.local_map_data ?? []), ...(state.regional_map_data ?? [])]
+      _clearInFlightRequest(`${pending.centerSector}:${pending.bounds}`)
 
+      const mapData = _getKnownMapData()
       let fallbackId = state.sector?.id
       if (fallbackId === undefined) {
         const nearest = findNearestDiscoveredSector(pending.centerSector, mapData)
@@ -381,13 +403,15 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         return
       }
 
-      set(
-        produce((s) => {
-          s.mapCenterWorld = undefined
-          s.mapFitBoundsWorld = undefined
-          s.mapCenterSector = fallbackId
-        })
-      )
+      if (state.mapMode !== "freeroam") {
+        set(
+          produce((s) => {
+            s.mapCenterWorld = undefined
+            s.mapFitBoundsWorld = undefined
+            s.mapCenterSector = fallbackId
+          })
+        )
+      }
 
       state.dispatchAction({
         type: "get-my-map",
@@ -686,19 +710,20 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     },
 
     requestMapFetch: (centerSectorId: number, bounds: number): boolean => {
-      const centerWorld = _resolveCenterWorld(centerSectorId)
+      const resolvedCenterId = _resolveFetchCenterSector(centerSectorId)
+      const centerWorld = _resolveCenterWorld(resolvedCenterId)
       const rect = centerWorld ? buildCoverageRect(centerWorld, bounds) : undefined
 
       if (_isAlreadyCovered(rect)) return false
 
-      const key = `${centerSectorId}:${bounds}`
+      const key = `${resolvedCenterId}:${bounds}`
       _registerInFlightRequest(key, rect)
 
       // Track so setRegionalMapData can confirm coverage when data arrives
       set(
         produce((draft) => {
           draft.pendingMapCenterRequestRef = {
-            centerSector: centerSectorId,
+            centerSector: resolvedCenterId,
             bounds,
             requestedAt: Date.now(),
           }
@@ -709,7 +734,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       state.dispatchAction({
         type: "get-my-map",
         payload: {
-          center_sector: centerSectorId,
+          center_sector: resolvedCenterId,
           bounds,
         },
       })
