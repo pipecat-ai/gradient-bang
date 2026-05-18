@@ -1,7 +1,7 @@
 """Tests for IdleReportProcessor timing, cooldown, and shutdown."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from pipecat.frames.frames import (
@@ -9,9 +9,11 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     CancelFrame,
     DataFrame,
+    InterruptionFrame,
     LLMFullResponseStartFrame,
     SystemFrame,
     UserStartedSpeakingFrame,
+    VADUserStartedSpeakingFrame,
 )
 
 from gradientbang.pipecat_server.frames import UserTextInputFrame
@@ -52,7 +54,7 @@ class TestIdleReportProcessor:
     async def test_no_fire_before_first_bot_speech(self):
         """Timer should not start until BotStoppedSpeakingFrame."""
         cb = AsyncMock(return_value=True)
-        proc = _make_processor(idle_seconds=0.05, on_idle=cb)
+        _make_processor(idle_seconds=0.05, on_idle=cb)
 
         # Wait longer than idle_seconds — no report because not started.
         await asyncio.sleep(0.1)
@@ -242,6 +244,27 @@ class TestIdleReportProcessor:
         await _send(proc, BotStoppedSpeakingFrame())
         await asyncio.sleep(0.08)
         assert cb.call_count == 2
+
+    async def test_user_activity_during_report_pushes_interruption(self):
+        """Idle reports should explicitly stop their own speech on user activity."""
+        cb = AsyncMock(return_value=True)
+        proc = _make_processor(idle_seconds=0.05, cooldown_seconds=0.5, on_idle=cb)
+
+        await _send(proc, UserStartedSpeakingFrame())
+        await _send(proc, BotStoppedSpeakingFrame())
+
+        await asyncio.sleep(0.08)
+        assert cb.call_count == 1
+
+        proc.push_frame.reset_mock()
+        await _send(proc, VADUserStartedSpeakingFrame())
+
+        interruption_calls = [
+            call
+            for call in proc.push_frame.call_args_list
+            if isinstance(call.args[0], InterruptionFrame)
+        ]
+        assert len(interruption_calls) == 1
 
     async def test_callback_returning_false_retries(self):
         """When callback returns False (no tasks), retry after idle period."""

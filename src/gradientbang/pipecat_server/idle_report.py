@@ -9,8 +9,12 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
+    InterruptionFrame,
+    InterimTranscriptionFrame,
     LLMFullResponseStartFrame,
+    TranscriptionFrame,
     UserStartedSpeakingFrame,
+    VADUserStartedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
@@ -83,6 +87,8 @@ class IdleReportProcessor(FrameProcessor):
 
         # Activity detection.
         if self._is_user_activity(frame):
+            if self._report_in_flight:
+                await self.push_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
             # User activity cancels timer and resets cooldown.
             # Timer only restarts when bot next finishes speaking.
             self._clear_report_in_flight()
@@ -105,7 +111,16 @@ class IdleReportProcessor(FrameProcessor):
 
     @staticmethod
     def _is_user_activity(frame) -> bool:
-        return isinstance(frame, (UserStartedSpeakingFrame, UserTextInputFrame))
+        return isinstance(
+            frame,
+            (
+                UserStartedSpeakingFrame,
+                VADUserStartedSpeakingFrame,
+                InterimTranscriptionFrame,
+                TranscriptionFrame,
+                UserTextInputFrame,
+            ),
+        )
 
     @staticmethod
     def _is_bot_starting(frame) -> bool:
