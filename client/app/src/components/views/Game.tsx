@@ -6,6 +6,7 @@ import { ArrowLeftIcon, WarningDiamondIcon } from "@phosphor-icons/react"
 
 import { useVoiceCapture } from "@/capture/useVoiceCapture"
 import { ActivityStream } from "@/components/ActivityStream"
+import { BotAudio } from "@/components/BotAudio"
 import { ConversationPanel } from "@/components/conversation/ConversationPanel"
 import { GameDialogs } from "@/components/dialogs/GameDialogs"
 import { HighlightOverlay } from "@/components/HighlightOverlay"
@@ -277,7 +278,7 @@ export const Game = () => {
       <QuestAcceptedOverlay />
       <QuestCompleteNotification />
       <TutorialOverlay />
-      <PipecatClientAudio />
+      <BotAudio />
     </>
   )
 }
