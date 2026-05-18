@@ -492,6 +492,7 @@ def move_summary(result: Dict[str, Any]) -> str:
         result: Full move response containing player, ship, and sector data
             - first_visit: True if this is the player's first personal visit
             - known_to_corp: True if the corporation already knew about this sector
+            - nearest_unvisited: top-N closest unvisited sectors (with hops, region)
 
     Returns:
         Multi-line human-readable summary string
@@ -507,7 +508,39 @@ def move_summary(result: Dict[str, Any]) -> str:
     elif first_visit:
         first_line += " First visit!"
 
-    return _status_summary(result, first_line)
+    base = _status_summary(result, first_line)
+
+    nearest_line = _format_nearest_unvisited(result.get("nearest_unvisited"))
+    if nearest_line:
+        return f"{base}\n{nearest_line}"
+    return base
+
+
+def _format_nearest_unvisited(nearest: Any) -> Optional[str]:
+    """Render a movement.complete `nearest_unvisited` array as a one-line hint.
+
+    Matches the format historically emitted by map.local's summary so the
+    voice agent gets the same exploration guidance without the duplicate
+    event in context.
+    """
+    if not isinstance(nearest, list) or not nearest:
+        return None
+    entries: List[str] = []
+    for entry in nearest:
+        if not isinstance(entry, dict):
+            continue
+        sid = entry.get("sector_id")
+        hops = entry.get("hops")
+        region = entry.get("region")
+        if not isinstance(sid, int) or not isinstance(hops, (int, float)):
+            continue
+        if isinstance(region, str) and region:
+            entries.append(f"{sid} ({int(hops)} hops, {region})")
+        else:
+            entries.append(f"{sid} ({int(hops)} hops)")
+    if not entries:
+        return None
+    return "Nearest unvisited: " + ", ".join(entries) + "."
 
 
 def quest_status_summary(result: Dict[str, Any]) -> str:

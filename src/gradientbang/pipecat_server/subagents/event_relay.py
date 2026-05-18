@@ -1016,7 +1016,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "port.update": EventConfig(append=AppendRule.LOCAL),
     "bank.transaction": EventConfig(task_scoped_allowlisted=True),
     "warp.purchase": EventConfig(task_scoped_allowlisted=True),
-    "map.local": EventConfig(task_scoped_allowlisted=True),
+    # map.local duplicates ~everything in movement.complete (sector, region,
+    # adjacents, exploration counts). The one bit voice actually used —
+    # "Nearest unvisited" — is now folded into movement.complete's payload
+    # as `nearest_unvisited`. Client still consumes this via RTVI, TaskAgents
+    # via the bus; only the voice LLM append is suppressed.
+    "map.local": EventConfig(append=AppendRule.NEVER, task_scoped_allowlisted=True),
     # Corp events (allow corp scope when voice agent)
     "corporation.created": EventConfig(corp_scope_if_own_action=True),
     "corporation.ship_purchased": EventConfig(corp_scope_always_append=True),
@@ -1067,7 +1072,12 @@ EVENT_CONFIGS: dict[str, EventConfig] = {
     "path.region": EventConfig(),
     "movement.start": EventConfig(),
     "map.knowledge": EventConfig(),
-    "map.region": EventConfig(),
+    # Map region payloads are large and are emitted by client-driven fetches
+    # (e.g. BigMap follow-mode auto-fit) that can dispatch several in a row.
+    # The voice agent has no `local_map_region` tool, the task agent already
+    # suppresses these via SYNC_TOOL_EVENTS, and the client UI consumes the
+    # event directly off RTVI — so no LLM context needs the raw payload.
+    "map.region": EventConfig(append=AppendRule.NEVER),
     "fighter.purchase": EventConfig(),
     "warp.transfer": EventConfig(),
     "credits.transfer": EventConfig(),

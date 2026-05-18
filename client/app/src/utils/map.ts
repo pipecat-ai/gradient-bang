@@ -51,20 +51,28 @@ export interface MapShipMarker {
   owner_kind: "self" | "corp_mate"
 }
 
-/** Project corp ships into the shape SectorMap expects, tagging viewer-owned vs corp-mate. */
+/** Project corp ships into the shape SectorMap expects, tagging viewer-owned vs corp-mate.
+ *  Corp ships have owner_character_id = null (corp owns them), so we use the BYOA claim
+ *  prefix as the "this ship belongs to a specific human" signal. Server emits 12 hex chars,
+ *  no dashes — match that format here. */
 export const mapShipsForViewer = (
   ships: ShipSelf[] | undefined,
   viewerCharacterId: string | undefined
-): MapShipMarker[] | undefined =>
-  ships
+): MapShipMarker[] | undefined => {
+  const viewerPrefix = viewerCharacterId?.replace(/-/g, "").slice(0, 12)
+  return ships
     ?.filter((s) => s.owner_type !== "personal")
-    .map((s) => ({
-      sector: s.sector ?? 0,
-      ship_name: s.ship_name,
-      ship_type: s.ship_type,
-      owner_kind:
-        s.owner_character_id && s.owner_character_id === viewerCharacterId ? "self" : "corp_mate",
-    }))
+    .map((s) => {
+      const claimerPrefix = s.byoa?.owner_character_id_prefix
+      const claimedByOther = !!claimerPrefix && claimerPrefix !== viewerPrefix
+      return {
+        sector: s.sector ?? 0,
+        ship_name: s.ship_name,
+        ship_type: s.ship_type,
+        owner_kind: claimedByOther ? "corp_mate" : "self",
+      }
+    })
+}
 
 export const normalizeSector = <T extends Sector>(sector: T): T => ({
   ...sector,

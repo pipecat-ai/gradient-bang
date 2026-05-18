@@ -489,7 +489,16 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
                 for (const u of delta.sectors) {
                   const idx = indexById.get(u.id)
                   if (idx !== undefined) {
+                    // Server re-tags all sectors as "corp" in the corp map.update
+                    // broadcast and relies on the client to keep its own higher-
+                    // priority "player"/"both" source. See move/index.ts comment.
+                    const existingSource = mapData[idx].source
+                    const isPlayerVisited = existingSource === "player" || existingSource === "both"
+                    const incomingSource = (u as MapSectorNode).source
                     Object.assign(mapData[idx], u)
+                    if (isPlayerVisited && incomingSource === "corp") {
+                      mapData[idx].source = existingSource
+                    }
                     if (u.port !== undefined) {
                       mapData[idx].port = normalizePort(
                         (u as MapSectorNode).port as PortLike
@@ -537,11 +546,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     setCoursePlot: (coursePlot: CoursePlot) =>
       set(
         produce((state) => {
-          state.mapZoomUpdateSource = "programmatic"
-          if (state.mapMode === "follow") {
-            state.mapCenterWorld = undefined
-            state.mapFitBoundsWorld = undefined
-          }
           state.course_plot = coursePlot
         })
       ),

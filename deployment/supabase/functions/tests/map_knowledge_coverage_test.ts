@@ -318,11 +318,13 @@ Deno.test({
         // "from_sector must be a sector you or your corporation have
         // discovered", because the corp ship's pseudo-character and
         // corp both lack sector 1 — only the actor (P1) knows it.
+        // to_sector=0 is the corp ship's starting sector, so it's
+        // discovered without needing to extend the test fixture.
         const result = await apiOk("plot_course", {
           character_id: corpShipId,
           actor_character_id: p1Id,
           from_sector: 1,
-          to_sector: 2,
+          to_sector: 0,
         });
         assert(result.success);
       },

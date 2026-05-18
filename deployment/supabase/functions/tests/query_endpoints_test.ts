@@ -233,6 +233,12 @@ Deno.test({
     await t.step("reset and setup", async () => {
       await resetDatabase([P1]);
       await apiOk("join", { character_id: p1Id });
+      // Walk 0 → 1 → 3 → 1 → 0 so P1 has discovered both endpoints
+      // (plot_course rejects undiscovered destinations).
+      await apiOk("move", { character_id: p1Id, to_sector: 1 });
+      await apiOk("move", { character_id: p1Id, to_sector: 3 });
+      await apiOk("move", { character_id: p1Id, to_sector: 1 });
+      await apiOk("move", { character_id: p1Id, to_sector: 0 });
     });
 
     await t.step("plot course from 0 to 3", async () => {
@@ -306,6 +312,17 @@ Deno.test({
         to_sector: 3,
       });
       assertEquals(result.status, 403);
+      assert(result.body.error?.includes("discovered"));
+    });
+
+    await t.step("fails: undiscovered to_sector", async () => {
+      // P1 has only joined; only sector 0 is in their map knowledge.
+      const result = await api("plot_course", {
+        character_id: p1Id,
+        to_sector: 3,
+      });
+      assertEquals(result.status, 403);
+      assert(result.body.error?.includes("to_sector"));
       assert(result.body.error?.includes("discovered"));
     });
   },

@@ -74,6 +74,37 @@ const MOVE_DELAY_SCALE = Number(Deno.env.get("MOVE_DELAY_SCALE") ?? "1");
 const MAX_LOCAL_MAP_HOPS = 4;
 const MAX_LOCAL_MAP_NODES = 28;
 
+type NearestUnvisited = {
+  sector_id: number;
+  hops: number;
+  region: string | null;
+};
+
+function extractNearestUnvisited(
+  mapRegion: unknown,
+  limit: number,
+): NearestUnvisited[] {
+  if (!mapRegion || typeof mapRegion !== "object") return [];
+  const sectors = (mapRegion as Record<string, unknown>).sectors;
+  if (!Array.isArray(sectors)) return [];
+
+  const candidates: NearestUnvisited[] = [];
+  for (const sector of sectors) {
+    if (!sector || typeof sector !== "object") continue;
+    const s = sector as Record<string, unknown>;
+    if (s.visited) continue;
+    const id = s.id;
+    const hops = s.hops_from_center;
+    if (typeof id !== "number" || typeof hops !== "number") continue;
+    const region = typeof s.region === "string" ? s.region : null;
+    candidates.push({ sector_id: id, hops, region });
+  }
+  candidates.sort((a, b) =>
+    a.hops !== b.hops ? a.hops - b.hops : a.sector_id - b.sector_id
+  );
+  return candidates.slice(0, limit);
+}
+
 Deno.serve(traced("move", async (req, wt) => {
   let auth: AuthContext;
   try {
@@ -720,6 +751,25 @@ async function completeMovement({
     const sectorPayload = statusPayload.sector as Record<string, unknown>;
     const portPayload = sectorPayload?.port as Record<string, unknown> | null;
 
+    // Build the local map region before emitting movement.complete so we can
+    // fold a compact `nearest_unvisited` hint into the movement payload. The
+    // voice agent then gets exploration guidance without needing the separate
+    // map.local event in its LLM context. See event_relay's AppendRule.NEVER
+    // on map.local.
+    const sBuildMap = ws.span("build_local_map");
+    const mapRegion = await pgBuildLocalMapRegion(pg, {
+      characterId,
+      centerSector: destination,
+      mapKnowledge: mergedKnowledge,
+      maxHops: MAX_LOCAL_MAP_HOPS,
+      maxSectors: MAX_LOCAL_MAP_NODES,
+    });
+    mark("build_local_map");
+    sBuildMap.end();
+    (mapRegion as Record<string, unknown>)["source"] = source;
+
+    const nearestUnvisited = extractNearestUnvisited(mapRegion, 3);
+
     const movementCompletePayload = {
       source,
       player: statusPayload.player,
@@ -728,6 +778,7 @@ async function completeMovement({
       first_visit: firstPersonalVisit,
       known_to_corp: knownToCorp,
       has_megaport: portPayload?.mega === true,
+      nearest_unvisited: nearestUnvisited,
     } as Record<string, unknown>;
 
     const sEmitComplete = ws.span("emit_movement_complete");
@@ -744,18 +795,6 @@ async function completeMovement({
     });
     mark("emit_movement_complete");
     sEmitComplete.end();
-
-    const sBuildMap = ws.span("build_local_map");
-    const mapRegion = await pgBuildLocalMapRegion(pg, {
-      characterId,
-      centerSector: destination,
-      mapKnowledge: mergedKnowledge,
-      maxHops: MAX_LOCAL_MAP_HOPS,
-      maxSectors: MAX_LOCAL_MAP_NODES,
-    });
-    mark("build_local_map");
-    sBuildMap.end();
-    (mapRegion as Record<string, unknown>)["source"] = source;
 
     if (firstPersonalVisit && !knownToCorp) {
       const sCorpMapUpdate = ws.span("corp_map_update");
