@@ -24,6 +24,7 @@ import type {
   UIStyles,
 } from "@/fx/map/SectorMapFX"
 import { createSectorMapController, DEFAULT_SECTORMAP_CONFIG } from "@/fx/map/SectorMapFX"
+import type { MapZoomUpdateSource } from "@/stores/mapSlice"
 import { getViewportFetchBounds, sectorsEquivalentForRender } from "@/utils/map"
 
 import { Button } from "./primitives/Button"
@@ -75,6 +76,8 @@ interface MapProps {
   onNodeEnter?: (node: MapSectorNode) => void
   onNodeExit?: (node: MapSectorNode) => void
   onMapFetch?: (centerSectorId: number, bounds: number) => void
+  onViewportChange?: (centerSectorId: number, bounds: number) => void
+  onZoomLevelChange?: (zoomLevel: number) => void
   /** World-coordinate center override (zoomMode). Undefined for boundMode. */
   center_world?: [number, number]
   /** World-coordinate bounding box override (zoomMode). Undefined for boundMode. */
@@ -83,6 +86,7 @@ interface MapProps {
   mapFitEpoch?: number
   /** Monotonic counter to reset pan/zoom to base camera state. */
   mapResetEpoch?: number
+  mapZoomUpdateSource?: MapZoomUpdateSource
   /** Suppress controller creation and rendering (e.g. when hidden by content-visibility). */
   paused?: boolean
 }
@@ -145,10 +149,13 @@ const MapComponent = ({
   onNodeEnter,
   onNodeExit,
   onMapFetch,
+  onViewportChange,
+  onZoomLevelChange,
   center_world,
   fit_bounds_world,
   mapFitEpoch,
   mapResetEpoch,
+  mapZoomUpdateSource = "programmatic",
   paused,
 }: MapProps) => {
   // Normalize map_data to always be an array (memoized to avoid dependency changes)
@@ -217,6 +224,7 @@ const MapComponent = ({
   )
   const lastMapFitEpochRef = useRef<number | undefined>(mapFitEpoch)
   const lastMapResetEpochRef = useRef<number | undefined>(mapResetEpoch)
+  const lastMapZoomUpdateSourceRef = useRef<MapZoomUpdateSource>(mapZoomUpdateSource)
   const pendingControllerCleanupRef = useRef<number | null>(null)
 
   const [measuredSize, setMeasuredSize] = useState<{
@@ -403,6 +411,8 @@ const MapComponent = ({
           fit_bounds_world,
         },
         maxDistance,
+        mapZoomUpdateSource,
+        onZoomLevelChange,
         coursePlot,
         ships: shipsMap,
         combatSectors,
@@ -422,9 +432,10 @@ const MapComponent = ({
       return
     }
 
-    // Restart course animation after unpause (idempotent — no-op if already running)
     if (coursePlot) {
       controller.startCourseAnimation()
+    } else {
+      controller.stopCourseAnimation()
     }
 
     // Compute changes BEFORE logging to enable early exit
@@ -440,6 +451,7 @@ const MapComponent = ({
     const fitBoundsWorldChanged = !tuplesEqual(lastFitBoundsWorldRef.current, fit_bounds_world)
     const mapFitEpochChanged = lastMapFitEpochRef.current !== mapFitEpoch
     const mapResetEpochChanged = lastMapResetEpochRef.current !== mapResetEpoch
+    const mapZoomUpdateSourceChanged = lastMapZoomUpdateSourceRef.current !== mapZoomUpdateSource
 
     // Early exit if nothing has actually changed
     if (
@@ -454,7 +466,8 @@ const MapComponent = ({
       !centerWorldChanged &&
       !fitBoundsWorldChanged &&
       !mapFitEpochChanged &&
-      !mapResetEpochChanged
+      !mapResetEpochChanged &&
+      !mapZoomUpdateSourceChanged
     ) {
       return
     }
@@ -478,6 +491,7 @@ const MapComponent = ({
 
     controller.updateProps({
       maxDistance,
+      mapZoomUpdateSource,
       ...(needsConfigUpdate && { config: fullConfig }),
       data: normalizedMapData,
       coursePlot,
@@ -541,6 +555,7 @@ const MapComponent = ({
     lastCenterWorldRef.current = center_world
     lastFitBoundsWorldRef.current = fit_bounds_world
     lastMapFitEpochRef.current = mapFitEpoch
+    lastMapZoomUpdateSourceRef.current = mapZoomUpdateSource
   }, [
     center_sector_id,
     current_sector_id,
@@ -553,12 +568,16 @@ const MapComponent = ({
     combatSectorsKey,
     combatSectors,
     onMapFetch,
+    onZoomLevelChange,
     effectiveWidth,
     effectiveHeight,
+    physicalWidth,
+    physicalHeight,
     center_world,
     fit_bounds_world,
     mapFitEpoch,
     mapResetEpoch,
+    mapZoomUpdateSource,
     paused,
   ])
 
@@ -579,13 +598,14 @@ const MapComponent = ({
     }
   }, [onNodeEnter, onNodeExit])
 
-  // Wire viewport change (from manual pan/zoom) to the same fetch path
+  // Wire canvas-originated viewport and zoom changes.
   useEffect(() => {
     const controller = controllerRef.current
     if (controller) {
-      controller.setOnViewportChange(onMapFetch ?? null)
+      controller.setOnViewportChange(onViewportChange ?? null)
+      controller.setOnZoomLevelChange(onZoomLevelChange ?? null)
     }
-  }, [onMapFetch])
+  }, [onViewportChange, onZoomLevelChange])
 
   // Cleanup effect — StrictMode-safe via deferred cleanup
   useEffect(() => {
@@ -712,6 +732,7 @@ const areMapPropsEqual = (prevProps: MapProps, nextProps: MapProps): boolean => 
   if (!tuplesEqual(prevProps.fit_bounds_world, nextProps.fit_bounds_world)) return false
   if (prevProps.mapFitEpoch !== nextProps.mapFitEpoch) return false
   if (prevProps.mapResetEpoch !== nextProps.mapResetEpoch) return false
+  if (prevProps.mapZoomUpdateSource !== nextProps.mapZoomUpdateSource) return false
   if (prevProps.paused !== nextProps.paused) return false
 
   return true

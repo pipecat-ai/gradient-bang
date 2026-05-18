@@ -1,4 +1,5 @@
-import { isBorderSector } from "@/utils/map"
+import type { MapZoomUpdateSource } from "@/stores/mapSlice"
+import { clampMapZoomLevel, isBorderSector } from "@/utils/map"
 import { getPortCode } from "@/utils/port"
 
 import { GARRISON_ICON, MEGA_PORT_ICON, PORT_ICON, SHIP_ICON } from "./MapIcons"
@@ -554,6 +555,8 @@ export interface SectorMapProps {
   data: MapData
   config: SectorMapConfigBase
   maxDistance?: number
+  mapZoomUpdateSource?: MapZoomUpdateSource
+  onZoomLevelChange?: (zoomLevel: number) => void
   coursePlot?: CoursePlot | null
   ships?: Map<number, Array<{ ship_name: string; ship_type: string }>>
   /** Sectors with active combat — drawn as a dotted red border overlay. */
@@ -2783,6 +2786,7 @@ export interface SectorMapController {
   setOnNodeEnter: (callback: ((node: MapSectorNode) => void) | null) => void
   setOnNodeExit: (callback: ((node: MapSectorNode) => void) | null) => void
   setOnViewportChange: (callback: ((centerSectorId: number, bounds: number) => void) | null) => void
+  setOnZoomLevelChange: (callback: ((zoomLevel: number) => void) | null) => void
   resetView: () => void
   cleanup: () => void
 }
@@ -2805,6 +2809,8 @@ export function createSectorMapController(
   let onNodeEnterCallback: ((node: MapSectorNode) => void) | null = null
   let onNodeExitCallback: ((node: MapSectorNode) => void) | null = null
   let onViewportChangeCallback: ((centerSectorId: number, bounds: number) => void) | null = null
+  let onZoomLevelChangeCallback: ((zoomLevel: number) => void) | null =
+    props.onZoomLevelChange ?? null
   let viewportChangeTimeoutId: number | null = null
 
   let animatingSectorId: number | null = null
@@ -2832,6 +2838,22 @@ export function createSectorMapController(
     manualPanX = 0
     manualPanY = 0
     manualZoomFactor = 1
+  }
+
+  const resetManualZoom = () => {
+    manualZoomFactor = 1
+  }
+
+  const cancelCameraAnimation = () => {
+    if (animationCleanup) {
+      animationCleanup()
+      animationCleanup = null
+    }
+    if (animationCompletionTimeout !== null) {
+      window.clearTimeout(animationCompletionTimeout)
+      animationCompletionTimeout = null
+    }
+    isMovingToSector = false
   }
 
   /** Apply manual offsets to a computed camera state, expanding spatial
@@ -3157,6 +3179,11 @@ export function createSectorMapController(
     const maxZoom = currentProps.config.maxZoom ?? 5
     const newZoom = Math.max(minZoom, Math.min(oldEffective.zoom * zoomDelta, maxZoom))
     manualZoomFactor = newZoom / currentCameraState.zoom
+    const currentMaxDistance = currentProps.maxDistance ?? DEFAULT_MAX_BOUNDS
+    const nextZoomLevel = clampMapZoomLevel(
+      currentMaxDistance * (currentCameraState.zoom / newZoom)
+    )
+    onZoomLevelChangeCallback?.(Math.round(nextZoomLevel * 100) / 100)
 
     const { width, height } = currentProps
     const pos = getCanvasMousePosition(event as unknown as MouseEvent)
@@ -3468,6 +3495,7 @@ export function createSectorMapController(
 
   const updateProps = (newProps: Partial<SectorMapProps>) => {
     const hadCoursePlot = currentProps.coursePlot !== undefined && currentProps.coursePlot !== null
+    const hadCoursePlotZoom = currentProps.config.coursePlotZoomEnabled !== false
     const wasClickable = currentProps.config.clickable
     const wasHoverable = currentProps.config.hoverable
     const prevMaxDistance = currentProps.maxDistance
@@ -3491,6 +3519,11 @@ export function createSectorMapController(
 
     // Start or stop animation based on coursePlot presence
     const coursePlotZoom = currentProps.config.coursePlotZoomEnabled !== false
+    if (hasCoursePlot && hadCoursePlotZoom && !coursePlotZoom) {
+      cancelCameraAnimation()
+      renderWithInteractionState()
+    }
+
     if (hasCoursePlot && !hadCoursePlot) {
       // Clear hover state when course plot becomes active
       if (hoveredSectorId !== null) {
@@ -3525,7 +3558,6 @@ export function createSectorMapController(
         render()
       }
     } else if (hasCoursePlot && hadCoursePlot) {
-      // Course plot already active - ensure animation is running (may have been stopped by panel close/reopen)
       if (courseAnimationFrameId === null) {
         render()
         startCourseAnimation()
@@ -3546,8 +3578,16 @@ export function createSectorMapController(
     }
 
     if (maxDistanceChanged && !coursePlotTransitioned && !isMovingToSector) {
-      resetManualOffsets()
-      animateCameraReframe()
+      const zoomUpdateSource = currentProps.mapZoomUpdateSource ?? "programmatic"
+      if (zoomUpdateSource === "viewport") {
+        render()
+      } else if (zoomUpdateSource === "control") {
+        resetManualZoom()
+        render()
+      } else {
+        resetManualOffsets()
+        animateCameraReframe()
+      }
     }
 
     // Handle clickable/hoverable config changes
@@ -3612,6 +3652,10 @@ export function createSectorMapController(
     callback: ((centerSectorId: number, bounds: number) => void) | null
   ) => {
     onViewportChangeCallback = callback
+  }
+
+  const setOnZoomLevelChange = (callback: ((zoomLevel: number) => void) | null) => {
+    onZoomLevelChangeCallback = callback
   }
 
   /** Find the sector in full data closest to a world-space point */
@@ -3716,6 +3760,7 @@ export function createSectorMapController(
     setOnNodeEnter,
     setOnNodeExit,
     setOnViewportChange,
+    setOnZoomLevelChange,
     resetView: () => {
       userOverrodeCoursePlotZoom = false
       resetManualOffsets()
