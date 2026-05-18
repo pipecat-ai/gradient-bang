@@ -31,12 +31,20 @@ bot = [
     "cekura[pipecat]==1.2.0rc3",
 ]
 
+sms-agent = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "python-multipart>=0.0.20",
+    "twilio>=9.0.0",
+]
+
 tracing = ["weave>=0.50"]
 
 [project.scripts]
 # Agent
 bot = "gradientbang.pipecat_server.__main__:main"
 byoa = "gradientbang.byoa.app:main"
+sms-agent = "gradientbang.sms_agent.server:main"
 
 # NPCs
 npc-run = "gradientbang.npc.run_npc:main"
