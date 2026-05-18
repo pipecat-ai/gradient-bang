@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- EventRelay and TaskAgent now process game events through ordered mailboxes.
+- Task-agent event inference drain grace is configurable via `TASK_AGENT_EVENT_DRAIN_GRACE_SECONDS`.
+
 ## [0.5.4] - 2026-05-16
 
 ### Fixed
