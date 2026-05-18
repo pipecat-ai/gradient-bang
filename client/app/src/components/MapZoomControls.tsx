@@ -1,6 +1,3 @@
-import { useEffect, useMemo, useState } from "react"
-
-import { useDebouncedCallback } from "use-debounce"
 import {
   ArrowClockwiseIcon,
   EyeClosedIcon,
@@ -8,13 +5,16 @@ import {
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
 } from "@phosphor-icons/react"
-import { WrenchIcon } from "@phosphor-icons/react/dist/ssr"
 
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/primitives/Popover"
-import { ToggleControl } from "@/components/primitives/ToggleControl"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/primitives/ToolTip"
 import useGameStore from "@/stores/game"
-import { clampZoomIndex, getClosestZoomIndex, zoomLevels } from "@/utils/map"
+import {
+  clampZoomIndex,
+  getClosestZoomIndex,
+  sliderValueToZoomLevel,
+  zoomLevels,
+  zoomLevelToSliderValue,
+} from "@/utils/map"
 
 import { Button } from "./primitives/Button"
 import { SliderControl } from "./primitives/SliderControl"
@@ -23,38 +23,14 @@ import { DEFAULT_MAX_BOUNDS } from "@/types/constants"
 
 export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
-  const setMapZoomLevel = useGameStore.use.setMapZoomLevel?.()
-  const setMapFitBoundsWorld = useGameStore.use.setMapFitBoundsWorld?.()
-  const resetMapView = useGameStore.use.resetMapView?.()
-  const coursePlotZoomEnabled = useGameStore((state) => state.coursePlotZoomEnabled)
-  const setCoursePlotZoomEnabled = useGameStore.use.setCoursePlotZoomEnabled?.()
+  const setMapZoomLevelFromControl = useGameStore.use.setMapZoomLevelFromControl?.()
+  const recenterMap = useGameStore.use.recenterMap?.()
   const clearCoursePlot = useGameStore.use.clearCoursePlot?.()
   const mapLegendVisible = useGameStore((state) => state.mapLegendVisible)
   const setMapLegendVisible = useGameStore.use.setMapLegendVisible?.()
   const resolvedZoomLevel = mapZoomLevel ?? DEFAULT_MAX_BOUNDS
-  const currentIndex = useMemo(() => getClosestZoomIndex(resolvedZoomLevel), [resolvedZoomLevel])
-  const [sliderIndex, setSliderIndex] = useState(currentIndex)
-
-  useEffect(() => {
-    setSliderIndex(currentIndex)
-  }, [currentIndex])
-
-  useEffect(() => {
-    if (mapZoomLevel === undefined) {
-      // Initialize once without snapping programmatic zooms to discrete levels.
-      setMapZoomLevel?.(zoomLevels[currentIndex])
-    }
-  }, [currentIndex, mapZoomLevel, setMapZoomLevel])
-
-  const debouncedTrailing = useDebouncedCallback(
-    (value) => {
-      const index = clampZoomIndex(value)
-      setMapFitBoundsWorld?.(undefined)
-      setMapZoomLevel?.(zoomLevels[index])
-    },
-    500,
-    { trailing: true }
-  )
+  const currentIndex = getClosestZoomIndex(resolvedZoomLevel)
+  const sliderValue = zoomLevelToSliderValue(resolvedZoomLevel)
   const legendToggleLabel = mapLegendVisible ? "Hide map legend" : "Show map legend"
 
   return (
@@ -67,9 +43,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
           disabled={disabled}
           onClick={() => {
             const nextIndex = clampZoomIndex(currentIndex + 1)
-            setSliderIndex(nextIndex)
-            setMapFitBoundsWorld?.(undefined)
-            setMapZoomLevel?.(zoomLevels[nextIndex])
+            setMapZoomLevelFromControl?.(zoomLevels[nextIndex])
           }}
           className="shrink-0 hover:bg-accent-background border-b"
         >
@@ -78,14 +52,12 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
         <SliderControl
           orientation="vertical"
           disabled={disabled}
-          value={[sliderIndex]}
+          value={[sliderValue]}
           min={0}
-          max={zoomLevels.length - 1}
-          step={1}
+          max={100}
+          step={0.1}
           onValueChange={(value) => {
-            const index = clampZoomIndex(value[0])
-            setSliderIndex(index)
-            debouncedTrailing(index)
+            setMapZoomLevelFromControl?.(sliderValueToZoomLevel(value[0]))
           }}
           className="min-h-0 h-full mx-auto"
         />
@@ -96,9 +68,7 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
           disabled={disabled}
           onClick={() => {
             const nextIndex = clampZoomIndex(currentIndex - 1)
-            setSliderIndex(nextIndex)
-            setMapFitBoundsWorld?.(undefined)
-            setMapZoomLevel?.(zoomLevels[nextIndex])
+            setMapZoomLevelFromControl?.(zoomLevels[nextIndex])
           }}
           className="shrink-0 hover:bg-accent-background border-t"
         >
@@ -114,8 +84,8 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
               aria-label="Reset map"
               disabled={disabled}
               onClick={() => {
-                resetMapView?.()
-                clearCoursePlot()
+                recenterMap?.()
+                clearCoursePlot?.()
               }}
               className="shrink-0 hover:bg-accent-background"
             >
@@ -141,38 +111,6 @@ export const MapZoomControls = ({ disabled }: { disabled?: boolean }) => {
           </TooltipTrigger>
           <TooltipContent side="left">{legendToggleLabel}</TooltipContent>
         </Tooltip>
-        <Popover>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="bland"
-                  size="icon-sm"
-                  aria-label="Map settings"
-                  disabled={disabled}
-                  className="shrink-0 hover:bg-accent-background"
-                >
-                  <WrenchIcon weight="bold" />
-                </Button>
-              </PopoverTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="left">Settings</TooltipContent>
-          </Tooltip>
-          <PopoverContent side="left" className="w-64 p-4">
-            <div className="flex flex-col gap-2 text-xs uppercase">
-              <dl className="flex flex-row items-center justify-between">
-                <dt className="font-medium">Course plot zoom</dt>
-                <dd className="text-muted-foreground">
-                  <ToggleControl
-                    size="sm"
-                    checked={coursePlotZoomEnabled}
-                    onCheckedChange={(checked) => setCoursePlotZoomEnabled?.(checked)}
-                  />
-                </dd>
-              </dl>
-            </div>
-          </PopoverContent>
-        </Popover>
       </div>
     </>
   )

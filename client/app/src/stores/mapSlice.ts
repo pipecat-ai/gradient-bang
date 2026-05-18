@@ -4,6 +4,7 @@ import type { StateCreator } from "zustand"
 import {
   addCoverageRect,
   buildCoverageRect,
+  clampMapZoomLevel,
   computeMapFit,
   computeWorldBounds,
   deduplicateMapNodes,
@@ -29,6 +30,13 @@ import {
 const PENDING_REQUEST_TIMEOUT_MS = 10_000
 const MAX_MAP_FIT_STALE_UPDATES = 5
 const SQRT3 = Math.sqrt(3)
+
+export type MapMode = "follow" | "freeroam"
+export type MapZoomUpdateSource = "viewport" | "control" | "programmatic"
+
+interface MapFitOptions {
+  forceFollow?: boolean
+}
 
 export interface MapCenterNode {
   centerSector: number
@@ -69,6 +77,8 @@ export interface MapSlice {
   mapCenterWorld?: [number, number]
   mapFitBoundsWorld?: [number, number, number, number]
   mapZoomLevel?: number
+  mapZoomUpdateSource: MapZoomUpdateSource
+  mapMode: MapMode
   mapFitEpoch?: number
   mapResetEpoch: number
   pendingMapFitSectors?: number[]
@@ -89,9 +99,13 @@ export interface MapSlice {
   setMapCenterWorld: (center: [number, number] | undefined) => void
   setMapFitBoundsWorld: (bounds: [number, number, number, number] | undefined) => void
   setMapZoomLevel: (zoomLevel: number) => void
+  setMapZoomLevelFromControl: (zoomLevel: number) => void
+  syncMapZoomLevelFromViewport: (zoomLevel: number) => void
+  enterFreeroamFromGesture: (gestureCenterSectorId?: number) => void
+  recenterMap: () => void
   requestMapFetch: (centerSectorId: number, bounds: number) => boolean
   clearPendingMapFit: () => void
-  fitMapToSectors: (sectorIds: number[]) => void
+  fitMapToSectors: (sectorIds: number[], options?: MapFitOptions) => void
   requestMapAutoRecenter: (reason: string) => void
   setCoursePlotZoomEnabled: (enabled: boolean) => void
   setMapLegendVisible: (visible: boolean) => void
@@ -125,6 +139,10 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     const pending = state.pendingMapFitSectors
     const prevMissing = state.pendingMapFitMissingCount
     if (!pending || pending.length === 0 || prevMissing == null) return
+    if (state.mapMode === "freeroam") {
+      get().clearPendingMapFit()
+      return
+    }
 
     const requestKey = _getMapFitRequestKey(pending)
     if (_mapFitTrackedRequestKey !== requestKey) {
@@ -163,6 +181,10 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     if (!autoRecenterRequested) return
 
     const state = get()
+    if (state.mapMode === "freeroam") {
+      autoRecenterRequested = false
+      return
+    }
     if (state.mapFitBoundsWorld) {
       autoRecenterRequested = false
       return
@@ -310,6 +332,8 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     mapCenterWorld: undefined,
     mapFitBoundsWorld: undefined,
     mapZoomLevel: undefined,
+    mapZoomUpdateSource: "programmatic",
+    mapMode: "follow",
     mapFitEpoch: undefined,
     pendingMapFitSectors: undefined,
     pendingMapFitMissingCount: undefined,
@@ -339,6 +363,9 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       )
 
       if (!pending || Date.now() - pending.requestedAt > PENDING_REQUEST_TIMEOUT_MS) {
+        return
+      }
+      if (state.mapMode === "freeroam") {
         return
       }
 
@@ -510,6 +537,11 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     setCoursePlot: (coursePlot: CoursePlot) =>
       set(
         produce((state) => {
+          state.mapZoomUpdateSource = "programmatic"
+          if (state.mapMode === "follow") {
+            state.mapCenterWorld = undefined
+            state.mapFitBoundsWorld = undefined
+          }
           state.course_plot = coursePlot
         })
       ),
@@ -518,7 +550,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       set(
         produce((state) => {
           state.course_plot = undefined
-          if (state.coursePlotZoomEnabled !== false) {
+          if (state.mapMode === "follow" && state.coursePlotZoomEnabled !== false) {
             state.mapCenterSector = undefined
             state.mapCenterWorld = undefined
             state.mapFitBoundsWorld = undefined
@@ -555,7 +587,53 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     setMapZoomLevel: (zoomLevel: number) =>
       set(
         produce((state) => {
-          state.mapZoomLevel = zoomLevel
+          state.mapZoomLevel = clampMapZoomLevel(zoomLevel)
+          state.mapZoomUpdateSource = "programmatic"
+        })
+      ),
+
+    setMapZoomLevelFromControl: (zoomLevel: number) =>
+      set(
+        produce((state) => {
+          state.mapFitBoundsWorld = undefined
+          state.mapZoomLevel = clampMapZoomLevel(zoomLevel)
+          state.mapZoomUpdateSource = "control"
+        })
+      ),
+
+    syncMapZoomLevelFromViewport: (zoomLevel: number) =>
+      set(
+        produce((state) => {
+          state.mapFitBoundsWorld = undefined
+          state.mapZoomLevel = clampMapZoomLevel(zoomLevel)
+          state.mapZoomUpdateSource = "viewport"
+        })
+      ),
+
+    enterFreeroamFromGesture: (gestureCenterSectorId?: number) => {
+      _resetMapFitRetryState()
+      set(
+        produce((state) => {
+          state.pendingMapFitSectors = undefined
+          state.pendingMapFitMissingCount = undefined
+          if (state.mapMode === "freeroam") return
+          const pinnedSector = state.mapCenterSector ?? state.sector?.id ?? gestureCenterSectorId
+          state.mapMode = "freeroam"
+          if (pinnedSector !== undefined) {
+            state.mapCenterSector = pinnedSector
+          }
+        })
+      )
+    },
+
+    recenterMap: () =>
+      set(
+        produce((state) => {
+          state.mapMode = "follow"
+          state.mapCenterSector = undefined
+          state.mapCenterWorld = undefined
+          state.mapFitBoundsWorld = undefined
+          state.mapResetEpoch = (state.mapResetEpoch ?? 0) + 1
         })
       ),
 
@@ -576,6 +654,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     resetMapView: () =>
       set(
         produce((state) => {
+          state.mapMode = "follow"
           state.mapCenterSector = undefined
           state.mapCenterWorld = undefined
           state.mapFitBoundsWorld = undefined
@@ -643,13 +722,19 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       )
     },
 
-    fitMapToSectors: (sectorIds: number[]) => {
+    fitMapToSectors: (sectorIds: number[], options?: MapFitOptions) => {
       const cleaned = Array.from(
         new Set(sectorIds.filter((id) => typeof id === "number" && Number.isFinite(id)))
       )
       if (cleaned.length === 0) return
 
       const state = get()
+      if (state.mapMode === "freeroam" && !options?.forceFollow) {
+        if (state.pendingMapFitSectors && state.pendingMapFitSectors.length > 0) {
+          get().clearPendingMapFit()
+        }
+        return
+      }
       const combinedMap = deduplicateMapNodes(
         state.regional_map_data ?? [],
         state.local_map_data ?? []
@@ -679,6 +764,9 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         }
         set(
           produce((draft) => {
+            if (options?.forceFollow) {
+              draft.mapMode = "follow"
+            }
             draft.pendingMapFitSectors = cleaned
             draft.pendingMapFitMissingCount = missing.length
           })
@@ -702,10 +790,14 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
 
       set(
         produce((draft) => {
+          if (options?.forceFollow) {
+            draft.mapMode = "follow"
+          }
           draft.mapCenterSector = fit.centerNode.id
           draft.mapCenterWorld = fit.centerWorld
           draft.mapFitBoundsWorld = fit.fitBoundsWorld
           draft.mapZoomLevel = fit.zoomLevel
+          draft.mapZoomUpdateSource = "programmatic"
           draft.mapFitEpoch = (draft.mapFitEpoch ?? 0) + 1
           draft.pendingMapFitSectors = undefined
           draft.pendingMapFitMissingCount = undefined
@@ -761,6 +853,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
             produce((draft) => {
               draft.mapFitBoundsWorld = undefined
               draft.mapZoomLevel = nextZoom
+              draft.mapZoomUpdateSource = "programmatic"
             })
           )
         } else if (!zoomOnly) {
@@ -769,6 +862,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
             produce((draft) => {
               draft.mapFitBoundsWorld = undefined
               draft.mapZoomLevel = mapZoom
+              draft.mapZoomUpdateSource = "programmatic"
             })
           )
         }
@@ -780,6 +874,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           produce((draft) => {
             draft.mapFitBoundsWorld = undefined
             draft.mapZoomLevel = nextZoom
+            draft.mapZoomUpdateSource = "programmatic"
           })
         )
       }
@@ -790,6 +885,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       if (mapCenterSector !== undefined) {
         set(
           produce((draft) => {
+            draft.mapMode = "follow"
             draft.mapCenterWorld = undefined
             draft.mapFitBoundsWorld = undefined
             draft.mapCenterSector = mapCenterSector
@@ -799,30 +895,22 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
 
       // --- Highlight path (course plot) ---
       if (highlightPath && highlightPath.length > 0) {
-        set(
-          produce((draft) => {
-            draft.course_plot = {
-              path: highlightPath,
-              from_sector: highlightPath[0],
-              to_sector: highlightPath[highlightPath.length - 1],
-              distance: Math.max(0, highlightPath.length - 1),
-            }
-          })
-        )
+        get().setCoursePlot({
+          path: highlightPath,
+          from_sector: highlightPath[0],
+          to_sector: highlightPath[highlightPath.length - 1],
+          distance: Math.max(0, highlightPath.length - 1),
+        })
       }
 
       // --- Fit to sectors ---
       if (fitSectors && fitSectors.length > 0) {
-        get().fitMapToSectors(fitSectors)
+        get().fitMapToSectors(fitSectors, { forceFollow: !hasHighlight })
       }
 
       // --- Clear course plot ---
       if (shouldClearPlot) {
-        set(
-          produce((draft) => {
-            draft.course_plot = undefined
-          })
-        )
+        get().clearCoursePlot()
       }
     },
   }

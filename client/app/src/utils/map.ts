@@ -90,6 +90,27 @@ export const zoomLevels = (() => {
   return Array.from(new Set(levels)).sort((a, b) => a - b)
 })()
 
+export const clampMapZoomLevel = (zoomLevel: number) =>
+  Math.max(MIN_BOUNDS, Math.min(MAX_BOUNDS, zoomLevel))
+
+const MAP_ZOOM_SLIDER_MIN = 0
+const MAP_ZOOM_SLIDER_MAX = 100
+
+export const zoomLevelToSliderValue = (zoomLevel: number) => {
+  const clamped = clampMapZoomLevel(zoomLevel)
+  const logMin = Math.log(MIN_BOUNDS)
+  const logMax = Math.log(MAX_BOUNDS)
+  return ((Math.log(clamped) - logMin) / (logMax - logMin)) * MAP_ZOOM_SLIDER_MAX
+}
+
+export const sliderValueToZoomLevel = (value: number) => {
+  const sliderValue = Math.max(MAP_ZOOM_SLIDER_MIN, Math.min(MAP_ZOOM_SLIDER_MAX, value))
+  const logMin = Math.log(MIN_BOUNDS)
+  const logMax = Math.log(MAX_BOUNDS)
+  const zoomLevel = Math.exp(logMin + ((logMax - logMin) * sliderValue) / MAP_ZOOM_SLIDER_MAX)
+  return Math.round(clampMapZoomLevel(zoomLevel) * 100) / 100
+}
+
 export const clampZoomIndex = (index: number) => Math.max(0, Math.min(zoomLevels.length - 1, index))
 
 export const getClosestZoomIndex = (zoomLevel: number) => {
