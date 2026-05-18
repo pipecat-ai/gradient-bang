@@ -7,9 +7,6 @@ What lives here:
 
 - Pipeline wiring + speech-cycle gating (assistant_cycle, speech-start grace,
   bot/user speaking state).
-- Deferred-update coalescer: batches close-together task.completed/etc.
-  narrations and gates them on speech state so they don't step on the bot's
-  reply to the user.
 - Game tool handlers (event-generating, fire-and-forget, direct-response),
   plus the bus broker that resolves typed BusGameToolCallRequest etc. into
   AsyncGameClient calls.
@@ -19,8 +16,10 @@ What lives here:
 - Narrow host facade methods that ByoaCoordinator depends on
   (release_ship_lock, clear_pending_task, ship_for_locked_task, etc.).
 
+Speech-aware queueing of subagent reports (task.completed and friends) lives
+in ``SubagentNarrator`` — see ``pipecat_server/subagent_narrator.py``.
 BYOA wake, presence, broker auth, and registry handling live in
-ByoaCoordinator — see ``pipecat_server/byoa_coordinator.py``.
+``ByoaCoordinator`` — see ``pipecat_server/byoa_coordinator.py``.
 """
 
 from __future__ import annotations
@@ -68,6 +67,10 @@ from pipecat_subagents.bus import (
 from gradientbang.byoa import ByoaAgentConfig
 from gradientbang.pipecat_server.byoa_coordinator import ByoaCoordinator
 from gradientbang.pipecat_server.frames import TaskActivityFrame
+from gradientbang.pipecat_server.subagent_narrator import (
+    SpeechStateSnapshot,
+    SubagentNarrator,
+)
 from gradientbang.pipecat_server.subagents.bus_correlation import PendingRequests
 from gradientbang.pipecat_server.subagents.bus_messages import (
     BusAgentHelloRequest,
@@ -105,11 +108,7 @@ MAX_CORP_SHIP_TASKS = 3
 MAX_PERSONAL_SHIP_TASKS = 1
 REQUEST_ID_CACHE_TTL_SECONDS = 15 * 60
 REQUEST_ID_CACHE_MAX_SIZE = 5000
-DEFERRED_UPDATE_COOLDOWN_SECONDS = 1.5
 TASK_RESPONSE_SPEECH_START_GRACE_SECONDS = 0.75
-DEFERRED_UPDATE_STALE_TURNS = 5
-DEFERRED_UPDATE_SETTLE_SECONDS = 2.0
-DEFERRED_UPDATE_MAX_SETTLE_SECONDS = 8.0
 
 _UUID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
@@ -118,12 +117,6 @@ _UUID_PATTERN = re.compile(
 
 def _env_truthy(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
-
-
-@dataclass
-class _DeferredUpdate:
-    xml: str
-    ship_id: Optional[str] = None
 
 
 @dataclass
@@ -213,18 +206,14 @@ class VoiceAgent(LLMAgent):
         # when the targeted agent signals alive.
         self._hello_pending: PendingRequests = PendingRequests()
 
-        # ── Deferred-update queue (task.completed batching, etc.) ──
-        # Bounded drain task lifecycle: lazily spawned on first enqueue,
-        # exits when the queue drains. While anything is pending or mid-flush,
-        # on_idle_report skips so we don't narrate premature status updates.
-        self._deferred_updates: list[_DeferredUpdate] = []
-        self._deferred_first_enqueued_at: Optional[float] = None
-        self._deferred_last_enqueued_at: Optional[float] = None
-        self._deferred_user_stops: int = 0
-        self._deferred_bot_stops: int = 0
-        self._deferred_event: asyncio.Event = asyncio.Event()
-        self._deferred_drain_task: Optional[asyncio.Task] = None
-        self._deferred_flushing: bool = False
+        # ── Subagent narrator: gates task.completed / wake-error narrations
+        #    on voice-pipeline state so they don't step on the bot or user.
+        self._narrator = SubagentNarrator(
+            narrate=self._queue_narration_frame,
+            inject_silent=self._inject_narration_silent,
+            speech_state=self._snapshot_speech_state,
+            create_task=self.create_asyncio_task,
+        )
 
         # ── Pending confirmation for confirm_action tool ──
         self._pending_confirmation: Optional[Dict[str, Any]] = None
@@ -318,16 +307,10 @@ class VoiceAgent(LLMAgent):
     def _mark_assistant_cycle_idle(self) -> None:
         self._assistant_cycle_active = False
         # Bot has finished its turn (or grace expired) — the user's last input
-        # has now been answered, so the drain may proceed.
+        # has now been answered, so the narrator's drain may proceed.
         was_replying_to_user = self._awaiting_bot_reply
         self._awaiting_bot_reply = False
-        # If this cycle was a reply to user input, reset the settle window so
-        # there's a fresh 2s beat after the user-bot turn before any queued
-        # narration goes out. Without this, a flush can land just 1.5s
-        # (cooldown) after the bot answers, which feels stacked.
-        if was_replying_to_user and self._deferred_first_enqueued_at is not None:
-            self._deferred_last_enqueued_at = time.monotonic()
-        self._deferred_event.set()
+        self._narrator.on_assistant_cycle_idle(was_replying_to_user=was_replying_to_user)
         # Pending confirmation lifecycle: on the first idle after
         # creation, arm it so confirm_action can proceed. On the
         # second idle (user's turn passed without confirming), expire it.
@@ -365,26 +348,19 @@ class VoiceAgent(LLMAgent):
         self._bot_speaking = False
         self._cancel_speech_start_grace_task()
         self._bot_stopped_speaking_at = time.monotonic()
-        if self._deferred_first_enqueued_at is not None:
-            self._deferred_bot_stops += 1
+        self._narrator.on_bot_stopped_speaking()
         self._mark_assistant_cycle_idle()
 
     def _handle_user_started_speaking(self) -> None:
         self._user_speaking = True
-        # Reset the settle window — the user is engaging, so any queued
-        # narration must not fire ahead of (or interleave with) their turn.
-        if self._deferred_first_enqueued_at is not None:
-            self._deferred_last_enqueued_at = time.monotonic()
-        self._deferred_event.set()
+        self._narrator.on_user_started_speaking()
 
     def _handle_user_stopped_speaking(self) -> None:
         self._user_speaking = False
-        # Bot owes a reply to whatever the user just said. The drain stays
-        # blocked until the resulting assistant cycle goes idle.
+        # Bot owes a reply to whatever the user just said. The narrator's
+        # drain stays blocked until the resulting assistant cycle goes idle.
         self._awaiting_bot_reply = True
-        if self._deferred_first_enqueued_at is not None:
-            self._deferred_user_stops += 1
-        self._deferred_event.set()
+        self._narrator.on_user_stopped_speaking()
 
     def _start_speech_start_grace_timer(self) -> None:
         self._cancel_speech_start_grace_task()
@@ -454,15 +430,11 @@ class VoiceAgent(LLMAgent):
         if not self.task_groups:
             logger.debug("VoiceAgent: idle report skipped (no active tasks)")
             return False
-        if self._deferred_updates or self._deferred_flushing:
-            # A deferred update (task.completed, etc.) is queued or mid-flush.
+        if self._narrator.is_active:
+            # A subagent report (task.completed, etc.) is queued or mid-flush.
             # Skip the idle report to avoid a premature "task is done" narration
             # that would be immediately followed by the real ack.
-            logger.debug(
-                "VoiceAgent: idle report skipped ({} deferred update(s) pending, flushing={})",
-                len(self._deferred_updates),
-                self._deferred_flushing,
-            )
+            logger.debug("VoiceAgent: idle report skipped (subagent narrator active)")
             return False
         logger.debug("VoiceAgent: idle report triggered, {} active task(s)", len(self.task_groups))
         await self._inject_context(
@@ -686,8 +658,11 @@ class VoiceAgent(LLMAgent):
             )
         )
 
-    async def _queue_deferred_update_frame(self, event_xml: str) -> None:
-        """Queue a deferred-update batch for inference, bypassing tool-call defer."""
+    # ── Subagent narrator wiring ───────────────────────────────────────
+
+    async def _queue_narration_frame(self, event_xml: str) -> None:
+        # Queue a batched narration for inference, bypassing tool-call defer
+        # by going through the main pipeline directly.
         frame = LLMMessagesAppendFrame(
             messages=[{"role": "user", "content": event_xml}], run_llm=True
         )
@@ -696,172 +671,28 @@ class VoiceAgent(LLMAgent):
         else:
             await super().queue_frame(frame)
 
-    # ── Deferred-update queue ──────────────────────────────────────────
-
-    def enqueue_deferred_update(self, event_xml: str, *, ship_id: Optional[str] = None) -> None:
-        """Append an update to the deferred queue and ensure a drain task is running.
-
-        The drain task is bounded by the queue contents — it exits as soon as
-        the queue drains, so it is short-lived by construction.
-        """
-        now = time.monotonic()
-        self._deferred_updates.append(_DeferredUpdate(xml=event_xml, ship_id=ship_id))
-        if self._deferred_first_enqueued_at is None:
-            self._deferred_first_enqueued_at = now
-        self._deferred_last_enqueued_at = now
-        if self._deferred_drain_task is None or self._deferred_drain_task.done():
-            self._deferred_drain_task = self.create_asyncio_task(
-                self._drain_deferred_updates(), "deferred_update_drain"
-            )
-        self._deferred_event.set()
-        logger.debug(
-            "VoiceAgent: deferred update enqueued (queue_size={}, ship_id={})",
-            len(self._deferred_updates),
-            ship_id,
-        )
-
-    async def _drain_deferred_updates(self) -> None:
-        """Bounded drain coordinator. Exits when the queue is empty."""
-        try:
-            while self._deferred_updates:
-                # 1. Stale check — silent fold-in once topic has moved on.
-                if (
-                    min(self._deferred_user_stops, self._deferred_bot_stops)
-                    >= DEFERRED_UPDATE_STALE_TURNS
-                ):
-                    logger.debug(
-                        "VoiceAgent: deferred update stale (user_stops={}, bot_stops={}); silent flush",
-                        self._deferred_user_stops,
-                        self._deferred_bot_stops,
-                    )
-                    await self._flush_deferred_updates(run_llm=False)
-                    continue
-
-                # 2. Hard gates — wait for a poke if any fail.
-                #    `_awaiting_bot_reply` keeps the queue blocked between the
-                #    user finishing a turn and the bot's reply going idle, so
-                #    a pending narration can't front-load itself ahead of (or
-                #    interleave with) the bot's response to the user.
-                if (
-                    self.tool_call_active
-                    or self._assistant_cycle_active
-                    or self._user_speaking
-                    or self._awaiting_bot_reply
-                ):
-                    self._deferred_event.clear()
-                    await self._deferred_event.wait()
-                    continue
-
-                # 3. Settle window — wait until no new entry has arrived for
-                #    DEFERRED_UPDATE_SETTLE_SECONDS, capped by MAX from first enqueue.
-                now = time.monotonic()
-                settle_remaining = DEFERRED_UPDATE_SETTLE_SECONDS - (
-                    now - (self._deferred_last_enqueued_at or now)
-                )
-                max_remaining = DEFERRED_UPDATE_MAX_SETTLE_SECONDS - (
-                    now - (self._deferred_first_enqueued_at or now)
-                )
-                settle_wait = min(settle_remaining, max_remaining)
-                if settle_wait > 0:
-                    self._deferred_event.clear()
-                    try:
-                        await asyncio.wait_for(self._deferred_event.wait(), timeout=settle_wait)
-                        continue  # state changed — re-evaluate from the top
-                    except asyncio.TimeoutError:
-                        pass  # settle elapsed, fall through to cooldown
-
-                # 4. Cooldown — finish out the post-bot-speech buffer or wait for a poke.
-                elapsed = time.monotonic() - self._bot_stopped_speaking_at
-                cooldown_remaining = DEFERRED_UPDATE_COOLDOWN_SECONDS - elapsed
-                if cooldown_remaining > 0:
-                    self._deferred_event.clear()
-                    try:
-                        await asyncio.wait_for(
-                            self._deferred_event.wait(), timeout=cooldown_remaining
-                        )
-                        continue  # state changed mid-cooldown — re-evaluate
-                    except asyncio.TimeoutError:
-                        pass  # cooldown expired, fall through to flush
-
-                # 5. Pre-flush gate recheck — yield once so any in-flight
-                #    UserStartedSpeakingFrame can land and flip the gates
-                #    before we commit to flushing. Closes the race where a
-                #    user starts speaking the same moment all gates passed.
-                await asyncio.sleep(0)
-                if (
-                    self.tool_call_active
-                    or self._assistant_cycle_active
-                    or self._user_speaking
-                    or self._awaiting_bot_reply
-                ):
-                    continue
-
-                # 6. Flush with inference.
-                await self._flush_deferred_updates(run_llm=True)
-        except asyncio.CancelledError:
-            raise
-        finally:
-            if asyncio.current_task() is self._deferred_drain_task:
-                self._deferred_drain_task = None
-
-    async def _flush_deferred_updates(self, *, run_llm: bool) -> None:
-        """Drain the queue and emit one batched LLM message (or silent append)."""
-        if not self._deferred_updates:
-            return
-        self._deferred_flushing = True
-        try:
-            items = self._deferred_updates
-            self._deferred_updates = []
-            self._deferred_first_enqueued_at = None
-            self._deferred_last_enqueued_at = None
-            self._deferred_user_stops = 0
-            self._deferred_bot_stops = 0
-
-            batched = "\n".join(u.xml for u in items)
-            logger.debug(
-                "VoiceAgent: flushing {} deferred update(s) (run_llm={})",
-                len(items),
-                run_llm,
-            )
-            if run_llm:
-                await self._queue_deferred_update_frame(batched)
-            else:
-                await self._inject_context(
-                    [{"role": "user", "content": batched}],
-                    run_llm=False,
-                )
-        finally:
-            self._deferred_flushing = False
-
-    async def _silent_flush_for_ship(self, ship_id: str) -> None:
-        """Drain just the matching ship's pending updates silently.
-
-        Called when the user starts a new task on a ship that has pending
-        completion entries — that's a strong signal the player has moved on,
-        so we fold the previous completion into context without narrating.
-        """
-        if not ship_id or not self._deferred_updates:
-            return
-        matching = [u for u in self._deferred_updates if u.ship_id == ship_id]
-        if not matching:
-            return
-        self._deferred_updates = [u for u in self._deferred_updates if u.ship_id != ship_id]
-        if not self._deferred_updates:
-            self._deferred_first_enqueued_at = None
-            self._deferred_last_enqueued_at = None
-            self._deferred_user_stops = 0
-            self._deferred_bot_stops = 0
-        batched = "\n".join(u.xml for u in matching)
-        logger.debug(
-            "VoiceAgent: silent flush for ship {} ({} entry/entries)",
-            ship_id[:8],
-            len(matching),
-        )
+    async def _inject_narration_silent(self, event_xml: str) -> None:
         await self._inject_context(
-            [{"role": "user", "content": batched}],
+            [{"role": "user", "content": event_xml}],
             run_llm=False,
         )
-        self._deferred_event.set()
+
+    def _snapshot_speech_state(self) -> SpeechStateSnapshot:
+        return SpeechStateSnapshot(
+            user_speaking=self._user_speaking,
+            awaiting_bot_reply=self._awaiting_bot_reply,
+            assistant_cycle_active=self._assistant_cycle_active,
+            tool_call_active=self.tool_call_active,
+            bot_stopped_speaking_at=self._bot_stopped_speaking_at,
+        )
+
+    # Thin forwarders kept on VoiceAgent so external callers (ByoaCoordinator,
+    # tests, internal tool handlers) keep their existing call shape.
+    def enqueue_deferred_update(self, event_xml: str, *, ship_id: Optional[str] = None) -> None:
+        self._narrator.enqueue(event_xml, ship_id=ship_id)
+
+    async def _silent_flush_for_ship(self, ship_id: str) -> None:
+        await self._narrator.silent_flush_for_ship(ship_id)
 
     def _has_active_player_task(self) -> bool:
         return self._character_id in self._locked_ships
