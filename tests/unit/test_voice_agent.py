@@ -209,7 +209,7 @@ class TestFrameworkTaskQueries:
         corp._is_corp_ship = True
         corp._character_id = "ship-1"
         agent._children = [corp]
-        agent._update_polling_scope()
+        agent.update_polling_scope()
         agent._game_client.set_event_polling_scope.assert_called_once_with(
             character_ids=["char-123"],
             corp_id="corp-1",
@@ -219,7 +219,7 @@ class TestFrameworkTaskQueries:
     def test_update_polling_scope_no_children(self):
         agent = _make_voice_agent()
         agent._children = []
-        agent._update_polling_scope()
+        agent.update_polling_scope()
         agent._game_client.set_event_polling_scope.assert_called_once_with(
             character_ids=["char-123"],
             corp_id="corp-1",
@@ -702,10 +702,10 @@ class TestHandleSteerTask:
         agent = _make_voice_agent()
         agent.send_message = AsyncMock()
         ship_id = "550e8400-e29b-41d4-a716-446655440000"
-        byoa_name = agent.byoa_agent_name(ship_id)
+        byoa_name = agent._byoa.agent_name_for(ship_id)
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}
-        agent._byoa_active_agents[byoa_name] = {
+        agent._byoa._active_agents[byoa_name] = {
             "task_id": full_id,
             "character_id": ship_id,
             "actor_character_id": "char-123",
@@ -732,11 +732,11 @@ class TestHandleSteerTask:
         agent.send_message = AsyncMock()
         agent._is_corp_ship_id = AsyncMock(return_value=(True, "Remote Ship"))
         ship_id = "550e8400-e29b-41d4-a716-446655440000"
-        byoa_name = agent.byoa_agent_name(ship_id)
+        byoa_name = agent._byoa.agent_name_for(ship_id)
         full_id = "ff3fa419-1234-5678-9abc-def012345678"
         agent._locked_ships[ship_id] = full_id
         agent._task_groups = {full_id: TaskGroup(task_id=full_id, agent_names={byoa_name})}
-        agent._byoa_active_agents[byoa_name] = {
+        agent._byoa._active_agents[byoa_name] = {
             "task_id": full_id,
             "character_id": ship_id,
             "actor_character_id": "char-123",
@@ -1625,7 +1625,7 @@ class TestCorpShipRouting:
         agent._task_groups = {}
         agent._children = []
         agent._inject_context = AsyncMock()
-        agent._enqueue_deferred_update = MagicMock()
+        agent.enqueue_deferred_update = MagicMock()
 
         async def add_agent(task_agent):
             await asyncio.sleep(0)
@@ -1651,7 +1651,7 @@ class TestCorpShipRouting:
         agent._tool_call_inflight = 0
         agent._assistant_cycle_active = False
         agent._bot_stopped_speaking_at = 0.0
-        agent._update_polling_scope = MagicMock()
+        agent.update_polling_scope = MagicMock()
 
         await agent.on_task_response(msg)
 
@@ -1692,7 +1692,7 @@ class TestCorpShipRouting:
         agent._task_groups = {}
         agent._children = []
         agent._inject_context = AsyncMock()
-        agent._enqueue_deferred_update = MagicMock()
+        agent.enqueue_deferred_update = MagicMock()
 
         async def add_agent(task_agent):
             await asyncio.sleep(0)
@@ -1752,7 +1752,7 @@ class TestCorpShipRouting:
         agent._task_groups = {}
         agent._children = []
         agent._inject_context = AsyncMock()
-        agent._enqueue_deferred_update = MagicMock()
+        agent.enqueue_deferred_update = MagicMock()
         agent._VoiceAgent__game_client.base_url = "http://localhost"
         mock_client_cls.return_value = MagicMock()
 
@@ -1784,7 +1784,7 @@ class TestCorpShipRouting:
         agent._tool_call_inflight = 0
         agent._assistant_cycle_active = False
         agent._bot_stopped_speaking_at = 0.0
-        agent._update_polling_scope = MagicMock()
+        agent.update_polling_scope = MagicMock()
 
         await agent.on_task_response(msg)
 
@@ -1829,7 +1829,7 @@ class TestCorpShipRouting:
         msg.response = {"message": "Done"}
         agent._task_output_handler = AsyncMock(side_effect=RuntimeError("rtvi push failed"))
         agent.send_message = AsyncMock()
-        agent._update_polling_scope = MagicMock()
+        agent.update_polling_scope = MagicMock()
 
         await agent.on_task_response(msg)
 
@@ -1837,7 +1837,7 @@ class TestCorpShipRouting:
         assert child._character_id not in agent._locked_ships
         assert all(c.name != child.name for c in agent._children)
         agent.send_message.assert_awaited_once()
-        agent._update_polling_scope.assert_called_once()
+        agent.update_polling_scope.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_close_tasks_ends_idle_player_agent(self):
