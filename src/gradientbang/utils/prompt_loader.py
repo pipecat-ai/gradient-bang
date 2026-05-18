@@ -293,15 +293,6 @@ def build_ui_agent_prompt() -> str:
     return apply_prompt_substitutions("\n\n".join(parts))
 
 
-def build_sms_agent_prompt() -> str:
-    """Build the complete system prompt for the SMS/WhatsApp agent."""
-    parts = [
-        load_prompt("base/game_overview.md"),
-        load_prompt("agents/sms_agent.md"),
-    ]
-    return apply_prompt_substitutions("\n\n".join(parts))
-
-
 def build_task_progress_prompt(log_lines: Optional[list[str]] = None) -> str:
     """Build the system prompt for task progress queries.
 
