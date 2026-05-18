@@ -2715,7 +2715,7 @@ function renderWithCameraStateAndInteraction(
 
   ctx.restore()
 
-  if (coursePlot && courseAnimationOffset !== undefined) {
+  if (coursePlot) {
     renderCoursePlotAnimation(canvas, props, cameraState, courseAnimationOffset)
   }
 
@@ -2778,7 +2778,6 @@ function renderWithCameraStateAndInteraction(
 export interface SectorMapController {
   render: () => void
   moveToSector: (newSectorId: number, newMapData?: MapData) => void
-  getCurrentState: () => CameraState | null
   updateProps: (newProps: Partial<SectorMapProps>) => void
   startCourseAnimation: () => void
   stopCourseAnimation: () => void
@@ -3491,8 +3490,6 @@ export function createSectorMapController(
     }
   }
 
-  const getCurrentState = () => currentCameraState
-
   const updateProps = (newProps: Partial<SectorMapProps>) => {
     const hadCoursePlot = currentProps.coursePlot !== undefined && currentProps.coursePlot !== null
     const hadCoursePlotZoom = currentProps.config.coursePlotZoomEnabled !== false
@@ -3752,7 +3749,6 @@ export function createSectorMapController(
   return {
     render,
     moveToSector,
-    getCurrentState,
     updateProps,
     startCourseAnimation,
     stopCourseAnimation,
@@ -3770,35 +3766,8 @@ export function createSectorMapController(
   }
 }
 
-/** Render minimap canvas (stateless) */
-export function renderSectorMapCanvas(canvas: HTMLCanvasElement, props: SectorMapProps) {
-  const { width, height, data, config, maxDistance = 3, coursePlot } = props
-
-  const { hexSize, scale } = getGridMetrics(config, width, height)
-
-  const coursePlotForCamera = config.coursePlotZoomEnabled !== false ? coursePlot : undefined
-
-  const cameraState = calculateCameraState(
-    data,
-    config,
-    width,
-    height,
-    scale,
-    hexSize,
-    maxDistance,
-    coursePlotForCamera
-  )
-
-  if (!cameraState) {
-    renderEmptyState(canvas, props, width, height, scale, hexSize, config)
-    return
-  }
-
-  renderWithCameraStateAndInteraction(canvas, props, cameraState, null, null, 1)
-}
-
 /** Get current camera state for tracking between renders */
-export function getCurrentCameraState(props: SectorMapProps): CameraState | null {
+function getCurrentCameraState(props: SectorMapProps): CameraState | null {
   const { width, height, data, config, maxDistance = 3, coursePlot } = props
   const { hexSize, scale } = getGridMetrics(config, width, height)
   const coursePlotForCamera = config.coursePlotZoomEnabled !== false ? coursePlot : undefined
@@ -3815,7 +3784,7 @@ export function getCurrentCameraState(props: SectorMapProps): CameraState | null
 }
 
 /** Animate transition to new sector */
-export function updateCurrentSector(
+function updateCurrentSector(
   canvas: HTMLCanvasElement,
   props: SectorMapProps,
   newSectorId: number,
