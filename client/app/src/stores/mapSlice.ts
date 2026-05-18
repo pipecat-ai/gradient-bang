@@ -6,11 +6,9 @@ import {
   buildCoverageRect,
   clampMapZoomLevel,
   computeMapFit,
-  computeWorldBounds,
   deduplicateMapNodes,
-  findNearestDiscoveredSector,
+  findNearestNode,
   getNextZoomLevel,
-  getVisibleNodes,
   hexToWorld,
   isRectCovered,
   normalizeMapData,
@@ -86,7 +84,6 @@ export interface MapSlice {
   coursePlotZoomEnabled: boolean
   mapLegendVisible: boolean
   // --- Map data methods ---
-  setPendingMapCenterRequest: (centerNode: MapCenterNode) => void
   handleMapCenterFallback: () => void
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
@@ -106,7 +103,6 @@ export interface MapSlice {
   requestMapFetch: (centerSectorId: number, bounds: number) => boolean
   clearPendingMapFit: () => void
   fitMapToSectors: (sectorIds: number[], options?: MapFitOptions) => void
-  requestMapAutoRecenter: (reason: string) => void
   setCoursePlotZoomEnabled: (enabled: boolean) => void
   setMapLegendVisible: (visible: boolean) => void
   resetMapView: () => void
@@ -120,15 +116,12 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
   // -----------------------------------------------------------------------
   // Closure state for fitMapToSectors retry logic
   // -----------------------------------------------------------------------
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  let _mapFitRetryCount = 0
   let _mapFitStaleUpdateCount = 0
   let _mapFitTrackedRequestKey: string | undefined
 
   const _getMapFitRequestKey = (sectorIds: number[]): string => sectorIds.join(",")
 
   const _resetMapFitRetryState = () => {
-    _mapFitRetryCount = 0
     _mapFitStaleUpdateCount = 0
     _mapFitTrackedRequestKey = undefined
   }
@@ -147,7 +140,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     const requestKey = _getMapFitRequestKey(pending)
     if (_mapFitTrackedRequestKey !== requestKey) {
       _mapFitTrackedRequestKey = requestKey
-      _mapFitRetryCount = 0
       _mapFitStaleUpdateCount = 0
     }
 
@@ -167,78 +159,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     }
 
     _mapFitStaleUpdateCount = 0
-    _mapFitRetryCount++
     get().fitMapToSectors(pending)
-  }
-
-  // -----------------------------------------------------------------------
-  // Closure state for auto-recenter
-  // -----------------------------------------------------------------------
-  let autoRecenterRequested = false
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _maybeAutoRecenter = (_reason: string) => {
-    if (!autoRecenterRequested) return
-
-    const state = get()
-    if (state.mapMode === "freeroam") {
-      autoRecenterRequested = false
-      return
-    }
-    if (state.mapFitBoundsWorld) {
-      autoRecenterRequested = false
-      return
-    }
-    if (state.pendingMapFitSectors && state.pendingMapFitSectors.length > 0) {
-      return
-    }
-
-    const nodes = deduplicateMapNodes(
-      state.regional_map_data ?? [],
-      state.local_map_data ?? []
-    ).filter((n) => n.position)
-    if (nodes.length === 0) return
-
-    // Resolve center from state
-    let centerWorld = state.mapCenterWorld
-    if (!centerWorld) {
-      const centerId = state.mapCenterSector ?? state.sector?.id
-      const centerNode = centerId !== undefined ? nodes.find((n) => n.id === centerId) : undefined
-      if (centerNode?.position) {
-        const w = hexToWorld(centerNode.position[0], centerNode.position[1])
-        centerWorld = [w.x, w.y]
-      } else {
-        const fallback = nodes.find((n) => n.position)
-        if (fallback?.position) {
-          const w = hexToWorld(fallback.position[0], fallback.position[1])
-          centerWorld = [w.x, w.y]
-        }
-      }
-    }
-    if (!centerWorld) return
-
-    // Compute new center from visible node bounds
-    const zoomLevel = state.mapZoomLevel ?? DEFAULT_MAX_BOUNDS
-    const visible = getVisibleNodes(nodes, centerWorld, zoomLevel)
-    if (visible.length === 0) return
-
-    const bounds = computeWorldBounds(visible)
-    if (!bounds) return
-
-    const dx = bounds.center[0] - centerWorld[0]
-    const dy = bounds.center[1] - centerWorld[1]
-    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
-      autoRecenterRequested = false
-      return
-    }
-
-    set(
-      produce((draft) => {
-        draft.mapCenterWorld = bounds.center
-        draft.mapFitBoundsWorld = undefined
-      })
-    )
-    autoRecenterRequested = false
   }
 
   // -----------------------------------------------------------------------
@@ -293,19 +214,32 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     return [...(state.local_map_data ?? []), ...(state.regional_map_data ?? [])]
   }
 
-  const _isDiscoveredCenter = (sectorId: number, mapData: MapData): boolean => {
+  const _isVisitedCenter = (sectorId: number, mapData: MapData): boolean => {
     const state = get()
     if (state.sector?.id === sectorId) return true
-    const node = mapData.find((n) => n.id === sectorId)
-    return Boolean(node?.visited || node?.source)
+    return mapData.some((n) => n.id === sectorId && n.visited)
+  }
+
+  const _findNearestVisitedSector = (
+    targetSectorId: number,
+    mapData: MapData
+  ): MapSectorNode | undefined => {
+    const visited = mapData.filter((node) => node.visited)
+    if (visited.length === 0) return undefined
+
+    const targetNode = mapData.find((node) => node.id === targetSectorId)
+    if (!targetNode?.position) return visited[0]
+
+    const targetWorld = hexToWorld(targetNode.position[0], targetNode.position[1])
+    return findNearestNode([targetWorld.x, targetWorld.y], visited)
   }
 
   const _resolveFetchCenterSector = (sectorId: number): number => {
     const mapData = _getKnownMapData()
-    if (_isDiscoveredCenter(sectorId, mapData)) {
+    if (_isVisitedCenter(sectorId, mapData)) {
       return sectorId
     }
-    return findNearestDiscoveredSector(sectorId, mapData)?.id ?? get().sector?.id ?? sectorId
+    return _findNearestVisitedSector(sectorId, mapData)?.id ?? get().sector?.id ?? sectorId
   }
 
   const _resolveCenterWorld = (sectorId: number): [number, number] | undefined => {
@@ -368,14 +302,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
     // Map data methods
     // =================================================================
 
-    setPendingMapCenterRequest: (centerNode: MapCenterNode) => {
-      set(
-        produce((state) => {
-          state.pendingMapCenterRequestRef = centerNode
-        })
-      )
-    },
-
     handleMapCenterFallback: () => {
       const state = get()
 
@@ -395,7 +321,7 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       const mapData = _getKnownMapData()
       let fallbackId = state.sector?.id
       if (fallbackId === undefined) {
-        const nearest = findNearestDiscoveredSector(pending.centerSector, mapData)
+        const nearest = _findNearestVisitedSector(pending.centerSector, mapData)
         fallbackId = nearest?.id
       }
 
@@ -463,7 +389,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         })
       )
       _maybeRetryMapFit()
-      _maybeAutoRecenter("map.local")
     },
 
     setRegionalMapData: (regionalMapData: MapData) => {
@@ -498,7 +423,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
       }
 
       _maybeRetryMapFit()
-      _maybeAutoRecenter("map.region")
     },
 
     applyMapDelta: (delta: MapDelta) =>
@@ -785,7 +709,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
           pending.every((id, idx) => id === cleaned[idx])
         if (!samePending || _mapFitTrackedRequestKey !== requestKey) {
           _mapFitTrackedRequestKey = requestKey
-          _mapFitRetryCount = 0
           _mapFitStaleUpdateCount = 0
         }
         if (samePending && pendingMissing !== undefined && missing.length >= pendingMissing) {
@@ -833,11 +756,6 @@ export const createMapSlice: StateCreator<GameStoreState, [], [], MapSlice> = (s
         })
       )
       _resetMapFitRetryState()
-    },
-
-    requestMapAutoRecenter: (reason: string) => {
-      autoRecenterRequested = true
-      _maybeAutoRecenter(reason)
     },
 
     // =================================================================

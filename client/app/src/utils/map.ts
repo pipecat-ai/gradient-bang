@@ -364,24 +364,6 @@ export const findNearestNode = (
   return best
 }
 
-/**
- * Find the nearest discovered (visited or sourced) sector to a target sector
- * using hex-grid world-coordinate distance.
- */
-export const findNearestDiscoveredSector = (
-  targetSectorId: number,
-  mapData: MapData
-): MapSectorNode | undefined => {
-  const discovered = mapData.filter((node) => node.visited || node.source)
-  if (discovered.length === 0) return undefined
-
-  const targetNode = mapData.find((node) => node.id === targetSectorId)
-  if (!targetNode?.position) return discovered[0]
-
-  const targetWorld = hexToWorld(targetNode.position[0], targetNode.position[1])
-  return findNearestNode([targetWorld.x, targetWorld.y], discovered)
-}
-
 // =========================================================================
 // Map fit computation
 // =========================================================================
