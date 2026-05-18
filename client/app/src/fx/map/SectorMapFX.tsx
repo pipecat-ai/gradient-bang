@@ -117,7 +117,9 @@ export interface NodeStyles {
   unvisited: NodeStyle
   muted: NodeStyle
   megaPort: NodeStyle
-  garrison: NodeStyle
+  garrisonDefensive: NodeStyle
+  garrisonOffensive: NodeStyle
+  garrisonToll: NodeStyle
   coursePlotCurrent: NodeStyle
   coursePlotStart: NodeStyle
   coursePlotEnd: NodeStyle
@@ -191,7 +193,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     glowColor: "rgba(255,255,255,0.15)",
     glowFalloff: 0.3,
   },
-  garrison: {
+  garrisonOffensive: {
     fill: "rgba(70,8,9,0.8)",
     border: "rgba(239,68,68,1)",
     borderWidth: 3,
@@ -202,6 +204,32 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     glow: true,
     glowRadius: 100,
     glowColor: "rgba(239,68,68,0.2)",
+    glowFalloff: 0.3,
+  },
+  garrisonDefensive: {
+    fill: "rgba(8,47,52,0.8)",
+    border: "rgba(34,211,238,1)",
+    borderWidth: 3,
+    borderStyle: "solid",
+    outline: "rgba(34,211,238,0.5)",
+    outlineWidth: 2,
+    iconColor: "#cffafe",
+    glow: true,
+    glowRadius: 100,
+    glowColor: "rgba(34,211,238,0.2)",
+    glowFalloff: 0.3,
+  },
+  garrisonToll: {
+    fill: "rgba(66,42,4,0.8)",
+    border: "rgba(245,158,11,1)",
+    borderWidth: 3,
+    borderStyle: "solid",
+    outline: "rgba(245,158,11,0.5)",
+    outlineWidth: 2,
+    iconColor: "#fef3c7",
+    glow: true,
+    glowRadius: 100,
+    glowColor: "rgba(245,158,11,0.2)",
     glowFalloff: 0.3,
   },
   coursePlotCurrent: {
@@ -1199,7 +1227,15 @@ function getNodeStyle(
     // Current sector always gets the current style (blue) regardless of port/garrison
     baseStyle = config.nodeStyles.current
   } else if (hasGarrison) {
-    baseStyle = config.nodeStyles.garrison
+    const mode = node.garrison?.mode
+    if (mode === "defensive") {
+      baseStyle = config.nodeStyles.garrisonDefensive
+    } else if (mode === "toll") {
+      baseStyle = config.nodeStyles.garrisonToll
+    } else {
+      // offensive or unknown — offensive is the visual default.
+      baseStyle = config.nodeStyles.garrisonOffensive
+    }
   } else if (isMegaPort) {
     baseStyle = config.nodeStyles.megaPort
   } else if (isVisited) {
@@ -2161,7 +2197,12 @@ function truncateText(ctx: CanvasRenderingContext2D, text: string, maxWidth: num
   return text.slice(0, lo) + ellipsis
 }
 
-type ShipInfo = { ship_name: string; ship_type: string }
+type ShipOwnerKind = "self" | "corp_mate"
+type ShipInfo = {
+  ship_name: string
+  ship_type: string
+  owner_kind?: ShipOwnerKind
+}
 
 type ShipLabelHitBox = { sectorId: number; x: number; y: number; w: number; h: number }
 
@@ -2185,6 +2226,8 @@ function renderShipLabels(
   const labelStyle = config.labelStyles.shipCount
   const iconSize = 14
   const combatColor = "#ff3344"
+  // Used when a sector contains only corp-mate ships (no self-owned ship).
+  const corpMateColor = "rgba(168,85,247,0.85)"
 
   ctx.save()
   ctx.textAlign = "left"
@@ -2245,7 +2288,11 @@ function renderShipLabels(
 
     const labelOpacity = 1
     const isCombat = combatSectors?.has(node.id) ?? false
-    const bgColor = isCombat ? combatColor : labelStyle.backgroundColor
+    const hasSelfShip = shipList.some((s) => s.owner_kind !== "corp_mate")
+    const bgColor =
+      isCombat ? combatColor
+      : hasSelfShip ? labelStyle.backgroundColor
+      : corpMateColor
 
     ctx.save()
     ctx.translate(labelX, labelY)

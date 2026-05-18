@@ -182,6 +182,8 @@ async function departOne(params: {
     sectorId: destination,
     shipId: ship.ship_id,
     requestId,
+    actorCharacterId: characterId,
+    corpId: character.corporation_id,
   });
 
   // 6. map.local for the destination sector.
