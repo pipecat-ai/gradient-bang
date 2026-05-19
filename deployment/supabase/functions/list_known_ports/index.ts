@@ -610,6 +610,10 @@ type PortResult = {
   last_visited?: string;
 };
 
+// Cap each `IN (...)` URL well below typical proxy/header limits. At ~5 chars
+// per id plus URL-encoded commas, 500 ids yields ~4 KB of query string.
+const IN_CHUNK_SIZE = 500;
+
 async function fetchPortRows(
   supabase: ReturnType<typeof createServiceRoleClient>,
   sectorIds: number[],
@@ -619,18 +623,25 @@ async function fetchPortRows(
     return [];
   }
   const uniqueIds = Array.from(new Set(sectorIds));
-  const { data: contents, error: contentsError } = await supabase
-    .from("sector_contents")
-    .select("sector_id, port_id")
-    .in("sector_id", uniqueIds);
-  if (contentsError) {
-    log.error("sector_contents", contentsError);
-    throw new ListKnownPortsError("failed to load sector contents", 500);
+  const contents: Array<{ sector_id: unknown; port_id: unknown }> = [];
+  for (let i = 0; i < uniqueIds.length; i += IN_CHUNK_SIZE) {
+    const chunk = uniqueIds.slice(i, i + IN_CHUNK_SIZE);
+    const { data, error } = await supabase
+      .from("sector_contents")
+      .select("sector_id, port_id")
+      .in("sector_id", chunk);
+    if (error) {
+      log.error("sector_contents", error);
+      throw new ListKnownPortsError("failed to load sector contents", 500);
+    }
+    if (data) {
+      contents.push(...data);
+    }
   }
 
   const sectorPortPairs: Array<{ sector_id: number; port_id: number }> = [];
   const portIds = new Set<number>();
-  for (const row of contents ?? []) {
+  for (const row of contents) {
     if (typeof row.sector_id !== "number") {
       continue;
     }
@@ -652,22 +663,30 @@ async function fetchPortRows(
     return [];
   }
 
-  const { data: ports, error: portsError } = await supabase
-    .from("ports")
-    .select(
-      "port_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, last_updated",
-    )
-    .in("port_id", Array.from(portIds));
-  if (portsError) {
-    log.error("ports", portsError);
-    throw new ListKnownPortsError("failed to load ports", 500);
+  const portIdList = Array.from(portIds);
+  const ports: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < portIdList.length; i += IN_CHUNK_SIZE) {
+    const chunk = portIdList.slice(i, i + IN_CHUNK_SIZE);
+    const { data, error } = await supabase
+      .from("ports")
+      .select(
+        "port_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, last_updated",
+      )
+      .in("port_id", chunk);
+    if (error) {
+      log.error("ports", error);
+      throw new ListKnownPortsError("failed to load ports", 500);
+    }
+    if (data) {
+      ports.push(...data);
+    }
   }
 
   const portById = new Map<
     number,
     Omit<PortRow, "sector_id">
   >();
-  for (const port of ports ?? []) {
+  for (const port of ports) {
     const rawPortId = port.port_id;
     const portId =
       typeof rawPortId === "number"
@@ -679,15 +698,15 @@ async function fetchPortRows(
       continue;
     }
     portById.set(portId, {
-      port_code: port.port_code,
-      port_class: port.port_class,
-      max_qf: port.max_qf,
-      max_ro: port.max_ro,
-      max_ns: port.max_ns,
-      stock_qf: port.stock_qf,
-      stock_ro: port.stock_ro,
-      stock_ns: port.stock_ns,
-      last_updated: port.last_updated ?? null,
+      port_code: port.port_code as string,
+      port_class: port.port_class as number,
+      max_qf: port.max_qf as number,
+      max_ro: port.max_ro as number,
+      max_ns: port.max_ns as number,
+      stock_qf: port.stock_qf as number,
+      stock_ro: port.stock_ro as number,
+      stock_ns: port.stock_ns as number,
+      last_updated: (port.last_updated as string | null) ?? null,
     });
   }
 
