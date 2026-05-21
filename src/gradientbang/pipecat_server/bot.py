@@ -106,6 +106,7 @@ from gradientbang.pipecat_server.subagents.ui_agent import (
     UIAgentResponseCollector,
 )
 from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStrategy
+from gradientbang.utils.cekura_tracing import get_tracer, init_cekura, is_cekura_enabled
 from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 from gradientbang.utils.weave_tracing import init_weave, traced
@@ -116,6 +117,8 @@ if os.getenv("BOT_USE_KRISP"):
 # Initialize Weave early (before @traced decorators are applied to startup functions).
 # Must come after load_dotenv so WANDB_API_KEY is available.
 init_weave()
+
+init_cekura()
 
 
 async def _lookup_character_display_name(
@@ -688,7 +691,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             logger.info(f"MainAgent: {data.agent_name} ready")
 
         def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
-            return PipelineTask(
+            task = PipelineTask(
                 pipeline,
                 params=PipelineParams(
                     enable_metrics=True,
@@ -709,6 +712,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     TaskActivityFrame,
                 ),
             )
+            if is_cekura_enabled():
+                get_tracer().register_task_handlers(task, transport=transport)
+            return task
 
         async def build_pipeline(self) -> Pipeline:
             # Voice LLM lives inline in branch 0 (no bus hop). VoiceAgent
@@ -725,7 +731,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 await self.add_agent(voice_agent)
                 await self.add_agent(scripted_agent)
 
-            return Pipeline(
+            pipeline = Pipeline(
                 [
                     transport.input(),
                     stt,
@@ -747,6 +753,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     ),
                 ]
             )
+            if is_cekura_enabled():
+                get_tracer().track_pipeline(pipeline, context, runner_args=runner_args)
+            return pipeline
 
     agent_runner = AgentRunner(
         bus=await make_subagent_bus(),
