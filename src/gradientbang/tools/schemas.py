@@ -533,10 +533,10 @@ DISBAND_GARRISON = FunctionSchema(
 CREATE_CORPORATION = FunctionSchema(
     name="create_corporation",
     description=(
-        "Create a new corporation. Use this for onboarding and any generic "
-        "'I want a corporation' / 'set up my corp' / 'make me a corporation' "
-        "request — NOT `join_corporation`. Requires sufficient ship credits "
-        "for the founding fee."
+        "Create a new corporation. Spends 10,000 ship credits, non-refundable. "
+        "Requires a name from the commander — ask if not given, never invent a "
+        "placeholder. Do NOT call for cost/info questions ('how much', 'what's "
+        "the fee') — answer from this description."
     ),
     properties={
         "name": {

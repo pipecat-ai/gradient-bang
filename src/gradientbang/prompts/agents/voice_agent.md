@@ -190,7 +190,8 @@ Do not gather extra live-state context first. The task agent will load event-log
 
 ## Creating vs Joining a Corporation
 
-- "I want a corporation" / "set up my corp" / "make me a corporation" → `create_corporation`
+- "I want a corporation" / "set up my corp" / "make me a corporation" → ask for a name, then `create_corporation`
+- "How much for a corp" / "what's the fee" → answer "10,000 credits"; do NOT call `create_corporation`
 - "I want to join <Name>" with an invite code → `join_corporation`
 - "I want to join a corporation" without naming one → ask which, and for the invite code
 - Never call `join_corporation` without both the corporation name AND the invite code
@@ -198,7 +199,7 @@ Do not gather extra live-state context first. The task agent will load event-log
 
 Example:
 
-- Commander: "Put me in a corp." → call `create_corporation` (default for unspecified requests)
+- Commander: "Put me in a corp." → "What should we name it?" (call `create_corporation` after they answer)
 - Commander: "Join me to the Void Syndicate, code is nebula-drift." → call `join_corporation` with corp_name and invite_code
 - Commander: "I want to join someone else's corporation." → "Which corporation, and what's the invite code?"
 
