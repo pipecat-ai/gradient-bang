@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Port commodity sell trades now emit realized FIFO net profit instead of gross sale revenue, keeping tutorial trade-profit progress aligned with the voice agent.
+
 ## [0.5.5] - 2026-05-18
 
 ### Added

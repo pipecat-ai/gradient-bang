@@ -24,18 +24,18 @@ import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
   api,
   apiOk,
+  assertNoEventsOfType,
   characterIdFor,
-  shipIdFor,
   eventsOfType,
   getEventCursor,
   queryShip,
-  assertNoEventsOfType,
-  setShipCredits,
   setShipCargo,
-  setShipSector,
-  setShipWarpPower,
+  setShipCredits,
   setShipFighters,
   setShipHyperspace,
+  setShipSector,
+  setShipWarpPower,
+  shipIdFor,
 } from "./helpers.ts";
 
 const P1 = "test_trade_p1";
@@ -45,6 +45,19 @@ let p1Id: string;
 let p2Id: string;
 let p1ShipId: string;
 let p2ShipId: string;
+
+function readTradeSnapshot(payload: Record<string, unknown>): {
+  profit: number;
+  totalPrice: number;
+  pricePerUnit: number;
+} {
+  const trade = payload.trade as Record<string, unknown>;
+  return {
+    profit: Number(payload.profit ?? 0),
+    totalPrice: Number(trade.total_price ?? 0),
+    pricePerUnit: Number(trade.price_per_unit ?? 0),
+  };
+}
 
 // ============================================================================
 // Group 0: Start server
@@ -102,22 +115,40 @@ Deno.test({
 
     await t.step("P1 receives trade.executed event", async () => {
       const events = await eventsOfType(p1Id, "trade.executed", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 trade.executed, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 trade.executed, got ${events.length}`,
+      );
+      const trade = readTradeSnapshot(events[0].payload);
+      assertEquals(
+        trade.profit,
+        0,
+        "Buy events should report zero realized profit",
+      );
     });
 
     await t.step("P1 receives status.update event", async () => {
       const events = await eventsOfType(p1Id, "status.update", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 status.update, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 status.update, got ${events.length}`,
+      );
     });
 
     await t.step("P1 receives port.update event", async () => {
       const events = await eventsOfType(p1Id, "port.update", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 port.update for P1, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 port.update for P1, got ${events.length}`,
+      );
     });
 
     await t.step("P2 receives port.update (sector broadcast)", async () => {
       const events = await eventsOfType(p2Id, "port.update", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 port.update for P2, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 port.update for P2, got ${events.length}`,
+      );
     });
 
     await t.step("P2 does NOT receive trade.executed", async () => {
@@ -127,13 +158,114 @@ Deno.test({
     await t.step("DB: ship cargo increased", async () => {
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
-      assert((ship.cargo_ns as number) > 0, "Should have neuro_symbolics cargo (cargo_ns)");
+      assert(
+        (ship.cargo_ns as number) > 0,
+        "Should have neuro_symbolics cargo (cargo_ns)",
+      );
     });
   },
 });
 
 // ============================================================================
-// Group 2: Sell goods to port
+// Group 2: Sell goods to port with FIFO profit
+// ============================================================================
+
+Deno.test({
+  name: "trade — sell reports net FIFO profit",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    await t.step("reset and buy retro_organics", async () => {
+      await resetDatabase([P1]);
+      await apiOk("join", { character_id: p1Id });
+      await setShipCredits(p1ShipId, 50000);
+      // Sector 3 (BSS) sells retro_organics.
+      await setShipSector(p1ShipId, 3);
+    });
+
+    let cursorP1 = await getEventCursor(p1Id);
+    let buyPricePerUnit = 0;
+
+    await t.step("P1 buys retro_organics from port", async () => {
+      const result = await apiOk("trade", {
+        character_id: p1Id,
+        commodity: "retro_organics",
+        trade_type: "buy",
+        quantity: 20,
+      });
+      assert(result.success);
+
+      const events = await eventsOfType(p1Id, "trade.executed", cursorP1);
+      assert(
+        events.length >= 1,
+        `Expected buy trade.executed, got ${events.length}`,
+      );
+      const trade = readTradeSnapshot(events[0].payload);
+      assertEquals(
+        trade.profit,
+        0,
+        "Buy events should report zero realized profit",
+      );
+      buyPricePerUnit = trade.pricePerUnit;
+    });
+
+    await t.step("P1 sells part of the lot for net profit", async () => {
+      // Sector 1 (BBS) buys retro_organics.
+      await setShipSector(p1ShipId, 1);
+      cursorP1 = await getEventCursor(p1Id);
+
+      const result = await apiOk("trade", {
+        character_id: p1Id,
+        commodity: "retro_organics",
+        trade_type: "sell",
+        quantity: 10,
+      });
+      assert(result.success);
+
+      const events = await eventsOfType(p1Id, "trade.executed", cursorP1);
+      assert(
+        events.length >= 1,
+        `Expected first sell trade.executed, got ${events.length}`,
+      );
+      const trade = readTradeSnapshot(events[0].payload);
+      assertEquals(
+        trade.profit,
+        trade.totalPrice - 10 * buyPricePerUnit,
+        "Sell profit should be realized revenue minus FIFO cost basis",
+      );
+    });
+
+    await t.step(
+      "P1 sells remaining lot using remaining FIFO basis",
+      async () => {
+        cursorP1 = await getEventCursor(p1Id);
+
+        const result = await apiOk("trade", {
+          character_id: p1Id,
+          commodity: "retro_organics",
+          trade_type: "sell",
+          quantity: 10,
+        });
+        assert(result.success);
+
+        const events = await eventsOfType(p1Id, "trade.executed", cursorP1);
+        assert(
+          events.length >= 1,
+          `Expected second sell trade.executed, got ${events.length}`,
+        );
+        const trade = readTradeSnapshot(events[0].payload);
+        assertEquals(
+          trade.profit,
+          trade.totalPrice - 10 * buyPricePerUnit,
+          "Prior sells should consume the first half of the FIFO lot",
+        );
+      },
+    );
+  },
+});
+
+// ============================================================================
+// Group 3: Sell goods to port
 // ============================================================================
 
 Deno.test({
@@ -170,6 +302,12 @@ Deno.test({
     await t.step("P1 receives trade.executed", async () => {
       const events = await eventsOfType(p1Id, "trade.executed", cursorP1);
       assert(events.length >= 1);
+      const trade = readTradeSnapshot(events[0].payload);
+      assertEquals(
+        trade.profit,
+        0,
+        "Cargo without port buy history should not report gross revenue as profit",
+      );
     });
 
     await t.step("P2 receives port.update", async () => {
@@ -181,13 +319,16 @@ Deno.test({
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
       // Started with 1000, should have more after selling
-      assert((ship.credits as number) > 1000, `Credits should have increased: ${ship.credits}`);
+      assert(
+        (ship.credits as number) > 1000,
+        `Credits should have increased: ${ship.credits}`,
+      );
     });
   },
 });
 
 // ============================================================================
-// Group 3: Insufficient credits
+// Group 4: Insufficient credits
 // ============================================================================
 
 Deno.test({
@@ -208,13 +349,16 @@ Deno.test({
         trade_type: "buy",
         quantity: 5,
       });
-      assert(!result.ok || !result.body.success, "Expected trade to fail with no credits");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected trade to fail with no credits",
+      );
     });
   },
 });
 
 // ============================================================================
-// Group 4: No port in sector
+// Group 5: No port in sector
 // ============================================================================
 
 Deno.test({
@@ -236,13 +380,16 @@ Deno.test({
         trade_type: "buy",
         quantity: 5,
       });
-      assert(!result.ok || !result.body.success, "Expected trade to fail with no port");
+      assert(
+        !result.ok || !result.body.success,
+        "Expected trade to fail with no port",
+      );
     });
   },
 });
 
 // ============================================================================
-// Group 5: Recharge warp power (mega-port)
+// Group 6: Recharge warp power (mega-port)
 // ============================================================================
 
 Deno.test({
@@ -278,7 +425,10 @@ Deno.test({
 
     await t.step("P1 receives warp.purchase event", async () => {
       const events = await eventsOfType(p1Id, "warp.purchase", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 warp.purchase, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 warp.purchase, got ${events.length}`,
+      );
     });
 
     await t.step("P1 receives status.update", async () => {
@@ -293,7 +443,10 @@ Deno.test({
     await t.step("DB: warp power increased", async () => {
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
-      assert((ship.current_warp_power as number) >= 150, `Warp should have increased: ${ship.current_warp_power}`);
+      assert(
+        (ship.current_warp_power as number) >= 150,
+        `Warp should have increased: ${ship.current_warp_power}`,
+      );
     });
   },
 });
@@ -307,14 +460,17 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
-    await t.step("reset and move P1 to mega-port with low fighters", async () => {
-      await resetDatabase([P1]);
-      await apiOk("join", { character_id: p1Id });
-      await setShipSector(p1ShipId, 0);
-      await setShipCredits(p1ShipId, 50000);
-      // Kestrel courier starts at max 300 fighters, reduce so we can buy more
-      await setShipFighters(p1ShipId, 100);
-    });
+    await t.step(
+      "reset and move P1 to mega-port with low fighters",
+      async () => {
+        await resetDatabase([P1]);
+        await apiOk("join", { character_id: p1Id });
+        await setShipSector(p1ShipId, 0);
+        await setShipCredits(p1ShipId, 50000);
+        // Kestrel courier starts at max 300 fighters, reduce so we can buy more
+        await setShipFighters(p1ShipId, 100);
+      },
+    );
 
     let cursorP1: number;
 
@@ -332,13 +488,19 @@ Deno.test({
 
     await t.step("P1 receives fighter.purchase event", async () => {
       const events = await eventsOfType(p1Id, "fighter.purchase", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 fighter.purchase, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 fighter.purchase, got ${events.length}`,
+      );
     });
 
     await t.step("DB: credits decreased", async () => {
       const ship = await queryShip(p1ShipId);
       assertExists(ship);
-      assert((ship.credits as number) < 50000, `Credits should have decreased: ${ship.credits}`);
+      assert(
+        (ship.credits as number) < 50000,
+        `Credits should have decreased: ${ship.credits}`,
+      );
     });
   },
 });
@@ -377,7 +539,10 @@ Deno.test({
 
     await t.step("P1 receives salvage.created event", async () => {
       const events = await eventsOfType(p1Id, "salvage.created", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 salvage.created, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 salvage.created, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertEquals(payload.action, "dumped");
       assertExists(payload.salvage_details, "payload.salvage_details");
@@ -390,7 +555,10 @@ Deno.test({
 
     await t.step("P2 receives sector.update (salvage visible)", async () => {
       const events = await eventsOfType(p2Id, "sector.update", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 sector.update for P2, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 sector.update for P2, got ${events.length}`,
+      );
     });
   },
 });
@@ -421,7 +589,10 @@ Deno.test({
     await t.step("get salvage ID from event", async () => {
       const events = await eventsOfType(p1Id, "salvage.created");
       assert(events.length >= 1, "Should have salvage.created event");
-      const details = events[0].payload.salvage_details as Record<string, unknown>;
+      const details = events[0].payload.salvage_details as Record<
+        string,
+        unknown
+      >;
       assertExists(details.salvage_id, "Should have salvage_id");
       salvageId = details.salvage_id as string;
     });
@@ -444,14 +615,20 @@ Deno.test({
 
     await t.step("P2 receives salvage.collected event", async () => {
       const events = await eventsOfType(p2Id, "salvage.collected", cursorP2);
-      assert(events.length >= 1, `Expected >= 1 salvage.collected, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 salvage.collected, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertEquals(payload.action, "collected");
     });
 
     await t.step("P1 receives sector.update", async () => {
       const events = await eventsOfType(p1Id, "sector.update", cursorP1);
-      assert(events.length >= 1, `Expected >= 1 sector.update for P1, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected >= 1 sector.update for P1, got ${events.length}`,
+      );
     });
   },
 });
@@ -536,7 +713,10 @@ Deno.test({
         quantity: 5,
       });
       assertEquals(result.status, 400);
-      assert(result.body.error?.includes("buy") || result.body.error?.includes("sell"));
+      assert(
+        result.body.error?.includes("buy") ||
+          result.body.error?.includes("sell"),
+      );
     });
   },
 });
