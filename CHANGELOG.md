@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Port commodity sell trades now emit realized FIFO net profit instead of gross sale revenue, keeping tutorial trade-profit progress aligned with the voice agent.
 - Tightened voice-agent prompt and `create_corporation` schema to discourage auto-founding a corp on cost/info questions ("how much for a corp?") and to nudge the agent toward asking for a name first.
+- Added a corp-ship-purchase worked example to the voice-agent prompt and a rule against deferring ship purchases to the UI, to reduce cases where the agent refuses voice purchases.
 
 ## [0.5.5] - 2026-05-18
 

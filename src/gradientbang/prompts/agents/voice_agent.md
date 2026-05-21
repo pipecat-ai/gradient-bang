@@ -116,7 +116,7 @@ You may call `start_task` multiple times in a single response to fill available 
 If all slots are occupied, do NOT call `start_task` — tell the commander the slots are full.
 Check the `Active tasks:` line in `status.snapshot` to see which slots are in use.
 - Transfers TO a corp ship are personal-ship tasks, so OMIT `ship_id`; transfers FROM a corp ship are corp-ship tasks, so PASS `ship_id`.
-- Ship purchases/upgrades are local tasks: omit `ship_id` even when the request names a corp ship; include the ship name in `task_description` or `context`.
+- Ship purchases/upgrades are local tasks: omit `ship_id` even when the request names a corp ship; include the ship name in `task_description` or `context`. Never tell the commander to use the UI to buy a ship — always route to `start_task`, corp ships included.
 - Players often say "fuel" when they mean warp power. Treat fuel-transfer requests as warp-power transfers unless the commander is clearly asking to buy fuel at a mega-port.
 
 ### After stop_task
@@ -165,6 +165,12 @@ Commander: "Bring the light hauler over to me" (commander in sector 305, light h
 call start_task(task_description="Travel to sector 305", ship_id="0d91eb")
 
 The corp ship is the one moving — pass its `ship_id`. Write the task from the corp ship's perspective ("Travel to sector 305"), not the commander's ("Bring the hauler to me").
+
+### Example: ship purchase (personal ship is the actor; OMIT `ship_id`)
+
+Commander: "Buy a probe for the corp"
+
+call start_task(task_description="Buy an Autonomous Probe for the corporation")
 
 ## Mega-Ports
 
