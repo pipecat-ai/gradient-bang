@@ -385,17 +385,28 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     # fallback for sessions that bypass the login → start proxy flow.
     body_access_token = body.get("access_token")
     access_token = body_access_token or os.getenv("BOT_TEST_ACCESS_TOKEN")
-    if not access_token:
-        raise RuntimeError("access_token required to start a bot session.")
-    logger.info(
-        "access_token source: {}",
-        "start payload" if body_access_token else "BOT_TEST_ACCESS_TOKEN env",
-    )
-    try:
-        assert_access_token_valid(access_token)
-    except RuntimeError as exc:
-        logger.error("access_token preflight failed: {}", exc)
-        raise
+    # When USE_EDGE_TOKEN_FOR_AUTH=True (e.g. Cekura eval runs where the
+    # per-character JWT can't be pre-minted), skip the access_token and let
+    # downstream calls authenticate via X-Edge-Auth (EDGE_API_TOKEN).
+    use_edge_token_for_auth = os.getenv("USE_EDGE_TOKEN_FOR_AUTH") == "True"
+    if use_edge_token_for_auth:
+        logger.info(
+            "USE_EDGE_TOKEN_FOR_AUTH=True — authenticating via EDGE_API_TOKEN "
+            "(X-Edge-Auth); per-character access_token not required."
+        )
+        access_token = None
+    else:
+        if not access_token:
+            raise RuntimeError("access_token required to start a bot session.")
+        logger.info(
+            "access_token source: {}",
+            "start payload" if body_access_token else "BOT_TEST_ACCESS_TOKEN env",
+        )
+        try:
+            assert_access_token_valid(access_token)
+        except RuntimeError as exc:
+            logger.error("access_token preflight failed: {}", exc)
+            raise
     # Resolve voice: prefer short name lookup for the active TTS provider,
     # then fall back to a raw provider-specific voice_id when supplied.
     tts_provider = get_tts_provider()
