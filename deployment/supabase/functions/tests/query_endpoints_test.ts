@@ -17,6 +17,7 @@ import {
 } from "https://deno.land/std@0.197.0/testing/asserts.ts";
 
 import { resetDatabase, startServerInProcess } from "./harness.ts";
+import { clearAdjacencyCache } from "../_shared/pg.ts";
 import {
   api,
   apiGet,
@@ -24,6 +25,7 @@ import {
   apiRaw,
   characterIdFor,
   createCorpShip,
+  ensureSectorHasPort,
   eventsOfType,
   getEventCursor,
   setMegabankBalance,
@@ -41,6 +43,73 @@ let p1Id: string;
 let p2Id: string;
 let p1ShipId: string;
 let p2ShipId: string;
+
+async function seedLargeKnownSectorSet(characterId: string): Promise<void> {
+  const extraSectorIds = Array.from({ length: 600 }, (_, idx) => idx + 10);
+  const now = new Date().toISOString();
+  const sectorZeroWarps = extraSectorIds.map((sectorId) => ({
+    to: sectorId,
+    two_way: true,
+  }));
+  const backToZeroWarp = JSON.stringify([{ to: 0, two_way: true }]);
+
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE universe_structure SET warps = $1::jsonb WHERE sector_id = 0`,
+      [JSON.stringify(sectorZeroWarps)],
+    );
+    await pg.queryObject(
+      `INSERT INTO universe_structure (sector_id, position_x, position_y, region, warps)
+       SELECT sector_id, sector_id, 0, NULL, $2::jsonb
+       FROM unnest($1::int[]) AS t(sector_id)
+       ON CONFLICT (sector_id) DO UPDATE
+       SET warps = EXCLUDED.warps`,
+      [extraSectorIds, backToZeroWarp],
+    );
+    await pg.queryObject(
+      `INSERT INTO sector_contents (sector_id, port_id, combat, salvage)
+       SELECT sector_id, NULL, NULL, '[]'::jsonb
+       FROM unnest($1::int[]) AS t(sector_id)
+       ON CONFLICT (sector_id) DO NOTHING`,
+      [extraSectorIds],
+    );
+  });
+
+  await ensureSectorHasPort(0, 7, "SSS");
+
+  const sectorsVisited: Record<
+    string,
+    {
+      adjacent_sectors: number[];
+      position: [number, number];
+      last_visited: string;
+    }
+  > = {};
+  for (const sectorId of [0, ...extraSectorIds]) {
+    sectorsVisited[String(sectorId)] = {
+      adjacent_sectors: sectorId === 0 ? extraSectorIds : [0],
+      position: [sectorId, 0],
+      last_visited: now,
+    };
+  }
+
+  await withPg(async (pg) => {
+    await pg.queryObject(
+      `UPDATE characters
+       SET map_knowledge = $2::jsonb
+       WHERE character_id = $1`,
+      [
+        characterId,
+        JSON.stringify({
+          total_sectors_visited: Object.keys(sectorsVisited).length,
+          sectors_visited: sectorsVisited,
+        }),
+      ],
+    );
+  });
+
+  clearAdjacencyCache();
+}
 
 // ============================================================================
 // Group 0: Start server
@@ -2189,7 +2258,68 @@ Deno.test({
 });
 
 // ============================================================================
-// Group 54: adjacent_sectors includes region info
+// Group 54: list_known_ports — large known-sector set
+// ============================================================================
+
+// The in-process edge-function harness has no HTTP proxy or URL-length cap, so
+// this is a forward regression guard for the large candidate-sector path rather
+// than a direct reproduction of the original overlong PostgREST URL failure.
+Deno.test({
+  name: "query_endpoints — list_known_ports handles large known sector sets",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn(t) {
+    try {
+      await t.step("reset and seed more than 500 known sectors", async () => {
+        await resetDatabase([P1]);
+        await apiOk("join", { character_id: p1Id });
+        await seedLargeKnownSectorSet(p1Id);
+      });
+
+      await t.step(
+        "mega lookup succeeds and returns the known mega port",
+        async () => {
+          const result = await apiOk("list_known_ports", {
+            character_id: p1Id,
+            mega: true,
+            max_hops: 100,
+          });
+          const ports = result.ports as Array<Record<string, unknown>>;
+          const sectorIds = ports.map((port) =>
+            (port.sector as Record<string, unknown>).id
+          );
+          assertEquals(result.searched_sectors, 601);
+          assert(sectorIds.includes(0), "Expected sector 0 mega port");
+        },
+      );
+
+      await t.step(
+        "commodity filter still works across the large set",
+        async () => {
+          const result = await apiOk("list_known_ports", {
+            character_id: p1Id,
+            mega: true,
+            commodity: "quantum_foam",
+            trade_type: "buy",
+            max_hops: 100,
+          });
+          const ports = result.ports as Array<Record<string, unknown>>;
+          assert(
+            ports.some((port) =>
+              (port.sector as Record<string, unknown>).id === 0
+            ),
+            "Expected sector 0 to match mega + buy quantum_foam filters",
+          );
+        },
+      );
+    } finally {
+      clearAdjacencyCache();
+    }
+  },
+});
+
+// ============================================================================
+// Group 55: adjacent_sectors includes region info
 // ============================================================================
 
 Deno.test({

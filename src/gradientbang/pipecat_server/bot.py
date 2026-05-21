@@ -35,8 +35,11 @@ logger.warning(
 BOT_INSTANCE_ID: str | None = None
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
+    Frame,
     InterruptionFrame,
     LLMFullResponseStartFrame,
+    OutputTransportMessageFrame,
+    OutputTransportMessageUrgentFrame,
     TTSUpdateSettingsFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -103,7 +106,7 @@ from gradientbang.pipecat_server.subagents.ui_agent import (
     UIAgentResponseCollector,
 )
 from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStrategy
-from gradientbang.utils.supabase_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 from gradientbang.utils.weave_tracing import init_weave, traced
 
@@ -309,6 +312,62 @@ async def bot_startup(
     return rtvi, local_api_server, character_id, character_display_name, game_client, stt, tts
 
 
+class OutputConnectionState:
+    """Tracks whether downstream transport messages should still be emitted."""
+
+    def __init__(self) -> None:
+        self.client_connected = False
+        self.shutting_down = False
+
+    @property
+    def output_available(self) -> bool:
+        return self.client_connected and not self.shutting_down
+
+    def mark_client_connected(self) -> None:
+        self.client_connected = True
+
+    def mark_client_disconnected(self) -> None:
+        self.client_connected = False
+
+    def mark_shutdown(self) -> None:
+        self.shutting_down = True
+
+
+class DisconnectedOutputGuard(FrameProcessor):
+    """Drops transport messages once the Daily signalling channel is gone."""
+
+    _TRANSPORT_MESSAGE_TYPES = (
+        OutputTransportMessageFrame,
+        OutputTransportMessageUrgentFrame,
+    )
+
+    def __init__(self, state: OutputConnectionState):
+        super().__init__()
+        self._state = state
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):  # type: ignore[override]
+        await super().process_frame(frame, direction)
+
+        if (
+            direction == FrameDirection.DOWNSTREAM
+            and not self._state.output_available
+            and isinstance(frame, self._TRANSPORT_MESSAGE_TYPES)
+        ):
+            logger.debug("DisconnectedOutputGuard: dropped transport message after disconnect")
+            return
+
+        await self.push_frame(frame, direction)
+
+
+def _join_failure_log_message(exc: Exception) -> str:
+    if isinstance(exc, RPCError):
+        message = f"Session initialization failed during {exc.endpoint}: {exc.status} {exc.detail}"
+        if exc.status in {401, 403}:
+            message += " — access token may be invalid or expired"
+        return message
+    return f"Session initialization failed: {exc}"
+
+
 async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     """Main bot function that creates and runs the pipeline."""
 
@@ -460,6 +519,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     user_mute_state = {"muted": True}
     user_unmuted_event = asyncio.Event()
     say_text_restore_voice: dict[str, str | None] = {"voice_id": None}
+    output_connection_state = OutputConnectionState()
 
     class SayTextVoiceGuard(FrameProcessor):
         """Restores the original TTS voice before normal LLM speech.
@@ -484,6 +544,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await self.push_frame(frame, direction)
 
     say_text_voice_guard = SayTextVoiceGuard(say_text_restore_voice)
+    disconnected_output_guard = DisconnectedOutputGuard(output_connection_state)
 
     # ── Voice context upload state ────────────────────────────────────
     from gradientbang.pipecat_server.context_upload import upload_context as _upload_context
@@ -648,6 +709,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
             @transport.event_handler("on_client_connected")
             async def on_client_connected(transport, client):
+                output_connection_state.mark_client_connected()
                 logger.info("Client connected, adding agents")
                 await self.add_agent(voice_agent)
                 await self.add_agent(scripted_agent)
@@ -666,6 +728,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                             token_usage_metrics,
                             say_text_voice_guard,
                             tts,
+                            disconnected_output_guard,
                             transport.output(),
                             assistant_aggregator,
                         ],
@@ -841,7 +904,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             except Exception as exc:
                 # Fire-and-forget task would swallow this otherwise. Tear down
                 # the runner so the session exits instead of hanging half-joined.
-                logger.exception("Join failed — access token may be invalid or expired: {}", exc)
+                output_connection_state.mark_shutdown()
+                logger.exception("{}", _join_failure_log_message(exc))
                 await main_agent.cancel()
 
         asyncio.create_task(_join())
@@ -887,6 +951,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
+        output_connection_state.mark_client_disconnected()
         logger.info("Client disconnected")
         await main_agent.cancel()
 
@@ -915,6 +980,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     except Exception as e:
         logger.exception(f"AgentRunner error: {e}")
     finally:
+        output_connection_state.mark_shutdown()
         if _periodic_upload_task is not None:
             _periodic_upload_task.cancel()
         try:

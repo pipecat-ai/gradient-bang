@@ -1,58 +1,59 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 import {
+  type AuthContext,
   authenticate,
   authErrorResponse,
   canActOnCharacter,
   errorResponse,
   successResponse,
-  type AuthContext,
 } from "../_shared/auth.ts";
 import { createServiceRoleClient } from "../_shared/client.ts";
-import { emitErrorEvent, buildEventSource } from "../_shared/events.ts";
+import { buildEventSource, emitErrorEvent } from "../_shared/events.ts";
 import { acquirePgClient } from "../_shared/pg.ts";
 import {
-  pgEnforceRateLimit,
-  pgLoadCharacter,
-  pgLoadShip,
-  pgLoadShipDefinition,
-  pgUpdateCharacterLastActive,
+  ActorAuthorizationError,
   pgBuildStatusPayload,
   pgEmitCharacterEvent,
+  pgEnforceRateLimit,
   pgEnsureActorAuthorization,
-  pgLoadPortBySector,
-  pgLoadUniverseMeta,
-  pgIsMegaPortSector,
   pgExecuteTradeTransaction,
-  pgRecordPortTransaction,
+  pgIsMegaPortSector,
   pgListCharactersInSector,
-  ActorAuthorizationError,
+  pgLoadCharacter,
+  pgLoadPortBySector,
+  pgLoadShip,
+  pgLoadShipDefinition,
+  pgLoadUniverseMeta,
+  pgRecordPortTransaction,
+  pgUpdateCharacterLastActive,
   type PortRow,
   type ShipTradeUpdate,
 } from "../_shared/pg_queries.ts";
 import {
-  commodityKey,
   buildPortData,
-  calculatePriceSellToPlayer,
   calculatePriceBuyFromPlayer,
+  calculatePriceSellToPlayer,
+  type Commodity,
+  type CommodityKey,
+  commodityKey,
   getPortPrices,
   getPortStock,
   isCommodity,
+  type PortData,
   portSupportsTrade,
+  type TradeType,
   TradingValidationError,
   validateBuyTransaction,
   validateSellTransaction,
-  type Commodity,
-  type PortData,
-  type TradeType,
 } from "../_shared/trading.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import {
-  parseJsonRequest,
-  requireString,
-  optionalString,
   optionalBoolean,
   optionalNumber,
+  optionalString,
+  parseJsonRequest,
+  requireString,
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
@@ -110,7 +111,9 @@ Deno.serve(traced("trade", async (req, wt) => {
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
   const taskId = optionalString(payload, "task_id");
 
-  if (!(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))) {
+  if (
+    !(await canActOnCharacter(auth, actorCharacterId ?? characterId, supabase))
+  ) {
     return errorResponse("forbidden", 403);
   }
 
@@ -305,12 +308,23 @@ async function handleTrade({
   await pgUpdateCharacterLastActive(pgClient, characterId);
   mark("update_last_active");
 
+  const commodityCode = commodityKey(commodity);
+  const profit = tradeType === "sell"
+    ? await calculateRealizedTradeProfit(pgClient, {
+      shipId: ship.ship_id,
+      commodity: commodityCode,
+      quantity,
+      pricePerUnit: execution.computation.pricePerUnit,
+    })
+    : 0;
+  mark("calculate_profit");
+
   await pgRecordPortTransaction(pgClient, {
     sectorId,
     portId: execution.updatedPort.port_id,
     characterId,
     shipId: ship.ship_id,
-    commodity: commodityKey(commodity),
+    commodity: commodityCode,
     quantity,
     transactionType: tradeType,
     pricePerUnit: execution.computation.pricePerUnit,
@@ -370,7 +384,7 @@ async function handleTrade({
         new_prices: priceMap,
       },
       // Top-level fields for quest evaluation
-      profit: tradeType === "sell" ? execution.computation.totalPrice : 0,
+      profit,
       trade_type: tradeType,
     },
     senderId: characterId,
@@ -426,7 +440,7 @@ async function handleTrade({
           eventType: "port.update",
           payload: portUpdatePayload,
           sectorId,
-        }),
+        })
       ),
     );
     mark("emit_port_broadcast");
@@ -459,6 +473,83 @@ function cargoTotal(cargo: Record<Commodity, number>): number {
   return cargo.quantum_foam + cargo.retro_organics + cargo.neuro_symbolics;
 }
 
+type PortTransactionLedgerRow = {
+  transaction_type: "buy" | "sell";
+  quantity: number;
+  price_per_unit: number;
+};
+
+type CostLot = {
+  units: number;
+  pricePerUnit: number;
+};
+
+async function calculateRealizedTradeProfit(
+  pg: QueryClient,
+  params: {
+    shipId: string;
+    commodity: CommodityKey;
+    quantity: number;
+    pricePerUnit: number;
+  },
+): Promise<number> {
+  const result = await pg.queryObject<PortTransactionLedgerRow>(
+    `SELECT
+       transaction_type,
+       quantity::int AS quantity,
+       price_per_unit::int AS price_per_unit
+     FROM port_transactions
+     WHERE ship_id = $1 AND commodity = $2
+     ORDER BY id ASC`,
+    [params.shipId, params.commodity],
+  );
+
+  const lots: CostLot[] = [];
+
+  for (const row of result.rows) {
+    const units = Math.max(0, Number(row.quantity));
+    if (units === 0) {
+      continue;
+    }
+    if (row.transaction_type === "buy") {
+      lots.push({
+        units,
+        pricePerUnit: Number(row.price_per_unit),
+      });
+      continue;
+    }
+
+    consumeCostLots(lots, units);
+  }
+
+  const consumed = consumeCostLots(lots, params.quantity);
+  return consumed.knownUnits * params.pricePerUnit - consumed.costBasis;
+}
+
+function consumeCostLots(
+  lots: CostLot[],
+  unitsToConsume: number,
+): { knownUnits: number; costBasis: number } {
+  let remaining = Math.max(0, unitsToConsume);
+  let knownUnits = 0;
+  let costBasis = 0;
+
+  while (remaining > 0 && lots.length > 0) {
+    const lot = lots[0];
+    const consumedUnits = Math.min(remaining, lot.units);
+    lot.units -= consumedUnits;
+    remaining -= consumedUnits;
+    knownUnits += consumedUnits;
+    costBasis += consumedUnits * lot.pricePerUnit;
+
+    if (lot.units === 0) {
+      lots.shift();
+    }
+  }
+
+  return { knownUnits, costBasis };
+}
+
 async function executeTradeWithRetry(params: {
   pgClient: QueryClient;
   sectorId: number;
@@ -488,7 +579,9 @@ async function executeTradeWithRetry(params: {
 
   while (attempt < MAX_PORT_ATTEMPTS) {
     console.log(
-      `[trade.retry] Attempt ${attempt + 1}/${MAX_PORT_ATTEMPTS}, port version ${currentPort.version}`,
+      `[trade.retry] Attempt ${
+        attempt + 1
+      }/${MAX_PORT_ATTEMPTS}, port version ${currentPort.version}`,
     );
 
     const computation = computeTradeOutcome({
@@ -522,7 +615,9 @@ async function executeTradeWithRetry(params: {
 
     if (result.success) {
       console.log(
-        `[trade.retry] SUCCESS on attempt ${attempt + 1}, new version ${result.updatedPort.version}`,
+        `[trade.retry] SUCCESS on attempt ${
+          attempt + 1
+        }, new version ${result.updatedPort.version}`,
       );
       params.mark(`trade_attempt_${attempt + 1}`);
       return {
@@ -540,7 +635,9 @@ async function executeTradeWithRetry(params: {
 
     // Version mismatch - retry with exponential backoff
     console.log(
-      `[trade.retry] Port version mismatch on attempt ${attempt + 1}, refreshing...`,
+      `[trade.retry] Port version mismatch on attempt ${
+        attempt + 1
+      }, refreshing...`,
     );
 
     const baseDelayMs = 10;
@@ -612,8 +709,8 @@ function computeTradeOutcome(params: {
       pricePerUnit,
     );
     portData.stock[commodityKeyValue] = currentStock - params.quantity;
-    cargoClone[params.commodity] =
-      (cargoClone[params.commodity] ?? 0) + params.quantity;
+    cargoClone[params.commodity] = (cargoClone[params.commodity] ?? 0) +
+      params.quantity;
   } else {
     pricePerUnit = calculatePriceBuyFromPlayer(
       params.commodity,
@@ -635,10 +732,9 @@ function computeTradeOutcome(params: {
   }
 
   const totalPrice = pricePerUnit * params.quantity;
-  const updatedCredits =
-    params.tradeType === "buy"
-      ? params.shipCredits - totalPrice
-      : params.shipCredits + totalPrice;
+  const updatedCredits = params.tradeType === "buy"
+    ? params.shipCredits - totalPrice
+    : params.shipCredits + totalPrice;
 
   return {
     updatedCredits,

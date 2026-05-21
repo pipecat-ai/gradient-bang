@@ -18,27 +18,27 @@ import {
 
 import { resetDatabase, startServerInProcess } from "./harness.ts";
 import {
+  advanceQuestToStep,
   api,
   apiOk,
+  assertNoEventsOfType,
   characterIdFor,
-  shipIdFor,
+  createCorpShip,
+  ensureSectorHasPort,
   eventsOfType,
   getEventCursor,
-  assertNoEventsOfType,
-  queryShip,
-  withPg,
-  setShipCredits,
-  setShipCargo,
-  setShipSector,
-  setShipWarpPower,
-  setShipFighters,
-  setShipType,
-  createCorpShip,
-  seedQuestDefinitions,
   queryPlayerQuest,
   queryPlayerQuestStep,
-  advanceQuestToStep,
-  ensureSectorHasPort,
+  queryShip,
+  seedQuestDefinitions,
+  setShipCargo,
+  setShipCredits,
+  setShipFighters,
+  setShipSector,
+  setShipType,
+  setShipWarpPower,
+  shipIdFor,
+  withPg,
 } from "./helpers.ts";
 
 const P1 = "test_qc_p1";
@@ -56,6 +56,41 @@ let p2ShipId: string;
 async function resetWithQuests(characterIds: string[]): Promise<void> {
   await resetDatabase(characterIds);
   await seedQuestDefinitions();
+}
+
+async function seedPortBuyTransaction(params: {
+  characterId: string;
+  shipId: string;
+  sectorId: number;
+  commodity: "QF" | "RO" | "NS";
+  quantity: number;
+  pricePerUnit: number;
+}): Promise<void> {
+  await withPg(async (pg) => {
+    const port = await pg.queryObject<{ port_id: number }>(
+      `SELECT port_id FROM ports WHERE sector_id = $1`,
+      [params.sectorId],
+    );
+    const portRow = port.rows[0];
+    assertExists(portRow, `Expected sector ${params.sectorId} to have a port`);
+    await pg.queryObject(
+      `INSERT INTO port_transactions (
+        sector_id, port_id, character_id, ship_id,
+        commodity, quantity, transaction_type,
+        price_per_unit, total_price
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'buy', $7, $8)`,
+      [
+        params.sectorId,
+        portRow.port_id,
+        params.characterId,
+        params.shipId,
+        params.commodity,
+        params.quantity,
+        params.pricePerUnit,
+        params.quantity * params.pricePerUnit,
+      ],
+    );
+  });
 }
 
 // ============================================================================
@@ -119,7 +154,10 @@ Deno.test({
         const subs = await pg.queryObject<{ count: bigint }>(
           `SELECT COUNT(*) as count FROM quest_event_subscriptions`,
         );
-        assert(Number(subs.rows[0].count) >= 9, `Expected >= 9 subscriptions, got ${subs.rows[0].count}`);
+        assert(
+          Number(subs.rows[0].count) >= 9,
+          `Expected >= 9 subscriptions, got ${subs.rows[0].count}`,
+        );
       });
     });
 
@@ -148,7 +186,10 @@ Deno.test({
     });
 
     await t.step("assign tutorial quest", async () => {
-      await apiOk("quest_assign", { character_id: p1Id, quest_code: "tutorial" });
+      await apiOk("quest_assign", {
+        character_id: p1Id,
+        quest_code: "tutorial",
+      });
     });
 
     let cursor: number;
@@ -162,12 +203,18 @@ Deno.test({
 
     await t.step("receives quest.step_completed event", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
-      assert(events.length >= 1, `Expected quest.step_completed, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected quest.step_completed, got ${events.length}`,
+      );
       const payload = events[0].payload;
       assertEquals(payload.quest_code, "tutorial");
       assertEquals(payload.step_index, 1);
       // Should include next step info
-      assertExists((payload as Record<string, unknown>).next_step, "Should have next_step");
+      assertExists(
+        (payload as Record<string, unknown>).next_step,
+        "Should have next_step",
+      );
     });
 
     await t.step("DB: step 1 completed, quest at step 2", async () => {
@@ -211,14 +258,20 @@ Deno.test({
       await assertNoEventsOfType(p1Id, "quest.step_completed", cursor);
     });
 
-    await t.step("move back to sector 0 (megaport) — step completes", async () => {
-      cursor = await getEventCursor(p1Id);
-      await apiOk("move", { character_id: p1Id, to_sector: 0 });
+    await t.step(
+      "move back to sector 0 (megaport) — step completes",
+      async () => {
+        cursor = await getEventCursor(p1Id);
+        await apiOk("move", { character_id: p1Id, to_sector: 0 });
 
-      const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
-      assert(events.length >= 1, `Expected quest.step_completed, got ${events.length}`);
-      assertEquals(events[0].payload.step_index, 2);
-    });
+        const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
+        assert(
+          events.length >= 1,
+          `Expected quest.step_completed, got ${events.length}`,
+        );
+        assertEquals(events[0].payload.step_index, 2);
+      },
+    );
 
     await t.step("DB: step 2 completed, quest at step 3", async () => {
       const pq = await queryPlayerQuest(p1Id, "tutorial");
@@ -260,7 +313,10 @@ Deno.test({
 
     await t.step("receives quest.step_completed", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
-      assert(events.length >= 1, `Expected quest.step_completed, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected quest.step_completed, got ${events.length}`,
+      );
       assertEquals(events[0].payload.step_index, 3);
     });
 
@@ -306,7 +362,10 @@ Deno.test({
 
     await t.step("receives quest.step_completed", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
-      assert(events.length >= 1, `Expected quest.step_completed, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected quest.step_completed, got ${events.length}`,
+      );
       assertEquals(events[0].payload.step_index, 4);
     });
 
@@ -335,6 +394,14 @@ Deno.test({
       await setShipSector(p1ShipId, 1);
       // Load cargo for selling
       await setShipCargo(p1ShipId, { qf: 200, ro: 0, ns: 0 });
+      await seedPortBuyTransaction({
+        characterId: p1Id,
+        shipId: p1ShipId,
+        sectorId: 2,
+        commodity: "QF",
+        quantity: 200,
+        pricePerUnit: 1,
+      });
     });
 
     let cursor: number;
@@ -342,9 +409,10 @@ Deno.test({
       cursor = await getEventCursor(p1Id);
     });
 
-    // Sell quantum_foam at sector 1 port. Profit = totalPrice for sells.
+    // Sell quantum_foam at sector 1 port. Profit is revenue minus FIFO cost.
     // Sell in batches to test aggregate accumulation.
     let totalProfit = 0;
+    const costPerUnit = 1;
 
     await t.step("sell quantum_foam — first batch", async () => {
       const result = await apiOk("trade", {
@@ -356,20 +424,30 @@ Deno.test({
       // Extract profit from trade event
       const events = await eventsOfType(p1Id, "trade.executed", cursor);
       assert(events.length >= 1);
-      totalProfit += Number(events[0].payload.profit ?? 0);
+      const trade = events[0].payload.trade as Record<string, unknown>;
+      const totalPrice = Number(trade.total_price ?? 0);
+      const profit = Number(events[0].payload.profit ?? 0);
+      assertEquals(profit, totalPrice - 50 * costPerUnit);
+      totalProfit += profit;
     });
 
     await t.step("check progress or sell more if needed", async () => {
       if (totalProfit < 1000) {
         // Sell more to exceed 1000
         cursor = await getEventCursor(p1Id);
-        await setShipCargo(p1ShipId, { qf: 200, ro: 0, ns: 0 });
         await apiOk("trade", {
           character_id: p1Id,
           commodity: "quantum_foam",
           trade_type: "sell",
           quantity: 100,
         });
+        const events = await eventsOfType(p1Id, "trade.executed", cursor);
+        assert(events.length >= 1);
+        const trade = events[0].payload.trade as Record<string, unknown>;
+        const totalPrice = Number(trade.total_price ?? 0);
+        const profit = Number(events[0].payload.profit ?? 0);
+        assertEquals(profit, totalPrice - 100 * costPerUnit);
+        totalProfit += profit;
       }
     });
 
@@ -377,15 +455,23 @@ Deno.test({
       // Fetch all step_completed events since the very start
       const events = await eventsOfType(p1Id, "quest.step_completed", 0);
       const stepFive = events.filter(
-        (e) => e.payload.quest_code === "tutorial" && e.payload.step_index === 5,
+        (e) =>
+          e.payload.quest_code === "tutorial" && e.payload.step_index === 5,
       );
-      assert(stepFive.length >= 1, `Expected step 5 completion event, got ${stepFive.length}`);
+      assert(
+        stepFive.length >= 1,
+        `Expected step 5 completion event, got ${stepFive.length}`,
+      );
     });
 
     await t.step("DB: step 5 completed, aggregate >= 1000", async () => {
       const step = await queryPlayerQuestStep(p1Id, "tutorial", 5);
       assertExists(step);
-      assert(Number(step.current_value) >= 1000, `Expected >= 1000, got ${step.current_value}`);
+      assert(
+        Number(step.current_value) >= 1000,
+        `Expected >= 1000, got ${step.current_value}`,
+      );
+      assertEquals(Number(step.current_value), totalProfit);
       assertExists(step.completed_at);
 
       const pq = await queryPlayerQuest(p1Id, "tutorial");
@@ -430,7 +516,10 @@ Deno.test({
 
     await t.step("receives quest.step_completed", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
-      assert(events.length >= 1, `Expected quest.step_completed, got ${events.length}`);
+      assert(
+        events.length >= 1,
+        `Expected quest.step_completed, got ${events.length}`,
+      );
       assertEquals(events[0].payload.step_index, 6);
     });
 
@@ -478,15 +567,24 @@ Deno.test({
     await t.step("receives quest.step_completed for step 7", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
       const step7 = events.filter(
-        (e) => e.payload.quest_code === "tutorial" && e.payload.step_index === 7,
+        (e) =>
+          e.payload.quest_code === "tutorial" && e.payload.step_index === 7,
       );
-      assert(step7.length >= 1, `Expected step 7 completion, got ${step7.length}`);
+      assert(
+        step7.length >= 1,
+        `Expected step 7 completion, got ${step7.length}`,
+      );
     });
 
     await t.step("receives quest.completed for tutorial", async () => {
       const events = await eventsOfType(p1Id, "quest.completed", cursor);
-      const completed = events.filter((e) => e.payload.quest_code === "tutorial");
-      assert(completed.length >= 1, `Expected quest.completed, got ${completed.length}`);
+      const completed = events.filter((e) =>
+        e.payload.quest_code === "tutorial"
+      );
+      assert(
+        completed.length >= 1,
+        `Expected quest.completed, got ${completed.length}`,
+      );
     });
 
     await t.step("DB: tutorial quest completed", async () => {
@@ -535,9 +633,14 @@ Deno.test({
     await t.step("receives quest.step_completed", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
       const step1 = events.filter(
-        (e) => e.payload.quest_code === "tutorial_corporations" && e.payload.step_index === 1,
+        (e) =>
+          e.payload.quest_code === "tutorial_corporations" &&
+          e.payload.step_index === 1,
       );
-      assert(step1.length >= 1, `Expected step 1 completion, got ${step1.length}`);
+      assert(
+        step1.length >= 1,
+        `Expected step 1 completion, got ${step1.length}`,
+      );
     });
 
     await t.step("DB: step 1 completed, quest at step 2", async () => {
@@ -602,9 +705,14 @@ Deno.test({
     await t.step("P2 receives quest.step_completed", async () => {
       const events = await eventsOfType(p2Id, "quest.step_completed", cursorP2);
       const step1 = events.filter(
-        (e) => e.payload.quest_code === "tutorial_corporations" && e.payload.step_index === 1,
+        (e) =>
+          e.payload.quest_code === "tutorial_corporations" &&
+          e.payload.step_index === 1,
       );
-      assert(step1.length >= 1, `Expected step 1 completion for P2, got ${step1.length}`);
+      assert(
+        step1.length >= 1,
+        `Expected step 1 completion for P2, got ${step1.length}`,
+      );
     });
 
     await t.step("DB: P2 step 1 completed", async () => {
@@ -620,7 +728,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "quest_completion — tutorial_corporations step 2: run task on corp ship",
+  name:
+    "quest_completion — tutorial_corporations step 2: run task on corp ship",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -647,7 +756,11 @@ Deno.test({
     });
 
     await t.step("create corp ship", async () => {
-      const { pseudoCharacterId } = await createCorpShip(corpId, 0, "QC Corp Scout");
+      const { pseudoCharacterId } = await createCorpShip(
+        corpId,
+        0,
+        "QC Corp Scout",
+      );
       pseudoCharId = pseudoCharacterId;
     });
 
@@ -670,18 +783,29 @@ Deno.test({
     await t.step("P1 receives quest.step_completed", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
       const step2 = events.filter(
-        (e) => e.payload.quest_code === "tutorial_corporations" && e.payload.step_index === 2,
+        (e) =>
+          e.payload.quest_code === "tutorial_corporations" &&
+          e.payload.step_index === 2,
       );
-      assert(step2.length >= 1, `Expected step 2 completion, got ${step2.length}`);
+      assert(
+        step2.length >= 1,
+        `Expected step 2 completion, got ${step2.length}`,
+      );
     });
 
-    await t.step("P1 receives quest.completed for tutorial_corporations", async () => {
-      const events = await eventsOfType(p1Id, "quest.completed", cursor);
-      const completed = events.filter(
-        (e) => e.payload.quest_code === "tutorial_corporations",
-      );
-      assert(completed.length >= 1, `Expected quest.completed, got ${completed.length}`);
-    });
+    await t.step(
+      "P1 receives quest.completed for tutorial_corporations",
+      async () => {
+        const events = await eventsOfType(p1Id, "quest.completed", cursor);
+        const completed = events.filter(
+          (e) => e.payload.quest_code === "tutorial_corporations",
+        );
+        assert(
+          completed.length >= 1,
+          `Expected quest.completed, got ${completed.length}`,
+        );
+      },
+    );
 
     await t.step("DB: tutorial_corporations completed", async () => {
       const pq = await queryPlayerQuest(p1Id, "tutorial_corporations");
@@ -708,31 +832,42 @@ Deno.test({
       await setShipCredits(p1ShipId, 50000);
     });
 
-    await t.step("create corporation FIRST (before quest assignment)", async () => {
-      await apiOk("corporation_create", {
-        character_id: p1Id,
-        name: "QC Catch-Up Corp",
-      });
-    });
+    await t.step(
+      "create corporation FIRST (before quest assignment)",
+      async () => {
+        await apiOk("corporation_create", {
+          character_id: p1Id,
+          name: "QC Catch-Up Corp",
+        });
+      },
+    );
 
     let cursor: number;
     await t.step("capture cursor", async () => {
       cursor = await getEventCursor(p1Id);
     });
 
-    await t.step("assign tutorial_corporations AFTER corp creation", async () => {
-      await apiOk("quest_assign", {
-        character_id: p1Id,
-        quest_code: "tutorial_corporations",
-      });
-    });
+    await t.step(
+      "assign tutorial_corporations AFTER corp creation",
+      async () => {
+        await apiOk("quest_assign", {
+          character_id: p1Id,
+          quest_code: "tutorial_corporations",
+        });
+      },
+    );
 
     await t.step("step 1 auto-completes via catch-up", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
       const step1 = events.filter(
-        (e) => e.payload.quest_code === "tutorial_corporations" && e.payload.step_index === 1,
+        (e) =>
+          e.payload.quest_code === "tutorial_corporations" &&
+          e.payload.step_index === 1,
       );
-      assert(step1.length >= 1, `Expected auto-completion of step 1, got ${step1.length}`);
+      assert(
+        step1.length >= 1,
+        `Expected auto-completion of step 1, got ${step1.length}`,
+      );
     });
 
     await t.step("DB: quest advanced to step 2", async () => {
@@ -749,7 +884,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "quest_completion — catch-up: tutorial_corporations accepted before step 7 is current",
+  name:
+    "quest_completion — catch-up: tutorial_corporations accepted before step 7 is current",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -765,12 +901,15 @@ Deno.test({
       });
     });
 
-    await t.step("assign tutorial_corporations EARLY (while tutorial at step 1)", async () => {
-      await apiOk("quest_assign", {
-        character_id: p1Id,
-        quest_code: "tutorial_corporations",
-      });
-    });
+    await t.step(
+      "assign tutorial_corporations EARLY (while tutorial at step 1)",
+      async () => {
+        await apiOk("quest_assign", {
+          character_id: p1Id,
+          quest_code: "tutorial_corporations",
+        });
+      },
+    );
 
     let cursor: number;
     await t.step("capture cursor", async () => {
@@ -787,15 +926,24 @@ Deno.test({
     await t.step("step 7 auto-completes via catch-up", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
       const step7 = events.filter(
-        (e) => e.payload.quest_code === "tutorial" && e.payload.step_index === 7,
+        (e) =>
+          e.payload.quest_code === "tutorial" && e.payload.step_index === 7,
       );
-      assert(step7.length >= 1, `Expected auto-completion of step 7, got ${step7.length}`);
+      assert(
+        step7.length >= 1,
+        `Expected auto-completion of step 7, got ${step7.length}`,
+      );
     });
 
     await t.step("tutorial quest is fully completed", async () => {
       const events = await eventsOfType(p1Id, "quest.completed", cursor);
-      const completed = events.filter((e) => e.payload.quest_code === "tutorial");
-      assert(completed.length >= 1, `Expected quest.completed, got ${completed.length}`);
+      const completed = events.filter((e) =>
+        e.payload.quest_code === "tutorial"
+      );
+      assert(
+        completed.length >= 1,
+        `Expected quest.completed, got ${completed.length}`,
+      );
 
       const pq = await queryPlayerQuest(p1Id, "tutorial");
       assertExists(pq);
@@ -809,7 +957,8 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "quest_completion — catch-up: corp exists AND tutorial_corporations accepted early",
+  name:
+    "quest_completion — catch-up: corp exists AND tutorial_corporations accepted early",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn(t) {
@@ -844,7 +993,11 @@ Deno.test({
     await t.step("tutorial_corporations step 1 auto-completed", async () => {
       const pq = await queryPlayerQuest(p1Id, "tutorial_corporations");
       assertExists(pq);
-      assertEquals(pq.current_step_index, 2, "tutorial_corporations should be at step 2 (corp catch-up)");
+      assertEquals(
+        pq.current_step_index,
+        2,
+        "tutorial_corporations should be at step 2 (corp catch-up)",
+      );
     });
 
     let cursor: number;
@@ -859,9 +1012,13 @@ Deno.test({
     await t.step("tutorial step 7 auto-completes via catch-up", async () => {
       const events = await eventsOfType(p1Id, "quest.step_completed", cursor);
       const step7 = events.filter(
-        (e) => e.payload.quest_code === "tutorial" && e.payload.step_index === 7,
+        (e) =>
+          e.payload.quest_code === "tutorial" && e.payload.step_index === 7,
       );
-      assert(step7.length >= 1, `Expected auto-completion of step 7, got ${step7.length}`);
+      assert(
+        step7.length >= 1,
+        `Expected auto-completion of step 7, got ${step7.length}`,
+      );
     });
 
     await t.step("tutorial quest is fully completed", async () => {
@@ -908,10 +1065,13 @@ Deno.test({
       });
     });
 
-    await t.step("no quest.step_completed or quest.progress received", async () => {
-      await assertNoEventsOfType(p1Id, "quest.step_completed", cursor);
-      await assertNoEventsOfType(p1Id, "quest.progress", cursor);
-    });
+    await t.step(
+      "no quest.step_completed or quest.progress received",
+      async () => {
+        await assertNoEventsOfType(p1Id, "quest.step_completed", cursor);
+        await assertNoEventsOfType(p1Id, "quest.progress", cursor);
+      },
+    );
 
     await t.step("DB: step 1 still at 0", async () => {
       const step = await queryPlayerQuestStep(p1Id, "tutorial", 1);
@@ -954,9 +1114,12 @@ Deno.test({
       await apiOk("move", { character_id: p1Id, to_sector: 3 });
     });
 
-    await t.step("no quest.step_completed received (filter doesn't match)", async () => {
-      await assertNoEventsOfType(p1Id, "quest.step_completed", cursor);
-    });
+    await t.step(
+      "no quest.step_completed received (filter doesn't match)",
+      async () => {
+        await assertNoEventsOfType(p1Id, "quest.step_completed", cursor);
+      },
+    );
 
     await t.step("DB: step 2 still at 0", async () => {
       const step = await queryPlayerQuestStep(p1Id, "tutorial", 2);

@@ -170,6 +170,8 @@ export interface TradeExecutedMessage extends ServerMessagePayload {
     new_cargo: Record<Resource, number>
     new_prices: Record<Resource, number>
   }
+  profit?: number
+  trade_type?: "buy" | "sell"
 }
 
 export interface SectorUpdateMessage extends ServerMessagePayload, Sector {}
