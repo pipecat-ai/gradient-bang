@@ -17,6 +17,7 @@ import {
 import { isMegaPortSector, loadUniverseMeta } from "../_shared/fedspace.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import { loadMapKnowledge, fetchAllAdjacencies } from "../_shared/map.ts";
+import { acquirePgClient } from "../_shared/pg.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
@@ -453,27 +454,16 @@ async function handleListKnownPorts(
     throw new ListKnownPortsError(`Unknown commodity: ${invalidValue}`, 400);
   }
 
-  const visitedIds = Object.keys(knowledge.sectors_visited).map((key) =>
-    Number(key),
-  );
-
-  // Fetch port data and full adjacency graph in parallel (2 queries total)
-  const sParallelLoad = ws.span("parallel_load_ports_and_adjacencies");
-  const [portRows, adjacency] = await Promise.all([
-    fetchPortRows(supabase, visitedIds, log),
-    fetchAllAdjacencies(),
-  ]);
-  const portMap = new Map(portRows.map((row) => [row.sector_id, row]));
-  sParallelLoad.end({
-    portCount: portRows.length,
+  const sAdjacencyLoad = ws.span("load_adjacencies");
+  const adjacency = await fetchAllAdjacencies();
+  sAdjacencyLoad.end({
     sectorCount: adjacency.size,
-    visitedSectorCount: visitedIds.length,
   });
 
   // Pure in-memory BFS
   const visitedBfs = new Set<number>([fromSector]);
   let sectorsSearched = 0;
-  const results: Array<PortResult> = [];
+  const searchedNodes: Array<{ sector: number; hops: number }> = [];
   const rpcTimestamp = source.timestamp;
 
   let frontier: number[] = [fromSector];
@@ -484,39 +474,8 @@ async function handleListKnownPorts(
     const next: number[] = [];
     for (const sectorId of frontier) {
       const current = { sector: sectorId, hops };
-    sectorsSearched += 1;
-
-    const portRow = portMap.get(current.sector);
-    if (portRow) {
-      const isMega = isMegaPortSector(universeMeta, current.sector);
-      if (
-        portMatchesFilters(
-          portRow,
-          portTypeFilter,
-          commodityFilter,
-          tradeTypeFilter,
-          megaFilter,
-          isMega,
-        )
-      ) {
-        const knowledgeEntry = knowledge.sectors_visited[String(current.sector)];
-        const inSector =
-          typeof ship.current_sector === "number" &&
-          ship.current_sector === current.sector &&
-          !ship.in_hyperspace;
-        results.push(
-          buildPortResult(
-            current,
-            current.hops,
-            portRow,
-            knowledgeEntry,
-            inSector,
-            rpcTimestamp,
-            isMega,
-          ),
-        );
-      }
-    }
+      sectorsSearched += 1;
+      searchedNodes.push(current);
 
       if (hops >= maxHops) {
         continue;
@@ -539,8 +498,56 @@ async function handleListKnownPorts(
   sBfs.end({
     rounds: hops,
     sectorsSearched,
-    portsFound: results.length,
   });
+
+  const candidateSectorIds = searchedNodes
+    .filter((node) => knowledge.sectors_visited[String(node.sector)])
+    .map((node) => node.sector);
+
+  const sPortLoad = ws.span("load_searched_ports", {
+    candidateSectorCount: candidateSectorIds.length,
+  });
+  const portRows = await fetchPortRows(candidateSectorIds, log);
+  const portMap = new Map(portRows.map((row) => [row.sector_id, row]));
+  sPortLoad.end({
+    portCount: portRows.length,
+  });
+
+  const results: Array<PortResult> = [];
+  for (const current of searchedNodes) {
+    const portRow = portMap.get(current.sector);
+    if (!portRow) {
+      continue;
+    }
+    const isMega = isMegaPortSector(universeMeta, current.sector);
+    if (
+      !portMatchesFilters(
+        portRow,
+        portTypeFilter,
+        commodityFilter,
+        tradeTypeFilter,
+        megaFilter,
+        isMega,
+      )
+    ) {
+      continue;
+    }
+    const knowledgeEntry = knowledge.sectors_visited[String(current.sector)];
+    const inSector = typeof ship.current_sector === "number" &&
+      ship.current_sector === current.sector &&
+      !ship.in_hyperspace;
+    results.push(
+      buildPortResult(
+        current,
+        current.hops,
+        portRow,
+        knowledgeEntry,
+        inSector,
+        rpcTimestamp,
+        isMega,
+      ),
+    );
+  }
 
   results.sort((a, b) => {
     if (a.hops_from_start !== b.hops_from_start) {
@@ -611,7 +618,6 @@ type PortResult = {
 };
 
 async function fetchPortRows(
-  supabase: ReturnType<typeof createServiceRoleClient>,
   sectorIds: number[],
   log: RequestLogger,
 ): Promise<PortRow[]> {
@@ -619,90 +625,32 @@ async function fetchPortRows(
     return [];
   }
   const uniqueIds = Array.from(new Set(sectorIds));
-  const { data: contents, error: contentsError } = await supabase
-    .from("sector_contents")
-    .select("sector_id, port_id")
-    .in("sector_id", uniqueIds);
-  if (contentsError) {
-    log.error("sector_contents", contentsError);
-    throw new ListKnownPortsError("failed to load sector contents", 500);
-  }
-
-  const sectorPortPairs: Array<{ sector_id: number; port_id: number }> = [];
-  const portIds = new Set<number>();
-  for (const row of contents ?? []) {
-    if (typeof row.sector_id !== "number") {
-      continue;
-    }
-    const rawPortId = row.port_id;
-    const parsedPortId =
-      typeof rawPortId === "number"
-        ? rawPortId
-        : typeof rawPortId === "string"
-          ? Number(rawPortId)
-          : null;
-    if (parsedPortId === null || !Number.isFinite(parsedPortId)) {
-      continue;
-    }
-    sectorPortPairs.push({ sector_id: row.sector_id, port_id: parsedPortId });
-    portIds.add(parsedPortId);
-  }
-
-  if (portIds.size === 0) {
-    return [];
-  }
-
-  const { data: ports, error: portsError } = await supabase
-    .from("ports")
-    .select(
-      "port_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, last_updated",
-    )
-    .in("port_id", Array.from(portIds));
-  if (portsError) {
-    log.error("ports", portsError);
+  const pg = await acquirePgClient();
+  try {
+    const result = await pg.queryObject<PortRow>(
+      `SELECT
+        sc.sector_id::int,
+        p.port_code,
+        p.port_class::int,
+        p.max_qf::int,
+        p.max_ro::int,
+        p.max_ns::int,
+        p.stock_qf::int,
+        p.stock_ro::int,
+        p.stock_ns::int,
+        p.last_updated::text AS last_updated
+      FROM sector_contents sc
+      JOIN ports p ON p.port_id = sc.port_id
+      WHERE sc.sector_id = ANY($1::int[])`,
+      [uniqueIds],
+    );
+    return result.rows;
+  } catch (err) {
+    log.error("ports", err);
     throw new ListKnownPortsError("failed to load ports", 500);
+  } finally {
+    pg.release();
   }
-
-  const portById = new Map<
-    number,
-    Omit<PortRow, "sector_id">
-  >();
-  for (const port of ports ?? []) {
-    const rawPortId = port.port_id;
-    const portId =
-      typeof rawPortId === "number"
-        ? rawPortId
-        : typeof rawPortId === "string"
-          ? Number(rawPortId)
-          : null;
-    if (portId === null || !Number.isFinite(portId)) {
-      continue;
-    }
-    portById.set(portId, {
-      port_code: port.port_code,
-      port_class: port.port_class,
-      max_qf: port.max_qf,
-      max_ro: port.max_ro,
-      max_ns: port.max_ns,
-      stock_qf: port.stock_qf,
-      stock_ro: port.stock_ro,
-      stock_ns: port.stock_ns,
-      last_updated: port.last_updated ?? null,
-    });
-  }
-
-  const results: PortRow[] = [];
-  for (const pair of sectorPortPairs) {
-    const portData = portById.get(pair.port_id);
-    if (!portData) {
-      continue;
-    }
-    results.push({
-      sector_id: pair.sector_id,
-      ...portData,
-    });
-  }
-  return results;
 }
 
 function portMatchesFilters(
