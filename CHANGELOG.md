@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-05-21
+
 ### Fixed
 
 - `list_known_ports` no longer builds an overlong PostgREST `.in(...)` URL for long-lived characters; ports are now loaded via a direct Postgres query against only the BFS-searched sectors, unblocking session startup for explored players.
