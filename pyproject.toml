@@ -77,10 +77,9 @@ override-dependencies = [
 package = true
 
 [tool.uv.sources]
-# Local checkout of pipecat with the integrated agents/workers system.
-# Replace with a published pipecat-ai release once the port-subagents branch
-# is merged and published to PyPI.
-pipecat-ai = { path = "../pipecat", editable = true }
+# Tracks pipecat-ai/pipecat PR #4493 (Port pipecat-subagents into pipecat core).
+# Replace with a published pipecat-ai release once the PR is merged.
+pipecat-ai = { git = "https://github.com/pipecat-ai/pipecat.git", branch = "aleix/port-subagents-to-pipecat" }
 
 
 [tool.pytest.ini_options]
