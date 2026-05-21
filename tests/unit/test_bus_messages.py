@@ -12,7 +12,7 @@ import json
 from dataclasses import asdict, fields
 
 import pytest
-from pipecat_subagents.bus.messages import BusDataMessage
+from pipecat.bus import BusDataMessage
 
 from gradientbang.pipecat_server.subagents.bus_messages import (
     BUS_PROTOCOL_VERSION,

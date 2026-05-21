@@ -20,7 +20,7 @@ agent can't tolerate.
 from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Optional
 
-from pipecat_subagents.bus.messages import BusDataMessage
+from pipecat.bus import BusDataMessage
 
 
 BUS_PROTOCOL_VERSION = 1

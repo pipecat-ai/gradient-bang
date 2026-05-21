@@ -44,12 +44,11 @@ class RelayVoiceHarness:
         self.rtvi.push_frame = AsyncMock()
 
         bus = MagicMock()
-        bus.send_message = AsyncMock()
+        bus.send_bus_message = AsyncMock()
 
         # Real VoiceAgent
         self.voice_agent = VoiceAgent(
             "player",
-            bus=bus,
             game_client=self.game_client,
             character_id=character_id,
             rtvi_processor=self.rtvi,
@@ -831,7 +830,7 @@ class TestTaskSpawningDuringCombat:
         )
 
         # Task spawning should still work — mock add_agent to avoid framework calls
-        with patch.object(h.voice_agent, "add_agent", new_callable=AsyncMock) as mock_add:
+        with patch.object(h.voice_agent, "add_worker", new_callable=AsyncMock) as mock_add:
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "trade at port"}
             params.result_callback = AsyncMock()
@@ -854,7 +853,7 @@ class TestTaskSpawningDuringCombat:
         )
 
         # Task spawning works
-        with patch.object(h.voice_agent, "add_agent", new_callable=AsyncMock):
+        with patch.object(h.voice_agent, "add_worker", new_callable=AsyncMock):
             params = MagicMock(spec=FunctionCallParams)
             params.arguments = {"task_description": "explore sector 5"}
             params.result_callback = AsyncMock()
@@ -1183,7 +1182,7 @@ class TestVoiceLlmRoutingPolicy:
 
 def _make_voice_agent_with_tasks(character_id="char-test"):
     """Create a VoiceAgent with mock children and task groups for combat tests."""
-    from pipecat_subagents.agents.base_agent import TaskGroup
+    from pipecat.pipeline.job_context import JobGroup
 
     from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 
@@ -1200,7 +1199,6 @@ def _make_voice_agent_with_tasks(character_id="char-test"):
 
     va = VoiceAgent(
         "player",
-        bus=bus,
         game_client=game_client,
         character_id=character_id,
         rtvi_processor=rtvi,
@@ -1209,7 +1207,6 @@ def _make_voice_agent_with_tasks(character_id="char-test"):
     # Create mock player task agent
     player_task = TaskAgent(
         "task_player1",
-        bus=bus,
         character_id=character_id,
         is_corp_ship=False,
     )
@@ -1218,7 +1215,6 @@ def _make_voice_agent_with_tasks(character_id="char-test"):
     # Create mock corp ship task agent
     corp_task = TaskAgent(
         "task_corp1",
-        bus=bus,
         character_id="corp-ship-abc",
         is_corp_ship=True,
     )
@@ -1227,17 +1223,19 @@ def _make_voice_agent_with_tasks(character_id="char-test"):
     # Register as children
     va._children = [player_task, corp_task]
 
-    # Register task groups (framework state)
-    va._task_groups = {
-        "player-task-001": TaskGroup(
-            task_id="player-task-001",
-            agent_names={"task_player1"},
-        ),
-        "corp-task-001": TaskGroup(
-            task_id="corp-task-001",
-            agent_names={"task_corp1"},
-        ),
-    }
+    # Seed job groups by mutating the live dict the property returns — same
+    # pattern the framework itself uses (e.g. ``self.job_groups[id] = group``
+    # in ``_create_task_group_for_agent``). The full ``request_job_group``
+    # dispatch dance is unnecessary here; we only care about how the iteration
+    # in ``_cancel_player_tasks_for_combat`` picks which groups to cancel.
+    va.job_groups["player-task-001"] = JobGroup(
+        job_id="player-task-001",
+        worker_names={"task_player1"},
+    )
+    va.job_groups["corp-task-001"] = JobGroup(
+        job_id="corp-task-001",
+        worker_names={"task_corp1"},
+    )
 
     return va, player_task, corp_task
 
@@ -1260,7 +1258,7 @@ class TestCombatTaskCancellation:
         await va.broadcast_game_event(event)
 
         # Player task group should be cancelled
-        assert "player-task-001" not in va._task_groups
+        assert "player-task-001" not in va.job_groups
 
     async def test_player_combat_preserves_corp_task(self):
         va, player_task, corp_task = _make_voice_agent_with_tasks()
@@ -1276,7 +1274,7 @@ class TestCombatTaskCancellation:
         await va.broadcast_game_event(event)
 
         # Corp task should still be active
-        assert "corp-task-001" in va._task_groups
+        assert "corp-task-001" in va.job_groups
 
     async def test_corp_combat_does_not_cancel_any_tasks(self):
         """Combat involving only a corp ship should not cancel anything."""
@@ -1293,8 +1291,8 @@ class TestCombatTaskCancellation:
         await va.broadcast_game_event(event)
 
         # Both tasks should still be active
-        assert "player-task-001" in va._task_groups
-        assert "corp-task-001" in va._task_groups
+        assert "player-task-001" in va.job_groups
+        assert "corp-task-001" in va.job_groups
 
     async def test_combat_ended_does_not_cancel_tasks(self):
         """combat.ended should NOT trigger task cancellation."""
@@ -1310,8 +1308,8 @@ class TestCombatTaskCancellation:
         await va.broadcast_game_event(event)
 
         # Both tasks still active (only round_waiting triggers cancellation)
-        assert "player-task-001" in va._task_groups
-        assert "corp-task-001" in va._task_groups
+        assert "player-task-001" in va.job_groups
+        assert "corp-task-001" in va.job_groups
 
     async def test_no_tasks_running_combat_is_safe(self):
         """Combat with no active tasks doesn't error."""
@@ -1325,7 +1323,7 @@ class TestCombatTaskCancellation:
         rtvi.push_frame = AsyncMock()
 
         va = VoiceAgent(
-            "player", bus=bus, game_client=game_client,
+            "player", game_client=game_client,
             character_id="char-test", rtvi_processor=rtvi,
         )
 

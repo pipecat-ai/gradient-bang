@@ -70,10 +70,6 @@ class ClientMessageHandler:
         self._active_voice_state = active_voice_state or {}
         self._voices = voices or {}
 
-    @property
-    def _pipeline_task(self):
-        return getattr(self._main_agent, "_pipeline_task", None)
-
     async def handle(self, message):
         """Dispatch a client message to the appropriate handler."""
         logger.info(f"Received client message: {message}")
@@ -88,8 +84,7 @@ class ClientMessageHandler:
     # ── Individual handlers ───────────────────────────────────────────
 
     async def _handle_start(self, msg_type, msg_data):
-        if self._pipeline_task:
-            await self._pipeline_task.queue_frames([LLMRunFrame()])
+        await self._main_agent.queue_frames([LLMRunFrame()])
 
     async def _handle_mute_unmute(self, msg_type, msg_data):
         try:
@@ -516,9 +511,6 @@ class ClientMessageHandler:
             await self._rtvi.send_server_message({"frame_type": "error", "error": str(exc)})
 
     async def _handle_say_text(self, msg_type, msg_data):
-        pipeline_task = self._pipeline_task
-        if not pipeline_task:
-            return
         # Ignore say-text while user input is muted (e.g. during the join intro).
         if self._user_mute_state.get("muted"):
             logger.info("say-text ignored: user input is muted (intro in progress)")
@@ -537,7 +529,7 @@ class ClientMessageHandler:
         if voice_id and self._active_voice_state.get("language", Language.EN) != Language.EN:
             voice_id = None
         if text:
-            await pipeline_task.queue_frame(InterruptionFrame())
+            await self._main_agent.queue_frame(InterruptionFrame())
             frames = []
             if voice_id:
                 if not self._say_text_restore_voice.get("voice_id"):
@@ -552,13 +544,10 @@ class ClientMessageHandler:
                         settings={"voice_id": self._say_text_restore_voice["voice_id"]}
                     )
                 )
-            await pipeline_task.queue_frames(frames)
+            await self._main_agent.queue_frames(frames)
 
     async def _handle_say_text_dismiss(self, msg_type, msg_data):
-        pipeline_task = self._pipeline_task
-        if not pipeline_task:
-            return
-        await pipeline_task.queue_frame(InterruptionFrame())
+        await self._main_agent.queue_frame(InterruptionFrame())
         restore_id = self._say_text_restore_voice.get("voice_id")
         frames = []
         if restore_id:
@@ -578,14 +567,11 @@ class ClientMessageHandler:
                 run_llm=True,
             )
         )
-        await pipeline_task.queue_frames(frames)
+        await self._main_agent.queue_frames(frames)
 
     async def _handle_user_text_input(self, msg_type, msg_data):
-        pipeline_task = self._pipeline_task
-        if not pipeline_task:
-            return
         text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
-        await pipeline_task.queue_frame(UserTextInputFrame(text=text))
+        await self._main_agent.queue_frame(UserTextInputFrame(text=text))
         if self._user_mute_state["muted"]:
             try:
                 await asyncio.wait_for(self._user_unmuted_event.wait(), timeout=0.5)
@@ -601,7 +587,7 @@ class ClientMessageHandler:
                     UserStoppedSpeakingFrame(),
                 ]
             )
-        await pipeline_task.queue_frames(frames)
+        await self._main_agent.queue_frames(frames)
 
     async def _handle_assign_quest(self, msg_type, msg_data):
         quest_code = msg_data.get("quest_code", "") if isinstance(msg_data, dict) else ""
@@ -638,9 +624,6 @@ class ClientMessageHandler:
         voice_name = msg_data.get("voice", "").strip() if isinstance(msg_data, dict) else ""
         if not voice_name or voice_name not in self._voices:
             return
-        pipeline_task = self._pipeline_task
-        if not pipeline_task:
-            return
 
         voice_config = self._voices[voice_name]
         new_voice_id = voice_config["voice_id"]
@@ -656,13 +639,13 @@ class ClientMessageHandler:
             logger.info(f"Voice restore target updated to {voice_name} (dialog in flight)")
         else:
             # No dialog — switch TTS voice + language immediately
-            await pipeline_task.queue_frame(
+            await self._main_agent.queue_frame(
                 TTSUpdateSettingsFrame(delta=TTSSettings(voice=new_voice_id, language=new_language))
             )
             logger.info(f"TTS switched to {voice_name} ({new_language})")
 
         # Update STT language
-        await pipeline_task.queue_frame(
+        await self._main_agent.queue_frame(
             STTUpdateSettingsFrame(delta=STTSettings(language=new_language))
         )
 
@@ -689,11 +672,8 @@ class ClientMessageHandler:
         if not tone:
             return
 
-        pipeline_task = self._pipeline_task
-        if not pipeline_task:
-            return
 
-        await pipeline_task.queue_frame(
+        await self._main_agent.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[
                     {
@@ -893,10 +873,7 @@ class ClientMessageHandler:
 
     async def _inject_llm_event(self, content: str) -> None:
         """Append a user-role <event> message and trigger inference."""
-        pipeline_task = self._pipeline_task
-        if not pipeline_task:
-            return
-        await pipeline_task.queue_frame(
+        await self._main_agent.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[{"role": "user", "content": content}],
                 run_llm=True,
@@ -1042,24 +1019,22 @@ class ClientMessageHandler:
             self._voice_agent.track_request_id(result.get("request_id"))
         # Silent LLM context update — the player used the modal, not voice,
         # so we update context for continuity but skip spoken acknowledgement.
-        pipeline_task = self._pipeline_task
-        if pipeline_task:
-            await pipeline_task.queue_frame(
-                LLMMessagesAppendFrame(
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": (
-                                "<event>The player regenerated the corporation's "
-                                "invite code. The new code has been displayed on "
-                                "their screen. Do not speak the code aloud unless "
-                                "asked.</event>"
-                            ),
-                        }
-                    ],
-                    run_llm=False,
-                )
+        await self._main_agent.queue_frame(
+            LLMMessagesAppendFrame(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            "<event>The player regenerated the corporation's "
+                            "invite code. The new code has been displayed on "
+                            "their screen. Do not speak the code aloud unless "
+                            "asked.</event>"
+                        ),
+                    }
+                ],
+                run_llm=False,
             )
+        )
 
     # ── Dispatch table ────────────────────────────────────────────────
 

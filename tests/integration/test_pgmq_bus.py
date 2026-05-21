@@ -17,7 +17,7 @@ import uuid
 
 import pytest
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
-from pipecat_subagents.bus import BusSubscriber
+from pipecat.bus import BusSubscriber
 
 from gradientbang.adapters.bus.pgmq import build_pgmq_bus
 from gradientbang.pipecat_server.subagents.bus_messages import BusGameToolCallRequest

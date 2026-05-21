@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'linux'",
@@ -1228,9 +1228,8 @@ dependencies = [
 bot = [
     { name = "boto3" },
     { name = "cekura", extra = ["pipecat"] },
-    { name = "pipecat-ai", extra = ["anthropic", "cartesia", "daily", "deepgram", "google", "gradium", "runner", "webrtc"] },
+    { name = "pipecat-ai", extra = ["anthropic", "cartesia", "daily", "deepgram", "google", "gradium", "pgmq", "runner", "webrtc"] },
     { name = "pipecat-ai-cli" },
-    { name = "pipecat-ai-subagents", extra = ["pgmq"] },
     { name = "pipecatcloud" },
     { name = "soundfile" },
 ]
@@ -1265,9 +1264,8 @@ requires-dist = [
 bot = [
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "cekura", extras = ["pipecat"], specifier = "==1.2.0rc3" },
-    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "gradium", "webrtc", "silero", "google", "anthropic", "runner"], specifier = ">=1.0" },
+    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "gradium", "webrtc", "silero", "google", "anthropic", "runner", "pgmq"], editable = "../pipecat" },
     { name = "pipecat-ai-cli" },
-    { name = "pipecat-ai-subagents", extras = ["pgmq"], specifier = ">=0.6.0" },
     { name = "pipecatcloud", specifier = ">=0.6.0" },
     { name = "soundfile", specifier = ">=0.12.0" },
 ]
@@ -2309,8 +2307,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "1.1.0"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../pipecat" }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiohttp" },
@@ -2330,10 +2327,6 @@ dependencies = [
     { name = "resampy" },
     { name = "soxr" },
     { name = "transformers" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/37/01/e83db0b7e51b13c76579f04ad16167231db1dea9726e43b182ca7324c8c4/pipecat_ai-1.1.0.tar.gz", hash = "sha256:abcb1eda51aac81ed0f236c49581e3ff6afa3d7e1fbce9022645d45b905446a1", size = 11049587, upload-time = "2026-04-27T21:03:48.777Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/cf/3fa12ae09e891f5485a0f3cf15aa307049a358d9d4d06e1378c04340fc1f/pipecat_ai-1.1.0-py3-none-any.whl", hash = "sha256:74e576a9434477c11f352ca22ad804c5fd52b49b5c3ff6e7f06615f1f8f24573", size = 10711531, upload-time = "2026-04-27T21:03:45.931Z" },
 ]
 
 [package.optional-dependencies]
@@ -2359,15 +2352,161 @@ google = [
 gradium = [
     { name = "websockets" },
 ]
+pgmq = [
+    { name = "asyncpg" },
+    { name = "pgmq" },
+]
 runner = [
     { name = "fastapi" },
-    { name = "pipecat-ai-small-webrtc-prebuilt" },
+    { name = "pipecat-ai-prebuilt" },
     { name = "python-dotenv" },
     { name = "uvicorn" },
 ]
 webrtc = [
     { name = "aiortc" },
     { name = "opencv-python" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate", marker = "extra == 'moondream'", specifier = "~=1.10.0" },
+    { name = "aic-sdk", marker = "extra == 'aic'", specifier = "~=2.2.0" },
+    { name = "aioboto3", marker = "extra == 'aws'", specifier = ">=15.5.0,<16" },
+    { name = "aiofiles", specifier = ">=24.1.0,<27" },
+    { name = "aiohttp", specifier = ">=3.11.12,<4" },
+    { name = "aiortc", marker = "extra == 'webrtc'", specifier = ">=1.14.0,<2" },
+    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.49.0,<1" },
+    { name = "asyncpg", marker = "extra == 'pgmq'", specifier = ">=0.30.0" },
+    { name = "audioop-lts", marker = "python_full_version >= '3.13'", specifier = "~=0.2.1" },
+    { name = "aws-sdk-bedrock-runtime", marker = "python_full_version >= '3.12' and extra == 'aws-nova-sonic'", specifier = "~=0.4.0" },
+    { name = "aws-sdk-sagemaker-runtime-http2", marker = "python_full_version >= '3.12' and extra == 'sagemaker'" },
+    { name = "azure-cognitiveservices-speech", marker = "extra == 'azure'", specifier = ">=1.47.0,<2" },
+    { name = "camb-sdk", marker = "extra == 'camb'", specifier = ">=1.5.4,<2" },
+    { name = "coremltools", marker = "extra == 'local-smart-turn'", specifier = ">=8.0" },
+    { name = "daily-python", marker = "extra == 'daily'", specifier = "~=0.28.0" },
+    { name = "deepgram-sdk", marker = "extra == 'deepgram'", specifier = ">=6.1.1,<7" },
+    { name = "docstring-parser", specifier = ">=0.16,<1" },
+    { name = "einops", marker = "extra == 'moondream'", specifier = "~=0.8.0" },
+    { name = "fastapi", marker = "extra == 'runner'", specifier = ">=0.115.6,<1" },
+    { name = "fastapi", marker = "extra == 'websocket'", specifier = ">=0.115.6,<1" },
+    { name = "faster-whisper", marker = "extra == 'whisper'", specifier = "~=1.2.1" },
+    { name = "google-cloud-speech", marker = "extra == 'google'", specifier = ">=2.33.0,<3" },
+    { name = "google-cloud-texttospeech", marker = "extra == 'google'", specifier = ">=2.31.0,<3" },
+    { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.68.0,<2" },
+    { name = "groq", marker = "extra == 'groq'", specifier = ">=0.23.0,<2" },
+    { name = "hume", marker = "extra == 'hume'", specifier = ">=0.11.2,<1" },
+    { name = "kokoro-onnx", marker = "extra == 'kokoro'", specifier = ">=0.5.0,<1" },
+    { name = "langchain", marker = "extra == 'langchain'", specifier = ">=1.2.13,<2" },
+    { name = "langchain-community", marker = "extra == 'langchain'", specifier = ">=0.4.1,<1" },
+    { name = "langchain-openai", marker = "extra == 'langchain'", specifier = ">=1.1.12,<2" },
+    { name = "livekit", marker = "extra == 'heygen'", specifier = ">=1.0.13,<2" },
+    { name = "livekit", marker = "extra == 'livekit'", specifier = ">=1.0.13,<2" },
+    { name = "livekit-api", marker = "extra == 'livekit'", specifier = ">=1.0.5,<2" },
+    { name = "loguru", specifier = "~=0.7.3" },
+    { name = "markdown", specifier = ">=3.7,<4" },
+    { name = "mcp", extras = ["cli"], marker = "extra == 'mcp'", specifier = ">=1.11.0,<2" },
+    { name = "mem0ai", marker = "extra == 'mem0'", specifier = ">=1.0.8,<2" },
+    { name = "mistralai", marker = "extra == 'mistral'", specifier = ">=2.0.0,<3" },
+    { name = "mlx-whisper", marker = "extra == 'mlx-whisper'", specifier = "~=0.4.2" },
+    { name = "nltk", specifier = ">=3.9.4,<4" },
+    { name = "numba", specifier = ">=0.61.2,<1" },
+    { name = "numpy", specifier = ">=1.26.4,<3" },
+    { name = "nvidia-riva-client", marker = "extra == 'nvidia'", specifier = ">=2.25.1,<3" },
+    { name = "onnxruntime", specifier = "~=1.24.3" },
+    { name = "openai", specifier = ">=1.74.0,<3" },
+    { name = "opencv-python", marker = "extra == 'webrtc'", specifier = ">=4.11.0.86,<5" },
+    { name = "opentelemetry-api", marker = "extra == 'tracing'", specifier = ">=1.33.0,<2" },
+    { name = "opentelemetry-instrumentation", marker = "extra == 'tracing'", specifier = ">=0.54b0,<1" },
+    { name = "opentelemetry-sdk", marker = "extra == 'tracing'", specifier = ">=1.33.0,<2" },
+    { name = "ormsgpack", marker = "extra == 'fish'", specifier = ">=1.7.0,<2" },
+    { name = "pgmq", marker = "extra == 'pgmq'", specifier = ">=1.0.6,<1.1" },
+    { name = "pillow", specifier = ">=11.1.0,<13" },
+    { name = "pipecat-ai", extras = ["daily"], marker = "extra == 'lemonslice'" },
+    { name = "pipecat-ai", extras = ["daily"], marker = "extra == 'tavus'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'assemblyai'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'asyncai'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'aws'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'cartesia'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'deepgram'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'elevenlabs'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'fish'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'gladia'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'google'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'gradium'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'heygen'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'inworld'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'lmnt'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'neuphonic'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'openai'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'resembleai'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'rime'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'sarvam'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'smallest'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'soniox'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'ultravox'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'websocket'" },
+    { name = "pipecat-ai", extras = ["websockets-base"], marker = "extra == 'xai'" },
+    { name = "pipecat-ai-prebuilt", marker = "extra == 'runner'", specifier = ">=1.0.1" },
+    { name = "piper-tts", marker = "extra == 'piper'", specifier = ">=1.3.0,<2" },
+    { name = "protobuf", specifier = ">=5.29.6,<7" },
+    { name = "protobuf", marker = "extra == 'nvidia'", specifier = ">=6.31.1,<7" },
+    { name = "pvkoala", marker = "extra == 'koala'", specifier = "~=2.0.3" },
+    { name = "pyaudio", marker = "extra == 'local'", specifier = "~=0.2.14" },
+    { name = "pydantic", specifier = ">=2.10.6,<3" },
+    { name = "pygobject", marker = "extra == 'gstreamer'", specifier = "~=3.50.0" },
+    { name = "pyjwt", marker = "extra == 'livekit'", specifier = ">=2.12.0,<3" },
+    { name = "pyloudnorm", specifier = "~=0.2.0" },
+    { name = "pyrnnoise", marker = "extra == 'rnnoise'", specifier = "~=0.4.1" },
+    { name = "python-dotenv", marker = "extra == 'runner'", specifier = ">=1.0.0,<2.0.0" },
+    { name = "pyvips", extras = ["binary"], marker = "extra == 'moondream'", specifier = "~=3.0.0" },
+    { name = "redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=5.0.0" },
+    { name = "requests", marker = "extra == 'kokoro'", specifier = ">=2.32.5,<3" },
+    { name = "requests", marker = "extra == 'piper'", specifier = ">=2.32.5,<3" },
+    { name = "resampy", specifier = "~=0.4.3" },
+    { name = "sarvamai", marker = "extra == 'sarvam'", specifier = "==0.1.28" },
+    { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.28.0,<3" },
+    { name = "simli-ai", marker = "extra == 'simli'", specifier = "~=2.0.1" },
+    { name = "soundfile", marker = "extra == 'soundfile'", specifier = "~=0.13.1" },
+    { name = "soxr", specifier = "~=1.0.0" },
+    { name = "speechmatics-voice", extras = ["smart"], marker = "extra == 'speechmatics'", specifier = "~=0.2.8" },
+    { name = "strands-agents", marker = "extra == 'strands'", specifier = ">=1.9.1,<2" },
+    { name = "tenacity", marker = "extra == 'livekit'", specifier = ">=8.2.3,<10.0.0" },
+    { name = "timm", marker = "extra == 'moondream'", specifier = "~=1.0.13" },
+    { name = "torch", marker = "extra == 'local-smart-turn'", specifier = ">=2.5.0,<3" },
+    { name = "torchaudio", marker = "extra == 'local-smart-turn'", specifier = ">=2.5.0,<3" },
+    { name = "transformers", specifier = ">=4.48.0,<6" },
+    { name = "transformers", marker = "extra == 'local-smart-turn'", specifier = ">=4.48.0,<6" },
+    { name = "transformers", marker = "extra == 'moondream'", specifier = ">=4.48.0,<6" },
+    { name = "uvicorn", marker = "extra == 'runner'", specifier = ">=0.32.0,<1.0.0" },
+    { name = "vonage-video-connector", marker = "python_full_version >= '3.13' and extra == 'vonage-video-connector'", specifier = ">=1.0.0,<2" },
+    { name = "wait-for2", marker = "python_full_version < '3.12'", specifier = ">=0.4.1,<1" },
+    { name = "websockets", marker = "extra == 'websockets-base'", specifier = ">=13.1,<16.0" },
+]
+provides-extras = ["aic", "anthropic", "assemblyai", "asyncai", "aws", "aws-nova-sonic", "azure", "cartesia", "camb", "cerebras", "daily", "deepgram", "deepseek", "elevenlabs", "fal", "fireworks", "fish", "gladia", "google", "gradium", "grok", "groq", "gstreamer", "heygen", "hume", "inception", "inworld", "koala", "kokoro", "langchain", "lemonslice", "livekit", "lmnt", "local", "local-smart-turn", "mcp", "mem0", "mistral", "mlx-whisper", "moondream", "nebius", "neuphonic", "novita", "nvidia", "openai", "rnnoise", "openrouter", "perplexity", "pgmq", "piper", "qwen", "redis", "resembleai", "rime", "runner", "sagemaker", "sambanova", "sarvam", "sentry", "silero", "simli", "smallest", "soniox", "soundfile", "speechmatics", "strands", "tavus", "together", "tracing", "ultravox", "vonage-video-connector", "webrtc", "websocket", "websockets-base", "whisper", "xai"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "build", specifier = "~=1.4.0" },
+    { name = "coverage", specifier = "~=7.13.4" },
+    { name = "grpcio-tools", specifier = ">=1.67.1,<2" },
+    { name = "pip-tools", specifier = "~=7.5.3" },
+    { name = "pre-commit", specifier = "~=4.5.1" },
+    { name = "pyright", specifier = "==1.1.408" },
+    { name = "pytest", specifier = ">=9.0.0,<10" },
+    { name = "pytest-aiohttp", specifier = ">=1.0.0,<2" },
+    { name = "pytest-asyncio", specifier = ">=1.0.0,<2" },
+    { name = "python-dotenv", specifier = ">=1.0.1,<2.0.0" },
+    { name = "ruff", specifier = ">=0.12.11,<1" },
+    { name = "setuptools", specifier = "~=78.1.1" },
+    { name = "setuptools-scm", specifier = "~=8.3.1" },
+    { name = "towncrier", specifier = "~=25.8.0" },
+]
+docs = [
+    { name = "sphinx", specifier = ">=8.1.3" },
+    { name = "sphinx-autodoc-typehints" },
+    { name = "sphinx-markdown-builder" },
+    { name = "sphinx-rtd-theme" },
+    { name = "toml" },
 ]
 
 [[package]]
@@ -2388,33 +2527,15 @@ wheels = [
 ]
 
 [[package]]
-name = "pipecat-ai-small-webrtc-prebuilt"
-version = "2.5.0"
+name = "pipecat-ai-prebuilt"
+version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi", extra = ["all"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2c/4f/40bfc9fc1a13f9b1f2657e292c51ff3e3516c530ca722effdcf342d465d9/pipecat_ai_small_webrtc_prebuilt-2.5.0.tar.gz", hash = "sha256:51481506b7b5dff10eff0357ff929cba504a5198c3393697178d2be9895ad9e6", size = 474299, upload-time = "2026-04-22T18:05:16.494Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/27/91857cd93661922687e51f4141583dbeb71f9a6c8d0d6379bae1aa467522/pipecat_ai_prebuilt-1.0.1.tar.gz", hash = "sha256:9453136fcb994802f9b650b5175f3ce1d0476849a9e609fefe52ecc1c3299680", size = 601771, upload-time = "2026-05-20T16:08:14.485Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/34/58/1a2e10c1fb7b44e47558cb6c0954e24a60f98afe912fe55c74fdee66f080/pipecat_ai_small_webrtc_prebuilt-2.5.0-py3-none-any.whl", hash = "sha256:23b1eee95662a0072d9ee5128b8567108eda10d5a54ad71f279730afbb678bfe", size = 474308, upload-time = "2026-04-22T18:05:14.552Z" },
-]
-
-[[package]]
-name = "pipecat-ai-subagents"
-version = "0.6.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pipecat-ai" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/74/2c7cde7c9acf78f1ce2648400d5a5d917c444a739e8e59b96ac4c6f2c053/pipecat_ai_subagents-0.6.0.tar.gz", hash = "sha256:067185823fb3c8cd7fbafa9eb8903182ef01133eb8aebdd12224295cd74dad62", size = 755952, upload-time = "2026-05-14T17:58:46.819Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c5/9c/20faccc99498f1bda52a4aa8c31fc7228ef7dea998dd162a2fe35ab792da/pipecat_ai_subagents-0.6.0-py3-none-any.whl", hash = "sha256:b0a11676ad5cfd07d4a2311eb0e7d4c4831fdf03da4e96d8e1634b8a0858a618", size = 76478, upload-time = "2026-05-14T17:58:45.192Z" },
-]
-
-[package.optional-dependencies]
-pgmq = [
-    { name = "asyncpg" },
-    { name = "pgmq" },
+    { url = "https://files.pythonhosted.org/packages/ec/4f/a636e47967c3aa885ae912502d73a46d1e824a67992e405ea1e94b78bd94/pipecat_ai_prebuilt-1.0.1-py3-none-any.whl", hash = "sha256:45d78d3fd2ac8193626a5dabb5f45d0ff2d35bfc92098b4bcea308ae612196aa", size = 601994, upload-time = "2026-05-20T16:08:12.4Z" },
 ]
 
 [[package]]

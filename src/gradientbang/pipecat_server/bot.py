@@ -657,14 +657,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     from pipecat.frames.frames import BotSpeakingFrame, UserSpeakingFrame
     from pipecat.pipeline.parallel_pipeline import ParallelPipeline
     from pipecat.pipeline.pipeline import Pipeline
-    from pipecat.pipeline.task import PipelineParams, PipelineTask
+    from pipecat.pipeline.runner import PipelineRunner
+    from pipecat.pipeline.worker import PipelineParams, PipelineWorker
     from pipecat.processors.frameworks.rtvi import (
         RTVIFunctionCallReportLevel,
         RTVIObserverParams,
     )
-    from pipecat_subagents.agents import BaseAgent, LLMAgentActivationArgs
-    from pipecat_subagents.runner import AgentRunner
-    from pipecat_subagents.types import AgentReadyData
+    from pipecat.registry.types import WorkerReadyData
+    from pipecat.workers.llm import LLMWorkerActivationArgs
 
     from gradientbang.adapters.bus import make_subagent_bus
     from gradientbang.pipecat_server.frames import TaskActivityFrame
@@ -673,89 +673,13 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     from gradientbang.pipecat_server.subagents.scripted_agent import ScriptedAgent
     from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
 
-    class MainAgent(BaseAgent):
-        """Transport agent — bridges voice I/O to VoiceAgent via the bus.
-
-        Defined inline so it can capture processors from the enclosing scope
-        instead of receiving them as constructor parameters.
-        """
-
-        def __init__(self, name, *, bus):
-            super().__init__(name, bus=bus)
-
-        async def on_agent_ready(self, data: AgentReadyData) -> None:
-            await super().on_agent_ready(data)
-            logger.info(f"MainAgent: {data.agent_name} ready")
-
-        def build_pipeline_task(self, pipeline: Pipeline) -> PipelineTask:
-            return PipelineTask(
-                pipeline,
-                params=PipelineParams(
-                    enable_metrics=True,
-                    enable_usage_metrics=True,
-                ),
-                rtvi_processor=rtvi,
-                rtvi_observer_params=RTVIObserverParams(
-                    function_call_report_level={
-                        "*": RTVIFunctionCallReportLevel.FULL,
-                    },
-                    ignored_sources=list(ui_branch_sources),
-                ),
-                cancel_on_idle_timeout=False,
-                idle_timeout_secs=600,
-                idle_timeout_frames=(
-                    BotSpeakingFrame,
-                    UserSpeakingFrame,
-                    TaskActivityFrame,
-                ),
-            )
-
-        async def build_pipeline(self) -> Pipeline:
-            # Voice LLM lives inline in branch 0 (no bus hop). VoiceAgent
-            # keeps a no-op pipeline so its bus-subscription / activation /
-            # task-supervision lifecycle still works.
-            # Scripted tutorial TTS needs a direct downstream route before use.
-            voice_llm = voice_agent.build_llm()
-            voice_agent._llm = voice_llm
-
-            @transport.event_handler("on_client_connected")
-            async def on_client_connected(transport, client):
-                output_connection_state.mark_client_connected()
-                logger.info("Client connected, adding agents")
-                await self.add_agent(voice_agent)
-                await self.add_agent(scripted_agent)
-
-            return Pipeline(
-                [
-                    transport.input(),
-                    stt,
-                    idle_report_processor,
-                    pre_llm_gate,
-                    user_aggregator,
-                    ParallelPipeline(
-                        [
-                            voice_llm,
-                            post_llm_gate,
-                            token_usage_metrics,
-                            say_text_voice_guard,
-                            tts,
-                            disconnected_output_guard,
-                            transport.output(),
-                            assistant_aggregator,
-                        ],
-                        ui_branch,
-                    ),
-                ]
-            )
-
-    agent_runner = AgentRunner(
+    agent_runner = PipelineRunner(
         bus=await make_subagent_bus(),
         handle_sigint=getattr(runner_args, "handle_sigint", False),
     )
 
     voice_agent = VoiceAgent(
         "player",
-        bus=agent_runner.bus,
         game_client=game_client,
         character_id=character_id,
         rtvi_processor=rtvi,
@@ -787,18 +711,17 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         # bus path either (the InterruptionFrame would broadcast to the voice
         # agent and cancel its activation).
         await tts.queue_frame(InterruptionFrame())
-        await main_agent.deactivate_agent("scripted")
+        await main_agent.deactivate_worker("scripted")
         # Reset mute strategy so the normal first-bot-speech logic applies fresh.
         # Release force_mute AFTER deactivating scripted agent to avoid any
         # in-flight BotStoppedSpeakingFrame from the tutorial triggering unmute.
         await mute_strategy.reset()
         mute_strategy.force_mute = False
         # Tutorial re-enable needs initial_state threaded into this callback.
-        await main_agent.activate_agent("player")
+        await main_agent.activate_worker("player")
 
     scripted_agent = ScriptedAgent(
         "scripted",
-        bus=agent_runner.bus,
         rtvi_processor=rtvi,
         on_complete=_on_tutorial_complete,
     )
@@ -810,14 +733,71 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         enabled=os.getenv("BOT_IDLE_REPORT_ENABLED", "1") not in ("0", "false", ""),
     )
 
-    main_agent = MainAgent("main", bus=agent_runner.bus)
-    await agent_runner.add_agent(main_agent)
+    # The transport worker hosts the voice pipeline directly — no subclass.
+    # Voice LLM lives inline in branch 0 (no bus hop); VoiceAgent keeps a
+    # no-op pipeline so its bus-subscription / activation / job-supervision
+    # lifecycle still works.
+    main_pipeline = Pipeline(
+        [
+            transport.input(),
+            stt,
+            idle_report_processor,
+            pre_llm_gate,
+            user_aggregator,
+            ParallelPipeline(
+                [
+                    voice_agent._llm,
+                    post_llm_gate,
+                    token_usage_metrics,
+                    say_text_voice_guard,
+                    tts,
+                    disconnected_output_guard,
+                    transport.output(),
+                    assistant_aggregator,
+                ],
+                ui_branch,
+            ),
+        ]
+    )
+    main_agent = PipelineWorker(
+        main_pipeline,
+        name="main",
+        params=PipelineParams(
+            enable_metrics=True,
+            enable_usage_metrics=True,
+        ),
+        rtvi_processor=rtvi,
+        rtvi_observer_params=RTVIObserverParams(
+            function_call_report_level={
+                "*": RTVIFunctionCallReportLevel.FULL,
+            },
+            ignored_sources=list(ui_branch_sources),
+        ),
+        cancel_on_idle_timeout=False,
+        idle_timeout_secs=600,
+        idle_timeout_frames=(
+            BotSpeakingFrame,
+            UserSpeakingFrame,
+            TaskActivityFrame,
+        ),
+    )
 
-    @main_agent.event_handler("on_ready")
-    async def _wire_voice_agent_to_main(_agent):
-        # Main pipeline task is built; route VoiceAgent through it.
-        voice_agent.attach_main_pipeline_task(main_agent.pipeline_task)
-        voice_agent.install_main_pipeline_lifecycle_watchers(main_agent.pipeline_task)
+    @main_agent.event_handler("on_worker_ready")
+    async def _log_worker_ready(_worker, data: WorkerReadyData) -> None:
+        logger.info(f"main: {data.worker_name} ready")
+
+    @transport.event_handler("on_client_connected")
+    async def _on_client_connected(transport, client):
+        output_connection_state.mark_client_connected()
+        logger.info("Client connected, adding subworkers")
+        await main_agent.add_worker(voice_agent)
+        await main_agent.add_worker(scripted_agent)
+
+    # Main pipeline IS the worker now — route VoiceAgent through it.
+    voice_agent.attach_main_pipeline_task(main_agent)
+    voice_agent.install_main_pipeline_lifecycle_watchers(main_agent)
+
+    await agent_runner.add_workers(main_agent)
 
     # ── Event handlers ─────────────────────────────────────────────────
 
@@ -896,15 +876,15 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 if is_first_visit and not bypass_tutorial:
                     logger.info("First visit detected, activating ScriptedAgent")
                     mute_strategy.force_mute = True
-                    await main_agent.activate_agent("scripted")
+                    await main_agent.activate_worker("scripted")
                 else:
                     if is_first_visit and bypass_tutorial:
                         logger.info(
                             "First visit detected but bypass_tutorial=True; skipping ScriptedAgent"
                         )
-                    await main_agent.activate_agent(
+                    await main_agent.activate_worker(
                         "player",
-                        args=LLMAgentActivationArgs(
+                        args=LLMWorkerActivationArgs(
                             messages=initial_state.initial_messages,
                             run_llm=True,
                         ),
@@ -964,7 +944,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     async def on_client_disconnected(transport, client):
         output_connection_state.mark_client_disconnected()
         logger.info("Client disconnected")
-        await main_agent.cancel()
+        await agent_runner.cancel()
 
     # ── Periodic voice context upload (every 10 minutes) ─────────────
 
@@ -982,14 +962,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
     try:
         _periodic_upload_task = asyncio.create_task(_periodic_voice_context_upload())
-        logger.info("Starting AgentRunner…")
+        logger.info("Starting PipelineRunner…")
         await agent_runner.run()
-        logger.info("AgentRunner finished")
+        logger.info("PipelineRunner finished")
     except asyncio.CancelledError:
-        logger.info("AgentRunner cancelled")
+        logger.info("PipelineRunner cancelled")
         raise
     except Exception as e:
-        logger.exception(f"AgentRunner error: {e}")
+        logger.exception(f"PipelineRunner error: {e}")
     finally:
         output_connection_state.mark_shutdown()
         if _periodic_upload_task is not None:

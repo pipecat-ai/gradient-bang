@@ -10,13 +10,12 @@ from typing import Any, Awaitable, Callable, Optional
 
 from loguru import logger
 from pipecat.frames.frames import BotStoppedSpeakingFrame, TTSSpeakFrame
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.frameworks.rtvi import (
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
-
-from pipecat_subagents.agents.base_agent import BaseAgent
-from pipecat_subagents.bus import AgentBus
 
 
 @dataclass
@@ -104,8 +103,8 @@ TUTORIAL_STEPS: list[TutorialStep] = [
 ]
 
 
-class ScriptedAgent(BaseAgent):
-    """Tutorial agent that plays scripted TTS content for new players.
+class ScriptedAgent(PipelineWorker):
+    """Tutorial worker that plays scripted TTS content for new players.
 
     Bridges to MainAgent's transport pipeline via the bus. Queued
     ``TTSSpeakFrame`` frames flow through the bus bridge to TTS and
@@ -117,30 +116,26 @@ class ScriptedAgent(BaseAgent):
     completion converge on a single emission.
 
     On completion, calls the ``on_complete`` callback which should
-    deactivate this agent and activate VoiceAgent.
+    deactivate this worker and activate VoiceAgent.
     """
 
     def __init__(
         self,
         name: str,
         *,
-        bus: AgentBus,
         rtvi_processor: RTVIProcessor,
         on_complete: Callable[[], Awaitable[None]],
     ):
-        super().__init__(name, bus=bus, bridged=(), active=False)
+        super().__init__(Pipeline([]), name=name, active=False, bridged=(), enable_rtvi=False)
         self._rtvi = rtvi_processor
         self._on_complete = on_complete
         self._tutorial_task: Optional[asyncio.Task] = None
         self._speech_done = asyncio.Event()
 
-    async def on_ready(self) -> None:
-        """Register frame watchers for speech completion detection."""
-        await super().on_ready()
-        self.pipeline_task.add_reached_upstream_filter((BotStoppedSpeakingFrame,))
+        self.add_reached_upstream_filter((BotStoppedSpeakingFrame,))
 
-        @self.pipeline_task.event_handler("on_frame_reached_upstream")
-        async def _on_speech_done(task, frame):
+        @self.event_handler("on_frame_reached_upstream")
+        async def _on_speech_done(worker, frame):
             if isinstance(frame, BotStoppedSpeakingFrame):
                 self._speech_done.set()
 

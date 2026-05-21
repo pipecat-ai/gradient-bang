@@ -1,8 +1,8 @@
 """Background task worker agent.
 
-TaskAgent is an LLMAgent that receives work via the bus task
+TaskAgent is an LLMWorker that receives work via the bus job
 protocol, executes it autonomously using game tools, and reports results back
-via send_task_update/send_task_response.
+via send_job_update/send_job_response.
 
 ## Async Tool Pattern
 
@@ -68,16 +68,16 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
     BusSteerTaskMessage,
     BusTaskFinishNotification,
 )
-from pipecat_subagents.agents import LLMAgent, TaskStatus
-from pipecat_subagents.bus import (
-    AgentBus,
-    BusEndAgentMessage,
+from pipecat.bus import (
+    BusEndWorkerMessage,
+    BusJobCancelMessage,
+    BusJobRequestMessage,
+    BusJobUpdateMessage,
+    BusJobUpdateRequestMessage,
     BusMessage,
-    BusTaskCancelMessage,
-    BusTaskRequestMessage,
-    BusTaskUpdateMessage,
-    BusTaskUpdateRequestMessage,
 )
+from pipecat.pipeline.job_context import JobStatus
+from pipecat.workers.llm import LLMWorker
 from gradientbang.tools import GAME_METHOD_ALIASES, TASK_TOOLS
 from gradientbang.utils.llm_factory import create_llm_service, get_task_agent_llm_config
 from gradientbang.utils.prompt_loader import (
@@ -246,10 +246,10 @@ class _ResponseStateTracker(FrameProcessor):
 # ── TaskAgent ─────────────────────────────────────────────────────────────
 
 
-class TaskAgent(LLMAgent):
+class TaskAgent(LLMWorker):
     """Background task worker with its own LLM pipeline.
 
-    Runs as LLMAgent (not bridged). Receives tasks from a parent (typically
+    Runs as LLMWorker (not bridged). Receives tasks from a parent (typically
     VoiceAgent) via the bus task protocol, executes them autonomously using
     game tools, and reports progress/completion back.
     """
@@ -258,7 +258,6 @@ class TaskAgent(LLMAgent):
         self,
         name: str,
         *,
-        bus: AgentBus,
         character_id: str,
         is_corp_ship: bool = False,
         task_metadata: Optional[Dict[str, Any]] = None,
@@ -267,7 +266,6 @@ class TaskAgent(LLMAgent):
         custom_prompt: Optional[str] = None,
         llm_override: Optional[Any] = None,
     ):
-        super().__init__(name, bus=bus, active=False)
         self._character_id = character_id
         self._is_corp_ship = is_corp_ship
         self._task_metadata = task_metadata or {}
@@ -286,12 +284,41 @@ class TaskAgent(LLMAgent):
         # None preserves the env-driven default path for in-process and
         # Mode-A BYOA agents — non-BYOA paths are bit-for-bit identical.
         self._llm_override = llm_override
+
+        # Build LLM + pipeline up front so we can hand them to LLMWorker.
+        llm = self.build_llm()
+        llm.register_function(None, self._handle_function_call)
+        self._llm_context = LLMContext(messages=[], tools=ToolsSchema(self.build_tools()))
+        aggregators = LLMContextAggregatorPair(self._llm_context)
+        state_tracker = _ResponseStateTracker(self)
+        pipeline = Pipeline(
+            [
+                aggregators.user(),
+                llm,
+                state_tracker,
+                aggregators.assistant(),
+            ]
+        )
+        super().__init__(name, llm=llm, pipeline=pipeline, active=False)
+
+        # BYOA process-presence heartbeat is gated on the underlying pipeline
+        # actually being up — the pipecat lifecycle event is what tells us
+        # the LLM + frame processors are wired and the bus subscriber loop
+        # has started.
+        @self.event_handler("on_pipeline_started")
+        async def _on_pipeline_started(worker, _frame):
+            await self._on_pipeline_started()
+
+        @self.event_handler("on_pipeline_finished")
+        async def _on_pipeline_finished(worker, _frame):
+            await self._on_pipeline_finished()
+
         # Every game RPC goes over the bus. PendingRequests tracks outbound
         # correlation_ids until their matching responses land.
         self._pending: PendingRequests = PendingRequests()
         self._byoa_presence_task: Optional[asyncio.Task] = None
         # Idle teardown timer. Reset on every inbound task / tool call;
-        # fires BusEndAgentMessage to self after
+        # fires BusEndWorkerMessage to self after
         # agent_idle_teardown_seconds. In-process player-ship agents are
         # reused across tasks, so the timer is disabled for them. Corp-ship
         # agents and BYOA agents use it to eventually free their ship slot.
@@ -341,9 +368,6 @@ class TaskAgent(LLMAgent):
         # ── Debug context cache ──
         self._last_context_dump: Optional[List[Dict[str, Any]]] = None
 
-        # ── Pipeline refs (set in build_pipeline) ──
-        self._llm_context: Optional[LLMContext] = None
-
         # ── Combat preamble tracking ──
         # Mirrors EventRelay: combat.md is loaded at most once per agent
         # lifetime; doctrine is re-fetched every combat. Both land in
@@ -366,25 +390,6 @@ class TaskAgent(LLMAgent):
             tools = [t for t in tools if t.name not in PLAYER_ONLY_TOOLS]
         return tools
 
-    def create_llm(self):
-        llm = self.build_llm()
-        llm.register_function(None, self._handle_function_call)
-        return llm
-
-    async def build_pipeline(self) -> Pipeline:
-        self._llm = self.create_llm()
-        self._llm_context = LLMContext(messages=[], tools=ToolsSchema(self.build_tools()))
-        aggregators = LLMContextAggregatorPair(self._llm_context)
-        state_tracker = _ResponseStateTracker(self)
-        return Pipeline(
-            [
-                aggregators.user(),
-                self._llm,
-                state_tracker,
-                aggregators.assistant(),
-            ]
-        )
-
     # ── BYOA process presence ────────────────────────────────────────
 
     def _is_byoa_process_agent(self) -> bool:
@@ -393,23 +398,23 @@ class TaskAgent(LLMAgent):
     def _presence_timestamp(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    async def on_ready(self) -> None:
-        await super().on_ready()
+    async def _on_pipeline_started(self) -> None:
+        """Pipeline came up — start the BYOA presence heartbeat (BYOA only)."""
         if not self._is_byoa_process_agent():
             return
         await self._send_byoa_presence(online=True)
-        self._byoa_presence_task = self.create_asyncio_task(
+        self._byoa_presence_task = self.create_task(
             self._byoa_presence_loop(),
             f"byoa_presence_{self.name}",
         )
 
-    async def on_finished(self) -> None:
+    async def _on_pipeline_finished(self) -> None:
+        """Pipeline shut down — stop the heartbeat and emit a final offline."""
         if self._byoa_presence_task and not self._byoa_presence_task.done():
-            await self.cancel_asyncio_task(self._byoa_presence_task)
+            await self.cancel_task(self._byoa_presence_task)
         self._byoa_presence_task = None
         if self._is_byoa_process_agent():
             await self._send_byoa_presence(online=False)
-        await super().on_finished()
 
     async def _byoa_presence_loop(self) -> None:
         try:
@@ -421,7 +426,7 @@ class TaskAgent(LLMAgent):
 
     async def _send_byoa_presence(self, *, online: bool) -> None:
         ship_id = self._character_id
-        await self.send_message(
+        await self.send_bus_message(
             BusByoaPresenceMessage(
                 source=self.name,
                 ship_id=ship_id,
@@ -435,11 +440,11 @@ class TaskAgent(LLMAgent):
     # ── Bus protocol ──────────────────────────────────────────────────
 
     @traced
-    async def on_task_request(self, message: BusTaskRequestMessage) -> None:
-        await super().on_task_request(message)
+    async def on_job_request(self, message: BusJobRequestMessage) -> None:
+        await super().on_job_request(message)
         self._reset_task_state()
 
-        task_id = message.task_id
+        task_id = message.job_id
         payload = message.payload
         self._active_task_id = task_id
         self._task_requester = message.source
@@ -476,10 +481,10 @@ class TaskAgent(LLMAgent):
         await self.queue_frame(LLMRunFrame())
         self._llm_inflight = True
 
-    async def on_task_cancelled(self, message: BusTaskCancelMessage) -> None:
+    async def on_job_cancelled(self, message: BusJobCancelMessage) -> None:
         self._cancelled = True
         self._task_finished_status = "cancelled"
-        task_id = message.task_id
+        task_id = message.job_id
         reason = message.reason
         logger.info(f"TaskAgent '{self.name}': task {task_id[:8]} cancelled: {reason}")
 
@@ -505,14 +510,14 @@ class TaskAgent(LLMAgent):
         # every follow-up task starts through wake_agent.
         if not await self._end_byoa_process_after_task(reason="task cancelled"):
             self._arm_idle_teardown()
-        await super().on_task_cancelled(message)
+        await super().on_job_cancelled(message)
 
-    async def on_task_update_requested(self, message: BusTaskUpdateRequestMessage) -> None:
-        await super().on_task_update_requested(message)
+    async def on_job_update_requested(self, message: BusJobUpdateRequestMessage) -> None:
+        await super().on_job_update_requested(message)
         log_lines = self.get_task_log()
         if not log_lines:
-            await self.send_task_update(
-                message.task_id,
+            await self.send_job_update(
+                message.job_id,
                 update={"type": "progress_report", "summary": "No activity yet."},
             )
             return
@@ -529,8 +534,8 @@ class TaskAgent(LLMAgent):
             )
             llm_service = self.build_llm()
             summary = await llm_service.run_inference(context)
-            await self.send_task_update(
-                message.task_id,
+            await self.send_job_update(
+                message.job_id,
                 update={
                     "type": "progress_report",
                     "summary": (summary or "").strip() or "No summary available.",
@@ -538,8 +543,8 @@ class TaskAgent(LLMAgent):
             )
         except Exception as exc:
             logger.warning(f"TaskAgent '{self.name}': progress query failed: {exc}")
-            await self.send_task_update(
-                message.task_id,
+            await self.send_job_update(
+                message.job_id,
                 update={"type": "progress_report", "summary": f"Error: {exc}"},
             )
 
@@ -699,7 +704,7 @@ class TaskAgent(LLMAgent):
         """
         ready = self._llm_context is not None
         error = None if ready else "agent still warming up"
-        await self.send_message(
+        await self.send_bus_message(
             BusAgentHelloResponse(
                 source=self.name,
                 target=request.source,
@@ -729,8 +734,8 @@ class TaskAgent(LLMAgent):
             return False
         self._cancel_idle_teardown()
         try:
-            await self.send_message(
-                BusEndAgentMessage(
+            await self.send_bus_message(
+                BusEndWorkerMessage(
                     source=self.name,
                     target=self.name,
                     reason=reason,
@@ -774,8 +779,8 @@ class TaskAgent(LLMAgent):
             f"{self._byoa_config.agent_idle_teardown_seconds}s of no activity"
         )
         try:
-            await self.send_message(
-                BusEndAgentMessage(
+            await self.send_bus_message(
+                BusEndWorkerMessage(
                     source=self.name,
                     target=self.name,
                     reason="idle teardown",
@@ -861,14 +866,14 @@ class TaskAgent(LLMAgent):
         if event_name in {"error", "chat.message"}:
             await self._handle_event(event)
 
-    async def _stop(self) -> None:
+    async def stop(self) -> None:
         self._cancel_timers()
         if self._game_event_worker_task is not None:
             self._game_event_worker_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._game_event_worker_task
             self._game_event_worker_task = None
-        await super()._stop()
+        await super().stop()
 
     # ── Task state management ─────────────────────────────────────────
 
@@ -1349,7 +1354,7 @@ class TaskAgent(LLMAgent):
         if status not in ("completed", "failed", "cancelled"):
             status = "completed"
         self._task_finished_status = status
-        # Await the FINISHED update so it reaches the parent before send_task_response
+        # Await the FINISHED update so it reaches the parent before send_job_response
         # clears _task_id. _output uses fire-and-forget which races and loses.
         finished_text = self._timestamped_text(self._task_finished_message)
         self._task_log.append(finished_text)
@@ -1385,13 +1390,13 @@ class TaskAgent(LLMAgent):
         # before tearing down so awaiting handlers wind up cleanly.
         self._pending.cancel_all("task complete")
         self._active_task_id = None  # Stop processing events
-        _STATUS_MAP = {"completed": TaskStatus.COMPLETED, "cancelled": TaskStatus.CANCELLED}
-        status = _STATUS_MAP.get(self._task_finished_status, TaskStatus.FAILED)
+        _STATUS_MAP = {"completed": JobStatus.COMPLETED, "cancelled": JobStatus.CANCELLED}
+        status = _STATUS_MAP.get(self._task_finished_status, JobStatus.FAILED)
         if framework_task_id is None:
             self._task_requester = None
             return
         try:
-            await self.send_task_response(
+            await self.send_job_response(
                 framework_task_id,
                 response={
                     "message": self._task_finished_message or "Task complete",
@@ -1792,11 +1797,11 @@ class TaskAgent(LLMAgent):
         requester: str,
     ) -> None:
         try:
-            await self.send_message(
-                BusTaskUpdateMessage(
+            await self.send_bus_message(
+                BusJobUpdateMessage(
                     source=self.name,
                     target=requester,
-                    task_id=framework_task_id,
+                    job_id=framework_task_id,
                     update={
                         "type": "output",
                         "text": text,
@@ -1840,7 +1845,7 @@ class TaskAgent(LLMAgent):
     async def _drain_pending_task_outputs(self) -> None:
         # Snapshot once. Outputs scheduled after this (e.g. LLM frames
         # still flowing while cancel is being processed) are not
-        # awaited — otherwise on_task_cancelled spins indefinitely
+        # awaited — otherwise on_job_cancelled spins indefinitely
         # while the frame processor keeps flushing thinking tokens.
         pending = tuple(self._pending_task_output_tasks)
         if pending:
@@ -1954,7 +1959,7 @@ class TaskAgent(LLMAgent):
         correlation_id = uuid.uuid4().hex
         actor = self._task_metadata.get("actor_character_id") if self._task_metadata else None
         task_id_tag = self._active_task_id if self._tag_outbound_rpcs_with_task_id else ""
-        await self.send_message(
+        await self.send_bus_message(
             BusGameToolCallRequest(
                 source=self.name,
                 target=target,
@@ -1976,7 +1981,7 @@ class TaskAgent(LLMAgent):
         if not target:
             raise RuntimeError(f"TaskAgent '{self.name}': no broker target for combat_strategy")
         correlation_id = uuid.uuid4().hex
-        await self.send_message(
+        await self.send_bus_message(
             BusCombatStrategyRequest(
                 source=self.name,
                 target=target,
@@ -1996,7 +2001,7 @@ class TaskAgent(LLMAgent):
         if not target:
             raise RuntimeError(f"TaskAgent '{self.name}': no broker target for corp_query")
         correlation_id = uuid.uuid4().hex
-        await self.send_message(
+        await self.send_bus_message(
             BusCorporationQueryRequest(
                 source=self.name,
                 target=target,
@@ -2025,7 +2030,7 @@ class TaskAgent(LLMAgent):
             return
         actor = self._task_metadata.get("actor_character_id") if self._task_metadata else None
         try:
-            await self.send_message(
+            await self.send_bus_message(
                 BusTaskFinishNotification(
                     source=self.name,
                     target=target,

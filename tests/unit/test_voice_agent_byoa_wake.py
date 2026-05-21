@@ -47,7 +47,7 @@ def _make_voice_agent(**overrides) -> VoiceAgent:
     mock_game_client._request = AsyncMock(return_value={})
 
     kwargs = {
-        "bus": MagicMock(),
+        
         "game_client": mock_game_client,
         "character_id": "char-player",
         "rtvi_processor": MagicMock(push_frame=AsyncMock()),
@@ -285,8 +285,8 @@ class TestStartTaskWakeBranch:
         agent._get_task_type = MagicMock(return_value="corp_ship")
         agent._build_task_start_context = MagicMock(return_value=None)
         agent._event_relay = None
-        agent.watch_agent = AsyncMock()
-        agent.add_agent = AsyncMock()
+        agent.watch_worker = AsyncMock()
+        agent.add_worker = AsyncMock()
         agent._ensure_heartbeat_task_running = MagicMock()
 
     async def test_byoa_ship_dispatch_registers_watchdog_and_calls_wake(self):
@@ -322,7 +322,7 @@ class TestStartTaskWakeBranch:
         assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] == "waking"
         # Stale-task guard: framework task_id propagated into task_metadata.
         assert payload["task_metadata"]["task_id"] == framework_task_id
-        agent.watch_agent.assert_awaited_once_with("byoa_ship-uuid-123")
+        agent.watch_worker.assert_awaited_once_with("byoa_ship-uuid-123")
         agent._game_client.wake_agent.assert_awaited_once_with(
             ship_id="ship-uuid-123",
             channel="bot_session_abc",
@@ -436,7 +436,7 @@ class TestStartTaskWakeBranch:
             channel="bot_session_abc",
             task_id=result["task_id"],
         )
-        agent.watch_agent.assert_awaited_once_with("byoa_ship-uuid-123")
+        agent.watch_worker.assert_awaited_once_with("byoa_ship-uuid-123")
         watchdog = agent._byoa._pending_wakes.get("ship-uuid-123")
         if watchdog:
             watchdog.cancel()
@@ -474,6 +474,6 @@ class TestStartTaskWakeBranch:
         assert result["success"] is True
         assert result.get("status") != "waking"
         assert agent._acquire_server_ship_lock.await_args.kwargs["task_status"] is None
-        agent.add_agent.assert_awaited_once()
+        agent.add_worker.assert_awaited_once()
         assert agent._byoa._pending_wakes == {}
         agent._game_client.wake_agent.assert_not_awaited()

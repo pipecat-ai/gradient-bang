@@ -1,10 +1,10 @@
-"""Re-export of the upstream :class:`AgentBus` protocol.
+"""Re-export of the upstream :class:`WorkerBus` protocol.
 
 Gradient Bang code imports the bus type through this module so the dependency
-boundary on ``pipecat-ai-subagents`` is explicit; the factory in
-:mod:`.factory` decides which concrete implementation to instantiate.
+boundary on ``pipecat-ai`` is explicit; the factory in :mod:`.factory`
+decides which concrete implementation to instantiate.
 """
 
-from pipecat_subagents.bus import AgentBus
+from pipecat.bus import WorkerBus as AgentBus
 
 __all__ = ["AgentBus"]

@@ -202,9 +202,9 @@ async def run_task(args: argparse.Namespace) -> int:
     target_character_id = args.ship_id or args.actor_id
     actor_character_id = args.actor_id if args.ship_id else None
 
-    from pipecat_subagents.agents.base_agent import BaseAgent
-    from pipecat_subagents.runner import AgentRunner
-    from pipecat_subagents.agents.task_context import TaskStatus
+    from pipecat.pipeline.base_worker import BaseWorker
+    from pipecat.pipeline.job_context import JobStatus
+    from pipecat.pipeline.runner import PipelineRunner
 
     from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
     from gradientbang.tools import (
@@ -313,20 +313,19 @@ async def run_task(args: argparse.Namespace) -> int:
         task_done = asyncio.Event()
         task_success = {"value": False}
 
-        class Launcher(BaseAgent):
-            def __init__(self, name, *, bus):
-                super().__init__(name, bus=bus)
+        class Launcher(BaseWorker):
+            def __init__(self, name):
+                super().__init__(name=name)
                 self._pending_payload = None
 
-            async def on_ready(self):
+            async def on_activated(self, activation_args):
+                await super().on_activated(activation_args)
                 # Wire up game event forwarding to the bus
                 for event_name in _NPC_FORWARDED_EVENTS:
                     game_client.add_event_handler(event_name, self._forward_event)
 
                 task_agent = NPCTaskAgent(
                     "npc_task",
-                    bus=self._bus,
-                    game_client=game_client,
                     character_id=target_character_id,
                     is_corp_ship=bool(args.ship_id),
                 )
@@ -334,32 +333,32 @@ async def run_task(args: argparse.Namespace) -> int:
                 if args.instructions:
                     payload["context"] = args.instructions
                 self._pending_payload = payload
-                await self.add_agent(task_agent)
+                await self.add_worker(task_agent)
 
             async def _forward_event(self, event):
-                await self.send_message(
+                await self.send_bus_message(
                     BusGameEventMessage(source=self.name, event=event)
                 )
 
-            async def on_agent_ready(self, data):
-                await super().on_agent_ready(data)
-                if data.agent_name == "npc_task" and self._pending_payload:
+            async def on_worker_ready(self, data):
+                await super().on_worker_ready(data)
+                if data.worker_name == "npc_task" and self._pending_payload:
                     payload = self._pending_payload
                     self._pending_payload = None
-                    await self.request_task("npc_task", payload=payload)
+                    await self.request_job("npc_task", payload=payload)
 
-            async def on_task_response(self, message):
-                await super().on_task_response(message)
-                task_success["value"] = message.status == TaskStatus.COMPLETED
+            async def on_job_response(self, message):
+                await super().on_job_response(message)
+                task_success["value"] = message.status == JobStatus.COMPLETED
                 task_done.set()
 
-            async def on_task_completed(self, result):
-                await super().on_task_completed(result)
+            async def on_job_completed(self, result):
+                await super().on_job_completed(result)
                 task_done.set()
 
-        runner = AgentRunner(handle_sigint=True)
-        launcher = Launcher("launcher", bus=runner.bus)
-        await runner.add_agent(launcher)
+        runner = PipelineRunner(handle_sigint=True)
+        launcher = Launcher("launcher")
+        await runner.add_workers(launcher)
 
         # Run in background, wait for task completion
         runner_task = asyncio.create_task(runner.run())

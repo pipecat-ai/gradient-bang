@@ -1,6 +1,6 @@
 """Voice agent.
 
-LLMAgent that handles the player's voice conversation. Receives frames from
+LLMWorker that handles the player's voice conversation. Receives frames from
 MainAgent via the bus, runs an LLM pipeline, and sends responses back.
 
 What lives here:
@@ -33,9 +33,15 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
 from loguru import logger
+from pipecat.bus import (
+    BusEndWorkerMessage,
+    BusJobResponseMessage,
+    BusJobUpdateMessage,
+    BusMessage,
+)
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -48,21 +54,15 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
+from pipecat.pipeline.job_context import JobStatus
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineTask
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 from pipecat.services.llm_service import FunctionCallParams
-from pipecat_subagents.agents import LLMAgent, TaskStatus
-from pipecat_subagents.agents.llm.llm_agent import PipelineFlushFrame
-from pipecat_subagents.bus import (
-    AgentBus,
-    BusEndAgentMessage,
-    BusMessage,
-    BusTaskResponseMessage,
-    BusTaskUpdateMessage,
-)
+from pipecat.workers.llm import LLMWorker
+from pipecat.workers.llm.llm_worker import PipelineFlushFrame
 
 from gradientbang.byoa import ByoaAgentConfig
 from gradientbang.pipecat_server.byoa_coordinator import ByoaCoordinator
@@ -119,6 +119,96 @@ def _env_truthy(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
+# ── Pure helpers (job-group lookup / cancellation candidates) ─────────────
+#
+# These read a snapshot of ``job_groups`` (the BaseWorker's read-only property
+# dict) and ``children`` (the worker's child list) and return decisions about
+# them, without touching any worker state. Pulled out of the class so tests
+# can exercise the lookup/iteration logic by passing plain dicts/lists —
+# instead of either reaching into ``_job_groups`` or driving the full
+# ``request_job_group`` dispatch path to seed framework state.
+
+
+def find_task_agent_in_groups(
+    job_groups: "Mapping[str, Any]",
+    children: "Sequence[Any]",
+    task_id: str,
+) -> Optional[Tuple[str, "TaskAgent"]]:
+    """Locate the (framework_task_id, TaskAgent child) for ``task_id``.
+
+    Accepts the framework/game task UUID — full form or any unique prefix
+    (e.g. the 8-char form the LLM commonly receives in event payloads).
+    Returns ``None`` when no active task group matches.
+
+    Args:
+        job_groups: Snapshot of the worker's ``job_groups`` property.
+        children: Snapshot of the worker's child workers.
+        task_id: Full UUID or unique prefix.
+    """
+    cleaned = task_id.strip()
+    if not cleaned:
+        return None
+
+    matches = [
+        (tid, group)
+        for tid, group in job_groups.items()
+        if tid == cleaned or tid.startswith(cleaned)
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda kv: 0 if kv[0] == cleaned else 1)
+    framework_task_id, group = matches[0]
+    for name in group.worker_names:
+        child = next(
+            (c for c in children if isinstance(c, TaskAgent) and c.name == name),
+            None,
+        )
+        if child:
+            return framework_task_id, child
+    return None
+
+
+def find_player_task(
+    job_groups: "Mapping[str, Any]",
+    children: "Sequence[Any]",
+) -> Optional[Tuple[str, "TaskAgent"]]:
+    """Find (framework_task_id, TaskAgent) for the active player-ship task.
+
+    Used as the default target of ``stop_task`` when the LLM doesn't pass
+    a specific task_id. Returns ``None`` when there is no active player
+    task to stop.
+    """
+    player_child = next(
+        (c for c in children if isinstance(c, TaskAgent) and not c._is_corp_ship),
+        None,
+    )
+    if not player_child:
+        return None
+    framework_task_id = next(
+        (tid for tid, group in job_groups.items() if player_child.name in group.worker_names),
+        None,
+    )
+    if framework_task_id is None:
+        return None
+    return framework_task_id, player_child
+
+
+def job_ids_to_cancel_for_player_combat(
+    job_groups: "Mapping[str, Any]",
+    player_worker_names: "set[str]",
+) -> list[str]:
+    """Return the framework_task_ids for job groups owned by player TaskAgents.
+
+    Used by combat-cancellation: when the player ship enters combat, any
+    in-flight player-owned task is cancelled, but corp tasks are preserved.
+
+    Args:
+        job_groups: Snapshot of the worker's ``job_groups`` property.
+        player_worker_names: Names of player-owned TaskAgent children.
+    """
+    return [tid for tid, group in job_groups.items() if group.worker_names & player_worker_names]
+
+
 @dataclass
 class _SteerTarget:
     framework_task_id: str
@@ -130,7 +220,7 @@ class _SteerTarget:
 # ── VoiceAgent ────────────────────────────────────────────────────────────
 
 
-class VoiceAgent(LLMAgent):
+class VoiceAgent(LLMWorker):
     """Voice conversation agent for the player.
 
     Runs its own LLM pipeline (bridged to MainAgent's transport via the bus).
@@ -143,14 +233,23 @@ class VoiceAgent(LLMAgent):
         self,
         name: str,
         *,
-        bus: AgentBus,
         game_client: AsyncGameClient,
         character_id: str,
         rtvi_processor: RTVIProcessor,
         event_relay: Optional[EventRelay] = None,
         byoa_config: Optional[ByoaAgentConfig] = None,
     ):
-        super().__init__(name, bus=bus, bridged=(), active=False)
+        llm = self.build_llm()
+        # No-op LLM pipeline — the voice LLM is wired into the MAIN pipeline
+        # instead (the LLMWorker pipeline argument is required, so we hand it
+        # an IdentityFilter pass-through).
+        super().__init__(
+            name,
+            llm=llm,
+            pipeline=Pipeline([IdentityFilter()]),
+            active=False,
+            bridged=(),
+        )
         self.__game_client = game_client
         self.__character_id = character_id
         self._rtvi = rtvi_processor
@@ -168,7 +267,7 @@ class VoiceAgent(LLMAgent):
         _timeout = float(os.getenv("TASK_AGENT_TIMEOUT", 0))
         self._task_agent_timeout: float | None = _timeout if _timeout > 0 else None
 
-        # ── Transient: holds (framework_task_id, payload) between add_agent and on_agent_ready ──
+        # ── Transient: holds (framework_task_id, payload) between add_agent and on_worker_ready ──
         self._pending_tasks: Dict[str, Tuple[str, dict]] = {}  # agent_name -> (task_id, payload)
 
         # ── Request ID tracking ──
@@ -212,28 +311,22 @@ class VoiceAgent(LLMAgent):
             narrate=self._queue_narration_frame,
             inject_silent=self._inject_narration_silent,
             speech_state=self._snapshot_speech_state,
-            create_task=self.create_asyncio_task,
+            create_task=self.create_task,
         )
 
         # ── Pending confirmation for confirm_action tool ──
         self._pending_confirmation: Optional[Dict[str, Any]] = None
 
         # Set by bot.py once the main pipeline task is built.
-        self._main_pipeline_task: Optional[PipelineTask] = None
+        self._main_pipeline_task: Optional[PipelineWorker] = None
 
-    def attach_main_pipeline_task(self, task: PipelineTask) -> None:
+    def attach_main_pipeline_task(self, task: PipelineWorker) -> None:
         self._main_pipeline_task = task
-
-    async def build_pipeline(self) -> Pipeline:
-        # The voice LLM lives inline in the main pipeline; this agent owns a
-        # no-op pipeline so its lifecycle (bus subscription, activation,
-        # child supervision) still works.
-        return Pipeline([IdentityFilter()])
 
     async def queue_frame(
         self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM
     ) -> None:
-        # Mirrors LLMAgent.queue_frame's deferral, then routes to the main
+        # Mirrors LLMWorker.queue_frame's deferral, then routes to the main
         # pipeline task instead of this agent's no-op pipeline.
         if self._defer_tool_frames and self._tool_call_inflight > 0 and not self._closing:
             self._deferred_frames.append((frame, direction))
@@ -252,13 +345,10 @@ class VoiceAgent(LLMAgent):
         finishes — no in-relay onboarding injection here."""
         await super().on_activated(args)
 
-    async def on_ready(self) -> None:
-        await super().on_ready()
-
-    def install_main_pipeline_lifecycle_watchers(self, task: PipelineTask) -> None:
+    def install_main_pipeline_lifecycle_watchers(self, task: PipelineWorker) -> None:
         # LLM and speaking frames flow through the main pipeline; install the
         # watchers that drive assistant-cycle / speaking state there.
-        # PipelineFlushFrame round-trip mirrors LLMAgent.create_pipeline_task
+        # PipelineFlushFrame round-trip mirrors LLMWorker constructor
         # so _flush_pipeline can use the main task as its barrier.
         task.add_reached_downstream_filter(
             (LLMFullResponseStartFrame, LLMFullResponseEndFrame, PipelineFlushFrame)
@@ -427,7 +517,7 @@ class VoiceAgent(LLMAgent):
         Returns:
             True if the report was fired, False if skipped.
         """
-        if not self.task_groups:
+        if not self.job_groups:
             logger.debug("VoiceAgent: idle report skipped (no active tasks)")
             return False
         if self._narrator.is_active:
@@ -436,7 +526,7 @@ class VoiceAgent(LLMAgent):
             # that would be immediately followed by the real ack.
             logger.debug("VoiceAgent: idle report skipped (subagent narrator active)")
             return False
-        logger.debug("VoiceAgent: idle report triggered, {} active task(s)", len(self.task_groups))
+        logger.debug("VoiceAgent: idle report triggered, {} active task(s)", len(self.job_groups))
         await self._inject_context(
             [
                 {
@@ -529,7 +619,7 @@ class VoiceAgent(LLMAgent):
 
     def is_our_task(self, task_id: str) -> bool:
         """Check if a task_id belongs to one of our active task groups."""
-        return task_id in self._task_groups
+        return task_id in self.job_groups
 
     # ── Deferred frame processing ────────────────────────────────────
 
@@ -551,7 +641,7 @@ class VoiceAgent(LLMAgent):
         return frames
 
     async def _flush_pipeline(self) -> None:
-        # LLMAgent.create_pipeline_task wires the flush round-trip on this
+        # LLMWorker constructor wires the flush round-trip on this
         # agent's no-op pipeline. The LLM lives in the main pipeline, so
         # route the barrier there — otherwise the probe returns instantly
         # without waiting for in-flight FunctionCallResultFrames, and
@@ -593,7 +683,7 @@ class VoiceAgent(LLMAgent):
             await self.queue_frame(frame)
             if not self._inject_run_pending:
                 self._inject_run_pending = True
-                self._inject_run_task = self.create_asyncio_task(
+                self._inject_run_task = self.create_task(
                     self._emit_coalesced_run(), "inject_coalesced_run"
                 )
             return
@@ -1443,7 +1533,7 @@ class VoiceAgent(LLMAgent):
         self, event: Dict[str, Any], *, voice_agent_originated: bool = False
     ) -> None:
         """Broadcast a game event to the bus for TaskAgent children."""
-        await self.send_message(
+        await self.send_bus_message(
             BusGameEventMessage(
                 source=self.name, event=event, voice_agent_originated=voice_agent_originated
             )
@@ -1482,19 +1572,18 @@ class VoiceAgent(LLMAgent):
         }
         if not player_task_agents:
             return
-        for tid, group in list(self._task_groups.items()):
-            if group.agent_names & player_task_agents:
-                try:
-                    await self.cancel_task(tid, reason="Combat started")
-                    logger.info(f"Cancelled player task group {tid} for combat")
-                except Exception as e:
-                    logger.error(f"Failed to cancel task group {tid} for combat: {e}")
+        for tid in job_ids_to_cancel_for_player_combat(self.job_groups, player_task_agents):
+            try:
+                await self.cancel_job_group(tid, reason="Combat started")
+                logger.info(f"Cancelled player task group {tid} for combat")
+            except Exception as e:
+                logger.error(f"Failed to cancel task group {tid} for combat: {e}")
 
     async def _cancel_task_by_game_id(self, game_task_id: str) -> None:
         """Cancel a task identified by its game-level task_id."""
-        if game_task_id in self._task_groups:
+        if game_task_id in self.job_groups:
             try:
-                await self.cancel_task(game_task_id, reason="Cancelled by client")
+                await self.cancel_job_group(game_task_id, reason="Cancelled by client")
                 logger.info(f"Cancelled task {game_task_id[:8]} via client cancel")
             except Exception as e:
                 logger.error(f"Failed to cancel task {game_task_id[:8]} via client cancel: {e}")
@@ -1516,10 +1605,10 @@ class VoiceAgent(LLMAgent):
         )
         if not child:
             return
-        for tid, group in list(self._task_groups.items()):
-            if child.name in group.agent_names:
+        for tid, group in list(self.job_groups.items()):
+            if child.name in group.worker_names:
                 try:
-                    await self.cancel_task(tid, reason="Cancelled by client")
+                    await self.cancel_job_group(tid, reason="Cancelled by client")
                     logger.info(
                         f"Cancelled task {tid} (game_task_id={game_task_id[:8]}) via client cancel"
                     )
@@ -1562,7 +1651,7 @@ class VoiceAgent(LLMAgent):
                 return None
         return self._locked_ships.pop(ship_character_id, None)
 
-    def get_agent_registry(self) -> Any:
+    def get_worker_registry(self) -> Any:
         """Expose the pipecat AgentRegistry to ByoaCoordinator for entry invalidation."""
         return getattr(self, "_registry", None)
 
@@ -1571,33 +1660,17 @@ class VoiceAgent(LLMAgent):
     def _find_task_agent_by_task_id(self, task_id: str) -> Optional[Tuple[str, TaskAgent]]:
         """Resolve an active task to (framework_task_id, TaskAgent child).
 
-        Accepts the framework/game task UUID — full form or any unique
-        prefix (the LLM commonly receives the 8-char prefix in events such
-        as ``task.completed task_id="ff3fa419"``). Returns ``None`` if no
-        active task group matches.
+        Thin wrapper over :func:`find_task_agent_in_groups` so the lookup
+        logic stays unit-testable as a pure function.
         """
-        cleaned = task_id.strip()
-        if not cleaned:
-            return None
+        return find_task_agent_in_groups(self.job_groups, self.children, task_id)
 
-        matches = [
-            (tid, group)
-            for tid, group in self._task_groups.items()
-            if tid == cleaned or tid.startswith(cleaned)
-        ]
-        if not matches:
-            return None
-        # Prefer exact match over prefix match.
-        matches.sort(key=lambda kv: 0 if kv[0] == cleaned else 1)
-        framework_task_id, group = matches[0]
-        for name in group.agent_names:
-            child = next(
-                (c for c in self.children if isinstance(c, TaskAgent) and c.name == name),
-                None,
-            )
-            if child:
-                return framework_task_id, child
-        return None
+    def _find_player_task(self) -> Optional[Tuple[str, TaskAgent]]:
+        """Default ``stop_task`` target — the active player-ship task, if any.
+
+        Thin wrapper over :func:`find_player_task` for the same reason.
+        """
+        return find_player_task(self.job_groups, self.children)
 
     def _find_steer_target_by_ship(self, ship_character_id: str) -> Optional[_SteerTarget]:
         """Resolve the active bus target for a ship-level task."""
@@ -1615,10 +1688,10 @@ class VoiceAgent(LLMAgent):
                 ship_character_id=ship_character_id,
             )
 
-        for group_task_id, group in self._task_groups.items():
+        for group_task_id, group in self.job_groups.items():
             if group_task_id != framework_task_id:
                 continue
-            for name in group.agent_names:
+            for name in group.worker_names:
                 child = next(
                     (
                         c
@@ -1646,7 +1719,7 @@ class VoiceAgent(LLMAgent):
 
         matches = [
             (tid, group)
-            for tid, group in self._task_groups.items()
+            for tid, group in self.job_groups.items()
             if tid == cleaned or tid.startswith(cleaned)
         ]
         if not matches:
@@ -1654,7 +1727,7 @@ class VoiceAgent(LLMAgent):
         matches.sort(key=lambda kv: 0 if kv[0] == cleaned else 1)
         framework_task_id, group = matches[0]
 
-        for name in group.agent_names:
+        for name in group.worker_names:
             child = next(
                 (c for c in self.children if isinstance(c, TaskAgent) and c.name == name),
                 None,
@@ -1805,9 +1878,9 @@ class VoiceAgent(LLMAgent):
 
     # ── Subagent spawn handshake ──────────────────────────────────────
 
-    async def on_agent_ready(self, data) -> None:
-        await super().on_agent_ready(data)
-        pending = self._pending_tasks.pop(data.agent_name, None)
+    async def on_worker_ready(self, data) -> None:
+        await super().on_worker_ready(data)
+        pending = self._pending_tasks.pop(data.worker_name, None)
         if not pending:
             return
         framework_task_id, payload = pending
@@ -1815,8 +1888,8 @@ class VoiceAgent(LLMAgent):
         # that just came online. The agent_name format is `byoa_<ship_id>`
         # for the wake-flow path; in-process spawns use `task_<6hex>` and
         # never register a watchdog.
-        if data.agent_name.startswith("byoa_"):
-            target_character_id = data.agent_name[len("byoa_") :]
+        if data.worker_name.startswith("byoa_"):
+            target_character_id = data.worker_name[len("byoa_") :]
             if self._byoa.cancel_pending_wake(target_character_id):
                 logger.info(
                     f"byoa.wake_ready ship={target_character_id[:8]} task={framework_task_id[:8]}"
@@ -1824,22 +1897,22 @@ class VoiceAgent(LLMAgent):
         # Universal liveness handshake. For an in-process TaskAgent this
         # returns ~instantly; for a BYOA agent it bridges the cold-start window.
         try:
-            await self._send_hello_and_wait(data.agent_name)
+            await self._send_hello_and_wait(data.worker_name)
         except (asyncio.TimeoutError, RuntimeError) as exc:
-            logger.warning(f"VoiceAgent: hello handshake with '{data.agent_name}' failed: {exc}")
+            logger.warning(f"VoiceAgent: hello handshake with '{data.worker_name}' failed: {exc}")
             await self._rollback_failed_spawn(
-                agent_name=data.agent_name,
+                agent_name=data.worker_name,
                 framework_task_id=framework_task_id,
                 reason="agent failed wake-up handshake",
             )
             return
-        if self._byoa.is_agent_name(data.agent_name):
-            target_character_id = data.agent_name[len("byoa_") :]
+        if self._byoa.is_agent_name(data.worker_name):
+            target_character_id = data.worker_name[len("byoa_") :]
             task_metadata = payload.get("task_metadata") if isinstance(payload, dict) else None
             task_metadata = task_metadata if isinstance(task_metadata, dict) else {}
             actor = task_metadata.get("actor_character_id")
             self._byoa.register_active(
-                data.agent_name,
+                data.worker_name,
                 framework_task_id=framework_task_id,
                 character_id=target_character_id,
                 actor_character_id=actor if isinstance(actor, str) else "",
@@ -1847,16 +1920,16 @@ class VoiceAgent(LLMAgent):
             )
         try:
             await self._dispatch_task_with_id(
-                data.agent_name,
+                data.worker_name,
                 framework_task_id,
                 payload=payload,
                 timeout=self._task_agent_timeout,
             )
         except Exception:
-            self._byoa.deactivate(data.agent_name)
+            self._byoa.deactivate(data.worker_name)
             raise
         self.update_polling_scope()
-        logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.agent_name)
+        logger.info("VoiceAgent: task agent '{}' ready, dispatched task", data.worker_name)
 
     async def _rollback_failed_spawn(
         self,
@@ -1889,11 +1962,11 @@ class VoiceAgent(LLMAgent):
             logger.warning(f"rollback: server task_cancel failed: {exc}")
         # End the child agent's pipeline + remove it from _children.
         try:
-            await self.send_message(
-                BusEndAgentMessage(source=self.name, target=agent_name, reason=reason)
+            await self.send_bus_message(
+                BusEndWorkerMessage(source=self.name, target=agent_name, reason=reason)
             )
         except Exception as exc:
-            logger.warning(f"rollback: BusEndAgentMessage send failed: {exc}")
+            logger.warning(f"rollback: BusEndWorkerMessage send failed: {exc}")
         self._children = [c for c in self._children if c.name != agent_name]
         self.update_polling_scope()
 
@@ -1907,41 +1980,41 @@ class VoiceAgent(LLMAgent):
     ) -> None:
         """Dispatch a task to ``agent_name`` using the supplied ``task_id``.
 
-        Mirrors :meth:`BaseAgent.create_task_group_and_request_task` but lets the
+        Mirrors :meth:`BaseWorker.create_job_group_and_request_job` but lets the
         caller pin the task identifier instead of generating a fresh UUID. The
         voice agent needs this so it can return a stable ``task_id`` to the LLM
         synchronously from the start_task tool call, then dispatch the request
         once the worker pipeline has come up.
         """
-        from pipecat_subagents.agents.task_context import TaskGroup, TaskGroupError
+        from pipecat.pipeline.job_context import JobGroup, JobGroupError
 
-        all_ready = await self._wait_agents_ready([agent_name])
+        all_ready = await self._wait_workers_ready([agent_name])
         try:
             await asyncio.wait_for(all_ready, timeout=timeout)
         except asyncio.TimeoutError as exc:
-            raise TaskGroupError("agents not ready within timeout") from exc
+            raise JobGroupError("agents not ready within timeout") from exc
 
-        group = TaskGroup(task_id=task_id, agent_names={agent_name}, cancel_on_error=True)
-        self._task_groups[task_id] = group
+        group = JobGroup(job_id=task_id, worker_names={agent_name}, cancel_on_error=True)
+        self.job_groups[task_id] = group
         if timeout is not None:
-            group.timeout_task = self.create_asyncio_task(
+            group.timeout_task = self.create_task(
                 self._task_timeout(task_id, timeout), f"task_timeout_{task_id[:8]}"
             )
 
-        await self._send_task_request(agent_name, task_id, payload=payload)
+        await self._send_job_request(agent_name, task_id, payload=payload)
 
     # ── Bus task protocol ─────────────────────────────────────────────
 
-    async def on_task_update(self, message: BusTaskUpdateMessage) -> None:
+    async def on_job_update(self, message: BusJobUpdateMessage) -> None:
         byoa_ctx = self._byoa.get_active(message.source)
-        if byoa_ctx is not None and message.task_id != str(byoa_ctx.get("task_id") or ""):
+        if byoa_ctx is not None and message.job_id != str(byoa_ctx.get("task_id") or ""):
             logger.warning(
                 f"ignoring BYOA task update from {message.source!r} "
-                f"for unexpected task_id={message.task_id[:8]!r}"
+                f"for unexpected task_id={message.job_id[:8]!r}"
             )
             return
 
-        await super().on_task_update(message)
+        await super().on_job_update(message)
         update = message.update
         if not update:
             return
@@ -1950,7 +2023,7 @@ class VoiceAgent(LLMAgent):
         if update_type == "progress_report":
             summary = update.get("summary", "No update available.")
             event_xml = (
-                f'<event name="task.progress" task_id="{message.task_id[:8]}">\n{summary}\n</event>'
+                f'<event name="task.progress" task_id="{message.job_id[:8]}">\n{summary}\n</event>'
             )
             await self.queue_frame(
                 LLMMessagesAppendFrame(
@@ -1966,18 +2039,18 @@ class VoiceAgent(LLMAgent):
                 None,
             )
             task_type = "corp_ship" if child and child._is_corp_ship else "player_ship"
-            await self._task_output_handler(text, message_type, message.task_id, task_type)
+            await self._task_output_handler(text, message_type, message.job_id, task_type)
 
-    async def on_task_response(self, message: BusTaskResponseMessage) -> None:
+    async def on_job_response(self, message: BusJobResponseMessage) -> None:
         agent_name = message.source
         child = next(
             (c for c in self.children if isinstance(c, TaskAgent) and c.name == agent_name), None
         )
         byoa_ctx = self._byoa.get_active(agent_name)
-        if byoa_ctx is not None and message.task_id != str(byoa_ctx.get("task_id") or ""):
+        if byoa_ctx is not None and message.job_id != str(byoa_ctx.get("task_id") or ""):
             logger.warning(
                 f"ignoring BYOA task response from {agent_name!r} "
-                f"for unexpected task_id={message.task_id[:8]!r}"
+                f"for unexpected task_id={message.job_id[:8]!r}"
             )
             return
 
@@ -1995,22 +2068,22 @@ class VoiceAgent(LLMAgent):
         )
 
         try:
-            await super().on_task_response(message)
+            await super().on_job_response(message)
 
-            if message.status == TaskStatus.COMPLETED:
+            if message.status == JobStatus.COMPLETED:
                 status_label = "completed"
                 await self._task_output_handler(
-                    "Task completed successfully", "complete", message.task_id, task_type
+                    "Task completed successfully", "complete", message.job_id, task_type
                 )
-            elif message.status == TaskStatus.CANCELLED:
+            elif message.status == JobStatus.CANCELLED:
                 status_label = "cancelled"
                 await self._task_output_handler(
-                    "Task was cancelled", "cancelled", message.task_id, task_type
+                    "Task was cancelled", "cancelled", message.job_id, task_type
                 )
             else:
                 status_label = "failed"
                 fail_msg = (message.response or {}).get("message", "Task failed")
-                await self._task_output_handler(fail_msg, "failed", message.task_id, task_type)
+                await self._task_output_handler(fail_msg, "failed", message.job_id, task_type)
 
             # Notify the LLM so it can inform the user (use response.message for detail)
             llm_msg = (message.response or {}).get("message", f"Task {status_label}")
@@ -2024,7 +2097,7 @@ class VoiceAgent(LLMAgent):
             ship_name = task_metadata.get("ship_name") if isinstance(task_metadata, dict) else None
             ship_attr = f' ship_name="{ship_name}"' if ship_name else ""
             event_xml = (
-                f'<event name="task.{status_label}" task_id="{message.task_id[:8]}" '
+                f'<event name="task.{status_label}" task_id="{message.job_id[:8]}" '
                 f'task_type="{task_type}"{ship_attr}>\n{llm_msg}\n</event>'
             )
 
@@ -2035,7 +2108,7 @@ class VoiceAgent(LLMAgent):
         except Exception as exc:
             logger.exception(
                 f"VoiceAgent: task response notification failed for "
-                f"{agent_name!r} task={message.task_id[:8]}: {exc}"
+                f"{agent_name!r} task={message.job_id[:8]}: {exc}"
             )
         finally:
             # Clear the local ship lock. TaskAgent emits task_lifecycle finish
@@ -2048,8 +2121,8 @@ class VoiceAgent(LLMAgent):
             # game client to close; the broker owns the single client.
             if child and child._is_corp_ship:
                 try:
-                    await self.send_message(
-                        BusEndAgentMessage(
+                    await self.send_bus_message(
+                        BusEndWorkerMessage(
                             source=self.name, target=agent_name, reason="task complete"
                         )
                     )
@@ -2148,13 +2221,13 @@ class VoiceAgent(LLMAgent):
           ``ready=False`` rejects with the agent's error string.
         - ``correlation_id`` empty/missing: an unsolicited "I'm online"
           broadcast from a BYOA agent that just cold-started. The actual
-          dispatch is driven by ``on_agent_ready`` (registry-level signal);
+          dispatch is driven by ``on_worker_ready`` (registry-level signal);
           this branch just logs the signal for observability.
 
         Late or unknown correlation_ids are silent no-ops on PendingRequests.
         """
         if not message.correlation_id:
-            # Unsolicited online signal — log and let on_agent_ready drive
+            # Unsolicited online signal — log and let on_worker_ready drive
             # the dispatch + watchdog cancellation.
             source = getattr(message, "source", None) or "<unknown>"
             if message.ready:
@@ -2248,7 +2321,7 @@ class VoiceAgent(LLMAgent):
             logger.warning(f"broker game_tool_call({msg.tool_name}) failed: {exc}")
             error = str(exc)
 
-        await self.send_message(
+        await self.send_bus_message(
             BusGameToolCallResponse(
                 source=self.name,
                 target=msg.source,
@@ -2277,7 +2350,7 @@ class VoiceAgent(LLMAgent):
             logger.warning(f"broker combat_strategy failed: {exc}")
             error = str(exc)
 
-        await self.send_message(
+        await self.send_bus_message(
             BusCombatStrategyResponse(
                 source=self.name,
                 target=msg.source,
@@ -2316,7 +2389,7 @@ class VoiceAgent(LLMAgent):
             logger.warning(f"broker corp_query({msg.query_type}) failed: {exc}")
             error = str(exc)
 
-        await self.send_message(
+        await self.send_bus_message(
             BusCorporationQueryResponse(
                 source=self.name,
                 target=msg.source,
@@ -2618,7 +2691,7 @@ class VoiceAgent(LLMAgent):
                 # task runs in an operator-owned process subscribed to the
                 # bus. We don't spawn a local TaskAgent — we just publish
                 # to the operator's queue and wait for the bus
-                # advertisement (via the existing on_agent_ready path).
+                # advertisement (via the existing on_worker_ready path).
                 # The watchdog releases the lock if no agent ever responds.
                 # BYOA workers are one-task processes, so every task is
                 # marked waking and every task calls wake_agent; presence is
@@ -2633,7 +2706,7 @@ class VoiceAgent(LLMAgent):
                     task_metadata["task_id"] = framework_task_id
                     payload = dict(payload)
                     payload["task_metadata"] = task_metadata
-                    # Reuse the standard pending-tasks path so on_agent_ready
+                    # Reuse the standard pending-tasks path so on_worker_ready
                     # dispatches as usual when the operator's agent advertises.
                     self._pending_tasks[byoa_agent_name] = (framework_task_id, payload)
                     self._locked_ships[target_character_id] = framework_task_id
@@ -2645,7 +2718,7 @@ class VoiceAgent(LLMAgent):
                         agent_name=byoa_agent_name,
                     )
                     try:
-                        await self.watch_agent(byoa_agent_name)
+                        await self.watch_worker(byoa_agent_name)
                     except Exception as exc:
                         logger.warning(
                             f"byoa.watch_agent_failed name={byoa_agent_name} error={exc!r}"
@@ -2695,7 +2768,6 @@ class VoiceAgent(LLMAgent):
                 agent_name = f"task_{uuid.uuid4().hex[:6]}"
                 task_agent = TaskAgent(
                     agent_name,
-                    bus=self._bus,
                     character_id=target_character_id,
                     is_corp_ship=bool(ship_id),
                     task_metadata=task_metadata,
@@ -2711,11 +2783,11 @@ class VoiceAgent(LLMAgent):
                 self._pending_tasks[agent_name] = (framework_task_id, payload)
                 self._locked_ships[target_character_id] = framework_task_id
                 try:
-                    await self.add_agent(task_agent)
+                    await self.add_worker(task_agent)
                     # pipecat-subagents 0.4 requires explicit watch_agent for
-                    # on_agent_ready to fire on dynamically-spawned children.
+                    # on_worker_ready to fire on dynamically-spawned children.
                     # Without it, _pending_tasks is never drained.
-                    await self.watch_agent(agent_name)
+                    await self.watch_worker(agent_name)
                 except Exception:
                     self._locked_ships.pop(target_character_id, None)
                     self._pending_tasks.pop(agent_name, None)
@@ -2730,8 +2802,8 @@ class VoiceAgent(LLMAgent):
                     except Exception as exc:
                         logger.warning(f"task_cancel after add_agent failure errored: {exc}")
                     try:
-                        await self.send_message(
-                            BusEndAgentMessage(
+                        await self.send_bus_message(
+                            BusEndWorkerMessage(
                                 source=self.name, target=agent_name, reason="startup failed"
                             )
                         )
@@ -2766,26 +2838,15 @@ class VoiceAgent(LLMAgent):
                     return {"success": False, "error": f"Task {task_id_arg} not found"}
                 framework_task_id, child = resolved
             else:
-                # Default: find player ship task
-                child = next(
-                    (c for c in self.children if isinstance(c, TaskAgent) and not c._is_corp_ship),
-                    None,
-                )
-                if not child:
+                # Default: find player ship task via the wrapper (pure helper
+                # is what does the work; the wrapper exists so tests can mock).
+                resolved = self._find_player_task()
+                if not resolved:
                     return {"success": False, "error": "No player ship task is currently running"}
-                framework_task_id = next(
-                    (
-                        tid
-                        for tid, group in self._task_groups.items()
-                        if child.name in group.agent_names
-                    ),
-                    None,
-                )
-                if framework_task_id is None:
-                    return {"success": False, "error": "No active task group for player ship"}
+                framework_task_id, child = resolved
 
             # Release the ship lock synchronously so a follow-up start_task in
-            # the same turn can proceed. on_task_response releases the lock
+            # the same turn can proceed. on_job_response releases the lock
             # too, but it blocks on `tool_call_active` which is held by *this*
             # tool call — so the async release can't land until we return.
             # `.pop(..., None)` is idempotent, so the later release is a no-op.
@@ -2795,7 +2856,7 @@ class VoiceAgent(LLMAgent):
             )
             self._locked_ships.pop(child._character_id, None)
 
-            await self.cancel_task(framework_task_id, reason="Cancelled by user")
+            await self.cancel_job_group(framework_task_id, reason="Cancelled by user")
             task_type = "corp_ship" if child._is_corp_ship else "player_ship"
             return {
                 "success": True,
@@ -2826,7 +2887,7 @@ class VoiceAgent(LLMAgent):
         if not steering_text.lower().startswith("steering instruction:"):
             steering_text = f"Steering instruction: {steering_text}"
 
-        await self.send_message(
+        await self.send_bus_message(
             BusSteerTaskMessage(
                 source=self.name,
                 target=target.agent_name,
@@ -2886,17 +2947,13 @@ class VoiceAgent(LLMAgent):
             if not child:
                 return {"success": False, "error": "No active task found."}
             framework_task_id = next(
-                (
-                    tid
-                    for tid, group in self._task_groups.items()
-                    if child.name in group.agent_names
-                ),
+                (tid for tid, group in self.job_groups.items() if child.name in group.worker_names),
                 None,
             )
             if framework_task_id is None:
                 return {"success": False, "error": f"Task {child.name} not found in active groups"}
 
-        await self.request_task_update(framework_task_id, child.name)
+        await self.request_job_update(framework_task_id, child.name)
         return {
             "success": True,
             "summary": "Checking task progress now.",
@@ -2937,9 +2994,9 @@ class VoiceAgent(LLMAgent):
 
         # 3. Framework-level cancellation. Sends BusTaskCancel; TaskAgents
         # run their own cancel flow.
-        for task_id in list(self._task_groups.keys()):
+        for task_id in list(self.job_groups.keys()):
             try:
-                await self.cancel_task(task_id, reason="Disconnected")
+                await self.cancel_job_group(task_id, reason="Disconnected")
             except Exception as e:
                 logger.error(f"Failed to cancel task: {e}")
 
@@ -2947,8 +3004,8 @@ class VoiceAgent(LLMAgent):
         for child in list(self._children):
             if isinstance(child, TaskAgent):
                 try:
-                    await self.send_message(
-                        BusEndAgentMessage(
+                    await self.send_bus_message(
+                        BusEndWorkerMessage(
                             source=self.name, target=child.name, reason="Disconnected"
                         )
                     )
@@ -3009,7 +3066,7 @@ class VoiceAgent(LLMAgent):
                 warm-up failure — caller should release the ship lock).
         """
         correlation_id = uuid.uuid4().hex
-        await self.send_message(
+        await self.send_bus_message(
             BusAgentHelloRequest(
                 source=self.name,
                 target=agent_name,

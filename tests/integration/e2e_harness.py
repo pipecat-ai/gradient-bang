@@ -32,7 +32,7 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 
-from pipecat_subagents.bus import AsyncQueueBus
+from pipecat.bus import AsyncQueueBus
 import httpx
 from gradientbang.pipecat_server.subagents.event_relay import EventRelay
 from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
@@ -331,7 +331,6 @@ class E2EHarness:
         # Real VoiceAgent
         self.voice_agent = VoiceAgent(
             "player",
-            bus=self.bus,
             game_client=self.game_client,
             character_id=character_id,
             rtvi_processor=self.rtvi,
@@ -376,7 +375,7 @@ class E2EHarness:
 
         # Task completion tracking
         self.task_responses: list[dict] = []
-        self._original_on_task_response = self.voice_agent.on_task_response
+        self._original_on_job_response = self.voice_agent.on_job_response
 
         # Scripted LLM: when set, TaskAgent.build_llm returns this instead of real LLM
         self._task_llm_script: Optional[list[tuple[str, dict]]] = None
@@ -439,13 +438,13 @@ class E2EHarness:
                 VoiceAgent will have their pipelines built and started
                 by the runner (needed for task E2E tests).
         """
-        from pipecat_subagents.runner import AgentRunner
+        from pipecat.pipeline.runner import PipelineRunner
 
         # Prevent VoiceAgent from needing a real LLM API key
         self.voice_agent.build_llm = lambda: ScriptedLLMService([])
 
-        self._runner = AgentRunner(bus=self.bus)
-        await self._runner.add_agent(self.voice_agent)
+        self._runner = PipelineRunner(bus=self.bus)
+        await self._runner.add_worker(self.voice_agent)
         self._runner_task = asyncio.create_task(self._runner.run())
         # Let the runner start agents
         await asyncio.sleep(0.2)
@@ -537,7 +536,7 @@ class E2EHarness:
                 if isinstance(child, TaskAgent) and child._task_finished:
                     return True
             # Check if task groups are empty (task completed and cleaned up)
-            if not self.voice_agent._task_groups:
+            if not self.voice_agent.job_groups:
                 return True
             await asyncio.sleep(0.5)
         return False

@@ -15,8 +15,8 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from loguru import logger
+from pipecat.bus import BusEndWorkerMessage
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
-from pipecat_subagents.bus import BusEndAgentMessage
 
 from gradientbang.byoa import ByoaAgentConfig
 from gradientbang.pipecat_server.subagents.bus_messages import BusByoaPresenceMessage
@@ -302,8 +302,8 @@ class ByoaCoordinator:
                 f"ship={ship_character_id[:8]} task={framework_task_id[:8]}: {exc}"
             )
         try:
-            await self._host.send_message(
-                BusEndAgentMessage(
+            await self._host.send_bus_message(
+                BusEndWorkerMessage(
                     source=self._host.name,
                     target=self.agent_name_for(ship_character_id),
                     reason="byoa_offline",
@@ -347,30 +347,30 @@ class ByoaCoordinator:
         return self._active_agents.get(agent_name)
 
     def invalidate_registry_entry(self, agent_name: str) -> None:
-        """Pop a BYOA agent from pipecat's AgentRegistry.
+        """Pop a BYOA worker from pipecat's WorkerRegistry.
 
-        BYOA agents are one-shot: each wake spawns a fresh child that
+        BYOA workers are one-shot: each wake spawns a fresh child that
         advertises ready, runs one task, and exits. The framework
         registry is sticky (no public deregister API) so without this
-        helper a subsequent ``watch_agent`` synchronously fires
-        ``on_agent_ready`` against a dead child and blocks on its
+        helper a subsequent ``watch_worker`` synchronously fires
+        ``on_worker_ready`` against a dead child and blocks on its
         unanswerable hello handshake.
 
-        Reaches into private state because pipecat-subagents 0.4's
-        AgentRegistry exposes ``register``/``watch``/``get`` but no
-        removal — swap for a public API once the library grows one.
+        Reaches into private state because pipecat's WorkerRegistry
+        exposes ``register``/``watch``/``get`` but no removal — swap for
+        a public API once the library grows one.
         """
-        registry = self._host.get_agent_registry()
+        registry = self._host.get_worker_registry()
         if registry is None:
             return
-        local_agents = getattr(registry, "_local_agents", None)
-        if isinstance(local_agents, dict):
-            local_agents.pop(agent_name, None)
-        remote_runners = getattr(registry, "_remote_runners", None)
-        if isinstance(remote_runners, dict):
-            for remote_agents in remote_runners.values():
-                if isinstance(remote_agents, dict):
-                    remote_agents.pop(agent_name, None)
+        local_tasks = getattr(registry, "_local_tasks", None)
+        if isinstance(local_tasks, dict):
+            local_tasks.pop(agent_name, None)
+        remote_tasks = getattr(registry, "_remote_tasks", None)
+        if isinstance(remote_tasks, dict):
+            for remote_entries in remote_tasks.values():
+                if isinstance(remote_entries, dict):
+                    remote_entries.pop(agent_name, None)
 
     def resolve_identity(
         self,
