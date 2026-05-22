@@ -775,6 +775,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         rtvi_processor=rtvi,
         character_id=character_id,
         task_state=voice_agent,
+        bypass_tutorial=bypass_tutorial,
     )
     voice_agent._event_relay = event_relay
 
@@ -848,6 +849,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     game_client=game_client,
                     character_id=character_id,
                     character_display_name=character_display_name,
+                    bypass_tutorial=bypass_tutorial,
                 )
                 is_first_visit = initial_state.is_first_visit
 
