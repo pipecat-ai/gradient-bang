@@ -9,7 +9,7 @@ test guards against.
 """
 
 import pytest
-from pipecat_subagents.bus.serializers import JSONMessageSerializer
+from pipecat.bus.serializers import JSONMessageSerializer
 
 from gradientbang.pipecat_server.subagents.bus_messages import (
     BUS_PROTOCOL_VERSION,

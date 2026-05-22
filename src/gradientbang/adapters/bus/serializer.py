@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pipecat_subagents.bus.serializers import JSONMessageSerializer
+from pipecat.bus.serializers import JSONMessageSerializer
 
 
 class BusJSONSerializer(JSONMessageSerializer):

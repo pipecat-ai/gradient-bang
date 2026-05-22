@@ -16,8 +16,8 @@ and asserts:
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from pipecat_subagents.agents.task_context import TaskStatus
-from pipecat_subagents.bus.messages import BusTaskResponseMessage, BusTaskUpdateMessage
+from pipecat.pipeline.job_context import JobStatus
+from pipecat.bus import BusJobResponseMessage, BusJobUpdateMessage
 
 from gradientbang.pipecat_server.subagents.bus_messages import (
     BusCombatStrategyRequest,
@@ -44,18 +44,17 @@ def _make_voice_agent() -> VoiceAgent:
 
     agent = VoiceAgent(
         "player",
-        bus=MagicMock(),
         game_client=mock_game_client,
         character_id="char-123",
         rtvi_processor=mock_rtvi,
     )
-    agent.send_message = AsyncMock()
+    agent.send_bus_message = AsyncMock()
     return agent
 
 
 def _last_sent_message(agent: VoiceAgent):
-    assert agent.send_message.await_count >= 1
-    return agent.send_message.await_args_list[-1].args[0]
+    assert agent.send_bus_message.await_count >= 1
+    return agent.send_bus_message.await_args_list[-1].args[0]
 
 
 # ── Tool-call broker ──────────────────────────────────────────────────
@@ -445,14 +444,14 @@ class TestByoaTaskLifecycleAuthorization:
         agent.enqueue_deferred_update = MagicMock()
         agent.update_polling_scope = MagicMock()
 
-        msg = BusTaskResponseMessage(
+        msg = BusJobResponseMessage(
             source="byoa_ship-123",
             target="player",
-            task_id="task-other",
-            status=TaskStatus.COMPLETED,
+            job_id="task-other",
+            status=JobStatus.COMPLETED,
             response={"message": "spoofed completion"},
         )
-        await agent.on_task_response(msg)
+        await agent.on_job_response(msg)
 
         agent._task_output_handler.assert_not_awaited()
         agent.enqueue_deferred_update.assert_not_called()
@@ -470,13 +469,13 @@ class TestByoaTaskLifecycleAuthorization:
         }
         agent._task_output_handler = AsyncMock()
 
-        msg = BusTaskUpdateMessage(
+        msg = BusJobUpdateMessage(
             source="byoa_ship-123",
             target="player",
-            task_id="task-other",
+            job_id="task-other",
             update={"type": "output", "text": "spoofed progress"},
         )
-        await agent.on_task_update(msg)
+        await agent.on_job_update(msg)
 
         agent._task_output_handler.assert_not_awaited()
 
@@ -678,7 +677,7 @@ class TestTaskFinishBroker:
             status="completed",
         )
         await agent.on_bus_message(msg)
-        for call in agent.send_message.await_args_list:
+        for call in agent.send_bus_message.await_args_list:
             if call.args:
                 # No Response/Notification sent back for finish.
                 assert not isinstance(call.args[0], BusTaskFinishNotification)

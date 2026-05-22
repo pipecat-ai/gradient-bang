@@ -22,10 +22,9 @@ dev = ["pytest>=8.4.1", "pytest-asyncio>=1.1.0", "pytest-timeout>=2.3.1"]
 worldgen = ["numpy>=1.26.0", "scipy>=1.11.0", "networkx>=3.0"]
 
 bot = [
-    "pipecat-ai[deepgram,daily,cartesia,gradium,webrtc,silero,google,anthropic,runner]>=1.0",
+    "pipecat-ai[deepgram,daily,cartesia,gradium,webrtc,silero,google,anthropic,runner,pgmq]>=1.0",
     "pipecat-ai-cli",
     "pipecatcloud>=0.6.0",
-    "pipecat-ai-subagents[pgmq]>=0.6.0",
     "boto3>=1.35.0",
     "soundfile>=0.12.0",
     "cekura[pipecat]==1.2.0rc3",
@@ -76,6 +75,11 @@ override-dependencies = [
     "openai==1.99.5",
 ]
 package = true
+
+[tool.uv.sources]
+# Tracks pipecat-ai/pipecat PR #4493 (Port pipecat-subagents into pipecat core).
+# Replace with a published pipecat-ai release once the PR is merged.
+pipecat-ai = { git = "https://github.com/pipecat-ai/pipecat.git", branch = "aleix/port-subagents-to-pipecat" }
 
 
 [tool.pytest.ini_options]

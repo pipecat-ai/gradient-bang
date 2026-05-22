@@ -23,7 +23,7 @@ from gradientbang.pipecat_server.subagents.bus_messages import (
 )
 from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 from gradientbang.pipecat_server.subagents.voice_agent import VoiceAgent
-from pipecat_subagents.bus import BusEndAgentMessage
+from pipecat.bus import BusEndWorkerMessage
 
 
 # ── TaskAgent side ───────────────────────────────────────────────────
@@ -31,12 +31,12 @@ from pipecat_subagents.bus import BusEndAgentMessage
 
 def _make_task_agent(**overrides) -> TaskAgent:
     bus = MagicMock()
-    bus.send_message = AsyncMock()
+    bus.send_bus_message = AsyncMock()
     name = overrides.pop("name", "task_test")
-    kwargs = {"bus": bus, "character_id": "char-123"}
+    kwargs = { "character_id": "char-123"}
     kwargs.update(overrides)
     agent = TaskAgent(name, **kwargs)
-    agent.send_message = AsyncMock()
+    agent.send_bus_message = AsyncMock()
     return agent
 
 
@@ -56,7 +56,7 @@ class TestTaskAgentHelloHandler:
             )
         )
 
-        sent = agent.send_message.await_args.args[0]
+        sent = agent.send_bus_message.await_args.args[0]
         assert isinstance(sent, BusAgentHelloResponse)
         assert sent.correlation_id == "hello-1"
         assert sent.ready is True
@@ -78,7 +78,7 @@ class TestTaskAgentHelloHandler:
             )
         )
 
-        sent = agent.send_message.await_args.args[0]
+        sent = agent.send_bus_message.await_args.args[0]
         assert isinstance(sent, BusAgentHelloResponse)
         assert sent.ready is False
         assert sent.error is not None
@@ -97,7 +97,7 @@ class TestTaskAgentHelloHandler:
         )
 
         # No response sent for a hello targeted elsewhere.
-        for call in agent.send_message.await_args_list:
+        for call in agent.send_bus_message.await_args_list:
             if call.args:
                 assert not isinstance(call.args[0], BusAgentHelloResponse)
 
@@ -123,11 +123,11 @@ class TestIdleTeardownTimer:
 
     @pytest.mark.asyncio
     async def test_corp_ship_teardown_fires_after_delay(self):
-        """The handle fires its callback and the agent emits BusEndAgentMessage."""
+        """The handle fires its callback and the agent emits BusEndWorkerMessage."""
         from gradientbang.pipecat_server.subagents.bus_messages import (
             BusGameToolCallRequest,  # noqa: F401
         )
-        from pipecat_subagents.bus import BusEndAgentMessage
+        from pipecat.bus import BusEndWorkerMessage
 
         agent = _make_task_agent(is_corp_ship=True)
         # Very short delay so the timer fires inside the test window.
@@ -141,9 +141,9 @@ class TestIdleTeardownTimer:
         await asyncio.sleep(0.1)
 
         sent_types = [
-            type(call.args[0]) for call in agent.send_message.await_args_list if call.args
+            type(call.args[0]) for call in agent.send_bus_message.await_args_list if call.args
         ]
-        assert BusEndAgentMessage in sent_types
+        assert BusEndWorkerMessage in sent_types
 
     @pytest.mark.asyncio
     async def test_teardown_reset_when_active_task_arrives(self):
@@ -179,7 +179,7 @@ class TestIdleTeardownTimer:
         agent._drain_pending_task_outputs = AsyncMock()
         agent._clear_awaited_completion = MagicMock()
         agent._pending = MagicMock(cancel_all=MagicMock())
-        agent.send_task_response = AsyncMock()
+        agent.send_job_response = AsyncMock()
         agent._active_task_id = "task-123"
         agent._task_finished_status = "completed"
         agent._task_finished_message = "done"
@@ -188,8 +188,8 @@ class TestIdleTeardownTimer:
 
         end_messages = [
             call.args[0]
-            for call in agent.send_message.await_args_list
-            if call.args and isinstance(call.args[0], BusEndAgentMessage)
+            for call in agent.send_bus_message.await_args_list
+            if call.args and isinstance(call.args[0], BusEndWorkerMessage)
         ]
         assert len(end_messages) == 1
         assert end_messages[0].target == "byoa_ship-123"
@@ -213,7 +213,6 @@ def _make_voice_agent() -> VoiceAgent:
 
     return VoiceAgent(
         "player",
-        bus=MagicMock(),
         game_client=mock_game_client,
         character_id="char-123",
         rtvi_processor=mock_rtvi,
@@ -225,7 +224,7 @@ class TestVoiceAgentHelloSender:
     @pytest.mark.asyncio
     async def test_send_hello_resolves_on_ready_response(self):
         agent = _make_voice_agent()
-        agent.send_message = AsyncMock()
+        agent.send_bus_message = AsyncMock()
 
         # Capture the correlation_id used by the request so we can
         # construct the matching response.
@@ -239,7 +238,7 @@ class TestVoiceAgentHelloSender:
                 )
                 asyncio.create_task(agent.on_bus_message(response))
 
-        agent.send_message.side_effect = _capture_and_respond
+        agent.send_bus_message.side_effect = _capture_and_respond
         # Tight timeout so we fail fast if the wiring is broken.
         agent._byoa_config = type(agent._byoa_config)(
             tool_call_timeout_seconds=30.0,
@@ -254,7 +253,7 @@ class TestVoiceAgentHelloSender:
     @pytest.mark.asyncio
     async def test_send_hello_times_out_when_no_response(self):
         agent = _make_voice_agent()
-        agent.send_message = AsyncMock()  # never resolves the future
+        agent.send_bus_message = AsyncMock()  # never resolves the future
         agent._byoa_config = type(agent._byoa_config)(
             tool_call_timeout_seconds=30.0,
             agent_wake_timeout_seconds=0.05,
@@ -267,7 +266,7 @@ class TestVoiceAgentHelloSender:
     @pytest.mark.asyncio
     async def test_unready_response_rejects_with_error(self):
         agent = _make_voice_agent()
-        agent.send_message = AsyncMock()
+        agent.send_bus_message = AsyncMock()
 
         async def _capture_and_respond(message):
             if isinstance(message, BusAgentHelloRequest):
@@ -280,7 +279,7 @@ class TestVoiceAgentHelloSender:
                 )
                 asyncio.create_task(agent.on_bus_message(response))
 
-        agent.send_message.side_effect = _capture_and_respond
+        agent.send_bus_message.side_effect = _capture_and_respond
         agent._byoa_config = type(agent._byoa_config)(
             tool_call_timeout_seconds=30.0,
             agent_wake_timeout_seconds=2.0,
@@ -296,8 +295,8 @@ class TestRollbackOnHandshakeTimeout:
     @pytest.mark.asyncio
     async def test_rollback_releases_lock_and_ends_agent(self):
         agent = _make_voice_agent()
-        agent.send_message = AsyncMock()
-        agent._task_groups = {}
+        agent.send_bus_message = AsyncMock()
+        agent.job_groups.clear()
 
         # Pretend the spawn already happened: child + lock map populated.
         child = MagicMock(spec=TaskAgent)
@@ -320,12 +319,12 @@ class TestRollbackOnHandshakeTimeout:
             task_id="framework-task-1",
             character_id="char-123",
         )
-        # BusEndAgentMessage sent to the child.
-        from pipecat_subagents.bus import BusEndAgentMessage
+        # BusEndWorkerMessage sent to the child.
+        from pipecat.bus import BusEndWorkerMessage
 
         sent_types = [
-            type(call.args[0]) for call in agent.send_message.await_args_list if call.args
+            type(call.args[0]) for call in agent.send_bus_message.await_args_list if call.args
         ]
-        assert BusEndAgentMessage in sent_types
+        assert BusEndWorkerMessage in sent_types
         # Child removed from _children.
         assert all(c.name != "task_abc" for c in agent._children)

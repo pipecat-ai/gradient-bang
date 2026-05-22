@@ -9,6 +9,14 @@ import os
 
 import pytest
 
+# LLM-service factories validate API keys at construction time. Agents
+# (TaskAgent, VoiceAgent) now build their LLM eagerly in __init__ — so unit
+# tests need *some* value present to construct an agent, even when they
+# mock the LLM service downstream.
+os.environ.setdefault("GOOGLE_API_KEY", "test-key-for-unit-tests")
+os.environ.setdefault("OPENAI_API_KEY", "test-key-for-unit-tests")
+os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-for-unit-tests")
+
 
 @pytest.fixture(scope="session")
 def test_supabase_env():

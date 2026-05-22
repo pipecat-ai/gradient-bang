@@ -18,7 +18,7 @@ from typing import Optional
 import pytest
 
 from gradientbang.adapters.bus.serializer import BusJSONSerializer
-from pipecat_subagents.bus.messages import BusMessage
+from pipecat.bus import BusMessage
 
 
 class _FakeNotGiven:

@@ -1,6 +1,6 @@
-"""PGMQ-backed :class:`AgentBus` builder.
+"""PGMQ-backed :class:`WorkerBus` builder.
 
-Wraps upstream :class:`pipecat_subagents.bus.network.pgmq.PgmqBus` with
+Wraps upstream :class:`pipecat.bus.network.pgmq.PgmqBus` with
 :class:`IsolatedPgmqBackend` over an asyncpg pool. Every bus op goes through
 the ``public.bus_*`` SECURITY DEFINER wrappers defined in
 ``20260512000000_byoa_infrastructure.sql``. Both the bot
@@ -17,8 +17,8 @@ from urllib.parse import unquote, urlsplit
 
 import asyncpg
 from loguru import logger
-from pipecat_subagents.bus.network.pgmq import PgmqBus
-from pipecat_subagents.bus.network.pgmq_backends import IsolatedPgmqBackend
+from pipecat.bus.network.pgmq import PgmqBus
+from pipecat.bus.network.pgmq_backends import IsolatedPgmqBackend
 
 from gradientbang.adapters.bus.serializer import BusJSONSerializer
 
@@ -70,7 +70,7 @@ async def build_pgmq_bus(
         pool_size: Max asyncpg pool size. Default 4.
 
     Returns:
-        An initialized bus ready to pass to ``AgentRunner(bus=...)``.
+        An initialized bus ready to pass to ``PipelineRunner(bus=...)``.
     """
     dsn = (database_url or "").strip()
     if not dsn:

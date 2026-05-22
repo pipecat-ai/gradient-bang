@@ -216,7 +216,7 @@ class ByoaApp:
         # Lazy imports — keep startup light when this module is imported just
         # for type/annotation purposes (e.g. by a Mode-B operator's hooks file
         # at install time).
-        from pipecat_subagents.runner import AgentRunner
+        from pipecat.pipeline.runner import PipelineRunner
 
         from gradientbang.adapters.bus.pgmq import build_pgmq_bus
         from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
@@ -230,7 +230,7 @@ class ByoaApp:
         )
 
         agent_name = f"byoa_{ctx.ship_id}"
-        runner = AgentRunner(
+        runner = PipelineRunner(
             name=f"byoa_runner_{ctx.ship_id}",
             bus=bus,
             handle_sigint=True,
@@ -240,7 +240,6 @@ class ByoaApp:
         # (capability) + corp membership + ship_byoa_configure ownership.
         agent = TaskAgent(
             agent_name,
-            bus=bus,
             character_id=ctx.ship_id,
             is_corp_ship=True,
             task_metadata={
@@ -260,7 +259,7 @@ class ByoaApp:
             f"channel_prefix={ctx.channel[:11]} task={ctx.task_id!s}"
         )
         try:
-            await runner.add_agent(agent)
+            await runner.add_workers(agent)
             await runner.run()
         finally:
             if self._on_session_end is not None:
