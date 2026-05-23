@@ -51,6 +51,40 @@ def _row(event_type: str, payload: Dict[str, Any], *, event_id: int = 1) -> Dict
     }
 
 
+class TestConstructor:
+    def test_defaults_to_supabase_functions_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+        monkeypatch.setenv("EDGE_FUNCTIONS_URL", "http://ignored-edge-functions.local")
+
+        client = AsyncGameClient(character_id=PLAYER_ID, enable_event_polling=False)
+
+        assert client._supabase_url == "http://test-supabase.local"
+        assert client._functions_url == "http://test-supabase.local/functions/v1"
+
+    def test_explicit_functions_url_overrides_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+
+        client = AsyncGameClient(
+            character_id=PLAYER_ID,
+            functions_url="http://local-edge-functions.local/",
+            enable_event_polling=False,
+        )
+
+        assert client._functions_url == "http://local-edge-functions.local"
+
+    def test_transport_argument_is_not_supported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SUPABASE_URL", "http://test-supabase.local")
+
+        with pytest.raises(TypeError):
+            AsyncGameClient(
+                character_id=PLAYER_ID,
+                transport="supabase",
+                enable_event_polling=False,
+            )
+
+
 @pytest.mark.asyncio
 class TestOwnershipFilterSector:
     """_current_sector must only update from player-own events."""

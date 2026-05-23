@@ -36,7 +36,7 @@ def test_polling_transport_still_available(
 def test_invalid_transport_raises(
     client: AsyncGameClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("EVENT_TRANSPORT", "websocket")
+    monkeypatch.setenv("EVENT_TRANSPORT", "invalid")
 
     with pytest.raises(ValueError, match="unknown EVENT_TRANSPORT"):
         make_event_adapter(client)

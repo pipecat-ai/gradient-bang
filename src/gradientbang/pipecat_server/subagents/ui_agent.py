@@ -1617,7 +1617,7 @@ class UIAgentContext(FrameProcessor):
             )
             return
 
-        # Correlate by request_id when available (supabase transport provides it)
+        # Correlate by request_id when available (Supabase event delivery provides it)
         stored_request_id = pending.get("request_id")
         event_request_id = event_message.get("request_id")
         if stored_request_id and event_request_id:
@@ -1630,7 +1630,7 @@ class UIAgentContext(FrameProcessor):
                 # Accept anyway if it's for our player (request_id mismatch is common
                 # because the Supabase client doesn't forward its request_id).
         elif stored_request_id and not event_request_id:
-            # We have a stored ID but event doesn't (WebSocket transport) — accept anyway
+            # We have a stored ID but the event doesn't — accept anyway
             # (single-pending-call assumption)
             pass
 

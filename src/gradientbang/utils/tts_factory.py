@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
@@ -10,6 +9,8 @@ from typing import Optional
 from loguru import logger
 from pipecat.services.tts_service import TTSService
 from pipecat.transcriptions.language import Language
+
+from gradientbang.config import settings
 
 
 class TTSProvider(Enum):
@@ -30,8 +31,8 @@ class TTSServiceConfig:
 
 
 def get_tts_provider() -> TTSProvider:
-    """Read TTS_PROVIDER from the environment, defaulting to Gradium."""
-    provider_str = os.getenv("TTS_PROVIDER", TTSProvider.GRADIUM.value).strip().lower()
+    """Read TTS_PROVIDER from settings, defaulting to Gradium."""
+    provider_str = settings.TTS_PROVIDER.strip().lower()
     try:
         return TTSProvider(provider_str)
     except ValueError:
@@ -40,16 +41,15 @@ def get_tts_provider() -> TTSProvider:
 
 
 def _get_api_key(provider: TTSProvider, override: Optional[str] = None) -> str:
-    """Get the API key for a TTS provider from environment or override."""
+    """Get the API key for a TTS provider from settings or override."""
     if override:
         return override
 
-    env_var_map = {
-        TTSProvider.GRADIUM: "GRADIUM_API_KEY",
-        TTSProvider.CARTESIA: "CARTESIA_API_KEY",
+    key_map = {
+        TTSProvider.GRADIUM: ("GRADIUM_API_KEY", settings.GRADIUM_API_KEY),
+        TTSProvider.CARTESIA: ("CARTESIA_API_KEY", settings.CARTESIA_API_KEY),
     }
-    env_var = env_var_map[provider]
-    api_key = os.getenv(env_var)
+    env_var, api_key = key_map[provider]
     if not api_key:
         raise ValueError(f"{provider.value.capitalize()} API key required. Set {env_var}.")
     return api_key

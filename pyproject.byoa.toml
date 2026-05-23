@@ -16,8 +16,7 @@ requires-python = ">=3.12"
 dependencies = [
     # Pipecat core + the four Mode-A LLM providers (minimax piggy-backs on
     # the OpenAI service via base_url so no separate extra is needed).
-    "pipecat-ai[google,anthropic,openai,runner]>=1.0",
-    "pipecat-ai-subagents[pgmq]>=0.6.0",
+    "pipecat-ai[google,anthropic,openai,runner]>=1.2",
     "loguru>=0.7.0",
     "python-dotenv>=1.1.1",
     "httpx>=0.27.0",

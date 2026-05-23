@@ -125,11 +125,12 @@ def test_bot_session_queue_bootstrap_order_and_catchup_replay() -> None:
     prepare = join_body.index("await game_client.prepare_event_delivery_for_bootstrap()")
     gather = join_body.index("initial_state = await gather_initial_state")
     complete = join_body.index("await game_client.complete_event_delivery_bootstrap()")
-    activate = join_body.index("await main_agent.activate_agent(")
+    activate_worker = join_body.index("await main_agent.activate_worker(")
+    activate_player = join_body.index('"player"', activate_worker)
     replay = join_body.index("await game_client.replay_event_delivery_catchup()")
     start_delivery = join_body.index("await game_client.start_event_delivery()")
 
-    assert prepare < gather < complete < activate < replay < start_delivery
+    assert prepare < gather < complete < activate_worker < activate_player < replay < start_delivery
 
 
 def test_bus_migration_still_owns_only_bus_wrappers() -> None:

@@ -1,29 +1,27 @@
 #!/usr/bin/env -S uv run python
-"""
-Quest Data Loader for Supabase
+"""Load quest definition JSON into Supabase.
 
-Loads quest definitions from JSON files into Supabase tables:
+Loads quest definitions into Supabase tables:
 - quest_definitions
 - quest_step_definitions
 - quest_event_subscriptions
 
 Each JSON file represents one quest. The loader upserts by quest code,
-so it's safe to re-run after editing quest data.
+so it is safe to re-run after editing quest data.
 
 Usage:
-    # Load quest JSON files from a directory
-    uv run -m gradientbang.scripts.load_quests_to_supabase --from-json quest-data/
+    # Load quest JSON files from GRADIENTBANG_QUEST_DATA_DIR (default: data/quests)
+    uv run -m gradientbang.scripts.load_quests_to_supabase
 
     # Force reload (delete all quest definitions and re-insert)
-    uv run -m gradientbang.scripts.load_quests_to_supabase --from-json quest-data/ --force
+    uv run -m gradientbang.scripts.load_quests_to_supabase --force
 
-    # Dry-run validation
-    uv run -m gradientbang.scripts.load_quests_to_supabase --from-json quest-data/ --dry-run
+    # Offline validation
+    uv run -m gradientbang.scripts.load_quests_to_supabase --dry-run
 """
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -34,8 +32,18 @@ from supabase import Client, create_client
 class QuestLoader:
     """Loads quest data from JSON files into Supabase."""
 
-    def __init__(self, supabase_url: str, supabase_key: str, dry_run: bool = False):
-        self.supabase: Client = create_client(supabase_url, supabase_key)
+    def __init__(
+        self,
+        supabase_url: str | None,
+        supabase_key: str | None,
+        dry_run: bool = False,
+    ):
+        if not dry_run and (not supabase_url or not supabase_key):
+            raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
+
+        self.supabase: Client | None = (
+            None if dry_run else create_client(supabase_url or "", supabase_key or "")
+        )
         self.dry_run = dry_run
         self.stats = {
             "quests_loaded": 0,
@@ -43,12 +51,15 @@ class QuestLoader:
             "subscriptions_loaded": 0,
         }
 
+    def _db(self) -> Client:
+        if self.supabase is None:
+            raise RuntimeError("Supabase client is unavailable in dry-run mode")
+        return self.supabase
+
     def load_json(self, filepath: Path) -> Dict[str, Any]:
         """Load and parse a JSON file."""
         print(f"  Loading {filepath}...")
-        with open(filepath, "r") as f:
-            data = json.load(f)
-        return data
+        return json.loads(filepath.read_text(encoding="utf-8"))
 
     def validate_quest(self, quest: Dict[str, Any], filepath: Path) -> None:
         """Validate a quest JSON structure."""
@@ -116,10 +127,10 @@ class QuestLoader:
                 self.stats["subscriptions_loaded"] += len(step["event_types"])
             return
 
+        db = self._db()
+
         # Upsert quest definition, get back the id
-        result = (
-            self.supabase.table("quest_definitions").upsert(quest_row, on_conflict="code").execute()
-        )
+        result = db.table("quest_definitions").upsert(quest_row, on_conflict="code").execute()
         quest_id = result.data[0]["id"]
 
         # 2. Upsert steps by (quest_id, step_index) to preserve existing UUIDs
@@ -142,7 +153,7 @@ class QuestLoader:
             }
 
             step_result = (
-                self.supabase.table("quest_step_definitions")
+                db.table("quest_step_definitions")
                 .upsert(step_row, on_conflict="quest_id,step_index")
                 .execute()
             )
@@ -151,11 +162,9 @@ class QuestLoader:
             self.stats["steps_loaded"] += 1
 
             # Remove old subscriptions for this step, then insert current ones
-            self.supabase.table("quest_event_subscriptions").delete().eq(
-                "step_id", step_id
-            ).execute()
+            db.table("quest_event_subscriptions").delete().eq("step_id", step_id).execute()
             for event_type in step["event_types"]:
-                self.supabase.table("quest_event_subscriptions").insert(
+                db.table("quest_event_subscriptions").insert(
                     {"event_type": event_type, "step_id": step_id},
                 ).execute()
                 self.stats["subscriptions_loaded"] += 1
@@ -164,23 +173,21 @@ class QuestLoader:
         #    This will CASCADE delete their subscriptions and any player progress
         #    on those removed steps, which is the correct behavior.
         existing_steps = (
-            self.supabase.table("quest_step_definitions")
+            db.table("quest_step_definitions")
             .select("id,step_index")
             .eq("quest_id", quest_id)
             .execute()
         )
         for row in existing_steps.data:
             if row["step_index"] not in new_step_indexes:
-                self.supabase.table("quest_step_definitions").delete().eq(
-                    "id", row["id"]
-                ).execute()
+                db.table("quest_step_definitions").delete().eq("id", row["id"]).execute()
 
         self.stats["quests_loaded"] += 1
         print(f"  Loaded quest '{code}' ({len(quest['steps'])} steps)")
 
     def check_existing_quests(self) -> int:
         """Check how many quest definitions exist."""
-        result = self.supabase.table("quest_definitions").select("code", count="exact").execute()
+        result = self._db().table("quest_definitions").select("code", count="exact").execute()
         return result.count or 0
 
     def truncate_quests(self) -> None:
@@ -190,7 +197,7 @@ class QuestLoader:
             print("  [DRY RUN] Would delete all quest definitions")
             return
 
-        self.supabase.table("quest_definitions").delete().neq("code", "").execute()
+        self._db().table("quest_definitions").delete().neq("code", "").execute()
         print("  Deleted all quest definitions")
 
     def load(self, data_path: Path) -> None:
@@ -238,8 +245,8 @@ def main():
         "--from-json",
         dest="data_path",
         type=Path,
-        required=True,
-        help="Path to quest JSON file or directory containing quest JSON files",
+        default=None,
+        help="Path to quest JSON file or directory containing quest JSON files (default: GRADIENTBANG_QUEST_DATA_DIR)",
     )
     parser.add_argument(
         "--force",
@@ -270,11 +277,15 @@ def main():
             sys.exit(1)
         load_dotenv(args.env_file, override=True)
 
-    # Get Supabase credentials
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    from gradientbang.config import settings
 
-    if not supabase_url or not supabase_key:
+    data_path = args.data_path or Path(settings.GRADIENTBANG_QUEST_DATA_DIR)
+
+    # Get Supabase credentials
+    supabase_url = settings.SUPABASE_URL
+    supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY
+
+    if not args.dry_run and (not supabase_url or not supabase_key):
         print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables required")
         print("  Set these in .env file or environment")
         sys.exit(1)
@@ -282,8 +293,8 @@ def main():
     print("=" * 60)
     print("Quest Data Loader for Supabase")
     print("=" * 60)
-    print(f"Data path:      {args.data_path}")
-    print(f"Supabase URL:   {supabase_url}")
+    print(f"Data path:      {data_path}")
+    print(f"Supabase URL:   {supabase_url or '(not required for dry run)'}")
     print(f"Dry run:        {args.dry_run}")
     print(f"Force reload:   {args.force}")
     print("=" * 60)
@@ -303,7 +314,7 @@ def main():
             if args.force:
                 loader.truncate_quests()
 
-        loader.load(args.data_path)
+        loader.load(data_path)
 
         print("\nSuccess!")
         sys.exit(0)

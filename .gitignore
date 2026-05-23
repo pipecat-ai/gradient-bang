@@ -1,4 +1,5 @@
 world-data/
+tmp/
 logs/
 .env
 .env.*

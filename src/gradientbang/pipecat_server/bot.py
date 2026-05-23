@@ -144,7 +144,6 @@ async def _lookup_character_display_name(
         async with AsyncGameClient(
             base_url=server_url,
             character_id=character_id,
-            transport="supabase",
             access_token=access_token,
             enable_event_polling=False,
         ) as client:
@@ -275,9 +274,9 @@ async def bot_startup(
 
     async def _chain_a():
         local_api_server: LocalApiServer | None = None
+        local_api_url: str | None = None
         if os.getenv("LOCAL_API_POSTGRES_URL"):
             local_api_server, local_api_url = await _startup_init_local_api()
-            os.environ["EDGE_FUNCTIONS_URL"] = local_api_url
             logger.info(f"Using local API server: {local_api_url}")
 
             # Fire-and-forget warmup so Deno JIT-compiles the shared module
@@ -291,9 +290,9 @@ async def bot_startup(
             server_url,
             access_token=access_token,
         )
-        return local_api_server, character_id, character_display_name
+        return local_api_server, local_api_url, character_id, character_display_name
 
-    (local_api_server, character_id, character_display_name), stt, tts = await asyncio.gather(
+    (local_api_server, functions_url, character_id, character_display_name), stt, tts = await asyncio.gather(
         _chain_a(),
         _startup_init_stt(language),
         _startup_init_tts(voice_id, language),
@@ -308,7 +307,7 @@ async def bot_startup(
     game_client = AsyncGameClient(
         character_id=character_id,
         base_url=server_url,
-        transport="supabase",
+        functions_url=functions_url,
         access_token=access_token,
     )
 

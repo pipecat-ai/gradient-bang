@@ -9,7 +9,7 @@ via send_job_update/send_job_response.
 All game tools use an async event-based pattern:
 1. Tool is called, returns {"status": "Executed."} immediately
 2. Server processes the request and emits a game event
-3. TaskAgent receives the event via WebSocket with actual data
+3. TaskAgent receives the event via Supabase event delivery with actual data
 4. Event data is added to the LLM context
 5. LLM inference proceeds with real data
 

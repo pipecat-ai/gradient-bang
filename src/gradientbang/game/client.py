@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
-import os
 import uuid
 import logging
 from typing import Any, Dict, Iterator, Mapping, Optional
@@ -16,9 +15,10 @@ import time
 
 import httpx
 
-from gradientbang.adapters.events import make_event_adapter
-from gradientbang.adapters.events.base import EventAdapter
-from gradientbang.utils.api_client import BaseAsyncGameClient, RPCError
+from gradientbang.config import settings
+from gradientbang.game.api_client import BaseAsyncGameClient, RPCError
+from gradientbang.game.transport import make_event_adapter
+from gradientbang.game.transport.base import EventAdapter
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 
@@ -99,7 +99,7 @@ class AsyncGameClient(BaseAsyncGameClient):
         enable_event_polling: bool = True,
         access_token: Optional[str] = None,
     ) -> None:
-        env_supabase_url = (os.getenv("SUPABASE_URL") or "").rstrip("/")
+        env_supabase_url = (settings.SUPABASE_URL or "").rstrip("/")
         input_url = (base_url or env_supabase_url).rstrip("/")
 
         if not input_url:
@@ -120,20 +120,18 @@ class AsyncGameClient(BaseAsyncGameClient):
             functions_url.rstrip("/") if functions_url else f"{self._supabase_url}/functions/v1"
         )
         """
-        self._service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        self._service_role_key = settings.SUPABASE_SERVICE_ROLE_KEY
         if not self._service_role_key:
             raise ValueError("SUPABASE_SERVICE_ROLE_KEY is required")
         """
-        self._anon_key = os.getenv("SUPABASE_ANON_KEY") or "anon-key"
+        self._anon_key = settings.SUPABASE_ANON_KEY or "anon-key"
         # EDGE_API_TOKEN goes in X-Edge-Auth and proves the request came
         # through a trusted backend. Production always sets it; tests and
         # local-dev rely on the server-side bypass (ALLOW_AUTH_BYPASS_FOR_LOCAL_DEV=1)
         # where it's intentionally unset. We do NOT fall back to
         # SUPABASE_SERVICE_ROLE_KEY — that key is for direct DB access and
         # has different semantics from the edge-auth gate.
-        self._edge_api_token = (
-            os.getenv("EDGE_API_TOKEN") or os.getenv("SUPABASE_API_TOKEN")
-        )
+        self._edge_api_token = settings.EDGE_API_TOKEN or settings.SUPABASE_API_TOKEN
 
         self._http = httpx.AsyncClient(timeout=10.0)
 
@@ -143,7 +141,7 @@ class AsyncGameClient(BaseAsyncGameClient):
             if actor_character_id is not None
             else None
         )
-        self._event_log_path = os.getenv("SUPABASE_EVENT_LOG_PATH")
+        self._event_log_path = settings.SUPABASE_EVENT_LOG_PATH
         self._enable_event_polling = enable_event_polling
 
         # User's Supabase Auth access_token, forwarded to auth-gated edge

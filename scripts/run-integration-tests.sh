@@ -13,8 +13,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEPLOYMENT_DIR="$REPO_ROOT/deployment"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEPLOYMENT_DIR="$PROJECT_ROOT/deployment"
 FUNCTIONS_DIR="$DEPLOYMENT_DIR/supabase/functions"
 
 # ── Ensure npx is available ─────────────────────────────────────────────

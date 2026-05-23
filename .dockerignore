@@ -35,8 +35,8 @@ client
 tests
 docs
 logs
-world-data
-quest-data
+tmp
+data
 .dockerignore
 docker-compose.yml
 

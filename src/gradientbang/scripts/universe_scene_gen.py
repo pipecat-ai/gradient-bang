@@ -1,25 +1,27 @@
-"""
-Starfield Scene Generator
-Generates random scene configurations compatible with the TypeScript SceneManager
+"""Deterministic scene config data for generated universe sectors.
+
+The game does not currently consume this payload, but it is retained in
+`universe.json` so a future client can render stable sector-specific scenes.
 """
 
-import copy
 import random
-from dataclasses import dataclass, asdict
-from typing import Optional, Dict, Any
+from dataclasses import asdict, dataclass, fields
+from typing import Any, Dict, Optional
 
 
-@dataclass
+@dataclass(frozen=True)
 class RGBColor:
-    """RGB color with float values (0.0-1.0)"""
+    """RGB float color."""
+
     r: float
     g: float
     b: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class NebulaPalette:
-    """Nebula color palette definition"""
+    """Named nebula color palette."""
+
     name: str
     c1: RGBColor
     c2: RGBColor
@@ -28,7 +30,8 @@ class NebulaPalette:
 
 @dataclass
 class StarfieldSceneConfig:
-    """Scene-specific configuration (properties that vary per scene)"""
+    """Client-facing scene variant payload."""
+
     nebulaColor1: Optional[RGBColor] = None
     nebulaColor2: Optional[RGBColor] = None
     nebulaColorMid: Optional[RGBColor] = None
@@ -44,30 +47,68 @@ class StarfieldSceneConfig:
     cloudsIterSecondary: Optional[int] = None
     cloudsDomainScale: Optional[float] = None
     cloudsSpeed: Optional[float] = None
-    planetImageIndex: Optional[int] = None  # Index (0-8) for client to map to bundled asset
+    planetImageIndex: Optional[int] = None
     planetScale: Optional[float] = None
     planetPositionX: Optional[float] = None
     planetPositionY: Optional[float] = None
     starSize: Optional[float] = None
 
 
+SCENE_CONFIG_FIELDS = frozenset(field.name for field in fields(StarfieldSceneConfig))
+
 NEBULA_PALETTES = [
-    NebulaPalette("tealOrange", RGBColor(0.1, 0.65, 0.7), RGBColor(0.98, 0.58, 0.2), RGBColor(0.8, 0.75, 0.65)),
-    NebulaPalette("magentaGreen", RGBColor(0.75, 0.15, 0.75), RGBColor(0.2, 0.85, 0.45), RGBColor(0.6, 0.55, 0.7)),
-    NebulaPalette("blueGold", RGBColor(0.15, 0.35, 0.95), RGBColor(0.95, 0.78, 0.25), RGBColor(0.7, 0.72, 0.8)),
-    NebulaPalette("cyanRed", RGBColor(0.1, 0.85, 0.9), RGBColor(0.9, 0.2, 0.25), RGBColor(0.75, 0.65, 0.7)),
-    NebulaPalette("violetAmber", RGBColor(0.55, 0.25, 0.85), RGBColor(0.98, 0.7, 0.2), RGBColor(0.8, 0.7, 0.85)),
-    NebulaPalette("emeraldRose", RGBColor(0.1, 0.75, 0.5), RGBColor(0.95, 0.45, 0.6), RGBColor(0.7, 0.75, 0.75)),
-    NebulaPalette("indigoPeach", RGBColor(0.2, 0.25, 0.7), RGBColor(1.0, 0.7, 0.55), RGBColor(0.75, 0.7, 0.8)),
-    NebulaPalette("mintCoral", RGBColor(0.5, 0.95, 0.8), RGBColor(1.0, 0.45, 0.45), RGBColor(0.85, 0.8, 0.8)),
+    NebulaPalette(
+        "tealOrange",
+        RGBColor(0.1, 0.65, 0.7),
+        RGBColor(0.98, 0.58, 0.2),
+        RGBColor(0.8, 0.75, 0.65),
+    ),
+    NebulaPalette(
+        "magentaGreen",
+        RGBColor(0.75, 0.15, 0.75),
+        RGBColor(0.2, 0.85, 0.45),
+        RGBColor(0.6, 0.55, 0.7),
+    ),
+    NebulaPalette(
+        "blueGold",
+        RGBColor(0.15, 0.35, 0.95),
+        RGBColor(0.95, 0.78, 0.25),
+        RGBColor(0.7, 0.72, 0.8),
+    ),
+    NebulaPalette(
+        "cyanRed",
+        RGBColor(0.1, 0.85, 0.9),
+        RGBColor(0.9, 0.2, 0.25),
+        RGBColor(0.75, 0.65, 0.7),
+    ),
+    NebulaPalette(
+        "violetAmber",
+        RGBColor(0.55, 0.25, 0.85),
+        RGBColor(0.98, 0.7, 0.2),
+        RGBColor(0.8, 0.7, 0.85),
+    ),
+    NebulaPalette(
+        "emeraldRose",
+        RGBColor(0.1, 0.75, 0.5),
+        RGBColor(0.95, 0.45, 0.6),
+        RGBColor(0.7, 0.75, 0.75),
+    ),
+    NebulaPalette(
+        "indigoPeach",
+        RGBColor(0.2, 0.25, 0.7),
+        RGBColor(1.0, 0.7, 0.55),
+        RGBColor(0.75, 0.7, 0.8),
+    ),
+    NebulaPalette(
+        "mintCoral",
+        RGBColor(0.5, 0.95, 0.8),
+        RGBColor(1.0, 0.45, 0.45),
+        RGBColor(0.85, 0.8, 0.8),
+    ),
 ]
 
-# Number of planet images available on client (skybox-1 through skybox-9)
 PLANET_IMAGE_COUNT = 9
 
-
-
-# Example scene to test with
 DEFAULT_SCENE_VARIANT = StarfieldSceneConfig(
     starSize=0.8598574083303371,
     nebulaColor1=RGBColor(0.1, 0.65, 0.7),
@@ -85,38 +126,25 @@ DEFAULT_SCENE_VARIANT = StarfieldSceneConfig(
     cloudsIterSecondary=5,
     cloudsDomainScale=1.1171601050299351,
     cloudsSpeed=0.0018857592386780921,
-    planetImageIndex=4,  # skybox-5 (0-based index)
+    planetImageIndex=4,
     planetScale=2.455725807687239,
     planetPositionX=-108.8674861508628,
     planetPositionY=-19.475426289700927,
 )
 
 
-def generate_scene_variant(sector_id: int, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    Generate a random starfield scene configuration.
-    Mirrors the TypeScript SceneManager.createVariant() logic.
-    
-    Args:
-        sector_id: Sector number (used to seed randomization for consistent scenes)
-        overrides: Optional dict of properties to override random values
-        
-    Returns:
-        Dictionary compatible with TypeScript StarfieldSceneConfig
-    """
+def generate_scene_variant(
+    sector_id: int,
+    overrides: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Generate a stable scene config for one sector."""
     if sector_id == 0:
-        config = copy.deepcopy(DEFAULT_SCENE_VARIANT)
-        if overrides:
-            for key, value in overrides.items():
-                if hasattr(config, key):
-                    setattr(config, key, value)
-        result = asdict(config)
-        return {k: v for k, v in result.items() if v is not None}
+        return _apply_overrides(_to_payload(DEFAULT_SCENE_VARIANT), overrides)
 
     rng = random.Random(sector_id)
     random_nebula = rng.choice(NEBULA_PALETTES)
     random_planet_index = rng.randint(0, PLANET_IMAGE_COUNT - 1)
-    
+
     config = StarfieldSceneConfig(
         nebulaColor1=random_nebula.c1,
         nebulaColor2=random_nebula.c2,
@@ -124,7 +152,6 @@ def generate_scene_variant(sector_id: int, overrides: Optional[Dict[str, Any]] =
         nebulaIntensity=rng.uniform(0.15, 2.15),
         nebulaDarkLaneStrength=rng.uniform(0.35, 1.0),
         nebulaDomainWarpStrength=rng.uniform(0.05, 0.35),
-        
         nebulaAnisotropy=rng.uniform(1.0, 3.5),
         nebulaFilamentContrast=rng.uniform(0.2, 1.0),
         cloudsIntensity=rng.uniform(0.22, 0.87),
@@ -140,13 +167,22 @@ def generate_scene_variant(sector_id: int, overrides: Optional[Dict[str, Any]] =
         planetPositionY=(rng.random() - 0.5) * 400,
         starSize=rng.uniform(0.75, 1.25),
     )
-    
-    # Apply overrides if provided
-    if overrides:
-        for key, value in overrides.items():
-            if hasattr(config, key):
-                setattr(config, key, value)
-    
-    # Convert to dict and remove None values
+
+    return _apply_overrides(_to_payload(config), overrides)
+
+
+def _to_payload(config: StarfieldSceneConfig) -> Dict[str, Any]:
     result = asdict(config)
     return {k: v for k, v in result.items() if v is not None}
+
+
+def _apply_overrides(
+    payload: Dict[str, Any],
+    overrides: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not overrides:
+        return payload
+    for key, value in overrides.items():
+        if key in SCENE_CONFIG_FIELDS:
+            payload[key] = value
+    return payload

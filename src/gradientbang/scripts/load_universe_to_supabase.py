@@ -1,8 +1,7 @@
 #!/usr/bin/env -S uv run python
-"""
-Universe Data Loader for Supabase
+"""Load generated universe JSON into Supabase.
 
-Loads universe-bang generated universe.json into Supabase tables:
+Loads the `universe.json` emitted by `uv run universe-bang` into Supabase:
 - universe_config (metadata)
 - universe_structure (sectors, positions, warps)
 - ports (port inventories)
@@ -10,35 +9,49 @@ Loads universe-bang generated universe.json into Supabase tables:
 
 Usage:
     # Load existing JSON file (or directory containing universe.json)
-    uv run scripts/load_universe_to_supabase.py --from-json world-data/
+    uv run -m gradientbang.scripts.load_universe_to_supabase --from-json tmp/world-data/
 
     # Force reload (dangerous!)
-    uv run scripts/load_universe_to_supabase.py --from-json world-data/ --force
+    uv run -m gradientbang.scripts.load_universe_to_supabase --from-json tmp/world-data/ --force
 
-    # Dry-run validation
-    uv run scripts/load_universe_to_supabase.py --from-json world-data/ --dry-run
+    # Offline validation
+    uv run -m gradientbang.scripts.load_universe_to_supabase --from-json tmp/world-data/ --dry-run
 """
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
 
 from supabase import create_client, Client
 
-# Load environment variables
+from gradientbang.config import settings
+from gradientbang.scripts.universe_test import (
+    format_validation_report,
+    validate_universe_data,
+)
 
 BATCH_SIZE = 500  # Rows per batch insert
 PAGE_SIZE = 1000  # Rows per page when fetching (PostgREST max_rows default is 1000)
+COMMODITY_KEYS = ("QF", "RO", "NS")
 
 
 class UniverseLoader:
     """Loads universe data from JSON files into Supabase."""
 
-    def __init__(self, supabase_url: str, supabase_key: str, dry_run: bool = False):
-        self.supabase: Client = create_client(supabase_url, supabase_key)
+    def __init__(
+        self,
+        supabase_url: str | None,
+        supabase_key: str | None,
+        dry_run: bool = False,
+    ):
+        if not dry_run and (not supabase_url or not supabase_key):
+            raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
+
+        self.supabase: Client | None = (
+            None if dry_run else create_client(supabase_url or "", supabase_key or "")
+        )
         self.dry_run = dry_run
         self.stats = {
             "sectors_loaded": 0,
@@ -46,42 +59,42 @@ class UniverseLoader:
             "sector_contents_loaded": 0,
         }
 
+    def _db(self) -> Client:
+        if self.supabase is None:
+            raise RuntimeError("Supabase client is unavailable in dry-run mode")
+        return self.supabase
+
     def load_json(self, filepath: Path) -> Dict[str, Any]:
         """Load and parse a JSON file."""
         print(f"📂 Loading {filepath}...")
-        with open(filepath, "r") as f:
-            data = json.load(f)
+        data = json.loads(filepath.read_text(encoding="utf-8"))
         print(f"✅ Loaded {filepath.name}")
         return data
 
-    def validate_files(self, universe: Dict) -> None:
-        """Validate universe JSON structure and consistency."""
-        print("\n🔍 Validating JSON files...")
-
-        # Check required keys
+    def validate_universe(self, universe: Dict[str, Any]) -> None:
+        """Validate universe JSON structure, connectivity, and warp metadata."""
+        print("\n🔍 Validating universe...")
         if "meta" not in universe or "sectors" not in universe:
             raise ValueError("universe.json missing required keys: meta, sectors")
 
         sector_count = universe["meta"]["sector_count"]
         actual_count = len(universe["sectors"])
         if actual_count != sector_count:
-            raise ValueError(
-                f"Sector count mismatch: meta={sector_count}, actual={actual_count}"
-            )
+            raise ValueError(f"Sector count mismatch: meta={sector_count}, actual={actual_count}")
 
-        print(f"✅ Validated {sector_count} sectors")
+        report = validate_universe_data(universe)
+        for line in format_validation_report(report).splitlines():
+            print(f"   {line}")
+        if not report.passed:
+            raise ValueError("universe validation failed")
 
     def _fetch_all(self, table: str, columns: str):
         """Fetch all rows from a table, paging to avoid API max_rows limits."""
+        db = self._db()
         rows = []
         offset = 0
         while True:
-            resp = (
-                self.supabase.table(table)
-                .select(columns)
-                .range(offset, offset + PAGE_SIZE - 1)
-                .execute()
-            )
+            resp = db.table(table).select(columns).range(offset, offset + PAGE_SIZE - 1).execute()
             chunk = resp.data or []
             rows.extend(chunk)
             if len(chunk) < PAGE_SIZE:
@@ -101,8 +114,7 @@ class UniverseLoader:
             (stock, max_stock) tuple
         """
         port_code = port_data["code"][commodity_index]
-        commodity_keys = ["QF", "RO", "NS"]
-        commodity = commodity_keys[commodity_index]
+        commodity = COMMODITY_KEYS[commodity_index]
 
         if port_code == "S":  # Sells commodity
             stock = port_data["stock"].get(commodity, 0)
@@ -121,7 +133,7 @@ class UniverseLoader:
 
     def check_existing_universe(self) -> bool:
         """Check if universe data already exists."""
-        result = self.supabase.table("universe_config").select("id").limit(1).execute()
+        result = self._db().table("universe_config").select("id").limit(1).execute()
         return len(result.data) > 0
 
     def truncate_universe(self) -> None:
@@ -148,8 +160,9 @@ class UniverseLoader:
         CASCADE;
         """
 
+        db = self._db()
         try:
-            self.supabase.rpc("exec_sql", {"sql": truncate_sql}).execute()
+            db.rpc("exec_sql", {"sql": truncate_sql}).execute()
         except Exception:
             # If RPC doesn't exist, use PostgreSQL REST API directly
             # Try deleting in correct order with proper FK handling
@@ -157,10 +170,14 @@ class UniverseLoader:
 
             # Break circular dependencies first
             try:
-                self.supabase.table("characters").update({"current_ship_id": None}).neq("character_id", "00000000-0000-0000-0000-000000000000").execute()
-                self.supabase.table("characters").update({"corporation_id": None}).neq("character_id", "00000000-0000-0000-0000-000000000000").execute()
+                db.table("characters").update({"current_ship_id": None}).neq(
+                    "character_id", "00000000-0000-0000-0000-000000000000"
+                ).execute()
+                db.table("characters").update({"corporation_id": None}).neq(
+                    "character_id", "00000000-0000-0000-0000-000000000000"
+                ).execute()
                 # founder_id is NOT NULL; set to dummy root character instead of NULL
-                self.supabase.table("corporations").update(
+                db.table("corporations").update(
                     {"founder_id": "00000000-0000-0000-0000-000000000000"}
                 ).neq("corp_id", "00000000-0000-0000-0000-000000000000").execute()
             except Exception as e:
@@ -168,57 +185,61 @@ class UniverseLoader:
 
             # Delete event logs first (they reference ships/characters/sectors).
             try:
-                self.supabase.table("events").delete().gte("id", 0).execute()
+                db.table("events").delete().gte("id", 0).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete events: {e}")
 
             try:
-                self.supabase.table("port_transactions").delete().gte("id", 0).execute()
+                db.table("port_transactions").delete().gte("id", 0).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete port_transactions: {e}")
 
             # Delete universe-dependent tables
             try:
-                self.supabase.table("garrisons").delete().gte("sector_id", 0).execute()
+                db.table("garrisons").delete().gte("sector_id", 0).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete garrisons: {e}")
 
             # Delete ships (no longer referenced by events/port_transactions)
             try:
-                self.supabase.table("ship_instances").delete().gte("current_sector", 0).execute()
+                db.table("ship_instances").delete().gte("current_sector", 0).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete ships: {e}")
 
             # Delete characters
             try:
-                self.supabase.table("characters").delete().neq("character_id", "00000000-0000-0000-0000-000000000000").execute()
+                db.table("characters").delete().neq(
+                    "character_id", "00000000-0000-0000-0000-000000000000"
+                ).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete characters: {e}")
 
             # Delete corporations (references characters via founder_id)
             try:
-                self.supabase.table("corporations").delete().neq("corp_id", "00000000-0000-0000-0000-000000000000").execute()
+                db.table("corporations").delete().neq(
+                    "corp_id", "00000000-0000-0000-0000-000000000000"
+                ).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete corporations: {e}")
 
             # Delete universe tables
             try:
-                self.supabase.table("sector_contents").delete().gte("sector_id", 0).execute()
+                db.table("sector_contents").delete().gte("sector_id", 0).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete sector_contents: {e}")
 
             try:
-                self.supabase.table("ports").delete().gte("sector_id", 0).execute()
+                db.table("ports").delete().gte("sector_id", 0).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete ports: {e}")
 
             try:
-                self.supabase.table("universe_structure").delete().gte("sector_id", 0).execute()
+                db.table("universe_structure").delete().gte("sector_id", 0).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete universe_structure: {e}")
 
             try:
-                self.supabase.table("universe_config").delete().eq("id", 1).execute()
+                db.table("universe_config").delete().eq("id", 1).execute()
             except Exception as e:
                 print(f"   ⚠️  Could not delete universe_config: {e}")
 
@@ -236,9 +257,9 @@ class UniverseLoader:
             if sector.get("port"):
                 sector_id = sector["id"]
                 port_data = sector["port"]
-                stock_qf, max_qf = self.convert_port_stock(port_data, 0)
-                stock_ro, max_ro = self.convert_port_stock(port_data, 1)
-                stock_ns, max_ns = self.convert_port_stock(port_data, 2)
+                stock_qf, _ = self.convert_port_stock(port_data, 0)
+                stock_ro, _ = self.convert_port_stock(port_data, 1)
+                stock_ns, _ = self.convert_port_stock(port_data, 2)
 
                 initial_port_states[str(sector_id)] = {
                     "stock_qf": stock_qf,
@@ -263,7 +284,7 @@ class UniverseLoader:
             print(f"   [DRY RUN] Initial port states: {len(initial_port_states)} ports")
             return
 
-        self.supabase.table("universe_config").insert(config).execute()
+        self._db().table("universe_config").insert(config).execute()
         print(f"✅ Loaded universe_config (seed={meta.get('seed')})")
 
     def load_universe_structure(self, universe: Dict) -> None:
@@ -308,7 +329,7 @@ class UniverseLoader:
                 if self.dry_run:
                     print(f"   [DRY RUN] Would insert batch of {len(batch)} sectors")
                 else:
-                    self.supabase.table("universe_structure").insert(batch).execute()
+                    self._db().table("universe_structure").insert(batch).execute()
                     print(f"   Inserted {i + 1}/{len(sectors)} sectors...", end="\r")
                 self.stats["sectors_loaded"] += len(batch)
                 batch = []
@@ -318,7 +339,7 @@ class UniverseLoader:
             if self.dry_run:
                 print(f"   [DRY RUN] Would insert final batch of {len(batch)} sectors")
             else:
-                self.supabase.table("universe_structure").insert(batch).execute()
+                self._db().table("universe_structure").insert(batch).execute()
             self.stats["sectors_loaded"] += len(batch)
 
         print(f"\n✅ Loaded {self.stats['sectors_loaded']} sectors")
@@ -361,7 +382,7 @@ class UniverseLoader:
                 if self.dry_run:
                     print(f"   [DRY RUN] Would insert batch of {len(batch)} ports")
                 else:
-                    self.supabase.table("ports").insert(batch).execute()
+                    self._db().table("ports").insert(batch).execute()
                     print(f"   Inserted {i + 1}/{len(sectors_with_ports)} ports...", end="\r")
                 self.stats["ports_loaded"] += len(batch)
                 batch = []
@@ -371,7 +392,7 @@ class UniverseLoader:
             if self.dry_run:
                 print(f"   [DRY RUN] Would insert final batch of {len(batch)} ports")
             else:
-                self.supabase.table("ports").insert(batch).execute()
+                self._db().table("ports").insert(batch).execute()
             self.stats["ports_loaded"] += len(batch)
 
         print(f"\n✅ Loaded {self.stats['ports_loaded']} ports")
@@ -399,7 +420,7 @@ class UniverseLoader:
                 "sector_id": sector_id,
                 "port_id": port_id,
                 "combat": None,  # NULL when no combat
-                "salvage": [],   # Empty salvage array
+                "salvage": [],  # Empty salvage array
             }
             batch.append(row)
 
@@ -408,7 +429,7 @@ class UniverseLoader:
                 if self.dry_run:
                     print(f"   [DRY RUN] Would insert batch of {len(batch)} sector_contents")
                 else:
-                    self.supabase.table("sector_contents").insert(batch).execute()
+                    self._db().table("sector_contents").insert(batch).execute()
                     print(f"   Inserted {i + 1}/{len(sectors)} sector_contents...", end="\r")
                 self.stats["sector_contents_loaded"] += len(batch)
                 batch = []
@@ -418,7 +439,7 @@ class UniverseLoader:
             if self.dry_run:
                 print(f"   [DRY RUN] Would insert final batch of {len(batch)} sector_contents")
             else:
-                self.supabase.table("sector_contents").insert(batch).execute()
+                self._db().table("sector_contents").insert(batch).execute()
             self.stats["sector_contents_loaded"] += len(batch)
 
         print(f"\n✅ Loaded {self.stats['sector_contents_loaded']} sector_contents")
@@ -431,8 +452,9 @@ class UniverseLoader:
             print("   [DRY RUN] Skipping verification")
             return
 
+        db = self._db()
         # Count rows in each table
-        config_count = len(self.supabase.table("universe_config").select("id").execute().data)
+        config_count = len(db.table("universe_config").select("id").execute().data)
         structure_rows = self._fetch_all("universe_structure", "sector_id")
         structure_count = len(structure_rows)
 
@@ -447,7 +469,9 @@ class UniverseLoader:
         orphaned_ports = port_sectors - structure_sectors
 
         if orphaned_ports:
-            raise ValueError(f"Found {len(orphaned_ports)} ports with invalid sector references: {orphaned_ports}")
+            raise ValueError(
+                f"Found {len(orphaned_ports)} ports with invalid sector references: {orphaned_ports}"
+            )
 
         contents_count = len(self._fetch_all("sector_contents", "sector_id"))
 
@@ -463,9 +487,13 @@ class UniverseLoader:
         if config_count != 1:
             raise ValueError(f"Expected 1 universe_config row, got {config_count}")
         if structure_count != expected_sectors:
-            raise ValueError(f"Expected {expected_sectors} universe_structure rows, got {structure_count}")
+            raise ValueError(
+                f"Expected {expected_sectors} universe_structure rows, got {structure_count}"
+            )
         if contents_count != expected_sectors:
-            raise ValueError(f"Expected {expected_sectors} sector_contents rows, got {contents_count}")
+            raise ValueError(
+                f"Expected {expected_sectors} sector_contents rows, got {contents_count}"
+            )
 
         print("✅ Integrity check passed")
 
@@ -482,7 +510,7 @@ class UniverseLoader:
         universe = self.load_json(universe_path)
 
         # Validate
-        self.validate_files(universe)
+        self.validate_universe(universe)
 
         # Load data
         self.load_universe_config(universe)
@@ -509,8 +537,8 @@ def main():
         "--from-json",
         dest="data_path",
         type=Path,
-        required=True,
-        help="Path to universe.json or directory containing it",
+        default=Path(settings.GRADIENTBANG_WORLD_DATA_DIR),
+        help="Path to universe.json or directory containing it (default: GRADIENTBANG_WORLD_DATA_DIR)",
     )
     parser.add_argument(
         "--force",
@@ -526,10 +554,10 @@ def main():
     args = parser.parse_args()
 
     # Get Supabase credentials
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    supabase_url = settings.SUPABASE_URL
+    supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY
 
-    if not supabase_url or not supabase_key:
+    if not args.dry_run and (not supabase_url or not supabase_key):
         print("❌ Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables required")
         print("   Set these in .env file or environment")
         sys.exit(1)
@@ -538,7 +566,7 @@ def main():
     print("🌌 Universe Data Loader for Supabase")
     print("=" * 60)
     print(f"Data path:      {args.data_path}")
-    print(f"Supabase URL:   {supabase_url}")
+    print(f"Supabase URL:   {supabase_url or '(not required for dry run)'}")
     print(f"Dry run:        {args.dry_run}")
     print(f"Force reload:   {args.force}")
     print("=" * 60)
@@ -565,6 +593,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

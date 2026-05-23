@@ -15,11 +15,9 @@ import sys
 from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
-from gradientbang.utils.config import get_repo_root
 from gradientbang.utils.supabase_client import AsyncGameClient, RPCError
 
 BOT_ENV_FILE = ".env.bot"
@@ -28,8 +26,8 @@ logger.enable("pipecat")
 _log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
 logger.configure(handlers=[{"sink": sys.stderr, "level": _log_level}])
 
-REPO_ROOT = get_repo_root()
-SESSION_LOCK_DIR = REPO_ROOT / "logs" / "ship-sessions"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+SESSION_LOCK_DIR = PROJECT_ROOT / "logs" / "ship-sessions"
 
 
 class SessionLockError(RuntimeError):
@@ -132,7 +130,7 @@ def _log_join_error(
         )
     elif "knowledge" in lower_detail:
         logger.info(
-            "Create world-data/character-map-knowledge/{}.json before retrying.",
+            "Register map knowledge for ship {} before retrying.",
             target_id,
         )
 
@@ -191,7 +189,7 @@ async def run_task(args: argparse.Namespace) -> int:
         return 1
 
     # Load .env.bot for LLM config (TASK_LLM_*, API keys).
-    bot_env = REPO_ROOT / BOT_ENV_FILE
+    bot_env = PROJECT_ROOT / BOT_ENV_FILE
     if bot_env.exists():
         from dotenv import load_dotenv
 

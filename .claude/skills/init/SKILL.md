@@ -86,8 +86,8 @@ Generate a universe (5000 sectors, seed 1234) and load it plus quest definitions
 ```bash
 set -a && source .env.supabase && set +a
 uv run universe-bang 5000 1234
-uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
-uv run -m gradientbang.scripts.load_quests_to_supabase --from-json quest-data/
+uv run -m gradientbang.scripts.load_universe_to_supabase --from-json tmp/world-data/
+uv run -m gradientbang.scripts.load_quests_to_supabase
 ```
 
 Redirect output and check for errors. These commands can take a minute.

@@ -48,6 +48,7 @@ See `src/gradientbang/pipecat_server/subagents/CLAUDE.md` for detailed architect
 - To run Supabase edge functions: `npx supabase functions serve --workdir deployment --no-verify-jwt --env-file .env.supabase`.
 - To start the bot: `set -a && source .env.supabase && set +a && uv run bot --host 0.0.0.0`.
 - If you need to run edge functions or start the bot, redirect ALL output to a file. Do NOT use `tee`; use `head`, `tail`, `grep`, etc. to inspect log files.
+- All Python env vars are inventoried in `src/gradientbang/config.py`. When adding or removing an env var anywhere in the Python code, keep that file in sync.
 
 ## Testing
 

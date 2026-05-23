@@ -99,7 +99,7 @@ async def reset_db_with_characters(edge_functions_url, supabase_service_role_key
 
 
 @pytest.fixture
-def make_game_client(supabase_url):
+def make_game_client(supabase_url, edge_functions_url):
     """Factory fixture that creates AsyncGameClient instances pointed at the test instance.
 
     The client reads SUPABASE_URL, SUPABASE_ANON_KEY, and EDGE_API_TOKEN from
@@ -111,6 +111,7 @@ def make_game_client(supabase_url):
         kwargs.setdefault("enable_event_polling", False)
         client = AsyncGameClient(
             base_url=supabase_url,
+            functions_url=edge_functions_url,
             character_id=character_id,
             **kwargs,
         )

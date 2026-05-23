@@ -266,13 +266,11 @@ def _create_google_service(
 
             return None
 
-    params = None
+    settings = GradientBangGoogleLLMService.Settings(model=model)
     if thinking and thinking.enabled:
-        params = GoogleLLMService.InputParams(
-            thinking=GoogleLLMService.ThinkingConfig(
-                thinking_budget=thinking.budget_tokens,
-                include_thoughts=thinking.include_thoughts,
-            )
+        settings.thinking = GradientBangGoogleLLMService.ThinkingConfig(
+            thinking_budget=thinking.budget_tokens,
+            include_thoughts=thinking.include_thoughts,
         )
 
     llm_kwargs = {}
@@ -281,8 +279,7 @@ def _create_google_service(
 
     return GradientBangGoogleLLMService(
         api_key=api_key,
-        model=model,
-        params=params,
+        settings=settings,
         **llm_kwargs,
     )
 
