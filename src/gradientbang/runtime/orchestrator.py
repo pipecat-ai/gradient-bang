@@ -212,6 +212,9 @@ class Orchestrator:
             )
         )
 
+    async def close_tasks(self) -> None:
+        """Drain in-flight TaskAgent subworkers before resource teardown."""
+
     async def close(self) -> None:
         """Tear down session-owned resources."""
         if self.event_relay is not None:
@@ -220,6 +223,12 @@ class Orchestrator:
             except Exception as exc:
                 logger.error(f"Event relay close failed: {exc}")
             self.event_relay = None
+        if self.game_client is not None:
+            try:
+                await self.game_client.close()
+            except Exception as exc:
+                logger.error(f"Game client close failed: {exc}")
+            self.game_client = None
 
     async def on_idle_report(self) -> bool:
         """Narrate background task progress on user silence.

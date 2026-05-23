@@ -6,7 +6,7 @@ deliver events into it via a small documented surface area:
 - ``client._request(endpoint, payload, ...)`` — HTTP/RPC to edge functions
   (used by the polling adapter to call ``events_since``).
 - ``client._process_event(name, payload, request_id=...)`` — the dispatch
-  sink defined in :class:`gradientbang.utils.api_client.BaseAsyncGameClient`.
+  sink defined in :class:`gradientbang.game.base_client.BaseAsyncGameClient`.
 - ``client._maybe_update_sector_from_event(name, payload)`` — sector-cache
   update that respects the bound character's ownership guard.
 - ``client._append_event_log(name, payload)`` — JSONL audit log.

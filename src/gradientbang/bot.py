@@ -483,20 +483,20 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     except Exception as exc:
         logger.exception(f"PipelineRunner error: {exc}")
     finally:
-        # @TODO: output_connection_state.mark_shutdown() once the
-        # DisconnectedOutputGuard lands.
         if periodic_upload_task is not None:
             periodic_upload_task.cancel()
         try:
             voice_context_uploader.upload("shutdown")
         except Exception as exc:
             logger.error(f"Shutdown voice context upload failed: {exc}")
-        # @TODO: await orchestrator.voice_agent.close_tasks() — drain in-flight
-        # subagent tasks once VoiceAgent lives on the orchestrator.
-        # @TODO: await orchestrator.event_relay.close() — stop the game-event
-        # subscriber once EventRelay lives on the orchestrator.
-        # @TODO: await orchestrator.game_client.close() — release HTTP/pubsub
-        # connections once AsyncGameClient lives on the orchestrator.
+        try:
+            await orchestrator.close_tasks()
+        except Exception as exc:
+            logger.error(f"Task cleanup failed: {exc}")
+        try:
+            await orchestrator.close()
+        except Exception as exc:
+            logger.error(f"Orchestrator close failed: {exc}")
         if local_api_server is not None:
             try:
                 await local_api_server.stop()

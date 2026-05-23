@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Deque, Dict, Mapping, Optional
 
 from loguru import logger
 
-from gradientbang.utils.api_client import RPCError
+from gradientbang.game.base_client import RPCError
 from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 if TYPE_CHECKING:
