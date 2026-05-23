@@ -8,6 +8,7 @@ references to the bot.py-owned PipelineWorker and LLMContext.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict
 
 from loguru import logger
@@ -229,7 +230,64 @@ class Orchestrator:
 
     async def handle_client_message(self, message) -> None:
         """Dispatch an inbound RTVI client message."""
-        logger.debug(f"Orchestrator.handle_client_message: {message!r}")
+        msg_type = getattr(message, "type", None)
+        msg_data = message.data if hasattr(message, "data") else {}
+
+        if msg_type == "dump-llm-context":
+            await self._handle_dump_llm_context(msg_data)
+            return
+
+        logger.debug(f"Orchestrator.handle_client_message: unhandled {msg_type!r}")
+
+    async def _handle_dump_llm_context(self, msg_data: Dict[str, Any]) -> None:
+        """Push the current voice LLM context back to the client as a debug event."""
+
+        def safe_serialize(msg):
+            try:
+                json.dumps(msg)
+                return msg
+            except (TypeError, ValueError):
+                return {
+                    "role": msg.get("role", "unknown"),
+                    "content": str(msg.get("content", "")),
+                }
+
+        sections = []
+        if self.context is not None:
+            voice_messages = [safe_serialize(m) for m in self.context.get_messages()]
+            voice_json = json.dumps(voice_messages, indent=2, ensure_ascii=False).replace(
+                "\\n", "\n"
+            )
+            sections.append(
+                f"{'=' * 60}\n"
+                f"  VOICE AGENT CONTEXT ({len(voice_messages)} messages)\n"
+                f"{'=' * 60}\n\n"
+                f"{voice_json}"
+            )
+
+        # @TODO: append TaskAgent contexts once TaskAgent subworkers land.
+
+        if not sections:
+            await self.rtvi.push_frame(
+                RTVIServerMessageFrame(
+                    {"frame_type": "error", "error": "No context available"}
+                )
+            )
+            return
+
+        formatted = "\n\n".join(sections)
+        await self.rtvi.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": "debug.llm-context",
+                    "payload": {
+                        "message_count": len(sections),
+                        "formatted": formatted,
+                    },
+                }
+            )
+        )
 
     # ── TaskStateProvider surface (consumed by EventRelay) ────────────
 
