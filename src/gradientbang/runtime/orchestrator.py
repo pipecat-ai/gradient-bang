@@ -8,7 +8,6 @@ references to the bot.py-owned PipelineWorker and LLMContext.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict
 
 from loguru import logger
@@ -22,8 +21,8 @@ from gradientbang.adapters.bus import AgentBus, make_subagent_bus
 from gradientbang.config import settings
 from gradientbang.game.auth import Auth
 from gradientbang.game.client import AsyncGameClient
+from gradientbang.runtime.client_message_handlers import ClientMessageHandler
 from gradientbang.runtime.event_relay import EventRelay
-from gradientbang.runtime.models import BotRuntimeConfig
 from gradientbang.runtime.session_init import gather_initial_state
 from gradientbang.utils.prompt_loader import apply_prompt_substitutions, set_prompt_substitutions
 
@@ -35,19 +34,18 @@ class Orchestrator:
         auth: Auth,
         session_id: str,
         local_api_url: str | None,
-        config: BotRuntimeConfig,
         rtvi: RTVIProcessor,
     ) -> None:
         self.auth = auth
         self.session_id = session_id
         self.local_api_url = local_api_url
-        self.config = config
         self.rtvi = rtvi
         self.bus: AgentBus | None = None
-        self.voice_agent: PipelineWorker | None = None
+        self.voice_worker: PipelineWorker | None = None
         self.game_client: AsyncGameClient | None = None
         self.event_relay: EventRelay | None = None
         self.context: LLMContext | None = None
+        self.client_messages: ClientMessageHandler | None = None
 
     @classmethod
     async def create(
@@ -56,14 +54,12 @@ class Orchestrator:
         auth: Auth,
         session_id: str,
         local_api_url: str | None,
-        config: BotRuntimeConfig,
         rtvi: RTVIProcessor,
     ) -> "Orchestrator":
         orch = cls(
             auth=auth,
             session_id=session_id,
             local_api_url=local_api_url,
-            config=config,
             rtvi=rtvi,
         )
         # AsyncGameClient construction is pure-config — no IO until the first
@@ -86,10 +82,26 @@ class Orchestrator:
         logger.info(f"Orchestrator created session_id={session_id}")
         return orch
 
-    def attach(self, *, voice_agent: PipelineWorker, context: LLMContext) -> None:
-        """Register the pipeline worker and LLM context. Must be called before ``join()``."""
-        self.voice_agent = voice_agent
+    def attach(
+        self,
+        *,
+        voice_worker: PipelineWorker,
+        context: LLMContext,
+        transport,
+    ) -> None:
+        """Register pipeline handles needed after construction."""
+        assert self.game_client is not None, "game_client must be created first"
+        assert self.auth.character_id is not None, "auth.character_id required"
+        self.voice_worker = voice_worker
         self.context = context
+        self.client_messages = ClientMessageHandler(
+            game_client=self.game_client,
+            character_id=self.auth.character_id,
+            rtvi=self.rtvi,
+            transport=transport,
+            pipeline_worker=voice_worker,
+            llm_context=context,
+        )
 
     async def create_bus(self) -> AgentBus:
         """Construct the subagent bus. Raises on init failure (e.g. PGMQ unreachable)."""
@@ -180,13 +192,13 @@ class Orchestrator:
         # Inject the initial messages assembled by session_init into the
         # voice LLM's context. We append without run_llm — the caller
         # (bot.py) fires the LLM via LLMRunFrame after join() returns.
-        if self.voice_agent is not None and initial_state.initial_messages:
-            await self.voice_agent.queue_frames(
+        if self.voice_worker is not None and initial_state.initial_messages:
+            await self.voice_worker.queue_frames(
                 [LLMMessagesAppendFrame(messages=initial_state.initial_messages)]
             )
         elif initial_state.initial_messages:
             logger.warning(
-                "Orchestrator.join: no voice_agent attached — initial messages "
+                "Orchestrator.join: no voice worker attached — initial messages "
                 "not injected into LLM context"
             )
 
@@ -239,64 +251,13 @@ class Orchestrator:
 
     async def handle_client_message(self, message) -> None:
         """Dispatch an inbound RTVI client message."""
-        msg_type = getattr(message, "type", None)
-        msg_data = message.data if hasattr(message, "data") else {}
-
-        if msg_type == "dump-llm-context":
-            await self._handle_dump_llm_context(msg_data)
-            return
-
-        logger.debug(f"Orchestrator.handle_client_message: unhandled {msg_type!r}")
-
-    async def _handle_dump_llm_context(self, msg_data: Dict[str, Any]) -> None:
-        """Push the current voice LLM context back to the client as a debug event."""
-
-        def safe_serialize(msg):
-            try:
-                json.dumps(msg)
-                return msg
-            except (TypeError, ValueError):
-                return {
-                    "role": msg.get("role", "unknown"),
-                    "content": str(msg.get("content", "")),
-                }
-
-        sections = []
-        if self.context is not None:
-            voice_messages = [safe_serialize(m) for m in self.context.get_messages()]
-            voice_json = json.dumps(voice_messages, indent=2, ensure_ascii=False).replace(
-                "\\n", "\n"
-            )
-            sections.append(
-                f"{'=' * 60}\n"
-                f"  VOICE AGENT CONTEXT ({len(voice_messages)} messages)\n"
-                f"{'=' * 60}\n\n"
-                f"{voice_json}"
-            )
-
-        # @TODO: append TaskAgent contexts once TaskAgent subworkers land.
-
-        if not sections:
-            await self.rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {"frame_type": "error", "error": "No context available"}
-                )
+        if self.client_messages is None:
+            logger.debug(
+                "Orchestrator.handle_client_message: unhandled {!r}; client handler not attached",
+                getattr(message, "type", None),
             )
             return
-
-        formatted = "\n\n".join(sections)
-        await self.rtvi.push_frame(
-            RTVIServerMessageFrame(
-                {
-                    "frame_type": "event",
-                    "event": "debug.llm-context",
-                    "payload": {
-                        "message_count": len(sections),
-                        "formatted": formatted,
-                    },
-                }
-            )
-        )
+        await self.client_messages.handle(message)
 
     # ── TaskStateProvider surface (consumed by EventRelay) ────────────
 
@@ -331,6 +292,6 @@ class Orchestrator:
         return True
 
     async def queue_frame(self, frame) -> None:
-        """Queue a frame into the main pipeline worker."""
-        if self.voice_agent is not None:
-            await self.voice_agent.queue_frames([frame])
+        """Queue a frame into the voice pipeline worker."""
+        if self.voice_worker is not None:
+            await self.voice_worker.queue_frames([frame])

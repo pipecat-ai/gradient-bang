@@ -11,7 +11,6 @@ from pipecat.frames.frames import (
     LLMRunFrame,
     STTUpdateSettingsFrame,
     TranscriptionFrame,
-    TTSSpeakFrame,
     TTSUpdateSettingsFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -21,8 +20,10 @@ from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
-from gradientbang.pipecat_server.frames import UserTextInputFrame
+from gradientbang.runtime.frames import UserTextInputFrame
+from gradientbang.runtime.voices import get_voices_for_provider
 from gradientbang.utils.api_client import RPCError
+from gradientbang.utils.tts_factory import get_tts_provider
 
 
 def _language_instruction(language: Language) -> str:
@@ -42,33 +43,18 @@ class ClientMessageHandler:
         character_id: str,
         rtvi,
         transport,
-        main_agent,
-        tts,
-        stt=None,
-        say_text_restore_voice: dict,
-        user_mute_state: dict,
-        user_unmuted_event: asyncio.Event,
+        pipeline_worker,
         llm_context=None,
-        voice_agent=None,
         on_skip_tutorial=None,
-        active_voice_state: dict | None = None,
-        voices: dict[str, dict[str, str]] | None = None,
     ):
         self._game_client = game_client
         self._character_id = character_id
         self._rtvi = rtvi
         self._transport = transport
-        self._main_agent = main_agent
-        self._tts = tts
-        self._stt = stt
-        self._say_text_restore_voice = say_text_restore_voice
-        self._user_mute_state = user_mute_state
-        self._user_unmuted_event = user_unmuted_event
+        self._pipeline_worker = pipeline_worker
         self._llm_context = llm_context
-        self._voice_agent = voice_agent
         self._on_skip_tutorial = on_skip_tutorial
-        self._active_voice_state = active_voice_state or {}
-        self._voices = voices or {}
+        self._voices = get_voices_for_provider(get_tts_provider())
 
     async def handle(self, message):
         """Dispatch a client message to the appropriate handler."""
@@ -81,10 +67,21 @@ class ClientMessageHandler:
         if handler:
             await handler(self, msg_type, msg_data)
 
+    def _clear_pending_confirmation(self) -> None:
+        if hasattr(self._pipeline_worker, "_pending_confirmation"):
+            self._pipeline_worker._pending_confirmation = None
+
+    def _track_request_id(self, result) -> None:
+        if not isinstance(result, dict):
+            return
+        track_request_id = getattr(self._pipeline_worker, "track_request_id", None)
+        if callable(track_request_id):
+            track_request_id(result.get("request_id"))
+
     # ── Individual handlers ───────────────────────────────────────────
 
     async def _handle_start(self, msg_type, msg_data):
-        await self._main_agent.queue_frames([LLMRunFrame()])
+        await self._pipeline_worker.queue_frames([LLMRunFrame()])
 
     async def _handle_mute_unmute(self, msg_type, msg_data):
         try:
@@ -511,73 +508,14 @@ class ClientMessageHandler:
             await self._rtvi.send_server_message({"frame_type": "error", "error": str(exc)})
 
     async def _handle_say_text(self, msg_type, msg_data):
-        # Ignore say-text while user input is muted (e.g. during the join intro).
-        if self._user_mute_state.get("muted"):
-            logger.info("say-text ignored: user input is muted (intro in progress)")
-            return
-        text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
-        voice_id = msg_data.get("voice_id") if isinstance(msg_data, dict) else None
-        # Client-supplied quest/dialog voice IDs are currently Cartesia IDs.
-        # Ignore them for other providers so they don't clobber Gradium speech.
-        if voice_id and self._active_voice_state.get("tts_provider") != "cartesia":
-            logger.info(
-                "say-text voice_id ignored for TTS provider {}",
-                self._active_voice_state.get("tts_provider", "unknown"),
-            )
-            voice_id = None
-        # Non-English: skip quest giver voice swap, keep the active voice
-        if voice_id and self._active_voice_state.get("language", Language.EN) != Language.EN:
-            voice_id = None
-        if text:
-            await self._main_agent.queue_frame(InterruptionFrame())
-            frames = []
-            if voice_id:
-                if not self._say_text_restore_voice.get("voice_id"):
-                    self._say_text_restore_voice["voice_id"] = self._tts._settings.voice
-                frames.append(TTSUpdateSettingsFrame(settings={"voice_id": voice_id}))
-            else:
-                self._say_text_restore_voice["voice_id"] = None
-            frames.append(TTSSpeakFrame(text=text, append_to_context=False))
-            if voice_id:
-                frames.append(
-                    TTSUpdateSettingsFrame(
-                        settings={"voice_id": self._say_text_restore_voice["voice_id"]}
-                    )
-                )
-            await self._main_agent.queue_frames(frames)
+        logger.debug("Ignoring deprecated say-text client message")
 
     async def _handle_say_text_dismiss(self, msg_type, msg_data):
-        await self._main_agent.queue_frame(InterruptionFrame())
-        restore_id = self._say_text_restore_voice.get("voice_id")
-        frames = []
-        if restore_id:
-            frames.append(TTSUpdateSettingsFrame(settings={"voice_id": restore_id}))
-            self._say_text_restore_voice["voice_id"] = None
-        # Append context about the briefing and trigger inference so the bot
-        # can address anything that happened during the dialog (e.g. task
-        # completions). The inference gate handles cooldown/timing.
-        frames.append(
-            LLMMessagesAppendFrame(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": "<event>The player just finished reading a contract briefing dialog. Do not comment on this unless there are pending events to address.</event>",
-                    }
-                ],
-                run_llm=True,
-            )
-        )
-        await self._main_agent.queue_frames(frames)
+        logger.debug("Ignoring deprecated say-text-dismiss client message")
 
     async def _handle_user_text_input(self, msg_type, msg_data):
         text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
-        await self._main_agent.queue_frame(UserTextInputFrame(text=text))
-        if self._user_mute_state["muted"]:
-            try:
-                await asyncio.wait_for(self._user_unmuted_event.wait(), timeout=0.5)
-            except asyncio.TimeoutError:
-                logger.warning("Timed out waiting for user unmute after text input")
-        frames = [InterruptionFrame()]
+        frames = [UserTextInputFrame(text=text), InterruptionFrame()]
         if text.strip():
             logger.info(f"[USER-TEXT-INPUT] Received text: {text}")
             frames.extend(
@@ -587,7 +525,7 @@ class ClientMessageHandler:
                     UserStoppedSpeakingFrame(),
                 ]
             )
-        await self._main_agent.queue_frames(frames)
+        await self._pipeline_worker.queue_frames(frames)
 
     async def _handle_assign_quest(self, msg_type, msg_data):
         quest_code = msg_data.get("quest_code", "") if isinstance(msg_data, dict) else ""
@@ -620,7 +558,7 @@ class ClientMessageHandler:
             logger.error(f"claim-step-reward failed: {e}")
 
     async def _handle_set_voice(self, msg_type, msg_data):
-        """Change voice and language by short name, respecting in-flight dialogs."""
+        """Change voice and language by short name."""
         voice_name = msg_data.get("voice", "").strip() if isinstance(msg_data, dict) else ""
         if not voice_name or voice_name not in self._voices:
             return
@@ -629,27 +567,16 @@ class ClientMessageHandler:
         new_voice_id = voice_config["voice_id"]
         new_language = Language(voice_config["language"])
 
-        # Update active voice state
-        self._active_voice_state["name"] = voice_name
-        self._active_voice_state["language"] = new_language
-
-        if self._say_text_restore_voice.get("voice_id"):
-            # Dialog in flight — update restore target so it switches after dismiss
-            self._say_text_restore_voice["voice_id"] = new_voice_id
-            logger.info(f"Voice restore target updated to {voice_name} (dialog in flight)")
-        else:
-            # No dialog — switch TTS voice + language immediately
-            await self._main_agent.queue_frame(
-                TTSUpdateSettingsFrame(delta=TTSSettings(voice=new_voice_id, language=new_language))
-            )
-            logger.info(f"TTS switched to {voice_name} ({new_language})")
-
-        # Update STT language
-        await self._main_agent.queue_frame(
-            STTUpdateSettingsFrame(delta=STTSettings(language=new_language))
+        await self._pipeline_worker.queue_frames(
+            [
+                TTSUpdateSettingsFrame(
+                    delta=TTSSettings(voice=new_voice_id, language=new_language)
+                ),
+                STTUpdateSettingsFrame(delta=STTSettings(language=new_language)),
+            ]
         )
+        logger.info(f"TTS/STT switched to {voice_name} ({new_language})")
 
-        # Update the language instruction in the system prompt
         if self._llm_context:
             instruction = _language_instruction(new_language)
             from gradientbang.utils.prompt_loader import set_prompt_substitutions
@@ -672,8 +599,7 @@ class ClientMessageHandler:
         if not tone:
             return
 
-
-        await self._main_agent.queue_frame(
+        await self._pipeline_worker.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[
                     {
@@ -694,10 +620,8 @@ class ClientMessageHandler:
             )
 
     async def _handle_dump_llm_context(self, msg_type, msg_data):
-        """Debug: dump voice agent context + all task agent contexts."""
+        """Debug: dump the voice context and any attached task-agent contexts."""
         import json
-
-        from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
 
         def safe_serialize(msg):
             try:
@@ -722,8 +646,11 @@ class ClientMessageHandler:
             )
 
         # Task agent contexts
-        if self._voice_agent:
-            for child in self._voice_agent.children:
+        children = getattr(self._pipeline_worker, "children", ())
+        if children:
+            from gradientbang.pipecat_server.subagents.task_agent import TaskAgent
+
+            for child in children:
                 if not isinstance(child, TaskAgent):
                     continue
                 messages = child.get_context_dump()
@@ -780,11 +707,12 @@ class ClientMessageHandler:
         # The broad "any player task agent" fallback is intentionally removed
         # so that historical tasks correctly fall through to the S3 path.
         messages = None
-        if self._voice_agent:
+        children = getattr(self._pipeline_worker, "children", ())
+        if children:
             child = next(
                 (
                     c
-                    for c in self._voice_agent.children
+                    for c in children
                     if isinstance(c, TaskAgent)
                     and (c.name == task_id or c._active_task_id == task_id)
                 ),
@@ -795,7 +723,7 @@ class ClientMessageHandler:
 
         # Fall back to S3 for historical tasks.
         if not messages:
-            from gradientbang.pipecat_server.context_upload import (
+            from gradientbang.runtime.context_upload import (
                 ContextNotFoundError,
                 download_task_context,
             )
@@ -873,7 +801,7 @@ class ClientMessageHandler:
 
     async def _inject_llm_event(self, content: str) -> None:
         """Append a user-role <event> message and trigger inference."""
-        await self._main_agent.queue_frame(
+        await self._pipeline_worker.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[{"role": "user", "content": content}],
                 run_llm=True,
@@ -893,8 +821,7 @@ class ClientMessageHandler:
         )
 
     async def _handle_confirm_leave(self, msg_type, msg_data):
-        if self._voice_agent is not None:
-            self._voice_agent._pending_confirmation = None
+        self._clear_pending_confirmation()
         await self._push_confirmation_resolved(confirmed=True)
         data = msg_data if isinstance(msg_data, dict) else {}
         joining_corp_id = str(data.get("joining_corp_id") or "").strip()
@@ -918,8 +845,7 @@ class ClientMessageHandler:
                     f"Apologize and ask what they'd like to do.</event>"
                 )
                 return
-            if self._voice_agent is not None and isinstance(result, dict):
-                self._voice_agent.track_request_id(result.get("request_id"))
+            self._track_request_id(result)
             await self._inject_llm_event(
                 "<event>The player confirmed leaving their old corporation "
                 "and has joined the new one. Acknowledge briefly.</event>"
@@ -939,16 +865,14 @@ class ClientMessageHandler:
                     f"explain.</event>"
                 )
                 return
-            if self._voice_agent is not None and isinstance(result, dict):
-                self._voice_agent.track_request_id(result.get("request_id"))
+            self._track_request_id(result)
             await self._inject_llm_event(
                 "<event>The player confirmed leaving their corporation. "
                 "The leave completed successfully. Acknowledge briefly.</event>"
             )
 
     async def _handle_cancel_leave(self, msg_type, msg_data):
-        if self._voice_agent is not None:
-            self._voice_agent._pending_confirmation = None
+        self._clear_pending_confirmation()
         await self._push_confirmation_resolved(confirmed=False)
         await self._inject_llm_event(
             "<event>The player cancelled leaving their corporation. No "
@@ -956,8 +880,7 @@ class ClientMessageHandler:
         )
 
     async def _handle_confirm_kick(self, msg_type, msg_data):
-        if self._voice_agent is not None:
-            self._voice_agent._pending_confirmation = None
+        self._clear_pending_confirmation()
         await self._push_confirmation_resolved(confirmed=True)
         data = msg_data if isinstance(msg_data, dict) else {}
         target_id = str(data.get("target_id") or "").strip()
@@ -980,16 +903,14 @@ class ClientMessageHandler:
             return
         # Track the confirm call's request_id so EventRelay recognises the
         # follow-up corporation.member_kicked as an own-action event.
-        if self._voice_agent is not None and isinstance(result, dict):
-            self._voice_agent.track_request_id(result.get("request_id"))
+        self._track_request_id(result)
         await self._inject_llm_event(
             f"<event>The player confirmed removing {target_name} from the "
             f"corporation. The kick completed successfully. Acknowledge briefly.</event>"
         )
 
     async def _handle_cancel_kick(self, msg_type, msg_data):
-        if self._voice_agent is not None:
-            self._voice_agent._pending_confirmation = None
+        self._clear_pending_confirmation()
         await self._push_confirmation_resolved(confirmed=False)
         data = msg_data if isinstance(msg_data, dict) else {}
         target_name = str(data.get("target_name") or "").strip() or "that member"
@@ -1015,11 +936,10 @@ class ClientMessageHandler:
             return
         # Track the request_id so EventRelay recognises the follow-up
         # corporation.invite_code_regenerated as an own-action event.
-        if self._voice_agent is not None and isinstance(result, dict):
-            self._voice_agent.track_request_id(result.get("request_id"))
+        self._track_request_id(result)
         # Silent LLM context update — the player used the modal, not voice,
         # so we update context for continuity but skip spoken acknowledgement.
-        await self._main_agent.queue_frame(
+        await self._pipeline_worker.queue_frame(
             LLMMessagesAppendFrame(
                 messages=[
                     {

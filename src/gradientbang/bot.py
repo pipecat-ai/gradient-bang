@@ -1,13 +1,11 @@
 import asyncio
 import os
 import uuid
+from dataclasses import dataclass
 
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import BotSpeakingFrame, LLMRunFrame, UserSpeakingFrame
-from pipecat.pipeline.parallel_pipeline import (
-    ParallelPipeline,  # noqa: F401  (UI branch lands later)
-)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -39,26 +37,25 @@ from pipecat.utils.context.llm_context_summarization import (
 from gradientbang import STARTUP_BANNER, __version__
 from gradientbang.config import settings
 from gradientbang.game.auth import Auth, AuthError
+from gradientbang.game.base_client import RPCError
 from gradientbang.game.local_api_server import LocalApiServer
-from gradientbang.pipecat_server.frames import TaskActivityFrame
-from gradientbang.pipecat_server.idle_report import IdleReportProcessor
-from gradientbang.pipecat_server.inference_gate import (
+from gradientbang.runtime.context_upload import VoiceContextUploader
+from gradientbang.runtime.frames import TaskActivityFrame
+from gradientbang.runtime.idle_report import IdleReportProcessor
+from gradientbang.runtime.inference_gate import (
     InferenceGateState,
     PostLLMInferenceGate,
     PreLLMInferenceGate,
 )
-from gradientbang.pipecat_server.s3_smart_turn import S3SmartTurnAnalyzerV3
-from gradientbang.pipecat_server.user_mute import TextInputBypassFirstBotMuteStrategy
-from gradientbang.runtime.context_upload import VoiceContextUploader
+from gradientbang.runtime.s3_smart_turn import S3SmartTurnAnalyzerV3
+from gradientbang.runtime.user_mute import TextInputBypassFirstBotMuteStrategy
 from gradientbang.runtime.daily_recording import (
     configure_recording_bucket,
     start_raw_tracks_recording,
 )
-from gradientbang.runtime.models import BotRuntimeConfig, BotRuntimeState
 from gradientbang.runtime.orchestrator import Orchestrator
 from gradientbang.runtime.voices import (
     DEFAULT_PERSONALITY_TONE,
-    DEFAULT_VOICE,
     get_default_voice_id,
     get_voice_config,
 )
@@ -85,8 +82,7 @@ if settings.BOT_USE_KRISP:
 
 BOT_INSTANCE_ID: str | None = None
 
-# Initialize Weave early (before @traced decorators are applied to startup functions).
-# Must come after load_dotenv so WANDB_API_KEY is available.
+# Tracing must initialize before @traced wrappers are created.
 init_weave()
 init_cekura()
 
@@ -94,9 +90,35 @@ init_cekura()
 # ─── Bot code ────────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class BotRuntimeConfig:
+    voice_name: str | None
+    voice_id_hint: str | None
+    personality_tone: str
+
+    @classmethod
+    def from_body(cls, body: dict) -> "BotRuntimeConfig":
+        def _opt_str(key: str) -> str | None:
+            value = body.get(key)
+            if not isinstance(value, str):
+                return None
+            value = value.strip()
+            return value or None
+
+        return cls(
+            voice_name=_opt_str("voice"),
+            voice_id_hint=_opt_str("voice_id"),
+            personality_tone=_opt_str("personality_tone") or "",
+        )
+
+
+def _log_boot_step(message: str) -> None:
+    logger.opt(colors=True).info(f"<blue>▶▶▶ {message}</blue>")
+
+
 async def run_bot(transport, runner_args: RunnerArguments) -> None:
     # ── Auth ──────────────────────────────────────────────────────────
-    # Do this first since the bot can't do anything without a valid JWT, early exit
+    # Authenticate before constructing session services.
     body = getattr(runner_args, "body", None) or {}
     auth = Auth(
         character_id=body.get("character_id"),
@@ -107,12 +129,9 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         await auth.authenticate()
     except AuthError as exc:
         logger.error(f"Authentication failed: {exc}")
-        # @TODO: how should we cleanly bail from a session here? Transport cleanup, etc?
         return
 
-    logger.opt(colors=True).info(
-        "<blue>▶▶▶ Authentication successful, proceeding with initialization...</blue>"
-    )
+    _log_boot_step("Authentication successful, proceeding with initialization...")
 
     # ── Session config ─────────────────────────────────────────────────
     config = BotRuntimeConfig.from_body(body)
@@ -120,24 +139,18 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     tts_provider = get_tts_provider()
     voice_config = get_voice_config(config.voice_name, tts_provider) if config.voice_name else None
     if voice_config:
-        active_voice_name = config.voice_name
         voice_id = voice_config["voice_id"]
         language = Language(voice_config["language"])
     else:
-        active_voice_name = DEFAULT_VOICE
         voice_id = config.voice_id_hint or get_default_voice_id(tts_provider)
         language = Language.EN
 
     # ── Parallel init ──────────────────────────────────────────────────
-    # Race independent slow I/O so cold-start ≈ max(task) instead of
-    # sum(task). Without this, Deno boot + STT/TTS provider handshakes
-    # stack serially and tack ~2-5s onto every session start. Each task
-    # is @traced so per-component timing shows up as its own Weave span.
+    # Run independent startup work together to keep cold starts bounded by
+    # the slowest provider handshake.
 
-    # When LOCAL_API_POSTGRES_URL is set, spin up an embedded Deno subprocess
-    # running the edge functions in-process — this is the prod setup, used to
-    # skip the round-trip to Supabase's hosted functions for every RPC. Returns
-    # None otherwise (rare — some test/eval configs hitting Supabase directly).
+    # LOCAL_API_POSTGRES_URL enables the embedded edge-function server.
+    # Otherwise RPCs go through the configured Supabase URL.
     @traced
     async def _init_local_api() -> LocalApiServer | None:
         if not settings.LOCAL_API_POSTGRES_URL:
@@ -145,8 +158,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         server = LocalApiServer()
         await server.start()
         logger.info(f"Using local API server: {server.url}")
-        # Fire-and-forget warmup so Deno JIT-compiles the shared module graph
-        # before the first real game RPC. Detached on purpose.
+        # Warm Deno's module graph before the first game RPC.
         asyncio.create_task(server.warmup(auth.character_id))
         return server
 
@@ -158,10 +170,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     async def _init_tts():
         return create_tts_service(get_tts_config(voice_id=voice_id, language=language))
 
-    # Same clean-bail pattern as auth: if any init task raises, log and
-    # return — no noisy traceback. Siblings keep running briefly after one
-    # fails (gather doesn't auto-cancel), but Deno boot is the only slow
-    # task here and self-cleans when the bot process exits.
+    # Startup failures abort this session before the pipeline is built.
     try:
         local_api_server, stt, tts = await asyncio.gather(
             _init_local_api(),
@@ -170,30 +179,16 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         )
     except Exception as exc:
         logger.error(f"Startup failed: {exc}")
-        # @TODO: again, clean bailout here needed
         return
 
-    logger.opt(colors=True).info(
-        "<blue>▶▶▶ Preflight complete, building services and pipeline...</blue>"
-    )
+    _log_boot_step("Preflight complete, building services and pipeline...")
 
     # ── Pipecat services ──────────────────────────────────────────────
     rtvi = RTVIProcessor()
     token_usage_metrics = TokenUsageMetricsProcessor(source="bot")
 
-    # Mutable per-session state — shared with ClientMessageHandler etc.
-    # Holds active voice (changes via set-voice RPC) + user-mute flag/event.
-    state = BotRuntimeState(
-        active_voice_name=active_voice_name,
-        active_voice_language=language,
-        active_tts_provider=tts_provider.value,
-    )
-
-    # System prompt. personality_tone is injected via ${personality_tone} in
-    # voice_agent.md; ${universe_size} and ${fedspace_sector_count} stay as
-    # placeholders here and are resolved later from the first status.snapshot.
-    # language_instruction is empty for English, otherwise tells the LLM to
-    # respond in the target language.
+    # Session prompt substitutions known before the game bootstrap.
+    # Bootstrap data patches the remaining map-size placeholders.
     set_prompt_substitutions(
         personality_tone=config.personality_tone or DEFAULT_PERSONALITY_TONE,
         language_instruction=(
@@ -207,7 +202,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         "content": build_voice_agent_prompt(),
     }
 
-    # Dedicated fast LLM for context summarization (defaults to Gemini Flash).
+    # Separate low-latency LLM for context summarization.
     summarization_llm = create_llm_service(
         LLMServiceConfig(
             provider=LLMProvider(settings.SUMMARIZATION_LLM_PROVIDER.lower()),
@@ -251,17 +246,8 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         ),
     )
 
-    # @TODO: Redesign say-text. Currently the old bot.py routes quest/dialog
-    # speech through the main TTS pipeline, requiring a voice-swap dance
-    # (TTSUpdateSettings → TTSSpeakFrame → TTSUpdateSettings restore) plus a
-    # defensive SayTextVoiceGuard to catch cancelled restores. The cleaner
-    # design is to sink say-text audio straight to the transport, bypassing
-    # the pipeline so the LLM voice settings never get touched.
-
     # ── Voice context upload ──────────────────────────────────────────
-    # Snapshot the LLM context to S3 on three triggers: compaction (here),
-    # periodic, and shutdown. The uploader
-    # manages per-session sequence numbering and the skip-if-unchanged check.
+    # Snapshot the LLM context on compaction, periodic ticks, and shutdown.
     voice_context_uploader = VoiceContextUploader(
         context=context,
         character_id=auth.character_id,
@@ -295,24 +281,17 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
             )
         )
 
-    # User mute transitions — mirror into `state` for synchronous reads and
-    # async waits by consumers (ClientMessageHandler gates say-text + typed
-    # input on these). Seeded muted; TextInputBypassFirstBotMuteStrategy
-    # unmutes after the first bot speech completes.
+    # Log Pipecat mute transitions.
     @user_aggregator.event_handler("on_user_mute_started")
     async def on_user_mute_started(aggregator):
         logger.info("User input muted")
-        state.mark_user_muted()
 
     @user_aggregator.event_handler("on_user_mute_stopped")
     async def on_user_mute_stopped(aggregator):
         logger.info("User input unmuted")
-        state.mark_user_unmuted()
 
     # ── Inference gates ───────────────────────────────────────────────
-    # Pre/Post gates around the LLM control when inference is allowed to
-    # fire — cooldown after each turn + a grace window post-LLM so trailing
-    # frames don't immediately re-trigger.
+    # Prevent overlapping or immediately repeated LLM turns.
     inference_gate_state = InferenceGateState(
         cooldown_seconds=2,
         post_llm_grace_seconds=1.5,
@@ -321,24 +300,15 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     post_llm_gate = PostLLMInferenceGate(inference_gate_state)
 
     # ── Orchestrator ───────────────────────────────────────────────────
-    # Per-session owner of the game client, bus, event relay, BYOA
-    # coordinator, subagent narrator, LLM context, and tool handlers.
-    # Currently a stub.
+    # Per-session owner for game I/O, event relay, bus, and client messages.
     orchestrator = await Orchestrator.create(
         auth=auth,
         session_id=BOT_INSTANCE_ID or "",
         local_api_url=local_api_server.url if local_api_server else None,
-        config=config,
         rtvi=rtvi,
-        # llm
     )
-    # orchestrator.client
-    # orchestrator.bus
 
-    # ── E2. Services that depend on the orchestrator ─────────────────────
-    # Scripted agent (ScriptedAgent — on_complete references orchestrator)
-    # Client message handler (ClientMessageHandler — game_client + context + voice agent)
-    # Bus bridge processor (BusBridgeProcessor — orchestrator.bus)
+    # ── Idle Reporting ─────────────────────────────────────────────────
     idle_report_processor = IdleReportProcessor(
         idle_seconds=float(settings.BOT_IDLE_REPORT_TIME),
         cooldown_seconds=float(settings.BOT_IDLE_REPORT_COOLDOWN),
@@ -346,14 +316,10 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         enabled=settings.BOT_IDLE_REPORT_ENABLED,
     )
 
-    # ── F. Pipeline ──────────────────────────────────────────────────────
-    # Voice agent LLM. In the eventual design the orchestrator owns this
-    # (wrapped in a VoiceAgent subworker); for now we construct it inline
-    # and slot it directly into the pipeline so the base flow is testable.
+    # ── Pipeline ────────────────────────────────────────────────────────
     voice_llm = create_llm_service(get_voice_llm_config())
 
-    # Agent runner subscribes to the subagent bus so task/UI agents can
-    # coordinate via the bus. handle_sigint follows the runner_args contract.
+    # The runner owns the pipeline worker and exposes the session bus.
     try:
         await orchestrator.create_bus()
     except Exception as exc:
@@ -364,9 +330,9 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         handle_sigint=getattr(runner_args, "handle_sigint", False),
     )
 
-    # Main pipeline. Linear for now — the ParallelPipeline second branch
-    # (UI agent) and idle_report_processor land once the orchestrator owns
-    # game_client and voice_agent's on_idle_report callback.
+    _log_boot_step("Session bus ready, building voice pipeline...")
+
+    # Main voice path: input audio -> STT -> LLM -> TTS -> output audio.
     main_pipeline = Pipeline(
         [
             transport.input(),
@@ -385,7 +351,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
     if is_cekura_enabled():
         get_tracer().track_pipeline(main_pipeline, context, runner_args=runner_args)
 
-    voice_agent = PipelineWorker(
+    voice_worker = PipelineWorker(
         main_pipeline,
         name="main",
         params=PipelineParams(
@@ -395,7 +361,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         rtvi_processor=rtvi,
         rtvi_observer_params=RTVIObserverParams(
             function_call_report_level={"*": RTVIFunctionCallReportLevel.FULL},
-            ignored_sources=[],  # @TODO: ui_branch_sources when UI branch lands
+            ignored_sources=[],
         ),
         cancel_on_idle_timeout=False,
         idle_timeout_secs=600,
@@ -406,31 +372,30 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
         ),
     )
     if is_cekura_enabled():
-        get_tracer().register_task_handlers(voice_agent, transport=transport)
+        get_tracer().register_task_handlers(voice_worker, transport=transport)
 
-    # Hand the worker + context to the orchestrator so join() can patch
-    # the system prompt and queue frames at the pipeline.
-    orchestrator.attach(voice_agent=voice_agent, context=context)
+    # Join-time bootstrap needs the worker and shared LLM context.
+    orchestrator.attach(
+        voice_worker=voice_worker,
+        context=context,
+        transport=transport,
+    )
 
     # ── Handlers ───────────────────────────────────────────────────────
-    @voice_agent.event_handler("on_worker_ready")
+    @voice_worker.event_handler("on_worker_ready")
     async def _log_worker_ready(_worker, data: WorkerReadyData) -> None:
         logger.info(f"main: {data.worker_name} ready")
 
     @transport.event_handler("on_client_connected")
     async def _on_client_connected(transport, client):
         logger.info("Client connected")
-        # @TODO: add subworkers once they're owned by the orchestrator:
-        #   await main_agent.add_worker(orchestrator.voice_agent)
-        #   await main_agent.add_worker(orchestrator.scripted_agent)
 
     @transport.event_handler("on_client_disconnected")
     async def _on_client_disconnected(transport, client):
         logger.info("Client disconnected")
         await agent_runner.cancel()
 
-    # on_joined only exists on the Daily transport; registering it on
-    # SmallWebRTCTransport triggers a "handler not registered" warning.
+    # Daily-only recording hook.
     if isinstance(runner_args, DailyRunnerArguments):
 
         @transport.event_handler("on_joined")
@@ -443,24 +408,29 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
 
     @rtvi.event_handler("on_client_ready")
     async def _on_client_ready(rtvi):
-        # Fire-and-forget the join flow so the RTVI event handler returns
-        # immediately.
+        # Keep the RTVI ready handler non-blocking.
         async def _join():
             try:
                 await orchestrator.join()
-                # join() appends initial messages without run_llm; fire it here.
-                await voice_agent.queue_frames([LLMRunFrame()])
+                # Start the first LLM turn after bootstrap messages are queued.
+                await voice_worker.queue_frames([LLMRunFrame()])
             except Exception as exc:
-                logger.exception(f"Session initialization failed: {exc}")
-                await voice_agent.cancel()
+                if isinstance(exc, RPCError):
+                    msg = f"Session initialization failed during {exc.endpoint}: {exc.status} {exc.detail}"
+                    if exc.status in {401, 403}:
+                        msg += " — access token may be invalid or expired"
+                else:
+                    msg = f"Session initialization failed: {exc}"
+                logger.exception(msg)
+                await voice_worker.cancel()
 
         asyncio.create_task(_join())
 
-    await agent_runner.add_workers(voice_agent)
+    await agent_runner.add_workers(voice_worker)
+    _log_boot_step("Voice pipeline ready, starting runner...")
 
     # ── Periodic voice context upload ────────────────────────────────────
-    # Snapshot the LLM context to S3 every 10 minutes; the uploader skips
-    # if nothing changed since the last tick.
+    # The uploader skips unchanged contexts.
     async def _periodic_voice_context_upload():
         while True:
             await asyncio.sleep(600)
@@ -471,10 +441,9 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
 
     periodic_upload_task: asyncio.Task | None = None
 
-    # ── H. Run + teardown ────────────────────────────────────────────────
+    # ── Run + teardown ────────────────────────────────────────────────
     try:
         periodic_upload_task = asyncio.create_task(_periodic_voice_context_upload())
-        logger.info("Starting PipelineRunner…")
         await agent_runner.run()
         logger.info("PipelineRunner finished")
     except asyncio.CancelledError:
@@ -508,7 +477,7 @@ async def run_bot(transport, runner_args: RunnerArguments) -> None:
 
 
 def _log_startup_config() -> None:
-    """Pretty-print the resolved bot config at startup."""
+    """Log the process-level bot configuration."""
     bus_line = settings.SUBAGENT_BUS_TRANSPORT
     if bus_line != "local":
         bus_line += "  channel=(per-session UUID)"
@@ -534,10 +503,10 @@ def _log_startup_config() -> None:
 
 
 async def bot(runner_args: RunnerArguments):
-    """Main bot entry point"""
+    """Create the transport and run one bot session."""
 
     global BOT_INSTANCE_ID
-    # Use Pipecat Cloud session_id when available, otherwise generate one.
+    # Prefer the platform session id for cross-service log correlation.
     BOT_INSTANCE_ID = getattr(runner_args, "session_id", None) or uuid.uuid4().hex
     os.environ["BOT_INSTANCE_ID"] = BOT_INSTANCE_ID
 
